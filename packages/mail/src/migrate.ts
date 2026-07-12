@@ -889,6 +889,56 @@ const addLifecycleControlPlane = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addProviderBackedOperations = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.folder_role_overrides (
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('sent', 'drafts', 'trash', 'archive', 'junk')),
+      folder_id UUID NOT NULL REFERENCES mail.folders(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (mailbox_id, role),
+      UNIQUE (mailbox_id, folder_id)
+    )
+  `;
+  await db`
+    CREATE TRIGGER folder_role_overrides_touch_updated_at
+    BEFORE UPDATE ON mail.folder_role_overrides
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+  await db`
+    CREATE TABLE mail.draft_attachments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      draft_id UUID NOT NULL REFERENCES mail.drafts(id) ON DELETE CASCADE,
+      blob_id UUID NOT NULL REFERENCES mail.message_part_blobs(id) ON DELETE RESTRICT,
+      filename TEXT NOT NULL CHECK (char_length(filename) BETWEEN 1 AND 255),
+      content_type TEXT NOT NULL CHECK (char_length(content_type) BETWEEN 1 AND 255),
+      byte_length BIGINT NOT NULL CHECK (byte_length >= 0),
+      content_hash TEXT NOT NULL CHECK (char_length(content_hash) = 64),
+      position INTEGER NOT NULL CHECK (position >= 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      removed_at TIMESTAMPTZ,
+      UNIQUE (draft_id, position)
+    )
+  `;
+  await db`CREATE INDEX draft_attachments_draft_idx ON mail.draft_attachments (draft_id, position, id)`;
+  await db`
+    ALTER TABLE mail.commands
+    DROP CONSTRAINT commands_kind_check,
+    ADD CONSTRAINT commands_kind_check CHECK (
+      kind IN (
+        'set_flags', 'change_message_state', 'move', 'copy', 'delete',
+        'create_folder', 'rename_folder', 'delete_folder', 'set_folder_subscription', 'send',
+        'sync_mailbox', 'sync_folder', 'discover_folders', 'verify_binding', 'rebuild_folder', 'hydrate_missing'
+      )
+    )
+  `;
+};
+
+const hardenProviderBackedOperations = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.draft_attachments ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ`;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -903,6 +953,8 @@ const migrations = [
   { version: 11, name: "credential_revision_bindings", run: addCredentialRevisionBindings },
   { version: 12, name: "command_worker_heartbeats", run: addCommandWorkerHeartbeats },
   { version: 13, name: "lifecycle_control_plane", run: addLifecycleControlPlane },
+  { version: 14, name: "provider_backed_operations", run: addProviderBackedOperations },
+  { version: 15, name: "provider_backed_operations_hardening", run: hardenProviderBackedOperations },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

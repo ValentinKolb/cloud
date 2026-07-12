@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 
 const servers: ReturnType<typeof Bun.serve>[] = [];
 const temporaryFiles: string[] = [];
@@ -12,6 +12,8 @@ const MESSAGE_ID = "00000000-0000-4000-8000-000000000005";
 const ATTACHMENT_ID = "00000000-0000-4000-8000-000000000006";
 const CONVERSATION_ID = "00000000-0000-4000-8000-000000000007";
 const CONNECTION_ID = "00000000-0000-4000-8000-000000000008";
+const FOLDER_ID = "00000000-0000-4000-8000-000000000009";
+const REMOTE_MESSAGE_REF_ID = "00000000-0000-4000-8000-000000000010";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -488,4 +490,229 @@ test("send cancellation uses the public command id", async () => {
   expect(result.exitCode).toBe(0);
   expect(requestedPath).toBe(`/api/mail/mailboxes/${MAILBOX_ID}/commands/${COMMAND_ID}/cancel`);
   expect(JSON.parse(result.stdout)).toEqual({ cancelled: true, commandId: COMMAND_ID });
+});
+
+test("folder create submits one durable provider command and waits for rediscovery", async () => {
+  let body: unknown;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands`) {
+      body = await request.json();
+      return api({ ...mailCommand("queued"), kind: "create_folder" });
+    }
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands/${COMMAND_ID}`) {
+      return api({ ...mailCommand("confirmed"), kind: "create_folder", result: { path: "Cloud Smoke" } });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "folder",
+    "create",
+    "Cloud Smoke",
+    "--mailbox",
+    MAILBOX_ID,
+    "--parent",
+    FOLDER_ID,
+    "--idempotency-key",
+    "folder-create-test",
+    "--wait",
+    "--timeout-seconds",
+    "2",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(body).toEqual({
+    kind: "create_folder",
+    parentFolderId: FOLDER_ID,
+    name: "Cloud Smoke",
+    subscribe: true,
+    idempotencyKey: "folder-create-test",
+  });
+  expect(JSON.parse(result.stdout)).toMatchObject({ kind: "create_folder", state: "confirmed" });
+});
+
+test("message read uses an additive state command", async () => {
+  let body: unknown;
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands`) {
+      body = await request.json();
+      return api({ ...mailCommand("queued"), kind: "change_message_state" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "message",
+    "read",
+    REMOTE_MESSAGE_REF_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--folder",
+    FOLDER_ID,
+    "--idempotency-key",
+    "message-read-test",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(body).toEqual({
+    kind: "change_message_state",
+    remoteMessageRefId: REMOTE_MESSAGE_REF_ID,
+    folderId: FOLDER_ID,
+    change: { addFlags: ["seen"] },
+    idempotencyKey: "message-read-test",
+  });
+});
+
+test("conversation archive targets the configured semantic role", async () => {
+  let body: unknown;
+  const server = withMailbox(async (request) => {
+    const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/actions`;
+    if (request.method === "POST" && new URL(request.url).pathname === expectedPath) {
+      body = await request.json();
+      return api({ correlationId: "archive-correlation", commands: [{ ...mailCommand("queued"), kind: "move" }] });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "archive",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--source",
+    FOLDER_ID,
+    "--idempotency-key",
+    "conversation-archive-test",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(body).toEqual({
+    kind: "move_to_role",
+    sourceFolderId: FOLDER_ID,
+    role: "archive",
+    idempotencyKey: "conversation-archive-test",
+  });
+  expect(JSON.parse(result.stdout)).toMatchObject({ correlationId: "archive-correlation", commands: [{ kind: "move" }] });
+});
+
+test("draft attachment add streams the exact local file at the expected revision", async () => {
+  const path = `/tmp/cloud-mail-draft-attachment-${crypto.randomUUID()}.txt`;
+  const bytes = Buffer.from("streamed draft attachment\n");
+  await writeFile(path, bytes);
+  temporaryFiles.push(path);
+  let uploaded = Buffer.alloc(0);
+  let query: URLSearchParams | undefined;
+  const server = withMailbox(async (request) => {
+    const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/attachments`;
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === expectedPath) {
+      query = url.searchParams;
+      uploaded = Buffer.from(await request.arrayBuffer());
+      return api({
+        id: DRAFT_ID,
+        mailboxId: MAILBOX_ID,
+        conversationId: null,
+        senderIdentityId: IDENTITY_ID,
+        to: [],
+        cc: [],
+        bcc: [],
+        subject: "Attachment",
+        body: "Body",
+        format: "plain",
+        attachments: [
+          {
+            id: ATTACHMENT_ID,
+            filename: "upload.txt",
+            contentType: "text/plain",
+            byteLength: bytes.length,
+            contentHash: "a".repeat(64),
+            position: 0,
+            createdAt: "2026-07-12T00:00:00.000Z",
+          },
+        ],
+        revision: 4,
+        state: "draft",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:01.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "draft",
+    "attachment",
+    "add",
+    DRAFT_ID,
+    path,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "3",
+    "--name",
+    "upload.txt",
+    "--content-type",
+    "text/plain",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(uploaded).toEqual(bytes);
+  expect(query?.get("expectedRevision")).toBe("3");
+  expect(query?.get("filename")).toBe("upload.txt");
+  expect(JSON.parse(result.stdout)).toMatchObject({ revision: 4, attachments: [{ id: ATTACHMENT_ID }] });
+});
+
+test("default sender setup preserves an existing display name when no name is passed", async () => {
+  let body: unknown;
+  const server = withMailbox(async (request) => {
+    const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/sender-identities/default/setup`;
+    if (request.method === "POST" && new URL(request.url).pathname === expectedPath) {
+      body = await request.json();
+      return api({
+        id: IDENTITY_ID,
+        mailboxId: MAILBOX_ID,
+        displayName: "Existing sender",
+        fromAddress: "sender@example.com",
+        replyTo: null,
+        envelopeSender: null,
+        authenticationPolicy: { interactive: "mailbox", automation: "disabled" },
+        sentFolderId: FOLDER_ID,
+        draftsFolderId: null,
+        isDefault: true,
+        status: "verified",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:01.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "identity",
+    "setup-default",
+    CONNECTION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(body).toEqual({ bindingId: CONNECTION_ID, savesSentAutomatically: false });
+  expect(JSON.parse(result.stdout)).toMatchObject({ displayName: "Existing sender", status: "verified" });
 });

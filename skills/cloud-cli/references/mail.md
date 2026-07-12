@@ -63,15 +63,29 @@ Inspect the aggregate backend state, including bindings, discovery generations, 
 cld --json mail status
 ```
 
-Create and verify a sender identity. Verification submits a real message to the recipient:
+For a normal mailbox, create and verify the provider address as the default sender in one idempotent step. Verification submits a real message to the provider address:
+
+```bash
+cld --json mail identity setup-default <binding-id> --name "Support"
+cld --json mail identity list
+```
+
+Pass `--provider-saves-sent` only when the provider stores SMTP submissions in Sent itself. Otherwise Cloud resolves the configured Sent role and appends the sent copy through IMAP.
+
+Use the manual identity lifecycle only for aliases, delegated senders, or other advanced cases:
 
 ```bash
 cld --json mail identity add --address support@example.com --name "Support" --default
 cld --json mail identity verify <identity-id> <binding-id> --recipient support@example.com
+cld --json mail identity configure <identity-id> --name "Support Team" --default
 cld --json mail identity list
 ```
 
-Pass `--provider-saves-sent` during verification only when the provider stores SMTP submissions in Sent itself. Otherwise Cloud appends the sent copy through IMAP.
+Disabling an identity revokes its provider verification and requires explicit confirmation:
+
+```bash
+cld --json mail identity disable <identity-id> --yes
+```
 
 ## Read and search mail
 
@@ -134,6 +148,15 @@ cld --json mail draft update <draft-id> \
   --body-file body.md
 ```
 
+Inspect a draft, then stream attachments at its current revision. Every attachment change increments the revision:
+
+```bash
+cld --json mail draft get <draft-id>
+cld --json mail draft attachment add <draft-id> ./invoice.pdf --revision <current-revision>
+cld --json mail draft attachment remove <draft-id> <attachment-id> --revision <current-revision>
+cld --json mail draft discard <draft-id> --revision <current-revision> --yes
+```
+
 Send immediately and wait for the durable command to succeed:
 
 ```bash
@@ -142,6 +165,7 @@ cld --json mail send \
   --to recipient@example.com \
   --subject "Message subject" \
   --body-file body.md \
+  --attach ./invoice.pdf \
   --undo 0 \
   --wait \
   --timeout-seconds 180
@@ -212,12 +236,44 @@ cld --json mail repair hydration --wait
 
 Maintenance commands require mailbox `admin`. Use `--idempotency-key` when an external script may retry the same request.
 
+Create, subscribe, rename, and safely delete empty provider folders. Every command is durable and rediscovery updates the canonical folder projection before it confirms:
+
+```bash
+cld --json mail folder create "Cloud Review" --wait
+cld --json mail folder unsubscribe <folder-id> --wait
+cld --json mail folder subscribe <folder-id> --wait
+cld --json mail folder rename <folder-id> "Cloud Reviewed" --wait
+cld --json mail folder delete <folder-id> --yes --wait
+```
+
+For providers with missing or ambiguous special-use metadata, map a semantic role explicitly without changing the provider folder:
+
+```bash
+cld --json mail folder role set archive <folder-id>
+cld --json mail folder role clear archive
+```
+
 Use `remoteMessageRefId` and `folderId` from `message get` or `conversation messages`:
 
 ```bash
-cld --json mail message flags <remote-message-ref-id> --folder <folder-id> --flag '\\Seen'
+cld --json mail message read <remote-message-ref-id> --folder <folder-id> --wait
+cld --json mail message unread <remote-message-ref-id> --folder <folder-id> --wait
+cld --json mail message star <remote-message-ref-id> --folder <folder-id> --wait
+cld --json mail message keyword add <remote-message-ref-id> CloudReviewed --folder <folder-id> --wait
 cld --json mail message copy <remote-message-ref-id> --source <folder-id> --destination <folder-id>
 cld --json mail message move <remote-message-ref-id> --source <folder-id> --destination <folder-id>
+```
+
+These state commands add or remove only the requested state and preserve concurrent changes from other clients. `message flags` remains available as a low-level exact replacement for diagnostics.
+
+Apply the same action to every current placement of a conversation in one source folder. Archive, Trash, and Junk resolve through the mailbox's effective folder roles:
+
+```bash
+cld --json mail conversation read <conversation-id> --source <folder-id> --wait
+cld --json mail conversation star <conversation-id> --source <folder-id> --wait
+cld --json mail conversation archive <conversation-id> --source <folder-id> --wait
+cld --json mail conversation trash <conversation-id> --source <folder-id> --wait
+cld --json mail conversation junk <conversation-id> --source <folder-id> --wait
 ```
 
 Remote deletion requires `--yes`:
@@ -242,8 +298,9 @@ Use a unique marker for every run and keep both mailbox ids explicit:
 3. Queue B sync and use `message wait` for the marker.
 4. Read the message and its conversation, then reply B to A with `--conversation`.
 5. Queue A sync and verify that the reply appears in the same conversation.
-6. Test flags, copy, and move on the marker message using discovered folder ids.
-7. Download a known attachment and compare its bytes with the source.
-8. Test Undo Send with a second marker and `command cancel`.
+6. Create a uniquely named provider folder, unsubscribe, resubscribe, rename, and delete it after confirming it is empty.
+7. Test additive read/star/keyword state and a role-based conversation move using discovered folder ids.
+8. Send a known attachment, download it from the receiving mailbox, and compare its bytes with the source.
+9. Test Undo Send with a second marker and `command cancel`.
 
 Do not automatically delete provider mail after the run. The marker keeps test messages easy to inspect or remove later with explicit approval.

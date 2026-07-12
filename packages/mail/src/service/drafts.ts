@@ -1,8 +1,10 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { type DraftContentInput, draftContentInputSchema, type MailDraft } from "../contracts";
+import { type DraftAttachment, type DraftContentInput, draftContentInputSchema, type MailDraft } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
+import { storeReadableBlob } from "./message-blobs";
+import type { Readable } from "node:stream";
 
 type DbDraft = {
   id: string;
@@ -17,6 +19,7 @@ type DbDraft = {
   body_format: MailDraft["format"];
   revision: string | number;
   state: MailDraft["state"];
+  attachments: DraftAttachment[] | string;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -34,24 +37,42 @@ const draftColumns = sql`
   d.body_format,
   d.revision,
   d.state,
+  COALESCE(
+    (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'id', attachment.id,
+          'filename', attachment.filename,
+          'contentType', attachment.content_type,
+          'byteLength', attachment.byte_length,
+          'contentHash', attachment.content_hash,
+          'position', attachment.position,
+          'createdAt', to_char(attachment.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        ) ORDER BY attachment.position, attachment.id
+      )
+      FROM mail.draft_attachments attachment
+      WHERE attachment.draft_id = d.id AND attachment.removed_at IS NULL
+    ),
+    '[]'::jsonb
+  ) AS attachments,
   d.created_at,
   d.updated_at
 `;
 
-const parseAddresses = (value: MailDraft["to"] | string): MailDraft["to"] =>
-  typeof value === "string" ? (JSON.parse(value) as MailDraft["to"]) : value;
+const parseArray = <T>(value: T[] | string): T[] => (typeof value === "string" ? (JSON.parse(value) as T[]) : value);
 
 const mapDraft = (row: DbDraft): MailDraft => ({
   id: row.id,
   mailboxId: row.mailbox_id,
   conversationId: row.conversation_id,
   senderIdentityId: row.sender_identity_id,
-  to: parseAddresses(row.to_addresses),
-  cc: parseAddresses(row.cc_addresses),
-  bcc: parseAddresses(row.bcc_addresses),
+  to: parseArray(row.to_addresses),
+  cc: parseArray(row.cc_addresses),
+  bcc: parseArray(row.bcc_addresses),
   subject: row.subject,
   body: row.body_markdown,
   format: row.body_format,
+  attachments: parseArray(row.attachments),
   revision: Number(row.revision),
   state: row.state,
   createdAt: (row.created_at instanceof Date ? row.created_at : new Date(row.created_at)).toISOString(),
@@ -251,4 +272,228 @@ export const listDrafts = async (context: MailRequestContext, mailboxId: string,
     LIMIT ${Math.min(Math.max(Math.floor(limit), 1), 200)}
   `;
   return ok(rows.map(mapDraft));
+};
+
+export const getDraft = async (context: MailRequestContext, mailboxId: string, draftId: string): Promise<Result<MailDraft>> => {
+  const allowed = await requireMailboxPermission(context, mailboxId, "write");
+  if (!allowed.ok) return allowed;
+  const [row] = await sql<DbDraft[]>`
+    SELECT ${draftColumns}
+    FROM mail.drafts d
+    WHERE d.id = ${draftId}::uuid AND d.mailbox_id = ${mailboxId}::uuid
+  `;
+  return row ? ok(mapDraft(row)) : fail(err.notFound("Draft"));
+};
+
+const sanitizeFilename = (value: string): string => {
+  const normalized = value.normalize("NFC").trim().replace(/[\\/\u0000-\u001f\u007f]/g, "_");
+  return [...normalized].slice(0, 255).join("") || "attachment";
+};
+
+const sanitizeContentType = (value: string): string =>
+  /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(value) ? value.toLowerCase() : "application/octet-stream";
+
+export const addDraftAttachment = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  draftId: string;
+  expectedRevision: number;
+  filename: string;
+  contentType: string;
+  stream: Readable;
+  expectedSize?: number | null;
+}): Promise<Result<MailDraft>> => {
+  if (!Number.isInteger(params.expectedRevision) || params.expectedRevision < 1) return fail(err.badInput("Invalid draft revision"));
+  const actor = actorRefFromRequest(params.context);
+  if (actor.kind !== "user" && actor.kind !== "service_account") return fail(err.forbidden("Draft author is invalid"));
+  const permission = await requireMailboxPermission(params.context, params.mailboxId, "write");
+  if (!permission.ok) return permission;
+  const [candidate] = await sql<{ revision: string | number; state: string }[]>`
+    SELECT revision, state
+    FROM mail.drafts
+    WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+  `;
+  if (!candidate) return fail(err.notFound("Draft"));
+  if (candidate.state !== "draft") return fail(err.badInput("Draft can no longer be edited"));
+  if (Number(candidate.revision) !== params.expectedRevision) return fail(err.conflict("Draft was changed by another collaborator"));
+
+  try {
+    const blob = await storeReadableBlob(params.stream, params.expectedSize);
+    return await sql.begin(async (tx) => {
+      const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
+      if (!allowed.ok) return allowed;
+      const [draft] = await tx<{ revision: string | number; state: string }[]>`
+        SELECT revision, state
+        FROM mail.drafts
+        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+        FOR UPDATE
+      `;
+      if (!draft) return fail(err.notFound("Draft"));
+      if (draft.state !== "draft") return fail(err.badInput("Draft can no longer be edited"));
+      if (Number(draft.revision) !== params.expectedRevision) return fail(err.conflict("Draft was changed by another collaborator"));
+      const [position] = await tx<{ position: number }[]>`
+        SELECT COALESCE(MAX(position), -1)::int + 1 AS position
+        FROM mail.draft_attachments
+        WHERE draft_id = ${params.draftId}::uuid
+      `;
+      const filename = sanitizeFilename(params.filename);
+      const [attachment] = await tx<{ id: string }[]>`
+        INSERT INTO mail.draft_attachments (
+          draft_id, blob_id, filename, content_type, byte_length, content_hash, position
+        ) VALUES (
+          ${params.draftId}::uuid,
+          ${blob.id}::uuid,
+          ${filename},
+          ${sanitizeContentType(params.contentType)},
+          ${blob.byteLength},
+          ${blob.contentHash},
+          ${position?.position ?? 0}
+        )
+        RETURNING id
+      `;
+      if (!attachment) return fail(err.internal("Draft attachment insert returned no row"));
+      const [updated] = await tx<DbDraft[]>`
+        UPDATE mail.drafts d
+        SET revision = revision + 1
+        WHERE d.id = ${params.draftId}::uuid
+        RETURNING ${draftColumns}
+      `;
+      if (!updated) return fail(err.internal("Draft attachment update returned no draft"));
+      await tx`
+        INSERT INTO mail.activity_events (
+          mailbox_id, conversation_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+        ) VALUES (
+          ${params.mailboxId}::uuid,
+          ${updated.conversation_id}::uuid,
+          ${actor.kind},
+          ${actor.kind === "user" ? actor.userId : actor.serviceAccountId}::uuid,
+          'draft.attachment_added',
+          'confirmed',
+          'draft_attachment',
+          ${attachment.id}::uuid,
+          ${{ draftId: params.draftId, filename, byteLength: blob.byteLength, contentHash: blob.contentHash, revision: Number(updated.revision) }}::jsonb
+        )
+      `;
+      return ok(mapDraft(updated));
+    });
+  } catch (error) {
+    params.stream.destroy();
+    if ((error as { code?: string } | null)?.code === "BLOB_SIZE_MISMATCH") {
+      return fail(err.badInput("Attachment byte count did not match Content-Length"));
+    }
+    return fail(err.internal("Failed to store draft attachment"));
+  }
+};
+
+export const removeDraftAttachment = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  draftId: string;
+  attachmentId: string;
+  expectedRevision: number;
+}): Promise<Result<MailDraft>> => {
+  if (!Number.isInteger(params.expectedRevision) || params.expectedRevision < 1) return fail(err.badInput("Invalid draft revision"));
+  const actor = actorRefFromRequest(params.context);
+  if (actor.kind !== "user" && actor.kind !== "service_account") return fail(err.forbidden("Draft author is invalid"));
+  try {
+    return await sql.begin(async (tx) => {
+      const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
+      if (!allowed.ok) return allowed;
+      const [draft] = await tx<{ revision: string | number; state: string }[]>`
+        SELECT revision, state
+        FROM mail.drafts
+        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+        FOR UPDATE
+      `;
+      if (!draft) return fail(err.notFound("Draft"));
+      if (draft.state !== "draft") return fail(err.badInput("Draft can no longer be edited"));
+      if (Number(draft.revision) !== params.expectedRevision) return fail(err.conflict("Draft was changed by another collaborator"));
+      const [removed] = await tx<{ id: string }[]>`
+        UPDATE mail.draft_attachments
+        SET removed_at = now()
+        WHERE id = ${params.attachmentId}::uuid
+          AND draft_id = ${params.draftId}::uuid
+          AND removed_at IS NULL
+        RETURNING id
+      `;
+      if (!removed) return fail(err.notFound("Draft attachment"));
+      const [updated] = await tx<DbDraft[]>`
+        UPDATE mail.drafts d SET revision = revision + 1
+        WHERE d.id = ${params.draftId}::uuid
+        RETURNING ${draftColumns}
+      `;
+      if (!updated) return fail(err.internal("Draft attachment removal returned no draft"));
+      await tx`
+        INSERT INTO mail.activity_events (
+          mailbox_id, conversation_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+        ) VALUES (
+          ${params.mailboxId}::uuid,
+          ${updated.conversation_id}::uuid,
+          ${actor.kind},
+          ${actor.kind === "user" ? actor.userId : actor.serviceAccountId}::uuid,
+          'draft.attachment_removed',
+          'confirmed',
+          'draft_attachment',
+          ${removed.id}::uuid,
+          ${{ draftId: params.draftId, revision: Number(updated.revision) }}::jsonb
+        )
+      `;
+      return ok(mapDraft(updated));
+    });
+  } catch {
+    return fail(err.internal("Failed to remove draft attachment"));
+  }
+};
+
+export const discardDraft = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  draftId: string;
+  expectedRevision: number;
+}): Promise<Result<MailDraft>> => {
+  if (!Number.isInteger(params.expectedRevision) || params.expectedRevision < 1) return fail(err.badInput("Invalid draft revision"));
+  const actor = actorRefFromRequest(params.context);
+  if (actor.kind !== "user" && actor.kind !== "service_account") return fail(err.forbidden("Draft author is invalid"));
+  try {
+    return await sql.begin(async (tx) => {
+      const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
+      if (!allowed.ok) return allowed;
+      const [updated] = await tx<DbDraft[]>`
+        UPDATE mail.drafts d
+        SET state = 'discarded', revision = revision + 1
+        WHERE d.id = ${params.draftId}::uuid
+          AND d.mailbox_id = ${params.mailboxId}::uuid
+          AND d.state = 'draft'
+          AND d.revision = ${params.expectedRevision}
+        RETURNING ${draftColumns}
+      `;
+      if (updated) {
+        await tx`
+          INSERT INTO mail.activity_events (
+            mailbox_id, conversation_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+          ) VALUES (
+            ${params.mailboxId}::uuid,
+            ${updated.conversation_id}::uuid,
+            ${actor.kind},
+            ${actor.kind === "user" ? actor.userId : actor.serviceAccountId}::uuid,
+            'draft.discarded',
+            'confirmed',
+            'draft',
+            ${params.draftId}::uuid,
+            ${{ revision: Number(updated.revision) }}::jsonb
+          )
+        `;
+        return ok(mapDraft(updated));
+      }
+      const [current] = await tx<{ revision: string | number; state: string }[]>`
+        SELECT revision, state FROM mail.drafts
+        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+      `;
+      if (!current) return fail(err.notFound("Draft"));
+      if (current.state !== "draft") return fail(err.badInput("Draft can no longer be discarded"));
+      return fail(err.conflict("Draft was changed by another collaborator"));
+    });
+  } catch {
+    return fail(err.internal("Failed to discard draft"));
+  }
 };

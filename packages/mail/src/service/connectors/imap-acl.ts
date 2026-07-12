@@ -39,6 +39,9 @@ export const mapImapAclRights = (rawRights: string, capabilities: Pick<Connector
   if (rights.has("i")) mapped.push("insert");
   if (canDeleteMessages && (capabilities.move || capabilities.uidplus)) mapped.push("move");
   if (canDeleteMessages && capabilities.uidplus) mapped.push("delete_messages");
+  if (rights.has("k") || rights.has("c")) mapped.push("create_children");
+  if (rights.has("x") || rights.has("d")) mapped.push("delete_folder");
+  if (rights.has("a")) mapped.push("administer_acl");
   return mapped;
 };
 

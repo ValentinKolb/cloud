@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import { sql } from "bun";
 import { sha256Text } from "./canonical";
 
@@ -11,6 +11,48 @@ export type StoredBlob = {
   byteLength: number;
   chunkCount: number;
 };
+
+export const getStoredBlob = async (blobId: string): Promise<StoredBlob> => {
+  const [blob] = await sql<{
+    id: string;
+    content_hash: string;
+    byte_length: string | number;
+    chunk_count: number;
+  }[]>`
+    SELECT id, content_hash, byte_length, chunk_count
+    FROM mail.message_part_blobs
+    WHERE id = ${blobId}::uuid AND complete = true
+  `;
+  if (!blob) throw Object.assign(new Error("Stored mail blob is unavailable"), { code: "MAIL_BLOB_MISSING" });
+  return {
+    id: blob.id,
+    contentHash: blob.content_hash,
+    byteLength: Number(blob.byte_length),
+    chunkCount: blob.chunk_count,
+  };
+};
+
+export const createBlobReadable = (blobId: string): Readable =>
+  Readable.from(
+    (async function* () {
+      const blob = await getStoredBlob(blobId);
+      let byteLength = 0;
+      for (let position = 0; position < blob.chunkCount; position += 1) {
+        const [chunk] = await sql<{ bytes: Uint8Array }[]>`
+          SELECT bytes
+          FROM mail.message_part_chunks
+          WHERE blob_id = ${blobId}::uuid AND position = ${position}
+        `;
+        if (!chunk) throw Object.assign(new Error("Stored mail blob is incomplete"), { code: "MAIL_BLOB_INCOMPLETE" });
+        const bytes = Buffer.from(chunk.bytes);
+        byteLength += bytes.length;
+        yield bytes;
+      }
+      if (byteLength !== blob.byteLength) {
+        throw Object.assign(new Error("Stored mail blob length does not match its metadata"), { code: "MAIL_BLOB_INCOMPLETE" });
+      }
+    })(),
+  );
 
 const insertChunk = async (blobId: string, position: number, bytes: Buffer): Promise<void> => {
   await sql`
@@ -140,6 +182,9 @@ export const deleteOrphanedBlobs = async (olderThanMinutes = 60): Promise<number
       )
       AND NOT EXISTS (
         SELECT 1 FROM mail.outbox_submissions outbox WHERE outbox.mime_blob_id = blob.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM mail.draft_attachments draft_attachment WHERE draft_attachment.blob_id = blob.id
       )
   `;
   return result.count;

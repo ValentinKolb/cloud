@@ -5,12 +5,14 @@ import * as commands from "./commands";
 import * as drafts from "./drafts";
 import * as execution from "./execution";
 import * as health from "./health";
+import * as folders from "./folders";
 import * as mailboxes from "./mailboxes";
 import * as hydration from "./message-hydration";
 import * as messages from "./messages";
 import * as providerConnections from "./provider-connections";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
+import * as triage from "./triage";
 import { enqueueMailboxSync, mailRuntime } from "./sync-runtime";
 
 export type { MailRequestContext } from "./auth";
@@ -22,6 +24,7 @@ export {
   drafts,
   enqueueMailboxSync,
   health,
+  folders,
   mailboxAccess,
   mailboxes,
   mailRuntime,
@@ -29,6 +32,7 @@ export {
   providerConnections,
   search,
   senderIdentities,
+  triage,
 };
 
 export const mailService = {
@@ -38,12 +42,14 @@ export const mailService = {
   drafts,
   execution,
   health,
+  folders,
   hydration,
   mailboxes,
   messages,
   providerConnections,
   search,
   senderIdentities,
+  triage,
   sync: {
     enqueue: enqueueMailboxSync,
   },

@@ -1,11 +1,20 @@
 import { audit } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { type CreateSenderIdentityInput, createSenderIdentityInputSchema, type SenderIdentity } from "../contracts";
+import {
+  type CreateSenderIdentityInput,
+  createSenderIdentityInputSchema,
+  type DefaultSenderSetupInput,
+  defaultSenderSetupInputSchema,
+  type SenderIdentity,
+  type UpdateSenderIdentityInput,
+  updateSenderIdentityInputSchema,
+} from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { imapSmtpConnector } from "./connectors";
 import { getProviderConnection, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
+import { resolveRoleFolder } from "./folders";
 
 type DbIdentity = {
   id: string;
@@ -70,6 +79,22 @@ const foldersBelongToMailbox = async (mailboxId: string, folderIds: Array<string
   return row?.count === new Set(ids).size;
 };
 
+const validateAuthenticationPolicy = (
+  connectionPolicy: "shared_connection" | "personal_provider_account",
+  authenticationPolicy: SenderIdentity["authenticationPolicy"],
+): Result<void> => {
+  if (connectionPolicy === "shared_connection" && authenticationPolicy.interactive !== "mailbox") {
+    return fail(err.badInput("Shared connection mailboxes require mailbox-authenticated interactive sending"));
+  }
+  if (connectionPolicy === "personal_provider_account" && authenticationPolicy.interactive !== "actor") {
+    return fail(err.badInput("Personal provider mailboxes require actor-authenticated interactive sending"));
+  }
+  if (connectionPolicy === "personal_provider_account" && authenticationPolicy.automation === "mailbox") {
+    return fail(err.badInput("Personal provider mailboxes cannot use mailbox-authenticated automation"));
+  }
+  return ok();
+};
+
 export const createSenderIdentity = async (params: {
   context: MailRequestContext;
   mailboxId: string;
@@ -88,15 +113,8 @@ export const createSenderIdentity = async (params: {
       if (!mailbox) return fail(err.notFound("Mailbox"));
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
       if (!allowed.ok) return allowed;
-      if (mailbox.connection_policy === "shared_connection" && parsed.data.authenticationPolicy.interactive !== "mailbox") {
-        return fail(err.badInput("Shared connection mailboxes require mailbox-authenticated interactive sending"));
-      }
-      if (mailbox.connection_policy === "personal_provider_account" && parsed.data.authenticationPolicy.interactive !== "actor") {
-        return fail(err.badInput("Personal provider mailboxes require actor-authenticated interactive sending"));
-      }
-      if (mailbox.connection_policy === "personal_provider_account" && parsed.data.authenticationPolicy.automation === "mailbox") {
-        return fail(err.badInput("Personal provider mailboxes cannot use mailbox-authenticated automation"));
-      }
+      const policy = validateAuthenticationPolicy(mailbox.connection_policy, parsed.data.authenticationPolicy);
+      if (!policy.ok) return policy;
       if (!(await foldersBelongToMailbox(params.mailboxId, [parsed.data.sentFolderId, parsed.data.draftsFolderId], tx))) {
         return fail(err.badInput("Sender identity folder mapping does not belong to this mailbox"));
       }
@@ -166,6 +184,252 @@ export const listSenderIdentities = async (context: MailRequestContext, mailboxI
     ORDER BY si.is_default DESC, si.from_address, si.id
   `;
   return ok(rows.map(mapIdentity));
+};
+
+export const updateSenderIdentity = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  senderIdentityId: string;
+  input: UpdateSenderIdentityInput;
+}): Promise<Result<SenderIdentity>> => {
+  const parsed = updateSenderIdentityInputSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid sender identity update"));
+  try {
+    return await sql.begin(async (tx) => {
+      const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
+      if (!permission.ok) return permission;
+      const [current] = await tx<(DbIdentity & { connection_policy: "shared_connection" | "personal_provider_account" })[]>`
+        SELECT ${identityColumns}, mailbox.connection_policy
+        FROM mail.sender_identities si
+        JOIN mail.mailboxes mailbox ON mailbox.id = si.mailbox_id
+        WHERE si.id = ${params.senderIdentityId}::uuid
+          AND si.mailbox_id = ${params.mailboxId}::uuid
+          AND mailbox.deleted_at IS NULL
+        FOR UPDATE OF si, mailbox
+      `;
+      if (!current) return fail(err.notFound("Sender identity"));
+      const nextPolicy = parsed.data.authenticationPolicy ?? {
+        interactive: current.interactive_policy,
+        automation: current.automation_policy,
+      };
+      const policy = validateAuthenticationPolicy(current.connection_policy, nextPolicy);
+      if (!policy.ok) return policy;
+      const sentFolderId = parsed.data.sentFolderId === undefined ? current.sent_folder_id : parsed.data.sentFolderId;
+      const draftsFolderId = parsed.data.draftsFolderId === undefined ? current.drafts_folder_id : parsed.data.draftsFolderId;
+      if (!(await foldersBelongToMailbox(params.mailboxId, [sentFolderId, draftsFolderId], tx))) {
+        return fail(err.badInput("Sender identity folder mapping does not belong to this mailbox"));
+      }
+      const fromAddress = parsed.data.fromAddress?.toLowerCase() ?? current.from_address;
+      const replyTo = parsed.data.replyTo === undefined ? current.reply_to : parsed.data.replyTo?.toLowerCase() ?? null;
+      const envelopeSender =
+        parsed.data.envelopeSender === undefined ? current.envelope_sender : parsed.data.envelopeSender?.toLowerCase() ?? null;
+      const providerRelevantChanged =
+        fromAddress !== current.from_address ||
+        replyTo !== current.reply_to ||
+        envelopeSender !== current.envelope_sender ||
+        nextPolicy.interactive !== current.interactive_policy ||
+        nextPolicy.automation !== current.automation_policy ||
+        sentFolderId !== current.sent_folder_id ||
+        draftsFolderId !== current.drafts_folder_id;
+      if (parsed.data.isDefault === true) {
+        await tx`
+          UPDATE mail.sender_identities
+          SET is_default = false
+          WHERE mailbox_id = ${params.mailboxId}::uuid AND id <> ${params.senderIdentityId}::uuid
+        `;
+      }
+      if (providerRelevantChanged) {
+        await tx`
+          UPDATE mail.sender_identity_bindings
+          SET revoked_at = COALESCE(revoked_at, now()), last_error_code = 'IDENTITY_CONFIGURATION_CHANGED'
+          WHERE sender_identity_id = ${params.senderIdentityId}::uuid AND revoked_at IS NULL
+        `;
+      }
+      const [updated] = await tx<DbIdentity[]>`
+        UPDATE mail.sender_identities si
+        SET
+          display_name = ${parsed.data.displayName ?? current.display_name},
+          from_address = ${fromAddress},
+          reply_to = ${replyTo},
+          envelope_sender = ${envelopeSender},
+          interactive_policy = ${nextPolicy.interactive},
+          automation_policy = ${nextPolicy.automation},
+          sent_folder_id = ${sentFolderId}::uuid,
+          drafts_folder_id = ${draftsFolderId}::uuid,
+          is_default = ${parsed.data.isDefault ?? current.is_default},
+          status = CASE WHEN ${providerRelevantChanged} THEN 'unverified' ELSE status END,
+          last_provider_rejection = CASE WHEN ${providerRelevantChanged} THEN NULL ELSE last_provider_rejection END
+        WHERE si.id = ${params.senderIdentityId}::uuid
+        RETURNING ${identityColumns}
+      `;
+      if (!updated) return fail(err.internal("Sender identity update returned no row"));
+      await audit.record(
+        {
+          action: "mail.sender_identity.update",
+          outcome: "allowed",
+          actor: auditActorFromRequest(params.context),
+          target: { type: "sender_identity", id: updated.id, label: updated.from_address },
+          requestId: params.context.requestId,
+          metadata: { mailboxId: params.mailboxId, providerRelevantChanged },
+        },
+        tx,
+      );
+      return ok(mapIdentity(updated));
+    });
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Sender identity"));
+    if (isServiceError(error)) return fail(error);
+    return fail(err.internal("Failed to update sender identity"));
+  }
+};
+
+export const disableSenderIdentity = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  senderIdentityId: string;
+}): Promise<Result<void>> => {
+  try {
+    return await sql.begin(async (tx) => {
+      const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
+      if (!permission.ok) return permission;
+      const [disabled] = await tx<{ id: string; from_address: string }[]>`
+        UPDATE mail.sender_identities
+        SET status = 'disabled', is_default = false
+        WHERE id = ${params.senderIdentityId}::uuid
+          AND mailbox_id = ${params.mailboxId}::uuid
+          AND status <> 'disabled'
+        RETURNING id, from_address
+      `;
+      if (!disabled) return fail(err.notFound("Sender identity"));
+      await tx`
+        UPDATE mail.sender_identity_bindings
+        SET revoked_at = COALESCE(revoked_at, now()), last_error_code = 'IDENTITY_DISABLED'
+        WHERE sender_identity_id = ${params.senderIdentityId}::uuid AND revoked_at IS NULL
+      `;
+      await tx`
+        UPDATE mail.sender_identities
+        SET is_default = true
+        WHERE id = (
+          SELECT id FROM mail.sender_identities
+          WHERE mailbox_id = ${params.mailboxId}::uuid AND status = 'verified'
+          ORDER BY created_at, id LIMIT 1
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM mail.sender_identities
+          WHERE mailbox_id = ${params.mailboxId}::uuid AND is_default AND status <> 'disabled'
+        )
+      `;
+      await audit.record(
+        {
+          action: "mail.sender_identity.disable",
+          outcome: "allowed",
+          actor: auditActorFromRequest(params.context),
+          target: { type: "sender_identity", id: disabled.id, label: disabled.from_address },
+          requestId: params.context.requestId,
+          metadata: { mailboxId: params.mailboxId },
+        },
+        tx,
+      );
+      return ok();
+    });
+  } catch {
+    return fail(err.internal("Failed to disable sender identity"));
+  }
+};
+
+export const setupDefaultSender = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: DefaultSenderSetupInput;
+}): Promise<Result<SenderIdentity>> => {
+  const parsed = defaultSenderSetupInputSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid default sender setup"));
+  const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin");
+  if (!permission.ok) return permission;
+  const [binding] = await sql<{
+    connection_id: string;
+    email: string;
+    connection_policy: "shared_connection" | "personal_provider_account";
+    current_verification: boolean;
+  }[]>`
+    SELECT
+      binding.connection_id,
+      connection.email,
+      mailbox.connection_policy,
+      EXISTS (
+        SELECT 1
+        FROM mail.sender_identities identity
+        JOIN mail.sender_identity_bindings identity_binding ON identity_binding.sender_identity_id = identity.id
+        WHERE identity.mailbox_id = ${params.mailboxId}::uuid
+          AND lower(identity.from_address) = lower(connection.email)
+          AND identity.status = 'verified'
+          AND identity_binding.binding_id = binding.id
+          AND identity_binding.verified_secret_revision = connection.secret_revision
+          AND identity_binding.saves_sent_automatically = ${parsed.data.savesSentAutomatically}
+          AND identity_binding.revoked_at IS NULL
+      ) AS current_verification
+    FROM mail.provider_bindings binding
+    JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+    JOIN mail.mailboxes mailbox ON mailbox.id = resource.mailbox_id
+    JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+    WHERE binding.id = ${parsed.data.bindingId}::uuid
+      AND resource.mailbox_id = ${params.mailboxId}::uuid
+      AND binding.state = 'active'
+      AND binding.verified_secret_revision = connection.secret_revision
+      AND connection.status = 'active'
+      AND connection.encrypted_secret IS NOT NULL
+  `;
+  if (!binding) return fail(err.notFound("Active provider binding"));
+  const sent = parsed.data.savesSentAutomatically ? null : await resolveRoleFolder(params.mailboxId, "sent");
+  if (sent && !sent.ok) return sent;
+  const drafts = await resolveRoleFolder(params.mailboxId, "drafts");
+  const [existing] = await sql<DbIdentity[]>`
+    SELECT ${identityColumns}
+    FROM mail.sender_identities si
+    WHERE si.mailbox_id = ${params.mailboxId}::uuid AND lower(si.from_address) = lower(${binding.email})
+  `;
+  const authenticationPolicy = {
+    interactive: binding.connection_policy === "shared_connection" ? ("mailbox" as const) : ("actor" as const),
+    automation: "disabled" as const,
+  };
+  let identity: Result<SenderIdentity>;
+  if (existing) {
+    identity = await updateSenderIdentity({
+      context: params.context,
+      mailboxId: params.mailboxId,
+      senderIdentityId: existing.id,
+      input: {
+        ...(parsed.data.displayName !== undefined ? { displayName: parsed.data.displayName } : {}),
+        authenticationPolicy,
+        sentFolderId: sent?.data.id ?? null,
+        draftsFolderId: drafts.ok ? drafts.data.id : null,
+        isDefault: true,
+      },
+    });
+  } else {
+    identity = await createSenderIdentity({
+      context: params.context,
+      mailboxId: params.mailboxId,
+      input: {
+        displayName: parsed.data.displayName ?? "",
+        fromAddress: binding.email,
+        authenticationPolicy,
+        sentFolderId: sent?.data.id ?? null,
+        draftsFolderId: drafts.ok ? drafts.data.id : null,
+        isDefault: true,
+      },
+    });
+  }
+  if (!identity.ok) return identity;
+  if (binding.current_verification && identity.data.status === "verified") return identity;
+  return verifySenderIdentity({
+    context: params.context,
+    mailboxId: params.mailboxId,
+    senderIdentityId: identity.data.id,
+    bindingId: parsed.data.bindingId,
+    verificationRecipient: binding.email,
+    savesSentAutomatically: parsed.data.savesSentAutomatically,
+  });
 };
 
 export const verifySenderIdentity = async (params: {

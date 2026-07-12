@@ -1,5 +1,6 @@
 import { createWriteStream } from "node:fs";
 import { rename, rm } from "node:fs/promises";
+import { basename } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
@@ -200,6 +201,32 @@ const readDraftContent = async (flags: {
 const createDraft = async (ctx: CloudCliContext, mailboxId: string, flags: Parameters<typeof readDraftContent>[0]): Promise<MailDraft> =>
   readApi(ctx, `/mailboxes/${mailboxId}/drafts`, jsonRequest("POST", await readDraftContent(flags)));
 
+const uploadDraftAttachment = async (params: {
+  ctx: CloudCliContext;
+  mailboxId: string;
+  draftId: string;
+  expectedRevision: number;
+  path: string;
+  filename?: string;
+  contentType?: string;
+}): Promise<MailDraft> => {
+  const file = Bun.file(params.path);
+  if (!(await file.exists())) throw new Error(`Attachment file was not found: ${params.path}`);
+  const query = new URLSearchParams({
+    expectedRevision: String(params.expectedRevision),
+    filename: params.filename ?? basename(params.path),
+  });
+  const response = await params.ctx.fetch(apiPath(`/mailboxes/${params.mailboxId}/drafts/${params.draftId}/attachments?${query}`), {
+    method: "POST",
+    headers: {
+      "Content-Type": params.contentType || file.type || "application/octet-stream",
+      "Content-Length": String(file.size),
+    },
+    body: file,
+  });
+  return params.ctx.readJson<MailDraft>(response);
+};
+
 const providerConnectionFlags = {
   name: flag.string({ required: true, description: "Connection label" }),
   email: flag.string({ required: true }),
@@ -249,10 +276,16 @@ const providerConnectionInput = async (flags: {
   };
 };
 
-const commandResult = async (ctx: CloudCliContext, mailbox: Mailbox, input: Record<string, unknown>): Promise<MailCommand> => {
-  const result = await readApi<MailCommand>(ctx, `/mailboxes/${mailbox.id}/commands`, jsonRequest("POST", input));
+const commandResult = async (
+  ctx: CloudCliContext,
+  mailbox: Mailbox,
+  input: Record<string, unknown>,
+  options?: { wait?: boolean; timeoutSeconds?: number; label?: string },
+): Promise<MailCommand> => {
+  const queued = await readApi<MailCommand>(ctx, `/mailboxes/${mailbox.id}/commands`, jsonRequest("POST", input));
+  const result = options?.wait ? await waitForCommand(ctx, mailbox.id, queued.id, options.timeoutSeconds) : queued;
   if (ctx.options.output === "json") ctx.json(result);
-  else ctx.print(`${result.kind}: ${result.state} (${result.id}).`);
+  else ctx.print(`${options?.label ?? result.kind}: ${result.state} (${result.id}).`);
   return result;
 };
 
@@ -275,6 +308,23 @@ const waitForCommand = async (
     throw new Error(`Mail command ${result.id} ended in ${result.state}${result.lastError ? `: ${result.lastError}` : "."}`);
   }
   return result;
+};
+
+const waitForCommands = async (
+  ctx: CloudCliContext,
+  mailboxId: string,
+  commandIds: string[],
+  timeoutSeconds?: number,
+): Promise<MailCommand[]> => {
+  const commands = await pollUntil({
+    load: () => Promise.all(commandIds.map((commandId) => loadCommand(ctx, mailboxId, commandId))),
+    done: (values) => values.every((value) => !COMMAND_PENDING_STATES.has(value.state)),
+    timeoutSeconds,
+    description: `${commandIds.length} mail commands`,
+  });
+  const failed = commands.find((command) => !COMMAND_SUCCESS_STATES.has(command.state));
+  if (failed) throw new Error(`Mail command ${failed.id} ended in ${failed.state}${failed.lastError ? `: ${failed.lastError}` : "."}`);
+  return commands;
 };
 
 const searchTermFlags = {
@@ -366,6 +416,148 @@ const searchMessages = async (
   mailboxId: string,
   request: { expression: MailSearchExpression; sort?: "relevance" | "newest"; cursor?: string; limit?: number },
 ): Promise<MessageSearchPage> => readApi(ctx, `/mailboxes/${mailboxId}/search`, jsonRequest("POST", request));
+
+const submitMessageState = (
+  ctx: CloudCliContext,
+  mailbox: Mailbox,
+  remoteMessageRefId: string,
+  folderId: string,
+  change: Record<string, unknown>,
+  flags: { idempotencyKey?: string; correlationId?: string; wait: boolean; timeoutSeconds?: number },
+): Promise<MailCommand> =>
+  commandResult(
+    ctx,
+    mailbox,
+    {
+      kind: "change_message_state",
+      remoteMessageRefId,
+      folderId,
+      change,
+      idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+      correlationId: flags.correlationId,
+    },
+    { wait: flags.wait, timeoutSeconds: flags.timeoutSeconds, label: "Message state" },
+  );
+
+const submitConversationAction = async (params: {
+  ctx: CloudCliContext;
+  mailbox: Mailbox;
+  conversationId: string;
+  input: Record<string, unknown>;
+  wait: boolean;
+  timeoutSeconds?: number;
+}): Promise<void> => {
+  const result = await readApi<{ correlationId: string; commands: MailCommand[] }>(
+    params.ctx,
+    `/mailboxes/${params.mailbox.id}/conversations/${params.conversationId}/actions`,
+    jsonRequest("POST", params.input),
+  );
+  const commands = params.wait
+    ? await waitForCommands(
+        params.ctx,
+        params.mailbox.id,
+        result.commands.map((item) => item.id),
+        params.timeoutSeconds,
+      )
+    : result.commands;
+  const output = { correlationId: result.correlationId, commands };
+  if (params.ctx.options.output === "json") params.ctx.json(output);
+  else params.ctx.print(`${commands.length} conversation message command${commands.length === 1 ? "" : "s"} ${params.wait ? "completed" : "queued"}.`);
+};
+
+const stateMutationFlags = {
+  ...mutationFlags,
+  folder: flag.string({ required: true, description: "Source folder id" }),
+  wait: flag.boolean({ description: "Wait for provider confirmation" }),
+  ...waitFlags,
+};
+
+const conversationMutationFlags = {
+  ...mutationFlags,
+  source: flag.string({ required: true, description: "Source folder id" }),
+  wait: flag.boolean({ description: "Wait for every provider mutation" }),
+  ...waitFlags,
+};
+
+const conversationActionCommand = (
+  path: string,
+  summary: string,
+  action: { kind: "change_state"; change: Record<string, unknown> } | { kind: "move_to_role"; role: "archive" | "trash" | "junk" },
+) =>
+  command(path, {
+    summary,
+    args: { conversationId: arg.required({ description: "Conversation id" }) },
+    flags: conversationMutationFlags,
+    run: async ({ ctx, args, flags }) => {
+      const mailbox = await resolveMailbox(ctx, flags.mailbox);
+      await submitConversationAction({
+        ctx,
+        mailbox,
+        conversationId: args.conversationId,
+        input: {
+          ...action,
+          sourceFolderId: flags.source,
+          idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+          correlationId: flags.correlationId,
+        },
+        wait: flags.wait,
+        timeoutSeconds: flags.timeoutSeconds,
+      });
+    },
+  });
+
+const folderSubscriptionCommand = (path: "folder subscribe" | "folder unsubscribe", subscribed: boolean) =>
+  command(path, {
+    summary: `${subscribed ? "Subscribe" : "Unsubscribe"} a provider folder`,
+    args: { folderId: arg.required({ description: "Canonical folder id" }) },
+    flags: { ...mutationFlags, wait: flag.boolean(), ...waitFlags },
+    run: async ({ ctx, args, flags }) => {
+      const mailbox = await resolveMailbox(ctx, flags.mailbox);
+      await commandResult(
+        ctx,
+        mailbox,
+        {
+          kind: "set_folder_subscription",
+          folderId: args.folderId,
+          subscribed,
+          idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+          correlationId: flags.correlationId,
+        },
+        { wait: flags.wait, timeoutSeconds: flags.timeoutSeconds, label: "Folder subscription" },
+      );
+    },
+  });
+
+const messageStateCommand = (path: string, summary: string, change: Record<string, unknown>) =>
+  command(path, {
+    summary,
+    args: { remoteMessageRefId: arg.required({ description: "Remote message reference id" }) },
+    flags: stateMutationFlags,
+    run: async ({ ctx, args, flags }) => {
+      const mailbox = await resolveMailbox(ctx, flags.mailbox);
+      await submitMessageState(ctx, mailbox, args.remoteMessageRefId, flags.folder!, change, flags);
+    },
+  });
+
+const messageKeywordCommand = (path: string, summary: string, operation: "add" | "remove") =>
+  command(path, {
+    summary,
+    args: {
+      remoteMessageRefId: arg.required({ description: "Remote message reference id" }),
+      keyword: arg.required({ description: "IMAP keyword" }),
+    },
+    flags: stateMutationFlags,
+    run: async ({ ctx, args, flags }) => {
+      const mailbox = await resolveMailbox(ctx, flags.mailbox);
+      const change = operation === "add" ? { addKeywords: [args.keyword] } : { removeKeywords: [args.keyword] };
+      await submitMessageState(ctx, mailbox, args.remoteMessageRefId, flags.folder!, change, flags);
+    },
+  });
+
+const folderRole = (value: string): "sent" | "drafts" | "trash" | "archive" | "junk" => {
+  if (value === "sent" || value === "drafts" || value === "trash" || value === "archive" || value === "junk") return value;
+  throw new Error("Unsupported folder role.");
+};
 
 export default defineCliCommands({
   name: "mail",
@@ -551,6 +743,105 @@ export default defineCliCommands({
             { key: "id", label: "ID" },
           ],
         );
+      },
+    }),
+    command("folder create", {
+      summary: "Create and optionally subscribe a provider folder",
+      args: { name: arg.required({ description: "Folder leaf name" }) },
+      flags: {
+        ...mutationFlags,
+        parent: flag.string({ description: "Optional canonical parent folder id" }),
+        noSubscribe: flag.boolean({ name: "no-subscribe", description: "Create without subscribing" }),
+        wait: flag.boolean({ description: "Wait for provider confirmation and rediscovery" }),
+        ...waitFlags,
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await commandResult(
+          ctx,
+          mailbox,
+          {
+            kind: "create_folder",
+            parentFolderId: flags.parent ?? null,
+            name: args.name,
+            subscribe: !flags.noSubscribe,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          },
+          { wait: flags.wait, timeoutSeconds: flags.timeoutSeconds, label: "Folder create" },
+        );
+      },
+    }),
+    command("folder rename", {
+      summary: "Rename a provider folder",
+      args: {
+        folderId: arg.required({ description: "Canonical folder id" }),
+        name: arg.required({ description: "New folder leaf name" }),
+      },
+      flags: { ...mutationFlags, wait: flag.boolean(), ...waitFlags },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await commandResult(
+          ctx,
+          mailbox,
+          {
+            kind: "rename_folder",
+            folderId: args.folderId,
+            name: args.name,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          },
+          { wait: flags.wait, timeoutSeconds: flags.timeoutSeconds, label: "Folder rename" },
+        );
+      },
+    }),
+    command("folder delete", {
+      summary: "Delete an empty provider folder",
+      args: { folderId: arg.required({ description: "Canonical folder id" }) },
+      flags: { ...mutationFlags, yes: confirmFlag("Confirm deletion of the remote folder"), wait: flag.boolean(), ...waitFlags },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to delete the remote folder.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await commandResult(
+          ctx,
+          mailbox,
+          {
+            kind: "delete_folder",
+            folderId: args.folderId,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          },
+          { wait: flags.wait, timeoutSeconds: flags.timeoutSeconds, label: "Folder delete" },
+        );
+      },
+    }),
+    folderSubscriptionCommand("folder subscribe", true),
+    folderSubscriptionCommand("folder unsubscribe", false),
+    command("folder role set", {
+      summary: "Map a semantic role to one canonical folder",
+      args: {
+        role: arg.required({ description: "sent, drafts, trash, archive, or junk" }),
+        folderId: arg.required({ description: "Canonical folder id" }),
+      },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const role = folderRole(args.role);
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const result = await readApi(ctx, `/mailboxes/${mailbox.id}/folder-roles/${role}`, jsonRequest("PUT", { folderId: args.folderId }));
+        if (ctx.options.output === "json") ctx.json(result);
+        else ctx.print(`Mapped ${role} to ${args.folderId}.`);
+      },
+    }),
+    command("folder role clear", {
+      summary: "Remove an explicit semantic folder mapping",
+      args: { role: arg.required({ description: "sent, drafts, trash, archive, or junk" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const role = folderRole(args.role);
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await readApi(ctx, `/mailboxes/${mailbox.id}/folder-roles/${role}`, { method: "DELETE" });
+        if (ctx.options.output === "json") ctx.json({ cleared: true, role });
+        else ctx.print(`Cleared the explicit ${role} folder mapping.`);
       },
     }),
     command("sync", {
@@ -809,6 +1100,14 @@ export default defineCliCommands({
         });
       },
     }),
+    messageStateCommand("message read", "Mark one remote message as read without replacing other flags", { addFlags: ["seen"] }),
+    messageStateCommand("message unread", "Mark one remote message as unread without replacing other flags", { removeFlags: ["seen"] }),
+    messageStateCommand("message star", "Star one remote message without replacing other flags", { addFlags: ["flagged"] }),
+    messageStateCommand("message unstar", "Remove the star from one remote message without replacing other flags", {
+      removeFlags: ["flagged"],
+    }),
+    messageKeywordCommand("message keyword add", "Add one IMAP keyword without replacing other message state", "add"),
+    messageKeywordCommand("message keyword remove", "Remove one IMAP keyword without replacing other message state", "remove"),
     command("message move", {
       summary: "Move one remote message",
       args: { remoteMessageRefId: arg.required({ description: "Remote message reference id" }) },
@@ -943,6 +1242,34 @@ export default defineCliCommands({
           ],
         );
       },
+    }),
+    conversationActionCommand("conversation read", "Mark every message in a conversation folder placement as read", {
+      kind: "change_state",
+      change: { addFlags: ["seen"] },
+    }),
+    conversationActionCommand("conversation unread", "Mark every message in a conversation folder placement as unread", {
+      kind: "change_state",
+      change: { removeFlags: ["seen"] },
+    }),
+    conversationActionCommand("conversation star", "Star every message in a conversation folder placement", {
+      kind: "change_state",
+      change: { addFlags: ["flagged"] },
+    }),
+    conversationActionCommand("conversation unstar", "Remove stars from every message in a conversation folder placement", {
+      kind: "change_state",
+      change: { removeFlags: ["flagged"] },
+    }),
+    conversationActionCommand("conversation archive", "Move a conversation from one folder to the configured Archive folder", {
+      kind: "move_to_role",
+      role: "archive",
+    }),
+    conversationActionCommand("conversation trash", "Move a conversation from one folder to the configured Trash folder", {
+      kind: "move_to_role",
+      role: "trash",
+    }),
+    conversationActionCommand("conversation junk", "Move a conversation from one folder to the configured Junk folder", {
+      kind: "move_to_role",
+      role: "junk",
     }),
     command("provider add", {
       summary: "Verify and store a write-only IMAP/SMTP provider credential",
@@ -1131,6 +1458,107 @@ export default defineCliCommands({
         else ctx.print(`Created unverified identity ${identity.fromAddress} (${identity.id}).`);
       },
     }),
+    command("identity setup-default", {
+      summary: "Create or update and verify the provider account's default sender",
+      args: { bindingId: arg.required({ description: "Active provider binding id" }) },
+      flags: {
+        ...mailboxFlag,
+        name: flag.string({ description: "User-visible sender display name" }),
+        providerSavesSent: flag.boolean({
+          name: "provider-saves-sent",
+          description: "Provider automatically stores submitted messages in Sent",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const identity = await readApi<SenderIdentity>(
+          ctx,
+          `/mailboxes/${mailbox.id}/sender-identities/default/setup`,
+          jsonRequest("POST", {
+            bindingId: args.bindingId,
+            ...(flags.name !== undefined ? { displayName: flags.name } : {}),
+            savesSentAutomatically: flags.providerSavesSent,
+          }),
+        );
+        if (ctx.options.output === "json") ctx.json(identity);
+        else ctx.print(`Default sender ${identity.fromAddress} is ${identity.status}.`);
+      },
+    }),
+    command("identity configure", {
+      summary: "Update sender metadata, policy, or provider folder mappings",
+      args: { identityId: arg.required({ description: "Sender identity id" }) },
+      flags: {
+        ...mailboxFlag,
+        address: flag.string({ description: "From address" }),
+        name: flag.string({ description: "Display name" }),
+        replyTo: flag.string({ name: "reply-to" }),
+        clearReplyTo: flag.boolean({ name: "clear-reply-to" }),
+        envelopeSender: flag.string({ name: "envelope-sender" }),
+        clearEnvelopeSender: flag.boolean({ name: "clear-envelope-sender" }),
+        mode: flag.enum(["mailbox", "actor"] as const, { description: "Interactive credential mode" }),
+        automation: flag.enum(["disabled", "mailbox", "pool"] as const, { description: "Automation credential mode" }),
+        sentFolder: flag.string({ name: "sent-folder" }),
+        clearSentFolder: flag.boolean({ name: "clear-sent-folder" }),
+        draftsFolder: flag.string({ name: "drafts-folder" }),
+        clearDraftsFolder: flag.boolean({ name: "clear-drafts-folder" }),
+        default: flag.boolean({ description: "Make this the default identity" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.replyTo && flags.clearReplyTo) throw new Error("Use either --reply-to or --clear-reply-to.");
+        if (flags.envelopeSender && flags.clearEnvelopeSender) {
+          throw new Error("Use either --envelope-sender or --clear-envelope-sender.");
+        }
+        if (flags.sentFolder && flags.clearSentFolder) throw new Error("Use either --sent-folder or --clear-sent-folder.");
+        if (flags.draftsFolder && flags.clearDraftsFolder) throw new Error("Use either --drafts-folder or --clear-drafts-folder.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const identities = await readApi<SenderIdentity[]>(ctx, `/mailboxes/${mailbox.id}/sender-identities`);
+        const current = identities.find((identity) => identity.id === args.identityId);
+        if (!current) throw new Error(`Sender identity ${args.identityId} was not found.`);
+        const update = {
+          ...(flags.address !== undefined ? { fromAddress: flags.address } : {}),
+          ...(flags.name !== undefined ? { displayName: flags.name } : {}),
+          ...(flags.replyTo !== undefined || flags.clearReplyTo ? { replyTo: flags.clearReplyTo ? null : flags.replyTo } : {}),
+          ...(flags.envelopeSender !== undefined || flags.clearEnvelopeSender
+            ? { envelopeSender: flags.clearEnvelopeSender ? null : flags.envelopeSender }
+            : {}),
+          ...(flags.mode !== undefined || flags.automation !== undefined
+            ? {
+                authenticationPolicy: {
+                  interactive: flags.mode ?? current.authenticationPolicy.interactive,
+                  automation: flags.automation ?? current.authenticationPolicy.automation,
+                },
+              }
+            : {}),
+          ...(flags.sentFolder !== undefined || flags.clearSentFolder
+            ? { sentFolderId: flags.clearSentFolder ? null : flags.sentFolder }
+            : {}),
+          ...(flags.draftsFolder !== undefined || flags.clearDraftsFolder
+            ? { draftsFolderId: flags.clearDraftsFolder ? null : flags.draftsFolder }
+            : {}),
+          ...(flags.default ? { isDefault: true } : {}),
+        };
+        if (Object.keys(update).length === 0) throw new Error("Pass at least one sender identity setting.");
+        const identity = await readApi<SenderIdentity>(
+          ctx,
+          `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}`,
+          jsonRequest("PATCH", update),
+        );
+        if (ctx.options.output === "json") ctx.json(identity);
+        else ctx.print(`Updated ${identity.fromAddress} (${identity.status}).`);
+      },
+    }),
+    command("identity disable", {
+      summary: "Disable a sender identity and revoke its provider verification",
+      args: { identityId: arg.required({ description: "Sender identity id" }) },
+      flags: { ...mailboxFlag, yes: confirmFlag("Confirm sender identity disable") },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to disable the sender identity.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await readApi(ctx, `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}`, { method: "DELETE" });
+        if (ctx.options.output === "json") ctx.json({ disabled: true, identityId: args.identityId });
+        else ctx.print(`Disabled sender identity ${args.identityId}.`);
+      },
+    }),
     command("identity verify", {
       summary: "Verify sender submission through one binding",
       args: { identityId: arg.required(), bindingId: arg.required() },
@@ -1183,6 +1611,22 @@ export default defineCliCommands({
         );
       },
     }),
+    command("draft get", {
+      summary: "Show one shared draft including attachment metadata",
+      args: { draftId: arg.required({ description: "Draft id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const draft = await readApi<MailDraft>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}`);
+        if (ctx.options.output === "json") ctx.json(draft);
+        else {
+          ctx.print(`${draft.subject || "[No subject]"} (${draft.id})`);
+          ctx.print(`State: ${draft.state}; revision ${draft.revision}; ${draft.attachments.length} attachment(s)`);
+          ctx.print("");
+          ctx.print(draft.body);
+        }
+      },
+    }),
     command("draft create", {
       summary: "Create a shared draft",
       flags: { ...mailboxFlag, ...draftContentFlags },
@@ -1213,6 +1657,78 @@ export default defineCliCommands({
         else ctx.print(`Updated draft ${draft.id} to revision ${draft.revision}.`);
       },
     }),
+    command("draft attachment add", {
+      summary: "Stream a local file into a shared draft",
+      args: {
+        draftId: arg.required({ description: "Draft id" }),
+        path: arg.required({ description: "Local attachment path" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current draft revision" }),
+        name: flag.string({ description: "Attachment filename; defaults to the local basename" }),
+        contentType: flag.string({ name: "content-type", description: "MIME content type" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.revision === undefined) throw new Error("Missing expected draft revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const draft = await uploadDraftAttachment({
+          ctx,
+          mailboxId: mailbox.id,
+          draftId: args.draftId,
+          expectedRevision: flags.revision,
+          path: args.path,
+          filename: flags.name,
+          contentType: flags.contentType,
+        });
+        if (ctx.options.output === "json") ctx.json(draft);
+        else ctx.print(`Added attachment to draft ${draft.id}; revision ${draft.revision}.`);
+      },
+    }),
+    command("draft attachment remove", {
+      summary: "Remove an attachment from a shared draft",
+      args: {
+        draftId: arg.required({ description: "Draft id" }),
+        attachmentId: arg.required({ description: "Draft attachment id" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current draft revision" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.revision === undefined) throw new Error("Missing expected draft revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ expectedRevision: String(flags.revision) });
+        const draft = await readApi<MailDraft>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachments/${args.attachmentId}?${query}`,
+          { method: "DELETE" },
+        );
+        if (ctx.options.output === "json") ctx.json(draft);
+        else ctx.print(`Removed attachment from draft ${draft.id}; revision ${draft.revision}.`);
+      },
+    }),
+    command("draft discard", {
+      summary: "Discard a shared draft at an expected revision",
+      args: { draftId: arg.required({ description: "Draft id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current draft revision" }),
+        yes: confirmFlag("Confirm draft discard"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to discard the draft.");
+        if (flags.revision === undefined) throw new Error("Missing expected draft revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const draft = await readApi<MailDraft>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/discard`,
+          jsonRequest("POST", { expectedRevision: flags.revision }),
+        );
+        if (ctx.options.output === "json") ctx.json(draft);
+        else ctx.print(`Discarded draft ${draft.id} at revision ${draft.revision}.`);
+      },
+    }),
     command("send", {
       summary: "Create an immutable draft snapshot and queue delivery",
       flags: {
@@ -1220,13 +1736,23 @@ export default defineCliCommands({
         ...draftContentFlags,
         schedule: flag.string({ description: "Optional ISO send time" }),
         undo: flag.int({ min: 0, max: 60, default: 10, description: "Undo window in seconds" }),
+        attachment: flag.stringList({ name: "attach", description: "Local attachment path; repeatable" }),
         idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
         wait: flag.boolean({ description: "Wait for a successful terminal command state" }),
         ...waitFlags,
       },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const draft = await createDraft(ctx, mailbox.id, flags);
+        let draft = await createDraft(ctx, mailbox.id, flags);
+        for (const path of flags.attachment) {
+          draft = await uploadDraftAttachment({
+            ctx,
+            mailboxId: mailbox.id,
+            draftId: draft.id,
+            expectedRevision: draft.revision,
+            path,
+          });
+        }
         const command = await readApi<MailCommand>(
           ctx,
           `/mailboxes/${mailbox.id}/commands`,

@@ -6,13 +6,16 @@ import { grantMailboxAccess, revokeMailboxAccess, updateMailboxAccess } from "./
 import type { MailRequestContext } from "./auth";
 import { confirmProviderBinding, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
-import { createMailCommand } from "./commands";
+import { executeMutationCommand } from "./command-runtime";
+import { createActorCommand, createMailCommand } from "./commands";
 import { imapSmtpConnector } from "./connectors";
+import { clearFolderRole, resolveRoleFolder, setFolderRole } from "./folders";
 import { getMailboxOperationalHealth } from "./health";
 import { executeMaintenanceCommand, stopMaintenanceRuntime, submitDueMaintenanceCommands } from "./maintenance-runtime";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { createProviderConnection } from "./provider-connections";
 import { claimFence, commitSyncBatch, executeBindingRediscovery, hydrateMessageBatch } from "./sync-runtime";
+import { createConversationTriageCommands } from "./triage";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -803,6 +806,310 @@ suite("mail lifecycle control plane", () => {
       SELECT hydration_status, hydration_attempt FROM mail.message_contents WHERE id = ${failed!.id}::uuid
     `;
     expect(hydrated).toEqual({ hydration_status: "envelope", hydration_attempt: 0 });
+  });
+
+  test("provider folder administration and additive message state stay durable and permission scoped", async () => {
+    const denied = await createActorCommand({
+      context: collaboratorContext,
+      mailboxId,
+      input: {
+        kind: "create_folder",
+        name: `Denied ${suffix}`,
+        subscribe: true,
+        idempotencyKey: `folder-denied-${suffix}`,
+      },
+    });
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("FORBIDDEN");
+    const deniedTriage = await createConversationTriageCommands({
+      context: collaboratorContext,
+      mailboxId,
+      conversationId: crypto.randomUUID(),
+      input: {
+        kind: "move_to_role",
+        sourceFolderId: inboxFolderId,
+        role: "archive",
+        idempotencyKey: `triage-denied-${suffix}`,
+      },
+    });
+    expect(deniedTriage.ok).toBe(false);
+    if (!deniedTriage.ok) expect(deniedTriage.error.code).toBe("FORBIDDEN");
+
+    const folderRights = ["read", "write_flags", "insert", "move", "delete_messages", "create_children", "delete_folder"];
+    let providerFolders = [remoteFolder("INBOX", "10", "inbox", folderRights)];
+    let partialCreate = true;
+    const verify = spyOn(imapSmtpConnector, "verify").mockResolvedValue(fixtureVerification());
+    const discover = spyOn(imapSmtpConnector, "discoverFolders").mockImplementation(async () => providerFolders);
+    const create = spyOn(imapSmtpConnector, "createFolder").mockImplementation(async (_runtime, path, subscribe) => {
+      providerFolders = [{ ...remoteFolder(path, "90", "other", folderRights), subscribed: false }, ...providerFolders];
+      if (subscribe && partialCreate) {
+        partialCreate = false;
+        throw Object.assign(new Error("Folder was created before subscription failed"), { code: "REMOTE_CREATE_SUBSCRIBE_PARTIAL" });
+      }
+    });
+    const subscribe = spyOn(imapSmtpConnector, "setFolderSubscription").mockImplementation(async (_runtime, path, subscribed) => {
+      providerFolders = providerFolders.map((folder) => (folder.path === path ? { ...folder, subscribed } : folder));
+    });
+    const rename = spyOn(imapSmtpConnector, "renameFolder").mockImplementation(async (_runtime, path, newPath) => {
+      providerFolders = providerFolders.map((folder) =>
+        folder.path === path ? { ...folder, stableKey: `${newPath}:${folder.uidValidity}`, path: newPath, name: newPath } : folder,
+      );
+    });
+    const remove = spyOn(imapSmtpConnector, "deleteFolder").mockImplementation(async (_runtime, path) => {
+      providerFolders = providerFolders.filter((folder) => folder.path !== path);
+    });
+    const status = spyOn(imapSmtpConnector, "getFolderStatus").mockResolvedValue({
+      uidValidity: "90",
+      uidNext: 1,
+      highestModseq: "1",
+      messages: 0,
+    });
+    try {
+      const nested = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "create_folder",
+          name: `Invalid/Nested ${suffix}`,
+          subscribe: true,
+          idempotencyKey: `folder-nested-${suffix}`,
+        },
+      });
+      expect(nested.ok).toBe(true);
+      if (!nested.ok) return;
+      expect(await executeMutationCommand(nested.data.id)).toBe("failed");
+      expect(create).not.toHaveBeenCalled();
+
+      const created = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "create_folder",
+          name: `Cloud Ops ${suffix}`,
+          subscribe: true,
+          idempotencyKey: `folder-create-${suffix}`,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      expect(await executeMutationCommand(created.data.id)).toBe("ambiguous");
+      expect(await executeMutationCommand(created.data.id)).toBe("reconciled");
+      const [projected] = await sql<{ id: string; subscribed: boolean }[]>`
+        SELECT folder.id, ref.subscribed
+        FROM mail.folders folder
+        JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
+        WHERE ref.binding_id = ${bindingId}::uuid AND ref.remote_path = ${`Cloud Ops ${suffix}`}
+      `;
+      expect(projected?.subscribed).toBe(true);
+
+      const configuredRole = await setFolderRole({ context: adminContext, mailboxId, role: "archive", folderId: projected!.id });
+      expect(configuredRole.ok && configuredRole.data.configured).toBe(true);
+      const resolvedRole = await resolveRoleFolder(mailboxId, "archive");
+      expect(resolvedRole.ok && resolvedRole.data.id).toBe(projected!.id);
+      expect((await clearFolderRole({ context: adminContext, mailboxId, role: "archive" })).ok).toBe(true);
+
+      const unsubscribed = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "set_folder_subscription",
+          folderId: projected!.id,
+          subscribed: false,
+          idempotencyKey: `folder-unsubscribe-${suffix}`,
+        },
+      });
+      expect(unsubscribed.ok).toBe(true);
+      if (!unsubscribed.ok) return;
+      expect(await executeMutationCommand(unsubscribed.data.id)).toBe("confirmed");
+
+      const renamed = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "rename_folder",
+          folderId: projected!.id,
+          name: `Cloud Renamed ${suffix}`,
+          idempotencyKey: `folder-rename-${suffix}`,
+        },
+      });
+      expect(renamed.ok).toBe(true);
+      if (!renamed.ok) return;
+      expect(await executeMutationCommand(renamed.data.id)).toBe("confirmed");
+      const [renamedProjection] = await sql<{ id: string; subscribed: boolean }[]>`
+        SELECT folder.id, ref.subscribed
+        FROM mail.folders folder
+        JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
+        WHERE ref.binding_id = ${bindingId}::uuid AND ref.remote_path = ${`Cloud Renamed ${suffix}`}
+      `;
+      expect(renamedProjection).toEqual({ id: projected!.id, subscribed: false });
+
+      const deleted = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "delete_folder",
+          folderId: projected!.id,
+          idempotencyKey: `folder-delete-${suffix}`,
+        },
+      });
+      expect(deleted.ok).toBe(true);
+      if (!deleted.ok) return;
+      expect(await executeMutationCommand(deleted.data.id)).toBe("confirmed");
+      const [missing] = await sql<{ discovery_state: string }[]>`
+        SELECT discovery_state FROM mail.folders WHERE id = ${projected!.id}::uuid
+      `;
+      expect(missing?.discovery_state).toBe("missing");
+    } finally {
+      status.mockRestore();
+      remove.mockRestore();
+      rename.mockRestore();
+      subscribe.mockRestore();
+      create.mockRestore();
+      discover.mockRestore();
+      verify.mockRestore();
+    }
+
+    const [message] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${`<state-${suffix}@example.com>`},
+        'State mutation',
+        now(),
+        1,
+        ${"e".repeat(64)},
+        'complete'
+      ) RETURNING id
+    `;
+    const [remoteRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+      VALUES (${inboxFolderId}::uuid, ${message!.id}::uuid, 10, 777777)
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
+      VALUES (${remoteRef!.id}::uuid, ${inboxFolderId}::uuid, ${message!.id}::uuid, ARRAY['\\Answered']::text[], ARRAY['Existing']::text[])
+    `;
+    const providerState = spyOn(imapSmtpConnector, "getMessageState").mockResolvedValue({
+      exists: true,
+      flags: ["\\Answered"],
+      keywords: ["Existing"],
+      messageId: `<state-${suffix}@example.com>`,
+    });
+    const changeState = spyOn(imapSmtpConnector, "changeMessageState").mockImplementation(async (_runtime, _target, change) => {
+      expect(change).toEqual({ addFlags: ["\\Seen"], removeFlags: [], addKeywords: ["CloudTest"], removeKeywords: [] });
+      return {
+        exists: true,
+        flags: ["\\Answered", "\\Seen"],
+        keywords: ["cloudtest", "Existing"],
+        messageId: `<state-${suffix}@example.com>`,
+      };
+    });
+    try {
+      const command = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "change_message_state",
+          remoteMessageRefId: remoteRef!.id,
+          folderId: inboxFolderId,
+          change: { addFlags: ["seen"], removeFlags: [], addKeywords: ["CloudTest"], removeKeywords: [] },
+          idempotencyKey: `message-state-${suffix}`,
+        },
+      });
+      expect(command.ok).toBe(true);
+      if (!command.ok) return;
+      expect(await executeMutationCommand(command.data.id)).toBe("confirmed");
+      const [placement] = await sql<{ flags: string[]; keywords: string[] }[]>`
+        SELECT flags, keywords FROM mail.message_placements WHERE remote_message_ref_id = ${remoteRef!.id}::uuid
+      `;
+      expect(placement).toEqual({ flags: ["\\Answered", "\\Seen"], keywords: ["cloudtest", "Existing"] });
+    } finally {
+      changeState.mockRestore();
+      providerState.mockRestore();
+    }
+  });
+
+  test("conversation triage creates its durable child commands atomically", async () => {
+    const [conversation] = await sql<{ id: string }[]>`
+      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${mailboxId}::uuid, 'Atomic triage', 'fixture', now())
+      RETURNING id
+    `;
+    const contentHashes = [`${"a".repeat(56)}${suffix}`, `${"b".repeat(56)}${suffix}`];
+    const refs: string[] = [];
+    for (const [position, contentHash] of contentHashes.entries()) {
+      const [message] = await sql<{ id: string }[]>`
+        INSERT INTO mail.message_contents (
+          mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
+        ) VALUES (
+          ${mailboxId}::uuid,
+          ${`<atomic-triage-${position}-${suffix}@example.com>`},
+          'Atomic triage',
+          now(),
+          1,
+          ${contentHash},
+          'complete'
+        ) RETURNING id
+      `;
+      const [remoteRef] = await sql<{ id: string }[]>`
+        INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+        VALUES (${inboxFolderId}::uuid, ${message!.id}::uuid, 10, ${880000 + position})
+        RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id)
+        VALUES (${remoteRef!.id}::uuid, ${inboxFolderId}::uuid, ${message!.id}::uuid)
+      `;
+      await sql`
+        INSERT INTO mail.conversation_messages (conversation_id, message_id, position)
+        VALUES (${conversation!.id}::uuid, ${message!.id}::uuid, ${position})
+      `;
+      refs.push(remoteRef!.id);
+    }
+
+    const idempotencyKey = `atomic-triage-${suffix}`;
+    const conflict = await createActorCommand({
+      context: adminContext,
+      mailboxId,
+      enqueue: false,
+      input: {
+        kind: "change_message_state",
+        remoteMessageRefId: refs[1]!,
+        folderId: inboxFolderId,
+        change: { addFlags: ["flagged"], removeFlags: [], addKeywords: [], removeKeywords: [] },
+        idempotencyKey: `${idempotencyKey}:${refs[1]}`,
+      },
+    });
+    expect(conflict.ok).toBe(true);
+
+    const triage = await createConversationTriageCommands({
+      context: adminContext,
+      mailboxId,
+      conversationId: conversation!.id,
+      input: {
+        kind: "change_state",
+        sourceFolderId: inboxFolderId,
+        change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
+        idempotencyKey,
+      },
+    });
+    expect(triage.ok).toBe(false);
+    if (!triage.ok) expect(triage.error.code).toBe("CONFLICT");
+    const [created] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM mail.commands
+      WHERE mailbox_id = ${mailboxId}::uuid
+        AND idempotency_key = ${`${idempotencyKey}:${refs[0]}`}
+    `;
+    expect(created?.count).toBe(0);
   });
 
   test("execution rechecks administration access after command creation", async () => {

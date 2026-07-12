@@ -1,5 +1,6 @@
 import { markdown, sanitizeEmailHtml } from "@valentinkolb/cloud/shared";
 import MailComposer from "nodemailer/lib/mail-composer";
+import type { Readable } from "node:stream";
 import { z } from "zod";
 import { mailAddressSchema } from "../contracts";
 
@@ -16,6 +17,19 @@ export const outboundDraftSnapshotSchema = z.object({
   format: z.enum(["plain", "markdown"]),
   inReplyTo: z.string().max(998).nullable().default(null),
   references: z.array(z.string().max(998)).max(500).default([]),
+  attachments: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        blobId: z.string().uuid(),
+        filename: z.string().min(1).max(255),
+        contentType: z.string().min(1).max(255),
+        byteLength: z.number().int().nonnegative(),
+        contentHash: z.string().length(64),
+      }),
+    )
+    .max(200)
+    .default([]),
 });
 
 type OutboundDraftSnapshot = z.infer<typeof outboundDraftSnapshotSchema>;
@@ -25,7 +39,12 @@ const formatAddress = (address: { name?: string | null; address: string }) => ({
   address: address.address,
 });
 
-export const buildMimeSource = async (params: { snapshot: OutboundDraftSnapshot; messageId: string; date: Date }): Promise<Buffer> => {
+export const buildMimeStream = (params: {
+  snapshot: OutboundDraftSnapshot;
+  messageId: string;
+  date: Date;
+  openAttachment: (blobId: string) => Readable;
+}): Readable => {
   const html = params.snapshot.format === "markdown" ? sanitizeEmailHtml(markdown.renderSync(params.snapshot.body)) : undefined;
   return new MailComposer({
     from: formatAddress(params.snapshot.from),
@@ -40,11 +59,36 @@ export const buildMimeSource = async (params: { snapshot: OutboundDraftSnapshot;
     date: params.date,
     inReplyTo: params.snapshot.inReplyTo ?? undefined,
     references: params.snapshot.references,
+    attachments: params.snapshot.attachments.map((attachment) => ({
+      filename: attachment.filename,
+      contentType: attachment.contentType,
+      content: params.openAttachment(attachment.blobId),
+    })),
     disableFileAccess: true,
     disableUrlAccess: true,
   })
     .compile()
-    .build();
+    .createReadStream();
+};
+
+export const buildMimeSource = async (params: {
+  snapshot: OutboundDraftSnapshot;
+  messageId: string;
+  date: Date;
+  openAttachment?: (blobId: string) => Readable;
+}): Promise<Buffer> => {
+  const chunks: Buffer[] = [];
+  for await (const value of buildMimeStream({
+    ...params,
+    openAttachment:
+      params.openAttachment ??
+      (() => {
+        throw new Error("Attachment source is required");
+      }),
+  })) {
+    chunks.push(Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array));
+  }
+  return Buffer.concat(chunks);
 };
 
 export const outboundRecipients = (snapshot: OutboundDraftSnapshot): string[] =>

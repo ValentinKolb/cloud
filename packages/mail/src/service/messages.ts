@@ -36,6 +36,8 @@ export type MailFolderView = {
   parentId: string | null;
   name: string;
   role: string;
+  providerRole: string;
+  configuredRole: string | null;
   selectable: boolean;
   namespaceKinds: Array<"personal" | "other_users" | "shared">;
   discoveryState: "active" | "missing" | "ambiguous";
@@ -54,6 +56,8 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       parent_id: string | null;
       name: string;
       role: string;
+      provider_role: string;
+      configured_role: string | null;
       selectable: boolean;
       namespace_kinds: MailFolderView["namespaceKinds"];
       discovery_state: MailFolderView["discoveryState"];
@@ -67,7 +71,9 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       f.id,
       f.parent_id,
       f.name,
-      f.role,
+      COALESCE(role_override.role, f.role) AS role,
+      f.role AS provider_role,
+      role_override.role AS configured_role,
       f.selectable,
       ARRAY(
         SELECT DISTINCT ref.namespace_kind
@@ -84,9 +90,12 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       )::int AS unread
     FROM mail.folders f
     JOIN mail.remote_resources rr ON rr.id = f.remote_resource_id
+    LEFT JOIN mail.folder_role_overrides role_override
+      ON role_override.mailbox_id = rr.mailbox_id
+     AND role_override.folder_id = f.id
     LEFT JOIN mail.message_placements mp ON mp.folder_id = f.id
     WHERE rr.mailbox_id = ${mailboxId}::uuid
-    GROUP BY f.id
+    GROUP BY f.id, role_override.role
     ORDER BY
       CASE f.role
         WHEN 'inbox' THEN 0
@@ -106,6 +115,8 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       parentId: row.parent_id,
       name: row.name,
       role: row.role,
+      providerRole: row.provider_role,
+      configuredRole: row.configured_role,
       selectable: row.selectable,
       namespaceKinds: row.namespace_kinds,
       discoveryState: row.discovery_state,

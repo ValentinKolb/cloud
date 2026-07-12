@@ -110,11 +110,19 @@ export type RemoteAppendResult = {
 export type RemoteMessageState = {
   exists: boolean;
   flags: string[];
+  keywords: string[];
   messageId: string | null;
 };
 
+export type RemoteMessageStateChange = {
+  addFlags: string[];
+  removeFlags: string[];
+  addKeywords: string[];
+  removeKeywords: string[];
+};
+
 export type SendSourceRequest = {
-  source: Buffer;
+  source: Readable;
   envelopeFrom: string;
   recipients: string[];
   messageId: string;
@@ -142,16 +150,26 @@ export interface MailConnector {
   send(config: ProviderConnectionInput, request: SendRequest): Promise<SendResult>;
   sendSource(config: ProviderConnectionInput, request: SendSourceRequest): Promise<SendResult>;
   setFlags(config: ProviderConnectionInput, target: RemoteMutationTarget, flags: string[]): Promise<void>;
+  changeMessageState(
+    config: ProviderConnectionInput,
+    target: RemoteMutationTarget,
+    change: RemoteMessageStateChange,
+  ): Promise<RemoteMessageState>;
   copy(config: ProviderConnectionInput, target: RemoteMutationTarget, destinationPath: string): Promise<RemoteCopyResult>;
   move(config: ProviderConnectionInput, target: RemoteMutationTarget, destinationPath: string): Promise<RemoteCopyResult>;
   delete(config: ProviderConnectionInput, target: RemoteMutationTarget): Promise<void>;
   appendSource(
     config: ProviderConnectionInput,
     folderPath: string,
-    source: Buffer,
+    source: Readable,
+    byteLength: number,
     flags?: string[],
     internalDate?: Date,
   ): Promise<RemoteAppendResult>;
   findMessageById(config: ProviderConnectionInput, folderPath: string, messageId: string): Promise<number[]>;
   getMessageState(config: ProviderConnectionInput, target: RemoteMutationTarget): Promise<RemoteMessageState>;
+  createFolder(config: ProviderConnectionInput, path: string, subscribe: boolean): Promise<void>;
+  renameFolder(config: ProviderConnectionInput, path: string, newPath: string): Promise<void>;
+  deleteFolder(config: ProviderConnectionInput, path: string): Promise<void>;
+  setFolderSubscription(config: ProviderConnectionInput, path: string, subscribed: boolean): Promise<void>;
 }

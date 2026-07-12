@@ -2,22 +2,28 @@ import { GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contr
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
 import { err, fail } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
+import { Readable } from "node:stream";
 import { z } from "zod";
 import {
   connectionOwnerSchema,
+  configurableFolderRoleSchema,
+  conversationTriageInputSchema,
   createMailboxInputSchema,
   createSenderIdentityInputSchema,
+  defaultSenderSetupInputSchema,
   draftContentInputSchema,
   mailCommandInputSchema,
   providerConnectionInputSchema,
   searchBackendSchema,
   searchRequestSchema,
+  updateSenderIdentityInputSchema,
 } from "../contracts";
 import {
   bindings,
   cancelSendCommand,
   commands,
   drafts,
+  folders,
   health,
   type MailRequestContext,
   mailboxAccess,
@@ -26,6 +32,7 @@ import {
   providerConnections,
   search,
   senderIdentities,
+  triage,
 } from "../service";
 import { resolveByteRange } from "../service/byte-range";
 
@@ -65,6 +72,10 @@ const verifyIdentitySchema = z.object({
 });
 const updateDraftSchema = z.object({ expectedRevision: z.number().int().positive(), draft: draftContentInputSchema });
 const connectionListQuerySchema = z.object({ mailboxId: z.string().uuid().optional() });
+const roleParamSchema = z.object({ mailboxId: z.string().uuid(), role: configurableFolderRoleSchema });
+const folderRoleInputSchema = z.object({ folderId: z.string().uuid() });
+const draftRevisionSchema = z.object({ expectedRevision: z.coerce.number().int().positive() });
+const attachmentUploadQuerySchema = draftRevisionSchema.extend({ filename: z.string().trim().min(1).max(255) });
 
 const attachmentContentDisposition = (value: string | null): string => {
   const filename = [...(value?.normalize("NFC") || "attachment")].slice(0, 255).join("");
@@ -191,6 +202,31 @@ const api = new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/folders", v("param", uuidParamSchema), async (c) =>
     respond(c, messages.listFolders(requestContext(c), c.req.valid("param").mailboxId)),
   )
+  .put(
+    "/mailboxes/:mailboxId/folder-roles/:role",
+    v("param", roleParamSchema),
+    v("json", folderRoleInputSchema),
+    async (c) =>
+      respond(
+        c,
+        folders.setFolderRole({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          role: c.req.valid("param").role,
+          folderId: c.req.valid("json").folderId,
+        }),
+      ),
+  )
+  .delete("/mailboxes/:mailboxId/folder-roles/:role", v("param", roleParamSchema), async (c) =>
+    respond(
+      c,
+      folders.clearFolderRole({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        role: c.req.valid("param").role,
+      }),
+    ),
+  )
   .get("/mailboxes/:mailboxId/conversations", v("param", uuidParamSchema), v("query", conversationQuerySchema), async (c) =>
     respond(
       c,
@@ -208,6 +244,15 @@ const api = new Hono<AuthContext>()
     async (c) => {
       const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
       return respond(c, messages.listConversationMessages({ context: requestContext(c), ...params, ...c.req.valid("query") }));
+    },
+  )
+  .post(
+    "/mailboxes/:mailboxId/conversations/:conversationId/actions",
+    v("param", mailboxAndIdParamSchema("conversationId")),
+    v("json", conversationTriageInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
+      return respond(c, triage.createConversationTriageCommands({ context: requestContext(c), ...params, input: c.req.valid("json") }));
     },
   )
   .get("/mailboxes/:mailboxId/messages/:messageId", v("param", mailboxAndIdParamSchema("messageId")), async (c) => {
@@ -290,6 +335,37 @@ const api = new Hono<AuthContext>()
     ),
   )
   .post(
+    "/mailboxes/:mailboxId/sender-identities/default/setup",
+    v("param", uuidParamSchema),
+    v("json", defaultSenderSetupInputSchema),
+    async (c) =>
+      respond(
+        c,
+        senderIdentities.setupDefaultSender({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .patch(
+    "/mailboxes/:mailboxId/sender-identities/:senderIdentityId",
+    v("param", mailboxAndIdParamSchema("senderIdentityId")),
+    v("json", updateSenderIdentityInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; senderIdentityId: string };
+      return respond(c, senderIdentities.updateSenderIdentity({ context: requestContext(c), ...params, input: c.req.valid("json") }));
+    },
+  )
+  .delete(
+    "/mailboxes/:mailboxId/sender-identities/:senderIdentityId",
+    v("param", mailboxAndIdParamSchema("senderIdentityId")),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; senderIdentityId: string };
+      return respond(c, senderIdentities.disableSenderIdentity({ context: requestContext(c), ...params }));
+    },
+  )
+  .post(
     "/mailboxes/:mailboxId/sender-identities/:senderIdentityId/verify",
     v("param", mailboxAndIdParamSchema("senderIdentityId")),
     v("json", verifyIdentitySchema),
@@ -301,6 +377,10 @@ const api = new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/drafts", v("param", uuidParamSchema), v("query", limitQuerySchema), async (c) =>
     respond(c, drafts.listDrafts(requestContext(c), c.req.valid("param").mailboxId, c.req.valid("query").limit)),
   )
+  .get("/mailboxes/:mailboxId/drafts/:draftId", v("param", mailboxAndIdParamSchema("draftId")), async (c) => {
+    const params = c.req.valid("param") as { mailboxId: string; draftId: string };
+    return respond(c, drafts.getDraft(requestContext(c), params.mailboxId, params.draftId));
+  })
   .post("/mailboxes/:mailboxId/drafts", v("param", uuidParamSchema), v("json", draftContentInputSchema), async (c) =>
     respond(c, drafts.createDraft({ context: requestContext(c), mailboxId: c.req.valid("param").mailboxId, input: c.req.valid("json") })),
   )
@@ -312,6 +392,64 @@ const api = new Hono<AuthContext>()
       drafts.updateDraft({ context: requestContext(c), ...params, expectedRevision: input.expectedRevision, input: input.draft }),
     );
   })
+  .post(
+    "/mailboxes/:mailboxId/drafts/:draftId/discard",
+    v("param", mailboxAndIdParamSchema("draftId")),
+    v("json", draftRevisionSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; draftId: string };
+      return respond(
+        c,
+        drafts.discardDraft({
+          context: requestContext(c),
+          ...params,
+          expectedRevision: c.req.valid("json").expectedRevision,
+        }),
+      );
+    },
+  )
+  .post(
+    "/mailboxes/:mailboxId/drafts/:draftId/attachments",
+    v("param", mailboxAndIdParamSchema("draftId")),
+    v("query", attachmentUploadQuerySchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; draftId: string };
+      const query = c.req.valid("query");
+      const body = c.req.raw.body;
+      if (!body) return respond(c, fail(err.badInput("Attachment body is required")));
+      const contentLength = c.req.header("content-length");
+      const expectedSize = contentLength == null ? null : Number(contentLength);
+      if (expectedSize != null && (!Number.isSafeInteger(expectedSize) || expectedSize < 0)) {
+        return respond(c, fail(err.badInput("Invalid attachment Content-Length")));
+      }
+      return respond(
+        c,
+        drafts.addDraftAttachment({
+          context: requestContext(c),
+          ...params,
+          expectedRevision: query.expectedRevision,
+          filename: query.filename,
+          contentType: c.req.header("content-type") || "application/octet-stream",
+          stream: Readable.fromWeb(body as never),
+          expectedSize,
+        }),
+      );
+    },
+  )
+  .delete(
+    "/mailboxes/:mailboxId/drafts/:draftId/attachments/:attachmentId",
+    v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), attachmentId: z.string().uuid() })),
+    v("query", draftRevisionSchema),
+    async (c) =>
+      respond(
+        c,
+        drafts.removeDraftAttachment({
+          context: requestContext(c),
+          ...c.req.valid("param"),
+          expectedRevision: c.req.valid("query").expectedRevision,
+        }),
+      ),
+  )
   .post("/mailboxes/:mailboxId/commands", v("param", uuidParamSchema), v("json", mailCommandInputSchema), async (c) =>
     respond(
       c,

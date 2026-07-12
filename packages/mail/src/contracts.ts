@@ -173,6 +173,12 @@ export type FolderRole = z.infer<typeof folderRoleSchema>;
 export const folderRightsSourceSchema = z.enum(["acl", "select", "probe", "unknown"]);
 export type FolderRightsSource = z.infer<typeof folderRightsSourceSchema>;
 
+export const configurableFolderRoleSchema = z.enum(["sent", "drafts", "trash", "archive", "junk"]);
+export type ConfigurableFolderRole = z.infer<typeof configurableFolderRoleSchema>;
+
+export const standardMessageFlagSchema = z.enum(["seen", "answered", "flagged", "draft"]);
+export type StandardMessageFlag = z.infer<typeof standardMessageFlagSchema>;
+
 export const addressRoleSchema = z.enum(["from", "reply_to", "to", "cc", "bcc"]);
 export type AddressRole = z.infer<typeof addressRoleSchema>;
 
@@ -213,9 +219,14 @@ export type MailExecutionOperation = z.infer<typeof mailExecutionOperationSchema
 
 export const commandKindSchema = z.enum([
   "set_flags",
+  "change_message_state",
   "move",
   "copy",
   "delete",
+  "create_folder",
+  "rename_folder",
+  "delete_folder",
+  "set_folder_subscription",
   "send",
   "sync_mailbox",
   "sync_folder",
@@ -243,12 +254,78 @@ const actorCommandBaseSchema = z.object({
   correlationId: z.string().trim().max(200).optional(),
 });
 
+const keywordSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .refine((value) => !value.startsWith("\\"), "Keywords cannot use the IMAP system-flag namespace")
+  .refine((value) => !/[\u0000-\u001f\u007f()\{\s]/.test(value), "Keyword contains unsupported IMAP characters");
+
+const folderLeafNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .refine((value) => !/[\u0000\r\n]/.test(value), "Folder name contains unsupported characters");
+
+export const messageStateChangeSchema = z
+  .object({
+    addFlags: z.array(standardMessageFlagSchema).max(4).default([]),
+    removeFlags: z.array(standardMessageFlagSchema).max(4).default([]),
+    addKeywords: z.array(keywordSchema).max(100).default([]),
+    removeKeywords: z.array(keywordSchema).max(100).default([]),
+  })
+  .superRefine((value, context) => {
+    const additions = new Set([
+      ...value.addFlags.map((flag) => `flag:${flag}`),
+      ...value.addKeywords.map((keyword) => `keyword:${keyword.toLowerCase()}`),
+    ]);
+    const removals = new Set([
+      ...value.removeFlags.map((flag) => `flag:${flag}`),
+      ...value.removeKeywords.map((keyword) => `keyword:${keyword.toLowerCase()}`),
+    ]);
+    if (additions.size + removals.size === 0) {
+      context.addIssue({ code: "custom", message: "At least one state change is required" });
+    }
+    for (const item of additions) {
+      if (removals.has(item)) {
+        context.addIssue({ code: "custom", message: `Cannot add and remove ${item.slice(item.indexOf(":") + 1)} in one command` });
+      }
+    }
+  });
+export type MessageStateChange = z.infer<typeof messageStateChangeSchema>;
+
+export const conversationTriageInputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("change_state"),
+    sourceFolderId: z.string().uuid(),
+    change: messageStateChangeSchema,
+    idempotencyKey: z.string().trim().min(1).max(150),
+    correlationId: z.string().trim().max(200).optional(),
+  }),
+  z.object({
+    kind: z.literal("move_to_role"),
+    sourceFolderId: z.string().uuid(),
+    role: z.enum(["archive", "trash", "junk"]),
+    idempotencyKey: z.string().trim().min(1).max(150),
+    correlationId: z.string().trim().max(200).optional(),
+  }),
+]);
+export type ConversationTriageInput = z.infer<typeof conversationTriageInputSchema>;
+
 export const actorCommandInputSchema = z.discriminatedUnion("kind", [
   actorCommandBaseSchema.extend({
     kind: z.literal("set_flags"),
     remoteMessageRefId: z.string().uuid(),
     folderId: z.string().uuid(),
     flags: z.array(z.string().trim().min(1).max(100)).max(100),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("change_message_state"),
+    remoteMessageRefId: z.string().uuid(),
+    folderId: z.string().uuid(),
+    change: messageStateChangeSchema,
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("move"),
@@ -266,6 +343,26 @@ export const actorCommandInputSchema = z.discriminatedUnion("kind", [
     kind: z.literal("delete"),
     remoteMessageRefId: z.string().uuid(),
     folderId: z.string().uuid(),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("create_folder"),
+    parentFolderId: z.string().uuid().nullable().optional(),
+    name: folderLeafNameSchema,
+    subscribe: z.boolean().default(true),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("rename_folder"),
+    folderId: z.string().uuid(),
+    name: folderLeafNameSchema,
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("delete_folder"),
+    folderId: z.string().uuid(),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("set_folder_subscription"),
+    folderId: z.string().uuid(),
+    subscribed: z.boolean(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("send"),
@@ -354,11 +451,40 @@ export const createSenderIdentityInputSchema = z.object({
 });
 export type CreateSenderIdentityInput = z.infer<typeof createSenderIdentityInputSchema>;
 
+export const updateSenderIdentityInputSchema = createSenderIdentityInputSchema
+  .omit({ fromAddress: true })
+  .extend({
+    displayName: z.string().trim().max(200).optional(),
+    fromAddress: z.string().email().max(320).optional(),
+    authenticationPolicy: senderAuthenticationPolicySchema.optional(),
+  })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, "At least one sender identity field is required");
+export type UpdateSenderIdentityInput = z.infer<typeof updateSenderIdentityInputSchema>;
+
+export const defaultSenderSetupInputSchema = z.object({
+  bindingId: z.string().uuid(),
+  displayName: z.string().trim().max(200).optional(),
+  savesSentAutomatically: z.boolean().default(false),
+});
+export type DefaultSenderSetupInput = z.infer<typeof defaultSenderSetupInputSchema>;
+
 export const mailAddressSchema = z.object({
   name: z.string().trim().max(200).nullable().optional(),
   address: z.string().email().max(320),
 });
 export type MailAddress = z.infer<typeof mailAddressSchema>;
+
+export const draftAttachmentSchema = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  contentType: z.string(),
+  byteLength: z.number().int().nonnegative(),
+  contentHash: z.string().length(64),
+  position: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+});
+export type DraftAttachment = z.infer<typeof draftAttachmentSchema>;
 
 export const draftSchema = z.object({
   id: z.string().uuid(),
@@ -371,6 +497,7 @@ export const draftSchema = z.object({
   subject: z.string(),
   body: z.string(),
   format: z.enum(["plain", "markdown"]),
+  attachments: z.array(draftAttachmentSchema),
   revision: z.number().int().positive(),
   state: z.enum(["draft", "scheduled", "sending", "sent", "discarded"]),
   createdAt: z.string().datetime(),

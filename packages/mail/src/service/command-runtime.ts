@@ -1,27 +1,28 @@
-import { Readable } from "node:stream";
 import { logger } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, mutex, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { z } from "zod";
 import type { CommandState, MailCommand } from "../contracts";
 import { requireMailboxPermission } from "./access";
+import { rediscoverProviderBinding } from "./bindings";
 import { commandStillAuthorized } from "./command-authorization";
 import type { MailRequestContext } from "./auth";
 import { imapSmtpConnector, type RemoteMutationTarget } from "./connectors";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import { enqueueMaintenanceCommand, stopMaintenanceRuntime, submitDueMaintenanceCommands } from "./maintenance-runtime";
-import { storeReadableBlob } from "./message-blobs";
-import { buildMimeSource, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
+import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
+import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 
 const log = logger("mail:commands");
-const MAX_OUTBOUND_SOURCE_BYTES = 8 * 1024 * 1024;
 const STALE_EXECUTION_MINUTES = 10;
 const MUTATION_JOB_LEASE_MS = 3 * 60_000;
 const OUTBOX_JOB_LEASE_MS = 4 * 60_000;
 const JOB_HEARTBEAT_INTERVAL_MS = 30_000;
+const PROVIDER_OPERATION_LEASE_MS = 5 * 60_000;
+const providerOperationMutex = mutex({ id: "mail:remote-resource-sync", defaultTtl: PROVIDER_OPERATION_LEASE_MS, retryCount: 0 });
 
 type JsonRecord = Record<string, unknown>;
 type SqlClient = typeof sql;
@@ -45,6 +46,7 @@ type DbCommandExecution = {
 };
 
 type DbPinnedBinding = {
+  remote_resource_id: string;
   connection_id: string;
   connection_policy: "shared_connection" | "personal_provider_account";
   owner_user_id: string | null;
@@ -52,6 +54,7 @@ type DbPinnedBinding = {
   owner_mailbox_id: string | null;
   capabilities: JsonRecord | string;
   verified_secret_revision: number;
+  remote_locator: JsonRecord | string;
 };
 
 type DbRemoteMessage = {
@@ -87,13 +90,15 @@ const errorMessage = (error: unknown, fallback: string): string => {
 const loadPinnedBinding = async (command: DbCommandExecution): Promise<DbPinnedBinding> => {
   const [binding] = await sql<DbPinnedBinding[]>`
     SELECT
+      pb.remote_resource_id,
       pb.connection_id,
       m.connection_policy,
       pc.owner_user_id,
       pc.owner_service_account_id,
       pc.owner_mailbox_id,
       pb.capabilities,
-      pb.verified_secret_revision
+      pb.verified_secret_revision,
+      pb.remote_locator
     FROM mail.provider_bindings pb
     JOIN mail.remote_resources rr ON rr.id = pb.remote_resource_id
     JOIN mail.mailboxes m ON m.id = rr.mailbox_id
@@ -284,6 +289,7 @@ const updateMutationProjection = async (params: {
   destinationUidValidity?: string | null;
   destinationUid?: number | null;
   flags?: string[];
+  keywords?: string[];
 }): Promise<boolean> => {
   return sql.begin(async (tx) => {
     const [active] = await tx<{ id: string }[]>`
@@ -299,6 +305,13 @@ const updateMutationProjection = async (params: {
       await tx`
         UPDATE mail.message_placements
         SET flags = ${toPgTextArray(params.flags)}::text[], updated_at = now()
+        WHERE remote_message_ref_id = ${params.source.remote_message_ref_id}::uuid
+      `;
+    }
+    if (params.keywords) {
+      await tx`
+        UPDATE mail.message_placements
+        SET keywords = ${toPgTextArray(params.keywords)}::text[], updated_at = now()
         WHERE remote_message_ref_id = ${params.source.remote_message_ref_id}::uuid
       `;
     }
@@ -399,7 +412,17 @@ const PARTIAL_MUTATION_CODES = new Set([
   "REMOTE_MOVE_FAILED",
 ]);
 
-const AMBIGUOUS_COMMAND_CODES = new Set(["AMBIGUOUS_LOCAL_PERSISTENCE", "COMMAND_JOB_LEASE_LOST", "STALE_COMMAND_FENCE"]);
+const AMBIGUOUS_COMMAND_CODES = new Set([
+  "AMBIGUOUS_LOCAL_PERSISTENCE",
+  "COMMAND_JOB_LEASE_LOST",
+  "REMOTE_CREATE_SUBSCRIBE_PARTIAL",
+  "REMOTE_FLAGS_UNCONFIRMED",
+  "REMOTE_STATE_PARTIAL",
+  "REMOTE_STATE_UNCONFIRMED",
+  "REMOTE_SUBSCRIPTION_UNCONFIRMED",
+  "STATE_RECONCILIATION_FAILED",
+  "STALE_COMMAND_FENCE",
+]);
 
 export const mutationFailureState = (error: unknown): CommandState => {
   const code = normalizeCode(error, "");
@@ -434,6 +457,41 @@ type MutationRuntime = Awaited<ReturnType<typeof loadPinnedRuntime>>;
 type MutationTarget = z.infer<typeof sourceTargetSchema>;
 
 const flagsPayloadSchema = z.object({ flags: z.array(z.string().min(1).max(100)).max(100) });
+const messageStatePayloadSchema = z.object({
+  addFlags: z.array(z.enum(["seen", "answered", "flagged", "draft"])).max(4),
+  removeFlags: z.array(z.enum(["seen", "answered", "flagged", "draft"])).max(4),
+  addKeywords: z.array(z.string().min(1).max(100)).max(100),
+  removeKeywords: z.array(z.string().min(1).max(100)).max(100),
+});
+
+const IMAP_SYSTEM_FLAGS = {
+  seen: "\\Seen",
+  answered: "\\Answered",
+  flagged: "\\Flagged",
+  draft: "\\Draft",
+} as const;
+
+const remoteStateChange = (payload: z.infer<typeof messageStatePayloadSchema>) => ({
+  addFlags: payload.addFlags.map((flag) => IMAP_SYSTEM_FLAGS[flag]),
+  removeFlags: payload.removeFlags.map((flag) => IMAP_SYSTEM_FLAGS[flag]),
+  addKeywords: payload.addKeywords,
+  removeKeywords: payload.removeKeywords,
+});
+
+const stateChangeMatches = (
+  state: { exists: boolean; flags: string[]; keywords: string[] },
+  change: ReturnType<typeof remoteStateChange>,
+): boolean => {
+  if (!state.exists) return false;
+  const flags = new Set(state.flags.map((value) => value.toLowerCase()));
+  const keywords = new Set(state.keywords.map((value) => value.toLowerCase()));
+  return (
+    change.addFlags.every((value) => flags.has(value.toLowerCase())) &&
+    change.removeFlags.every((value) => !flags.has(value.toLowerCase())) &&
+    change.addKeywords.every((value) => keywords.has(value.toLowerCase())) &&
+    change.removeKeywords.every((value) => !keywords.has(value.toLowerCase()))
+  );
+};
 
 const assertRemoteMessageIdentity = async (
   runtime: MutationRuntime,
@@ -467,6 +525,28 @@ const executeSetFlagsMutation = async (params: {
   }
   await persistMutationOutcome(async () => {
     if (!(await updateMutationProjection({ command: params.command, source: params.source, flags: expected }))) return;
+    await commandState(params.command, "confirmed");
+  });
+};
+
+const executeMessageStateMutation = async (params: {
+  command: DbCommandExecution;
+  runtime: MutationRuntime;
+  source: DbRemoteMessage;
+  target: RemoteMutationTarget;
+  assertLeaseActive: LeaseAssertion;
+}): Promise<void> => {
+  requireRights(params.source.effective_rights, ["write_flags"]);
+  const payload = messageStatePayloadSchema.parse(parseJsonRecord(params.command.payload));
+  const change = remoteStateChange(payload);
+  await params.assertLeaseActive();
+  const state = await imapSmtpConnector.changeMessageState(params.runtime, params.target, change);
+  await params.assertLeaseActive();
+  if (!stateChangeMatches(state, change)) {
+    throw Object.assign(new Error("Provider did not confirm the requested message state"), { code: "STATE_RECONCILIATION_FAILED" });
+  }
+  await persistMutationOutcome(async () => {
+    if (!(await updateMutationProjection({ command: params.command, source: params.source, flags: state.flags, keywords: state.keywords }))) return;
     await commandState(params.command, "confirmed");
   });
 };
@@ -593,6 +673,7 @@ const executeFreshMutation = async (command: DbCommandExecution, assertLeaseActi
   await assertRemoteMessageIdentity(runtime, source, remote);
   const params = { command, runtime, source, target: remote, assertLeaseActive };
   if (command.kind === "set_flags") return executeSetFlagsMutation(params);
+  if (command.kind === "change_message_state") return executeMessageStateMutation(params);
   if (command.kind === "delete") return executeDeleteMutation(params);
   return executeTransferMutation({ command, runtime, source, target, remoteTarget: remote, assertLeaseActive });
 };
@@ -635,6 +716,26 @@ const reconcileSetFlagsMutation = async (params: {
   const matches = state.exists && JSON.stringify([...state.flags].sort()) === JSON.stringify([...payload.flags].sort());
   if (matches) {
     if (!(await updateMutationProjection({ command: params.command, source: params.source, flags: payload.flags }))) return;
+    await commandState(params.command, "reconciled");
+    return;
+  }
+  await sql`
+    UPDATE mail.commands
+    SET state = 'queued', worker_heartbeat_at = NULL, updated_at = now()
+    WHERE id = ${params.command.id}::uuid AND attempt = ${params.command.attempt} AND state = 'executing'
+  `;
+};
+
+const reconcileMessageStateMutation = async (params: {
+  command: DbCommandExecution;
+  runtime: MutationRuntime;
+  source: DbRemoteMessage;
+  target: RemoteMutationTarget;
+}): Promise<void> => {
+  const change = remoteStateChange(messageStatePayloadSchema.parse(parseJsonRecord(params.command.payload)));
+  const state = await imapSmtpConnector.getMessageState(params.runtime, params.target);
+  if (stateChangeMatches(state, change)) {
+    if (!(await updateMutationProjection({ command: params.command, source: params.source, flags: state.flags, keywords: state.keywords }))) return;
     await commandState(params.command, "reconciled");
     return;
   }
@@ -716,6 +817,10 @@ const reconcileMutation = async (command: DbCommandExecution): Promise<void> => 
     await reconcileSetFlagsMutation({ command, runtime, source, target: remote });
     return;
   }
+  if (command.kind === "change_message_state") {
+    await reconcileMessageStateMutation({ command, runtime, source, target: remote });
+    return;
+  }
   const sourceState = await imapSmtpConnector.getMessageState(runtime, remote);
   if (command.kind === "delete") return reconcileDeleteMutation({ command, source, sourceExists: sourceState.exists });
   if (await reconcileTransferMutation({ command, runtime, target, source, sourceState })) return;
@@ -724,6 +829,311 @@ const reconcileMutation = async (command: DbCommandExecution): Promise<void> => 
     "needs_attention",
     Object.assign(new Error("Remote mutation outcome could not be proven"), { code: "AMBIGUOUS_MUTATION" }),
   );
+};
+
+const FOLDER_COMMAND_KINDS = ["create_folder", "rename_folder", "delete_folder", "set_folder_subscription"] as const;
+type FolderCommandKind = (typeof FOLDER_COMMAND_KINDS)[number];
+
+const isFolderCommandKind = (kind: string): kind is FolderCommandKind => FOLDER_COMMAND_KINDS.includes(kind as FolderCommandKind);
+
+type DbFolderCommandTarget = {
+  folder_id: string;
+  parent_id: string | null;
+  role: string;
+  selectable: boolean;
+  remote_path: string;
+  delimiter: string | null;
+  subscribed: boolean;
+  effective_rights: string[];
+  rights_source: "acl" | "select" | "probe" | "unknown";
+};
+
+const folderTargetSchema = z.object({
+  folderId: z.string().uuid().optional(),
+  parentFolderId: z.string().uuid().nullable().optional(),
+});
+const createFolderPayloadSchema = z.object({ name: z.string().min(1).max(255), subscribe: z.boolean() });
+const renameFolderPayloadSchema = z.object({ name: z.string().min(1).max(255) });
+const subscriptionPayloadSchema = z.object({ subscribed: z.boolean() });
+
+const loadFolderCommandTarget = async (command: DbCommandExecution, folderId: string): Promise<DbFolderCommandTarget> => {
+  const [folder] = await sql<DbFolderCommandTarget[]>`
+    SELECT
+      folder.id AS folder_id,
+      folder.parent_id,
+      folder.role,
+      folder.selectable,
+      ref.remote_path,
+      ref.delimiter,
+      ref.subscribed,
+      ref.effective_rights,
+      ref.rights_source
+    FROM mail.folders folder
+    JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
+    JOIN mail.binding_folder_refs ref
+      ON ref.folder_id = folder.id
+     AND ref.binding_id = ${command.selected_binding_id}::uuid
+     AND ref.missing_since IS NULL
+    WHERE folder.id = ${folderId}::uuid
+      AND resource.mailbox_id = ${command.mailbox_id}::uuid
+      AND folder.discovery_state = 'active'
+  `;
+  if (!folder) throw Object.assign(new Error("Folder is unavailable on the pinned binding"), { code: "FOLDER_UNAVAILABLE" });
+  return folder;
+};
+
+const assertFolderAclRight = (folder: DbFolderCommandTarget, right: "create_children" | "delete_folder"): void => {
+  if (folder.rights_source !== "acl" || folder.effective_rights.includes(right)) return;
+  throw Object.assign(new Error("Provider ACL does not allow this folder operation"), { code: "PROVIDER_RIGHTS_CHANGED" });
+};
+
+const leafPath = (parentPath: string, delimiter: string | null, name: string): string => {
+  if (delimiter && name.includes(delimiter)) {
+    throw Object.assign(new Error("Folder name contains the provider hierarchy delimiter"), { code: "INVALID_FOLDER_NAME" });
+  }
+  if (!parentPath) return name;
+  if (!delimiter) throw Object.assign(new Error("Provider does not expose a folder hierarchy delimiter"), { code: "FOLDER_HIERARCHY_UNAVAILABLE" });
+  return `${parentPath}${delimiter}${name}`;
+};
+
+const replacementPath = (folder: DbFolderCommandTarget, name: string): string => {
+  if (!folder.delimiter) return name;
+  if (name.includes(folder.delimiter)) {
+    throw Object.assign(new Error("Folder name contains the provider hierarchy delimiter"), { code: "INVALID_FOLDER_NAME" });
+  }
+  const separator = folder.remote_path.lastIndexOf(folder.delimiter);
+  return separator < 0 ? name : `${folder.remote_path.slice(0, separator)}${folder.delimiter}${name}`;
+};
+
+const rootPathFromBinding = (binding: DbPinnedBinding): string => {
+  const locator = parseJsonRecord(binding.remote_locator);
+  return typeof locator.rootPath === "string" ? locator.rootPath : "";
+};
+
+const defaultBindingDelimiter = async (bindingId: string): Promise<string | null> => {
+  const [row] = await sql<{ delimiter: string | null }[]>`
+    SELECT delimiter
+    FROM mail.binding_folder_refs
+    WHERE binding_id = ${bindingId}::uuid AND delimiter IS NOT NULL AND missing_since IS NULL
+    ORDER BY char_length(remote_path), remote_path
+    LIMIT 1
+  `;
+  return row?.delimiter ?? null;
+};
+
+const requeueCommand = async (command: DbCommandExecution, code: string, message: string): Promise<void> => {
+  await sql`
+    UPDATE mail.commands
+    SET
+      state = 'queued',
+      worker_heartbeat_at = NULL,
+      last_error_code = ${code},
+      last_error_message = ${message.slice(0, 1_000)},
+      updated_at = now()
+    WHERE id = ${command.id}::uuid AND attempt = ${command.attempt} AND state = 'executing'
+  `;
+};
+
+const recordCommandResult = async (command: DbCommandExecution, result: JsonRecord): Promise<void> => {
+  await sql`
+    UPDATE mail.commands
+    SET result = ${result}::jsonb, updated_at = now()
+    WHERE id = ${command.id}::uuid AND attempt = ${command.attempt} AND state = 'executing'
+  `;
+};
+
+type PreparedFolderOperation = {
+  binding: DbPinnedBinding;
+  runtime: MutationRuntime;
+  rootPath: string;
+  path: string;
+  newPath: string | null;
+  subscribed: boolean | null;
+  folder: DbFolderCommandTarget | null;
+};
+
+const prepareFolderOperation = async (command: DbCommandExecution): Promise<PreparedFolderOperation> => {
+  const binding = await loadPinnedBinding(command);
+  const runtime = await loadPinnedRuntime(binding);
+  const target = folderTargetSchema.parse(parseJsonRecord(command.target));
+  const rootPath = rootPathFromBinding(binding);
+  if (command.kind === "create_folder") {
+    const payload = createFolderPayloadSchema.parse(parseJsonRecord(command.payload));
+    const parent = target.parentFolderId ? await loadFolderCommandTarget(command, target.parentFolderId) : null;
+    if (parent) assertFolderAclRight(parent, "create_children");
+    const delimiter = parent?.delimiter ?? (await defaultBindingDelimiter(command.selected_binding_id));
+    const path = leafPath(parent?.remote_path ?? rootPath, delimiter, payload.name);
+    return { binding, runtime, rootPath, path, newPath: null, subscribed: payload.subscribe, folder: parent };
+  }
+  if (!target.folderId) throw Object.assign(new Error("Folder command target is missing"), { code: "INVALID_COMMAND_TARGET" });
+  const folder = await loadFolderCommandTarget(command, target.folderId);
+  if (command.kind === "rename_folder") {
+    if (folder.remote_path === rootPath) throw Object.assign(new Error("The selected remote root cannot be renamed"), { code: "PROTECTED_FOLDER" });
+    assertFolderAclRight(folder, "delete_folder");
+    if (folder.parent_id) {
+      const parent = await loadFolderCommandTarget(command, folder.parent_id);
+      assertFolderAclRight(parent, "create_children");
+    }
+    const payload = renameFolderPayloadSchema.parse(parseJsonRecord(command.payload));
+    return { binding, runtime, rootPath, path: folder.remote_path, newPath: replacementPath(folder, payload.name), subscribed: null, folder };
+  }
+  if (command.kind === "delete_folder") {
+    if (folder.remote_path === rootPath || ["inbox", "all"].includes(folder.role)) {
+      throw Object.assign(new Error("Protected provider folders cannot be deleted"), { code: "PROTECTED_FOLDER" });
+    }
+    assertFolderAclRight(folder, "delete_folder");
+    return { binding, runtime, rootPath, path: folder.remote_path, newPath: null, subscribed: null, folder };
+  }
+  const payload = subscriptionPayloadSchema.parse(parseJsonRecord(command.payload));
+  return { binding, runtime, rootPath, path: folder.remote_path, newPath: null, subscribed: payload.subscribed, folder };
+};
+
+const remoteFolderByPath = async (operation: PreparedFolderOperation) => {
+  const folders = await imapSmtpConnector.discoverFolders(operation.runtime, operation.rootPath);
+  return {
+    current: folders.find((folder) => folder.path === operation.path) ?? null,
+    replacement: operation.newPath ? (folders.find((folder) => folder.path === operation.newPath) ?? null) : null,
+  };
+};
+
+const verifyEmptyFolderDelete = async (command: DbCommandExecution, operation: PreparedFolderOperation): Promise<void> => {
+  if (!operation.folder?.selectable) throw Object.assign(new Error("Only selectable folders can be deleted"), { code: "FOLDER_NOT_SELECTABLE" });
+  const [children] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM mail.folders child
+    WHERE child.parent_id = ${operation.folder.folder_id}::uuid AND child.discovery_state = 'active'
+  `;
+  if ((children?.count ?? 0) > 0) throw Object.assign(new Error("Folder has child folders"), { code: "FOLDER_NOT_EMPTY" });
+  const status = await imapSmtpConnector.getFolderStatus(operation.runtime, operation.path);
+  if (status.messages > 0) throw Object.assign(new Error("Folder contains remote messages"), { code: "FOLDER_NOT_EMPTY" });
+  await recordCommandTransportMetadata(command, { emptyFolderVerifiedAt: new Date().toISOString(), uidValidity: status.uidValidity });
+};
+
+const finishFolderOperation = async (
+  command: DbCommandExecution,
+  operation: PreparedFolderOperation,
+  state: "confirmed" | "reconciled",
+): Promise<void> => {
+  await persistMutationOutcome(async () => {
+    const discovery = await rediscoverProviderBinding({ bindingId: command.selected_binding_id });
+    await recordCommandResult(command, {
+      path: operation.path,
+      newPath: operation.newPath,
+      subscribed: operation.subscribed,
+      discoveryGeneration: discovery.discoveryGeneration,
+    });
+    await commandState(command, state);
+  });
+};
+
+const executeFreshFolderOperation = async (
+  command: DbCommandExecution,
+  operation: PreparedFolderOperation,
+  assertLeaseActive: LeaseAssertion,
+): Promise<void> => {
+  const before = await remoteFolderByPath(operation);
+  if (command.kind === "create_folder") {
+    if (before.current) throw Object.assign(new Error("A remote folder with this name already exists"), { code: "FOLDER_ALREADY_EXISTS" });
+    await assertLeaseActive();
+    await imapSmtpConnector.createFolder(operation.runtime, operation.path, operation.subscribed === true);
+  } else if (command.kind === "rename_folder") {
+    if (!before.current) throw Object.assign(new Error("Remote folder no longer exists"), { code: "FOLDER_UNAVAILABLE" });
+    if (before.replacement) throw Object.assign(new Error("A remote folder with the new name already exists"), { code: "FOLDER_ALREADY_EXISTS" });
+    await assertLeaseActive();
+    await imapSmtpConnector.renameFolder(operation.runtime, operation.path, operation.newPath!);
+  } else if (command.kind === "delete_folder") {
+    if (!before.current) throw Object.assign(new Error("Remote folder no longer exists"), { code: "FOLDER_UNAVAILABLE" });
+    await verifyEmptyFolderDelete(command, operation);
+    await assertLeaseActive();
+    await imapSmtpConnector.deleteFolder(operation.runtime, operation.path);
+  } else {
+    if (!before.current) throw Object.assign(new Error("Remote folder no longer exists"), { code: "FOLDER_UNAVAILABLE" });
+    await assertLeaseActive();
+    await imapSmtpConnector.setFolderSubscription(operation.runtime, operation.path, operation.subscribed === true);
+  }
+  await recordCommandTransportMetadata(command, {
+    remoteApplied: true,
+    path: operation.path,
+    newPath: operation.newPath,
+    subscribed: operation.subscribed,
+  });
+  await assertLeaseActive();
+  await finishFolderOperation(command, operation, "confirmed");
+};
+
+const reconcileFolderOperation = async (
+  command: DbCommandExecution,
+  operation: PreparedFolderOperation,
+  assertLeaseActive: LeaseAssertion,
+): Promise<void> => {
+  let remote = await remoteFolderByPath(operation);
+  if (command.kind === "create_folder" && remote.current && operation.subscribed === true && !remote.current.subscribed) {
+    await assertLeaseActive();
+    await imapSmtpConnector.setFolderSubscription(operation.runtime, operation.path, true);
+    await assertLeaseActive();
+    remote = await remoteFolderByPath(operation);
+  }
+  const applied =
+    command.kind === "create_folder"
+      ? Boolean(remote.current) && (operation.subscribed !== true || remote.current?.subscribed === true)
+      : command.kind === "rename_folder"
+        ? !remote.current && Boolean(remote.replacement)
+        : command.kind === "delete_folder"
+          ? !remote.current
+          : remote.current?.subscribed === operation.subscribed;
+  if (applied) return finishFolderOperation(command, operation, "reconciled");
+  const safelyRetryable =
+    (command.kind === "create_folder" && !remote.current) ||
+    (command.kind === "rename_folder" && Boolean(remote.current) && !remote.replacement) ||
+    (command.kind === "delete_folder" && Boolean(remote.current)) ||
+    (command.kind === "set_folder_subscription" && Boolean(remote.current));
+  if (safelyRetryable) {
+    await requeueCommand(command, "FOLDER_OPERATION_NOT_APPLIED", "Provider state shows that the idempotent folder operation can be retried");
+    return;
+  }
+  await commandState(
+    command,
+    "needs_attention",
+    Object.assign(new Error("Remote folder outcome could not be proven"), { code: "AMBIGUOUS_FOLDER_OPERATION" }),
+  );
+};
+
+const runFolderOperation = async (
+  claimed: { command: DbCommandExecution; previousState: string },
+  assertJobLeaseActive: LeaseAssertion,
+): Promise<void> => {
+  const { command } = claimed;
+  if (!(await commandStillAuthorized(command, "admin"))) {
+    await commandState(
+      command,
+      claimed.previousState === "ambiguous" ? "needs_attention" : "failed",
+      Object.assign(new Error("Mailbox administration access was revoked before folder execution"), { code: "ACCESS_REVOKED" }),
+    );
+    return;
+  }
+  const operation = await prepareFolderOperation(command);
+  const lock = await providerOperationMutex.acquire(operation.binding.remote_resource_id, PROVIDER_OPERATION_LEASE_MS);
+  if (!lock) {
+    await requeueCommand(command, "REMOTE_RESOURCE_BUSY", "Remote mailbox is currently being synchronized or administered");
+    return;
+  }
+  try {
+    await withLeaseHeartbeat({
+      intervalMs: JOB_HEARTBEAT_INTERVAL_MS,
+      heartbeat: async () => {
+        await assertJobLeaseActive();
+        if (!(await providerOperationMutex.extend(lock, PROVIDER_OPERATION_LEASE_MS))) {
+          throw Object.assign(new Error("Remote mailbox operation lease was lost"), { code: "COMMAND_JOB_LEASE_LOST" });
+        }
+      },
+      work: async (assertLeaseActive) => {
+        if (claimed.previousState === "ambiguous") await reconcileFolderOperation(command, operation, assertLeaseActive);
+        else await executeFreshFolderOperation(command, operation, assertLeaseActive);
+      },
+    });
+  } finally {
+    await providerOperationMutex.release(lock).catch(() => false);
+  }
 };
 
 const runClaimedMutation = async (
@@ -739,6 +1149,8 @@ const runClaimedMutation = async (
           code: "AMBIGUOUS_RECONCILIATION_EXHAUSTED",
         }),
       );
+    } else if (isFolderCommandKind(claimed.command.kind)) {
+      await runFolderOperation(claimed, assertLeaseActive);
     } else if (claimed.previousState === "ambiguous") {
       await reconcileMutation(claimed.command);
     } else {
@@ -757,7 +1169,14 @@ const executeMutationCommandWithHeartbeat = async (
   commandId: string,
   heartbeat?: (fence: { id: string; attempt: number }) => Promise<void>,
 ): Promise<CommandState | null> => {
-  const claimed = await claimCommand(commandId, ["set_flags", "move", "copy", "delete"]);
+  const claimed = await claimCommand(commandId, [
+    "set_flags",
+    "change_message_state",
+    "move",
+    "copy",
+    "delete",
+    ...FOLDER_COMMAND_KINDS,
+  ]);
   if (!claimed) return null;
   const work = (assertLeaseActive: LeaseAssertion) => runClaimedMutation(claimed, assertLeaseActive);
   if (!heartbeat) return work(noLeaseAssertion);
@@ -1070,42 +1489,21 @@ const loadSenderBinding = async (command: DbCommandExecution, senderIdentityId: 
   return sender;
 };
 
-const readCompleteBlob = async (blobId: string): Promise<Buffer> => {
-  const [blob] = await sql<{ byte_length: string | number }[]>`
-    SELECT byte_length
-    FROM mail.message_part_blobs
-    WHERE id = ${blobId}::uuid AND complete = true
-  `;
-  if (!blob) throw Object.assign(new Error("Outbound MIME blob is unavailable"), { code: "MIME_BLOB_MISSING" });
-  const byteLength = Number(blob.byte_length);
-  if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > MAX_OUTBOUND_SOURCE_BYTES) {
-    throw Object.assign(new Error("Outbound MIME source exceeds the configured safety limit"), { code: "MIME_SOURCE_TOO_LARGE" });
-  }
-  const chunks = await sql<{ position: number; bytes: Uint8Array }[]>`
-    SELECT position, bytes
-    FROM mail.message_part_chunks
-    WHERE blob_id = ${blobId}::uuid
-    ORDER BY position
-  `;
-  const source = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.bytes)));
-  if (source.length !== byteLength) throw Object.assign(new Error("Outbound MIME blob is incomplete"), { code: "MIME_BLOB_INCOMPLETE" });
-  return source;
-};
-
-const ensureMimeSource = async (
+const ensureMimeBlob = async (
   outbox: DbOutboxExecution,
-): Promise<{ source: Buffer; snapshot: z.infer<typeof outboundDraftSnapshotSchema> }> => {
+): Promise<{ blobId: string; byteLength: number; snapshot: z.infer<typeof outboundDraftSnapshotSchema> }> => {
   const snapshot = outboundDraftSnapshotSchema.parse(parseJsonRecord(outbox.draft_snapshot));
-  if (outbox.mime_blob_id) return { source: await readCompleteBlob(outbox.mime_blob_id), snapshot };
-  const source = await buildMimeSource({
+  if (outbox.mime_blob_id) {
+    const blob = await getStoredBlob(outbox.mime_blob_id);
+    return { blobId: blob.id, byteLength: blob.byteLength, snapshot };
+  }
+  const source = buildMimeStream({
     snapshot,
     messageId: outbox.stable_message_id,
     date: new Date(outbox.created_at),
+    openAttachment: createBlobReadable,
   });
-  if (source.length > MAX_OUTBOUND_SOURCE_BYTES) {
-    throw Object.assign(new Error("Outbound MIME source exceeds the configured safety limit"), { code: "MIME_SOURCE_TOO_LARGE" });
-  }
-  const blob = await storeReadableBlob(Readable.from([source]), source.length);
+  const blob = await storeReadableBlob(source);
   const [updated] = await sql<{ mime_blob_id: string }[]>`
     UPDATE mail.outbox_submissions
     SET mime_blob_id = COALESCE(mime_blob_id, ${blob.id}::uuid), updated_at = now()
@@ -1115,7 +1513,8 @@ const ensureMimeSource = async (
     RETURNING mime_blob_id
   `;
   if (!updated) throw Object.assign(new Error("Outbox execution fence is stale"), { code: "STALE_COMMAND_FENCE" });
-  return { source: updated.mime_blob_id === blob.id ? source : await readCompleteBlob(updated.mime_blob_id), snapshot };
+  const selected = updated.mime_blob_id === blob.id ? blob : await getStoredBlob(updated.mime_blob_id);
+  return { blobId: selected.id, byteLength: selected.byteLength, snapshot };
 };
 
 const finishOutbox = async (params: {
@@ -1226,7 +1625,8 @@ const appendSentCopy = async (params: {
   outbox: DbOutboxExecution;
   sender: DbSenderBinding;
   runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
-  source: Buffer;
+  mimeBlobId: string;
+  mimeByteLength: number;
   assertLeaseActive: LeaseAssertion;
 }): Promise<boolean> => {
   if (params.sender.saves_sent_automatically) return true;
@@ -1242,7 +1642,8 @@ const appendSentCopy = async (params: {
     await imapSmtpConnector.appendSource(
       params.runtime,
       params.sender.sent_path,
-      params.source,
+      createBlobReadable(params.mimeBlobId),
+      params.mimeByteLength,
       ["\\Seen"],
       new Date(params.outbox.created_at),
     );
@@ -1272,16 +1673,24 @@ const prepareFreshOutbox = async (
 ): Promise<{
   sender: DbSenderBinding;
   runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
-  source: Buffer;
+  mimeBlobId: string;
+  mimeByteLength: number;
   snapshot: z.infer<typeof outboundDraftSnapshotSchema>;
   alreadySent: boolean;
 }> => {
   const sender = await loadSenderBinding(command, outbox.sender_identity_id);
   const runtime = await loadPinnedRuntime(await loadPinnedBinding(command));
-  const { source, snapshot } = await ensureMimeSource(outbox);
+  const mime = await ensureMimeBlob(outbox);
   await assertLeaseActive();
   const beforeSend = await sentMatches({ runtime, sentPath: sender.sent_path, messageId: outbox.stable_message_id });
-  return { sender, runtime, source, snapshot, alreadySent: beforeSend.length > 0 };
+  return {
+    sender,
+    runtime,
+    mimeBlobId: mime.blobId,
+    mimeByteLength: mime.byteLength,
+    snapshot: mime.snapshot,
+    alreadySent: beforeSend.length > 0,
+  };
 };
 
 type PreparedFreshOutbox = Awaited<ReturnType<typeof prepareFreshOutbox>>;
@@ -1346,7 +1755,8 @@ const persistSmtpResult = async (params: {
     outbox,
     sender: prepared.sender,
     runtime: prepared.runtime,
-    source: prepared.source,
+    mimeBlobId: prepared.mimeBlobId,
+    mimeByteLength: prepared.mimeByteLength,
     assertLeaseActive: params.assertLeaseActive,
   });
   await finishOutbox({
@@ -1419,7 +1829,7 @@ const executeFreshOutbox = async (
   try {
     await assertLeaseActive();
     const result = await imapSmtpConnector.sendSource(prepared.runtime, {
-      source: prepared.source,
+      source: createBlobReadable(prepared.mimeBlobId),
       envelopeFrom: prepared.snapshot.envelopeFrom ?? prepared.snapshot.from.address,
       recipients: outboundRecipients(prepared.snapshot),
       messageId: outbox.stable_message_id,
@@ -1458,8 +1868,15 @@ const reconcileSentCopy = async (
   const binding = await loadPinnedBinding(command);
   const sender = await loadSenderBinding(command, outbox.sender_identity_id);
   const runtime = await loadPinnedRuntime(binding);
-  const { source } = await ensureMimeSource(outbox);
-  const stored = await appendSentCopy({ outbox, sender, runtime, source, assertLeaseActive });
+  const mime = await ensureMimeBlob(outbox);
+  const stored = await appendSentCopy({
+    outbox,
+    sender,
+    runtime,
+    mimeBlobId: mime.blobId,
+    mimeByteLength: mime.byteLength,
+    assertLeaseActive,
+  });
   if (stored) {
     await sql`
       UPDATE mail.outbox_submissions
@@ -1617,7 +2034,10 @@ const recoverStaleExecutions = async (): Promise<number> => {
         SELECT id
         FROM mail.commands
         WHERE state = 'executing'
-          AND kind IN ('set_flags', 'move', 'copy', 'delete')
+          AND kind IN (
+            'set_flags', 'change_message_state', 'move', 'copy', 'delete',
+            'create_folder', 'rename_folder', 'delete_folder', 'set_folder_subscription'
+          )
           AND COALESCE(worker_heartbeat_at, started_at) < now() - (${STALE_EXECUTION_MINUTES}::text || ' minutes')::interval
         ORDER BY id
         FOR UPDATE SKIP LOCKED
@@ -1730,7 +2150,7 @@ export const enqueueMailCommand = async (commandId: string, kind: MailCommand["k
     }
     return;
   }
-  if (["set_flags", "move", "copy", "delete"].includes(kind)) {
+  if (["set_flags", "change_message_state", "move", "copy", "delete", ...FOLDER_COMMAND_KINDS].includes(kind)) {
     await mutationJob.submit({ key: `command:${commandId}`, input: { commandId } });
     return;
   }
@@ -1746,7 +2166,10 @@ const submitDueCommands = async (): Promise<{ commands: number; maintenance: num
     SELECT id, kind
     FROM mail.commands
     WHERE state IN ('queued', 'ambiguous')
-      AND kind IN ('set_flags', 'move', 'copy', 'delete')
+      AND kind IN (
+        'set_flags', 'change_message_state', 'move', 'copy', 'delete',
+        'create_folder', 'rename_folder', 'delete_folder', 'set_folder_subscription'
+      )
     ORDER BY created_at, id
     LIMIT 500
   `;

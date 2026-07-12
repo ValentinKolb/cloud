@@ -8,7 +8,7 @@ import { cancelSendCommand, executeMutationCommand, executeOutboxSubmission } fr
 import { createActorCommand } from "./commands";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
-import { createDraft, updateDraft } from "./drafts";
+import { addDraftAttachment, createDraft, discardDraft, removeDraftAttachment, updateDraft } from "./drafts";
 import { resolveMailExecution } from "./execution";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
@@ -17,6 +17,7 @@ import { createAttachmentStream, openAttachment } from "./messages";
 import { createProviderConnection, listProviderConnections, replaceProviderConnection } from "./provider-connections";
 import { searchMessages } from "./search";
 import { ingestEnvelope } from "./sync-runtime";
+import { createConversationTriageCommands } from "./triage";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -325,6 +326,40 @@ suite("mail PostgreSQL foundation", () => {
       GROUP BY c.id
     `;
     expect(answeredConversation).toEqual({ response_needed: false, message_count: 3 });
+    const conversationRead = await createConversationTriageCommands({
+      context,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+      input: {
+        kind: "change_state",
+        sourceFolderId: folder!.id,
+        change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
+        idempotencyKey: `conversation-read-${suffix}`,
+      },
+    });
+    expect(conversationRead.ok).toBe(true);
+    if (!conversationRead.ok) return;
+    expect(conversationRead.data.commands).toHaveLength(3);
+    expect(new Set(conversationRead.data.commands.map((item) => item.correlationId))).toEqual(
+      new Set([conversationRead.data.correlationId]),
+    );
+    const replayedConversationRead = await createConversationTriageCommands({
+      context,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+      input: {
+        kind: "change_state",
+        sourceFolderId: folder!.id,
+        change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
+        idempotencyKey: `conversation-read-${suffix}`,
+      },
+    });
+    expect(replayedConversationRead.ok).toBe(true);
+    if (replayedConversationRead.ok) {
+      expect(replayedConversationRead.data.commands.map((item) => item.id)).toEqual(
+        conversationRead.data.commands.map((item) => item.id),
+      );
+    }
 
     const emptyDraft = await createDraft({
       context,
@@ -339,8 +374,7 @@ suite("mail PostgreSQL foundation", () => {
         format: "markdown",
       },
     });
-    expect(emptyDraft.ok).toBe(true);
-    if (!emptyDraft.ok) return;
+    if (!emptyDraft.ok) throw new Error(`${emptyDraft.error.code}: ${emptyDraft.error.message}`);
     const emptySend = await createActorCommand({
       context,
       mailboxId: mailbox.data.id,
@@ -387,6 +421,26 @@ suite("mail PostgreSQL foundation", () => {
       { action: "draft.created", revision: 1 },
       { action: "draft.updated", revision: 2 },
     ]);
+    const outgoingAttachment = Buffer.from(`outgoing attachment ${suffix}`);
+    const draftWithAttachment = await addDraftAttachment({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      expectedRevision: draft.data.revision,
+      filename: "integration.txt",
+      contentType: "text/plain",
+      stream: Readable.from([outgoingAttachment]),
+      expectedSize: outgoingAttachment.length,
+    });
+    expect(draftWithAttachment.ok).toBe(true);
+    if (!draftWithAttachment.ok) return;
+    expect(draftWithAttachment.data.attachments).toHaveLength(1);
+    const [outgoingAttachmentBlob] = await sql<{ blob_id: string }[]>`
+      SELECT blob_id
+      FROM mail.draft_attachments
+      WHERE id = ${draftWithAttachment.data.attachments[0]!.id}::uuid
+    `;
+    ids.blobIds.push(outgoingAttachmentBlob!.blob_id);
     const command = await createActorCommand({
       context,
       mailboxId: mailbox.data.id,
@@ -434,8 +488,48 @@ suite("mail PostgreSQL foundation", () => {
     expect(outbox?.state).toBe("undo_window");
     const snapshot = typeof outbox?.draft_snapshot === "string" ? JSON.parse(outbox.draft_snapshot) : outbox?.draft_snapshot;
     expect(snapshot?.subject).toBe("Integration subject");
+    expect(snapshot?.attachments).toEqual([
+      expect.objectContaining({
+        id: draftWithAttachment.data.attachments[0]!.id,
+        blobId: outgoingAttachmentBlob!.blob_id,
+        filename: "integration.txt",
+        byteLength: outgoingAttachment.length,
+      }),
+    ]);
     const cancelled = await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: command.data.id });
     expect(cancelled.ok).toBe(true);
+    const withoutAttachment = await removeDraftAttachment({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      attachmentId: draftWithAttachment.data.attachments[0]!.id,
+      expectedRevision: draftWithAttachment.data.revision,
+    });
+    expect(withoutAttachment.ok).toBe(true);
+    if (!withoutAttachment.ok) return;
+    expect(withoutAttachment.data.attachments).toEqual([]);
+    const discarded = await discardDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      expectedRevision: withoutAttachment.data.revision,
+    });
+    expect(discarded.ok && discarded.data.state).toBe("discarded");
+    const attachmentActivity = await sql<{ action: string; target_type: string }[]>`
+      SELECT action, target_type
+      FROM mail.activity_events
+      WHERE mailbox_id = ${mailbox.data.id}::uuid
+        AND (
+          (action IN ('draft.attachment_added', 'draft.attachment_removed') AND metadata->>'draftId' = ${draft.data.id})
+          OR (target_type = 'draft' AND target_id = ${draft.data.id}::uuid AND action = 'draft.discarded')
+        )
+      ORDER BY id
+    `;
+    expect(attachmentActivity).toEqual([
+      { action: "draft.attachment_added", target_type: "draft_attachment" },
+      { action: "draft.attachment_removed", target_type: "draft_attachment" },
+      { action: "draft.discarded", target_type: "draft" },
+    ]);
 
     const [message] = await sql<{ id: string }[]>`
       INSERT INTO mail.message_contents (

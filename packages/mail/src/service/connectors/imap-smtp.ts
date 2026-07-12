@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
+import type { Readable } from "node:stream";
 import {
   type FetchMessageObject,
   ImapFlow,
@@ -30,6 +31,7 @@ import type {
   RemoteAppendResult,
   RemoteCopyResult,
   RemoteMessageState,
+  RemoteMessageStateChange,
   RemoteMutationTarget,
   SendRequest,
   SendResult,
@@ -38,6 +40,7 @@ import type {
   SourceDownloadRequest,
 } from "./contract";
 import { createPinnedLookup, type ResolvedEndpoint, resolvePublicEndpoint } from "./endpoint-policy";
+import { appendStream } from "./imap-append-stream";
 import { readImapAclRights, selectFallbackRights } from "./imap-acl";
 
 type NamespaceEntry = { prefix: string; delimiter: string | null };
@@ -229,7 +232,7 @@ const mapFolder = (entry: ListResponse): RemoteFolder => ({
   delimiter: entry.delimiter || null,
   parentPath: entry.parentPath || null,
   role: roleFromList(entry),
-  subscribed: entry.subscribed,
+  subscribed: entry.subscribed === true,
   selectable: !entry.flags.has("\\Noselect"),
   uidValidity: entry.status?.uidValidity?.toString() ?? null,
   uidNext: entry.status?.uidNext?.toString() ?? null,
@@ -281,6 +284,7 @@ export const parseReferences = async (headers: Buffer | undefined): Promise<stri
 
 const mapFetchedEnvelope = async (message: FetchMessageObject, request: EnvelopeBatchRequest): Promise<ConnectorEnvelope> => {
   const envelope = message.envelope;
+  const state = splitRemoteFlags(message.flags ?? []);
   return {
     remoteRef: {
       folderStableKey: request.folderStableKey,
@@ -297,8 +301,8 @@ const mapFetchedEnvelope = async (message: FetchMessageObject, request: Envelope
     sentAt: envelope?.date ?? null,
     internalDate: message.internalDate ? new Date(message.internalDate) : (envelope?.date ?? new Date(0)),
     sizeBytes: message.size ?? 0,
-    flags: [...(message.flags ?? [])].sort(),
-    labels: [...(message.labels ?? [])].sort(),
+    flags: state.flags,
+    labels: [...new Set([...state.keywords, ...(message.labels ?? [])])].sort(),
     addresses: {
       from: mapAddresses(envelope?.from),
       replyTo: mapAddresses(envelope?.replyTo),
@@ -308,6 +312,13 @@ const mapFetchedEnvelope = async (message: FetchMessageObject, request: Envelope
     },
     mimeStructure: structureToJson(message.bodyStructure),
   };
+};
+
+const splitRemoteFlags = (values: Iterable<string>): { flags: string[]; keywords: string[] } => {
+  const flags: string[] = [];
+  const keywords: string[] = [];
+  for (const value of values) (value.startsWith("\\") ? flags : keywords).push(value);
+  return { flags: [...new Set(flags)].sort(), keywords: [...new Set(keywords)].sort() };
 };
 
 export const selectUidBatch = async (params: {
@@ -484,11 +495,12 @@ const fetchFlagChanges = async (
         { uid: true, flags: true, labels: true },
         { uid: true, changedSince: BigInt(sinceModseq) },
       )) {
+        const state = splitRemoteFlags(message.flags ?? []);
         changes.push({
           uid: message.uid,
           modseq: message.modseq?.toString() ?? null,
-          flags: [...(message.flags ?? [])].sort(),
-          labels: [...(message.labels ?? [])].sort(),
+          flags: state.flags,
+          labels: [...new Set([...state.keywords, ...(message.labels ?? [])])].sort(),
         });
       }
       return changes;
@@ -620,7 +632,45 @@ const withSelectedMailbox = async <T>(
 const setFlags = async (config: ProviderConnectionInput, target: RemoteMutationTarget, flags: string[]): Promise<void> =>
   withSelectedMailbox(config, target, async (client) => {
     const changed = await client.messageFlagsSet(target.uid, flags, { uid: true });
-    if (!changed) throw Object.assign(new Error("Remote message no longer exists"), { code: "REMOTE_MESSAGE_MISSING" });
+    if (!changed) throw Object.assign(new Error("Provider did not confirm the remote flag replacement"), { code: "REMOTE_FLAGS_UNCONFIRMED" });
+  });
+
+const changeMessageState = async (
+  config: ProviderConnectionInput,
+  target: RemoteMutationTarget,
+  change: RemoteMessageStateChange,
+): Promise<RemoteMessageState> =>
+  withSelectedMailbox(config, target, async (client) => {
+    const additions = [...new Set([...change.addFlags, ...change.addKeywords])];
+    const removals = [...new Set([...change.removeFlags, ...change.removeKeywords])];
+    let changedState = false;
+    try {
+      if (additions.length > 0) {
+        const changed = await client.messageFlagsAdd(target.uid, additions, { uid: true });
+        if (!changed) throw Object.assign(new Error("Provider did not confirm the remote state addition"), { code: "REMOTE_STATE_UNCONFIRMED" });
+        changedState = true;
+      }
+      if (removals.length > 0) {
+        const changed = await client.messageFlagsRemove(target.uid, removals, { uid: true });
+        if (!changed) throw Object.assign(new Error("Provider did not confirm the remote state removal"), { code: "REMOTE_STATE_UNCONFIRMED" });
+        changedState = true;
+      }
+      const message = await client.fetchOne(target.uid, { uid: true, flags: true, envelope: true }, { uid: true });
+      if (!message) return { exists: false, flags: [], keywords: [], messageId: null };
+      const state = splitRemoteFlags(message.flags ?? []);
+      return {
+        exists: true,
+        flags: state.flags,
+        keywords: state.keywords,
+        messageId: message.envelope?.messageId?.trim() || null,
+      };
+    } catch (cause) {
+      if (!changedState) throw cause;
+      throw Object.assign(new Error("Remote message state may have changed before the operation failed"), {
+        code: "REMOTE_STATE_PARTIAL",
+        cause,
+      });
+    }
   });
 
 const mapCopyResult = (
@@ -672,17 +722,13 @@ const deleteMessage = async (config: ProviderConnectionInput, target: RemoteMuta
 const appendSource = async (
   config: ProviderConnectionInput,
   folderPath: string,
-  source: Buffer,
+  source: Readable,
+  byteLength: number,
   flags: string[] = ["\\Seen"],
   internalDate = new Date(),
 ): Promise<RemoteAppendResult> =>
   withImapClient(config, async (client) => {
-    const result = await client.append(folderPath, source, flags, internalDate);
-    if (!result) throw Object.assign(new Error("Remote message append failed"), { code: "REMOTE_APPEND_FAILED" });
-    return {
-      uidValidity: result.uidValidity?.toString() ?? null,
-      uid: result.uid ?? null,
-    };
+    return appendStream({ client, path: folderPath, source, byteLength, flags, internalDate });
   });
 
 const normalizeMessageId = (value: string | null | undefined): string => value?.trim().toLowerCase() ?? "";
@@ -708,13 +754,45 @@ const findMessageById = async (config: ProviderConnectionInput, folderPath: stri
 const getMessageState = async (config: ProviderConnectionInput, target: RemoteMutationTarget): Promise<RemoteMessageState> =>
   withSelectedMailbox(config, target, async (client) => {
     const message = await client.fetchOne(target.uid, { uid: true, flags: true, envelope: true }, { uid: true });
+    const state = message ? splitRemoteFlags(message.flags ?? []) : { flags: [], keywords: [] };
     return message
       ? {
           exists: true,
-          flags: [...(message.flags ?? [])].sort(),
+          flags: state.flags,
+          keywords: state.keywords,
           messageId: message.envelope?.messageId?.trim() || null,
         }
-      : { exists: false, flags: [], messageId: null };
+      : { exists: false, flags: [], keywords: [], messageId: null };
+  });
+
+const createFolder = async (config: ProviderConnectionInput, path: string, subscribe: boolean): Promise<void> =>
+  withImapClient(config, async (client) => {
+    await client.mailboxCreate(path);
+    if (subscribe && !(await client.mailboxSubscribe(path))) {
+      throw Object.assign(new Error("Remote folder was created but could not be subscribed"), {
+        code: "REMOTE_CREATE_SUBSCRIBE_PARTIAL",
+      });
+    }
+  });
+
+const renameFolder = async (config: ProviderConnectionInput, path: string, newPath: string): Promise<void> =>
+  withImapClient(config, async (client) => {
+    await client.mailboxRename(path, newPath);
+  });
+
+const deleteFolder = async (config: ProviderConnectionInput, path: string): Promise<void> =>
+  withImapClient(config, async (client) => {
+    await client.mailboxDelete(path);
+  });
+
+const setFolderSubscription = async (config: ProviderConnectionInput, path: string, subscribed: boolean): Promise<void> =>
+  withImapClient(config, async (client) => {
+    const changed = subscribed ? await client.mailboxSubscribe(path) : await client.mailboxUnsubscribe(path);
+    if (!changed) {
+      throw Object.assign(new Error("Provider did not confirm the remote folder subscription"), {
+        code: "REMOTE_SUBSCRIPTION_UNCONFIRMED",
+      });
+    }
   });
 
 export const imapSmtpConnector: MailConnector = {
@@ -728,10 +806,15 @@ export const imapSmtpConnector: MailConnector = {
   send,
   sendSource,
   setFlags,
+  changeMessageState,
   copy,
   move,
   delete: deleteMessage,
   appendSource,
   findMessageById,
   getMessageState,
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  setFolderSubscription,
 };

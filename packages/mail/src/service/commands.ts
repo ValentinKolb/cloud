@@ -107,6 +107,7 @@ type PreparedActorCommand = {
   draftId: string | null;
   scheduledAt: string | null;
   undoSeconds: number;
+  requiredPermission: "write" | "admin";
 };
 
 type DraftForOutbox = {
@@ -123,6 +124,7 @@ type DraftForOutbox = {
   envelope_sender: string | null;
   parent_message_id: string | null;
   reference_ids: string[] | null;
+  attachments: unknown;
 };
 
 const actorDatabaseId = (actor: ActorRef): string | null => {
@@ -148,12 +150,28 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
     draftId: null,
     scheduledAt: null,
     undoSeconds: 0,
+    requiredPermission: "write" as const,
   };
   if (input.kind === "set_flags") {
     return ok({
       ...base,
       target: { remoteMessageRefId: input.remoteMessageRefId, folderId: input.folderId },
       payload: { flags: [...new Set(input.flags.map((flag) => flag.trim()))].sort() },
+      folderRequirements: [{ folderId: input.folderId, rights: ["write_flags"] }],
+      remoteMessageRefId: input.remoteMessageRefId,
+      sourceFolderId: input.folderId,
+    });
+  }
+  if (input.kind === "change_message_state") {
+    return ok({
+      ...base,
+      target: { remoteMessageRefId: input.remoteMessageRefId, folderId: input.folderId },
+      payload: {
+        addFlags: [...new Set(input.change.addFlags)].sort(),
+        removeFlags: [...new Set(input.change.removeFlags)].sort(),
+        addKeywords: [...new Set(input.change.addKeywords)].sort(),
+        removeKeywords: [...new Set(input.change.removeKeywords)].sort(),
+      },
       folderRequirements: [{ folderId: input.folderId, rights: ["write_flags"] }],
       remoteMessageRefId: input.remoteMessageRefId,
       sourceFolderId: input.folderId,
@@ -183,6 +201,30 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
       payload: { deleted: true },
       folderRequirements: [{ folderId: input.folderId, rights: ["delete_messages"] }],
       remoteMessageRefId: input.remoteMessageRefId,
+      sourceFolderId: input.folderId,
+    });
+  }
+  if (input.kind === "create_folder") {
+    return ok({
+      ...base,
+      requiredPermission: "admin",
+      target: { parentFolderId: input.parentFolderId ?? null },
+      payload: { name: input.name, subscribe: input.subscribe },
+      folderRequirements: input.parentFolderId ? [{ folderId: input.parentFolderId, rights: [] }] : [],
+    });
+  }
+  if (input.kind === "rename_folder" || input.kind === "delete_folder" || input.kind === "set_folder_subscription") {
+    return ok({
+      ...base,
+      requiredPermission: "admin",
+      target: { folderId: input.folderId },
+      payload:
+        input.kind === "rename_folder"
+          ? { name: input.name }
+          : input.kind === "set_folder_subscription"
+            ? { subscribed: input.subscribed }
+            : {},
+      folderRequirements: [{ folderId: input.folderId, rights: [] }],
       sourceFolderId: input.folderId,
     });
   }
@@ -235,6 +277,23 @@ const validateCommandTargets = async (params: {
     if (!draft) return fail(err.badInput("Draft or sender identity is not ready for sending"));
     if (!draft.has_recipients) return fail(err.badInput("At least one recipient is required before sending"));
   }
+  if (["create_folder", "rename_folder", "delete_folder", "set_folder_subscription"].includes(params.prepared.kind)) {
+    const targetFolderId = (params.prepared.target.folderId ?? params.prepared.target.parentFolderId) as string | null | undefined;
+    if (targetFolderId) {
+      const [folder] = await params.db<{ id: string; role: string; discovery_state: string }[]>`
+        SELECT folder.id, folder.role, folder.discovery_state
+        FROM mail.folders folder
+        JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
+        WHERE folder.id = ${targetFolderId}::uuid
+          AND resource.mailbox_id = ${params.mailboxId}::uuid
+      `;
+      if (!folder) return fail(err.notFound("Mail folder"));
+      if (folder.discovery_state !== "active") return fail(err.badInput("Only an active remote folder can be administered"));
+      if (params.prepared.kind === "delete_folder" && ["inbox", "all"].includes(folder.role)) {
+        return fail(err.badInput("Protected provider folders cannot be deleted"));
+      }
+    }
+  }
   return ok();
 };
 
@@ -261,7 +320,24 @@ const createSendOutbox = async (params: {
       si.reply_to,
       si.envelope_sender,
       latest.message_id AS parent_message_id,
-      latest.reference_ids
+      latest.reference_ids,
+      COALESCE(
+        (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'id', attachment.id,
+              'blobId', attachment.blob_id,
+              'filename', attachment.filename,
+              'contentType', attachment.content_type,
+              'byteLength', attachment.byte_length,
+              'contentHash', attachment.content_hash
+            ) ORDER BY attachment.position, attachment.id
+          )
+          FROM mail.draft_attachments attachment
+          WHERE attachment.draft_id = d.id AND attachment.removed_at IS NULL
+        ),
+        '[]'::jsonb
+      ) AS attachments
     FROM mail.drafts d
     JOIN mail.sender_identities si ON si.id = d.sender_identity_id
     LEFT JOIN LATERAL (
@@ -329,6 +405,7 @@ const createSendOutbox = async (params: {
         format: draft.body_format,
         inReplyTo: draft.parent_message_id,
         references,
+        attachments: draft.attachments,
       }}::jsonb
     )
   `;
@@ -339,11 +416,17 @@ const createSendOutbox = async (params: {
   `;
 };
 
-export const createActorCommand = async (params: {
+type CreateActorCommandParams = {
   context: MailRequestContext;
   mailboxId: string;
   input: ActorCommandInput;
-}): Promise<Result<MailCommand>> => {
+  enqueue?: boolean;
+};
+
+const createActorCommandInTransaction = async (
+  params: CreateActorCommandParams,
+  tx: typeof sql,
+): Promise<Result<MailCommand>> => {
   const parsed = actorCommandInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail command"));
   const preparedResult = prepareActorCommand(parsed.data);
@@ -352,122 +435,158 @@ export const createActorCommand = async (params: {
   const requestHash = sha256Json({ kind: prepared.kind, target: prepared.target, payload: prepared.payload });
   const actor = actorRefFromRequest(params.context);
 
+  const [mailbox] = await tx<{ id: string }[]>`
+    SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
+  `;
+  if (!mailbox) return fail(err.notFound("Mailbox"));
+  if (prepared.requiredPermission === "admin") {
+    const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
+    if (!permission.ok) return permission;
+  }
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:${prepared.kind}:${stableTargetKey(prepared.target)}`}, 0))`;
+
+  const [existing] = await tx<DbCommand[]>`
+    SELECT ${commandColumns}
+    FROM mail.commands c
+    WHERE c.mailbox_id = ${params.mailboxId}::uuid AND c.idempotency_key = ${prepared.idempotencyKey}
+    FOR UPDATE
+  `;
+  if (existing) {
+    return existing.request_hash === requestHash
+      ? ok(mapCommand(existing))
+      : fail(err.conflict("Idempotency key with a different mail command"));
+  }
+
+  const targets = await validateCommandTargets({ mailboxId: params.mailboxId, prepared, db: tx });
+  if (!targets.ok) return targets;
+  const execution = await resolveMailExecution({
+    mailboxId: params.mailboxId,
+    operation: prepared.kind === "send" ? "actorSend" : "actorMutation",
+    context: params.context,
+    folderRequirements: prepared.folderRequirements,
+    senderIdentityId: prepared.senderIdentityId,
+    db: tx,
+  });
+  if (!execution.ok) return execution;
+  if (!execution.data.bindingId) return fail(err.forbidden("A remote mutation requires an active provider binding"));
+
+  const [row] = await tx<DbCommand[]>`
+    INSERT INTO mail.commands AS c (
+      mailbox_id,
+      kind,
+      actor_kind,
+      actor_id,
+      delegated_user_id,
+      idempotency_key,
+      request_hash,
+      correlation_id,
+      target,
+      payload,
+      selected_binding_id,
+      selected_secret_revision,
+      rights_snapshot,
+      transport_metadata,
+      access_subject_kind,
+      access_subject_id,
+      credential_scopes
+    )
+    VALUES (
+      ${params.mailboxId}::uuid,
+      ${prepared.kind},
+      ${actor.kind},
+      ${actorDatabaseId(actor)}::uuid,
+      ${actor.kind === "service_account" ? actor.delegatedUserId : null}::uuid,
+      ${prepared.idempotencyKey},
+      ${requestHash},
+      ${prepared.correlationId},
+      ${prepared.target}::jsonb,
+      ${prepared.payload}::jsonb,
+      ${execution.data.bindingId}::uuid,
+      ${execution.data.secretRevision},
+      ${execution.data.rightsSnapshot}::jsonb,
+      ${{ sentDelivery: execution.data.sentDelivery }}::jsonb,
+      ${params.context.accessSubject.type},
+      ${accessSubjectDatabaseId(params.context)}::uuid,
+      ${toPgTextArray(params.context.actor.kind === "service_account" ? params.context.actor.scopes : [])}::text[]
+    )
+    RETURNING ${commandColumns}
+  `;
+  if (!row) throw new Error("Mail command insert returned no row");
+  await createSendOutbox({
+    db: tx,
+    mailboxId: params.mailboxId,
+    commandId: row.id,
+    selectedBindingId: execution.data.bindingId,
+    prepared,
+  });
+  await tx`
+    INSERT INTO mail.activity_events (
+      mailbox_id, command_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+    )
+    VALUES (
+      ${params.mailboxId}::uuid,
+      ${row.id}::uuid,
+      ${actor.kind},
+      ${actorDatabaseId(actor)}::uuid,
+      ${`command.${prepared.kind}`},
+      'requested',
+      'command',
+      ${row.id}::uuid,
+      ${{ selectedBindingId: execution.data.bindingId, correlationId: prepared.correlationId }}::jsonb
+    )
+  `;
+  await audit.record(
+    {
+      action: `mail.command.${prepared.kind}.request`,
+      outcome: "allowed",
+      actor: auditActorFromRequest(params.context),
+      target: { type: "mailbox", id: params.mailboxId },
+      requestId: params.context.requestId,
+      metadata: { commandId: row.id, selectedBindingId: execution.data.bindingId, target: prepared.target },
+    },
+    tx,
+  );
+  return ok(mapCommand(row));
+};
+
+const enqueueActorCommands = async (commands: MailCommand[]): Promise<void> => {
+  await Promise.all(commands.map((command) => enqueueMailCommand(command.id, command.kind).catch(() => undefined)));
+};
+
+export const createActorCommand = async (params: CreateActorCommandParams): Promise<Result<MailCommand>> => {
   try {
-    const result = await sql.begin(async (tx) => {
-      const [mailbox] = await tx<{ id: string }[]>`
-        SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
-      `;
-      if (!mailbox) return fail(err.notFound("Mailbox"));
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:${prepared.kind}:${stableTargetKey(prepared.target)}`}, 0))`;
-
-      const [existing] = await tx<DbCommand[]>`
-        SELECT ${commandColumns}
-        FROM mail.commands c
-        WHERE c.mailbox_id = ${params.mailboxId}::uuid AND c.idempotency_key = ${prepared.idempotencyKey}
-        FOR UPDATE
-      `;
-      if (existing) {
-        return existing.request_hash === requestHash
-          ? ok(mapCommand(existing))
-          : fail(err.conflict("Idempotency key with a different mail command"));
-      }
-
-      const targets = await validateCommandTargets({ mailboxId: params.mailboxId, prepared, db: tx });
-      if (!targets.ok) return targets;
-      const execution = await resolveMailExecution({
-        mailboxId: params.mailboxId,
-        operation: prepared.kind === "send" ? "actorSend" : "actorMutation",
-        context: params.context,
-        folderRequirements: prepared.folderRequirements,
-        senderIdentityId: prepared.senderIdentityId,
-        db: tx,
-      });
-      if (!execution.ok) return execution;
-      if (!execution.data.bindingId) return fail(err.forbidden("A remote mutation requires an active provider binding"));
-
-      const [row] = await tx<DbCommand[]>`
-        INSERT INTO mail.commands AS c (
-          mailbox_id,
-          kind,
-          actor_kind,
-          actor_id,
-          delegated_user_id,
-          idempotency_key,
-          request_hash,
-          correlation_id,
-          target,
-          payload,
-          selected_binding_id,
-          selected_secret_revision,
-          rights_snapshot,
-          transport_metadata,
-          access_subject_kind,
-          access_subject_id,
-          credential_scopes
-        )
-        VALUES (
-          ${params.mailboxId}::uuid,
-          ${prepared.kind},
-          ${actor.kind},
-          ${actorDatabaseId(actor)}::uuid,
-          ${actor.kind === "service_account" ? actor.delegatedUserId : null}::uuid,
-          ${prepared.idempotencyKey},
-          ${requestHash},
-          ${prepared.correlationId},
-          ${prepared.target}::jsonb,
-          ${prepared.payload}::jsonb,
-          ${execution.data.bindingId}::uuid,
-          ${execution.data.secretRevision},
-          ${execution.data.rightsSnapshot}::jsonb,
-          ${{ sentDelivery: execution.data.sentDelivery }}::jsonb,
-          ${params.context.accessSubject.type},
-          ${accessSubjectDatabaseId(params.context)}::uuid,
-          ${toPgTextArray(params.context.actor.kind === "service_account" ? params.context.actor.scopes : [])}::text[]
-        )
-        RETURNING ${commandColumns}
-      `;
-      if (!row) throw new Error("Mail command insert returned no row");
-      await createSendOutbox({
-        db: tx,
-        mailboxId: params.mailboxId,
-        commandId: row.id,
-        selectedBindingId: execution.data.bindingId,
-        prepared,
-      });
-      await tx`
-        INSERT INTO mail.activity_events (
-          mailbox_id, command_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
-        )
-        VALUES (
-          ${params.mailboxId}::uuid,
-          ${row.id}::uuid,
-          ${actor.kind},
-          ${actorDatabaseId(actor)}::uuid,
-          ${`command.${prepared.kind}`},
-          'requested',
-          'command',
-          ${row.id}::uuid,
-          ${{ selectedBindingId: execution.data.bindingId, correlationId: prepared.correlationId }}::jsonb
-        )
-      `;
-      await audit.record(
-        {
-          action: `mail.command.${prepared.kind}.request`,
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "mailbox", id: params.mailboxId },
-          requestId: params.context.requestId,
-          metadata: { commandId: row.id, selectedBindingId: execution.data.bindingId, target: prepared.target },
-        },
-        tx,
-      );
-      return ok(mapCommand(row));
-    });
-    if (result.ok) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
+    const result = await sql.begin((tx) => createActorCommandInTransaction(params, tx));
+    if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
     return result;
   } catch (error) {
     if (isServiceError(error)) return fail(error);
     return fail(err.internal("Failed to create mail command"));
+  }
+};
+
+export const createActorCommands = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  inputs: ActorCommandInput[];
+}): Promise<Result<MailCommand[]>> => {
+  try {
+    const result = await sql.begin(async (tx) => {
+      const commands: MailCommand[] = [];
+      for (const input of params.inputs) {
+        const command = await createActorCommandInTransaction(
+          { context: params.context, mailboxId: params.mailboxId, input, enqueue: false },
+          tx,
+        );
+        if (!command.ok) throw command.error;
+        commands.push(command.data);
+      }
+      return ok(commands);
+    });
+    if (result.ok) await enqueueActorCommands(result.data);
+    return result;
+  } catch (error) {
+    if (isServiceError(error)) return fail(error);
+    return fail(err.internal("Failed to create mail commands"));
   }
 };
 

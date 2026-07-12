@@ -11,12 +11,23 @@ describe("IMAP ACL rights", () => {
       "move",
       "delete_messages",
     ]);
+    expect(mapImapAclRights("lrswitekxa", { move: true, uidplus: true })).toEqual([
+      "read",
+      "write_flags",
+      "insert",
+      "move",
+      "delete_messages",
+      "create_children",
+      "delete_folder",
+      "administer_acl",
+    ]);
     expect(mapImapAclRights("lrswid", { move: true, uidplus: true })).toEqual([
       "read",
       "write_flags",
       "insert",
       "move",
       "delete_messages",
+      "delete_folder",
     ]);
     expect(mapImapAclRights("lrsi", { move: true, uidplus: true })).toEqual(["read", "insert"]);
     expect(mapImapAclRights("lrstw", { move: false, uidplus: false })).toEqual(["read", "write_flags"]);
