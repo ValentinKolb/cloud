@@ -87,7 +87,7 @@ export default function RecordHistorySection(props: { tableId: string; recordId:
                         - userId null          → "via public form"
                           (every null-actor audit on records comes
                           from the anonymous form-submit path; see
-                          submitFormResponse in api/forms.ts)
+                          submitFormResponse in api/form-api-shared.ts)
                         - userId set, name nil → "by deleted user"
                           (italic to mark it as a phantom — the
                           actor existed but is no longer in auth.users)
