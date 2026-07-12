@@ -50,6 +50,8 @@ export const formulaSqlAsNumeric = (expression: FormulaSqlExpression): unknown =
 
 export const formulaSqlAsText = (expression: FormulaSqlExpression): unknown => sql`COALESCE((${expression.sql})::text, '')`;
 
+export const formulaSqlAsNullableText = (expression: FormulaSqlExpression): unknown => sql`(${expression.sql})::text`;
+
 export const formulaSqlAsBoolean = (expression: FormulaSqlExpression): unknown => {
   if (expression.type === "boolean") return sql`COALESCE(${expression.sql}, false)`;
   if (expression.type === "numeric") return sql`COALESCE((${expression.sql})::numeric <> 0, false)`;

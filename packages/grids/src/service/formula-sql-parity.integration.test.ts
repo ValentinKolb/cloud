@@ -20,15 +20,15 @@ const normalize = (value: unknown, type: FormulaSqlType): unknown => {
   return String(value);
 };
 
-const formulaField = (id: string, name: string, includeTime: boolean): Field => ({
+const formulaField = (id: string, name: string, type: Field["type"], config: Field["config"] = {}): Field => ({
   id,
   shortId: name,
   tableId: "formula_parity",
   name,
   description: null,
   icon: null,
-  type: "date",
-  config: includeTime ? { includeTime: true } : {},
+  type,
+  config,
   position: 0,
   required: false,
   presentable: false,
@@ -89,8 +89,10 @@ beforeAll(async () => {
 
 describe("formula evaluator and PostgreSQL parity", () => {
   const berlin = { timeZone: "Europe/Berlin" } satisfies DateContext;
-  const due = formulaField("11111111-1111-4111-8111-111111111111", "Due", false);
-  const timestamp = formulaField("22222222-2222-4222-8222-222222222222", "Timestamp", true);
+  const due = formulaField("11111111-1111-4111-8111-111111111111", "Due", "date");
+  const timestamp = formulaField("22222222-2222-4222-8222-222222222222", "Timestamp", "date", { includeTime: true });
+  const amount = formulaField("33333333-3333-4333-8333-333333333333", "Amount", "number");
+  const numericText = formulaField("44444444-4444-4444-8444-444444444444", "Numeric text", "text");
 
   postgresTest("extracts instant calendar parts in the configured timezone", async () => {
     await expectParity("DAY('2026-05-01T22:30:00.000Z')", { dateConfig: berlin });
@@ -151,5 +153,25 @@ describe("formula evaluator and PostgreSQL parity", () => {
     await expectParity("AND(true, 1 / 0)");
     await expectParity("OR(true, 1 / 0)");
     await expectParity("CONCAT(1 / 0, 'x')");
+  });
+
+  postgresTest("uses one coercion matrix for equality and ordering", async () => {
+    await expectParity("'10.00' = 10");
+    await expectParity("'9.99' < '24.50'");
+    await expectParity("null = null");
+    await expectParity("null = ''");
+    await expectParity("true = true");
+    await expectParity("true = 'true'");
+    await expectParity("'alpha' < 'beta'");
+    await expectParity("'2026-05-02' = '2026-05-01T22:00:00Z'", { dateConfig: berlin });
+    await expectParity("'2026-05-01T22:00:00Z' = '2026-05-02T00:00:00+02:00'", { dateConfig: berlin });
+    await expectParity("Amount = 10", { fields: [amount], values: { [amount.id]: "10.00" } });
+    await expectParity('"Numeric text" < 24', { fields: [numericText], values: { [numericText.id]: "9.99" } });
+    await expectParity("\"Numeric text\" = ''", { fields: [numericText], values: { [numericText.id]: null } });
+    await expectParity("Due = Timestamp", {
+      dateConfig: berlin,
+      fields: [due, timestamp],
+      values: { [due.id]: "2026-05-02", [timestamp.id]: "2026-05-01T22:00:00Z" },
+    });
   });
 });

@@ -42,6 +42,15 @@ test("number comparison", () => {
   expect(run("3 > 2")).toBe(true);
   expect(run("2 >= 2")).toBe(true);
 });
+test("comparison coercion is numeric, temporal, boolean, then text", () => {
+  expect(run("'10.00' = 10")).toBe(true);
+  expect(run("'9.99' < '24.50'")).toBe(true);
+  expect(run("null = ''")).toBe(false);
+  expect(run("true = 'true'")).toBe(false);
+  expect(run("'alpha' < 'beta'")).toBe(true);
+  expect(run("'2026-05-02' = '2026-05-01T22:00:00Z'", {}, { dateConfig: { timeZone: "Europe/Berlin" } })).toBe(true);
+  expect(run("'2026-05-01T22:00:00Z' = '2026-05-02T00:00:00+02:00'")).toBe(true);
+});
 
 // ── Logic ────────────────────────────────────────────────────────
 test("logical AND short-circuits on falsy left", () => {

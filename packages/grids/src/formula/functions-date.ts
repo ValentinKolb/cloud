@@ -5,6 +5,7 @@ import { formulaError } from "./types";
 
 const DATE_LIKE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?)?$/;
 const INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[zZ]|[+-]\d{2}:?\d{2})$/;
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 type FormulaDateParts = { year: number; month: number; day: number; hour: number; minute: number; second: number };
 type FormulaDateValue = { instant: Date; parts: FormulaDateParts; hasTime: boolean; instantBacked: boolean };
@@ -84,6 +85,18 @@ const parseDateLike = (value: unknown, context: FormulaRuntimeContext): FormulaD
     ? new Date(dates.zonedDateTimeToInstant(partsInput(parts), timeZone, { disambiguation: "compatible" }))
     : dateFromParts(parts);
   return { instant, parts, hasTime, instantBacked: hasTime };
+};
+
+export const isFormulaComparisonDate = (value: unknown): boolean =>
+  value instanceof Date || (typeof value === "string" && (DATE_ONLY_RE.test(value) || INSTANT_RE.test(value)));
+
+export const formulaComparisonTimestamp = (value: unknown, context: FormulaRuntimeContext): number | null => {
+  const parsed = parseDateLike(value, context);
+  if (!parsed) return null;
+  if (parsed.instantBacked) return parsed.instant.getTime();
+  const instant = dates.zonedDateTimeToInstant(partsInput(parsed.parts), formulaTimeZone(context), { disambiguation: "compatible" });
+  const timestamp = new Date(instant).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
 };
 
 const dateKey = (date: Date): string => {

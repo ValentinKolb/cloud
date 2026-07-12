@@ -1,5 +1,6 @@
 import { normalizeRefKey } from "../ref-syntax";
 import { FN_LIBRARY, type FormulaRuntimeContext, isFormulaError } from "./functions";
+import { formulaComparisonTimestamp, isFormulaComparisonDate } from "./functions-date";
 import { decimalToString, isExactShaped, isNullish, toDecimalValue, toNumber } from "./numeric";
 import { type BinOp, type Expr, formulaError, type Literal } from "./types";
 
@@ -84,14 +85,47 @@ const compareNumbers = (op: BinOp, left: unknown, right: unknown): unknown => {
   return ln >= rn;
 };
 
-const evalComparison = (op: BinOp, left: unknown, right: unknown, wantExact: boolean): unknown => {
-  // Lexicographic for plain text strings (the date-string ISO ordering
-  // happens to be correct because YYYY-MM-DD sorts numerically too);
-  // Decimal-based for decimal-string operands so "9.99" < "24.50" is
-  // numeric, not lexicographic; JS-number comparison for the rest.
-  if (wantExact) return compareExact(op, left, right);
-  if (typeof left === "string" && typeof right === "string") return compareStrings(op, left, right);
-  return compareNumbers(op, left, right);
+const isNumericComparisonValue = (value: unknown): boolean => (typeof value === "number" && Number.isFinite(value)) || isExactShaped(value);
+
+type ComparisonMode = "numeric" | "temporal" | "boolean" | "text";
+
+const comparisonMode = (left: unknown, right: unknown): ComparisonMode => {
+  if (isNumericComparisonValue(left) || isNumericComparisonValue(right)) return "numeric";
+  if (isFormulaComparisonDate(left) || isFormulaComparisonDate(right)) return "temporal";
+  if (typeof left === "boolean" || typeof right === "boolean") return "boolean";
+  return "text";
+};
+
+const compareTimestamps = (op: BinOp, left: unknown, right: unknown, ctx: EvalContext): unknown => {
+  const leftTimestamp = formulaComparisonTimestamp(left, ctx);
+  const rightTimestamp = formulaComparisonTimestamp(right, ctx);
+  if (leftTimestamp === null || rightTimestamp === null) return null;
+  return compareNumbers(op, leftTimestamp, rightTimestamp);
+};
+
+const evalComparison = (op: BinOp, left: unknown, right: unknown, ctx: EvalContext): unknown => {
+  const mode = comparisonMode(left, right);
+  if (mode === "numeric") return compareExact(op, left, right);
+  if (mode === "temporal") return compareTimestamps(op, left, right, ctx);
+  if (mode === "boolean") return typeof left === "boolean" && typeof right === "boolean" ? compareNumbers(op, left, right) : null;
+  return typeof left === "string" && typeof right === "string" ? compareStrings(op, left, right) : compareNumbers(op, left, right);
+};
+
+const evalEquality = (left: unknown, right: unknown, ctx: EvalContext): boolean => {
+  if (isNullish(left) || isNullish(right)) return isNullish(left) && isNullish(right);
+  const mode = comparisonMode(left, right);
+  if (mode === "numeric") {
+    const leftDecimal = toDecimalValue(left);
+    const rightDecimal = toDecimalValue(right);
+    return leftDecimal !== null && rightDecimal !== null && leftDecimal.decimal.eq(rightDecimal.decimal);
+  }
+  if (mode === "temporal") {
+    const leftTimestamp = formulaComparisonTimestamp(left, ctx);
+    const rightTimestamp = formulaComparisonTimestamp(right, ctx);
+    return leftTimestamp !== null && rightTimestamp !== null && leftTimestamp === rightTimestamp;
+  }
+  if (mode === "boolean") return typeof left === "boolean" && typeof right === "boolean" && left === right;
+  return left === right;
 };
 
 const evalExactArithmetic = (op: BinOp, left: unknown, right: unknown): unknown => {
@@ -136,17 +170,18 @@ const evalBinary = (ast: Extract<Expr, { kind: "binop" }>, ctx: EvalContext): un
   if (isFormulaError(left)) return left;
   if (isFormulaError(right)) return right;
 
-  // Equality coerces only nullish-equality; otherwise strict comparison.
-  if (op === "=") return isNullish(left) && isNullish(right) ? true : left === right;
-  if (op === "!=") return isNullish(left) && isNullish(right) ? false : left !== right;
+  if (op === "=" || op === "!=") {
+    const equal = evalEquality(left, right, ctx);
+    return op === "=" ? equal : !equal;
+  }
 
   // Null propagation for arithmetic / comparison.
   if (isNullish(left) || isNullish(right)) return null;
 
-  const wantExact = isExactShaped(left) || isExactShaped(right);
   if (op === "<" || op === "<=" || op === ">" || op === ">=") {
-    return evalComparison(op, left, right, wantExact);
+    return evalComparison(op, left, right, ctx);
   }
+  const wantExact = isExactShaped(left) || isExactShaped(right);
   return wantExact ? evalExactArithmetic(op, left, right) : evalNumberArithmetic(op, left, right);
 };
 

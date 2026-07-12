@@ -1,3 +1,4 @@
+import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import { sql } from "bun";
 import { parseFormula } from "../formula/parser";
 import type { BinOp, Expr } from "../formula/types";
@@ -11,6 +12,7 @@ import {
   formulaSqlAnyError,
   formulaSqlAsBoolean,
   formulaSqlAsDate,
+  formulaSqlAsNullableText,
   formulaSqlAsNumeric,
   formulaSqlAsText,
   formulaSqlAsTimestamp,
@@ -77,31 +79,99 @@ export const formulaSqlTypeForField = (field: Field): FormulaSqlType => scalarSq
 type ComparisonOperator = Extract<BinOp, "!=" | "<" | "<=" | "=" | ">" | ">=">;
 type ArithmeticOperator = Extract<BinOp, "%" | "*" | "+" | "-" | "/">;
 
-const comparisonOperands = (left: FormulaSqlExpression, right: FormulaSqlExpression): { leftSql: unknown; rightSql: unknown } => {
-  if (left.type === "numeric" || right.type === "numeric") {
-    return { leftSql: formulaSqlAsNumeric(left), rightSql: formulaSqlAsNumeric(right) };
-  }
-  if (left.type === "datetime" || right.type === "datetime") {
-    return { leftSql: formulaSqlAsTimestamp(left), rightSql: formulaSqlAsTimestamp(right) };
-  }
-  if (left.type === "date" || right.type === "date") return { leftSql: formulaSqlAsDate(left), rightSql: formulaSqlAsDate(right) };
-  if (left.type === "boolean" && right.type === "boolean") {
-    return { leftSql: formulaSqlAsBoolean(left), rightSql: formulaSqlAsBoolean(right) };
-  }
-  return { leftSql: formulaSqlAsText(left), rightSql: formulaSqlAsText(right) };
+const NUMERIC_COMPARISON_RE = "^-?[0-9]+(\\.[0-9]+)?$";
+const DATE_COMPARISON_RE = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
+const INSTANT_COMPARISON_RE = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]{1,9})?)?([zZ]|[+-][0-9]{2}:?[0-9]{2})$";
+
+type ComparisonValue = {
+  raw: unknown;
+  numeric: unknown;
+  numericShaped: unknown;
+  temporal: unknown;
+  temporalShaped: unknown;
+  boolean: unknown;
+  booleanShaped: boolean;
 };
 
-const compileComparison = (op: ComparisonOperator, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
-  const operands = comparisonOperands(left, right);
-  const errorSql = formulaSqlAnyError([left, right]);
+const comparisonValue = (expression: FormulaSqlExpression, timeZone: string): ComparisonValue => {
+  const raw = formulaSqlAsNullableText(expression);
+  const textLike = expression.type === "text" || expression.type === "unknown";
+  const numericShaped = expression.type === "numeric" ? sql`true` : textLike ? sql`(${raw} ~ ${NUMERIC_COMPARISON_RE})` : sql`false`;
+  const temporalShaped =
+    expression.type === "date" || expression.type === "datetime"
+      ? sql`true`
+      : textLike
+        ? sql`(${raw} ~ ${DATE_COMPARISON_RE} OR ${raw} ~ ${INSTANT_COMPARISON_RE})`
+        : sql`false`;
+  const temporal =
+    expression.type === "date"
+      ? sql`(${formulaSqlAsDate(expression)})::timestamp AT TIME ZONE ${timeZone}`
+      : expression.type === "datetime"
+        ? formulaSqlAsTimestamp(expression)
+        : sql`CASE
+            WHEN ${raw} ~ ${DATE_COMPARISON_RE} THEN (grids.try_iso_date(${raw}))::timestamp AT TIME ZONE ${timeZone}
+            WHEN ${raw} ~ ${INSTANT_COMPARISON_RE} THEN grids.try_timestamptz(${raw})
+            ELSE NULL::timestamptz
+          END`;
+  return {
+    raw,
+    numeric: formulaSqlAsNumeric(expression),
+    numericShaped,
+    temporal,
+    temporalShaped,
+    boolean: expression.type === "boolean" ? expression.sql : sql`NULL::boolean`,
+    booleanShaped: expression.type === "boolean",
+  };
+};
+
+const orderedComparison = (op: Exclude<ComparisonOperator, "!=" | "=">, left: unknown, right: unknown): unknown => {
+  if (op === "<") return sql`(${left} < ${right})`;
+  if (op === "<=") return sql`(${left} <= ${right})`;
+  if (op === ">") return sql`(${left} > ${right})`;
+  return sql`(${left} >= ${right})`;
+};
+
+const equalityComparison = (left: ComparisonValue, right: ComparisonValue): unknown => {
+  const numericMode = sql`(${left.numericShaped} OR ${right.numericShaped})`;
+  const temporalMode = sql`(${left.temporalShaped} OR ${right.temporalShaped})`;
+  const booleanMode = left.booleanShaped || right.booleanShaped;
+  return sql`CASE
+    WHEN ${left.raw} IS NULL OR ${right.raw} IS NULL THEN (${left.raw} IS NULL AND ${right.raw} IS NULL)
+    WHEN ${numericMode} THEN (${left.numeric} IS NOT DISTINCT FROM ${right.numeric})
+    WHEN ${temporalMode} THEN (${left.temporal} IS NOT DISTINCT FROM ${right.temporal})
+    WHEN ${booleanMode} THEN ${left.booleanShaped && right.booleanShaped ? sql`(${left.boolean} IS NOT DISTINCT FROM ${right.boolean})` : sql`false`}
+    ELSE (${left.raw} IS NOT DISTINCT FROM ${right.raw})
+  END`;
+};
+
+const orderingComparison = (op: Exclude<ComparisonOperator, "!=" | "=">, left: ComparisonValue, right: ComparisonValue): unknown => {
+  const numericMode = sql`(${left.numericShaped} OR ${right.numericShaped})`;
+  const temporalMode = sql`(${left.temporalShaped} OR ${right.temporalShaped})`;
+  const booleanMode = left.booleanShaped || right.booleanShaped;
+  return sql`CASE
+    WHEN ${left.raw} IS NULL OR ${right.raw} IS NULL THEN NULL::boolean
+    WHEN ${numericMode} THEN ${orderedComparison(op, left.numeric, right.numeric)}
+    WHEN ${temporalMode} THEN ${orderedComparison(op, left.temporal, right.temporal)}
+    WHEN ${booleanMode} THEN ${left.booleanShaped && right.booleanShaped ? orderedComparison(op, left.boolean, right.boolean) : sql`NULL::boolean`}
+    ELSE ${orderedComparison(op, left.raw, right.raw)}
+  END`;
+};
+
+const compileComparison = (
+  op: ComparisonOperator,
+  leftExpression: FormulaSqlExpression,
+  rightExpression: FormulaSqlExpression,
+  context: CompileContext,
+): FormulaSqlCompileResult => {
+  const timeZone = normalizeTimeZone(context.dateConfig?.timeZone, "UTC");
+  const left = comparisonValue(leftExpression, timeZone);
+  const right = comparisonValue(rightExpression, timeZone);
+  const errorSql = formulaSqlAnyError([leftExpression, rightExpression]);
   if (op === "=" || op === "!=") {
-    const equal = sql`(${operands.leftSql} IS NOT DISTINCT FROM ${operands.rightSql})`;
+    const equal = equalityComparison(left, right);
     return formulaSqlOk(op === "=" ? equal : sql`NOT ${equal}`, "boolean", errorSql);
   }
-  if (op === "<") return formulaSqlOk(sql`(${operands.leftSql} < ${operands.rightSql})`, "boolean", errorSql);
-  if (op === "<=") return formulaSqlOk(sql`(${operands.leftSql} <= ${operands.rightSql})`, "boolean", errorSql);
-  if (op === ">") return formulaSqlOk(sql`(${operands.leftSql} > ${operands.rightSql})`, "boolean", errorSql);
-  return formulaSqlOk(sql`(${operands.leftSql} >= ${operands.rightSql})`, "boolean", errorSql);
+  return formulaSqlOk(orderingComparison(op, left, right), "boolean", errorSql);
 };
 
 const compileArithmetic = (op: ArithmeticOperator, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
@@ -124,7 +194,12 @@ const compileArithmetic = (op: ArithmeticOperator, left: FormulaSqlExpression, r
   return formulaSqlOk(sql`MOD(${leftSql}, NULLIF(${rightSql}, 0))`, "numeric", errorSql);
 };
 
-const compileBinaryOperator = (op: BinOp, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
+const compileBinaryOperator = (
+  op: BinOp,
+  left: FormulaSqlExpression,
+  right: FormulaSqlExpression,
+  context: CompileContext,
+): FormulaSqlCompileResult => {
   if (op === "&&" || op === "||") {
     const leftSql = formulaSqlAsBoolean(left);
     const rightSql = formulaSqlAsBoolean(right);
@@ -136,7 +211,7 @@ const compileBinaryOperator = (op: BinOp, left: FormulaSqlExpression, right: For
     return formulaSqlOk(op === "&&" ? sql`(${leftSql} AND ${rightSql})` : sql`(${leftSql} OR ${rightSql})`, "boolean", errorSql);
   }
   if (op === "=" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=") {
-    return compileComparison(op, left, right);
+    return compileComparison(op, left, right, context);
   }
   return compileArithmetic(op, left, right);
 };
@@ -185,7 +260,7 @@ const compileBinaryExpression = (expression: Extract<Expr, { kind: "binop" }>, c
   if (!left.ok) return left;
   const right = compileExpression(expression.right, context);
   if (!right.ok) return right;
-  return compileBinaryOperator(expression.op, left.expression, right.expression);
+  return compileBinaryOperator(expression.op, left.expression, right.expression, context);
 };
 
 const compileExpression = (expression: Expr, context: CompileContext): FormulaSqlCompileResult => {
