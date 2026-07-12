@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { notificationTargetMatchesLocation } from "../browser/notification-target";
 import { browserNotificationClient } from "../browser/notifications";
 
 type CloudNotificationMessage = {
@@ -20,8 +21,6 @@ const isNotificationMessage = (value: unknown): value is CloudNotificationMessag
   );
 };
 
-const currentLocation = (): string => `${window.location.pathname}${window.location.search}${window.location.hash}`;
-
 export default function BrowserNotifications() {
   const [notification, setNotification] = createSignal<CloudNotificationMessage | null>(null);
   const seen = new Set<string>();
@@ -34,7 +33,7 @@ export default function BrowserNotifications() {
     const onMessage = (event: MessageEvent<unknown>) => {
       if (!isNotificationMessage(event.data) || seen.has(event.data.eventId)) return;
       seen.add(event.data.eventId);
-      if (event.data.targetHref === currentLocation()) return;
+      if (event.data.targetHref && notificationTargetMatchesLocation(event.data.targetHref, window.location.href)) return;
       setNotification(event.data);
     };
     navigator.serviceWorker?.addEventListener("message", onMessage);
