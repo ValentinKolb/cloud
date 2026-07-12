@@ -49,13 +49,11 @@ const PRIORITY_DROPDOWN_OPTIONS = PRIORITY_OPTIONS.map((priority) => ({
   color: priority.color,
 }));
 
-const DROPDOWN_TRIGGER_CLASS = "btn-input-recessed btn-input-sm w-full gap-2 rounded-lg";
+const DROPDOWN_TRIGGER_CLASS = "btn-input btn-input-sm w-full gap-2";
 
-const ICON_ACTION_BUTTON_CLASS =
-  "inline-flex h-5 w-5 items-center justify-center text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors disabled:opacity-50";
+const ICON_ACTION_BUTTON_CLASS = "icon-btn h-7 w-7";
 
-const DANGER_ICON_ACTION_BUTTON_CLASS =
-  "inline-flex h-5 w-5 items-center justify-center text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors disabled:opacity-50";
+const DANGER_ICON_ACTION_BUTTON_CLASS = "icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400";
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
@@ -110,7 +108,7 @@ function IconActionButton(props: { icon: string; title: string; onClick: () => v
 function SectionHeader(props: { title: string; onEdit?: () => void; editLabel?: string; disabled?: boolean }) {
   return (
     <div class="mb-3 flex items-center justify-between gap-2">
-      <h3 class="detail-section-label">{props.title}</h3>
+      <h3 class="detail-section-label mb-0">{props.title}</h3>
       <Show when={props.onEdit}>
         <IconActionButton
           icon="ti ti-pencil"
@@ -145,7 +143,7 @@ function EditableDropdown(props: {
       element: (
         <button
           type="button"
-          class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10"
+          class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-[var(--ui-menu-hover)]"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -156,11 +154,11 @@ function EditableDropdown(props: {
             <div class="w-3 h-3 rounded-full shrink-0" style={`background-color: ${option.color}`} />
           </Show>
           <Show when={option.icon && !option.color}>
-            <i class={`${option.icon} ${props.value === option.value ? "text-blue-500" : "text-zinc-400"}`} />
+            <i class={`${option.icon} ${props.value === option.value ? "text-primary" : "text-dimmed"}`} />
           </Show>
           <span class="flex-1 truncate text-left">{option.label}</span>
           <Show when={props.value === option.value}>
-            <i class="ti ti-check text-blue-500" />
+            <i class="ti ti-check text-primary" />
           </Show>
         </button>
       ),
@@ -185,7 +183,7 @@ function EditableDropdown(props: {
   const trigger = (
     <div class={DROPDOWN_TRIGGER_CLASS}>
       <Show when={props.loading}>
-        <i class="ti ti-loader-2 animate-spin text-zinc-400" />
+        <i class="ti ti-loader-2 animate-spin text-dimmed" />
       </Show>
       <Show when={!props.loading}>
         <Show when={selectedOption()?.color}>
@@ -195,13 +193,13 @@ function EditableDropdown(props: {
           <i class={`${selectedOption()!.icon}`} style={selectedOption()?.color ? `color: ${selectedOption()!.color}` : ""} />
         </Show>
         <Show when={!selectedOption()}>
-          <i class={`${props.icon} text-zinc-400`} />
+          <i class={`${props.icon} text-dimmed`} />
         </Show>
       </Show>
       <span class={`flex-1 truncate text-left ${selectedOption() ? "" : "text-dimmed"}`}>
         {selectedOption()?.label ?? `No ${props.label}`}
       </span>
-      <i class="ti ti-chevron-down text-zinc-400 text-xs shrink-0" />
+      <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" />
     </div>
   );
 
@@ -247,7 +245,7 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
       element: (
         <button
           type="button"
-          class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10"
+          class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-[var(--ui-menu-hover)]"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -255,8 +253,10 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
           }}
         >
           <div
-            class={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-              localSelection().includes(tag.id) ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-300 dark:border-zinc-600"
+            class={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+              localSelection().includes(tag.id)
+                ? "border-[var(--ui-action-primary-border)] bg-[var(--ui-action-primary-surface)] text-[var(--ui-action-primary-text)]"
+                : "border-[var(--ui-field-border)] bg-[var(--ui-field)]"
             }`}
           >
             <Show when={localSelection().includes(tag.id)}>
@@ -288,15 +288,15 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
   const trigger = (
     <div class={DROPDOWN_TRIGGER_CLASS}>
       <Show when={props.loading}>
-        <i class="ti ti-loader-2 animate-spin text-zinc-400" />
+        <i class="ti ti-loader-2 animate-spin text-dimmed" />
       </Show>
       <Show when={!props.loading}>
-        <i class="ti ti-tags text-zinc-400" />
+        <i class="ti ti-tags text-dimmed" />
       </Show>
       <span class={`flex-1 truncate text-left ${selectedTags().length > 0 ? "" : "text-dimmed"}`}>
         {selectedTags().length > 0 ? `${selectedTags().length} Tags` : "No Tags"}
       </span>
-      <i class="ti ti-chevron-down text-zinc-400 text-xs shrink-0" />
+      <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" />
     </div>
   );
 
@@ -484,35 +484,21 @@ export default function ItemDetailPanel(props: Props) {
   const scheduleTitle = () => (isEvent() ? "Event Time" : "Deadline");
 
   return (
-    <div class="detail-stack" style="view-transition-name: detail-panel">
-      <section class="detail-section" style="view-transition-name: space-item-detail-header">
+    <div class="flex h-full min-h-0 flex-col" style="view-transition-name: detail-panel">
+      <header class="detail-header" style="view-transition-name: space-item-detail-header">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1">
-            <div class="flex items-start gap-2">
-              <h2 class="min-w-0 flex-1 break-words text-lg font-semibold leading-tight text-primary">{props.item.title}</h2>
-              <IconActionButton
-                icon="ti ti-pencil"
-                title="Edit item"
-                onClick={() => editItemMutation.mutate(undefined)}
-                disabled={isLoading()}
-              />
-            </div>
+            <h2 class="break-words text-lg font-semibold leading-tight text-primary">{props.item.title}</h2>
             <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span
-                class={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-medium ${
-                  isEvent()
-                    ? "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-300"
-                    : "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300"
-                }`}
-              >
+              <span class="inline-flex items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 font-medium text-secondary">
                 <i class={`ti ${isEvent() ? "ti-calendar-event" : "ti-checkbox"}`} />
                 {isEvent() ? "Event" : "Task"}
               </span>
               <span
                 class={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-medium ${
                   isCompleted()
-                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-                    : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    : "bg-[var(--ui-surface-subtle)] text-secondary"
                 }`}
               >
                 <i class={`ti ${isCompleted() ? "ti-circle-check" : "ti-circle"}`} />
@@ -520,197 +506,201 @@ export default function ItemDetailPanel(props: Props) {
               </span>
             </div>
           </div>
-          <a
-            href={props.baseUrl}
-            onClick={(event) => {
-              if (!shouldHandleDetailClick(event, event.currentTarget)) return;
-              event.preventDefault();
-              requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
-            }}
-            class="inline-flex h-5 w-5 shrink-0 items-center justify-center text-orange-500 transition-colors hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300"
-            aria-label="Close detail"
-          >
-            <i class="ti ti-x" />
-          </a>
+          <div class="flex shrink-0 items-center gap-1">
+            <Dropdown
+              trigger={
+                <button type="button" class="icon-btn" aria-label="More item actions">
+                  <i class="ti ti-dots" />
+                </button>
+              }
+              elements={[
+                {
+                  label: "Duplicate item",
+                  icon: "ti ti-copy",
+                  action: handleDuplicate,
+                },
+                {
+                  items: [
+                    {
+                      label: "Delete item",
+                      icon: "ti ti-trash",
+                      variant: "danger",
+                      action: handleDelete,
+                    },
+                  ],
+                },
+              ]}
+              position="bottom-left"
+            />
+            <a
+              href={props.baseUrl}
+              onClick={(event) => {
+                if (!shouldHandleDetailClick(event, event.currentTarget)) return;
+                event.preventDefault();
+                requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
+              }}
+              class="icon-btn"
+              aria-label="Close detail"
+            >
+              <i class="ti ti-x" />
+            </a>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => completeMutation.mutate(!isCompleted())}
-          disabled={isLoading()}
-          class={`mt-4 flex w-full items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-            isCompleted()
-              ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
-              : "border-zinc-200 hover:border-emerald-500 hover:bg-emerald-50 dark:border-zinc-700 dark:hover:bg-emerald-900/10"
-          }`}
-        >
-          <div
-            class={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors ${
-              isCompleted() ? "border-emerald-500 bg-emerald-500 text-white" : "border-zinc-300 dark:border-zinc-600"
-            }`}
+        <div class="mt-3 mb-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => completeMutation.mutate(!isCompleted())}
+            disabled={isLoading()}
+            class={`btn-secondary btn-sm ${isCompleted() ? "text-emerald-700 dark:text-emerald-300" : ""}`}
           >
             <Show when={isCompleted() || completeMutation.loading()}>
-              <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-xs`} />
+              <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} />
             </Show>
-          </div>
-          <span class="text-sm font-medium">{isCompleted() ? "Completed" : "Mark as complete"}</span>
-        </button>
-      </section>
-
-      <section class="detail-section">
-        <SectionHeader
-          title={scheduleTitle()}
-          onEdit={() => editItemMutation.mutate(undefined)}
-          editLabel={isEvent() ? "Edit event time" : "Edit deadline"}
-          disabled={isLoading()}
-        />
-        <Show
-          when={isEvent()}
-          fallback={
-            <div class="flex items-baseline gap-3 text-xs text-primary">
-              <i class="ti ti-calendar-due w-4 shrink-0 self-center text-center text-base text-amber-600 dark:text-amber-400" />
-              <Show when={props.item.deadline} fallback={<span class="italic text-dimmed">No deadline set</span>}>
-                <div class="min-w-0 flex-1">
-                  <div>{dates.formatDateTime(props.item.deadline!)}</div>
-                  <div class="mt-0.5 text-dimmed">{dates.formatTimeSpan(props.item.deadline!)}</div>
-                </div>
-              </Show>
-            </div>
-          }
-        >
-          <dl class="detail-facts">
-            <dt class="detail-fact-key">Start</dt>
-            <dd>
-              <Show when={props.item.startsAt} fallback={<span class="italic text-dimmed">Not set</span>}>
-                {dates.formatDateTime(props.item.startsAt!)}
-              </Show>
-            </dd>
-            <dt class="detail-fact-key">End</dt>
-            <dd>
-              <Show when={props.item.endsAt} fallback={<span class="italic text-dimmed">Not set</span>}>
-                {dates.formatDateTime(props.item.endsAt!)}
-              </Show>
-            </dd>
-            <dt class="detail-fact-key">Duration</dt>
-            <dd>
-              <Show when={props.item.startsAt && props.item.endsAt} fallback={<span class="italic text-dimmed">Not set</span>}>
-                {dates.formatDuration(props.item.startsAt!, props.item.endsAt!)}
-              </Show>
-            </dd>
-            <Show when={recurrenceSummary()}>
-              <dt class="detail-fact-key">Repeat</dt>
-              <dd>
-                <span class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
-                  <i class="ti ti-repeat" />
-                  {recurrenceSummary()}
-                </span>
-              </dd>
+            <Show when={!isCompleted() && !completeMutation.loading()}>
+              <i class="ti ti-circle-check" />
             </Show>
-          </dl>
-        </Show>
-      </section>
+            {isCompleted() ? "Reopen" : "Mark complete"}
+          </button>
+          <button type="button" class="btn-secondary btn-sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
+            <i class="ti ti-pencil" /> Edit
+          </button>
+        </div>
+      </header>
 
-      <Show when={isEvent() && (props.item.location || props.item.url)}>
-        <section class="detail-section">
-          <SectionHeader title="Event details" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />
-          <dl class="detail-facts">
-            <Show when={props.item.location}>
-              <dt class="detail-fact-key">Location</dt>
-              <dd>{props.item.location}</dd>
-            </Show>
-            <Show when={props.item.url}>
-              <dt class="detail-fact-key">URL</dt>
-              <dd>
-                <a href={props.item.url!} target="_blank" rel="noreferrer" class="link break-all">
-                  {props.item.url}
-                </a>
-              </dd>
-            </Show>
-          </dl>
-        </section>
-      </Show>
-
-      <section class="detail-section" style="view-transition-name: space-item-detail-description">
-        <SectionHeader title="Description" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />
-        <Show when={props.item.description} fallback={<p class="text-xs text-dimmed">No description</p>}>
-          <MarkdownView html={markdown.render(props.item.description!)} smallHeadings class="text-sm" />
-        </Show>
-      </section>
-
-      <section class="detail-section">
-        <h3 class="detail-section-label">Classify</h3>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <EditableDropdown
-            label="Priority"
-            icon="ti ti-flag"
-            value={props.item.priority}
-            options={PRIORITY_DROPDOWN_OPTIONS}
-            onChange={(v) => updateMutation.mutate({ priority: v })}
-            loading={isLoading()}
-            allowClear
-          />
-          <div>
-            <h3 class="section-label mb-1">Tags</h3>
-            <TagsDropdown
-              tags={props.tags}
-              selectedIds={props.item.tags?.map((t) => t.id) ?? []}
-              onChange={(ids) => updateMutation.mutate({ tagIds: ids })}
-              loading={isLoading()}
+      <div class="detail-stack">
+        <Show when={isEvent() || props.item.deadline}>
+          <section class="detail-section">
+            <SectionHeader
+              title={scheduleTitle()}
+              onEdit={() => editItemMutation.mutate(undefined)}
+              editLabel={isEvent() ? "Edit event time" : "Edit deadline"}
+              disabled={isLoading()}
             />
+            <Show
+              when={isEvent()}
+              fallback={
+                <div class="flex items-baseline gap-3 text-xs text-primary">
+                  <i class="ti ti-calendar-due w-4 shrink-0 self-center text-center text-base text-amber-600 dark:text-amber-400" />
+                  <Show when={props.item.deadline}>
+                    <div class="min-w-0 flex-1">
+                      <div>{dates.formatDateTime(props.item.deadline!)}</div>
+                      <div class="mt-0.5 text-dimmed">{dates.formatTimeSpan(props.item.deadline!)}</div>
+                    </div>
+                  </Show>
+                </div>
+              }
+            >
+              <dl class="detail-facts">
+                <dt class="detail-fact-key">Start</dt>
+                <dd>{dates.formatDateTime(props.item.startsAt!)}</dd>
+                <dt class="detail-fact-key">End</dt>
+                <dd>{dates.formatDateTime(props.item.endsAt!)}</dd>
+                <dt class="detail-fact-key">Duration</dt>
+                <dd>{dates.formatDuration(props.item.startsAt!, props.item.endsAt!)}</dd>
+                <Show when={recurrenceSummary()}>
+                  <dt class="detail-fact-key">Repeat</dt>
+                  <dd>
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-secondary">
+                      <i class="ti ti-repeat text-dimmed" />
+                      {recurrenceSummary()}
+                    </span>
+                  </dd>
+                </Show>
+              </dl>
+            </Show>
+          </section>
+        </Show>
+
+        <Show when={isEvent() && (props.item.location || props.item.url)}>
+          <section class="detail-section">
+            <SectionHeader title="Event details" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />
+            <dl class="detail-facts">
+              <Show when={props.item.location}>
+                <dt class="detail-fact-key">Location</dt>
+                <dd>{props.item.location}</dd>
+              </Show>
+              <Show when={props.item.url}>
+                <dt class="detail-fact-key">URL</dt>
+                <dd>
+                  <a href={props.item.url!} target="_blank" rel="noreferrer" class="link break-all">
+                    {props.item.url}
+                  </a>
+                </dd>
+              </Show>
+            </dl>
+          </section>
+        </Show>
+
+        <Show when={props.item.description}>
+          <section class="detail-section" style="view-transition-name: space-item-detail-description">
+            <SectionHeader title="Description" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />
+            <MarkdownView html={markdown.render(props.item.description!)} smallHeadings class="text-sm" />
+          </section>
+        </Show>
+
+        <section class="detail-section">
+          <h3 class="detail-section-label">Classify</h3>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <EditableDropdown
+              label="Priority"
+              icon="ti ti-flag"
+              value={props.item.priority}
+              options={PRIORITY_DROPDOWN_OPTIONS}
+              onChange={(v) => updateMutation.mutate({ priority: v })}
+              loading={isLoading()}
+              allowClear
+            />
+            <div>
+              <h3 class="section-label mb-1">Tags</h3>
+              <TagsDropdown
+                tags={props.tags}
+                selectedIds={props.item.tags?.map((t) => t.id) ?? []}
+                onChange={(ids) => updateMutation.mutate({ tagIds: ids })}
+                loading={isLoading()}
+              />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section class="detail-section">
-        <h3 class="detail-section-label">Assignees</h3>
-        <AssigneesSection
-          spaceId={props.spaceId}
-          assignees={props.item.assignees ?? []}
-          onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
-          loading={isLoading()}
-        />
-      </section>
+        <section class="detail-section">
+          <h3 class="detail-section-label">Assignees</h3>
+          <AssigneesSection
+            spaceId={props.spaceId}
+            assignees={props.item.assignees ?? []}
+            onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
+            loading={isLoading()}
+          />
+        </section>
 
-      <section class="detail-section">
-        <h3 class="detail-section-label">Meta</h3>
-        <dl class="detail-facts">
-          <dt class="detail-fact-key">Created</dt>
-          <dd>{dates.formatDateTime(props.item.createdAt)}</dd>
-          <dt class="detail-fact-key">Updated</dt>
-          <dd>{dates.formatDateTime(props.item.updatedAt)}</dd>
-          <dt class="detail-fact-key">ID</dt>
-          <dd class="break-all font-mono text-dimmed">{props.item.id}</dd>
-        </dl>
-        <div class="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={handleDuplicate}
-            disabled={isLoading()}
-            class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-          >
-            <i class="ti ti-copy" /> Duplicate
-          </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={isLoading()}
-            class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
-          >
-            <i class="ti ti-trash" /> Delete
-          </button>
-        </div>
-      </section>
+        <section class="detail-section" style="view-transition-name: space-item-detail-comments">
+          <CommentsSection
+            spaceId={props.spaceId}
+            itemId={props.item.id}
+            comments={comments()}
+            currentUserId={props.currentUserId}
+            onUpdate={refreshComments}
+            dateConfig={props.dateConfig}
+          />
+        </section>
 
-      <section class="detail-section" style="view-transition-name: space-item-detail-comments">
-        <CommentsSection
-          spaceId={props.spaceId}
-          itemId={props.item.id}
-          comments={comments()}
-          currentUserId={props.currentUserId}
-          onUpdate={refreshComments}
-          dateConfig={props.dateConfig}
-        />
-      </section>
+        <details class="detail-section group/details">
+          <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] text-sm font-medium text-primary">
+            <span class="inline-flex items-center gap-2">
+              <i class="ti ti-info-circle text-dimmed" /> Item information
+            </span>
+            <i class="ti ti-chevron-down text-xs text-dimmed transition-transform group-open/details:rotate-180" />
+          </summary>
+          <dl class="detail-facts mt-3">
+            <dt class="detail-fact-key">Created</dt>
+            <dd>{dates.formatDateTime(props.item.createdAt)}</dd>
+            <dt class="detail-fact-key">Updated</dt>
+            <dd>{dates.formatDateTime(props.item.updatedAt)}</dd>
+            <dt class="detail-fact-key">ID</dt>
+            <dd class="break-all font-mono text-dimmed">{props.item.id}</dd>
+          </dl>
+        </details>
+      </div>
     </div>
   );
 }

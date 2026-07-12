@@ -287,11 +287,7 @@ export default function SpacesWorkspace(props: Props) {
       <SpaceSidebar ctx={spaceContext()} onNavigate={handleNavigate} onOpenSettings={openSettingsRoute} dateConfig={props.dateConfig} />
 
       <AppWorkspace.Main>
-        {state().space.description && (
-          <div class="px-3 py-2 info-block-info mb-2">
-            <p class="text-sm">{state().space.description}</p>
-          </div>
-        )}
+        {state().space.description && <p class="mb-2 px-1 text-xs leading-relaxed text-dimmed">{state().space.description}</p>}
 
         {(state().currentView === "list" || state().currentView === "table") && (
           <>
@@ -397,7 +393,7 @@ export default function SpacesWorkspace(props: Props) {
         widthClass={spacesDetailPanelWidthClass(state().currentPanelWidth)}
         viewTransitionName="space-detail-panel-shell"
       >
-        <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={detailScrollPreserveKey()}>
+        <div class="h-full min-h-0 flex-1" data-scroll-preserve={detailScrollPreserveKey()}>
           <ItemDetailHost
             spaceId={spaceId()}
             baseUrl={itemLinkBaseUrl()}

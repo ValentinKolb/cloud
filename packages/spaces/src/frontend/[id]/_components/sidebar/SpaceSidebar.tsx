@@ -1,9 +1,8 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
-import SidebarSettings from "../settings/SidebarSettings";
-import type { ViewType } from "../settings/SpaceSettingsStore";
 import SearchButton from "../search/SearchButton";
+import type { ViewType } from "../settings/SpaceSettingsStore";
 import CopyICalButton from "./CopyICalButton";
 import CreateItemButton from "./CreateItemButton";
 import type { SpaceContext } from "./types";
@@ -51,14 +50,14 @@ export default function SpaceSidebar(props: Props) {
       <AppWorkspace.SidebarHeader
         title={props.ctx.space.name}
         icon={getViewIcon(props.ctx.currentView)}
-        iconStyle={`background-color: ${props.ctx.space.color}`}
+        iconStyle={`background-color: color-mix(in srgb, ${props.ctx.space.color} 12%, var(--ui-surface)); color: ${props.ctx.space.color}; box-shadow: inset 0 0 0 1px color-mix(in srgb, ${props.ctx.space.color} 22%, transparent)`}
         iconViewTransitionName={`space-color-${props.ctx.space.id}`}
         titleViewTransitionName={`space-name-${props.ctx.space.id}`}
         action={
           <button
             type="button"
             onClick={() => void props.onOpenSettings()}
-            class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
+            class="icon-btn h-7 w-7"
             title="Settings"
             aria-label={`Settings for ${props.ctx.space.name}`}
             style={`view-transition-name:${vt("settings-desktop")}`}
@@ -126,41 +125,36 @@ export default function SpaceSidebar(props: Props) {
 
       <AppWorkspace.SidebarDesktop>
         <div class="flex flex-col gap-3">
-          <AppWorkspace.SidebarSection title="Actions">
-            <AppWorkspace.SidebarIconGrid columns={3}>
-              <div style={`view-transition-name:${vt("create-desktop")}`}>
-                <CreateItemButton
-                  spaceId={props.ctx.space.id}
-                  columns={props.ctx.columns}
-                  tags={props.ctx.tags}
-                  dateConfig={props.dateConfig}
-                  variant="icon"
-                />
-              </div>
-              <div style={`view-transition-name:${vt("search-desktop")}`}>
-                <SearchButton
-                  spaceId={props.ctx.space.id}
-                  spaceName={props.ctx.space.name}
-                  columns={props.ctx.columns}
-                  query={props.ctx.query}
-                  variant="icon"
-                  registerShortcut
-                />
-              </div>
-              <AppWorkspace.SidebarIconAction
-                href="/app/spaces"
-                navigation="document"
-                icon="ti ti-layout-grid"
-                label="All Spaces"
-                viewTransitionName={vt("all-spaces-desktop")}
+          <AppWorkspace.SidebarIconGrid columns={3}>
+            <div style={`view-transition-name:${vt("create-desktop")}`}>
+              <CreateItemButton
+                spaceId={props.ctx.space.id}
+                columns={props.ctx.columns}
+                tags={props.ctx.tags}
+                dateConfig={props.dateConfig}
+                variant="icon"
               />
-              <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
-                <CopyICalButton icalToken={props.ctx.space.icalToken} variant="icon" />
-              </div>
-            </AppWorkspace.SidebarIconGrid>
-          </AppWorkspace.SidebarSection>
+            </div>
+            <div style={`view-transition-name:${vt("search-desktop")}`}>
+              <SearchButton
+                spaceId={props.ctx.space.id}
+                spaceName={props.ctx.space.name}
+                columns={props.ctx.columns}
+                query={props.ctx.query}
+                variant="icon"
+                registerShortcut
+              />
+            </div>
+            <AppWorkspace.SidebarIconAction
+              href="/app/spaces"
+              navigation="document"
+              icon="ti ti-layout-grid"
+              label="All Spaces"
+              viewTransitionName={vt("all-spaces-desktop")}
+            />
+          </AppWorkspace.SidebarIconGrid>
 
-          <AppWorkspace.SidebarSection title="Navigation">
+          <AppWorkspace.SidebarSection>
             {views.map((view) => {
               const href = buildViewHref(props.ctx, view.id);
               return (
@@ -179,17 +173,13 @@ export default function SpaceSidebar(props: Props) {
           </AppWorkspace.SidebarSection>
         </div>
 
-        <AppWorkspace.SidebarBody scrollPreserveKey={`spaces-sidebar-${props.ctx.space.id}`}>
-          <AppWorkspace.SidebarSection>
-            <SidebarSettings
-              spaceId={props.ctx.space.id}
-              currentView={props.ctx.currentView}
-              currentPanelWidth={props.ctx.currentPanelWidth}
-              hasOverride={props.ctx.hasOverride}
-              hideSettings={props.ctx.settings.hideSettings}
-            />
-          </AppWorkspace.SidebarSection>
-        </AppWorkspace.SidebarBody>
+        <div class="min-h-0 flex-1" />
+
+        <AppWorkspace.SidebarFooter>
+          <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
+            <CopyICalButton icalToken={props.ctx.space.icalToken} />
+          </div>
+        </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
   );

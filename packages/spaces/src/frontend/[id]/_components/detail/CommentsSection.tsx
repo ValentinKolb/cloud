@@ -29,6 +29,7 @@ const getResponseErrorMessage = async (res: Response, fallback: string) => {
 
 export default function CommentsSection(props: Props) {
   const [newComment, setNewComment] = createSignal("");
+  const [composerOpen, setComposerOpen] = createSignal(false);
 
   const createCommentMutation = mutations.create({
     mutation: async (content: string) => {
@@ -43,6 +44,7 @@ export default function CommentsSection(props: Props) {
     },
     onSuccess: () => {
       setNewComment("");
+      setComposerOpen(false);
       toast.success("Comment added");
       props.onUpdate();
     },
@@ -106,82 +108,90 @@ export default function CommentsSection(props: Props) {
 
   return (
     <div class="flex flex-col gap-3">
-      <div class="mb-3 flex items-center justify-between gap-2">
-        <h3 class="detail-section-label">Comments</h3>
-        <span class="inline-flex items-center rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {props.comments.length} {props.comments.length === 1 ? "comment" : "comments"}
-        </span>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h3 class="detail-section-label mb-0">Comments</h3>
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 text-[11px] font-medium text-secondary">
+            {props.comments.length} {props.comments.length === 1 ? "comment" : "comments"}
+          </span>
+          <Show when={!composerOpen()}>
+            <button type="button" class="btn-simple btn-sm" onClick={() => setComposerOpen(true)}>
+              <i class="ti ti-plus" /> Add comment
+            </button>
+          </Show>
+        </div>
       </div>
 
-      <div class="flex flex-col gap-3">
-        <Show
-          when={sortedComments().length > 0}
-          fallback={
-            <Placeholder align="left" class="px-0 py-2">
-              No comments yet.
-            </Placeholder>
-          }
-        >
+      <Show
+        when={sortedComments().length > 0}
+        fallback={
+          <Placeholder align="left" class="px-0 py-2">
+            No comments yet.
+          </Placeholder>
+        }
+      >
+        <ol class="divide-y divide-[var(--ui-divider)]">
           <For each={sortedComments()}>
             {(comment) => (
-              <div class={`flex ${comment.userId === props.currentUserId ? "justify-end" : "justify-start"}`}>
-                <div
-                  class={`group w-[90%] max-w-[90%] border border-zinc-200 bg-white px-3 py-3 dark:border-zinc-800 dark:bg-zinc-900/50 ${
-                    comment.userId === props.currentUserId ? "rounded-xl rounded-br-[2px]" : "rounded-xl rounded-bl-[2px]"
-                  }`}
-                >
-                  <div class="flex items-start gap-2">
-                    <Avatar
-                      username={comment.userName ?? "Unknown"}
-                      userId={comment.userId}
-                      avatarHash={comment.userAvatarHash}
-                      size="xs"
-                    />
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center gap-2">
-                        <span class="truncate text-xs font-medium text-primary">{comment.userName ?? "Unknown"}</span>
-                        <span class="text-xs text-dimmed">{formatDate(comment.createdAt)}</span>
-                        <Show when={comment.canDelete}>
-                          <button
-                            type="button"
-                            onClick={() => deleteCommentMutation.mutate(comment.id)}
-                            disabled={deleteCommentMutation.loading()}
-                            class="btn-simple ml-auto text-xs text-dimmed hover:text-red-500 disabled:opacity-50"
-                          >
-                            <i class="ti ti-trash" />
-                          </button>
-                        </Show>
-                      </div>
-                      <div class="mt-1">
-                        <MarkdownView html={markdown.render(comment.content)} smallHeadings class="text-sm" />
-                      </div>
-                    </div>
+              <li class="group flex gap-2 py-3 first:pt-0 last:pb-0">
+                <Avatar username={comment.userName ?? "Unknown"} userId={comment.userId} avatarHash={comment.userAvatarHash} size="xs" />
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span class="truncate text-xs font-medium text-primary">{comment.userName ?? "Unknown"}</span>
+                    <span class="text-[11px] text-dimmed" title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
+                      {formatDate(comment.createdAt)}
+                    </span>
+                    <Show when={comment.canDelete}>
+                      <button
+                        type="button"
+                        onClick={() => deleteCommentMutation.mutate(comment.id)}
+                        disabled={deleteCommentMutation.loading()}
+                        class="icon-btn ml-auto h-7 w-7 opacity-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:hover:text-red-400"
+                        aria-label="Delete comment"
+                        title="Delete comment"
+                      >
+                        <i class="ti ti-trash" />
+                      </button>
+                    </Show>
+                  </div>
+                  <div class="mt-1">
+                    <MarkdownView html={markdown.render(comment.content)} smallHeadings class="text-sm" />
                   </div>
                 </div>
-              </div>
+              </li>
             )}
           </For>
-        </Show>
-      </div>
+        </ol>
+      </Show>
 
-      <form onSubmit={handleSubmit} class="flex flex-col gap-1.5">
-        <TextInput
-          value={() => newComment()}
-          onInput={setNewComment}
-          placeholder="Comment in markdown ..."
-          markdown
-          disabled={createCommentMutation.loading()}
-          onSubmit={submitNewComment}
-        />
-        <button
-          type="submit"
-          disabled={createCommentMutation.loading() || !newComment().trim()}
-          class="self-start inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {createCommentMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
-          Comment
-        </button>
-      </form>
+      <Show when={composerOpen()}>
+        <form onSubmit={handleSubmit} class="flex flex-col gap-2">
+          <TextInput
+            value={() => newComment()}
+            onInput={setNewComment}
+            placeholder="Write a comment in markdown…"
+            markdown
+            disabled={createCommentMutation.loading()}
+            onSubmit={submitNewComment}
+          />
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              onClick={() => {
+                setNewComment("");
+                setComposerOpen(false);
+              }}
+            >
+              Cancel
+            </button>
+            <button type="submit" disabled={createCommentMutation.loading() || !newComment().trim()} class="btn-primary btn-sm">
+              {createCommentMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
+              Post comment
+            </button>
+          </div>
+        </form>
+      </Show>
     </div>
   );
 }

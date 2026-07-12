@@ -78,9 +78,7 @@ function LocalSettingsForm(props: { spaceId: string; initialSettings: SpaceUserS
         />
       </div>
 
-      <p class="text-xs text-dimmed">
-        These are your personal defaults for this space. You can temporarily override them using the sidebar settings.
-      </p>
+      <p class="text-xs text-dimmed">These are your personal defaults for this space.</p>
     </div>
   );
 }

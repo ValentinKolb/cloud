@@ -140,7 +140,7 @@ export default function ItemDetailHost(props: Props) {
   });
 
   return (
-    <div>
+    <div class="h-full min-h-0">
       <Show
         when={item()}
         keyed

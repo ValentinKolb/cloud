@@ -497,24 +497,24 @@ export default function KanbanBoard(props: Props) {
   return (
     <div
       ref={boardScrollContainer}
-      class="h-full overflow-x-auto overflow-y-hidden px-3 py-1"
+      class="h-full overflow-x-auto overflow-y-hidden px-2 py-1"
       data-scroll-preserve={`spaces-kanban-board-${props.spaceId}`}
     >
-      <div class="flex h-full min-w-max items-stretch gap-3">
+      <div class="flex h-full min-w-max items-stretch gap-2">
         <For each={buckets()}>
           {(bucket) => {
             const isCompletedBucket = bucket.kind === "completed";
             const canDropInBucket = !!resolveTargetColumnId(bucket);
 
             return (
-              <section class="flex h-full w-72 shrink-0 flex-col">
+              <section class="flex h-full w-72 shrink-0 flex-col rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1">
                 <header class="flex items-center gap-2 px-1.5 py-1.5">
                   <span
                     class="h-2 w-2 shrink-0 rounded-full"
                     style={`background-color:${bucket.color ?? (isCompletedBucket ? "#10b981" : "#6b7280")}`}
                   />
                   <h3 class="flex-1 truncate text-xs font-medium">{bucket.label}</h3>
-                  <span class="text-[11px] text-dimmed">{bucket.total}</span>
+                  <span class="text-[11px] tabular-nums text-dimmed">{bucket.total}</span>
                 </header>
 
                 <div
@@ -525,10 +525,10 @@ export default function KanbanBoard(props: Props) {
                       meta: { kind: "column", bucketKey: bucket.key },
                     }));
                   }}
-                  class={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-lg p-1.5 transition-colors ${
+                  class={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-[var(--ui-radius-control)] p-1.5 transition-[background-color,box-shadow] ${
                     boardDnd.isDragging() && boardDnd.intent()?.bucketKey === bucket.key
-                      ? "bg-blue-500/10 dark:bg-blue-400/10 [box-shadow:var(--theme-recess),inset_0_0_0_2px_rgb(59_130_246/0.45)] dark:[box-shadow:var(--theme-recess),inset_0_0_0_2px_rgb(96_165_250/0.45)]"
-                      : "bg-zinc-100/60 dark:bg-zinc-950/40 [box-shadow:var(--theme-recess)]"
+                      ? "bg-[var(--ui-selected)] [box-shadow:inset_0_0_0_1px_var(--ui-focus)]"
+                      : "bg-transparent"
                   }`}
                   data-scroll-preserve={`spaces-kanban-column-${props.spaceId}-${bucket.key}`}
                 >
@@ -546,7 +546,7 @@ export default function KanbanBoard(props: Props) {
                           <>
                             <Show when={isDropIndicatorVisible(bucket.key, itemIndex())}>
                               <div class="relative z-10 h-4">
-                                <div class="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-md border border-blue-500/80 bg-blue-500/25 dark:border-blue-400/80 dark:bg-blue-400/25" />
+                                <div class="absolute inset-x-1 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[var(--ui-focus)]" />
                               </div>
                             </Show>
                             <article
@@ -570,10 +570,10 @@ export default function KanbanBoard(props: Props) {
                                 }));
                               }}
                               data-card-index={itemIndex()}
-                              class={`group/card relative rounded-md border p-2.5 transition-colors ${
+                              class={`group/card relative rounded-[var(--ui-radius-control)] border p-2.5 shadow-none transition-[background-color,border-color] ${
                                 isSelected()
-                                  ? "border-blue-500 bg-blue-500/[0.08] ring-1 ring-blue-500 dark:border-blue-400 dark:bg-blue-400/10 dark:ring-blue-400"
-                                  : "border-zinc-200 bg-white [box-shadow:var(--theme-bevel-top),var(--theme-bevel-bottom)] hover:border-blue-500/45 hover:bg-blue-500/[0.04] dark:border-zinc-700/70 dark:bg-zinc-900 dark:hover:border-blue-400/45 dark:hover:bg-blue-400/[0.06]"
+                                  ? "border-[var(--ui-border-strong)] bg-[var(--ui-selected)]"
+                                  : "border-[var(--ui-border)] bg-[var(--ui-surface)] hover:bg-[var(--ui-hover)]"
                               } ${isDraggingThis() ? "opacity-40" : ""}`}
                             >
                               <Show
@@ -584,7 +584,7 @@ export default function KanbanBoard(props: Props) {
                                     data-dnd-card-handle
                                     aria-label={`Drag ${item.title}`}
                                     title="Drag"
-                                    class="absolute right-1.5 top-1.5 inline-flex h-5 w-5 cursor-grab items-center justify-center rounded-md text-dimmed opacity-0 transition-colors hover:bg-zinc-100 hover:text-primary group-hover/card:opacity-100 active:cursor-grabbing dark:hover:bg-zinc-800"
+                                    class="focus-ui absolute right-1.5 top-1.5 inline-flex h-5 w-5 cursor-grab items-center justify-center rounded-[var(--ui-radius-control)] text-dimmed opacity-0 transition-[color,background-color,opacity] hover:bg-[var(--ui-hover)] hover:text-primary group-hover/card:opacity-100 group-focus-within/card:opacity-100 active:cursor-grabbing"
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
@@ -645,7 +645,7 @@ export default function KanbanBoard(props: Props) {
 
                   <Show when={isDropIndicatorVisible(bucket.key, bucket.items.length)}>
                     <div class="relative z-10 h-4">
-                      <div class="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-md border border-blue-500/80 bg-blue-500/25 dark:border-blue-400/80 dark:bg-blue-400/25" />
+                      <div class="absolute inset-x-1 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[var(--ui-focus)]" />
                     </div>
                   </Show>
 
@@ -654,7 +654,7 @@ export default function KanbanBoard(props: Props) {
                       type="button"
                       onClick={() => loadMoreMutation.mutate({ bucketKey: bucket.key })}
                       disabled={isLoadingBucket(bucket.key)}
-                      class="mx-auto mt-1 inline-flex h-7 w-7 items-center justify-center rounded-full text-dimmed transition-colors hover:bg-zinc-200/60 hover:text-primary dark:hover:bg-zinc-800"
+                      class="icon-btn mx-auto mt-1 h-7 w-7"
                       aria-label={`Load more items in ${bucket.label}`}
                       title="Load more"
                     >

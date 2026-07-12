@@ -92,7 +92,7 @@ export default function CreateItemButton(props: Props) {
         type="button"
         onClick={() => mutation.mutate(undefined)}
         disabled={mutation.loading()}
-        class="sidebar-icon-action sidebar-icon-action-success"
+        class="sidebar-icon-action"
         title="New Item"
         aria-label="New Item"
       >
