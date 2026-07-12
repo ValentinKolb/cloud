@@ -1,9 +1,8 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { FormConfigSchema } from "../contracts";
-import { isRecordWritableFieldType } from "../field-types";
 import { logAudit } from "./audit";
-import { listByTable as listFields, validateDefaultValue } from "./fields";
+import { listByTable as listFields } from "./fields";
+import { validateFormConfig } from "./form-config-validation";
 import { parseJsonbRow } from "./jsonb";
 import { emitTableMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
@@ -19,8 +18,6 @@ type InlineCreateFieldEntry =
  * never persisted. Both share this shape so callers can render either with
  * the same code path.
  *
- * v3 (Slice 6) introduces a tagged-union FormFieldEntry:
- *
  *   - `user_input`: rendered as an input in the form UI; the user
  *     supplies the value. Per-form label/helpText/required/defaultValue
  *     overrides apply.
@@ -30,8 +27,8 @@ type InlineCreateFieldEntry =
  *     contact form that tags every submission with `source = "website"`.
  *     The value is locked at form-edit time, not at submit time.
  *
- * Pre-v3 entries (no `kind` discriminator) are normalized to `user_input`
- * on read so existing forms keep working.
+ * Stored entries without a `kind` discriminator are interpreted as
+ * `user_input` when read.
  */
 export type FormFieldEntry =
   | {
@@ -375,86 +372,6 @@ type CreateFormInput = {
   name: string;
   config?: FormConfig;
   isPublic?: boolean;
-};
-
-const validateFormConfig = async (tableId: string, config: unknown): Promise<Result<FormConfig>> => {
-  const parsed = FormConfigSchema.safeParse(config);
-  if (!parsed.success) {
-    const firstIssue = parsed.error.issues[0];
-    const detail = firstIssue?.message ?? "invalid form config";
-    return fail(err.badInput(`invalid form config: ${detail}`));
-  }
-  const normalized = parsed.data as FormConfig;
-  const fields = await listFields(tableId);
-  const byId = new Map(fields.filter((f) => !f.deletedAt).map((f) => [f.id, f]));
-  const seen = new Set<string>();
-
-  for (let i = 0; i < normalized.fields.length; i++) {
-    const entry = normalized.fields[i]!;
-    const field = byId.get(entry.fieldId);
-    if (!field) return fail(err.badInput("form references an unknown field"));
-    if (seen.has(entry.fieldId)) {
-      return fail(err.badInput(`form references field "${field.name}" more than once`));
-    }
-    seen.add(entry.fieldId);
-
-    if (!isRecordWritableFieldType(field.type)) {
-      return fail(err.badInput(`field "${field.name}" cannot be used in a form`));
-    }
-
-    const raw = entry.kind === "form_value" ? entry.value : entry.defaultValue;
-    const validated = validateDefaultValue(field.type, field.config, raw);
-    if (!validated.ok) return fail(err.badInput(`invalid form value for "${field.name}": ${validated.error.message}`));
-    if (entry.kind === "form_value") {
-      normalized.fields[i] = { ...entry, value: validated.data };
-    } else if (entry.defaultValue !== undefined) {
-      normalized.fields[i] = { ...entry, defaultValue: validated.data };
-    }
-
-    if (entry.kind === "user_input" && entry.inlineCreate?.enabled) {
-      if (field.type !== "relation") {
-        return fail(err.badInput(`field "${field.name}" cannot create related records because it is not a relation`));
-      }
-      const targetTableId = (field.config as { targetTableId?: unknown }).targetTableId;
-      if (typeof targetTableId !== "string") {
-        return fail(err.badInput(`field "${field.name}" cannot create related records because it has no target table`));
-      }
-      const inlineFields = entry.inlineCreate.fields ?? [];
-      if (inlineFields.length === 0) {
-        return fail(err.badInput(`field "${field.name}" inline creation needs at least one target field`));
-      }
-      const targetFields = await listFields(targetTableId);
-      const targetById = new Map(targetFields.filter((f) => !f.deletedAt).map((f) => [f.id, f]));
-      const seenTargetFields = new Set<string>();
-      const normalizedInlineFields: NonNullable<Extract<FormFieldEntry, { kind: "user_input" }>["inlineCreate"]>["fields"] = [];
-      for (const inlineField of inlineFields) {
-        const targetField = targetById.get(inlineField.fieldId);
-        if (!targetField) return fail(err.badInput(`field "${field.name}" inline creation references an unknown target field`));
-        if (seenTargetFields.has(inlineField.fieldId)) {
-          return fail(err.badInput(`field "${field.name}" inline creation references "${targetField.name}" more than once`));
-        }
-        seenTargetFields.add(inlineField.fieldId);
-        if (!isRecordWritableFieldType(targetField.type) || targetField.type === "relation") {
-          return fail(err.badInput(`field "${field.name}" inline creation cannot edit target field "${targetField.name}"`));
-        }
-        const inlineDefault = validateDefaultValue(targetField.type, targetField.config, inlineField.defaultValue);
-        if (!inlineDefault.ok) {
-          return fail(err.badInput(`invalid inline form value for "${targetField.name}": ${inlineDefault.error.message}`));
-        }
-        normalizedInlineFields.push(
-          inlineField.defaultValue !== undefined ? { ...inlineField, defaultValue: inlineDefault.data } : inlineField,
-        );
-      }
-      normalized.fields[i] = {
-        ...(normalized.fields[i] as Extract<FormFieldEntry, { kind: "user_input" }>),
-        inlineCreate: { enabled: true, fields: normalizedInlineFields },
-      };
-    } else if (entry.kind === "user_input" && entry.inlineCreate) {
-      normalized.fields[i] = { ...(normalized.fields[i] as Extract<FormFieldEntry, { kind: "user_input" }>), inlineCreate: undefined };
-    }
-  }
-
-  return ok(normalized);
 };
 
 const generatePublicToken = (): string => {
