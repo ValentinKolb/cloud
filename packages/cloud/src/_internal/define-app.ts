@@ -428,7 +428,7 @@ export const defineApp = <
       await startOpts.lifecycle.setup(cloudCtx);
     }
 
-    await registerNotificationDefinitions(notifications);
+    await registerNotificationDefinitions(meta.id, notifications);
 
     await loadSettingsCache();
 

@@ -6,6 +6,7 @@ import { logger } from "../logging";
 import { escapeLikePattern } from "../postgres";
 import { sendEmail } from "./email";
 import { sendTypedNotification, type TypedNotificationSendResult } from "./platform";
+import { userNotifications } from "./user";
 
 const log = logger("notifications");
 
@@ -27,6 +28,7 @@ const determineStatus = (sentAt: Date | null, error: string | null): Notificatio
   return "pending";
 };
 
+/** @deprecated Declare a typed app notification and call `notifications.send(definition, input)`. */
 export type SendNotificationParams = {
   type: NotificationType;
   recipient: string;
@@ -37,12 +39,14 @@ export type SendNotificationParams = {
   sentBy?: string; // user ID of sender
 };
 
+/** @deprecated Return type of the legacy email-only send API. */
 export type SendNotificationResult = {
   id: string;
   status: NotificationStatus;
   error?: string;
 };
 
+/** @deprecated Declare a typed user notification and call `notifications.send(definition, input)`. */
 export type SendToUserParams = {
   userId: string;
   subject: string;
@@ -79,6 +83,14 @@ const emptySearchSummary = (): NotificationSearchSummary => ({
   system: 0,
   latestCreatedAt: null,
 });
+
+const warnDeprecatedSendApi = (api: "notifications.send" | "notifications.sendToUser"): void => {
+  log.warn("Deprecated notification send API used", {
+    api,
+    deprecated: true,
+    replacement: "defineApp({ notifications }) and notifications.send(definition, input)",
+  });
+};
 
 type DbNotificationRow = {
   id: string;
@@ -133,12 +145,16 @@ export function send<AppId extends string, Key extends string, R extends Notific
   definition: BoundNotificationDefinition<AppId, Key, R, S>,
   input: NotificationSendInput<BoundNotificationDefinition<AppId, Key, R, S>>,
 ): Promise<TypedNotificationSendResult>;
+/** @deprecated Declare a typed app notification and call the definition overload. */
 export function send(params: SendNotificationParams): Promise<SendNotificationResult>;
 export function send<AppId extends string, Key extends string, R extends NotificationRecipientKind, S extends ZodType>(
   definitionOrParams: SendNotificationParams | BoundNotificationDefinition<AppId, Key, R, S>,
   input?: NotificationSendInput<BoundNotificationDefinition<AppId, Key, R, S>>,
 ): Promise<SendNotificationResult | TypedNotificationSendResult> {
-  if ("type" in definitionOrParams) return sendLegacy(definitionOrParams);
+  if ("type" in definitionOrParams) {
+    warnDeprecatedSendApi("notifications.send");
+    return sendLegacy(definitionOrParams);
+  }
   if (!input) throw new Error("Typed notification send input is required");
   return sendTypedNotification(definitionOrParams, input);
 }
@@ -148,6 +164,7 @@ export function send<AppId extends string, Key extends string, R extends Notific
  * Looks up the user's preferred notification method (currently email only).
  */
 export const sendToUser = async (params: SendToUserParams): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
+  warnDeprecatedSendApi("notifications.sendToUser");
   const { userId, subject, content, rawHtml, sentBy } = params;
 
   // Get user's email from database
@@ -163,7 +180,7 @@ export const sendToUser = async (params: SendToUserParams): Promise<{ ok: true; 
 
   // For now, always use email. Later this can be extended to support other notification types
   // based on user preferences stored in the database.
-  const result = await send({
+  const result = await sendLegacy({
     type: "email",
     recipient: email,
     subject,
@@ -590,7 +607,10 @@ export const notifications = {
   sendAllPendingSystem,
   getStatusSummary,
   getSearchSummary,
+  user: userNotifications,
 };
+
+export { userNotifications } from "./user";
 
 export type {
   NotificationBatch,

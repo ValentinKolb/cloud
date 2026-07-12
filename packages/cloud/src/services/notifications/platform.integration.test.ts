@@ -3,7 +3,9 @@ import { sql } from "bun";
 import { z } from "zod";
 import { defineApp, notification } from "../..";
 import { notifications } from ".";
+import { registerNotificationDefinitions } from "./catalog";
 import { registerNotificationChannel } from "./channels";
+import { userNotifications } from "./user";
 
 declare module "../../contracts/notification-types" {
   interface NotificationChannelRegistry {
@@ -74,8 +76,17 @@ describe("typed notification delivery integration", () => {
           data: z.object({ resourceId: z.string() }),
           render: ({ resourceId }) => ({ title: "Completed", body: `Resource ${resourceId}`, targetHref: `/resources/${resourceId}` }),
         }),
+        muted: notification({
+          recipient: "user",
+          label: "Muted",
+          description: "A user-disabled test notification.",
+          delivery: { recommended: ["test"] },
+          data: z.object({ resourceId: z.string() }),
+          render: ({ resourceId }) => ({ title: "Muted", body: `Resource ${resourceId}` }),
+        }),
       },
     });
+    let legacyMessageId: string | null = null;
 
     try {
       const idempotencyKey = `completion:${suffix}`;
@@ -105,10 +116,68 @@ describe("typed notification delivery integration", () => {
       expect(deliveryRows[0]?.attempt_count).toBe(1);
       expect(deliveryRows[0]?.payload_encrypted).not.toContain("resource-1");
       expect(deliveryRows[0]?.payload_encrypted).not.toContain("endpoint-secret");
+
+      await registerNotificationDefinitions(app.meta.id, app.notifications);
+      await sql`
+        INSERT INTO notifications.preferences (user_id, definition_id, channels)
+        VALUES (${userId}::uuid, ${app.notifications.muted.id}, '{}'::text[])
+      `;
+      const muted = await notifications.send(app.notifications.muted, {
+        recipient: { userId },
+        data: { resourceId: "resource-2" },
+        idempotencyKey: `muted:${suffix}`,
+      });
+      expect(muted.status).toBe("suppressed");
+      expect(muted.deliveries).toEqual([expect.objectContaining({ channel: "none", status: "suppressed", errorCode: "disabled_by_user" })]);
+
+      const preferences = await userNotifications.preferences.list(userId);
+      expect(preferences.availableChannels).toContain("test");
+      expect(preferences.definitions.find((definition) => definition.id === app.notifications.muted.id)).toEqual(
+        expect.objectContaining({ customized: true, selectedChannels: [], effectiveChannels: [] }),
+      );
+
+      const history = await userNotifications.history.list({ userId, page: 1, perPage: 20 });
+      const disabled = history.items.find((item) => item.eventId === muted.id);
+      expect(disabled).toEqual(
+        expect.objectContaining({
+          channel: "none",
+          status: "suppressed",
+          errorCode: "disabled_by_user",
+          errorMessage: "Delivery is disabled in your notification preferences.",
+        }),
+      );
+      expect(disabled && "body" in disabled).toBe(false);
+
+      const reset = await userNotifications.preferences.reset({ userId, definitionId: app.notifications.muted.id });
+      expect(reset).toEqual(
+        expect.objectContaining({ ok: true, data: expect.objectContaining({ customized: false, selectedChannels: ["test"] }) }),
+      );
+
+      const warnings: unknown[][] = [];
+      const originalWarn = console.warn;
+      try {
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        const legacy = await notifications.send({
+          type: "email",
+          recipient: "legacy-notification@example.test",
+          subject: "Legacy notification",
+          content: "Compatibility test",
+          autoSend: false,
+        });
+        legacyMessageId = legacy.id;
+      } finally {
+        console.warn = originalWarn;
+      }
+      expect(warnings).toContainEqual([
+        "[notifications]",
+        "Deprecated notification send API used",
+        expect.objectContaining({ api: "notifications.send", deprecated: true }),
+      ]);
     } finally {
       unregister();
+      if (legacyMessageId) await sql`DELETE FROM notifications.messages WHERE id = ${legacyMessageId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
-      await sql`DELETE FROM notifications.definitions WHERE id = 'notification-platform-test.completed'`;
+      await sql`DELETE FROM notifications.definitions WHERE app_id = 'notification-platform-test'`;
     }
   });
 });

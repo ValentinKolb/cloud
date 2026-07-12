@@ -90,14 +90,14 @@ const preferredChannels = async (
   definitionId: string,
   recipient: ResolvedNotificationRecipient,
   recommended: readonly NotificationChannelId[],
-): Promise<string[]> => {
-  if (!recipient.userId) return [];
+): Promise<{ channels: string[]; customized: boolean }> => {
+  if (!recipient.userId) return { channels: [], customized: false };
   const rows = await sql<{ channels: string[] }[]>`
     SELECT channels FROM notifications.preferences
     WHERE user_id = ${recipient.userId}::uuid AND definition_id = ${definitionId}
     LIMIT 1
   `;
-  return rows[0] ? unique(rows[0].channels) : unique(recommended);
+  return rows[0] ? { channels: unique(rows[0].channels), customized: true } : { channels: unique(recommended), customized: false };
 };
 
 const prepareChannel = async (input: {
@@ -212,9 +212,8 @@ export const sendTypedNotification = async <
 
   const requiredChannels = unique([...(definition.delivery?.required ?? [])]);
   const requiredChannelSet = new Set<string>(requiredChannels);
-  const preferred = (await preferredChannels(definition.id, resolved.recipient, definition.delivery?.recommended ?? [])).filter(
-    (channel) => !requiredChannelSet.has(channel),
-  );
+  const preference = await preferredChannels(definition.id, resolved.recipient, definition.delivery?.recommended ?? []);
+  const preferred = preference.channels.filter((channel) => !requiredChannelSet.has(channel));
 
   const requiredPlans = (
     await Promise.all(
@@ -244,6 +243,23 @@ export const sendTypedNotification = async <
       ),
     )
   ).flat();
+
+  if (requiredPlans.length === 0 && preferredPlans.length === 0) {
+    preferredPlans.push({
+      channel: "none",
+      endpointId: null,
+      destinationKey: "no-preferred-channel",
+      destinationLabel: "No delivery channel",
+      payloadEncrypted: await encryptSecret(presentation),
+      required: false,
+      routePriority: null,
+      status: "suppressed",
+      errorCode: preference.customized ? "disabled_by_user" : "no_preferred_channel",
+      errorMessage: preference.customized
+        ? "The user disabled delivery for this notification."
+        : "No preferred delivery channel is configured.",
+    });
+  }
 
   const firstPreferredPriority = preferredPlans.find((delivery) => delivery.status !== "suppressed")?.routePriority;
   const plans = [

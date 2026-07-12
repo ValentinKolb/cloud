@@ -19,15 +19,27 @@ import {
   ErrorResponseSchema,
   ListWebAuthnPasskeysResponseSchema,
   MessageResponseSchema,
+  NotificationDeliveryStatusSchema,
   ServiceAccountCredentialSchema,
+  UpdateUserNotificationPreferenceSchema,
   UpdateAvatarResponseSchema,
   UpdateAvatarSchema,
   UpdateProfileSchema,
+  UserNotificationHistoryResponseSchema,
+  UserNotificationPreferenceSchema,
+  UserNotificationPreferencesResponseSchema,
   UserSchema,
   WebAuthnPasskeySchema,
 } from "../contracts";
 import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "../server";
-import { accountLifecycle, accountsAppService as accountsService, audit, serviceAccountCredentials, webauthn } from "../services";
+import {
+  accountLifecycle,
+  accountsAppService as accountsService,
+  audit,
+  notifications,
+  serviceAccountCredentials,
+  webauthn,
+} from "../services";
 
 const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
   userId: user.id,
@@ -67,6 +79,13 @@ const AccountActivityQuerySchema = z.object({
     .default(30),
 });
 
+const NotificationDefinitionParamSchema = z.object({ definitionId: z.string().min(1).max(200) });
+const NotificationHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional().default(1),
+  perPage: z.coerce.number().int().min(1).max(100).optional().default(25),
+  status: NotificationDeliveryStatusSchema.optional(),
+});
+
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
@@ -93,6 +112,97 @@ const app = new Hono<AuthContext>()
           pagination: { page: 1, perPage: 50 },
         });
         return ok({ items: page.items });
+      }),
+  )
+
+  .get(
+    "/notifications/preferences",
+    describeRoute({
+      tags: ["Me"],
+      summary: "List current user notification preferences",
+      description: "List active user-facing notification kinds, app recommendations, required channels, and explicit preferences.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(UserNotificationPreferencesResponseSchema, "Notification preferences"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    async (c) =>
+      respond(c, async () => {
+        const data = await notifications.user.preferences.list(c.get("user").id);
+        return ok(data);
+      }),
+  )
+
+  .put(
+    "/notifications/preferences/:definitionId",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Set current user notification preference",
+      description: "Replace optional channels for one notification kind. Required channels remain enforced by the definition.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(UserNotificationPreferenceSchema, "Updated notification preference"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid or unavailable channel"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        404: jsonResponse(ErrorResponseSchema, "Notification preference not found"),
+      },
+    }),
+    v("param", NotificationDefinitionParamSchema),
+    v("json", UpdateUserNotificationPreferenceSchema),
+    async (c) =>
+      respond(
+        c,
+        notifications.user.preferences.set({
+          userId: c.get("user").id,
+          definitionId: c.req.valid("param").definitionId,
+          channels: c.req.valid("json").channels,
+        }),
+      ),
+  )
+
+  .delete(
+    "/notifications/preferences/:definitionId",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Reset current user notification preference",
+      description: "Remove an explicit preference so the app recommendation applies again.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(UserNotificationPreferenceSchema, "Reset notification preference"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        404: jsonResponse(ErrorResponseSchema, "Notification preference not found"),
+      },
+    }),
+    v("param", NotificationDefinitionParamSchema),
+    async (c) =>
+      respond(
+        c,
+        notifications.user.preferences.reset({
+          userId: c.get("user").id,
+          definitionId: c.req.valid("param").definitionId,
+        }),
+      ),
+  )
+
+  .get(
+    "/notifications/history",
+    describeRoute({
+      tags: ["Me"],
+      summary: "List current user notification delivery history",
+      description: "List bodyless delivery metadata and safe error details for the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(UserNotificationHistoryResponseSchema, "Notification delivery history"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    v("query", NotificationHistoryQuerySchema),
+    async (c) =>
+      respond(c, async () => {
+        const query = c.req.valid("query");
+        const data = await notifications.user.history.list({ userId: c.get("user").id, ...query });
+        return ok(data);
       }),
   )
 
