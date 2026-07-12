@@ -28,10 +28,19 @@ type WorkflowTriggerReaderRuntimeDeps = {
 };
 
 export const createWorkflowTriggerReaderRuntime = (deps: WorkflowTriggerReaderRuntimeDeps) => {
-  const baseReaders = new Map<string, { record: AbortController; metadata: AbortController }>();
+  const baseReaders = new Map<
+    string,
+    { record: AbortController; metadata: AbortController; tasks: [record: Promise<void>, metadata: Promise<void>] }
+  >();
 
-  const startReaderTask = (read: () => Promise<void>): void => {
-    void read();
+  const startReaderTask = (read: () => Promise<void>): Promise<void> => {
+    const task = read();
+    void task.catch((error) => {
+      deps.log.warn("Workflow reader task stopped unexpectedly", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    return task;
   };
 
   const dispatchRecordEvent = async (event: GridsRecordEvent): Promise<void> => {
@@ -81,9 +90,9 @@ export const createWorkflowTriggerReaderRuntime = (deps: WorkflowTriggerReaderRu
     }
   };
 
-  const startRecordEventReader = (baseId: string, controller: AbortController): void => {
+  const startRecordEventReader = (baseId: string, controller: AbortController): Promise<void> => {
     const reader = deps.recordEventReader(RECORD_EVENT_CONSUMER_GROUP);
-    startReaderTask(async () => {
+    return startReaderTask(async () => {
       while (!controller.signal.aborted) {
         try {
           const reclaimed = await deps.reclaimRecordEventDeliveries(baseId, RECORD_EVENT_CONSUMER_GROUP);
@@ -120,8 +129,8 @@ export const createWorkflowTriggerReaderRuntime = (deps: WorkflowTriggerReaderRu
     });
   };
 
-  const startMetadataReader = (baseId: string, controller: AbortController): void => {
-    startReaderTask(async () => {
+  const startMetadataReader = (baseId: string, controller: AbortController): Promise<void> => {
+    return startReaderTask(async () => {
       while (!controller.signal.aborted) {
         try {
           const after = await deps.latestMetadataEventCursor(baseId);
@@ -144,30 +153,30 @@ export const createWorkflowTriggerReaderRuntime = (deps: WorkflowTriggerReaderRu
     if (baseReaders.has(baseId)) return;
     const record = new AbortController();
     const metadata = new AbortController();
-    baseReaders.set(baseId, { record, metadata });
-    startRecordEventReader(baseId, record);
-    startMetadataReader(baseId, metadata);
+    const tasks: [Promise<void>, Promise<void>] = [startRecordEventReader(baseId, record), startMetadataReader(baseId, metadata)];
+    baseReaders.set(baseId, { record, metadata, tasks });
   };
 
-  const stopBaseReaders = (baseId: string): void => {
+  const stopBaseReaders = async (baseId: string): Promise<void> => {
     const readers = baseReaders.get(baseId);
     if (!readers) return;
     readers.record.abort();
     readers.metadata.abort();
     baseReaders.delete(baseId);
+    await Promise.allSettled(readers.tasks);
   };
 
   const reconcile = async (): Promise<void> => {
     const active = new Set(await deps.workflows.listRecordEventBaseIds());
+    const stopping: Promise<void>[] = [];
     for (const baseId of baseReaders.keys()) {
-      if (!active.has(baseId)) stopBaseReaders(baseId);
+      if (!active.has(baseId)) stopping.push(stopBaseReaders(baseId));
     }
+    await Promise.all(stopping);
     for (const baseId of active) startBaseReaders(baseId);
   };
 
-  const stopAll = (): void => {
-    for (const baseId of [...baseReaders.keys()]) stopBaseReaders(baseId);
-  };
+  const stopAll = async (): Promise<void> => Promise.all([...baseReaders.keys()].map(stopBaseReaders)).then(() => undefined);
 
   return { dispatchRecordEvent, reconcile, stopAll };
 };

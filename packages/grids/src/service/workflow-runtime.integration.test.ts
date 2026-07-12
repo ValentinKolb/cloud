@@ -228,7 +228,9 @@ describe("workflow runtime integration", () => {
 
       expect((await updateWorkflow(recordEventWorkflowId, { enabled: false }, null)).ok).toBe(true);
       expect(await listRecordEventBaseIds()).not.toContain(fixture.baseId);
-      const disabledEventAt = new Date().toISOString();
+      const [databaseClock] = await sql<Array<{ occurredAt: Date }>>`SELECT clock_timestamp() AS "occurredAt"`;
+      const disabledEventAt = databaseClock!.occurredAt.toISOString();
+      await Bun.sleep(5);
       expect((await updateWorkflow(recordEventWorkflowId, { enabled: true }, null)).ok).toBe(true);
       expect(await listRecordEventEnabled({ ...oldEvent, occurredAt: disabledEventAt })).toHaveLength(0);
       expect(await listRecordEventEnabled({ ...oldEvent, occurredAt: new Date(Date.now() + 1000).toISOString() })).toHaveLength(1);
