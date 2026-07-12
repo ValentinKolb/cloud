@@ -1,26 +1,15 @@
-import type { BrowserNotificationState } from "@valentinkolb/cloud/browser/notifications";
-import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserNotificationPreference, UserNotificationPreferencesResponse } from "@valentinkolb/cloud/contracts";
 import { Checkbox, Placeholder, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import {
-  notificationChannelAvailability,
-  notificationChannelMeta,
-  subscribeBrowserNotificationState,
-  unavailableBrowserNotificationState,
-} from "./notification-ui";
+import { createSignal, For, Show } from "solid-js";
+import { notificationChannelAvailability, notificationChannelMeta } from "./notification-ui";
 
 export type NotificationAppMeta = { id: string; name: string; icon: string };
 
 type PreferenceMutation = { type: "set"; channels: string[] } | { type: "reset"; channels: string[] };
 
-const PreferenceRow = (props: {
-  preference: UserNotificationPreference;
-  availableChannels: string[];
-  browserState: BrowserNotificationState | null;
-}) => {
+const PreferenceRow = (props: { preference: UserNotificationPreference; availableChannels: string[] }) => {
   const [selected, setSelected] = createSignal([...props.preference.selectedChannels]);
   const [customized, setCustomized] = createSignal(props.preference.customized);
   const required = new Set(props.preference.requiredChannels);
@@ -109,22 +98,10 @@ const PreferenceRow = (props: {
         <For each={optionalChannels}>
           {(channel) => {
             const meta = notificationChannelMeta(channel);
-            const availability = () => notificationChannelAvailability(channel, available.has(channel), props.browserState);
+            const availability = () => notificationChannelAvailability(available.has(channel));
             return (
               <Checkbox
-                label={
-                  <span class="inline-flex items-center gap-1.5">
-                    {meta.label}
-                    <Show when={availability().warning} keyed>
-                      {(warning) => (
-                        <span class="inline-flex text-red-500" title={warning}>
-                          <i class="ti ti-alert-circle" aria-hidden="true" />
-                          <span class="sr-only">{warning}</span>
-                        </span>
-                      )}
-                    </Show>
-                  </span>
-                }
+                label={meta.label}
                 description={availability().description}
                 value={() => selected().includes(channel)}
                 onChange={(enabled) => toggleChannel(channel, enabled)}
@@ -142,7 +119,6 @@ const PreferenceRow = (props: {
 };
 
 export default function NotificationPreferences(props: { initial: UserNotificationPreferencesResponse; apps: NotificationAppMeta[] }) {
-  const [browserState, setBrowserState] = createSignal<BrowserNotificationState | null>(null);
   const appMetadata = new Map(props.apps.map((app) => [app.id, app]));
   const groups = [...new Set(props.initial.definitions.map((definition) => definition.appId))]
     .map((appId) => ({
@@ -150,15 +126,6 @@ export default function NotificationPreferences(props: { initial: UserNotificati
       definitions: props.initial.definitions.filter((definition) => definition.appId === appId),
     }))
     .sort((left, right) => left.app.name.localeCompare(right.app.name));
-
-  onMount(() => {
-    const unsubscribe = subscribeBrowserNotificationState(setBrowserState);
-    void browserNotificationClient
-      .state()
-      .then(setBrowserState)
-      .catch(() => setBrowserState(unavailableBrowserNotificationState()));
-    onCleanup(unsubscribe);
-  });
 
   return (
     <Show when={groups.length > 0} fallback={<Placeholder surface="paper">No configurable notifications are registered.</Placeholder>}>
@@ -179,13 +146,7 @@ export default function NotificationPreferences(props: { initial: UserNotificati
               </div>
               <div class="mt-5 flex flex-col gap-6">
                 <For each={group.definitions}>
-                  {(preference) => (
-                    <PreferenceRow
-                      preference={preference}
-                      availableChannels={props.initial.availableChannels}
-                      browserState={browserState()}
-                    />
-                  )}
+                  {(preference) => <PreferenceRow preference={preference} availableChannels={props.initial.availableChannels} />}
                 </For>
               </div>
             </section>

@@ -2,7 +2,6 @@ import type { BrowserNotificationState } from "@valentinkolb/cloud/browser/notif
 import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
 import { toast } from "@valentinkolb/cloud/ui";
 import { createSignal, onMount, Show } from "solid-js";
-import { announceBrowserNotificationState, unavailableBrowserNotificationState } from "./notification-ui";
 
 const statusMeta = (state: BrowserNotificationState | null) => {
   if (!state) return { label: "Checking", class: "tag-neutral" };
@@ -17,16 +16,16 @@ export default function BrowserNotificationSetup() {
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  const applyState = (next: BrowserNotificationState) => {
-    setState(next);
-    announceBrowserNotificationState(next);
-  };
-
   onMount(async () => {
     try {
-      applyState(await browserNotificationClient.state());
+      setState(await browserNotificationClient.state());
     } catch {
-      applyState(unavailableBrowserNotificationState());
+      setState({
+        supported: false,
+        permission: "default",
+        enabled: false,
+        reason: "Browser notification status could not be checked. Reload this page to try again.",
+      });
     }
   });
 
@@ -35,7 +34,7 @@ export default function BrowserNotificationSetup() {
     setError(null);
     try {
       const next = await browserNotificationClient.enable();
-      applyState(next);
+      setState(next);
       if (next.enabled) toast.success("Browser notifications enabled.");
       else if (next.permission === "denied") setError("Permission is blocked. Allow notifications in your browser settings to continue.");
     } catch (cause) {
@@ -49,7 +48,7 @@ export default function BrowserNotificationSetup() {
     setPending(true);
     setError(null);
     try {
-      applyState(await browserNotificationClient.disable());
+      setState(await browserNotificationClient.disable());
       toast.success("Browser notifications disabled on this device.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to disable browser notifications.");
