@@ -67,6 +67,7 @@ packages/my-app/
 └── src/
     ├── index.ts              # app.start() — the entry point
     ├── config.ts             # defineApp() — identity, SSR config, settings, widgets
+    ├── notifications.ts      # typed end-user notification definitions and send helpers
     ├── api/
     │   ├── index.ts          # Hono router (mounts sub-routers, exports ApiType)
     │   ├── client.ts         # Typed Hono client for frontend
@@ -115,6 +116,7 @@ Worker package conventions:
 
 ```typescript
 import { defineApp } from "@valentinkolb/cloud";
+import { NOTIFICATIONS } from "./notifications";
 
 export const app = defineApp({
   id: "my-app",                          // unique, used in URLs and registry
@@ -136,6 +138,7 @@ export const app = defineApp({
     requiresRoles: ["user"],             // optional role filter
   },
   widgets: [{ id: "today", path: "/api/my-app/widget/today" }],
+  notifications: NOTIFICATIONS,
   settings: {
     "my-app.feature_enabled": {
       kind: "boolean",
@@ -159,7 +162,7 @@ export const app = defineApp({
 export const { ssr, plugin } = app;
 ```
 
-`defineApp()` creates the SSR config, Bun plugin for island bundling, and the `ssr` page handler wrapper used in page files. All app identity, widget endpoints, and per-app settings live here — one place. The `settings` map is typed: keys are exposed on `c.get("settings")` for any route using `Hono<AppContext<typeof app>>`.
+`defineApp()` creates the SSR config, Bun plugin for island bundling, and the `ssr` page handler wrapper used in page files. All app identity, widget endpoints, notification definitions, and per-app settings live here — one place. The `settings` map is typed: keys are exposed on `c.get("settings")` for any route using `Hono<AppContext<typeof app>>`. Keep notification definitions in `src/notifications.ts`; see the end-user notification reference in `references/frontend.md`.
 
 ### index.ts — App Bootstrap
 

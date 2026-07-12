@@ -249,6 +249,83 @@ trace tables. Scheduled jobs appear in the canonical page through sync
 `schedulerControl`; app admin UIs should link there instead of exposing their
 own schedule-equivalent "run now" buttons.
 
+### End-user notifications
+
+Apps declare every end-user notification in `src/notifications.ts` and register
+the resulting map through `defineApp({ notifications })`. The platform owns
+preferences, channel selection, durable delivery, retries, deduplication, and
+user-visible delivery history. App code owns only the typed payload and its
+presentation.
+
+```typescript
+// src/notifications.ts
+import { notification } from "@valentinkolb/cloud";
+import { z } from "zod";
+
+export const NOTIFICATIONS = {
+  exportReady: notification({
+    recipient: "user",
+    label: "Completed exports",
+    description: "A notification when an export is ready.",
+    delivery: { recommended: ["browser"] },
+    data: z.object({ exportId: z.uuid() }),
+    render: ({ exportId }) => ({
+      title: "Export ready",
+      targetHref: `/app/my-app/exports/${encodeURIComponent(exportId)}`,
+    }),
+  }),
+};
+```
+
+```typescript
+// src/config.ts
+import { defineApp } from "@valentinkolb/cloud";
+import { NOTIFICATIONS } from "./notifications";
+
+export const app = defineApp({
+  id: "my-app",
+  // ...normal app metadata...
+  notifications: NOTIFICATIONS,
+});
+```
+
+Send through the bound definition from `app.notifications`. Its recipient and
+payload are inferred from the definition; do not cast either value.
+
+```typescript
+import { notifications } from "@valentinkolb/cloud/services";
+import { app } from "./config";
+
+await notifications.send(app.notifications.exportReady, {
+  recipient: { userId },
+  data: { exportId },
+  idempotencyKey: `export:${exportId}`,
+});
+```
+
+Use `recommended` for the app's default channel order. Users can override these
+defaults on `/me/notifications`. Use `required` only when the product cannot
+function without that channel, such as an email sign-in link; required channels
+cannot be disabled or substituted. A notification with `recipient: "email"`
+must require email.
+
+Each logical event needs a stable `idempotencyKey`. Background jobs should send
+only after their durable domain state is committed and recover missed sends from
+that state. Notification rows are a delivery log, not the source of truth for
+the domain event. Keep browser payloads generic and put sensitive context behind
+the authenticated `targetHref`; the destination page must perform its normal
+permission check when opened.
+
+Apps must not request browser permission directly. The central notification
+settings UI performs explicit opt-in, endpoint registration, and unsupported-
+browser handling. A visible Cloud page receives quiet in-app feedback; hidden
+or closed pages use the browser notification channel when available.
+
+The legacy `notifications.send({ type: "email", ... })` and
+`notifications.sendToUser(...)` APIs remain operational for third-party apps,
+but are deprecated and emit a warning on every call. New code must use typed app
+definitions.
+
 ### Global Search
 
 The platform provides a spotlight-style search dialog (triggered via `Cmd+K` / `Ctrl+K`). Each app registers search capabilities in `app.start()`:
