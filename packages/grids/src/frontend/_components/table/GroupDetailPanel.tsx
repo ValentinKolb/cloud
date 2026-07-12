@@ -7,6 +7,7 @@ import type { Field, GridRecord } from "../../../service";
 import { fetchTableQuery } from "../records-view/fetcher";
 import { formatFieldValueText } from "./field-value-format";
 import type { GroupBucket } from "./GroupedTable";
+import { formatAggregationValue, formatGroupValue } from "./group-value-format";
 
 const PAGE_SIZE = 30;
 
@@ -135,22 +136,10 @@ export default function GroupDetailPanel(props: Props) {
     const field = fieldsById().get(spec.fieldId);
     return field?.type === "relation" ? "ti ti-hierarchy" : "ti ti-list-tree";
   };
-  const fieldWithGroupConfig = (field: Field, spec: GroupBySpec): Field =>
-    spec.granularity ? { ...field, config: { ...field.config, includeTime: false } } : field;
-
   const groupValue = (spec: GroupBySpec, index: number) => {
     const field = fieldsById().get(spec.fieldId);
     const raw = props.bucket.keys[index];
-    if (!field) return "Unknown";
-    if (raw == null) return "—";
-    return (
-      formatFieldValueText({
-        field: fieldWithGroupConfig(field, spec),
-        value: raw,
-        relationLabels: props.relationLabels,
-        dateConfig: props.dateConfig,
-      }) || String(raw)
-    );
+    return formatGroupValue({ value: raw, spec, field, relationLabels: props.relationLabels, dateConfig: props.dateConfig });
   };
 
   const renderRecordLine = (record: GridRecord) => {
@@ -203,7 +192,12 @@ export default function GroupDetailPanel(props: Props) {
                 {aggLabel(agg)}
               </div>
               <div class="mt-1 min-w-0 break-words text-sm font-semibold leading-5 text-primary">
-                {formatAgg(props.bucket.values[`${agg.fieldId}__${agg.agg}`])}
+                {formatAggregationValue({
+                  value: props.bucket.values[`${agg.fieldId}__${agg.agg}`],
+                  spec: agg,
+                  field: agg.fieldId === "*" ? undefined : fieldsById().get(agg.fieldId),
+                  dateConfig: props.dateConfig,
+                })}
               </div>
             </div>
           )}
@@ -273,12 +267,6 @@ export default function GroupDetailPanel(props: Props) {
     return formatFieldValueText({ field, value, record, relationLabels: props.relationLabels, dateConfig: props.dateConfig });
   }
 }
-
-const formatAgg = (value: unknown): string => {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
-  return String(value);
-};
 
 const buildMemberQuery = (params: {
   baseQuery: RecordQuery;

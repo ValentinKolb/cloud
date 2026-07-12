@@ -1,11 +1,10 @@
 import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
-import type { FormatSpec } from "../../../contracts";
+import type { AggregationSpec, GroupBySpec } from "../../../contracts";
 import type { Field } from "../../../service";
 import { FieldValue } from "./FieldValue";
-import { formatFieldValueText } from "./field-value-format";
-import { formatCell } from "./format-cell";
+import { formatAggregationValue, formatGroupValue } from "./group-value-format";
 
 /**
  * Server-rendered shape of a group bucket. Mirrors the API contract
@@ -23,19 +22,8 @@ type GroupTableColumn =
   | { kind: "agg"; id: string; spec: AggCol; index: number };
 type GroupDataTableColumn = DataTableColumn<GroupBucket> & { meta: GroupTableColumn };
 
-type GroupByCol = {
-  fieldId: string;
-  label?: string;
-  format?: FormatSpec;
-  granularity?: "day" | "week" | "month" | "quarter" | "year";
-};
-
-type AggCol = {
-  fieldId: string | "*";
-  agg: string;
-  label?: string;
-  format?: FormatSpec;
-};
+type GroupByCol = GroupBySpec;
+type AggCol = AggregationSpec;
 
 type Props = {
   /** Base id (UUID or slug — same value the parent page uses) so the
@@ -97,16 +85,6 @@ export default function GroupedTable(props: Props) {
     return `${a.agg} ${name}`;
   };
 
-  const formatScalarKey = (val: unknown): string => {
-    if (val === null || val === undefined) return "—";
-    if (typeof val === "string") return val;
-    if (typeof val === "number" || typeof val === "boolean") return String(val);
-    return String(val);
-  };
-
-  const fieldWithGroupConfig = (field: Field, spec: GroupByCol): Field =>
-    spec.granularity ? { ...field, config: { ...field.config, includeTime: false } } : field;
-
   // Always include the implicit `*__count` column even if the user
   // didn't configure it — the server adds it for every group query
   // because "how many records in this bucket" is universally useful.
@@ -117,18 +95,6 @@ export default function GroupedTable(props: Props) {
   };
   const aggKeyOf = (a: AggCol): string => `${a.fieldId}__${a.agg}`;
 
-  const formatAgg = (val: unknown, spec: AggCol): string => {
-    if (val === null || val === undefined) return "—";
-    if (spec.format) {
-      const field = spec.fieldId === "*" ? null : fieldsById.get(spec.fieldId);
-      if (field) {
-        return formatFieldValueText({ field, value: val, format: spec.format, dateConfig: props.dateConfig }) || String(val);
-      }
-      return formatCell(val, "number", {}, spec.format, props.dateConfig) || String(val);
-    }
-    if (typeof val === "number") return Number.isInteger(val) ? String(val) : val.toFixed(2);
-    return String(val);
-  };
   const bucketKey = (bucket: GroupBucket): string => JSON.stringify(bucket.keys);
 
   const columns = (): GroupDataTableColumn[] => {
@@ -238,7 +204,14 @@ export default function GroupedTable(props: Props) {
         }}
         renderCell={({ row, col }) => {
           const meta = columnMeta(col);
-          if (meta.kind === "agg") return formatAgg(row.values[aggKeyOf(meta.spec)], meta.spec);
+          if (meta.kind === "agg") {
+            return formatAggregationValue({
+              value: row.values[aggKeyOf(meta.spec)],
+              spec: meta.spec,
+              field: meta.spec.fieldId === "*" ? undefined : fieldsById.get(meta.spec.fieldId),
+              dateConfig: props.dateConfig,
+            });
+          }
           const f = fieldsById.get(meta.spec.fieldId);
           const val = row.keys[meta.index];
           if (f && f.type === "relation" && typeof val === "string") {
@@ -254,14 +227,7 @@ export default function GroupedTable(props: Props) {
               />
             );
           }
-          return f
-            ? formatFieldValueText({
-                field: fieldWithGroupConfig(f, meta.spec),
-                value: val,
-                format: meta.spec.format,
-                dateConfig: props.dateConfig,
-              }) || formatScalarKey(val)
-            : formatScalarKey(val);
+          return formatGroupValue({ value: val, spec: meta.spec, field: f, dateConfig: props.dateConfig });
         }}
       />
     </Show>
