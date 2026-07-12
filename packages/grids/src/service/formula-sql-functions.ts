@@ -77,9 +77,57 @@ type FormulaFunctionContext = {
   boolArg: (index: number) => unknown;
 };
 type FormulaFunctionCompiler = (context: FormulaFunctionContext) => FormulaSqlCompileResult;
+type FormulaDateKind = "date" | "datetime";
+
+const DATE_LITERAL = /^\d{4}-\d{2}-\d{2}$/;
+const INSTANT_LITERAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[zZ]|[+-]\d{2}:?\d{2})$/;
 
 const literalString = (expression: Expr): string | null =>
   expression.kind === "literal" && typeof expression.value === "string" ? expression.value.toLowerCase() : null;
+
+const formulaDateKind = (source: Expr, compiled: FormulaSqlExpression): FormulaDateKind | null => {
+  if (compiled.type === "date" || compiled.type === "datetime") return compiled.type;
+  if (source.kind !== "literal" || typeof source.value !== "string") return null;
+  if (DATE_LITERAL.test(source.value)) return "date";
+  if (INSTANT_LITERAL.test(source.value)) return "datetime";
+  return null;
+};
+
+const dateOperand = (
+  source: Expr,
+  compiled: FormulaSqlExpression,
+  timeZone: string,
+): { kind: FormulaDateKind; localDate: unknown; localTimestamp: unknown; instant: unknown } | null => {
+  const kind = formulaDateKind(source, compiled);
+  if (!kind) return null;
+  if (kind === "date") {
+    const date = compiled.type === "date" ? formulaSqlAsDate(compiled) : sql`grids.try_iso_date((${compiled.sql})::text)`;
+    return {
+      kind,
+      localDate: date,
+      localTimestamp: sql`(${date})::timestamp`,
+      instant: sql`((${date})::timestamp AT TIME ZONE 'UTC')`,
+    };
+  }
+  const instant = compiled.type === "datetime" ? formulaSqlAsTimestamp(compiled) : sql`grids.try_timestamptz((${compiled.sql})::text)`;
+  return {
+    kind,
+    localDate: sql`((${instant}) AT TIME ZONE ${timeZone})::date`,
+    localTimestamp: sql`(${instant}) AT TIME ZONE ${timeZone}`,
+    instant,
+  };
+};
+
+const dateOperandError = (fn: string): FormulaSqlCompileResult =>
+  formulaSqlFail(`${fn} expects date/datetime fields or ISO date/instant literals`);
+
+const intervalFor = (amount: unknown, unit: string): unknown => {
+  if (unit === "day" || unit === "days") return sql`${amount} * INTERVAL '1 day'`;
+  if (unit === "month" || unit === "months") return sql`${amount} * INTERVAL '1 month'`;
+  if (unit === "year" || unit === "years") return sql`${amount} * INTERVAL '1 year'`;
+  if (unit === "hour" || unit === "hours") return sql`${amount} * INTERVAL '1 hour'`;
+  return sql`${amount} * INTERVAL '1 minute'`;
+};
 
 const numericValues = (args: FormulaSqlExpression[], aggregate: "AVG" | "MIN" | "MAX" | "MEDIAN" | "SUM"): unknown => {
   if (args.length === 0) return sql`NULL::numeric`;
@@ -98,22 +146,39 @@ const numericValues = (args: FormulaSqlExpression[], aggregate: "AVG" | "MIN" | 
   return sql`(SELECT ${fn} FROM (VALUES ${rows}) AS formula_values(v) WHERE v IS NOT NULL)`;
 };
 
-const compileDateAdd = (args: Expr[], compiled: FormulaSqlExpression[]): FormulaSqlCompileResult => {
+const compileDateAdd = (
+  args: Expr[],
+  compiled: FormulaSqlExpression[],
+  compileContext: FunctionCompileContext,
+): FormulaSqlCompileResult => {
   const unit = literalString(args[2] ?? { kind: "literal", value: "days" });
   if (unit === null || !DATE_UNITS.has(unit)) return formulaSqlFail("DATEADD needs a literal unit: days, months, years, hours, or minutes");
-  const date = unit.startsWith("hour") || unit.startsWith("minute") ? formulaSqlAsTimestamp(compiled[0]!) : formulaSqlAsDate(compiled[0]!);
-  const amount = sql`(${formulaSqlAsNumeric(compiled[1]!)} || ${unit})::interval`;
-  if (unit.startsWith("hour") || unit.startsWith("minute")) return formulaSqlOk(sql`(${date} + ${amount})`, "datetime");
-  return formulaSqlOk(sql`(${date} + ${amount})::date`, "date");
+  const timeZone = normalizeTimeZone(compileContext.dateConfig?.timeZone, "UTC");
+  const date = dateOperand(args[0]!, compiled[0]!, timeZone);
+  if (!date) return dateOperandError("DATEADD");
+  const amount = sql`TRUNC(${formulaSqlAsNumeric(compiled[1]!)})`;
+  const interval = intervalFor(amount, unit);
+  const nextLocal = sql`(${date.localTimestamp} + ${interval})`;
+  const timeUnit = unit.startsWith("hour") || unit.startsWith("minute");
+  if (date.kind === "date" && !timeUnit) return formulaSqlOk(sql`(${nextLocal})::date`, "date");
+  return formulaSqlOk(sql`(${nextLocal} AT TIME ZONE ${timeZone})`, "datetime");
 };
 
-const compileDateDiff = (args: Expr[], compiled: FormulaSqlExpression[]): FormulaSqlCompileResult => {
+const compileDateDiff = (
+  args: Expr[],
+  compiled: FormulaSqlExpression[],
+  compileContext: FunctionCompileContext,
+): FormulaSqlCompileResult => {
   const unit = literalString(args[2] ?? { kind: "literal", value: "days" });
   if (unit === null || !DIFF_UNITS.has(unit)) return formulaSqlFail("DATEDIFF needs a literal unit: days, hours, minutes, or seconds");
+  const timeZone = normalizeTimeZone(compileContext.dateConfig?.timeZone, "UTC");
+  const from = dateOperand(args[0]!, compiled[0]!, timeZone);
+  const to = dateOperand(args[1]!, compiled[1]!, timeZone);
+  if (!from || !to) return dateOperandError("DATEDIFF");
   if (unit === "day" || unit === "days") {
-    return formulaSqlOk(sql`(${formulaSqlAsDate(compiled[1]!)} - ${formulaSqlAsDate(compiled[0]!)} )::numeric`, "numeric");
+    return formulaSqlOk(sql`(${to.localDate} - ${from.localDate})::numeric`, "numeric");
   }
-  const seconds = sql`EXTRACT(EPOCH FROM (${formulaSqlAsTimestamp(compiled[1]!)} - ${formulaSqlAsTimestamp(compiled[0]!)}))`;
+  const seconds = sql`EXTRACT(EPOCH FROM (${to.instant} - ${from.instant}))`;
   if (unit === "hour" || unit === "hours") return formulaSqlOk(sql`FLOOR(${seconds} / 3600)::numeric`, "numeric");
   if (unit === "minute" || unit === "minutes") return formulaSqlOk(sql`FLOOR(${seconds} / 60)::numeric`, "numeric");
   return formulaSqlOk(sql`FLOOR(${seconds})::numeric`, "numeric");
@@ -183,11 +248,23 @@ const FORMULA_FUNCTION_COMPILERS = {
     return formulaSqlOk(sql`${dates.formatDateKey(compileContext.now, { ...compileContext.dateConfig, timeZone })}::date`, "date");
   },
   NOW: ({ compileContext }) => formulaSqlOk(sql`${compileContext.now.toISOString()}::timestamptz`, "datetime"),
-  YEAR: ({ arg }) => formulaSqlOk(sql`EXTRACT(YEAR FROM ${formulaSqlAsDate(arg(0))})::numeric`, "numeric"),
-  MONTH: ({ arg }) => formulaSqlOk(sql`EXTRACT(MONTH FROM ${formulaSqlAsDate(arg(0))})::numeric`, "numeric"),
-  DAY: ({ arg }) => formulaSqlOk(sql`EXTRACT(DAY FROM ${formulaSqlAsDate(arg(0))})::numeric`, "numeric"),
-  DATEADD: ({ sourceArgs, compiled }) => compileDateAdd(sourceArgs, compiled),
-  DATEDIFF: ({ sourceArgs, compiled }) => compileDateDiff(sourceArgs, compiled),
+  YEAR: ({ sourceArgs, arg, compileContext }) => {
+    const timeZone = normalizeTimeZone(compileContext.dateConfig?.timeZone, "UTC");
+    const date = dateOperand(sourceArgs[0]!, arg(0), timeZone);
+    return date ? formulaSqlOk(sql`EXTRACT(YEAR FROM ${date.localDate})::numeric`, "numeric") : dateOperandError("YEAR");
+  },
+  MONTH: ({ sourceArgs, arg, compileContext }) => {
+    const timeZone = normalizeTimeZone(compileContext.dateConfig?.timeZone, "UTC");
+    const date = dateOperand(sourceArgs[0]!, arg(0), timeZone);
+    return date ? formulaSqlOk(sql`EXTRACT(MONTH FROM ${date.localDate})::numeric`, "numeric") : dateOperandError("MONTH");
+  },
+  DAY: ({ sourceArgs, arg, compileContext }) => {
+    const timeZone = normalizeTimeZone(compileContext.dateConfig?.timeZone, "UTC");
+    const date = dateOperand(sourceArgs[0]!, arg(0), timeZone);
+    return date ? formulaSqlOk(sql`EXTRACT(DAY FROM ${date.localDate})::numeric`, "numeric") : dateOperandError("DAY");
+  },
+  DATEADD: ({ sourceArgs, compiled, compileContext }) => compileDateAdd(sourceArgs, compiled, compileContext),
+  DATEDIFF: ({ sourceArgs, compiled, compileContext }) => compileDateDiff(sourceArgs, compiled, compileContext),
 } satisfies Record<FormulaFunctionName, FormulaFunctionCompiler>;
 
 const formatArity = (spec: { min: number; max: number }): string => {

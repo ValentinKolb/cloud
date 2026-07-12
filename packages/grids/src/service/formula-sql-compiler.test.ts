@@ -87,6 +87,18 @@ describe("compileFormulaSourceToSql", () => {
     const result = compileFormulaSourceToSql("DATEADD(Timestamp, 2, 'hours')", { fields });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.expression.type).toBe("datetime");
+
+    const calendarResult = compileFormulaSourceToSql("DATEADD(Timestamp, 1, 'days')", { fields });
+    expect(calendarResult.ok).toBe(true);
+    if (calendarResult.ok) expect(calendarResult.expression.type).toBe("datetime");
+  });
+
+  test("rejects date functions over untyped text instead of guessing", () => {
+    for (const source of ["DAY(Name)", "DATEADD(Name, 1, 'days')", "DATEDIFF(Name, Due, 'days')", "YEAR('not-a-date')"]) {
+      const result = compileFormulaSourceToSql(source, { fields });
+      expect(result.ok, source).toBe(false);
+      if (!result.ok) expect(result.error).toContain("expects date/datetime fields or ISO date/instant literals");
+    }
   });
 
   test("types system timestamps as datetime and system users as text", () => {

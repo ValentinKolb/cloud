@@ -133,6 +133,14 @@ test("date functions use the configured timezone for instants", () => {
 test("DATEADD days", () => {
   expect(run("DATEADD('2026-05-02', 7, 'days')")).toBe("2026-05-09");
 });
+test("DATEADD clamps month and year additions to the target month", () => {
+  expect(run("DATEADD('2026-01-31', 1, 'months')")).toBe("2026-02-28");
+  expect(run("DATEADD('2026-03-31', -1, 'months')")).toBe("2026-02-28");
+  expect(run("DATEADD('2024-02-29', 1, 'years')")).toBe("2025-02-28");
+});
+test("DATEADD uses whole units", () => {
+  expect(run("DATEADD('2026-05-02', 1.9, 'days')")).toBe("2026-05-03");
+});
 test("DATEADD preserves instants for time-aware inputs", () => {
   expect(run("DATEADD('2026-05-01T22:30:00.000Z', 1, 'days')", {}, { dateConfig: { timeZone: "Europe/Berlin" } })).toBe(
     "2026-05-02T22:30:00.000Z",

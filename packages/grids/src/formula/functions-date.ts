@@ -93,6 +93,15 @@ const dateKey = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+const daysInMonth = (year: number, month: number): number => new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+const addClampedMonths = (parts: FormulaDateParts, months: number): FormulaDateParts => {
+  const monthIndex = parts.year * 12 + (parts.month - 1) + months;
+  const year = Math.floor(monthIndex / 12);
+  const month = (((monthIndex % 12) + 12) % 12) + 1;
+  return { ...parts, year, month, day: Math.min(parts.day, daysInMonth(year, month)) };
+};
+
 export const DATE_FORMULA_FUNCTIONS: Record<string, FormulaFunction> = {
   TODAY: (_args, context) => dates.formatDateKey(context.now ?? new Date(), { ...context.dateConfig, timeZone: formulaTimeZone(context) }),
   NOW: (_args, context) => (context.now ?? new Date()).toISOString(),
@@ -101,27 +110,30 @@ export const DATE_FORMULA_FUNCTIONS: Record<string, FormulaFunction> = {
   DAY: ([value], context) => parseDateLike(value, context)?.parts.day ?? null,
   DATEADD: ([dateArg, count, unit], context) => {
     const date = parseDateLike(dateArg, context);
-    const amount = formulaNumber(count);
+    const numericAmount = formulaNumber(count);
+    const amount = numericAmount === null ? null : Math.trunc(numericAmount);
     if (date === null || amount === null) return null;
     const normalizedUnit = String(unit ?? "days").toLowerCase();
-    const next = dateFromParts(date.parts);
-    if (normalizedUnit === "days" || normalizedUnit === "day") next.setUTCDate(next.getUTCDate() + amount);
-    else if (normalizedUnit === "months" || normalizedUnit === "month") next.setUTCMonth(next.getUTCMonth() + amount);
-    else if (normalizedUnit === "years" || normalizedUnit === "year") next.setUTCFullYear(next.getUTCFullYear() + amount);
-    else if (normalizedUnit === "hours" || normalizedUnit === "hour") next.setUTCHours(next.getUTCHours() + amount);
-    else if (normalizedUnit === "minutes" || normalizedUnit === "minute") next.setUTCMinutes(next.getUTCMinutes() + amount);
-    else return formulaError("DATEADD_BAD_UNIT");
-
-    const parts = {
-      year: next.getUTCFullYear(),
-      month: next.getUTCMonth() + 1,
-      day: next.getUTCDate(),
-      hour: next.getUTCHours(),
-      minute: next.getUTCMinutes(),
-      second: next.getUTCSeconds(),
-    };
+    let parts: FormulaDateParts;
+    if (normalizedUnit === "months" || normalizedUnit === "month") parts = addClampedMonths(date.parts, amount);
+    else if (normalizedUnit === "years" || normalizedUnit === "year") parts = addClampedMonths(date.parts, amount * 12);
+    else {
+      const next = dateFromParts(date.parts);
+      if (normalizedUnit === "days" || normalizedUnit === "day") next.setUTCDate(next.getUTCDate() + amount);
+      else if (normalizedUnit === "hours" || normalizedUnit === "hour") next.setUTCHours(next.getUTCHours() + amount);
+      else if (normalizedUnit === "minutes" || normalizedUnit === "minute") next.setUTCMinutes(next.getUTCMinutes() + amount);
+      else return formulaError("DATEADD_BAD_UNIT");
+      parts = {
+        year: next.getUTCFullYear(),
+        month: next.getUTCMonth() + 1,
+        day: next.getUTCDate(),
+        hour: next.getUTCHours(),
+        minute: next.getUTCMinutes(),
+        second: next.getUTCSeconds(),
+      };
+    }
     const timeUnit = normalizedUnit === "hours" || normalizedUnit === "hour" || normalizedUnit === "minutes" || normalizedUnit === "minute";
-    if (!date.instantBacked && !date.hasTime && !timeUnit) return dateKey(next);
+    if (!date.instantBacked && !date.hasTime && !timeUnit) return dateKey(dateFromParts(parts));
     return dates.zonedDateTimeToInstant(partsInput(parts), formulaTimeZone(context), { disambiguation: "compatible" });
   },
   DATEDIFF: ([from, to, unit], context) => {
