@@ -41,6 +41,7 @@ import type {
   VenueTemplateCreateInput,
   VenueTemplateSummary,
 } from "./contracts";
+import { filterPublicMenuSections } from "./public-menu";
 import { getVenueTemplate, templates as venueTemplates } from "./templates";
 
 const log = logger("venue:service");
@@ -1097,7 +1098,7 @@ const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatu
     ...availability,
     statusLabel: availability.open ? "Open now" : "Closed now",
     openingRules,
-    sections,
+    sections: filterPublicMenuSections(sections, startDate),
   };
 };
 

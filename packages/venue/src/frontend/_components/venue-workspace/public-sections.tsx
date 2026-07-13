@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { ImageInput, MarkdownView, Placeholder, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
+import { DateRangePicker, ImageInput, MarkdownView, Placeholder, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { PublicSection, PublicSectionInput } from "../../../contracts";
@@ -12,6 +12,8 @@ type MenuItemDraft = {
   info: string;
   price: string;
   image: string | null;
+  availableFrom: string | null;
+  availableUntil: string | null;
 };
 
 type LinkDraft = {
@@ -44,6 +46,8 @@ const readMenuItems = (section: PublicSection | null): MenuItemDraft[] => {
         info: String(item.info ?? item.allergens ?? ""),
         price: String(item.price ?? ""),
         image: typeof item.image === "string" ? item.image : null,
+        availableFrom: typeof item.availableFrom === "string" ? item.availableFrom : null,
+        availableUntil: typeof item.availableUntil === "string" ? item.availableUntil : null,
       };
     })
     .filter((item) => item.name || item.description || item.info || item.price || item.image);
@@ -71,6 +75,8 @@ const menuContent = (items: MenuItemDraft[]) => ({
       info: item.info.trim(),
       price: item.price.trim(),
       image: item.image || null,
+      availableFrom: item.availableFrom,
+      availableUntil: item.availableUntil,
     }))
     .filter((item) => item.name),
 });
@@ -86,6 +92,10 @@ const buildPublicSectionContent = (
   links: LinkDraft[],
 ): { content: PublicSectionInput["content"]; error: null } | { content: null; error: string } => {
   if (kind === "menu") {
+    const invalidRange = items.find((item) => item.availableFrom && item.availableUntil && item.availableFrom > item.availableUntil);
+    if (invalidRange) {
+      return { content: null, error: `${invalidRange.name.trim() || "Menu item"}: availability ends before it starts.` };
+    }
     const content = menuContent(items);
     return content.items.length > 0 ? { content, error: null } : { content: null, error: "Add at least one menu item." };
   }
@@ -106,7 +116,16 @@ export function PublicSectionDialog(props: {
   submitLabel?: string;
 }) {
   let nextItemId = 1;
-  const newItem = (): MenuItemDraft => ({ id: String(nextItemId++), name: "", description: "", info: "", price: "", image: null });
+  const newItem = (): MenuItemDraft => ({
+    id: String(nextItemId++),
+    name: "",
+    description: "",
+    info: "",
+    price: "",
+    image: null,
+    availableFrom: null,
+    availableUntil: null,
+  });
   let nextLinkId = 1;
   const newLink = (): LinkDraft => ({ id: String(nextLinkId++), label: "", href: "" });
   const initialItems = readMenuItems(props.initial ?? null);
@@ -294,6 +313,13 @@ export function PublicSectionDialog(props: {
                       value={() => item.info}
                       onInput={(value) => updateItem(item.id, { info: value })}
                       placeholder="Contains nuts"
+                    />
+                    <DateRangePicker
+                      label="Availability"
+                      description="Optional. The item is public from the first through the last selected day in the venue timezone."
+                      value={() => ({ start: item.availableFrom, end: item.availableUntil })}
+                      onChange={(value) => updateItem(item.id, { availableFrom: value.start, availableUntil: value.end })}
+                      clearable
                     />
                   </div>
                 </div>

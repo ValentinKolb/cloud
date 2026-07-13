@@ -289,6 +289,7 @@ const publicRoutes = new Hono<AuthContext>()
     }),
     v("param", PublicSlugParamSchema),
     async (c) => {
+      c.header("Cache-Control", "no-store");
       const status = await venueService.publicStatus(c.req.valid("param").slug);
       return status ? respond(c, ok(status)) : respond(c, fail(err.notFound("Venue")));
     },

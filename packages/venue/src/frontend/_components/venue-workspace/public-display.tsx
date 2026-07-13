@@ -1,15 +1,20 @@
-import { prompts, SegmentedControl, toast } from "@valentinkolb/cloud/ui";
+import { prompts, SegmentedControl, Switch, toast } from "@valentinkolb/cloud/ui";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { createSignal } from "solid-js";
-import { buildPublicVenueUrl, type VenuePublicDisplayHeight } from "../../public-runtime";
+import { buildPublicVenueUrl, VENUE_PUBLIC_REFRESH_SECONDS, type VenuePublicDisplayHeight } from "../../public-runtime";
 
 export const openVenuePublicDisplayDialog = async (slug: string): Promise<void> => {
   try {
     await prompts.dialog<void>(
       (close) => {
         const [height, setHeight] = createSignal<VenuePublicDisplayHeight>("scroll");
+        const [refresh, setRefresh] = createSignal(false);
         const [busy, setBusy] = createSignal<"copy" | "open" | null>(null);
-        const resolveLink = () => buildPublicVenueUrl(window.location.origin, slug, { height: height() });
+        const resolveLink = () => buildPublicVenueUrl(window.location.origin, slug, { height: height(), refresh: refresh() });
+        const setLayout = (value: VenuePublicDisplayHeight) => {
+          setHeight(value);
+          if (value === "full") setRefresh(true);
+        };
 
         const copyLink = async () => {
           setBusy("copy");
@@ -44,15 +49,24 @@ export const openVenuePublicDisplayDialog = async (slug: string): Promise<void> 
               <p class="text-sm font-medium text-primary">Page layout</p>
               <SegmentedControl<VenuePublicDisplayHeight>
                 value={height}
-                onChange={setHeight}
+                onChange={setLayout}
                 options={[
                   { value: "scroll", label: "Scrollable page", icon: "ti ti-arrows-vertical" },
                   { value: "full", label: "Full display", icon: "ti ti-device-tv" },
                 ]}
               />
               <p class="text-xs leading-relaxed text-dimmed">
-                Full display never scrolls, refreshes automatically, and replaces interactive feedback with a QR code.
+                Full display never scrolls and replaces interactive feedback with a QR code.
               </p>
+            </div>
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-primary">Live updates</p>
+                <p class="text-xs leading-relaxed text-dimmed">
+                  Refresh venue status and public content in place every {VENUE_PUBLIC_REFRESH_SECONDS} seconds.
+                </p>
+              </div>
+              <Switch label="Auto refresh" value={refresh} onChange={setRefresh} />
             </div>
             <div class="flex flex-wrap justify-end gap-2 pt-2">
               <button type="button" class="btn-input btn-input-sm" disabled={busy() !== null} onClick={copyLink}>

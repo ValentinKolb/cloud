@@ -196,6 +196,24 @@ export const TemplateSignupInputSchema = z.object({
   date: DateKeySchema,
 });
 
+export const PublicMenuItemSchema = z
+  .object({
+    name: z.string().trim().min(1).max(160),
+    description: z.string().trim().max(1_000).optional(),
+    info: z.string().trim().max(1_000).optional(),
+    allergens: z.string().trim().max(1_000).optional(),
+    price: z.string().trim().max(120).optional(),
+    image: z.string().nullable().optional(),
+    availableFrom: DateKeySchema.nullable().optional(),
+    availableUntil: DateKeySchema.nullable().optional(),
+  })
+  .passthrough()
+  .refine((item) => !item.availableFrom || !item.availableUntil || item.availableFrom <= item.availableUntil, {
+    path: ["availableUntil"],
+    message: "Availability end must be on or after the start date",
+  });
+export type PublicMenuItem = z.infer<typeof PublicMenuItemSchema>;
+
 const PublicSectionSchema = z.object({
   id: z.string(),
   venueId: z.string(),
@@ -209,13 +227,29 @@ const PublicSectionSchema = z.object({
 });
 export type PublicSection = z.infer<typeof PublicSectionSchema>;
 
-export const PublicSectionInputSchema = z.object({
-  kind: z.enum(["markdown", "menu", "notice", "links"]),
-  title: z.string().trim().min(1).max(160),
-  content: z.record(z.string(), z.unknown()).default({}),
-  enabled: z.boolean().default(true),
-  position: z.number().int().default(0),
-});
+export const PublicSectionInputSchema = z
+  .object({
+    kind: z.enum(["markdown", "menu", "notice", "links"]),
+    title: z.string().trim().min(1).max(160),
+    content: z.record(z.string(), z.unknown()).default({}),
+    enabled: z.boolean().default(true),
+    position: z.number().int().default(0),
+  })
+  .superRefine((input, ctx) => {
+    if (input.kind !== "menu") return;
+    const items = input.content.items;
+    if (!Array.isArray(items)) {
+      ctx.addIssue({ code: "custom", path: ["content", "items"], message: "Menu items must be an array" });
+      return;
+    }
+    items.forEach((item, index) => {
+      const result = PublicMenuItemSchema.safeParse(item);
+      if (result.success) return;
+      result.error.issues.forEach((issue) =>
+        ctx.addIssue({ code: "custom", path: ["content", "items", index, ...issue.path], message: issue.message }),
+      );
+    });
+  });
 export type PublicSectionInput = z.infer<typeof PublicSectionInputSchema>;
 
 export const FeedbackEntrySchema = z.object({
