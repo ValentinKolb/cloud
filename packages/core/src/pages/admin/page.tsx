@@ -1,14 +1,14 @@
-import { ssr } from "../../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
 import { LinkCard, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
-import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
+import { ssr } from "../../config";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const allApps = getRuntimeContext(c).apps;
   const adminApps = allApps.filter((app) => !!app.adminHref);
   const appsWithNav = allApps.filter((a) => a.nav);
+  const gatewayAdminAvailable = hasDedicatedRuntimeRoute(allApps, "/admin/gateway", "core");
 
   return () => (
     <AdminLayout c={c} title="Overview">
@@ -25,8 +25,7 @@ export default ssr<AuthContext>(async (c) => {
               accent={{
                 tone: "blue",
                 icon: "ti ti-shield",
-                text: "gateway",
-                href: "/admin/gateway",
+                ...(gatewayAdminAvailable ? { text: "gateway", href: "/admin/gateway" } : {}),
               }}
             />
             <StatCell label="Navigation" value={appsWithNav.length} sub="visible to users" accent={{ tone: "blue", icon: "ti ti-eye" }} />

@@ -53,6 +53,13 @@ export const CORE_SETTINGS = {
     envFallback: () => envString("APP_URL"),
     envBootstrap: () => envString("APP_URL"),
   },
+  "app.home_path": {
+    kind: "string",
+    label: "Home path",
+    default: "/app/dashboard",
+    description: "Local path opened after login and when visiting the Cloud root. It must be available to all signed-in users.",
+    placeholder: "/app/dashboard",
+  },
   "app.name": {
     kind: "string",
     label: "Name",

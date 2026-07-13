@@ -22,4 +22,16 @@ describe("buildRuntimeFromRegistry", () => {
     expect(buildRuntimeFromRegistry([entry(appearance)]).apps[0]?.appearance).toEqual(appearance);
     expect(buildRuntimeFromRegistry([entry()]).apps[0]?.appearance).toBeUndefined();
   });
+
+  it("preserves app-declared admin navigation", () => {
+    const app = entry();
+    app.adminNav = [
+      {
+        label: "Operations",
+        links: [{ href: "/admin/example/jobs", icon: "ti-activity", label: "Jobs" }],
+      },
+    ];
+
+    expect(buildRuntimeFromRegistry([app]).apps[0]?.adminNav).toEqual(app.adminNav);
+  });
 });

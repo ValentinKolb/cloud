@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService, audit, coreSettings, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
 import { canManageAnyGroups, getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
-import { Layout } from "@valentinkolb/cloud/ssr";
+import { getRuntimeContext, hasDedicatedRuntimeRoute, Layout } from "@valentinkolb/cloud/ssr";
 import { Avatar } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { ssr } from "../../config";
@@ -51,6 +51,7 @@ export default ssr<AuthContext>(async (c) => {
   const appName = rawAppName || "My App";
   const freeIpaEnabled = Boolean(freeIpaEnabledRaw);
   const sessionUser = c.get("user");
+  const accountsUiAvailable = hasDedicatedRuntimeRoute(getRuntimeContext(c).apps, "/app/accounts/groups", "core");
   const manages = sessionUser.manages;
   const canManageGroups = canManageAnyGroups(sessionUser);
   const showAllGroups = c.req.query("groups") === "all";
@@ -259,19 +260,32 @@ export default ssr<AuthContext>(async (c) => {
                     <div class="flex flex-wrap gap-1.5">
                       {displayGroups.map((group) => {
                         const isDirect = directGroups.includes(group);
-                        return (
-                          <a
-                            href={`/app/accounts/groups?scope=member&search=${encodeURIComponent(group)}`}
-                            class={`tag transition-colors ${
-                              isDirect
-                                ? "bg-zinc-100 text-secondary hover:text-primary dark:bg-zinc-800"
-                                : "bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-400 dark:hover:bg-violet-900/50"
-                            }`}
-                            title={isDirect ? "Direct membership" : "Inherited via group hierarchy"}
-                          >
+                        const className = `tag ${
+                          isDirect
+                            ? "bg-zinc-100 text-secondary dark:bg-zinc-800"
+                            : "bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
+                        }`;
+                        const title = isDirect ? "Direct membership" : "Inherited via group hierarchy";
+                        const label = (
+                          <>
                             {group}
                             {!isDirect && <i class="ti ti-git-branch ml-0.5 text-[10px] opacity-70" />}
+                          </>
+                        );
+                        return accountsUiAvailable ? (
+                          <a
+                            href={`/app/accounts/groups?scope=member&search=${encodeURIComponent(group)}`}
+                            class={`${className} transition-colors ${
+                              isDirect ? "hover:text-primary" : "hover:bg-violet-100 dark:hover:bg-violet-900/50"
+                            }`}
+                            title={title}
+                          >
+                            {label}
                           </a>
+                        ) : (
+                          <span class={className} title={title}>
+                            {label}
+                          </span>
                         );
                       })}
                     </div>
@@ -279,9 +293,11 @@ export default ssr<AuthContext>(async (c) => {
                     <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
                       <i class="ti ti-users-group text-2xl text-dimmed" />
                       <p class="mt-2 text-xs text-dimmed">Not a member of any groups yet.</p>
-                      <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">
-                        Browse groups
-                      </a>
+                      {accountsUiAvailable && (
+                        <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">
+                          Browse groups
+                        </a>
+                      )}
                     </div>
                   )}
                   {showAllGroups && displayGroups.length > directGroups.length && (
@@ -299,22 +315,28 @@ export default ssr<AuthContext>(async (c) => {
                   </h3>
                   {canManageGroups && manages.length > 0 ? (
                     <div class="flex flex-wrap gap-1.5">
-                      {manages.map((group) => (
-                        <a
-                          href={`/app/accounts/groups?scope=managed&search=${encodeURIComponent(group)}`}
-                          class="tag bg-blue-100 text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900/80"
-                        >
-                          {group}
-                        </a>
-                      ))}
+                      {manages.map((group) =>
+                        accountsUiAvailable ? (
+                          <a
+                            href={`/app/accounts/groups?scope=managed&search=${encodeURIComponent(group)}`}
+                            class="tag bg-blue-100 text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900/80"
+                          >
+                            {group}
+                          </a>
+                        ) : (
+                          <span class="tag bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">{group}</span>
+                        ),
+                      )}
                     </div>
                   ) : (
                     <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
                       <i class="ti ti-shield text-2xl text-dimmed" />
                       <p class="mt-2 text-xs text-dimmed">You don't manage any groups.</p>
-                      <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">
-                        Browse groups
-                      </a>
+                      {accountsUiAvailable && (
+                        <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">
+                          Browse groups
+                        </a>
+                      )}
                     </div>
                   )}
                 </div>

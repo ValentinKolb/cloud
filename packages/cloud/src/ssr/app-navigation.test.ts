@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RuntimeAppMeta } from "../contracts/app";
 import type { User } from "../contracts/shared";
-import { visibleNavigationApps } from "./app-navigation";
+import { hasDedicatedRuntimeRoute, resolveRuntimeRoute, visibleNavigationApps } from "./app-navigation";
 
 const user = {
   id: "user-id",
@@ -24,8 +24,22 @@ const user = {
 } satisfies User;
 
 const apps = [
-  { id: "public", name: "Public", icon: "ti ti-world", description: "Public app", routes: ["/app/public"], nav: { href: "/app/public", section: "primary" } },
-  { id: "hidden", name: "Hidden", icon: "ti ti-eye-off", description: "Hidden app", routes: ["/app/hidden"], nav: { href: "/app/hidden", section: "hidden" } },
+  {
+    id: "public",
+    name: "Public",
+    icon: "ti ti-world",
+    description: "Public app",
+    routes: ["/app/public"],
+    nav: { href: "/app/public", section: "primary" },
+  },
+  {
+    id: "hidden",
+    name: "Hidden",
+    icon: "ti ti-eye-off",
+    description: "Hidden app",
+    routes: ["/app/hidden"],
+    nav: { href: "/app/hidden", section: "hidden" },
+  },
   {
     id: "admin",
     name: "Admin",
@@ -43,5 +57,31 @@ describe("visibleNavigationApps", () => {
 
   test("includes role-gated apps when the user has the role", () => {
     expect(visibleNavigationApps(apps, { ...user, roles: [...user.roles, "admin"] }).map((app) => app.id)).toEqual(["public", "admin"]);
+  });
+});
+
+describe("runtime route matching", () => {
+  const routeApps = [
+    { id: "core", name: "Core", icon: "ti ti-cloud", description: "Core", routes: ["/", "/admin"] },
+    {
+      id: "gateway-ops",
+      name: "Gateway",
+      icon: "ti ti-route",
+      description: "Gateway",
+      routes: ["/admin/gateway", "/admin/observability"],
+    },
+  ] satisfies RuntimeAppMeta[];
+
+  test("returns the most specific registered route", () => {
+    expect(resolveRuntimeRoute(routeApps, "/admin/observability/jobs?window=24h")).toMatchObject({
+      app: { id: "gateway-ops" },
+      prefix: "/admin/observability",
+    });
+  });
+
+  test("distinguishes a dedicated cross-app route from the current app fallback", () => {
+    expect(hasDedicatedRuntimeRoute(routeApps, "/admin/gateway/apps", "core")).toBe(true);
+    expect(hasDedicatedRuntimeRoute(routeApps, "/admin/missing", "core")).toBe(false);
+    expect(hasDedicatedRuntimeRoute(routeApps, "/app/missing", "core")).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { AppAppearance } from "./app";
+import type { AppAdminNavigationGroup, AppAppearance } from "./app";
 
 /**
  * App-registry entry type. Populated internally by `defineApp()` + the
@@ -47,6 +47,7 @@ export type AppRegistryEntry = {
    */
   routes: readonly string[];
   nav?: AppRegistryNav;
+  adminNav?: AppAdminNavigationGroup[];
   search?: AppRegistrySearch;
   legalLinks?: AppRegistryLegalLink[];
   widgets?: AppRegistryWidget[];

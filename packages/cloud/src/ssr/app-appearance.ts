@@ -1,4 +1,5 @@
 import type { AppAppearance } from "../contracts/app";
+import { resolveRuntimeRoute } from "./app-navigation";
 import type { RuntimeContext } from "./runtime";
 
 const isHexColor = (value: string | undefined): value is `#${string}` => /^#[0-9a-f]{6}$/i.test(value ?? "");
@@ -19,8 +20,4 @@ export const appAppearanceStyle = (appearance: AppAppearance | undefined): strin
 export const appAccentStyle = (accent: string | undefined): string | undefined =>
   isHexColor(accent) ? `--app-accent:${accent}` : undefined;
 
-export const resolveCurrentApp = (apps: RuntimeContext["apps"], pathname: string) =>
-  apps
-    .flatMap((app) => app.routes.map((route) => ({ app, route })))
-    .filter(({ route }) => route === "/" || pathname === route || pathname.startsWith(`${route}/`))
-    .sort((a, b) => b.route.length - a.route.length)[0]?.app;
+export const resolveCurrentApp = (apps: RuntimeContext["apps"], pathname: string) => resolveRuntimeRoute(apps, pathname)?.app;

@@ -18,6 +18,10 @@ export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRunt
       description: e.description,
       appearance: e.appearance,
       adminHref: e.nav?.adminHref,
+      adminNav: e.adminNav?.map((group) => ({
+        label: group.label,
+        links: group.links.map((link) => ({ ...link })),
+      })),
       routes: e.routes,
       nav: e.nav
         ? {

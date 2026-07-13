@@ -199,7 +199,13 @@ openAppLaunchpad();
 
 ### AdminLayout
 
-Wraps `Layout` with an admin-specific sidebar. The sidebar is also built from the registry — every app with an `adminHref` property automatically gets a link in the admin sidebar.
+Wraps `Layout` with an admin-specific sidebar. The sidebar is built from the live app registry:
+
+- Set `adminHref` for the normal one-link case; the app appears under **App Admin**.
+- Add `adminNav` only when an app owns multiple admin destinations that need named groups. Each group declares `label` plus typed `{ label, href, icon }` links. Keep `adminHref` as the app's canonical admin landing page.
+- Admin links must be local `/admin` paths. Invalid or external metadata is omitted.
+
+Core owns only its General, AI, and Settings groups. For example, Gateway and Observability groups are declared by `gateway-ops`, so removing that app removes those links without changing Core.
 
 ```typescript
 import { AdminLayout } from "@valentinkolb/cloud/ssr";

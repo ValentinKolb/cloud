@@ -10,7 +10,15 @@ import { createConfig as createSsrConfig } from "@valentinkolb/ssr";
 import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
-import type { AppAppearance, AppCapabilities, AppLifecycle, AppMeta, AppSearchContext, CloudContext } from "../contracts/app";
+import type {
+  AppAdminNavigationGroup,
+  AppAppearance,
+  AppCapabilities,
+  AppLifecycle,
+  AppMeta,
+  AppSearchContext,
+  CloudContext,
+} from "../contracts/app";
 import { type BoundNotificationMap, bindNotificationDefinitions, type NotificationDefinitionMap } from "../contracts/notification-types";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
@@ -58,6 +66,11 @@ export type AppOptions<S extends AppSettingsMap = {}, N extends NotificationDefi
   /** Base URL as seen by other containers (e.g. "http://app-notebooks:3000"). */
   baseUrl: string;
   adminHref?: string;
+  /** Multi-link admin navigation contributed by this app. */
+  adminNav?: ReadonlyArray<{
+    label: string;
+    links: ReadonlyArray<{ label: string; href: string; icon: string }>;
+  }>;
   nav?: {
     href: string;
     match?: string;
@@ -294,6 +307,12 @@ export const defineApp = <
     description: opts.description,
     appearance: opts.appearance,
     adminHref: opts.adminHref,
+    adminNav: opts.adminNav?.map(
+      (group): AppAdminNavigationGroup => ({
+        label: group.label,
+        links: group.links.map((link) => ({ ...link })),
+      }),
+    ),
     routes: [...opts.routes],
     nav: opts.nav,
     legalLinks: opts.legalLinks ? [...opts.legalLinks] : undefined,
@@ -333,6 +352,10 @@ export const defineApp = <
               adminHref: meta.adminHref,
             }
           : undefined,
+      adminNav: meta.adminNav?.map((group) => ({
+        label: group.label,
+        links: group.links.map((link) => ({ ...link })),
+      })),
       search: startOpts.capabilities?.search
         ? {
             tags: [...(startOpts.capabilities.search.tags ?? [])],

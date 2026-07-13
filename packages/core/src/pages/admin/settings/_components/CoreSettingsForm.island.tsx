@@ -89,6 +89,7 @@ type Props = {
   aiEnrichmentOverview?: AiEnrichmentOverview | null;
   /** Which slice of the AI settings this page shows (the AI sidebar group splits them). */
   aiSection?: "general" | "providers" | "jobs";
+  showAiJobsLink?: boolean;
 };
 
 type AiProviderId = "openai" | "openrouter" | "anthropic" | "mistral" | "gemini" | "ollama" | "vllm" | "openai-compatible";
@@ -424,6 +425,7 @@ export default function CoreSettingsForm(props: Props) {
               onChange={setDraft}
               enrichmentOverview={props.aiEnrichmentOverview ?? null}
               section={props.aiSection ?? "general"}
+              showJobsLink={props.showAiJobsLink}
             />
             <Show when={(props.aiSection ?? "general") === "general"}>{renderFieldSections(genericEntries())}</Show>
           </Show>
@@ -459,7 +461,7 @@ type SettingsSection = {
 const SECTION_DEFS: Record<string, { title: string; subtitle: string; icon: string }> = {
   "app.identity": {
     title: "Identity",
-    subtitle: "Name, public URL, contact details, and footer ownership.",
+    subtitle: "Name, public URL, home path, contact details, and footer ownership.",
     icon: "ti ti-id",
   },
   "app.branding": {
@@ -785,7 +787,7 @@ const formatAiDate = (value: string | null): string => (value ? new Date(value).
 
 const formatAiPercent = (value: number): string => `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 
-function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview }) {
+function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview; showJobsLink?: boolean }) {
   const statusClass = (status: string) => (status === "ok" ? "badge-success" : status === "failed" ? "badge-danger" : "badge-neutral");
   return (
     <div class="flex flex-col gap-2">
@@ -820,9 +822,11 @@ function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview }) {
         <p class="text-xs text-dimmed">Runtime traces live on the generic jobs page; a manual run enriches up to 25 dirty chats.</p>
         <div class="flex items-center gap-2">
           <RunEnrichmentButton />
-          <a class="btn-ai btn-sm" href="/admin/observability/jobs?search=ai%3Achat">
-            <i class="ti ti-external-link" /> Open jobs
-          </a>
+          <Show when={props.showJobsLink}>
+            <a class="btn-ai btn-sm" href="/admin/observability/jobs?search=ai%3Achat">
+              <i class="ti ti-external-link" /> Open jobs
+            </a>
+          </Show>
         </div>
       </div>
 
@@ -883,6 +887,7 @@ function AiSettingsPanel(props: {
   onChange: (key: string, value: unknown) => void;
   enrichmentOverview: AiEnrichmentOverview | null;
   section: "general" | "providers" | "jobs";
+  showJobsLink?: boolean;
 }) {
   const entry = (key: string) => props.entries.find((item) => item.key === key);
   // Secret values are redacted server-side; valueSource tells whether a stored/env key exists.
@@ -1155,7 +1160,7 @@ function AiSettingsPanel(props: {
         />
 
         <Show when={props.enrichmentOverview}>
-          {(overview) => <AiEnrichmentOverviewPanel overview={overview()} />}
+          {(overview) => <AiEnrichmentOverviewPanel overview={overview()} showJobsLink={props.showJobsLink} />}
         </Show>
       </PanelDialog.Section>
       </Show>

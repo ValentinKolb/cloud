@@ -63,6 +63,7 @@ These are standalone packages on GitHub. Each has its own Claude skill — prefe
 - **Keep edge routers thin** — the gateway router owns only route discovery, local trie matching, proxying, minimal health, and telemetry publication. Gateway admin UI, rollups, health webhooks, and cleanup live in the normal `gateway-ops` app lifecycle.
 - **Horizontal scaling** — apps are stateless; scale by running more containers behind the gateway
 - **Service discovery via Redis** — apps register themselves in a Redis-based registry with heartbeats; the gateway watches for changes and routes accordingly
+- **Replaceable app surfaces** — Core keeps `/` for authentication and redirects it through the `app.home_path` setting (default `/app/dashboard`); app-specific admin groups are contributed through registry metadata instead of hardcoded in Core or Gateway
 - **Schema isolation** — most apps own their own PostgreSQL schema (e.g. `files.*`, `notebooks.*`, `spaces.*`). Platform schemas such as `auth.*`, `logging.*`, `settings.*`, and `notifications.*` belong to core services, not to standalone app packages.
 - **SSR-first** — pages render server-side; only interactive parts become client-side "islands"
 

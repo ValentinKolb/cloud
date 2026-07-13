@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { authFlows, coreSettings } from "@valentinkolb/cloud/services";
+import { getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
 import { Hono } from "hono";
 import cliInstaller from "../../../cloud-cli/scripts/install.sh" with { type: "text" };
 import browserNotificationServiceWorker from "../browser-notifications/service-worker.js" with { type: "text" };
@@ -10,6 +11,7 @@ import settingsPage from "./admin/settings/page";
 import newPasswordPage from "./auth/new-password/page";
 import loginPage from "./auth/page";
 import passwordResetPage from "./auth/password-reset/page";
+import { resolveHomePath } from "./home";
 import { makeLegalPage } from "./legal/page-handler";
 import notificationsPage from "./me/notifications.page";
 import profilePage from "./me/page";
@@ -31,8 +33,11 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
       c.header("Pragma", "no-cache");
       c.header("Expires", "0");
     })
-    // Root: hand off to the dashboard app, which owns the user landing page.
-    .get("/", auth.requireRole("authenticated", auth.redirectToLogin), (c) => c.redirect("/app/dashboard", 302))
+    // Root remains Core-owned while the configured app controls the landing page.
+    .get("/", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
+      const configured = await coreSettings.get<string>("app.home_path");
+      return c.redirect(resolveHomePath(configured), 302);
+    })
     // Serve the installer from the currently deployed Core bundle, rather than
     // piping a mutable branch artifact into a user's shell.
     .get("/cli", (c) => c.body(cliInstaller, 200, { "Content-Type": "text/x-shellscript; charset=utf-8" }))
@@ -50,9 +55,18 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     .get("/admin", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
     .get("/admin/announcements", auth.requireRole("admin", auth.redirectToLogin), ...announcementsAdminPage)
     .get("/admin/settings", auth.requireRole("admin", auth.redirectToLogin), ...settingsPage)
-    // /admin/apps was merged into the gateway admin page.
-    .get("/admin/apps", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/admin/gateway", 302))
-    .get("/admin/sync", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/app/accounts#sync-activity", 302))
+    // Keep legacy admin entry points useful when their optional UI apps are absent.
+    .get("/admin/apps", auth.requireRole("admin", auth.redirectToLogin), (c) => {
+      const apps = getRuntimeContext(c).apps;
+      return c.redirect(hasDedicatedRuntimeRoute(apps, "/admin/gateway", "core") ? "/admin/gateway" : "/admin", 302);
+    })
+    .get("/admin/sync", auth.requireRole("admin", auth.redirectToLogin), (c) => {
+      const apps = getRuntimeContext(c).apps;
+      return c.redirect(
+        hasDedicatedRuntimeRoute(apps, "/app/accounts", "core") ? "/app/accounts#sync-activity" : "/admin/settings?tab=freeipa",
+        302,
+      );
+    })
     // Auth routes
     .get("/auth/login", auth.requireRole("anonymous", auth.redirect("/")), ...loginPage)
     .get("/auth/new-password", ...newPasswordPage)

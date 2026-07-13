@@ -130,6 +130,14 @@ export const app = defineApp({
   basePath: "/app/my-app",              // SSR asset URL prefix
   baseUrl: "http://app-my-app:3000",    // container URL for service registry
   adminHref: "/admin/my-app",           // optional admin page link
+  // Optional for apps that own several admin destinations. Ordinary apps
+  // should keep only adminHref so they get one automatic "App Admin" entry.
+  adminNav: [
+    {
+      label: "My App",
+      links: [{ label: "Jobs", href: "/admin/my-app/jobs", icon: "ti-activity" }],
+    },
+  ],
   nav: {
     href: "/app/my-app",                // primary nav link
     match: "/app/my-app",               // active-state path matching
@@ -163,6 +171,8 @@ export const { ssr, plugin } = app;
 ```
 
 `defineApp()` creates the SSR config, Bun plugin for island bundling, and the `ssr` page handler wrapper used in page files. All app identity, widget endpoints, notification definitions, and per-app settings live here — one place. The `settings` map is typed: keys are exposed on `c.get("settings")` for any route using `Hono<AppContext<typeof app>>`. Keep notification definitions in `src/notifications.ts`; see the end-user notification reference in `references/frontend.md`.
+
+Apps do not own the Cloud root route. Core redirects `/` to the operator-configured `app.home_path`; its default remains `/app/dashboard`. A replacement landing app only needs its own normal registered route plus the corresponding Core setting change.
 
 ### index.ts — App Bootstrap
 

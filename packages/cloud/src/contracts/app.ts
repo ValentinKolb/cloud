@@ -25,6 +25,17 @@ export type AppAppearance = {
   };
 };
 
+export type AppAdminNavigationLink = {
+  label: string;
+  href: string;
+  icon: string;
+};
+
+export type AppAdminNavigationGroup = {
+  label: string;
+  links: AppAdminNavigationLink[];
+};
+
 export type AppMeta = {
   id: string;
   name: string;
@@ -32,6 +43,8 @@ export type AppMeta = {
   description: string;
   appearance?: AppAppearance;
   adminHref?: string;
+  /** Optional multi-link admin navigation owned by this app. */
+  adminNav?: AppAdminNavigationGroup[];
   /**
    * Top-level URL prefixes the gateway routes to this app. The gateway
    * is dumb — it just builds a prefix-trie from these strings.

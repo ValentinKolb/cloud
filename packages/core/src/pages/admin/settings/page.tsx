@@ -1,7 +1,7 @@
-import { aiConversationStore, type AiEnrichmentOverview } from "@valentinkolb/cloud/ai";
+import { type AiEnrichmentOverview, aiConversationStore } from "@valentinkolb/cloud/ai";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { settingsService } from "@valentinkolb/cloud/services";
-import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
 import CoreLayoutHelp from "../../CoreLayoutHelp.island";
 import AdminAiSkills from "./_components/AdminAiSkills.island";
@@ -148,8 +148,10 @@ export default ssr<AuthContext>(async (c) => {
   const legacyTab = rawTab === "ai" ? "ai-general" : rawTab;
   const tabId: TabId = isTabId(legacyTab) ? legacyTab : "general";
   const tab = TABS.find((t) => t.id === tabId)!;
+  const showAiJobsLink = hasDedicatedRuntimeRoute(getRuntimeContext(c).apps, "/admin/observability/jobs", "core");
 
-  const aiSection = tab.id === "ai-general" ? "general" : tab.id === "ai-providers" ? "providers" : tab.id === "ai-jobs" ? "jobs" : undefined;
+  const aiSection =
+    tab.id === "ai-general" ? "general" : tab.id === "ai-providers" ? "providers" : tab.id === "ai-jobs" ? "jobs" : undefined;
 
   let entries: SettingFieldDef[] = [];
   let legalInitial: LegalInitial | null = null;
@@ -181,6 +183,7 @@ export default ssr<AuthContext>(async (c) => {
               showLegacySettings={tab.id === "general"}
               aiEnrichmentOverview={aiEnrichmentOverview}
               aiSection={aiSection}
+              showAiJobsLink={showAiJobsLink}
             />
           ) : null}
 

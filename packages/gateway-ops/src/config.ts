@@ -11,6 +11,28 @@ export const app = defineApp({
   basePath: "/admin/gateway",
   baseUrl: `http://app-gateway-ops:${port}`,
   adminHref: "/admin/gateway",
+  adminNav: [
+    {
+      label: "Gateway",
+      links: [
+        { href: "/admin/gateway/apps", icon: "ti-apps", label: "Apps" },
+        { href: "/admin/gateway/routes", icon: "ti-route", label: "Routes" },
+      ],
+    },
+    {
+      label: "Observability",
+      links: [
+        { href: "/admin/observability/logs", icon: "ti-list-details", label: "Logs" },
+        { href: "/admin/observability/jobs", icon: "ti-activity", label: "Jobs" },
+        { href: "/admin/observability/telemetry", icon: "ti-chart-line", label: "Telemetry" },
+        { href: "/admin/observability/metrics", icon: "ti-plug", label: "Metrics" },
+        { href: "/admin/observability/postgres", icon: "ti-database", label: "Postgres" },
+        { href: "/admin/observability/redis", icon: "ti-database", label: "Redis" },
+        { href: "/admin/observability/alerts", icon: "ti-webhook", label: "Webhooks" },
+        { href: "/admin/observability/notifications", icon: "ti-bell", label: "Notifications" },
+      ],
+    },
+  ],
   nav: { href: "", section: "hidden", requiresRoles: ["admin"] },
   settings: {
     "gateway.health_check_schedule": {
