@@ -1,7 +1,7 @@
 # Dev containers — run with:
 #   bun run dev          (core set, 6 containers)
-#   bun run dev:full     (core + extras, 21 containers; --profile extra)
-#   bun run dev:app FOO  (ad-hoc: start a single extra app in the running stack)
+#   bun run dev:full     (core + extras, 23 containers; --profile extra)
+#   bun run dev:start FOO  (ad-hoc: start a single extra app in the running stack)
 #
 # Requires infra running: bun run infra
 #

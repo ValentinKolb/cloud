@@ -25,7 +25,7 @@ Cloud bundles a set of apps that cover the common operational needs of an organi
 | **Platform** | [`core`](packages/core) — auth, profile, settings, legal pages, transactional email &nbsp;•&nbsp; [`gateway`](packages/gateway) — routing and app registry |
 | **Identity & access** | [`accounts`](packages/accounts) — users + groups, FreeIPA and local &nbsp;•&nbsp; [`oauth`](packages/oauth) — OAuth2 issuer &nbsp;•&nbsp; [`proxy-auth`](packages/proxy-auth) — Traefik forward-auth &nbsp;•&nbsp; [`ipa-hosts`](packages/ipa-hosts) — FreeIPA host management |
 | **Operations** | [`gateway-ops`](packages/gateway-ops) — app registry, routes, logs, telemetry, webhooks, notifications |
-| **Productivity** | [`notebooks`](packages/notebooks) — collaborative notes (Yjs) &nbsp;•&nbsp; [`spaces`](packages/spaces) — kanban / list / calendar with iCal &nbsp;•&nbsp; [`files`](packages/files) — shared storage &nbsp;•&nbsp; [`contacts`](packages/contacts) — directory views |
+| **Productivity** | [`assistant`](packages/assistant) — general-purpose AI chat &nbsp;•&nbsp; [`mail`](packages/mail) — collaborative email &nbsp;•&nbsp; [`notebooks`](packages/notebooks) — collaborative notes (Yjs) &nbsp;•&nbsp; [`spaces`](packages/spaces) — kanban / list / calendar with iCal &nbsp;•&nbsp; [`files`](packages/files) — shared storage &nbsp;•&nbsp; [`contacts`](packages/contacts) — directory views |
 | **Content & misc** | [`faq`](packages/faq) &nbsp;•&nbsp; [`venue`](packages/venue) &nbsp;•&nbsp; [`weather`](packages/weather) &nbsp;•&nbsp; [`quotes`](packages/quotes) &nbsp;•&nbsp; [`tools`](packages/tools) |
 | **Development** | [`api-docs`](packages/api-docs) — Scalar UI aggregating every running app's OpenAPI spec &nbsp;•&nbsp; [`ui-lab`](packages/ui-lab) — component showcase |
 
@@ -96,18 +96,20 @@ Apps share the Postgres instance (each owns its own schema) and the Redis instan
 ## Quick start
 
 ```bash
-bun install
-bun run infra      # postgres, valkey, geo, filegate
-bun run dev        # core 5-container set
+bun install --frozen-lockfile
+bun run infra      # postgres, valkey, geo, filegate, gotenberg
+bun run dev        # core 6-container set
 open http://localhost:3000
 ```
+
+Development requires Bun 1.x, Docker, and Docker Compose v2. The Docker development stack gets its local database, Redis, app-secret, and admin-token values from `compose.dev.yml`; no `.env` file is required. `.env.example` is only a reference for running processes directly on the host or building a custom local setup. Production uses `.env.prod.example` as its companion template.
 
 Dev admin login: open `/auth/login?method=admin` and paste `dev-admin` into the token field (the `ADMIN_LOGIN_TOKEN` baked into `app-core`).
 
 | Command | What it does |
 |---|---|
-| `bun run dev` | Core 5 containers (gateway, gateway-ops, core, dashboard, accounts) |
-| `bun run dev:full` | Core + dev extras via the `extra` profile |
+| `bun run dev` | Core 6 services (gateway, gateway-ops, core, dashboard, accounts, assistant) |
+| `bun run dev:full` | Core + 17 dev extras via the `extra` profile (23 services total) |
 | `bun run dev:start <app...>` | Add one or more extra apps to the running stack |
 | `bun run dev:stop <app...>` | Stop one or more apps |
 | `bun run dev:rebuild <app...>` | Rebuild image + restart (parallel for multiple) |

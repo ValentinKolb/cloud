@@ -11,9 +11,11 @@
  * "Per-app", "Apps in this project", "Examples") so a downstream
  * consumer (LLM or grep) has anchors to lock onto.
  */
-import { color, listDevServices, shortName } from "./dev-cli";
+import { color, listCoreDevServices, listDevServices, shortName } from "./dev-cli";
 
 const services = await listDevServices();
+const coreServices = await listCoreDevServices();
+const extraCount = services.length - coreServices.length;
 const shorts = services.map(shortName);
 
 const lines: string[] = [];
@@ -22,8 +24,8 @@ const p = (s = "") => lines.push(s);
 p(`${color.bold}Dev commands${color.reset}`);
 p("");
 p(`${color.bold}Stack-level${color.reset} (whole compose project)`);
-p(`  ${color.cyan}bun run dev${color.reset}                  start the whole stack (light: core 7)`);
-p(`  ${color.cyan}bun run dev:full${color.reset}             start stack + extras (~20 containers)`);
+p(`  ${color.cyan}bun run dev${color.reset}                  start core stack (${coreServices.length} services)`);
+p(`  ${color.cyan}bun run dev:full${color.reset}             start core + ${extraCount} extras (${services.length} services)`);
 p(`  ${color.cyan}bun run dev:down${color.reset}             stop everything`);
 p(`  ${color.cyan}bun run dev:rebuild:all${color.reset}      rebuild the whole stack`);
 p("");

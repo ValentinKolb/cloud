@@ -53,12 +53,23 @@ export const compose = (args: string[]) => $`docker compose -f ${COMPOSE_FILE} -
  *
  *  Cached for the duration of one script invocation. */
 let _servicesCache: string[] | undefined;
+let _coreServicesCache: string[] | undefined;
 
 export const listDevServices = async (): Promise<string[]> => {
   if (_servicesCache) return _servicesCache;
   const raw = await compose(["config", "--services"]).text();
   _servicesCache = raw.trim().split("\n").filter(Boolean).sort();
   return _servicesCache;
+};
+
+/** Pull only services without an opt-in Compose profile. This keeps summary
+ *  counts in `dev:help` aligned with the compose file as services move between
+ *  the core stack and `profiles: [extra]`. */
+export const listCoreDevServices = async (): Promise<string[]> => {
+  if (_coreServicesCache) return _coreServicesCache;
+  const raw = await $`docker compose -f ${COMPOSE_FILE} config --services`.text();
+  _coreServicesCache = raw.trim().split("\n").filter(Boolean).sort();
+  return _coreServicesCache;
 };
 
 /** Strip the `app-` prefix to get the short name humans type. Non-app

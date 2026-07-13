@@ -35,6 +35,9 @@ build
 _ssr
 **/_ssr
 /public
+/output/
+coverage
+**/coverage
 
 # Generated CSS
 **/public/build.css

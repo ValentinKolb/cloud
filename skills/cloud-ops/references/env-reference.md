@@ -2,6 +2,8 @@
 
 Sources: `packages/cloud/src/config/env.ts` (typed env) and `compose.dev.yml` (compose-level env)
 
+`bun run infra` plus `bun run dev` does not require a local `.env`; the development Compose files provide safe local values. `.env.example` is an optional reference for direct host execution or a custom local setup. `compose.prod.yml` instead uses the required deployment values documented in `.env.prod.example`.
+
 ## Core
 
 | Variable | Type | Required | Default | Description |

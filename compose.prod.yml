@@ -4,7 +4,7 @@
 # yourself (the apps reference `postgres:5432` and `valkey:6379` and depend
 # on a `postgres` service with a healthcheck). See README for an example.
 #
-# Configure via .env (see .env.example).
+# Configure via .env (see .env.prod.example).
 
 x-shared-env: &shared-env
   NODE_ENV: production

@@ -3,7 +3,7 @@ name: cloud-desktop-app
 description: >
   Build StuVe Cloud-style native desktop apps with the Cloud UI system, Electrobun, local SQLite data,
   optional Cloud sync, native dialogs/menus/notifications, and path-based client routing. Use this skill
-  when creating or changing desktop apps, desktop app SDK APIs, local-first app flows, or desktop lab examples.
+  when creating or changing desktop apps, desktop app SDK APIs, or local-first app flows.
 ---
 
 # Building Cloud Desktop Apps
@@ -12,6 +12,8 @@ Cloud desktop apps are local-first applications that use the same UI language as
 They may sync with a Cloud instance, or stay fully offline.
 
 Use the normal `cloud-app` skill for server-side Cloud web apps. Use this skill when the app runs as a desktop binary.
+
+`packages/desktop-lab` is retained as an inactive experiment. It is intentionally outside the root Bun workspace, Docker builds, and standard verification. Do not treat it as a supported starter app or use it as proof that a fresh clone has a working native toolchain.
 
 ## Core API
 
@@ -239,12 +241,10 @@ the one-time token display.
 
 ## Verification
 
-For desktop SDK or app changes, run the narrow checks first:
+For shared desktop SDK changes, run the Cloud package check first. A maintained desktop app must additionally provide and run its own native build checks.
 
 ```bash
-bun run --filter @valentinkolb/cloud-desktop-lab typecheck
-bun run --filter @valentinkolb/cloud-desktop-lab build
-bun run --filter @valentinkolb/cloud-desktop-lab native:build
+bun run --filter @valentinkolb/cloud typecheck
 ```
 
 Also run Cloud boundary/cycle checks when exports or shared UI changed:

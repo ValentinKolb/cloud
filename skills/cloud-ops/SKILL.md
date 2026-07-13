@@ -4,7 +4,7 @@ description: >
   Deployment, Docker, infrastructure, and dev environment for the StuVe Cloud platform.
   Use this skill when the user asks about Docker setup, compose files, dev environment,
   building/running the platform, CI/CD, Traefik/gateway routing, environment variables,
-  or infrastructure configuration (PostgreSQL, Redis/Valkey, FreeIPA, Filegate).
+  or infrastructure configuration (PostgreSQL, Redis/Valkey, FreeIPA, Filegate, Geo, Gotenberg).
 ---
 
 # Cloud Operations & Deployment
@@ -12,10 +12,10 @@ description: >
 ## Quick Start (Development)
 
 ```bash
-# 1. Infrastructure (PostgreSQL, Valkey, Geo, Filegate)
+# 1. Infrastructure (PostgreSQL, Valkey, Geo, Filegate, Gotenberg)
 bun run infra
 
-# 2. Core dev stack — 5 containers, enough to log in, see the dashboard, and manage accounts
+# 2. Core dev stack — 6 services, including the Assistant
 bun run dev
 
 # 3. Open the platform
@@ -32,8 +32,8 @@ The compose file uses **profiles** so `bun run dev` stays light. Full spin-up is
 
 | Command | What it does |
 |---------|--------------|
-| `bun run dev` | Core set only — `gateway`, `app-gateway-ops`, `app-core`, `app-dashboard`, `app-accounts` (5 containers) |
-| `bun run dev:full` | Core + all extras via `--profile extra` (21 containers total) |
+| `bun run dev` | Core set only — `gateway`, `app-gateway-ops`, `app-core`, `app-dashboard`, `app-accounts`, `app-assistant` (6 services) |
+| `bun run dev:full` | Core + 17 extras via `--profile extra` (23 services total) |
 | `bun run dev:down` | Tear down the dev stack |
 | `bun run dev:rebuild:all` | Rebuild every image in the stack |
 
@@ -53,7 +53,7 @@ The compose file uses **profiles** so `bun run dev` stays light. Full spin-up is
 
 The `dev:status` output is plain text by design — humans get a readable table, LLM agents capturing the output get stable, scannable section headers (`State`, `Uptime`, `Health`, `Image age`) and a closed state enum (`running` / `stopped` / `never built`). Run `bun run dev:help` first for orientation; `dev:status` + `dev:status <app>` cover most "what's the dev stack doing right now" questions in two calls.
 
-Why the split: the core set gives you login + dashboard + admin panel + log viewer + settings UI; extras (`notebooks`, `files`, `spaces`, `weather`, …) are spun up only when a specific app is under development.
+Why the split: the core set gives you login + dashboard + admin panel + log viewer + settings UI + the general-purpose Assistant; extras (`notebooks`, `files`, `spaces`, `weather`, …) are spun up only when a specific app is under development.
 
 ## Container Architecture
 
@@ -89,10 +89,11 @@ Started with `bun run infra`:
 
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
-| `ipa_postgres` | `postgres:15-alpine` | 5432 | Primary database (max 300 connections) |
-| `ipa_valkey` | `valkey/valkey:8-alpine` | 6379 | Sessions, service registry, pub/sub |
+| `postgres` | `postgres:15-alpine` | 5432 | Primary database (container: `ipa_postgres`, max 300 connections) |
+| `valkey` | `valkey/valkey:8-alpine` | 6379 | Sessions, service registry, pub/sub (container: `ipa_valkey`) |
 | `geo` | `ghcr.io/valentinkolb/geo` | 8081 | Geolocation service |
 | `filegate` | `ghcr.io/valentinkolb/filegate` | 4000 | File proxy with token auth |
+| `gotenberg` | `gotenberg/gotenberg:8` | 3001 | PDF rendering service |
 
 **Persistent volumes:**
 - `ipa_postgres_data` — PostgreSQL data
@@ -108,9 +109,9 @@ Every app container:
 - Runs the CSS preload: `--preload=/app/packages/cloud/scripts/preload.ts`
 - Shares env via YAML anchors (`x-env`, `x-app`)
 
-**Core set (5, no profile — started by `bun run dev`):** `gateway`, `app-gateway-ops`, `app-core`, `app-dashboard`, `app-accounts`.
+**Core set (6, no profile — started by `bun run dev`):** `gateway`, `app-gateway-ops`, `app-core`, `app-dashboard`, `app-accounts`, `app-assistant`.
 
-**Extras (16, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:start`):** `app-notebooks`, `app-contacts`, `app-faq`, `app-grids`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-pulse`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-venue`, `app-weather`, `app-api-docs`.
+**Extras (17, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:start`):** `app-notebooks`, `app-contacts`, `app-faq`, `app-grids`, `app-files`, `app-ipa-hosts`, `app-mail`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-pulse`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-venue`, `app-weather`, `app-api-docs`.
 
 `app-pulse` is available in local development but is not release-ready yet. Keep it out of production compose files and docker release tags until it is explicitly promoted.
 
@@ -152,6 +153,8 @@ For non-HTTP workers, add a standalone service name without the `app-` prefix fo
 ## Environment Variables
 
 > Full reference → `references/env-reference.md`
+
+The Docker development path does not require a local `.env`: `compose.dev.yml` supplies the values below plus `ADMIN_LOGIN_TOKEN=dev-admin`. Use `.env.example` only when running processes directly on the host or building a custom local setup. Production deployments use `.env.prod.example`.
 
 ### Required
 

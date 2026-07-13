@@ -11,12 +11,18 @@ node_modules
 **/node_modules
 dist
 **/dist
+build
+**/build
 _ssr
 **/_ssr
 public                          # workspace-root public/ is a dev runtime artefact
+output
+coverage
+**/coverage
 *.log
 .cache
 **/.cache
+**/.local
 
 # Repo metadata not needed in the image
 LICENSE
@@ -27,5 +33,11 @@ compose*.yml
 .github
 .claude
 .dex
+.fallow
+.playwright-cli
+tmp
+todo
+wip
+packages/desktop-lab
 skills
 APPS.md
