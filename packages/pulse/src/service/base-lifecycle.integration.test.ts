@@ -12,11 +12,17 @@ const migratePulse = async () => {
   await migrate();
 };
 
-const createBase = async (name: string, retentionDays = 30): Promise<string> => {
+type RetentionPolicy = {
+  rawDays?: number;
+  rollupDays?: number;
+  sensitiveHours?: number;
+};
+
+const createBase = async (name: string, policy: RetentionPolicy = {}): Promise<string> => {
   const baseId = uuid();
   await sql`
-    INSERT INTO pulse.bases (id, name, retention_days)
-    VALUES (${baseId}::uuid, ${name}, ${retentionDays})
+    INSERT INTO pulse.bases (id, name, retention_days, rollup_retention_days, sensitive_retention_hours)
+    VALUES (${baseId}::uuid, ${name}, ${policy.rawDays ?? 30}, ${policy.rollupDays ?? 365}, ${policy.sensitiveHours ?? 24})
   `;
   return baseId;
 };
@@ -46,8 +52,13 @@ const createSource = async (baseId: string): Promise<string> => {
   return sourceId;
 };
 
-const insertTelemetryFixture = async (baseId: string, sourceId: string, options?: { old?: boolean }) => {
-  const ts = options?.old ? "2020-01-01T00:00:00Z" : "2099-01-01T00:00:00Z";
+const insertTelemetryFixture = async (
+  baseId: string,
+  sourceId: string,
+  age: "active" | "sensitive-expired" | "raw-expired" = "active",
+) => {
+  const offsetMs = age === "raw-expired" ? 40 * 24 * 60 * 60 * 1_000 : age === "sensitive-expired" ? 2 * 60 * 60 * 1_000 : 0;
+  const ts = new Date(Date.now() - offsetMs);
   const metricId = uuid();
   const seriesId = uuid();
   const eventId = uuid();
@@ -117,6 +128,7 @@ const insertTelemetryFixture = async (baseId: string, sourceId: string, options?
       entity_type,
       dimensions_hash,
       dimensions,
+      sensitive,
       payload
     )
     VALUES (
@@ -130,6 +142,7 @@ const insertTelemetryFixture = async (baseId: string, sourceId: string, options?
       'entity',
       ${eventId},
       ${jsonb(dims)}::jsonb,
+      ${jsonb({ ip: `192.0.2.${age === "active" ? 1 : age === "sensitive-expired" ? 2 : 3}` })}::jsonb,
       ${jsonb({ ok: true })}::jsonb
     )
   `;
@@ -348,19 +361,32 @@ describe("Pulse lifecycle Postgres smoke", () => {
 
   postgresTest("retention removes only expired telemetry for the scoped test base", async () => {
     const { runRetentionBatch } = await import("./runtime");
-    const baseId = await createBase("Lifecycle retention smoke", 1);
+    const baseId = await createBase("Lifecycle retention smoke", { rawDays: 1, rollupDays: 365, sensitiveHours: 1 });
     const sourceId = await createSource(baseId);
     try {
-      await insertTelemetryFixture(baseId, sourceId, { old: true });
+      await insertTelemetryFixture(baseId, sourceId, "raw-expired");
+      await insertTelemetryFixture(baseId, sourceId, "sensitive-expired");
       await insertTelemetryFixture(baseId, sourceId);
 
+      const first = await runRetentionBatch(baseId);
+      expect(first.phase).toBe("event_sensitive");
+      expect(first.sensitiveEvents).toBe(2);
       await runUntilDone(() => runRetentionBatch(baseId));
 
-      await expect(countRows("pulse.metric_samples", baseId)).resolves.toBe(1);
-      await expect(countRows("pulse.metric_rollups_hourly", baseId)).resolves.toBe(1);
-      await expect(countRows("pulse.state_changes", baseId)).resolves.toBe(1);
-      await expect(countRows("pulse.events", baseId)).resolves.toBe(1);
-      await expect(countRows("pulse.states_current", baseId)).resolves.toBe(2);
+      await expect(countRows("pulse.metric_samples", baseId)).resolves.toBe(2);
+      await expect(countRows("pulse.metric_rollups_hourly", baseId)).resolves.toBe(3);
+      await expect(countRows("pulse.state_changes", baseId)).resolves.toBe(2);
+      await expect(countRows("pulse.events", baseId)).resolves.toBe(2);
+      await expect(countRows("pulse.states_current", baseId)).resolves.toBe(3);
+
+      const [sensitive] = await sql<{ retained: number; cleared: number }[]>`
+        SELECT
+          COUNT(*) FILTER (WHERE sensitive <> '{}'::jsonb)::int AS retained,
+          COUNT(*) FILTER (WHERE sensitive = '{}'::jsonb)::int AS cleared
+        FROM pulse.events
+        WHERE base_id = ${baseId}::uuid
+      `;
+      expect(sensitive).toEqual({ retained: 1, cleared: 1 });
     } finally {
       await cleanupBase(baseId);
     }

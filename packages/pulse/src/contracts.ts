@@ -19,7 +19,9 @@ export type PulseBase = {
   id: string;
   name: string;
   description: string | null;
-  retentionDays: number;
+  rawRetentionDays: number;
+  rollupRetentionDays: number;
+  sensitiveRetentionHours: number;
   createdBy: string | null;
   deletionStartedAt: string | null;
   deletionFailedAt: string | null;

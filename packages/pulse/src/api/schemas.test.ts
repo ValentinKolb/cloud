@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { IngestBatchSchema } from "./schemas";
+import { IngestBatchSchema, UpdateBaseSchema } from "./schemas";
 
 describe("Pulse ingest API limits", () => {
   test("accepts the documented external maximum", () => {
@@ -36,5 +36,12 @@ describe("Pulse ingest API limits", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  test("accepts the three explicit V1 retention classes", () => {
+    expect(
+      UpdateBaseSchema.safeParse({ rawRetentionDays: 30, rollupRetentionDays: 365, sensitiveRetentionHours: 24 }).success,
+    ).toBe(true);
+    expect(UpdateBaseSchema.safeParse({ retentionDays: 30 }).success).toBe(false);
   });
 });

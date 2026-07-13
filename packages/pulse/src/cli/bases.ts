@@ -14,7 +14,9 @@ export const baseCommands = [
       printJsonOrTable(ctx, bases, baseRows(bases), [
         { key: "id" },
         { key: "name" },
-        { key: "retentionDays", label: "retention" },
+        { key: "rawRetentionDays", label: "raw" },
+        { key: "rollupRetentionDays", label: "rollups" },
+        { key: "sensitiveRetentionHours", label: "sensitive" },
         { key: "deletion" },
         { key: "updatedAt" },
       ]);
@@ -48,7 +50,9 @@ export const baseCommands = [
       if (ctx.options.output === "json") ctx.json(base);
       else {
         ctx.print(`${base.name} (${base.id})`);
-        ctx.print(`Retention: ${base.retentionDays} days`);
+        ctx.print(`Raw retention: ${base.rawRetentionDays} days`);
+        ctx.print(`Rollup retention: ${base.rollupRetentionDays} days`);
+        ctx.print(`Sensitive retention: ${base.sensitiveRetentionHours} hours`);
         if (base.description) ctx.print(base.description);
       }
     },
@@ -77,7 +81,9 @@ export const baseCommands = [
       ...baseFlag,
       name: flag.string({ description: "New base name" }),
       description: flag.string({ description: "New base description" }),
-      retentionDays: flag.int({ name: "retention-days", min: 1, max: 3650, description: "Retention in days" }),
+      rawRetentionDays: flag.int({ name: "raw-retention-days", min: 1, max: 3650, description: "Raw telemetry retention in days" }),
+      rollupRetentionDays: flag.int({ name: "rollup-retention-days", min: 1, max: 3650, description: "Hourly metric rollup retention in days" }),
+      sensitiveRetentionHours: flag.int({ name: "sensitive-retention-hours", min: 1, max: 8760, description: "Sensitive event field retention in hours" }),
     },
     args: { args: arg.rest({ valueLabel: "base" }) },
     async run({ ctx, args, flags }) {
@@ -85,7 +91,9 @@ export const baseCommands = [
       const patch = {
         name: flags.name,
         description: flags.description,
-        retentionDays: flags.retentionDays,
+        rawRetentionDays: flags.rawRetentionDays,
+        rollupRetentionDays: flags.rollupRetentionDays,
+        sensitiveRetentionHours: flags.sensitiveRetentionHours,
       };
       const updated = await readApi<PulseBase>(ctx, `/bases/${encodeURIComponent(base.id)}`, jsonRequest("PATCH", patch));
       if (ctx.options.output === "json") ctx.json(updated);

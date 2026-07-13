@@ -12,16 +12,36 @@ export const migrate = async (): Promise<void> => {
       name TEXT NOT NULL,
       description TEXT,
       retention_days INTEGER NOT NULL DEFAULT 30,
+      rollup_retention_days INTEGER NOT NULL DEFAULT 365,
+      sensitive_retention_hours INTEGER NOT NULL DEFAULT 24,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
   await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS retention_days INTEGER NOT NULL DEFAULT 30`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS rollup_retention_days INTEGER NOT NULL DEFAULT 365`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS sensitive_retention_hours INTEGER NOT NULL DEFAULT 24`.simple();
   await sql`
     DO $$ BEGIN
       ALTER TABLE pulse.bases
       ADD CONSTRAINT pulse_bases_retention_days_check CHECK (retention_days BETWEEN 1 AND 3650);
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
+    END $$
+  `.simple();
+  await sql`
+    DO $$ BEGIN
+      ALTER TABLE pulse.bases
+      ADD CONSTRAINT pulse_bases_rollup_retention_days_check CHECK (rollup_retention_days BETWEEN 1 AND 3650);
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
+    END $$
+  `.simple();
+  await sql`
+    DO $$ BEGIN
+      ALTER TABLE pulse.bases
+      ADD CONSTRAINT pulse_bases_sensitive_retention_hours_check CHECK (sensitive_retention_hours BETWEEN 1 AND 8760);
     EXCEPTION
       WHEN duplicate_object THEN NULL;
     END $$

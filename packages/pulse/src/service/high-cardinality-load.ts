@@ -97,8 +97,10 @@ const writerEvents = (): PulseEvent[] =>
     },
     attributes: {
       url: `https://example.test/page/${index}`,
-      ip_hash: `ip-${index}`,
       landing_path: `/page/${index}`,
+    },
+    sensitive: {
+      ip_hash: `ip-${index}`,
     },
   }));
 
@@ -173,7 +175,7 @@ const insertScaleRows = async (baseId: string, sourceId: string, eventCount: num
       )
       INSERT INTO pulse.events (
         base_id, source_id, ts, kind, actor_id, session_id, correlation_id,
-        dimensions_hash, dimensions, attributes, payload
+        dimensions_hash, dimensions, attributes, sensitive, payload
       )
       SELECT
         ${baseId}::uuid,
@@ -187,9 +189,9 @@ const insertScaleRows = async (baseId: string, sourceId: string, eventCount: num
         dimensions,
         jsonb_build_object(
           'url', 'https://example.test/page/' || item,
-          'ip_hash', md5('ip-' || (item % 1000000)),
           'landing_path', '/page/' || item
         ),
+        jsonb_build_object('ip_hash', md5('ip-' || (item % 1000000))),
         '{}'::jsonb
       FROM generated
     `;
@@ -197,7 +199,9 @@ const insertScaleRows = async (baseId: string, sourceId: string, eventCount: num
   return performance.now() - started;
 };
 
-const runRetention = async (baseId: string): Promise<{ durationMs: number; batches: number; remaining: number }> => {
+const runRetention = async (
+  baseId: string,
+): Promise<{ durationMs: number; batches: number; remaining: number; remainingSensitive: number }> => {
   const started = performance.now();
   let batches = 0;
   while (batches < 1_000) {
@@ -206,10 +210,19 @@ const runRetention = async (baseId: string): Promise<{ durationMs: number; batch
     if (result.done) break;
   }
   if (batches >= 1_000) throw new Error("Retention did not converge within 1,000 batches");
-  const [remaining] = await sql<{ count: number | string }[]>`
-    SELECT COUNT(*) AS count FROM pulse.events WHERE base_id = ${baseId}::uuid
+  const [remaining] = await sql<{ count: number | string; sensitive: number | string }[]>`
+    SELECT
+      COUNT(*) AS count,
+      COUNT(*) FILTER (WHERE sensitive <> '{}'::jsonb) AS sensitive
+    FROM pulse.events
+    WHERE base_id = ${baseId}::uuid
   `;
-  return { durationMs: performance.now() - started, batches, remaining: numeric(remaining?.count) };
+  return {
+    durationMs: performance.now() - started,
+    batches,
+    remaining: numeric(remaining?.count),
+    remainingSensitive: numeric(remaining?.sensitive),
+  };
 };
 
 const main = async (): Promise<void> => {
@@ -221,7 +234,8 @@ const main = async (): Promise<void> => {
   const baseId = crypto.randomUUID();
   const sourceId = crypto.randomUUID();
   await sql`
-    INSERT INTO pulse.bases (id, name, retention_days) VALUES (${baseId}::uuid, 'High-cardinality load', 1)
+    INSERT INTO pulse.bases (id, name, retention_days, rollup_retention_days, sensitive_retention_hours)
+    VALUES (${baseId}::uuid, 'High-cardinality load', 1, 365, 1)
   `;
   await sql`
     INSERT INTO pulse.sources (id, base_id, kind, name)
@@ -236,7 +250,7 @@ const main = async (): Promise<void> => {
         COUNT(*) AS events,
         COUNT(DISTINCT actor_id) AS actors,
         COUNT(DISTINCT session_id) AS sessions,
-        COUNT(DISTINCT attributes ->> 'ip_hash') AS ip_hashes
+        COUNT(DISTINCT sensitive ->> 'ip_hash') AS ip_hashes
       FROM pulse.events
       WHERE base_id = ${baseId}::uuid
     `;
@@ -275,6 +289,9 @@ const main = async (): Promise<void> => {
 
     const retention = await runRetention(baseId);
     if (retention.remaining <= 0 || retention.remaining >= eventCount) throw new Error("Retention did not preserve only the active window");
+    if (retention.remainingSensitive <= 0 || retention.remainingSensitive >= retention.remaining) {
+      throw new Error("Sensitive retention did not preserve only the shorter active window");
+    }
     const valkeyAfter = await countPulseKeys();
     if (valkeyAfter !== valkeyBefore) throw new Error("Pulse load changed Valkey key count");
 

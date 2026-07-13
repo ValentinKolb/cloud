@@ -21,6 +21,8 @@ type BaseRow = {
   name: string;
   description: string | null;
   retention_days: number;
+  rollup_retention_days: number;
+  sensitive_retention_hours: number;
   created_by: string | null;
   deletion_started_at: Date | string | null;
   deletion_failed_at: Date | string | null;
@@ -45,20 +47,26 @@ type AccessRow = {
 type BaseUpdateInput = {
   name?: string;
   description?: string | null;
-  retentionDays?: number;
+  rawRetentionDays?: number;
+  rollupRetentionDays?: number;
+  sensitiveRetentionHours?: number;
 };
 
 type BaseUpdateValues = {
   name: string;
   description: string | null;
-  retentionDays: number;
+  rawRetentionDays: number;
+  rollupRetentionDays: number;
+  sensitiveRetentionHours: number;
 };
 
 const mapBase = (row: BaseRow): PulseBase => ({
   id: row.id,
   name: row.name,
   description: row.description,
-  retentionDays: row.retention_days,
+  rawRetentionDays: row.retention_days,
+  rollupRetentionDays: row.rollup_retention_days,
+  sensitiveRetentionHours: row.sensitive_retention_hours,
   createdBy: row.created_by,
   deletionStartedAt: isoNullable(row.deletion_started_at),
   deletionFailedAt: isoNullable(row.deletion_failed_at),
@@ -250,25 +258,41 @@ const normalizeBaseName = (input: BaseUpdateInput, existing: BaseRow): string =>
 const normalizeBaseDescription = (input: BaseUpdateInput, existing: BaseRow): string | null =>
   input.description === undefined ? existing.description : input.description?.trim() || null;
 
-const validateRetentionDays = (retentionDays: number): Result<number> =>
-  Number.isInteger(retentionDays) && retentionDays >= 1 && retentionDays <= 3650
-    ? ok(retentionDays)
-    : fail(err.badInput("Retention must be between 1 and 3650 days"));
+const validateRetentionDays = (value: number, label: string): Result<number> =>
+  Number.isInteger(value) && value >= 1 && value <= 3650
+    ? ok(value)
+    : fail(err.badInput(`${label} must be between 1 and 3650 days`));
+
+const validateSensitiveRetentionHours = (value: number): Result<number> =>
+  Number.isInteger(value) && value >= 1 && value <= 8760
+    ? ok(value)
+    : fail(err.badInput("Sensitive retention must be between 1 and 8760 hours"));
 
 const normalizeBaseUpdateValues = (input: BaseUpdateInput, existing: BaseRow): Result<BaseUpdateValues> => {
-  const retention = validateRetentionDays(input.retentionDays ?? existing.retention_days);
-  if (!retention.ok) return fail(retention.error);
+  const raw = validateRetentionDays(input.rawRetentionDays ?? existing.retention_days, "Raw retention");
+  if (!raw.ok) return fail(raw.error);
+  const rollup = validateRetentionDays(input.rollupRetentionDays ?? existing.rollup_retention_days, "Rollup retention");
+  if (!rollup.ok) return fail(rollup.error);
+  const sensitive = validateSensitiveRetentionHours(input.sensitiveRetentionHours ?? existing.sensitive_retention_hours);
+  if (!sensitive.ok) return fail(sensitive.error);
   return ok({
     name: normalizeBaseName(input, existing),
     description: normalizeBaseDescription(input, existing),
-    retentionDays: retention.data,
+    rawRetentionDays: raw.data,
+    rollupRetentionDays: rollup.data,
+    sensitiveRetentionHours: sensitive.data,
   });
 };
 
 const persistBaseUpdate = async (baseId: string, values: BaseUpdateValues): Promise<Result<BaseRow>> => {
   const [row] = await sql<BaseRow[]>`
     UPDATE pulse.bases
-    SET name = ${values.name}, description = ${values.description}, retention_days = ${values.retentionDays}, updated_at = now()
+    SET name = ${values.name},
+        description = ${values.description},
+        retention_days = ${values.rawRetentionDays},
+        rollup_retention_days = ${values.rollupRetentionDays},
+        sensitive_retention_hours = ${values.sensitiveRetentionHours},
+        updated_at = now()
     WHERE id = ${baseId}::uuid
     RETURNING *
   `;
@@ -280,7 +304,9 @@ export const updateBase = async (params: {
   user: UserScope;
   name?: string;
   description?: string | null;
-  retentionDays?: number;
+  rawRetentionDays?: number;
+  rollupRetentionDays?: number;
+  sensitiveRetentionHours?: number;
 }): Promise<Result<PulseBase>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);

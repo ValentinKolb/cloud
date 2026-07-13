@@ -128,11 +128,15 @@ export const CreateBaseSchema = z.object({
   description: z.string().trim().max(1_000).nullable().optional(),
 });
 
-export const UpdateBaseSchema = z.object({
-  name: z.string().trim().min(1).max(120).optional(),
-  description: z.string().trim().max(1_000).nullable().optional(),
-  retentionDays: z.number().int().min(1).max(3650).optional(),
-});
+export const UpdateBaseSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    description: z.string().trim().max(1_000).nullable().optional(),
+    rawRetentionDays: z.number().int().min(1).max(3650).optional(),
+    rollupRetentionDays: z.number().int().min(1).max(3650).optional(),
+    sensitiveRetentionHours: z.number().int().min(1).max(8760).optional(),
+  })
+  .strict();
 
 export const GrantBaseAccessSchema = z.object({
   principal: PrincipalSchema,
@@ -509,7 +513,9 @@ export const BaseSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
-  retentionDays: z.number(),
+  rawRetentionDays: z.number(),
+  rollupRetentionDays: z.number(),
+  sensitiveRetentionHours: z.number(),
   createdBy: z.string().nullable(),
   deletionStartedAt: z.string().nullable(),
   deletionFailedAt: z.string().nullable(),

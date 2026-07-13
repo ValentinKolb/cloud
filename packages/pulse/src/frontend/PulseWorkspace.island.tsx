@@ -998,7 +998,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         eventCount={eventGroups().length}
         stateCount={stateGroups().length}
         metricCount={metrics().length}
-        retentionDays={selectedBase()?.retentionDays ?? 30}
+        rawRetentionDays={selectedBase()?.rawRetentionDays ?? 30}
         timescaleEnabled={Boolean(props.initialCapabilities?.timescaleEnabled)}
         settingsDisabled={!selectedBase() || loading()}
         openSettings={openSettingsDialog}

@@ -20,12 +20,40 @@ const RETENTION_DELETE_BATCH_SIZE = 50_000;
 
 type RetentionResult = {
   phase: string;
+  sensitiveEvents: number;
   metricSamples: number;
   metricRollups: number;
   events: number;
   stateChanges: number;
   idempotencyRecords: number;
   done: boolean;
+};
+
+const clearExpiredEventSensitiveChunk = async (baseId?: string): Promise<number> => {
+  const scopedBaseId = baseId ?? null;
+  const result = await sql`
+    WITH victim AS (
+      SELECT e.id, e.ts
+      FROM pulse.events e
+      JOIN pulse.bases b ON b.id = e.base_id
+      WHERE e.ts < now() - (b.sensitive_retention_hours * interval '1 hour')
+        AND e.sensitive <> '{}'::jsonb
+        AND b.deletion_started_at IS NULL
+        AND (
+          b.data_clear_started_at IS NULL
+          OR b.data_clear_completed_at IS NOT NULL
+          OR b.data_clear_failed_at IS NOT NULL
+        )
+        AND (${scopedBaseId}::uuid IS NULL OR b.id = ${scopedBaseId}::uuid)
+      LIMIT ${RETENTION_DELETE_BATCH_SIZE}
+    )
+    UPDATE pulse.events item
+    SET sensitive = '{}'::jsonb
+    FROM victim
+    WHERE item.id = victim.id
+      AND item.ts = victim.ts
+  `;
+  return result.count ?? 0;
 };
 
 const scrapeJob = job<ScrapeInput, { metrics: number; events: number; states: number }>({
@@ -97,7 +125,7 @@ const deleteExpiredMetricRollupsChunk = async (baseId?: string): Promise<number>
       SELECT mr.series_id, mr.bucket
       FROM pulse.metric_rollups_hourly mr
       JOIN pulse.bases b ON b.id = mr.base_id
-      WHERE mr.bucket < now() - (b.retention_days * interval '1 day')
+      WHERE mr.bucket < now() - (b.rollup_retention_days * interval '1 day')
         AND b.deletion_started_at IS NULL
         AND (
           b.data_clear_started_at IS NULL
@@ -184,10 +212,25 @@ const deleteExpiredIdempotencyChunk = async (baseId?: string): Promise<number> =
 };
 
 export const runRetentionBatch = async (baseId?: string): Promise<RetentionResult> => {
+  const sensitiveEvents = await clearExpiredEventSensitiveChunk(baseId);
+  if (sensitiveEvents > 0) {
+    return {
+      phase: "event_sensitive",
+      sensitiveEvents,
+      metricSamples: 0,
+      metricRollups: 0,
+      events: 0,
+      stateChanges: 0,
+      idempotencyRecords: 0,
+      done: false,
+    };
+  }
+
   const metricSamples = await deleteExpiredMetricSamplesChunk(baseId);
   if (metricSamples > 0) {
     return {
       phase: "metric_samples",
+      sensitiveEvents: 0,
       metricSamples,
       metricRollups: 0,
       events: 0,
@@ -201,6 +244,7 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
   if (metricRollups > 0) {
     return {
       phase: "metric_rollups_hourly",
+      sensitiveEvents: 0,
       metricSamples: 0,
       metricRollups,
       events: 0,
@@ -214,6 +258,7 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
   if (events > 0) {
     return {
       phase: "events",
+      sensitiveEvents: 0,
       metricSamples: 0,
       metricRollups: 0,
       events,
@@ -227,6 +272,7 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
   if (stateChanges > 0) {
     return {
       phase: "state_changes",
+      sensitiveEvents: 0,
       metricSamples: 0,
       metricRollups: 0,
       events: 0,
@@ -240,6 +286,7 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
   if (idempotencyRecords > 0) {
     return {
       phase: "ingest_idempotency",
+      sensitiveEvents: 0,
       metricSamples: 0,
       metricRollups: 0,
       events: 0,
@@ -251,6 +298,7 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
 
   return {
     phase: "done",
+    sensitiveEvents: 0,
     metricSamples: 0,
     metricRollups: 0,
     events: 0,

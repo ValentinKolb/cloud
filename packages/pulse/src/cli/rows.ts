@@ -6,7 +6,9 @@ export const baseRows = (bases: PulseBase[]) =>
   bases.map((base) => ({
     id: compactId(base.id),
     name: base.name,
-    retentionDays: base.retentionDays,
+    rawRetentionDays: base.rawRetentionDays,
+    rollupRetentionDays: base.rollupRetentionDays,
+    sensitiveRetentionHours: base.sensitiveRetentionHours,
     deletion: base.deletionStartedAt ? (base.deletionFailedAt ? "failed" : "running") : "",
     updatedAt: base.updatedAt,
   }));

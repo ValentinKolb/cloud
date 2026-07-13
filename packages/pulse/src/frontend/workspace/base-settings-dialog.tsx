@@ -9,7 +9,16 @@ type BaseSettingsDialogOptions = {
   accessEntries: AccessEntry[];
   base: PulseBase;
   loading: Accessor<boolean>;
-  updateBaseSettings: (base: PulseBase, input: { name: string; description: string; retentionDays: number }) => Promise<boolean>;
+  updateBaseSettings: (
+    base: PulseBase,
+    input: {
+      name: string;
+      description: string;
+      rawRetentionDays: number;
+      rollupRetentionDays: number;
+      sensitiveRetentionHours: number;
+    },
+  ) => Promise<boolean>;
   clearBaseData: () => Promise<void>;
   deleteBase: () => Promise<boolean>;
 };
@@ -19,12 +28,16 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
     (close) => {
       const [name, setName] = createSignal(options.base.name);
       const [description, setDescription] = createSignal(options.base.description ?? "");
-      const [retentionDays, setRetentionDays] = createSignal<number | null>(options.base.retentionDays);
+      const [rawRetentionDays, setRawRetentionDays] = createSignal<number | null>(options.base.rawRetentionDays);
+      const [rollupRetentionDays, setRollupRetentionDays] = createSignal<number | null>(options.base.rollupRetentionDays);
+      const [sensitiveRetentionHours, setSensitiveRetentionHours] = createSignal<number | null>(options.base.sensitiveRetentionHours);
       const saveSettings = async () =>
         options.updateBaseSettings(options.base, {
           name: name(),
           description: description(),
-          retentionDays: retentionDays() ?? options.base.retentionDays,
+          rawRetentionDays: rawRetentionDays() ?? options.base.rawRetentionDays,
+          rollupRetentionDays: rollupRetentionDays() ?? options.base.rollupRetentionDays,
+          sensitiveRetentionHours: sensitiveRetentionHours() ?? options.base.sensitiveRetentionHours,
         });
 
       const grantAccess = (principal: Principal, permission: GrantableLevel) =>
@@ -92,7 +105,7 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
               />
             </SettingsModal.Tab>
 
-            <SettingsModal.Tab id="retention" title="Retention" icon="ti ti-clock-cog" description="Control how long raw telemetry stays queryable.">
+            <SettingsModal.Tab id="retention" title="Retention" icon="ti ti-clock-cog" description="Bound raw, aggregated, and sensitive telemetry independently.">
               <form
                 class="flex flex-col gap-3"
                 onSubmit={(event) => {
@@ -107,8 +120,30 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                   suffix="days"
                   min={1}
                   max={3650}
-                  value={retentionDays}
-                  onInput={setRetentionDays}
+                  value={rawRetentionDays}
+                  onInput={setRawRetentionDays}
+                  required
+                />
+                <NumberInput
+                  label="Hourly rollup retention"
+                  description="Pulse keeps hourly metric aggregates for this many days, even after raw metric samples expire."
+                  icon="ti ti-chart-histogram"
+                  suffix="days"
+                  min={1}
+                  max={3650}
+                  value={rollupRetentionDays}
+                  onInput={setRollupRetentionDays}
+                  required
+                />
+                <NumberInput
+                  label="Sensitive event retention"
+                  description="Pulse clears classified sensitive fields after this many hours while preserving the event itself."
+                  icon="ti ti-shield-lock"
+                  suffix="hours"
+                  min={1}
+                  max={8760}
+                  value={sensitiveRetentionHours}
+                  onInput={setSensitiveRetentionHours}
                   required
                 />
                 <button type="submit" class="btn-primary btn-sm self-start" disabled={options.loading()}>

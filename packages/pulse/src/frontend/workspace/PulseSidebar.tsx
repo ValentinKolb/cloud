@@ -13,7 +13,7 @@ type Props = {
   eventCount: number;
   stateCount: number;
   metricCount: number;
-  retentionDays: number;
+  rawRetentionDays: number;
   timescaleEnabled: boolean;
   settingsDisabled: boolean;
   openSettings: () => void | Promise<void>;
@@ -118,7 +118,7 @@ export default function PulseSidebar(props: Props) {
               <span class={`inline-flex h-2.5 w-2.5 rounded-full ${props.timescaleEnabled ? "bg-emerald-500" : "bg-amber-500"}`} />
               <span>{props.timescaleEnabled ? "TimescaleDB enabled" : "Dev fallback"}</span>
             </div>
-            <p class="mt-1">Retention: {props.retentionDays} days</p>
+            <p class="mt-1">Raw data: {props.rawRetentionDays} days</p>
           </div>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>

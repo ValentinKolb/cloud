@@ -45,14 +45,31 @@ type BaseControllerDeps = {
 };
 
 export const createBaseController = (deps: BaseControllerDeps) => {
-  const updateSettings = async (base: PulseBase, input: { name: string; description: string; retentionDays: number }) => {
+  const updateSettings = async (
+    base: PulseBase,
+    input: {
+      name: string;
+      description: string;
+      rawRetentionDays: number;
+      rollupRetentionDays: number;
+      sensitiveRetentionHours: number;
+    },
+  ) => {
     const name = input.name.trim();
     if (!name) {
       toast.error("Pulse name is required");
       return false;
     }
-    if (!Number.isInteger(input.retentionDays) || input.retentionDays < 1 || input.retentionDays > 3650) {
-      toast.error("Retention must be between 1 and 3650 days");
+    if (!Number.isInteger(input.rawRetentionDays) || input.rawRetentionDays < 1 || input.rawRetentionDays > 3650) {
+      toast.error("Raw retention must be between 1 and 3650 days");
+      return false;
+    }
+    if (!Number.isInteger(input.rollupRetentionDays) || input.rollupRetentionDays < 1 || input.rollupRetentionDays > 3650) {
+      toast.error("Rollup retention must be between 1 and 3650 days");
+      return false;
+    }
+    if (!Number.isInteger(input.sensitiveRetentionHours) || input.sensitiveRetentionHours < 1 || input.sensitiveRetentionHours > 8760) {
+      toast.error("Sensitive retention must be between 1 and 8760 hours");
       return false;
     }
     deps.setLoading(true);
@@ -62,7 +79,9 @@ export const createBaseController = (deps: BaseControllerDeps) => {
         body: JSON.stringify({
           name,
           description: input.description.trim() || null,
-          retentionDays: input.retentionDays,
+          rawRetentionDays: input.rawRetentionDays,
+          rollupRetentionDays: input.rollupRetentionDays,
+          sensitiveRetentionHours: input.sensitiveRetentionHours,
         }),
       });
       deps.setBases((current) => current.map((item) => (item.id === updated.id ? updated : item)));

@@ -50,7 +50,9 @@ const base = {
   id: baseId,
   name: "Test",
   description: null,
-  retentionDays: 30,
+  rawRetentionDays: 30,
+  rollupRetentionDays: 365,
+  sensitiveRetentionHours: 24,
   createdBy: null,
   deletionStartedAt: null,
   deletionFailedAt: null,
@@ -164,6 +166,31 @@ const inventory = {
 };
 
 describe("pulse CLI", () => {
+  test("updates all V1 retention classes explicitly", async () => {
+    const updated = {
+      ...base,
+      rawRetentionDays: 14,
+      rollupRetentionDays: 730,
+      sensitiveRetentionHours: 12,
+    };
+    const { ctx, calls, lines } = createContext(
+      ["update", baseId],
+      { "raw-retention-days": "14", "rollup-retention-days": "730", "sensitive-retention-hours": "12" },
+      [jsonResponse(base), jsonResponse(updated)],
+    );
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/bases/${baseId}`]);
+    expect(calls[1]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({
+      rawRetentionDays: 14,
+      rollupRetentionDays: 730,
+      sensitiveRetentionHours: 12,
+    });
+    expect(lines).toEqual([`Updated Pulse base Test (${baseId}).`]);
+  });
+
   test("lists Pulse base access entries", async () => {
     const { ctx, calls, tables } = createContext(["access", "list", baseId], {}, [jsonResponse(base), jsonResponse([accessEntry])]);
 

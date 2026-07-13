@@ -229,7 +229,7 @@ export const PulseOperateHelpPage = () => (
           {
             title: "Retention and clear data",
             icon: "ti-recycle",
-            text: "Retention bounds raw telemetry growth. Clear telemetry when you want to keep the base, sources, access, and settings but discard collected data.",
+            text: "Raw telemetry, hourly metric rollups, and classified sensitive event fields have independent retention. Clear telemetry when you want to keep the base, sources, access, and settings but discard collected data.",
           },
           {
             title: "Access",

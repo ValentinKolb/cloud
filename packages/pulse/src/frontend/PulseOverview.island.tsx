@@ -128,7 +128,7 @@ export default function PulseOverview(props: Props) {
                       </div>
                       <div class="min-w-0 flex-1">
                         <span class="block truncate text-sm font-semibold text-primary">{base.name}</span>
-                        <p class="truncate text-xs text-dimmed">{base.description || `${base.retentionDays} day retention`}</p>
+                        <p class="truncate text-xs text-dimmed">{base.description || `${base.rawRetentionDays} day raw retention`}</p>
                       </div>
                       <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
                     </a>
