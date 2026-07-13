@@ -23,6 +23,7 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { FeedbackEntry, PublicSection, PublicSectionInput, ShiftAssignment, UpcomingSlot } from "../../contracts";
 import { DOUBLE_CLICK_CONFIRM_COOKIE, feedbackRangeOptions, views } from "./venue-workspace/constants";
+import { openVenuePublicDisplayDialog } from "./venue-workspace/public-display";
 import { PublicSectionDialog, PublicSectionPreview, sectionKindIcon } from "./venue-workspace/public-sections";
 import { ProgressBar } from "./venue-workspace/schedule";
 import { SettingsDialog } from "./venue-workspace/settings";
@@ -113,6 +114,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
   const openSignup = async () => {
     await dialogCore.open<boolean>((close) => <SignupDialog dashboard={props.dashboard} close={close} />, panelDialogOptions);
   };
+  const openPublicPage = () => openVenuePublicDisplayDialog(venue().slug);
 
   const calendarSignup = mutation.create<void, UpcomingSlot>({
     mutation: async (slot) => {
@@ -338,10 +340,9 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                 </AppWorkspace.SidebarItem>
               )}
             </For>
-            <a href={`/app/venue/public/${venue().slug}`} target="_blank" rel="noreferrer" class="sidebar-item-mobile">
-              <i class="ti ti-external-link" />
-              <span class="min-w-0 flex-1 truncate text-left">Public page</span>
-            </a>
+            <AppWorkspace.SidebarItem icon="ti ti-device-tv" onClick={openPublicPage}>
+              Public page
+            </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarMobileItems>
         </AppWorkspace.SidebarMobile>
 
@@ -353,16 +354,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                   <AppWorkspace.SidebarIconAction icon="ti ti-user-plus" label="Sign up for a shift" tone="success" onClick={openSignup} />
                 </Show>
                 <AppWorkspace.SidebarIconAction href="/app/venue" navigation="document" icon="ti ti-layout-grid" label="All venues" />
-                <a
-                  href={`/app/venue/public/${venue().slug}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  class="sidebar-icon-action"
-                  title="Public page"
-                  aria-label="Public page"
-                >
-                  <i class="ti ti-external-link text-base" />
-                </a>
+                <AppWorkspace.SidebarIconAction icon="ti ti-device-tv" label="Public page options" onClick={openPublicPage} />
               </AppWorkspace.SidebarIconGrid>
             </AppWorkspace.SidebarSection>
 

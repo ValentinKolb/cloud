@@ -17,6 +17,7 @@ import { logger, serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/serv
 import { dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { z } from "zod";
+import { buildPublicAvailability } from "./availability";
 import type {
   DateOverride,
   DateOverrideInput,
@@ -98,6 +99,7 @@ type DbShiftTemplate = {
   end_time: string;
   min_people: number;
   max_people: number | null;
+  require_target_for_opening: boolean;
   active: boolean;
   created_at: Date;
   updated_at: Date;
@@ -247,6 +249,7 @@ const mapTemplate = (row: DbShiftTemplate): ShiftTemplate => ({
   endTime: toTime(row.end_time) ?? "00:00",
   minPeople: row.min_people,
   maxPeople: row.max_people,
+  requireTargetForOpening: row.require_target_for_opening,
   active: row.active,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -318,8 +321,6 @@ const localWeekday = (dateKey: string): number => {
   return day === 0 ? 0 : day;
 };
 
-const localTime = (instant: Date, timezone: string): string => dates.instantToZonedInput(instant, timezone).slice(11, 16);
-
 const instantFor = (date: string, time: string, timezone: string): Date =>
   new Date(dates.zonedDateTimeToInstant(`${date}T${time}`, timezone, { disambiguation: "compatible" }));
 
@@ -328,25 +329,8 @@ const endInstantFor = (date: string, startTime: string, endTime: string, timezon
   return instantFor(endDate, endTime, timezone);
 };
 
-const timeWithinWindow = (time: string, start: string, end: string): boolean => {
-  if (start < end) return start <= time && time < end;
-  return time >= start || time < end;
-};
-
 const dateKeyAfterDays = (date: string, days: number, timezone: string): string =>
   dates.formatDateKey(new Date(instantFor(date, "12:00", timezone).getTime() + days * 86_400_000), { timeZone: timezone });
-
-const formatDateTime = (iso: string | Date, timezone: string): string =>
-  new Intl.DateTimeFormat("en", {
-    timeZone: timezone,
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(typeof iso === "string" ? new Date(iso) : iso);
-
-const formatWindow = (start: string, end: string): string => `${start}-${end}`;
 
 const escapeIcs = (value: string): string => value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
 
@@ -577,10 +561,13 @@ const createOpeningRuleInTx = async (tx: SqlClient, venueId: string, input: Open
 
 const createTemplateInTx = async (tx: SqlClient, venueId: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
   const [row] = await tx<DbShiftTemplate[]>`
-    INSERT INTO venue.shift_templates (venue_id, weekday, title, start_time, end_time, min_people, max_people, active)
+    INSERT INTO venue.shift_templates (
+      venue_id, weekday, title, start_time, end_time, min_people, max_people,
+      require_target_for_opening, active
+    )
     VALUES (
       ${venueId}::uuid, ${input.weekday}, ${input.title.trim()}, ${input.startTime}::time, ${input.endTime}::time,
-      ${input.minPeople}, ${input.maxPeople ?? null}, ${input.active}
+      ${input.minPeople}, ${input.maxPeople ?? null}, ${input.requireTargetForOpening}, ${input.active}
     )
     RETURNING *
   `;
@@ -717,6 +704,17 @@ const listOverrides = async (venueId: string, days = 60): Promise<DateOverride[]
   return rows.map(mapOverride);
 };
 
+const listOverridesForDateRange = async (venueId: string, startDate: string, endDate: string): Promise<DateOverride[]> => {
+  const rows = await sql<DbDateOverride[]>`
+    SELECT * FROM venue.date_overrides
+    WHERE venue_id = ${venueId}::uuid
+      AND date >= ${startDate}::date
+      AND date < ${endDate}::date
+    ORDER BY date
+  `;
+  return rows.map(mapOverride);
+};
+
 const upsertOverride = async (venueId: string, input: DateOverrideInput): Promise<Result<DateOverride>> => {
   const [row] = await sql<DbDateOverride[]>`
     INSERT INTO venue.date_overrides (venue_id, date, kind, start_time, end_time, note)
@@ -776,6 +774,7 @@ const updateTemplate = async (venueId: string, id: string, input: ShiftTemplateI
         end_time = ${input.endTime}::time,
         min_people = ${input.minPeople},
         max_people = ${input.maxPeople ?? null},
+        require_target_for_opening = ${input.requireTargetForOpening},
         active = ${input.active},
         updated_at = now()
     WHERE venue_id = ${venueId}::uuid AND id = ${id}::uuid
@@ -1016,7 +1015,10 @@ const deleteSection = async (venueId: string, id: string): Promise<Result<void>>
 };
 
 const createFeedback = async (venueId: string, input: z.infer<typeof FeedbackInputSchema>): Promise<Result<FeedbackEntry>> => {
-  const [venue] = await sql<{ feedback_enabled: boolean }[]>`SELECT feedback_enabled FROM venue.venues WHERE id = ${venueId}::uuid`;
+  const [venue] = await sql<{ public_enabled: boolean; feedback_enabled: boolean }[]>`
+    SELECT public_enabled, feedback_enabled FROM venue.venues WHERE id = ${venueId}::uuid
+  `;
+  if (!venue?.public_enabled) return fail(err.notFound("Venue"));
   if (!venue?.feedback_enabled) return fail(err.badInput("Feedback is disabled for this venue"));
   const [row] = await sql<DbFeedbackEntry[]>`
     INSERT INTO venue.feedback_entries (venue_id, rating, comment)
@@ -1073,55 +1075,29 @@ const feedbackSummary = async (
   };
 };
 
-type OpeningWindow = { start: string; end: string; label: string };
-
-const openingWindowsFor = (rules: OpeningRule[], override: DateOverride | undefined): OpeningWindow[] => {
-  if (override?.kind === "closed") return [];
-  if (override?.kind === "open" && override.startTime && override.endTime) {
-    return [{ start: override.startTime, end: override.endTime, label: formatWindow(override.startTime, override.endTime) }];
-  }
-  return rules.map((rule) => ({ start: rule.startTime, end: rule.endTime, label: formatWindow(rule.startTime, rule.endTime) }));
-};
-
-const nextOpeningLabelFor = async (venue: Venue, now: Date): Promise<string | null> => {
-  const nextSlot = (await upcomingSlots(venue, 14)).find(
-    (slot) => new Date(slot.startsAt) > now && (venue.openMode !== "regular" || slot.assignedCount > 0),
-  );
-  return nextSlot ? formatDateTime(nextSlot.startsAt, venue.timezone) : null;
-};
-
 const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatus | null> => {
   const venue = await getVenueBySlug(slug);
   if (!venue || !venue.publicEnabled) return null;
 
-  const date = localDateKey(now, venue.timezone);
-  const time = localTime(now, venue.timezone);
-  const weekday = localWeekday(date);
-  const [override] = (await listOverrides(venue.id, 14)).filter((entry) => entry.date === date);
-  const openingRules = await listOpeningRules(venue.id);
-  const rules = openingRules.filter((rule) => rule.weekday === weekday);
-  const activeAssignments = await assignmentsForRange(venue.id, new Date(now.getTime() - 1), new Date(now.getTime() + 1));
-  const staffedOpen = activeAssignments.some((assignment) => new Date(assignment.startsAt) <= now && now < new Date(assignment.endsAt));
-  const windows = openingWindowsFor(rules, override);
-
-  const regularOpen = venue.openMode !== "staffed" && windows.some((window) => timeWithinWindow(time, window.start, window.end));
-  const staffedCounts = venue.openMode !== "regular" && staffedOpen;
-  const open = override?.kind === "closed" ? false : regularOpen || staffedCounts;
-  const activeWindow = windows.find((window) => timeWithinWindow(time, window.start, window.end));
-  const spontaneousOpen = open && staffedCounts && !regularOpen && !activeWindow;
-  const todayLabel = windows.length > 0 ? windows.map((window) => window.label).join(", ") : "No regular hours today";
-  const nextOpeningLabel = await nextOpeningLabelFor(venue, now);
+  const days = 14;
+  const startDate = localDateKey(now, venue.timezone);
+  const endDate = dateKeyAfterDays(startDate, days, venue.timezone);
+  const rangeEnd = instantFor(endDate, "00:00", venue.timezone);
+  const [openingRules, overrides, templates, assignments, sections] = await Promise.all([
+    listOpeningRules(venue.id),
+    listOverridesForDateRange(venue.id, startDate, endDate),
+    listTemplates(venue.id),
+    assignmentsForRange(venue.id, new Date(now.getTime() - 1), rangeEnd),
+    listSections(venue.id, true),
+  ]);
+  const availability = buildPublicAvailability({ venue, openingRules, overrides, templates, assignments, now, days });
 
   return {
     venue,
-    open,
-    spontaneousOpen,
-    statusLabel: open ? "Open now" : "Closed now",
-    todayLabel,
-    nextOpeningLabel,
-    activeWindowLabel: activeWindow?.label ?? null,
+    ...availability,
+    statusLabel: availability.open ? "Open now" : "Closed now",
     openingRules,
-    sections: await listSections(venue.id, true),
+    sections,
   };
 };
 

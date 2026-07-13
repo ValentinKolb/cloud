@@ -87,11 +87,16 @@ export const migrate = async (): Promise<void> => {
       end_time TIME NOT NULL,
       min_people INT NOT NULL DEFAULT 1 CHECK (min_people >= 0),
       max_people INT CHECK (max_people IS NULL OR max_people >= min_people),
+      require_target_for_opening BOOLEAN NOT NULL DEFAULT false,
       active BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CHECK (start_time < end_time)
     )
+  `.simple();
+  await sql`
+    ALTER TABLE IF EXISTS venue.shift_templates
+    ADD COLUMN IF NOT EXISTS require_target_for_opening BOOLEAN NOT NULL DEFAULT false
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_venue_shift_templates_venue_weekday ON venue.shift_templates(venue_id, weekday, start_time)`.simple();
   console.log("  ✓ venue.shift_templates table");

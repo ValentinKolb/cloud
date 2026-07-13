@@ -35,6 +35,7 @@ const serviceDeskShifts = weekdays.flatMap((weekday) => [
     endTime: "13:00",
     minPeople: 1,
     maxPeople: 2,
+    requireTargetForOpening: false,
     active: true,
   },
   {
@@ -44,9 +45,33 @@ const serviceDeskShifts = weekdays.flatMap((weekday) => [
     endTime: "17:00",
     minPeople: 1,
     maxPeople: 2,
+    requireTargetForOpening: false,
     active: true,
   },
 ]);
+
+const cafeCounterShifts: ShiftTemplateInput[] = [
+  ...weekdays.map((weekday) => ({
+    weekday,
+    title: "Lunch counter",
+    startTime: "11:00",
+    endTime: "14:00",
+    minPeople: 2,
+    maxPeople: 4,
+    requireTargetForOpening: false,
+    active: true,
+  })),
+  ...weekdays.slice(0, 4).map((weekday) => ({
+    weekday,
+    title: "Afternoon counter",
+    startTime: "14:00",
+    endTime: "18:00",
+    minPeople: 1,
+    maxPeople: 3,
+    requireTargetForOpening: false,
+    active: true,
+  })),
+];
 
 export const templates: VenueTemplate[] = [
   {
@@ -119,17 +144,7 @@ export const templates: VenueTemplate[] = [
       { weekday: 4, startTime: "11:00", endTime: "18:00", note: null },
       { weekday: 5, startTime: "11:00", endTime: "16:00", note: null },
     ],
-    shifts: [
-      { weekday: 1, title: "Lunch counter", startTime: "11:00", endTime: "14:00", minPeople: 2, maxPeople: 4, active: true },
-      { weekday: 2, title: "Lunch counter", startTime: "11:00", endTime: "14:00", minPeople: 2, maxPeople: 4, active: true },
-      { weekday: 3, title: "Lunch counter", startTime: "11:00", endTime: "14:00", minPeople: 2, maxPeople: 4, active: true },
-      { weekday: 4, title: "Lunch counter", startTime: "11:00", endTime: "14:00", minPeople: 2, maxPeople: 4, active: true },
-      { weekday: 5, title: "Lunch counter", startTime: "11:00", endTime: "14:00", minPeople: 2, maxPeople: 4, active: true },
-      { weekday: 1, title: "Afternoon counter", startTime: "14:00", endTime: "18:00", minPeople: 1, maxPeople: 3, active: true },
-      { weekday: 2, title: "Afternoon counter", startTime: "14:00", endTime: "18:00", minPeople: 1, maxPeople: 3, active: true },
-      { weekday: 3, title: "Afternoon counter", startTime: "14:00", endTime: "18:00", minPeople: 1, maxPeople: 3, active: true },
-      { weekday: 4, title: "Afternoon counter", startTime: "14:00", endTime: "18:00", minPeople: 1, maxPeople: 3, active: true },
-    ],
+    shifts: cafeCounterShifts,
     sections: [
       {
         kind: "menu",

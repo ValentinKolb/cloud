@@ -1,4 +1,4 @@
-import { DatePicker, PanelDialog, prompts, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { CheckboxCardInput, DatePicker, PanelDialog, prompts, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 import { createSignal, Show } from "solid-js";
 import type {
@@ -165,6 +165,7 @@ type ShiftTemplateDraft = {
   endTime: string;
   minPeople: string;
   maxPeople: string;
+  requireTargetForOpening: boolean;
   active: boolean;
 };
 
@@ -189,6 +190,9 @@ const buildShiftTemplateInput = (
   }
   if (min < 0 || (max !== null && max < 0)) return { input: null, error: "Staffing numbers cannot be negative." };
   if (max !== null && max < min) return { input: null, error: "Max people must be greater than or equal to target people." };
+  if (draft.requireTargetForOpening && min < 1) {
+    return { input: null, error: "Target people must be at least one when it controls public opening." };
+  }
 
   return {
     input: {
@@ -198,6 +202,7 @@ const buildShiftTemplateInput = (
       endTime,
       minPeople: min,
       maxPeople: max,
+      requireTargetForOpening: draft.requireTargetForOpening,
       active: draft.active,
     },
     error: null,
@@ -211,6 +216,7 @@ export function ShiftTemplateDialog(props: { close: (value: ShiftTemplateInput |
   const [endTime, setEndTime] = createSignal(props.initial?.endTime ?? "13:00");
   const [minPeople, setMinPeople] = createSignal(String(props.initial?.minPeople ?? 1));
   const [maxPeople, setMaxPeople] = createSignal(props.initial?.maxPeople == null ? "" : String(props.initial.maxPeople));
+  const [requireTargetForOpening, setRequireTargetForOpening] = createSignal(props.initial?.requireTargetForOpening ?? false);
 
   const submit = () => {
     const result = buildShiftTemplateInput({
@@ -220,6 +226,7 @@ export function ShiftTemplateDialog(props: { close: (value: ShiftTemplateInput |
       endTime: endTime(),
       minPeople: minPeople(),
       maxPeople: maxPeople(),
+      requireTargetForOpening: requireTargetForOpening(),
       active: props.initial?.active ?? true,
     });
     if (result.error) {
@@ -248,6 +255,14 @@ export function ShiftTemplateDialog(props: { close: (value: ShiftTemplateInput |
           <TextInput label="Target people" value={minPeople} onInput={setMinPeople} inputMode="numeric" required />
           <TextInput label="Max people" value={maxPeople} onInput={setMaxPeople} inputMode="numeric" placeholder="Optional" />
         </div>
+        <CheckboxCardInput
+          label="Require target staffing to open"
+          description="The public page counts this shift as open only after the target number of people has signed up."
+          icon="ti ti-users-check"
+          value={requireTargetForOpening}
+          onChange={setRequireTargetForOpening}
+          variant="input"
+        />
       </div>
     </DialogFrame>
   );

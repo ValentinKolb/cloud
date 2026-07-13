@@ -129,6 +129,7 @@ const ShiftTemplateSchema = z.object({
   endTime: TimeSchema,
   minPeople: z.number().int().min(0),
   maxPeople: z.number().int().min(0).nullable(),
+  requireTargetForOpening: z.boolean(),
   active: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -143,11 +144,16 @@ export const ShiftTemplateInputSchema = z
     endTime: TimeSchema,
     minPeople: z.number().int().min(0).default(1),
     maxPeople: z.number().int().min(0).nullable().optional(),
+    requireTargetForOpening: z.boolean().default(false),
     active: z.boolean().default(true),
   })
   .refine((input) => input.maxPeople == null || input.maxPeople >= input.minPeople, {
     path: ["maxPeople"],
     message: "Maximum people must be greater than or equal to required people",
+  })
+  .refine((input) => !input.requireTargetForOpening || input.minPeople >= 1, {
+    path: ["minPeople"],
+    message: "Target people must be at least one when it controls public opening",
   });
 export type ShiftTemplateInput = z.infer<typeof ShiftTemplateInputSchema>;
 
@@ -233,6 +239,14 @@ const FeedbackSummarySchema = z.object({
 });
 export type FeedbackSummary = z.infer<typeof FeedbackSummarySchema>;
 
+export const PublicOpeningSchema = z.object({
+  kind: z.enum(["regular", "shift", "free"]),
+  title: z.string(),
+  startsAt: z.string(),
+  endsAt: z.string(),
+});
+export type PublicOpening = z.infer<typeof PublicOpeningSchema>;
+
 export const PublicStatusSchema = z.object({
   venue: VenueSchema,
   open: z.boolean(),
@@ -241,6 +255,7 @@ export const PublicStatusSchema = z.object({
   todayLabel: z.string(),
   nextOpeningLabel: z.string().nullable(),
   activeWindowLabel: z.string().nullable(),
+  upcomingOpenings: z.array(PublicOpeningSchema),
   openingRules: z.array(OpeningRuleSchema),
   sections: z.array(PublicSectionSchema),
 });

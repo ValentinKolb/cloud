@@ -11,6 +11,7 @@ import {
   prompts,
   type ResourceApiKey,
   ResourceApiKeys,
+  SegmentedControl,
   SettingsModal,
   TextInput,
   toast,
@@ -30,6 +31,7 @@ import type {
   VenueDashboard,
 } from "../../../contracts";
 import { weekdays } from "./constants";
+import { openVenuePublicDisplayDialog } from "./public-display";
 import { ClosedDayDialog, OpeningRuleDialog, ScheduleActionButton, ShiftTemplateDialog } from "./schedule";
 import { bannerTransform, canAdmin, readError, sortOpeningRules, sortOverrides, sortShiftTemplates } from "./utils";
 
@@ -89,6 +91,7 @@ export function SettingsDialog(props: {
   const [icon, setIcon] = createSignal(venue.icon || "ti ti-building-carousel");
   const [slug, setSlug] = createSignal(venue.slug);
   const [description, setDescription] = createSignal(venue.description ?? "");
+  const [openMode, setOpenMode] = createSignal<Venue["openMode"]>(venue.openMode);
   const [accentColor, setAccentColor] = createSignal(venue.accentColor);
   const [feedbackEnabled, setFeedbackEnabled] = createSignal(venue.feedbackEnabled);
   const [logo, setLogo] = createSignal(venue.logoBase64);
@@ -107,7 +110,7 @@ export function SettingsDialog(props: {
           slug: slug(),
           description: description().trim() || null,
           timezone: venue.timezone,
-          openMode: venue.openMode,
+          openMode: openMode(),
           signupMode: venue.signupMode,
           publicEnabled: venue.publicEnabled,
           feedbackEnabled: feedbackEnabled(),
@@ -427,6 +430,30 @@ export function SettingsDialog(props: {
           description="Regular hours, closed days, and staffing targets."
         >
           <div class="grid gap-5">
+            <Show when={canAdmin(venue)}>
+              <section>
+                <h4 class="text-sm font-semibold text-primary">Public opening logic</h4>
+                <p class="mt-1 text-xs leading-relaxed text-dimmed">
+                  Choose whether the public status follows regular hours, confirmed staffed openings, or either source.
+                </p>
+                <div class="mt-3">
+                  <SegmentedControl<Venue["openMode"]>
+                    value={openMode}
+                    onChange={setOpenMode}
+                    options={[
+                      { value: "regular", label: "Regular", icon: "ti ti-clock" },
+                      { value: "staffed", label: "Staffed", icon: "ti ti-users" },
+                      { value: "combined", label: "Both", icon: "ti ti-arrows-join" },
+                    ]}
+                  />
+                </div>
+                <div class="mt-3 flex justify-end">
+                  <button type="button" class="btn-primary btn-sm" disabled={save.loading()} onClick={() => save.mutate()}>
+                    Save opening logic
+                  </button>
+                </div>
+              </section>
+            </Show>
             <section>
               <div class="mb-3 flex items-center justify-between gap-2">
                 <h4 class="text-sm font-semibold text-primary">Regular hours</h4>
@@ -568,6 +595,9 @@ export function SettingsDialog(props: {
                             Target {shift.minPeople}
                             {shift.maxPeople ? ` · max ${shift.maxPeople}` : ""}
                           </p>
+                          <p class="mt-1 text-xs text-dimmed">
+                            {shift.requireTargetForOpening ? "Opens after target is staffed" : "Opens after the first signup"}
+                          </p>
                         </div>
                         <Show when={canAdmin(venue)}>
                           <div class="flex shrink-0 gap-1">
@@ -598,10 +628,10 @@ export function SettingsDialog(props: {
 
         <SettingsModal.Tab id="links" title="Links" icon="ti ti-link" description="Public page and personal calendar subscription.">
           <div class="flex flex-wrap gap-2">
-            <a class="btn-secondary btn-sm" href={`/app/venue/public/${venue.slug}`} target="_blank" rel="noreferrer">
-              <i class="ti ti-external-link" />
+            <button type="button" class="btn-secondary btn-sm" onClick={() => openVenuePublicDisplayDialog(venue.slug)}>
+              <i class="ti ti-device-tv" />
               Public page
-            </a>
+            </button>
             <a class="btn-secondary btn-sm" href={`/api/venue/calendar/${props.icalToken}.ics`}>
               <i class="ti ti-calendar-down" />
               iCal

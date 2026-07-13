@@ -300,7 +300,7 @@ const publicRoutes = new Hono<AuthContext>()
     v("json", FeedbackInputSchema),
     async (c) => {
       const venue = await venueService.venues.getBySlug(c.req.valid("param").slug);
-      if (!venue) return respond(c, fail(err.notFound("Venue")));
+      if (!venue || !venue.publicEnabled) return respond(c, fail(err.notFound("Venue")));
       return respond(c, () => venueService.feedback.create(venue.id, c.req.valid("json")), 201);
     },
   );

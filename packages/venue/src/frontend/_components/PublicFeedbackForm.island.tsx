@@ -1,6 +1,6 @@
 import { prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, For } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 
 const readError = async (res: Response, fallback: string): Promise<string> => {
@@ -8,7 +8,7 @@ const readError = async (res: Response, fallback: string): Promise<string> => {
   return body?.message ?? fallback;
 };
 
-function FeedbackDialog(props: { slug: string; accentColor: string; close: () => void }) {
+function FeedbackForm(props: { slug: string; accentColor: string; onSubmitted: () => void }) {
   const [rating, setRating] = createSignal(4);
   const [hoverRating, setHoverRating] = createSignal<number | null>(null);
   const [comment, setComment] = createSignal("");
@@ -25,7 +25,7 @@ function FeedbackDialog(props: { slug: string; accentColor: string; close: () =>
       setRating(4);
       setComment("");
       toast.success("Thank you for your feedback");
-      props.close();
+      props.onSubmitted();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -81,14 +81,39 @@ function FeedbackDialog(props: { slug: string; accentColor: string; close: () =>
   );
 }
 
-export default function PublicFeedbackForm(props: { slug: string; accentColor: string }) {
+export default function PublicFeedbackForm(props: { slug: string; accentColor: string; variant?: "button" | "page" }) {
+  const [submitted, setSubmitted] = createSignal(false);
   const openFeedback = () => {
-    void prompts.dialog<void>((close) => <FeedbackDialog slug={props.slug} accentColor={props.accentColor} close={close} />, {
+    void prompts.dialog<void>((close) => <FeedbackForm slug={props.slug} accentColor={props.accentColor} onSubmitted={close} />, {
       title: "Share feedback",
       icon: "ti ti-star",
       size: "small",
     });
   };
+
+  if (props.variant === "page") {
+    return (
+      <Show
+        when={!submitted()}
+        fallback={
+          <div class="flex flex-col items-center gap-4 py-10 text-center">
+            <span
+              class="flex size-14 items-center justify-center rounded-full text-2xl text-white"
+              style={{ "background-color": props.accentColor }}
+            >
+              <i class="ti ti-check" />
+            </span>
+            <div>
+              <h2 class="text-xl font-semibold text-zinc-950">Thank you</h2>
+              <p class="mt-1 text-sm text-zinc-600">Your anonymous feedback was submitted.</p>
+            </div>
+          </div>
+        }
+      >
+        <FeedbackForm slug={props.slug} accentColor={props.accentColor} onSubmitted={() => setSubmitted(true)} />
+      </Show>
+    );
+  }
 
   return (
     <button
