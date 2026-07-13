@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { PermissionEditor, prompts, SelectInput, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { NumberInput, PermissionEditor, Placeholder, prompts, Select, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
@@ -7,9 +7,11 @@ import { apiClient } from "../../api/client";
 import type { ConnectionOwner, Mailbox, ProviderBinding, ProviderConnection, SenderIdentity } from "../../contracts";
 import type { MailFolderView } from "../../service/messages";
 import { readApiError } from "./api-response";
+import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
 
 export default function MailboxSettings(props: {
   mailbox: Mailbox;
+  permission: "read" | "write" | "admin";
   currentUserId: string;
   currentUserEmail: string | null;
   accessEntries: AccessEntry[];
@@ -17,10 +19,22 @@ export default function MailboxSettings(props: {
   bindings: ProviderBinding[];
   folders: MailFolderView[];
   identities: SenderIdentity[];
+  onClose: () => void;
 }) {
   const [name, setName] = createSignal(props.mailbox.name);
   const [description, setDescription] = createSignal(props.mailbox.description ?? "");
   const [searchBackend, setSearchBackend] = createSignal<Mailbox["searchBackend"]>(props.mailbox.searchBackend);
+  const initialPreferences = readMailUserPreferences(props.mailbox.id);
+  const [composeFormat, setComposeFormat] = createSignal(initialPreferences.composeFormat);
+  const [undoSeconds, setUndoSeconds] = createSignal(initialPreferences.undoSeconds);
+
+  const savePreferences = mutations.create<void, void>({
+    mutation: async () => {
+      writeMailUserPreferences(props.mailbox.id, { composeFormat: composeFormat(), undoSeconds: undoSeconds() });
+    },
+    onSuccess: () => toast.success("Mail preferences saved"),
+    onError: (error) => prompts.error(error.message),
+  });
 
   const save = mutations.create<void, void>({
     mutation: async () => {
@@ -275,167 +289,244 @@ export default function MailboxSettings(props: {
   });
 
   return (
-    <SettingsModal
-      title="Mailbox settings"
-      subtitle={props.mailbox.name}
-      icon="ti ti-mail-cog"
-      onClose={() => navigateTo(`/app/mail/${props.mailbox.id}`)}
-      closeLabel="Close settings"
-    >
-      <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Mailbox identity and synchronization.">
+    <SettingsModal title="Mailbox settings" onClose={props.onClose} closeLabel="Close settings">
+      <SettingsModal.Tab
+        id="preferences"
+        title="Preferences"
+        icon="ti ti-adjustments"
+        description="Personal compose defaults on this device."
+      >
         <div class="flex flex-col gap-3">
-          <TextInput label="Name" description="The label collaborators see." value={name} onInput={setName} required />
-          <TextInput
-            label="Description"
-            description="Optional context for this mailbox."
-            value={description}
-            onInput={setDescription}
-            multiline
-            lines={3}
-          />
-          <SelectInput
-            label="Search ranking"
-            description="Auto uses pg_textsearch when it is available and falls back to PostgreSQL. Matching and permissions stay identical."
-            value={searchBackend}
-            onChange={(value) => setSearchBackend(value as Mailbox["searchBackend"])}
+          <Select
+            label="Compose format"
+            description="Used when you open a new message, reply, or forward."
+            value={composeFormat}
+            onChange={(value) => setComposeFormat(value === "plain" ? "plain" : "markdown")}
             options={[
-              { id: "auto", label: "Automatic", description: "Prefer pg_textsearch when available." },
-              { id: "postgres", label: "PostgreSQL", description: "Always use native PostgreSQL ranking." },
-              { id: "pg_textsearch", label: "pg_textsearch", description: "Prefer BM25 and fall back when unavailable." },
+              { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
+              { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
             ]}
-            icon="ti ti-search"
           />
-          <div class="info-block-info text-xs">
-            Connection model: {props.mailbox.connectionPolicy === "shared_connection" ? "Shared connection" : "Personal provider accounts"}
-          </div>
-          <div class="flex justify-between gap-2">
-            <button type="button" class="btn-danger btn-sm" onClick={() => deleteMailbox.mutate()} disabled={deleteMailbox.loading()}>
-              <i class="ti ti-trash" /> Delete
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.loading()}>
-              <i class="ti ti-device-floppy" /> Save
-            </button>
-          </div>
+          <NumberInput
+            label="Undo send window"
+            description="Delay delivery so you have time to cancel a queued message."
+            value={undoSeconds}
+            onInput={(value) => setUndoSeconds(value ?? 0)}
+            min={0}
+            max={60}
+            allowNegative={false}
+            suffix="seconds"
+          />
+          <button
+            type="button"
+            class="btn-primary btn-sm self-end"
+            disabled={savePreferences.loading()}
+            onClick={() => savePreferences.mutate()}
+          >
+            <i class={`ti ${savePreferences.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+            Save preferences
+          </button>
         </div>
       </SettingsModal.Tab>
 
-      <SettingsModal.Tab
-        id="connections"
-        title="Connections"
-        icon="ti ti-plug-connected"
-        description="Encrypted, write-only credentials and verified remote folders."
-      >
-        <div class="flex flex-col gap-2">
-          <button type="button" class="btn-primary btn-sm self-start" onClick={() => addProvider.mutate()} disabled={addProvider.loading()}>
-            <i class="ti ti-plus" /> Connect provider
-          </button>
-          <Show when={props.connections.length > 0} fallback={<p class="text-xs text-dimmed">No provider connection is visible to you.</p>}>
-            <For each={props.connections}>
-              {(connection) => (
-                <div class="paper flex items-center gap-3 p-3">
-                  <i class="ti ti-server text-lg text-dimmed" />
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate text-sm font-medium">{connection.name}</span>
-                    <span class="block truncate text-xs text-dimmed">
-                      {connection.email} · {connection.imap.host}
+      {props.permission === "admin" && (
+        <>
+          <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Mailbox identity and synchronization.">
+            <div class="flex flex-col gap-3">
+              <TextInput label="Name" description="The label collaborators see." value={name} onInput={setName} required />
+              <TextInput
+                label="Description"
+                description="Optional context for this mailbox."
+                value={description}
+                onInput={setDescription}
+                multiline
+                lines={3}
+              />
+              <Select
+                label="Search ranking"
+                description="Auto uses pg_textsearch when it is available and falls back to PostgreSQL. Matching and permissions stay identical."
+                value={searchBackend}
+                onChange={(value) => setSearchBackend(value as Mailbox["searchBackend"])}
+                options={[
+                  { id: "auto", label: "Automatic", description: "Prefer pg_textsearch when available." },
+                  { id: "postgres", label: "PostgreSQL", description: "Always use native PostgreSQL ranking." },
+                  { id: "pg_textsearch", label: "pg_textsearch", description: "Prefer BM25 and fall back when unavailable." },
+                ]}
+                icon="ti ti-search"
+              />
+              <div class="info-block-info text-xs">
+                Connection model:{" "}
+                {props.mailbox.connectionPolicy === "shared_connection" ? "Shared connection" : "Personal provider accounts"}
+              </div>
+              <div class="flex justify-end">
+                <button type="button" class="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.loading()}>
+                  <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" /> Save mailbox
+                </button>
+              </div>
+            </div>
+          </SettingsModal.Tab>
+
+          <SettingsModal.Tab
+            id="connections"
+            title="Connections"
+            icon="ti ti-plug-connected"
+            description="Encrypted, write-only credentials and verified remote folders."
+          >
+            <div class="flex flex-col gap-2">
+              <button
+                type="button"
+                class="btn-primary btn-sm self-start"
+                onClick={() => addProvider.mutate()}
+                disabled={addProvider.loading()}
+              >
+                <i class="ti ti-plus" /> Connect provider
+              </button>
+              <Show
+                when={props.connections.length > 0}
+                fallback={
+                  <Placeholder
+                    title="No provider connection"
+                    description="Connect an IMAP and SMTP provider to synchronize mail."
+                    icon="ti ti-plug-off"
+                  />
+                }
+              >
+                <For each={props.connections}>
+                  {(connection) => (
+                    <div class="paper flex items-center gap-3 p-3">
+                      <i class="ti ti-server text-lg text-dimmed" />
+                      <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm font-medium">{connection.name}</span>
+                        <span class="block truncate text-xs text-dimmed">
+                          {connection.email} · {connection.imap.host}
+                        </span>
+                      </span>
+                      <span class="badge">{connection.status}</span>
+                    </div>
+                  )}
+                </For>
+              </Show>
+              <For each={props.bindings}>
+                {(binding) => (
+                  <div class="paper flex items-center gap-3 p-3">
+                    <i class="ti ti-folders text-lg text-dimmed" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-sm font-medium">{binding.authenticatedPrincipal || "Remote mailbox"}</span>
+                      <span class="block text-xs text-dimmed">{binding.state}</span>
                     </span>
-                  </span>
-                  <span class="badge">{connection.status}</span>
-                </div>
-              )}
-            </For>
-          </Show>
-          <For each={props.bindings}>
-            {(binding) => (
-              <div class="paper flex items-center gap-3 p-3">
-                <i class="ti ti-folders text-lg text-dimmed" />
-                <span class="min-w-0 flex-1">
-                  <span class="block text-sm font-medium">{binding.authenticatedPrincipal || "Remote mailbox"}</span>
-                  <span class="block text-xs text-dimmed">{binding.state}</span>
-                </span>
-                {binding.state === "pending" && (
-                  <button
-                    type="button"
-                    class="btn-warning btn-sm"
-                    onClick={() => confirmBinding.mutate(binding.id)}
-                    disabled={confirmBinding.loading()}
-                  >
-                    Review
-                  </button>
+                    {binding.state === "pending" && (
+                      <button
+                        type="button"
+                        class="btn-warning btn-sm"
+                        onClick={() => confirmBinding.mutate(binding.id)}
+                        disabled={confirmBinding.loading()}
+                      >
+                        Review
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-          </For>
-        </div>
-      </SettingsModal.Tab>
+              </For>
+            </div>
+          </SettingsModal.Tab>
 
-      <SettingsModal.Tab
-        id="senders"
-        title="Senders"
-        icon="ti ti-at"
-        description="From addresses verified independently per provider binding."
-      >
-        <div class="flex flex-col gap-2">
-          <button type="button" class="btn-primary btn-sm self-start" onClick={() => addIdentity.mutate()} disabled={addIdentity.loading()}>
-            <i class="ti ti-plus" /> Add sender
-          </button>
-          <For each={props.identities}>
-            {(identity) => (
-              <div class="paper flex items-center gap-3 p-3">
-                <i class="ti ti-user-circle text-lg text-dimmed" />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium">{identity.displayName || identity.fromAddress}</span>
-                  <span class="block truncate text-xs text-dimmed">{identity.fromAddress}</span>
-                </span>
-                <span class="badge">{identity.status}</span>
-                {identity.status !== "verified" && (
-                  <button
-                    type="button"
-                    class="btn-secondary btn-sm"
-                    onClick={() => verifyIdentity.mutate(identity)}
-                    disabled={verifyIdentity.loading()}
-                  >
-                    Verify
-                  </button>
+          <SettingsModal.Tab
+            id="senders"
+            title="Senders"
+            icon="ti ti-at"
+            description="From addresses verified independently per provider binding."
+          >
+            <div class="flex flex-col gap-2">
+              <button
+                type="button"
+                class="btn-primary btn-sm self-start"
+                onClick={() => addIdentity.mutate()}
+                disabled={addIdentity.loading()}
+              >
+                <i class="ti ti-plus" /> Add sender
+              </button>
+              <For each={props.identities}>
+                {(identity) => (
+                  <div class="paper flex items-center gap-3 p-3">
+                    <i class="ti ti-user-circle text-lg text-dimmed" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-medium">{identity.displayName || identity.fromAddress}</span>
+                      <span class="block truncate text-xs text-dimmed">{identity.fromAddress}</span>
+                    </span>
+                    <span class="badge">{identity.status}</span>
+                    {identity.status !== "verified" && (
+                      <button
+                        type="button"
+                        class="btn-secondary btn-sm"
+                        onClick={() => verifyIdentity.mutate(identity)}
+                        disabled={verifyIdentity.loading()}
+                      >
+                        Verify
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-          </For>
-        </div>
-      </SettingsModal.Tab>
+              </For>
+            </div>
+          </SettingsModal.Tab>
 
-      <SettingsModal.Tab
-        id="access"
-        title="Access"
-        icon="ti ti-shield"
-        description="Read can view and comment; write can operate mail; admin configures the mailbox."
-      >
-        <PermissionEditor
-          initialEntries={props.accessEntries.filter((entry) => entry.principal.type !== "service_account")}
-          canEdit
-          grantAccess={async (principal, permission) => {
-            const response = await apiClient.mailboxes[":mailboxId"].access.$post({
-              param: { mailboxId: props.mailbox.id },
-              json: { principal, permission },
-            });
-            if (!response.ok) throw new Error(await readApiError(response, "Failed to grant access"));
-            return await response.json();
-          }}
-          updateAccess={async (accessId, permission) => {
-            const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$patch({
-              param: { mailboxId: props.mailbox.id, accessId },
-              json: { permission },
-            });
-            if (!response.ok) throw new Error(await readApiError(response, "Failed to update access"));
-          }}
-          revokeAccess={async (accessId) => {
-            const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$delete({
-              param: { mailboxId: props.mailbox.id, accessId },
-            });
-            if (!response.ok) throw new Error(await readApiError(response, "Failed to revoke access"));
-          }}
-        />
-      </SettingsModal.Tab>
+          <SettingsModal.Tab
+            id="access"
+            title="Access"
+            icon="ti ti-shield"
+            description="Read can view and comment; write can operate mail; admin configures the mailbox."
+          >
+            <PermissionEditor
+              initialEntries={props.accessEntries.filter((entry) => entry.principal.type !== "service_account")}
+              canEdit
+              grantAccess={async (principal, permission) => {
+                const response = await apiClient.mailboxes[":mailboxId"].access.$post({
+                  param: { mailboxId: props.mailbox.id },
+                  json: { principal, permission },
+                });
+                if (!response.ok) throw new Error(await readApiError(response, "Failed to grant access"));
+                return await response.json();
+              }}
+              updateAccess={async (accessId, permission) => {
+                const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$patch({
+                  param: { mailboxId: props.mailbox.id, accessId },
+                  json: { permission },
+                });
+                if (!response.ok) throw new Error(await readApiError(response, "Failed to update access"));
+              }}
+              revokeAccess={async (accessId) => {
+                const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$delete({
+                  param: { mailboxId: props.mailbox.id, accessId },
+                });
+                if (!response.ok) throw new Error(await readApiError(response, "Failed to revoke access"));
+              }}
+            />
+          </SettingsModal.Tab>
+
+          <SettingsModal.Tab
+            id="danger"
+            title="Danger zone"
+            icon="ti ti-alert-triangle"
+            description="Permanently remove the Cloud mirror and collaboration data."
+            tone="danger"
+          >
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-sm font-medium text-primary">Delete mailbox</p>
+                <p class="mt-1 text-xs text-dimmed">Messages remain on the provider, but Cloud data and access are removed.</p>
+              </div>
+              <button
+                type="button"
+                class="btn-danger btn-sm shrink-0"
+                onClick={() => deleteMailbox.mutate()}
+                disabled={deleteMailbox.loading()}
+              >
+                <i class={`ti ${deleteMailbox.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" /> Delete mailbox
+              </button>
+            </div>
+          </SettingsModal.Tab>
+        </>
+      )}
     </SettingsModal>
   );
 }

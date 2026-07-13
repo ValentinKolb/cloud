@@ -1,16 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
-import {
-  bindings,
-  type MailRequestContext,
-  mailboxAccess,
-  mailboxes,
-  messages,
-  providerConnections,
-  senderIdentities,
-} from "../../../service";
-import MailboxSettings from "../../_components/MailboxSettings.island";
+import { type MailRequestContext, mailboxAccess, mailboxes } from "../../../service";
+import MailboxSettingsButton from "../../_components/MailboxSettingsButton.island";
 
 export default ssr<AuthContext>(async (c) => {
   const mailboxId = c.req.param("mailboxId") ?? "";
@@ -19,15 +11,11 @@ export default ssr<AuthContext>(async (c) => {
   const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
   if (!user) return c.redirect(`/app/mail/${mailboxId}`);
   const context: MailRequestContext = { actor, accessSubject: c.get("accessSubject"), requestId: c.req.header("x-request-id") ?? null };
-  const [mailbox, access, connections, providerBindings, folders, identities] = await Promise.all([
+  const [mailbox, permission] = await Promise.all([
     mailboxes.getMailbox(context, mailboxId),
-    mailboxAccess.listMailboxAccess(context, mailboxId),
-    providerConnections.listProviderConnections(context, mailboxId),
-    bindings.listProviderBindings(context, mailboxId),
-    messages.listFolders(context, mailboxId),
-    senderIdentities.listSenderIdentities(context, mailboxId),
+    mailboxAccess.getMailboxPermission(context, mailboxId),
   ]);
-  if (!mailbox.ok || !access.ok) return c.redirect(`/app/mail/${mailboxId}`);
+  if (!mailbox.ok || permission === "none") return c.redirect(`/app/mail/${mailboxId}`);
   return () => (
     <Layout
       c={c}
@@ -39,15 +27,14 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Settings" },
       ]}
     >
-      <MailboxSettings
-        mailbox={mailbox.data}
+      <MailboxSettingsButton
+        mailboxId={mailboxId}
         currentUserId={user.id}
         currentUserEmail={user.mail}
-        accessEntries={access.data}
-        connections={connections.ok ? connections.data : []}
-        bindings={providerBindings.ok ? providerBindings.data : []}
-        folders={folders.ok ? folders.data : []}
-        identities={identities.ok ? identities.data : []}
+        permission={permission}
+        autoOpen
+        hideButton
+        returnHref={`/app/mail/${mailboxId}`}
       />
     </Layout>
   );

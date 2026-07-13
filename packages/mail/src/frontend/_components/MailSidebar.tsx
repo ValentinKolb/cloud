@@ -1,18 +1,47 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import type { SenderIdentity } from "../../contracts";
-import type { MailFolderView } from "../../service/messages";
+import type { ConversationView, SenderIdentity } from "../../contracts";
+import type { ConversationViewCounts, MailFolderView } from "../../service/messages";
 import ComposeMail from "./ComposeMail.island";
+import MailboxSettingsButton from "./MailboxSettingsButton.island";
 import SyncMailboxButton from "./SyncMailboxButton.island";
+
+const VIEW_ITEMS: Array<{ id: ConversationView; label: string; icon: string }> = [
+  { id: "inbox", label: "Inbox", icon: "ti ti-inbox" },
+  { id: "mine", label: "Assigned to me", icon: "ti ti-user-check" },
+  { id: "unassigned", label: "Unassigned", icon: "ti ti-user-question" },
+  { id: "waiting", label: "Waiting", icon: "ti ti-clock-pause" },
+  { id: "snoozed", label: "Snoozed", icon: "ti ti-clock" },
+  { id: "done", label: "Done", icon: "ti ti-circle-check" },
+  { id: "recently_active", label: "Recent activity", icon: "ti ti-activity" },
+];
 
 export default function MailSidebar(props: {
   mailboxId: string;
   mailboxName: string;
   folders: MailFolderView[];
   activeFolderId: string | null;
+  activeView: ConversationView | null;
+  viewCounts: ConversationViewCounts;
   identities: SenderIdentity[];
+  currentUserId: string;
+  currentUserEmail: string | null;
+  permission: "read" | "write" | "admin";
   canWrite: boolean;
   canAdmin: boolean;
 }) {
+  const viewItems = (suffix: string) =>
+    VIEW_ITEMS.map((view) => (
+      <AppWorkspace.SidebarItem
+        href={`/app/mail/${props.mailboxId}?view=${view.id}`}
+        navigation="document"
+        icon={view.icon}
+        active={props.activeView === view.id}
+        meta={<span class="tabular-nums">{props.viewCounts[view.id]}</span>}
+        viewTransitionName={`mail-view-${view.id}-${suffix}`}
+      >
+        {view.label}
+      </AppWorkspace.SidebarItem>
+    ));
   const folderItem = (folder: MailFolderView, suffix: string) => (
     <AppWorkspace.SidebarItem
       href={`/app/mail/${props.mailboxId}?folder=${folder.id}`}
@@ -43,37 +72,55 @@ export default function MailSidebar(props: {
           {props.canWrite && (
             <ComposeMail mailboxId={props.mailboxId} identities={props.identities} class="sidebar-item-mobile btn-primary btn-sm" />
           )}
-          <SyncMailboxButton mailboxId={props.mailboxId} class="sidebar-item-mobile" />
+          <MailboxSettingsButton
+            mailboxId={props.mailboxId}
+            currentUserId={props.currentUserId}
+            currentUserEmail={props.currentUserEmail}
+            permission={props.permission}
+            class="sidebar-item-mobile"
+          />
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey={`mail-sidebar-mobile-${props.mailboxId}`}>
-          <AppWorkspace.SidebarSection>{props.folders.map((folder) => folderItem(folder, "mobile"))}</AppWorkspace.SidebarSection>
-        </AppWorkspace.SidebarMobileBody>
-      </AppWorkspace.SidebarMobile>
-      <AppWorkspace.SidebarDesktop>
-        <div class="flex flex-col gap-2">
-          {props.canWrite && <ComposeMail mailboxId={props.mailboxId} identities={props.identities} class="btn-primary btn-sm w-full" />}
-          <div class="grid grid-cols-2 gap-2">
-            <SyncMailboxButton mailboxId={props.mailboxId} class="btn-secondary btn-sm" />
-            {props.canAdmin && (
-              <a href={`/app/mail/${props.mailboxId}/settings`} class="btn-secondary btn-sm">
-                <i class="ti ti-settings" /> Settings
-              </a>
-            )}
-          </div>
-        </div>
-        <AppWorkspace.SidebarBody scrollPreserveKey={`mail-sidebar-${props.mailboxId}`}>
+          <AppWorkspace.SidebarSection title="Work">{viewItems("mobile")}</AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarSection title="Folders">
             <AppWorkspace.SidebarItem
               href={`/app/mail/${props.mailboxId}`}
               navigation="document"
-              icon="ti ti-messages"
-              active={!props.activeFolderId}
+              icon="ti ti-mail"
+              active={!props.activeFolderId && !props.activeView}
+            >
+              All mail
+            </AppWorkspace.SidebarItem>
+            {props.folders.map((folder) => folderItem(folder, "mobile"))}
+          </AppWorkspace.SidebarSection>
+        </AppWorkspace.SidebarMobileBody>
+      </AppWorkspace.SidebarMobile>
+      <AppWorkspace.SidebarDesktop>
+        {props.canWrite && <ComposeMail mailboxId={props.mailboxId} identities={props.identities} class="btn-primary btn-sm mx-2 mt-2" />}
+        <AppWorkspace.SidebarBody scrollPreserveKey={`mail-sidebar-${props.mailboxId}`}>
+          <AppWorkspace.SidebarSection title="Work">{viewItems("desktop")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Folders">
+            <AppWorkspace.SidebarItem
+              href={`/app/mail/${props.mailboxId}`}
+              navigation="document"
+              icon="ti ti-mail"
+              active={!props.activeFolderId && !props.activeView}
             >
               All mail
             </AppWorkspace.SidebarItem>
             {props.folders.map((folder) => folderItem(folder, "desktop"))}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarBody>
+        <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
+          {props.canAdmin && <SyncMailboxButton mailboxId={props.mailboxId} class="sidebar-item w-full" />}
+          <MailboxSettingsButton
+            mailboxId={props.mailboxId}
+            currentUserId={props.currentUserId}
+            currentUserEmail={props.currentUserEmail}
+            permission={props.permission}
+            class="sidebar-item w-full"
+          />
+        </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
   );

@@ -71,7 +71,12 @@ export default function MailOverview(props: { mailboxes: MailboxWithPermission[]
   };
 
   return (
-    <AppOverview title="Mail" subtitle="Shared mailboxes with durable search, synchronization, and delivery." icon="ti ti-mail">
+    <AppOverview
+      class="cloud-ui-soft"
+      title="Mail"
+      subtitle="Shared mailboxes with durable search, synchronization, and delivery."
+      icon="ti ti-mail"
+    >
       <AppOverview.Main
         title="Your mailboxes"
         description={`${props.mailboxes.length} mailbox${props.mailboxes.length === 1 ? "" : "es"} available`}
@@ -91,34 +96,52 @@ export default function MailOverview(props: { mailboxes: MailboxWithPermission[]
         }
       >
         <Show
-          when={filtered().length > 0}
+          when={props.mailboxes.length > 0}
           fallback={
             <AppOverview.EmptyState
-              title={props.mailboxes.length === 0 ? "No mailboxes yet" : "No matching mailboxes"}
+              title="No mailboxes yet"
+              description="Create a mailbox, then connect its IMAP and SMTP provider."
               icon="ti ti-mail-off"
-            />
+              class="min-h-72"
+            >
+              <button type="button" class="btn-secondary btn-sm" onClick={() => createMailbox.mutate()} disabled={createMailbox.loading()}>
+                <i class="ti ti-mail-plus" aria-hidden="true" /> Create mailbox
+              </button>
+            </AppOverview.EmptyState>
           }
         >
-          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <For each={filtered()}>
-              {(mailbox) => (
-                <a
-                  href={`/app/mail/${mailbox.id}`}
-                  class="paper flex items-center gap-3 p-4 no-underline transition-all hover:paper-highlighted"
-                >
-                  <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-teal-600 text-white">
-                    <i class="ti ti-mail text-lg" />
-                  </span>
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate text-sm font-semibold text-primary">{mailbox.name}</span>
-                    <span class="block truncate text-xs text-dimmed">{mailbox.description || mailbox.health.replaceAll("_", " ")}</span>
-                  </span>
-                  <span class={`badge ${mailbox.health === "active" ? "badge-success" : ""}`}>{mailbox.permission}</span>
-                  <i class="ti ti-chevron-right text-dimmed" />
-                </a>
-              )}
-            </For>
-          </div>
+          <Show
+            when={filtered().length > 0}
+            fallback={
+              <AppOverview.EmptyState title="No matching mailboxes" description="Try a different search term." icon="ti ti-search">
+                <button type="button" class="btn-secondary btn-sm" onClick={() => updateQuery("")}>
+                  <i class="ti ti-x" aria-hidden="true" /> Clear search
+                </button>
+              </AppOverview.EmptyState>
+            }
+          >
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <For each={filtered()}>
+                {(mailbox) => (
+                  <a
+                    href={`/app/mail/${mailbox.id}`}
+                    class="paper group flex items-center gap-3 p-4 no-underline transition-all hover:paper-highlighted"
+                    style={`view-transition-name: mail-mailbox-${mailbox.id}`}
+                  >
+                    <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                      <i class="ti ti-mail text-lg text-[var(--app-accent)]" aria-hidden="true" />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-semibold text-primary">{mailbox.name}</span>
+                      <span class="block truncate text-xs text-dimmed">{mailbox.description || mailbox.health.replaceAll("_", " ")}</span>
+                    </span>
+                    <span class={`badge ${mailbox.health === "active" ? "badge-success" : ""}`}>{mailbox.permission}</span>
+                    <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                  </a>
+                )}
+              </For>
+            </div>
+          </Show>
         </Show>
       </AppOverview.Main>
 
@@ -130,7 +153,7 @@ export default function MailOverview(props: { mailboxes: MailboxWithPermission[]
           disabled={createMailbox.loading()}
         >
           <span class="thumbnail flex h-9 w-9 items-center justify-center">
-            <i class="ti ti-mail-plus" />
+            <i class={`ti ${createMailbox.loading() ? "ti-loader-2 animate-spin" : "ti-mail-plus"}`} aria-hidden="true" />
           </span>
           <span class="min-w-0 flex-1">
             <span class="block text-sm font-semibold text-primary">New mailbox</span>

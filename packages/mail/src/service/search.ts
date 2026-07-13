@@ -18,6 +18,7 @@ export type MessageSearchHit = {
   from: Array<{ name: string | null; address: string }>;
   to: Array<{ name: string | null; address: string }>;
   flags: string[];
+  hasAttachments: boolean;
   snippet: string | null;
   rank: number;
 };
@@ -38,6 +39,7 @@ type DbSearchHit = {
   from_addresses: unknown[] | string;
   to_addresses: unknown[] | string;
   flags: string[] | null;
+  has_attachments: boolean;
   snippet: string | null;
   rank: number | string;
 };
@@ -228,6 +230,7 @@ const mapHit = (row: DbSearchHit): MessageSearchHit => ({
   from: parseAddressRows(row.from_addresses),
   to: parseAddressRows(row.to_addresses),
   flags: row.flags ?? [],
+  hasAttachments: row.has_attachments,
   snippet: row.snippet,
   rank: Number(row.rank),
 });
@@ -301,6 +304,7 @@ const runSearch = async (params: {
         COALESCE(from_rows.addresses, '[]'::jsonb) AS from_addresses,
         COALESCE(to_rows.addresses, '[]'::jsonb) AS to_addresses,
         COALESCE(placement.flags, ARRAY[]::text[]) AS flags,
+        EXISTS (SELECT 1 FROM mail.attachments attachment WHERE attachment.message_id = mc.id) AS has_attachments,
         ${snippet} AS snippet,
         ${rank} AS rank
       FROM mail.message_contents mc

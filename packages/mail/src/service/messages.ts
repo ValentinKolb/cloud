@@ -141,6 +141,7 @@ export type ConversationSummary = {
   revision: number;
   updatedAt: string;
   unread: boolean;
+  hasAttachments: boolean;
   messageCount: number;
   preview: string | null;
 };
@@ -158,6 +159,7 @@ type DbConversation = {
   updated_at: Date | string;
   sort_date: Date | string;
   unread: boolean;
+  has_attachments: boolean;
   message_count: number;
   preview: string | null;
 };
@@ -199,6 +201,12 @@ export const listConversations = async (params: {
           AND unread_mp.deleted_at IS NULL
           AND NOT ('\\Seen' = ANY(unread_mp.flags))
       ) AS unread,
+      EXISTS (
+        SELECT 1
+        FROM mail.conversation_messages attachment_cm
+        JOIN mail.attachments attachment ON attachment.message_id = attachment_cm.message_id
+        WHERE attachment_cm.conversation_id = c.id
+      ) AS has_attachments,
       (
         SELECT COUNT(*)::int FROM mail.conversation_messages count_cm WHERE count_cm.conversation_id = c.id
       ) AS message_count,
@@ -275,6 +283,7 @@ export const listConversations = async (params: {
     revision: Number(row.revision),
     updatedAt: toIso(row.updated_at),
     unread: row.unread,
+    hasAttachments: row.has_attachments,
     messageCount: row.message_count,
     preview: row.preview || null,
   }));
