@@ -12,7 +12,8 @@ import {
 import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
 import { telemetryValueKind, validateDimensions, validateEventAttributes, validateEventPayload } from "../telemetry-contract";
 import { requireBaseActive } from "./access-control";
-import { type PulseSqlClient, prepareIngestBatch, writePreparedIngestBatch } from "./ingest-bulk";
+import { type PulseSqlClient, prepareIngestBatch, writePreparedIngestBatchInTransaction } from "./ingest-bulk";
+import { enforceMetricSeriesBudget, MetricSeriesLimitError } from "./metric-cardinality";
 import { PULSE_INGEST_SCOPE, resolveIngestSourceForServiceAccount } from "./source-management";
 import { jsonbObject, normalizeDimensions } from "./telemetry-values";
 
@@ -164,6 +165,7 @@ const resolveMetricSeries = async (params: {
 
   const hash = dimensionsHash(params.dimensions);
   const seriesKey = metricSeriesKey({ sourceId: params.sourceId, entityId: params.metric.entityId, dimensionsHash: hash });
+  await enforceMetricSeriesBudget(params.baseId, [{ metric: params.metric.name, seriesKey }], db);
   const [series] = await db<{ id: string }[]>`
     INSERT INTO pulse.metric_series (
       base_id,
@@ -317,8 +319,14 @@ const recordMetricInClient = async (params: {
   return ok();
 };
 
-export const recordMetric = async (params: { baseId: string; sourceId?: string | null; metric: PulseMetric }): Promise<Result<void>> =>
-  recordMetricInClient(params);
+export const recordMetric = async (params: { baseId: string; sourceId?: string | null; metric: PulseMetric }): Promise<Result<void>> => {
+  try {
+    return await sql.begin((tx) => recordMetricInClient({ ...params, db: tx }));
+  } catch (error) {
+    if (error instanceof MetricSeriesLimitError) return fail(err.badInput(error.message));
+    throw error;
+  }
+};
 
 const insertEventRow = async (params: {
   baseId: string;
@@ -551,7 +559,7 @@ const ingestBatchInClient = async (params: {
   db: PulseSqlClient;
 }): Promise<IngestCounts> => {
   const prepared = prepareIngestBatch(params.batch, params.sourceId);
-  await writePreparedIngestBatch({ baseId: params.baseId, sourceId: params.sourceId, batch: prepared, db: params.db });
+  await writePreparedIngestBatchInTransaction({ baseId: params.baseId, sourceId: params.sourceId, batch: prepared, db: params.db });
   await touchSourceLastSeen(params.sourceId, params.db);
   return {
     metrics: prepared.metrics.length,
@@ -582,6 +590,7 @@ export const ingestBatch = async (params: {
         ok(await ingestBatchInClient({ baseId: params.baseId, sourceId: params.sourceId, batch: params.batch, db: tx })),
     );
   } catch (error) {
+    if (error instanceof MetricSeriesLimitError) return fail(err.badInput(error.message));
     if (error instanceof IngestTransactionFailure) return fail(error.serviceError);
     if (isServiceError(error)) return fail(error);
     log.error("Pulse batch ingest failed", {
@@ -668,6 +677,7 @@ export const ingestByApiKey = async (params: {
       return ok(counts);
     });
   } catch (error) {
+    if (error instanceof MetricSeriesLimitError) return fail(err.badInput(error.message));
     if (error instanceof IngestTransactionFailure) return fail(error.serviceError);
     if (isServiceError(error)) return fail(error);
     log.error("Pulse API-key ingest failed", {

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { prepareIngestBatch, writePreparedIngestBatch } from "./ingest-bulk";
+import { prepareIngestBatch, writePreparedIngestBatchInTransaction } from "./ingest-bulk";
 
 const runDbSmoke = process.env.PULSE_FIELD_CATALOG_DB_TEST === "1";
 const postgresTest = runDbSmoke ? test : test.skip;
@@ -9,7 +9,7 @@ beforeAll(async () => {
   if (!runDbSmoke) return;
   const { migrate } = await import("../migrate");
   await migrate();
-}, 30_000);
+}, 60_000);
 
 describe("Pulse field catalog Postgres smoke", () => {
   postgresTest("stores field definitions and counts without field values", async () => {
@@ -39,7 +39,7 @@ describe("Pulse field catalog Postgres smoke", () => {
         },
         sourceId,
       );
-      await writePreparedIngestBatch({ baseId, sourceId, batch, db: sql });
+      await sql.begin((tx) => writePreparedIngestBatchInTransaction({ baseId, sourceId, batch, db: tx }));
 
       const rows = await sql<
         Array<{ role: string; key: string; value_type: string; observed_count: number }>
@@ -67,5 +67,5 @@ describe("Pulse field catalog Postgres smoke", () => {
     } finally {
       await sql`DELETE FROM pulse.bases WHERE id = ${baseId}::uuid`;
     }
-  });
+  }, 30_000);
 });

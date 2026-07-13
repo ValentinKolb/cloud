@@ -3,6 +3,7 @@ import type { sql } from "bun";
 import type { PulseIngestBatch } from "../contracts";
 import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
 import { telemetryValueKind, type PulseTelemetryValueKind } from "../telemetry-contract";
+import { enforceMetricSeriesBudget } from "./metric-cardinality";
 import { normalizeDimensions } from "./telemetry-values";
 
 export type PulseSqlClient = typeof sql;
@@ -232,6 +233,11 @@ const writeMetrics = async (baseId: string, sourceId: string | null | undefined,
     SELECT ${baseId}::uuid, name, unit, "metricType"::pulse.metric_type FROM definitions
     ON CONFLICT (base_id, name) DO UPDATE SET unit = COALESCE(EXCLUDED.unit, pulse.metric_defs.unit)
   `;
+  await enforceMetricSeriesBudget(
+    baseId,
+    rows.map((row) => ({ metric: row.name, seriesKey: row.seriesKey })),
+    db,
+  );
   await db`
     WITH input AS (
       SELECT * FROM jsonb_to_recordset((${input}::jsonb #>> '{}')::jsonb) AS row(
@@ -401,7 +407,7 @@ const writeFieldMetadata = async (
   `;
 };
 
-export const writePreparedIngestBatch = async (params: {
+export const writePreparedIngestBatchInTransaction = async (params: {
   baseId: string;
   sourceId?: string | null;
   batch: PreparedIngestBatch;
