@@ -2,7 +2,7 @@ import { logger, trace } from "@valentinkolb/cloud/services";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, mutex, scheduler } from "@valentinkolb/sync";
 import type { Workflow, WorkflowRun, WorkflowTriggerKind } from "../contracts";
 import * as bases from "./bases";
 import { latestMetadataEventCursor, liveMetadataEvents } from "./metadata-events";
@@ -21,6 +21,7 @@ import {
   prepareWorkflowTriggerRun,
   workflowOwnerPrincipal,
 } from "./workflow-runtime";
+import { latestWorkflowRuntimeEventCursor, liveWorkflowRuntimeEvents } from "./workflow-runtime-events";
 import { createWorkflowTriggerReaderRuntime } from "./workflow-trigger-readers";
 import { createWorkflowScheduleRuntime } from "./workflow-trigger-schedules";
 import type { RecoverableQueuedWorkflowRun } from "./workflows";
@@ -28,10 +29,17 @@ import * as workflowStore from "./workflows";
 
 const defaultLog = logger("grids:workflows");
 const defaultWorkflowScheduler = scheduler({ id: "grids:workflows" });
+const defaultWorkflowSyncMutex = mutex({
+  id: "grids:workflow-runtime-sync",
+  defaultTtl: 30_000,
+  retryCount: 20,
+  retryDelay: 50,
+});
 const WORKFLOW_JOB_LEASE_MS = 30 * 60 * 1000;
 const WORKFLOW_JOB_MAX_RETRIES = 3;
-const RUNTIME_RECONCILE_INTERVAL_MS = 15_000;
+const RUNTIME_RECONCILE_INTERVAL_MS = 60_000;
 const RUNTIME_RECONCILE_DEBOUNCE_MS = 250;
+const RUNTIME_EVENT_RETRY_DELAY_MS = 1_000;
 
 type DirectWorkflowTriggerKind = Extract<WorkflowTriggerKind, "form" | "api" | "dashboardButton">;
 
@@ -89,6 +97,7 @@ const defaultWorkflowJob = job<WorkflowTriggerJobInput, { runId: string | null; 
 type WorkflowTriggerRuntimeDeps = {
   log?: typeof defaultLog;
   workflowScheduler?: typeof defaultWorkflowScheduler;
+  workflowSyncMutex?: typeof defaultWorkflowSyncMutex;
   workflowJob?: typeof defaultWorkflowJob;
   loadWorkflowPrincipal?: typeof workflowOwnerPrincipal;
   workflows?: Pick<
@@ -116,12 +125,16 @@ type WorkflowTriggerRuntimeDeps = {
   reclaimRecordEventDeliveries?: typeof reclaimRecordEventDeliveries;
   latestMetadataEventCursor?: typeof latestMetadataEventCursor;
   liveMetadataEvents?: typeof liveMetadataEvents;
+  latestWorkflowRuntimeEventCursor?: typeof latestWorkflowRuntimeEventCursor;
+  liveWorkflowRuntimeEvents?: typeof liveWorkflowRuntimeEvents;
+  runtimeEventRetryDelayMs?: number;
   loadWorkflowCatalogSnapshot?: (baseId: string) => Promise<import("./workflows").WorkflowCatalogSnapshot>;
 };
 
 export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = {}) => {
   const log = deps.log ?? defaultLog;
   const workflowScheduler = deps.workflowScheduler ?? defaultWorkflowScheduler;
+  const workflowSyncMutex = deps.workflowSyncMutex ?? defaultWorkflowSyncMutex;
   const workflowJob = deps.workflowJob ?? defaultWorkflowJob;
   const workflows = deps.workflows ?? workflowStore;
   const prepareBulkSelectionImpl = deps.prepareBulkSelection ?? prepareBulkSelection;
@@ -138,6 +151,9 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   const reclaimRecordEventDeliveriesImpl = deps.reclaimRecordEventDeliveries ?? reclaimRecordEventDeliveries;
   const latestMetadataEventCursorImpl = deps.latestMetadataEventCursor ?? latestMetadataEventCursor;
   const liveMetadataEventsImpl = deps.liveMetadataEvents ?? liveMetadataEvents;
+  const latestWorkflowRuntimeEventCursorImpl = deps.latestWorkflowRuntimeEventCursor ?? latestWorkflowRuntimeEventCursor;
+  const liveWorkflowRuntimeEventsImpl = deps.liveWorkflowRuntimeEvents ?? liveWorkflowRuntimeEvents;
+  const runtimeEventRetryDelayMs = deps.runtimeEventRetryDelayMs ?? RUNTIME_EVENT_RETRY_DELAY_MS;
   const loadWorkflowCatalogSnapshot =
     deps.loadWorkflowCatalogSnapshot ??
     (async (baseId: string) => workflowStore.snapshotWorkflowCatalog(await workflowStore.loadWorkflowCatalog(baseId)));
@@ -146,6 +162,9 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   let reconcilePromise: Promise<void> | null = null;
   let reconcileInterval: ReturnType<typeof setInterval> | null = null;
   let reconcileDebounce: ReturnType<typeof setTimeout> | null = null;
+  const scheduleRepairTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let runtimeEventController: AbortController | null = null;
+  let runtimeEventTask: Promise<void> | null = null;
 
   const submitWorkflowJob = async (run: RecoverableQueuedWorkflowRun): Promise<void> => {
     await workflowJob.submit({
@@ -220,6 +239,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
     settingsGet: settingsGetImpl,
     normalizeTimeZone: normalizeTimeZoneImpl,
     queuePreparedRun,
+    scheduleRepair: scheduleWorkflowRepair,
     maxRetries: WORKFLOW_JOB_MAX_RETRIES,
   });
   const readers = createWorkflowTriggerReaderRuntime({
@@ -234,11 +254,81 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
     scheduleReconcile: scheduleRuntimeReconcile,
   });
 
+  const syncCurrentWorkflow = (workflowId: string): Promise<void> =>
+    workflowSyncMutex.withLockOrThrow(workflowId, async () => {
+      const current = await workflows.get(workflowId);
+      if (current) await schedules.create(current);
+      else await schedules.delete(workflowId);
+    });
+
+  const reconcileSchedules = async (): Promise<void> => {
+    const scheduled = await workflows.listScheduledEnabled();
+    const activeIds = new Set(scheduled.map((workflow) => workflow.id));
+    const registered = await schedules.listManagedWorkflows();
+    for (const workflow of scheduled) {
+      try {
+        await workflowSyncMutex.withLockOrThrow(workflow.id, async () => {
+          const registeredRevision = await schedules.getManagedWorkflowRevision(workflow.id);
+          if (registeredRevision > workflow.revision) return;
+          await schedules.create(workflow);
+        });
+      } catch (error) {
+        log.warn("Workflow schedule reconcile failed", {
+          workflowId: workflow.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    for (const { workflowId } of registered) {
+      if (!activeIds.has(workflowId)) await syncCurrentWorkflow(workflowId);
+    }
+  };
+
+  const startRuntimeEventReader = (after: string | null | undefined): void => {
+    if (runtimeEventTask) return;
+    runtimeEventController = new AbortController();
+    const signal = runtimeEventController.signal;
+    runtimeEventTask = (async () => {
+      let cursor = after;
+      while (cursor === undefined && !signal.aborted) {
+        try {
+          const initialCursor = await latestWorkflowRuntimeEventCursorImpl();
+          await reconcileRuntime();
+          cursor = initialCursor;
+        } catch (error) {
+          log.warn("Could not initialize workflow runtime event reader", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await Bun.sleep(runtimeEventRetryDelayMs);
+        }
+      }
+      if (signal.aborted) return;
+      cursor ??= "0-0";
+      while (!signal.aborted) {
+        try {
+          for await (const event of liveWorkflowRuntimeEventsImpl({ after: cursor, signal })) {
+            await syncCurrentWorkflow(event.data.workflowId);
+            cursor = event.cursor;
+          }
+        } catch (error) {
+          if (signal.aborted) return;
+          log.warn("Workflow runtime event reader failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await Bun.sleep(runtimeEventRetryDelayMs);
+        }
+      }
+    })().finally(() => {
+      runtimeEventTask = null;
+      runtimeEventController = null;
+    });
+  };
+
   const reconcileRuntime = async (): Promise<void> => {
     if (reconcilePromise) return reconcilePromise;
     reconcilePromise = (async () => {
       await recoverStaleQueuedRuns();
-      await schedules.registerAll();
+      await reconcileSchedules();
       await readers.reconcile();
     })().finally(() => {
       reconcilePromise = null;
@@ -255,6 +345,23 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
         log.warn("Workflow runtime reconcile failed", { error: error instanceof Error ? error.message : String(error) });
       });
     }, RUNTIME_RECONCILE_DEBOUNCE_MS);
+  }
+
+  function scheduleWorkflowRepair(workflowId: string): void {
+    const pending = scheduleRepairTimers.get(workflowId);
+    if (pending) clearTimeout(pending);
+    scheduleRepairTimers.set(
+      workflowId,
+      setTimeout(() => {
+        scheduleRepairTimers.delete(workflowId);
+        void syncCurrentWorkflow(workflowId).catch((error) => {
+          log.warn("Workflow schedule repair failed", {
+            workflowId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }, 0),
+    );
   }
 
   const queueBulkSelection = async (params: ExecuteBulkSelectionWorkflowParams): Promise<Result<WorkflowRun>> => {
@@ -314,14 +421,16 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   };
 
   const runScheduledNow = async (workflowId: string): Promise<Result<void>> => {
-    const workflow = await workflows.get(workflowId);
-    if (!workflow) return fail(err.notFound("workflow"));
-    if (!workflow.enabled) return fail(err.badInput("workflow is disabled"));
-    if (!workflow.compiled.triggers.schedule) return fail(err.badInput("workflow does not define a schedule trigger"));
     ensureStarted();
-    await schedules.create(workflow);
-    await schedules.runNow(workflowId);
-    return ok();
+    return workflowSyncMutex.withLockOrThrow(workflowId, async () => {
+      const workflow = await workflows.get(workflowId);
+      if (!workflow) return fail(err.notFound("workflow"));
+      if (!workflow.enabled) return fail(err.badInput("workflow is disabled"));
+      if (!workflow.compiled.triggers.schedule) return fail(err.badInput("workflow does not define a schedule trigger"));
+      await schedules.create(workflow);
+      await schedules.runNow(workflowId);
+      return ok();
+    });
   };
 
   const ensureStarted = () => {
@@ -339,7 +448,16 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   return {
     start: async (): Promise<void> => {
       ensureStarted();
+      let runtimeEventCursor: string | null | undefined;
+      try {
+        runtimeEventCursor = await latestWorkflowRuntimeEventCursorImpl();
+      } catch (error) {
+        log.warn("Could not initialize workflow runtime event reader", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       await reconcileRuntime();
+      startRuntimeEventReader(runtimeEventCursor);
     },
 
     stop: async (): Promise<void> => {
@@ -348,6 +466,10 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
       reconcileInterval = null;
       if (reconcileDebounce) clearTimeout(reconcileDebounce);
       reconcileDebounce = null;
+      for (const timer of scheduleRepairTimers.values()) clearTimeout(timer);
+      scheduleRepairTimers.clear();
+      runtimeEventController?.abort();
+      if (runtimeEventTask) await runtimeEventTask;
       if (reconcilePromise) {
         await reconcilePromise.catch((error) => {
           log.warn("Workflow runtime reconcile failed during shutdown", {
@@ -363,12 +485,12 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
 
     sync: async (workflow: Workflow): Promise<void> => {
       ensureStarted();
-      await schedules.create(workflow);
+      await syncCurrentWorkflow(workflow.id);
       scheduleRuntimeReconcile();
     },
 
     delete: async (workflowId: string): Promise<void> => {
-      await schedules.delete(workflowId);
+      await syncCurrentWorkflow(workflowId);
       scheduleRuntimeReconcile();
     },
 

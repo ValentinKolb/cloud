@@ -67,6 +67,48 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
+    "adds workflow revisions to an existing schema",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrate(database);
+        await database`DROP TRIGGER bump_workflow_revision ON grids.workflows`.simple();
+        await database`DROP FUNCTION grids.bump_workflow_revision()`.simple();
+        await database`ALTER TABLE grids.workflows DROP COLUMN revision`.simple();
+
+        await migrate(database);
+
+        const baseId = uuid();
+        await database`
+          INSERT INTO grids.bases (id, short_id, name)
+          VALUES (${baseId}::uuid, ${shortId("B")}, 'Workflow revision migration')
+        `;
+        const [created] = await database<Array<{ id: string; revision: number }>>`
+          INSERT INTO grids.workflows (short_id, base_id, name, source, compiled)
+          VALUES (${shortId("W")}, ${baseId}::uuid, 'Revision test', 'triggers: {}\nsteps: []', '{}'::jsonb)
+          RETURNING id::text AS id, revision
+        `;
+        const [updated] = await database<Array<{ revision: number }>>`
+          UPDATE grids.workflows
+          SET name = 'Revision test updated'
+          WHERE id = ${created!.id}::uuid
+          RETURNING revision
+        `;
+        const [constraint] = await database<Array<{ count: number }>>`
+          SELECT count(*)::int AS count
+          FROM pg_constraint
+          WHERE conname = 'workflows_revision_chk'
+            AND conrelid = 'grids.workflows'::regclass
+        `;
+
+        expect(created?.revision).toBe(1);
+        expect(updated?.revision).toBe(2);
+        expect(constraint?.count).toBe(1);
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
     "derives a view base id and enforces base-wide live names",
     async () => {
       await withIsolatedDatabase(async (database) => {

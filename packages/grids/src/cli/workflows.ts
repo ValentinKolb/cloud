@@ -1,5 +1,12 @@
 import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
-import type { DocumentRunSummaryList, EmailTemplate, Workflow, WorkflowAutocompleteResponse, WorkflowRun } from "../contracts";
+import {
+  type DocumentRunSummaryList,
+  type EmailTemplate,
+  WORKFLOW_REVISION_HEADER,
+  type Workflow,
+  type WorkflowAutocompleteResponse,
+  type WorkflowRun,
+} from "../contracts";
 import { documentRunRows } from "./documents-support";
 import { baseArgs, baseFlag, resolveBaseFromCommand } from "./resources";
 import {
@@ -314,7 +321,11 @@ export const workflowCommands = [
         enabled: flags.enabled ? true : flags.disabled ? false : undefined,
         position: flags.position,
       });
-      const updated = await readApi<Workflow>(ctx, `/workflows/${encodeURIComponent(workflow.id)}`, jsonRequest("PATCH", body));
+      const updated = await readApi<Workflow>(
+        ctx,
+        `/workflows/${encodeURIComponent(workflow.id)}`,
+        jsonRequest("PATCH", body, { [WORKFLOW_REVISION_HEADER]: String(workflow.revision) }),
+      );
       printJsonOrMessage(ctx, updated, `Updated workflow ${updated.name} (${updated.shortId}).`);
     },
   }),

@@ -940,13 +940,49 @@ const migrateWorkflowCatalog = async (sql: SQL): Promise<void> => {
       compiled JSONB NOT NULL DEFAULT '{}'::jsonb,
       enabled BOOLEAN NOT NULL DEFAULT FALSE,
       position INT NOT NULL DEFAULT 0,
+      revision INT NOT NULL DEFAULT 1,
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT workflows_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT workflows_revision_chk CHECK (revision >= 1),
       CONSTRAINT workflows_source_length_chk CHECK (length(source) BETWEEN 1 AND 200000)
     )
+  `.simple();
+  await sql`ALTER TABLE grids.workflows ADD COLUMN IF NOT EXISTS revision INT NOT NULL DEFAULT 1`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'workflows_revision_chk' AND conrelid = 'grids.workflows'::regclass
+      ) THEN
+        ALTER TABLE grids.workflows ADD CONSTRAINT workflows_revision_chk CHECK (revision >= 1);
+      END IF;
+    END $$
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.bump_workflow_revision()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      NEW.revision := OLD.revision + 1;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'bump_workflow_revision' AND tgrelid = 'grids.workflows'::regclass
+      ) THEN
+        CREATE TRIGGER bump_workflow_revision
+        BEFORE UPDATE ON grids.workflows
+        FOR EACH ROW EXECUTE FUNCTION grids.bump_workflow_revision();
+      END IF;
+    END $$
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflows_base_live

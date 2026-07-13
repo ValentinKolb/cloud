@@ -20,6 +20,7 @@ import {
   finishRun,
   finishStepRun,
   getOrCreateRecordScanCode,
+  get as getWorkflow,
   heartbeatRun,
   listEmailDeliveriesPage,
   listRecordEventBaseIds,
@@ -240,12 +241,16 @@ describe("workflow runtime integration", () => {
       expect(await listRecordEventEnabled(oldEvent)).toHaveLength(0);
       expect(await listRecordEventEnabled({ ...oldEvent, occurredAt: new Date(Date.now() + 1000).toISOString() })).toHaveLength(1);
 
-      expect((await updateWorkflow(recordEventWorkflowId, { enabled: false }, null)).ok).toBe(true);
+      const recordEventWorkflow = await getWorkflow(recordEventWorkflowId);
+      expect(recordEventWorkflow).not.toBeNull();
+      expect((await updateWorkflow(recordEventWorkflowId, { enabled: false }, null, recordEventWorkflow!.revision)).ok).toBe(true);
       expect(await listRecordEventBaseIds()).not.toContain(fixture.baseId);
       const [databaseClock] = await sql<Array<{ occurredAt: Date }>>`SELECT clock_timestamp() AS "occurredAt"`;
       const disabledEventAt = databaseClock!.occurredAt.toISOString();
       await Bun.sleep(5);
-      expect((await updateWorkflow(recordEventWorkflowId, { enabled: true }, null)).ok).toBe(true);
+      const disabledWorkflow = await getWorkflow(recordEventWorkflowId);
+      expect(disabledWorkflow).not.toBeNull();
+      expect((await updateWorkflow(recordEventWorkflowId, { enabled: true }, null, disabledWorkflow!.revision)).ok).toBe(true);
       expect(await listRecordEventEnabled({ ...oldEvent, occurredAt: disabledEventAt })).toHaveLength(0);
       expect(await listRecordEventEnabled({ ...oldEvent, occurredAt: new Date(Date.now() + 1000).toISOString() })).toHaveLength(1);
     } finally {

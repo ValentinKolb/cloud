@@ -12,6 +12,7 @@ import { recordCommands, snapshotCommands } from "./cli/records";
 import { fieldCommands, tableCommands } from "./cli/schema";
 import { formulaCommands, gqlCommands, viewCommands } from "./cli/views-gql";
 import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflowRunCommands } from "./cli/workflows";
+import { WORKFLOW_REVISION_HEADER } from "./contracts";
 
 const commandGroups = [
   baseCrudCommands,
@@ -256,6 +257,7 @@ const workflow = {
   compiled: { triggers: { api: {} }, steps: [{ setVariable: { name: "ok", value: true } }] },
   enabled: true,
   position: 0,
+  revision: 1,
   ownerUserId: null,
   deletedAt: null,
   createdAt: "2026-07-07T00:00:00.000Z",
@@ -1199,6 +1201,26 @@ describe("grids CLI", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("sends the resolved workflow revision when updating", async () => {
+    const updated = { ...workflow, name: "Updated reminder", revision: workflow.revision + 1 };
+    const { ctx, calls, lines } = createContext(["workflows", "update", baseId, workflow.shortId], { name: updated.name }, [
+      jsonResponse(base),
+      jsonResponse([workflow]),
+      jsonResponse(updated),
+    ]);
+
+    await gridsCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases/${baseId}`,
+      `/api/grids/workflows/by-base/${baseId}`,
+      `/api/grids/workflows/${workflowId}`,
+    ]);
+    expect(new Headers(calls[2]?.init?.headers).get(WORKFLOW_REVISION_HEADER)).toBe(String(workflow.revision));
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ name: updated.name });
+    expect(lines).toEqual(["Updated workflow Updated reminder (wf001)."]);
   });
 
   test("rejects workflow UUIDs outside the selected base", async () => {

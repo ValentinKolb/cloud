@@ -11,20 +11,29 @@ const SCHEDULE_ID_PREFIX = "grids:workflow:";
 
 const scheduleId = (workflowId: string): string => `${SCHEDULE_ID_PREFIX}${workflowId}`;
 const scheduleSource = (workflowId: string): string => `${SCHEDULE_ID_PREFIX}${workflowId}:schedule`;
-const isManagedScheduleId = (id: string): boolean => id.startsWith(SCHEDULE_ID_PREFIX);
+const managedWorkflowId = (id: string): string | null => {
+  if (!id.startsWith(SCHEDULE_ID_PREFIX)) return null;
+  return id.slice(SCHEDULE_ID_PREFIX.length) || null;
+};
 const scheduleTriggerKey = (workflowId: string, trigger: "cron" | "manual", slotTs: number, runNumber: number): string =>
   `schedule:${workflowId}:${trigger}:${slotTs}:${runNumber}`;
 
 type WorkflowScheduleRuntimeDeps = {
   log: Pick<ReturnType<typeof logger>, "info" | "warn">;
   workflowScheduler: ReturnType<typeof scheduler>;
-  workflows: Pick<typeof workflowStore, "listScheduledEnabled">;
+  workflows: Pick<typeof workflowStore, "get">;
   loadWorkflowPrincipal: typeof workflowOwnerPrincipal;
   getBase: typeof bases.get;
   settingsGet: typeof settingsGet;
   normalizeTimeZone: typeof normalizeTimeZone;
   queuePreparedRun: (item: PreparedWorkflowTriggerRun, options?: { triggerKey?: string }) => Promise<WorkflowRun>;
+  scheduleRepair: (workflowId: string) => void;
   maxRetries: number;
+};
+
+export type ManagedWorkflowSchedule = {
+  workflowId: string;
+  revision: number;
 };
 
 export const createWorkflowScheduleRuntime = (deps: WorkflowScheduleRuntimeDeps) => {
@@ -55,10 +64,11 @@ export const createWorkflowScheduleRuntime = (deps: WorkflowScheduleRuntimeDeps)
         source,
         resourceKind: "workflow",
         resourceId: workflow.id,
+        workflowRevision: workflow.revision,
         resourceLabel: base ? `${base.name} / ${workflow.name}` : workflow.name,
         ...(base ? { detailHref: `/app/grids/${base.shortId}/workflows/${workflow.shortId}` } : {}),
       },
-      trace: trace.fromSyncSchedule<{ runId: string; queued: boolean; status: string }>({
+      trace: trace.fromSyncSchedule<{ runId: string | null; queued: boolean; status: string }>({
         name: "Grid workflow schedule",
         source,
         appId: "grids",
@@ -69,10 +79,24 @@ export const createWorkflowScheduleRuntime = (deps: WorkflowScheduleRuntimeDeps)
         summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
       }),
       process: async ({ ctx }) => {
+        const registered = await deps.workflowScheduler.get({ id: scheduleId(workflow.id) });
+        const current = await deps.workflows.get(workflow.id);
+        const currentSchedule = current?.compiled.triggers.schedule;
+        const currentTimezone = current && currentSchedule ? await getScheduleTimezone(current) : null;
+        const stale =
+          !registered ||
+          !current?.enabled ||
+          !currentSchedule ||
+          registered.cron !== currentSchedule.cron ||
+          registered.tz !== currentTimezone ||
+          (ctx.trigger === "cron" && registered.nextRunAt !== ctx.slotTs);
+        if (stale) {
+          return { runId: null, queued: false, status: "skipped" };
+        }
         const triggerInput = { slotTs: ctx.slotTs, trigger: ctx.trigger, runNumber: ctx.runNumber };
-        const principal = await deps.loadWorkflowPrincipal(workflow);
+        const principal = await deps.loadWorkflowPrincipal(current);
         const item: PreparedWorkflowTriggerRun = {
-          workflow,
+          workflow: current,
           triggerKind: "schedule",
           actorUserId: principal.actorUserId,
           actorGroupIds: principal.actorGroupIds,
@@ -87,6 +111,10 @@ export const createWorkflowScheduleRuntime = (deps: WorkflowScheduleRuntimeDeps)
         return { runId: run.id, queued: run.status === "queued", status: run.status };
       },
       after: async ({ ctx }) => {
+        if (ctx.data?.status === "skipped") {
+          deps.scheduleRepair(workflow.id);
+          return;
+        }
         if (ctx.error && ctx.failureCount < deps.maxRetries) {
           ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 30_000, maxMs: 5 * 60_000 }) });
         }
@@ -99,31 +127,26 @@ export const createWorkflowScheduleRuntime = (deps: WorkflowScheduleRuntimeDeps)
     });
   };
 
-  const registerAll = async (): Promise<void> => {
-    const scheduled = await deps.workflows.listScheduledEnabled();
-    const activeIds = new Set(scheduled.map((workflow) => scheduleId(workflow.id)));
-    for (const workflow of scheduled) {
-      try {
-        await create(workflow);
-      } catch (error) {
-        deps.log.warn("Workflow schedule registration failed", {
-          workflowId: workflow.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
+  const listManagedWorkflows = async (): Promise<ManagedWorkflowSchedule[]> => {
     const registered = await deps.workflowScheduler.list();
-    for (const item of registered) {
-      if (isManagedScheduleId(item.id) && !activeIds.has(item.id)) {
-        await deps.workflowScheduler.delete({ id: item.id });
-        deps.log.info("Orphan workflow schedule removed", { scheduleId: item.id });
-      }
-    }
+    return registered.flatMap((item) => {
+      const workflowId = managedWorkflowId(item.id);
+      if (!workflowId) return [];
+      const revision = Number(item.meta?.workflowRevision);
+      return [{ workflowId, revision: Number.isSafeInteger(revision) && revision > 0 ? revision : 0 }];
+    });
+  };
+
+  const getManagedWorkflowRevision = async (workflowId: string): Promise<number> => {
+    const item = await deps.workflowScheduler.get({ id: scheduleId(workflowId) });
+    const revision = Number(item?.meta?.workflowRevision);
+    return Number.isSafeInteger(revision) && revision > 0 ? revision : 0;
   };
 
   return {
     create,
-    registerAll,
+    getManagedWorkflowRevision,
+    listManagedWorkflows,
     delete: (workflowId: string) => deps.workflowScheduler.delete({ id: scheduleId(workflowId) }),
     runNow: (workflowId: string) => deps.workflowScheduler.runNow({ id: scheduleId(workflowId) }),
   };

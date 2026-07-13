@@ -14,6 +14,7 @@ const workflow = {
   compiled: { triggers: { recordEvent: { event: "updated" } }, steps: [] },
   enabled: true,
   position: 0,
+  revision: 1,
   ownerUserId: null,
   deletedAt: null,
   createdAt: "2026-07-13T00:00:00.000Z",

@@ -34,6 +34,7 @@ const scheduledWorkflow = {
   },
   enabled: true,
   position: 0,
+  revision: 1,
   ownerUserId: "44444444-4444-4444-8444-444444444444",
   deletedAt: null,
   createdAt: "2026-07-08T00:00:00.000Z",
@@ -69,12 +70,28 @@ const schedulerState = {
     tz?: string;
     meta?: Record<string, unknown>;
     process: (cfg: { ctx: never }) => Promise<unknown> | unknown;
+    after?: (cfg: { ctx: never }) => Promise<void> | void;
   }>,
   deleted: [] as string[],
-  listed: [] as Array<{ id: string }>,
+  listed: [] as Array<{ id: string; meta?: Record<string, unknown> }>,
+  registered: new Map<
+    string,
+    {
+      id: string;
+      cron: string;
+      tz: string;
+      createdAt: number;
+      updatedAt: number;
+      nextRunAt: number;
+      runNumber: number;
+      failureCount: number;
+      meta?: Record<string, unknown>;
+    }
+  >(),
   runNow: [] as string[],
   started: 0,
   stopped: 0,
+  createFailures: 0,
 };
 
 const jobState = {
@@ -98,6 +115,12 @@ let finishedRuns: Array<{ runId: string; status: "succeeded" | "failed" | "cance
 let recordEventBaseIds: string[] = [];
 let recordEventReadersStarted = 0;
 let recordEventReadersAborted = 0;
+let runtimeEvents: Array<{ data: { workflowId: string }; cursor: string }> = [];
+let runtimeEventReadersStarted = 0;
+let runtimeEventCursorError: Error | null = null;
+let runtimeEventCursorFailures = 0;
+let runtimeEventAfterValues: string[] = [];
+let onWorkflowLock: (() => void) | null = null;
 let workflowTriggerRuntime: ReturnType<typeof createWorkflowTriggerRuntime>;
 
 const waitFor = async (condition: () => boolean): Promise<void> => {
@@ -129,16 +152,40 @@ const createTestRuntime = () =>
         tz?: string;
         meta?: Record<string, unknown>;
         process: (arg: { ctx: never }) => Promise<unknown> | unknown;
+        after?: (arg: { ctx: never }) => Promise<void> | void;
       }) => {
+        if (schedulerState.createFailures > 0) {
+          schedulerState.createFailures -= 1;
+          throw new Error("scheduler unavailable");
+        }
         schedulerState.created.push(cfg);
+        schedulerState.registered.set(cfg.id, {
+          id: cfg.id,
+          cron: cfg.cron,
+          tz: cfg.tz ?? "UTC",
+          createdAt: 1,
+          updatedAt: 1,
+          nextRunAt: 1,
+          runNumber: 0,
+          failureCount: 0,
+          meta: cfg.meta,
+        });
         return { created: true, updated: false };
       },
       delete: async (cfg: { id: string }) => {
         schedulerState.deleted.push(cfg.id);
+        schedulerState.registered.delete(cfg.id);
       },
+      get: async (cfg: { id: string }) => schedulerState.registered.get(cfg.id) ?? null,
       list: async () => schedulerState.listed,
       runNow: async (cfg: { id: string }) => {
         schedulerState.runNow.push(cfg.id);
+      },
+    } as never,
+    workflowSyncMutex: {
+      withLockOrThrow: async (_resource: string, fn: () => Promise<unknown>) => {
+        onWorkflowLock?.();
+        return fn();
       },
     } as never,
     workflowJob: {
@@ -151,7 +198,7 @@ const createTestRuntime = () =>
       },
     } as never,
     workflows: {
-      get: async () => getWorkflowResult,
+      get: async (id) => (id === workflowId ? getWorkflowResult : null),
       createWorkflowRun: async (input) => {
         createRunInputs.push(input);
         return (
@@ -253,6 +300,23 @@ const createTestRuntime = () =>
         else signal?.addEventListener("abort", () => resolve(), { once: true });
       });
     },
+    latestWorkflowRuntimeEventCursor: async () => {
+      if (runtimeEventCursorError && runtimeEventCursorFailures > 0) {
+        runtimeEventCursorFailures -= 1;
+        throw runtimeEventCursorError;
+      }
+      return "0-0";
+    },
+    runtimeEventRetryDelayMs: 1,
+    liveWorkflowRuntimeEvents: async function* ({ after, signal }) {
+      runtimeEventReadersStarted += 1;
+      runtimeEventAfterValues.push(after ?? "0-0");
+      for (const event of runtimeEvents) yield event as never;
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
     loadWorkflowCatalogSnapshot: async () => workflowCatalog,
   });
 
@@ -260,9 +324,11 @@ beforeEach(async () => {
   schedulerState.created = [];
   schedulerState.deleted = [];
   schedulerState.listed = [];
+  schedulerState.registered.clear();
   schedulerState.runNow = [];
   schedulerState.started = 0;
   schedulerState.stopped = 0;
+  schedulerState.createFailures = 0;
   jobState.submitted = [];
   jobState.failSubmit = false;
   jobState.stopped = 0;
@@ -277,6 +343,12 @@ beforeEach(async () => {
   recordEventBaseIds = [];
   recordEventReadersStarted = 0;
   recordEventReadersAborted = 0;
+  runtimeEvents = [];
+  runtimeEventReadersStarted = 0;
+  runtimeEventCursorError = null;
+  runtimeEventCursorFailures = 0;
+  runtimeEventAfterValues = [];
+  onWorkflowLock = null;
   workflowTriggerRuntime = createTestRuntime();
 });
 
@@ -305,20 +377,197 @@ describe("workflow trigger runtime", () => {
     await workflowTriggerRuntime.sync(scheduledWorkflow);
     const process = schedulerState.created[0]?.process;
     if (!process) throw new Error("Expected schedule process");
+    getWorkflowResult = {
+      ...scheduledWorkflow,
+      revision: scheduledWorkflow.revision + 1,
+      compiled: {
+        ...scheduledWorkflow.compiled,
+        steps: [{ succeed: { message: "Current definition" } }],
+      },
+    };
 
     await process({ ctx: { slotTs: 1, trigger: "manual", runNumber: 1 } as never });
 
     expect(jobState.submitted).toHaveLength(1);
     expect(jobState.submitted[0]?.input).toEqual({ runId, queueAttempt: 0 });
     expect(createRunInputs[0]).toMatchObject({
-      workflowDefinition: scheduledWorkflow.compiled,
+      workflowDefinition: getWorkflowResult.compiled,
       actorUserId: scheduledWorkflow.ownerUserId,
       actorGroupIds: [ownerGroupId],
     });
   });
 
+  test("stale scheduler handlers skip runs after the schedule changes", async () => {
+    await workflowTriggerRuntime.sync(scheduledWorkflow);
+    const process = schedulerState.created[0]?.process;
+    if (!process) throw new Error("Expected schedule process");
+    getWorkflowResult = {
+      ...scheduledWorkflow,
+      revision: scheduledWorkflow.revision + 1,
+      compiled: {
+        ...scheduledWorkflow.compiled,
+        triggers: { schedule: { cron: "30 9 * * *" } },
+      },
+    };
+
+    const result = await process({ ctx: { slotTs: 1, trigger: "cron", runNumber: 1 } as never });
+
+    expect(result).toEqual({ runId: null, queued: false, status: "skipped" });
+    expect(jobState.submitted).toHaveLength(0);
+    expect(createRunInputs).toHaveLength(0);
+  });
+
+  test("dispatch skips a schedule snapshot that was rolled back after registration", async () => {
+    getWorkflowResult = {
+      ...scheduledWorkflow,
+      revision: scheduledWorkflow.revision + 1,
+      compiled: {
+        ...scheduledWorkflow.compiled,
+        triggers: { schedule: { cron: "30 9 * * *" } },
+      },
+    };
+    await workflowTriggerRuntime.sync(getWorkflowResult);
+    const process = schedulerState.created[0]?.process;
+    if (!process) throw new Error("Expected schedule process");
+    schedulerState.registered.set(`grids:workflow:${workflowId}`, {
+      id: `grids:workflow:${workflowId}`,
+      cron: scheduledWorkflow.compiled.triggers.schedule.cron,
+      tz: "Europe/Berlin",
+      createdAt: 1,
+      updatedAt: 1,
+      nextRunAt: 1,
+      runNumber: 0,
+      failureCount: 0,
+    });
+
+    const result = await process({ ctx: { slotTs: 1, trigger: "cron", runNumber: 1 } as never });
+
+    expect(result).toEqual({ runId: null, queued: false, status: "skipped" });
+    expect(createRunInputs).toHaveLength(0);
+  });
+
+  test("stale deleted handlers trigger a targeted schedule repair", async () => {
+    await workflowTriggerRuntime.sync(scheduledWorkflow);
+    const schedule = schedulerState.created[0];
+    if (!schedule) throw new Error("Expected schedule");
+    getWorkflowResult = null;
+
+    const data = await schedule.process({ ctx: { slotTs: 1, trigger: "cron", runNumber: 1 } as never });
+    await schedule.after?.({ ctx: { data } as never });
+    await waitFor(() => schedulerState.deleted.includes(`grids:workflow:${workflowId}`));
+
+    expect(schedulerState.deleted).toContain(`grids:workflow:${workflowId}`);
+  });
+
+  test("sync reloads the latest persisted workflow instead of applying a stale caller snapshot", async () => {
+    getWorkflowResult = {
+      ...scheduledWorkflow,
+      revision: scheduledWorkflow.revision + 1,
+      compiled: {
+        ...scheduledWorkflow.compiled,
+        triggers: { schedule: { cron: "30 9 * * *" } },
+      },
+    };
+
+    await workflowTriggerRuntime.sync(scheduledWorkflow);
+
+    expect(schedulerState.created[0]?.cron).toBe("30 9 * * *");
+  });
+
+  test("reconcile registers the current scheduled workflow list", async () => {
+    listScheduledResult = [
+      {
+        ...scheduledWorkflow,
+        revision: scheduledWorkflow.revision + 1,
+        compiled: {
+          ...scheduledWorkflow.compiled,
+          triggers: { schedule: { cron: "45 10 * * *" } },
+        },
+      },
+    ];
+
+    await workflowTriggerRuntime.start();
+
+    expect(schedulerState.created[0]?.cron).toBe("45 10 * * *");
+  });
+
+  test("reconcile does not overwrite a newer registered workflow revision", async () => {
+    listScheduledResult = [scheduledWorkflow];
+    schedulerState.listed = [{ id: `grids:workflow:${workflowId}`, meta: { workflowRevision: scheduledWorkflow.revision + 1 } }];
+    schedulerState.registered.set(`grids:workflow:${workflowId}`, {
+      id: `grids:workflow:${workflowId}`,
+      cron: scheduledWorkflow.compiled.triggers.schedule.cron,
+      tz: "Europe/Berlin",
+      createdAt: 1,
+      updatedAt: 1,
+      nextRunAt: 1,
+      runNumber: 0,
+      failureCount: 0,
+      meta: { workflowRevision: scheduledWorkflow.revision + 1 },
+    });
+
+    await workflowTriggerRuntime.start();
+
+    expect(schedulerState.created).toHaveLength(0);
+  });
+
+  test("reconcile checks the registered revision after acquiring the workflow lock", async () => {
+    listScheduledResult = [scheduledWorkflow];
+    schedulerState.listed = [{ id: `grids:workflow:${workflowId}`, meta: { workflowRevision: scheduledWorkflow.revision } }];
+    onWorkflowLock = () => {
+      onWorkflowLock = null;
+      schedulerState.registered.set(`grids:workflow:${workflowId}`, {
+        id: `grids:workflow:${workflowId}`,
+        cron: scheduledWorkflow.compiled.triggers.schedule.cron,
+        tz: "Europe/Berlin",
+        createdAt: 1,
+        updatedAt: 2,
+        nextRunAt: 1,
+        runNumber: 0,
+        failureCount: 0,
+        meta: { workflowRevision: scheduledWorkflow.revision + 1 },
+      });
+    };
+
+    await workflowTriggerRuntime.start();
+
+    expect(schedulerState.created).toHaveLength(0);
+  });
+
+  test("runtime events register changed schedules on every pod", async () => {
+    runtimeEvents = [{ data: { workflowId }, cursor: "1-0" }];
+
+    await workflowTriggerRuntime.start();
+    await waitFor(() => schedulerState.created.length === 1);
+
+    expect(runtimeEventReadersStarted).toBe(1);
+    expect(schedulerState.created[0]?.id).toBe(`grids:workflow:${workflowId}`);
+  });
+
+  test("runtime events replay when applying an event fails", async () => {
+    runtimeEvents = [{ data: { workflowId }, cursor: "1-0" }];
+    schedulerState.createFailures = 1;
+
+    await workflowTriggerRuntime.start();
+    await waitFor(() => schedulerState.created.length === 1);
+
+    expect(runtimeEventAfterValues.slice(0, 2)).toEqual(["0-0", "0-0"]);
+  });
+
+  test("event fan-out initialization retries after a transient failure", async () => {
+    runtimeEventCursorError = new Error("redis unavailable");
+    runtimeEventCursorFailures = 1;
+
+    await workflowTriggerRuntime.start();
+    await waitFor(() => runtimeEventReadersStarted === 1);
+
+    expect(schedulerState.started).toBe(1);
+    expect(runtimeEventReadersStarted).toBe(1);
+  });
+
   test("removes the app-scoped schedule id when a workflow has no active schedule", async () => {
-    await workflowTriggerRuntime.sync({ ...scheduledWorkflow, enabled: false });
+    getWorkflowResult = { ...scheduledWorkflow, enabled: false };
+    await workflowTriggerRuntime.sync(getWorkflowResult);
 
     expect(schedulerState.deleted).toContain(`grids:workflow:${workflowId}`);
   });
@@ -362,10 +611,20 @@ describe("workflow trigger runtime", () => {
   });
 
   test("runScheduledNow uses scheduler.runNow for the app-scoped id", async () => {
+    getWorkflowResult = {
+      ...scheduledWorkflow,
+      revision: scheduledWorkflow.revision + 1,
+      compiled: {
+        ...scheduledWorkflow.compiled,
+        triggers: { schedule: { cron: "15 11 * * *" } },
+      },
+    };
+
     const result = await workflowTriggerRuntime.runScheduledNow(workflowId);
 
     expect(result.ok).toBe(true);
     expect(schedulerState.created[0]?.id).toBe(`grids:workflow:${workflowId}`);
+    expect(schedulerState.created[0]?.cron).toBe("15 11 * * *");
     expect(schedulerState.runNow).toEqual([`grids:workflow:${workflowId}`]);
   });
 

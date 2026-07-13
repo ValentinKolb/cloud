@@ -3,10 +3,11 @@ import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewDiagnostic, Workflow } from "../../../contracts";
+import { type DslQueryPreviewDiagnostic, WORKFLOW_REVISION_HEADER, type Workflow } from "../../../contracts";
 import type { Table } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { buildBackendWorkflowCompletions } from "./workflow-autocomplete";
+import { type WorkflowEditorDraft, workflowEditorDraft } from "./workflow-editor-draft";
 
 type WorkflowEditorProps = {
   baseId: string;
@@ -16,6 +17,13 @@ type WorkflowEditorProps = {
   onSaved: () => void;
   onClose: () => void;
 };
+
+class WorkflowConflictError extends Error {
+  constructor() {
+    super("This workflow changed while you were editing it.");
+    this.name = "WorkflowConflictError";
+  }
+}
 
 const workflowHighlight = highlight.compile(
   [
@@ -85,10 +93,13 @@ function DiagnosticsPanel(props: { diagnostics: DslQueryPreviewDiagnostic[]; val
 }
 
 export function WorkflowEditor(props: WorkflowEditorProps) {
-  const [name, setName] = createSignal(props.workflow?.name ?? "");
-  const [description, setDescription] = createSignal(props.workflow?.description ?? "");
-  const [enabled, setEnabled] = createSignal(props.workflow?.enabled ?? false);
-  const [source, setSource] = createSignal(props.workflow?.source ?? defaultSource(props.tables[0]));
+  const initialDraft = workflowEditorDraft(props.workflow, defaultSource(props.tables[0]));
+  const [name, setName] = createSignal(initialDraft.name);
+  const [persistedName, setPersistedName] = createSignal(initialDraft.name);
+  const [description, setDescription] = createSignal(initialDraft.description);
+  const [enabled, setEnabled] = createSignal(initialDraft.enabled);
+  const [source, setSource] = createSignal(initialDraft.source);
+  const [revision, setRevision] = createSignal(initialDraft.revision);
   const [diagnostics, setDiagnostics] = createSignal<DslQueryPreviewDiagnostic[]>([]);
   const [validating, setValidating] = createSignal(false);
   let validationTimer: ReturnType<typeof setTimeout> | undefined;
@@ -141,6 +152,46 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     validationAbort?.abort();
   });
 
+  const replaceDraft = (draft: WorkflowEditorDraft) => {
+    setName(draft.name);
+    setPersistedName(draft.name);
+    setDescription(draft.description);
+    setEnabled(draft.enabled);
+    setSource(draft.source);
+    setRevision(draft.revision);
+  };
+
+  const reloadWorkflow = async () => {
+    if (!props.workflow) return;
+    const response = await apiClient.workflows[":workflowId"].$get({ param: { workflowId: props.workflow.id } });
+    if (!response.ok) throw new Error(await errorMessage(response, "Could not reload workflow."));
+    const latest = await response.json();
+    replaceDraft(workflowEditorDraft(latest, defaultSource(props.tables[0])));
+    props.onSaved();
+    toast.success("Loaded the latest workflow version");
+  };
+
+  const handleSaveError = async (error: Error) => {
+    if (!(error instanceof WorkflowConflictError)) {
+      await prompts.error(error.message);
+      return;
+    }
+    const reload = await prompts.confirm(
+      "This workflow changed while you were editing it. Reload the latest version? Your unsaved changes will be replaced.",
+      {
+        title: "Workflow changed",
+        icon: "ti ti-refresh-alert",
+        confirmText: "Reload workflow",
+      },
+    );
+    if (!reload) return;
+    try {
+      await reloadWorkflow();
+    } catch (reloadError) {
+      await prompts.error(reloadError instanceof Error ? reloadError.message : "Could not reload workflow.");
+    }
+  };
+
   const saveMut = mutations.create<Workflow, void>({
     mutation: async (_, { abortSignal }) => {
       const payload = {
@@ -153,12 +204,13 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
       const res = props.workflow
         ? await apiClient.workflows[":workflowId"].$patch(
             { param: { workflowId: props.workflow.id }, json: payload },
-            { init: { signal: abortSignal } },
+            { init: { signal: abortSignal, headers: { [WORKFLOW_REVISION_HEADER]: String(revision()) } } },
           )
         : await apiClient.workflows["by-base"][":baseId"].$post(
             { param: { baseId: props.baseId }, json: payload },
             { init: { signal: abortSignal } },
           );
+      if (res.status === 409) throw new WorkflowConflictError();
       if (!res.ok) throw new Error(await errorMessage(res, "Could not save workflow."));
       return res.json();
     },
@@ -167,12 +219,12 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
       props.onSaved();
       props.onClose();
     },
-    onError: (error) => prompts.error(error.message),
+    onError: (error) => void handleSaveError(error),
   });
 
   const deleteMut = mutations.create<{ deleted: boolean }, Workflow>({
     mutation: async (workflow, { abortSignal }) => {
-      const confirmed = await prompts.confirm(`Delete "${workflow.name}"?`, {
+      const confirmed = await prompts.confirm(`Delete "${persistedName() || workflow.name}"?`, {
         title: "Delete workflow",
         icon: "ti ti-trash",
         confirmText: "Delete workflow",
@@ -201,7 +253,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   return (
     <PanelDialog>
       <PanelDialog.Header
-        title={props.workflow ? `Manage workflow — ${props.workflow.name}` : "New workflow"}
+        title={props.workflow ? `Manage workflow — ${persistedName()}` : "New workflow"}
         subtitle="Metadata, status, and executable YAML."
         icon="ti ti-route"
         close={props.onClose}

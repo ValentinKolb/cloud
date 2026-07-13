@@ -1616,6 +1616,8 @@ export const WorkflowDefinitionSchema = z
   .strict();
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;
 
+export const WORKFLOW_REVISION_HEADER = "X-Workflow-Revision";
+
 export const WorkflowSchema = z.object({
   id: z.string().uuid(),
   shortId: ShortIdSchema,
@@ -1626,6 +1628,7 @@ export const WorkflowSchema = z.object({
   compiled: WorkflowDefinitionSchema,
   enabled: z.boolean(),
   position: z.number().int().min(0),
+  revision: z.number().int().min(1),
   ownerUserId: z.string().uuid().nullable(),
   deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),

@@ -14,8 +14,15 @@ import type { GridsRecordEvent } from "./record-events";
 import { insertWithShortId } from "./short-id";
 import { loadWorkflowCatalog, resolveWorkflowTableRef, type WorkflowCatalog } from "./workflow-catalog";
 import { validateWorkflowReferences } from "./workflow-reference-validator";
+import { emitWorkflowRuntimeEvent } from "./workflow-runtime-events";
 
 type DbRow = Record<string, unknown>;
+
+const workflowRevisionConflict = () => ({
+  code: "CONFLICT" as const,
+  message: "Workflow changed since you opened it. Reload the latest version before saving.",
+  status: 409 as const,
+});
 
 export { ensureRecordScanCode, getOrCreateRecordScanCode, getRecordScanCode } from "./record-scan-codes";
 export type { WorkflowCatalog, WorkflowCatalogEntry, WorkflowCatalogSnapshot } from "./workflow-catalog";
@@ -56,12 +63,15 @@ const workflowMetadataEvent = async (
   workflowId: string,
   actorId: string | null = null,
 ): Promise<void> => {
-  await emitMetadataEvent({
-    type,
-    baseId,
-    resource: { kind: "workflow", id: workflowId },
-    actorId,
-  });
+  await Promise.all([
+    emitMetadataEvent({
+      type,
+      baseId,
+      resource: { kind: "workflow", id: workflowId },
+      actorId,
+    }),
+    emitWorkflowRuntimeEvent(workflowId),
+  ]);
 };
 
 const mapWorkflowRow = (row: DbRow): Workflow => {
@@ -78,6 +88,7 @@ const mapWorkflowRow = (row: DbRow): Workflow => {
     compiled: parsed.data,
     enabled: row.enabled as boolean,
     position: row.position as number,
+    revision: row.revision as number,
     ownerUserId: (row.owner_user_id as string | null) ?? null,
     deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
     createdAt: (row.created_at as Date).toISOString(),
@@ -118,14 +129,14 @@ const compileSource = async (baseId: string, source: string): Promise<Result<Wor
 export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<Workflow | null> => {
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position,
+        SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position, w.revision,
                w.owner_user_id, w.deleted_at, w.created_at, w.updated_at
         FROM grids.workflows w
         JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
         WHERE w.id = ${id}::uuid
       `
     : await sql<DbRow[]>`
-        SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position,
+        SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position, w.revision,
                w.owner_user_id, w.deleted_at, w.created_at, w.updated_at
         FROM grids.workflows w
         JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
@@ -136,7 +147,7 @@ export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): 
 
 export const getByShortId = async (baseId: string, shortId: string): Promise<Workflow | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position,
+    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position, w.revision,
            w.owner_user_id, w.deleted_at, w.created_at, w.updated_at
     FROM grids.workflows w
     JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
@@ -155,7 +166,7 @@ export const getByIdOrShortId = async (baseId: string, idOrShortId: string): Pro
 
 export const listForBase = async (baseId: string): Promise<Workflow[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position,
+    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position, w.revision,
            w.owner_user_id, w.deleted_at, w.created_at, w.updated_at
     FROM grids.workflows w
     JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
@@ -167,7 +178,7 @@ export const listForBase = async (baseId: string): Promise<Workflow[]> => {
 
 export const listEnabledForBase = async (baseId: string): Promise<Workflow[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position,
+    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position, w.revision,
            w.owner_user_id, w.deleted_at, w.created_at, w.updated_at
     FROM grids.workflows w
     JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
@@ -179,7 +190,7 @@ export const listEnabledForBase = async (baseId: string): Promise<Workflow[]> =>
 
 export const listScheduledEnabled = async (): Promise<Workflow[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position,
+    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position, w.revision,
            w.owner_user_id, w.deleted_at, w.created_at, w.updated_at
     FROM grids.workflows w
     JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
@@ -236,7 +247,7 @@ export const listRecordEventEnabled = async (event: GridsRecordEvent): Promise<W
   const occurredAt = Date.parse(event.occurredAt);
   if (!Number.isFinite(occurredAt)) return [];
   const rows = await sql<DbRow[]>`
-    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position,
+    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position, w.revision,
            w.owner_user_id, w.deleted_at, w.created_at, w.updated_at, w.record_event_active_since
     FROM grids.workflows w
     JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
@@ -304,7 +315,7 @@ export const create = async (baseId: string, input: CreateWorkflowInput, actorId
             ${actorId}::uuid,
             ${recordEventActive ? sql`now()` : null}
           )
-          RETURNING id, short_id, base_id, name, description, source, compiled, enabled, position, owner_user_id, deleted_at, created_at, updated_at
+          RETURNING id, short_id, base_id, name, description, source, compiled, enabled, position, revision, owner_user_id, deleted_at, created_at, updated_at
         `;
       if (!inserted) throw err.internal("workflow insert failed");
       return inserted;
@@ -325,9 +336,17 @@ export const create = async (baseId: string, input: CreateWorkflowInput, actorId
   return ok(workflow);
 };
 
-export const update = async (id: string, input: UpdateWorkflowInput, actorId: string | null): Promise<Result<Workflow>> => {
+export const update = async (
+  id: string,
+  input: UpdateWorkflowInput,
+  actorId: string | null,
+  expectedRevision: number,
+): Promise<Result<Workflow>> => {
   const existing = await get(id);
   if (!existing) return fail(err.notFound("workflow"));
+  if (existing.revision !== expectedRevision) {
+    return fail(workflowRevisionConflict());
+  }
   const nextSource = input.source ?? existing.source;
   const compiled = input.source === undefined ? ok(existing.compiled) : await compileSource(existing.baseId, nextSource);
   if (!compiled.ok) return compiled;
@@ -338,7 +357,7 @@ export const update = async (id: string, input: UpdateWorkflowInput, actorId: st
   const activateRecordEvent = Boolean(nextEnabled && nextRecordEvent && (!existing.enabled || !existingRecordEvent || recordEventChanged));
   const deactivateRecordEvent = !nextEnabled || !nextRecordEvent;
 
-  const workflow = await sql.begin(async (tx): Promise<Workflow> => {
+  const workflow = await sql.begin(async (tx): Promise<Workflow | null> => {
     const [row] = await tx<DbRow[]>`
       UPDATE grids.workflows
       SET name = ${input.name === undefined ? existing.name : input.name.trim()},
@@ -353,10 +372,10 @@ export const update = async (id: string, input: UpdateWorkflowInput, actorId: st
             ELSE record_event_active_since
           END,
           updated_at = now()
-      WHERE id = ${id}::uuid AND deleted_at IS NULL
-      RETURNING id, short_id, base_id, name, description, source, compiled, enabled, position, owner_user_id, deleted_at, created_at, updated_at
+      WHERE id = ${id}::uuid AND deleted_at IS NULL AND revision = ${expectedRevision}
+      RETURNING id, short_id, base_id, name, description, source, compiled, enabled, position, revision, owner_user_id, deleted_at, created_at, updated_at
     `;
-    if (!row) throw err.notFound("workflow");
+    if (!row) return null;
     const updated = mapWorkflowRow(row);
     await logAudit(
       {
@@ -374,6 +393,9 @@ export const update = async (id: string, input: UpdateWorkflowInput, actorId: st
     );
     return updated;
   });
+  if (!workflow) {
+    return fail((await get(id)) ? workflowRevisionConflict() : err.notFound("workflow"));
+  }
   await workflowMetadataEvent("workflow.updated", workflow.baseId, workflow.id, actorId);
   return ok(workflow);
 };

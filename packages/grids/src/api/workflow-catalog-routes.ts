@@ -1,10 +1,12 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
+import { logger } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import {
   CreateWorkflowSchema,
   UpdateWorkflowSchema,
+  WORKFLOW_REVISION_HEADER,
   WorkflowAutocompleteBodySchema,
   WorkflowAutocompleteResponseSchema,
   WorkflowListSchema,
@@ -22,7 +24,29 @@ import {
   WorkflowValidateSchema,
 } from "./workflow-api-shared";
 
-export const createWorkflowCatalogRoutes = (workflowTriggerRuntime: typeof gridsService.workflowTriggerRuntime) =>
+const defaultLog = logger("grids:workflow-catalog-routes");
+
+const reconcileRuntimeAfterCommit = async (
+  log: Pick<ReturnType<typeof logger>, "warn">,
+  workflowId: string,
+  operation: "sync" | "delete",
+  run: () => Promise<void>,
+) => {
+  try {
+    await run();
+  } catch (error) {
+    log.warn("Workflow saved but runtime reconciliation failed", {
+      workflowId,
+      operation,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+export const createWorkflowCatalogRoutes = (
+  workflowTriggerRuntime: typeof gridsService.workflowTriggerRuntime,
+  log: Pick<ReturnType<typeof logger>, "warn"> = defaultLog,
+) =>
   new Hono<AuthContext>()
     .post(
       "/by-base/:baseId/validate",
@@ -119,7 +143,9 @@ export const createWorkflowCatalogRoutes = (workflowTriggerRuntime: typeof grids
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const result = await gridsService.workflow.create(baseId, c.req.valid("json"), currentActorUserId(c));
-        if (result.ok) await workflowTriggerRuntime.sync(result.data);
+        if (result.ok) {
+          await reconcileRuntimeAfterCommit(log, result.data.id, "sync", () => workflowTriggerRuntime.sync(result.data));
+        }
         return respond(c, () => Promise.resolve(result), 201);
       },
     )
@@ -147,11 +173,21 @@ export const createWorkflowCatalogRoutes = (workflowTriggerRuntime: typeof grids
       describeRoute({
         tags: ["Grids:Workflow"],
         summary: "Update a workflow",
+        parameters: [
+          {
+            name: WORKFLOW_REVISION_HEADER,
+            in: "header",
+            required: true,
+            description: "Current workflow revision returned by the API.",
+            schema: { type: "integer", minimum: 1 },
+          },
+        ],
         responses: {
           200: jsonResponse(WorkflowSchema, "Updated"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
+          409: jsonResponse(ErrorResponseSchema, "Revision conflict"),
         },
       }),
       v("json", UpdateWorkflowSchema),
@@ -161,8 +197,14 @@ export const createWorkflowCatalogRoutes = (workflowTriggerRuntime: typeof grids
         if (!workflow) return c.json({ message: "Workflow not found" }, 404);
         const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const result = await gridsService.workflow.update(workflowId, c.req.valid("json"), currentActorUserId(c));
-        if (result.ok) await workflowTriggerRuntime.sync(result.data);
+        const expectedRevision = Number(c.req.header(WORKFLOW_REVISION_HEADER));
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+          return c.json({ message: `${WORKFLOW_REVISION_HEADER} must contain the workflow revision.` }, 400);
+        }
+        const result = await gridsService.workflow.update(workflowId, c.req.valid("json"), currentActorUserId(c), expectedRevision);
+        if (result.ok) {
+          await reconcileRuntimeAfterCommit(log, result.data.id, "sync", () => workflowTriggerRuntime.sync(result.data));
+        }
         return respond(c, () => Promise.resolve(result));
       },
     )
@@ -186,7 +228,7 @@ export const createWorkflowCatalogRoutes = (workflowTriggerRuntime: typeof grids
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const result = await gridsService.workflow.remove(workflowId, currentActorUserId(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
-        await workflowTriggerRuntime.delete(workflowId);
+        await reconcileRuntimeAfterCommit(log, workflowId, "delete", () => workflowTriggerRuntime.delete(workflowId));
         return c.body(null, 204);
       },
     );
