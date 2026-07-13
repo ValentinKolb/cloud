@@ -2,7 +2,7 @@ import type { FilterChipSection } from "@valentinkolb/cloud/ui";
 import type { VenueView } from "./types";
 
 export const views: Array<{ id: VenueView; label: string; icon: string }> = [
-  { id: "shifts", label: "Shifts", icon: "ti ti-calendar-event" },
+  { id: "shifts", label: "Schedule", icon: "ti ti-calendar-event" },
   { id: "my-shifts", label: "My shifts", icon: "ti ti-user-check" },
   { id: "feedback", label: "Feedback", icon: "ti ti-message-star" },
 ];

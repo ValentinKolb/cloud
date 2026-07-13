@@ -3,6 +3,7 @@ import {
   DateRangePicker,
   type DateRangeValue,
   PanelDialog,
+  Placeholder,
   prompts,
   SegmentedControl,
   TextInput,
@@ -11,7 +12,7 @@ import {
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { UpcomingSlot, VenueDashboard } from "../../../contracts";
 import { DOUBLE_CLICK_CONFIRM_COOKIE } from "./constants";
@@ -23,6 +24,7 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
   const [mode, setMode] = createSignal<"shifts" | "free">(defaultMode);
   const [freeRange, setFreeRange] = createSignal<DateRangeValue>(defaultShiftRange());
   const [note, setNote] = createSignal("");
+  const availableSlots = createMemo(() => props.dashboard.slots.filter(isSlotActive).slice(0, 16));
 
   const signup = mutation.create<void, { slot: UpcomingSlot; weeks?: number }>({
     mutation: async ({ slot, weeks }) => {
@@ -114,7 +116,18 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
             }
           >
             <div class="flex flex-col gap-2">
-              <For each={props.dashboard.slots.filter(isSlotActive).slice(0, 16)}>
+              <For
+                each={availableSlots()}
+                fallback={
+                  <Placeholder
+                    surface="paper"
+                    variant="panel"
+                    title="No shifts available"
+                    description="There are no upcoming shift slots in the current schedule."
+                    icon="ti ti-calendar-off"
+                  />
+                }
+              >
                 {(slot) => (
                   <div class="paper p-3">
                     <div class="flex items-start justify-between gap-3">

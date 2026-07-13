@@ -19,7 +19,7 @@ import {
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { FeedbackEntry, PublicSection, PublicSectionInput, ShiftAssignment, UpcomingSlot } from "../../contracts";
 import { DOUBLE_CLICK_CONFIRM_COOKIE, feedbackRangeOptions, views } from "./venue-workspace/constants";
@@ -45,6 +45,26 @@ import {
   withinLastDays,
 } from "./venue-workspace/utils";
 
+function ViewHeader(props: { title: string; description: string; action?: JSX.Element }) {
+  return (
+    <div class="flex min-w-0 flex-col gap-2 px-1 sm:flex-row sm:items-start sm:justify-between">
+      <div class="min-w-0">
+        <h1 class="text-base font-semibold text-primary">{props.title}</h1>
+        <p class="text-xs text-dimmed">{props.description}</p>
+      </div>
+      <Show when={props.action}>
+        <div class="flex shrink-0 flex-wrap gap-2">{props.action}</div>
+      </Show>
+    </div>
+  );
+}
+
+const permissionLabel = (permission: VenueWorkspaceProps["dashboard"]["venue"]["permission"]): string => {
+  if (permission === "admin") return "Admin";
+  if (permission === "write") return "Staff";
+  return "Viewer";
+};
+
 export default function VenueWorkspace(props: VenueWorkspaceProps) {
   const venue = () => props.dashboard.venue;
   const [view] = createSignal<VenueView>(props.initialView);
@@ -69,10 +89,9 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
     navigateTo(feedbackFilterUrl(next === 7 || next === 14 ? next : 30));
   };
   const feedbackBucketsForDays = (days: number) => props.dashboard.feedback.buckets.filter((bucket) => withinLastDays(bucket.date, days));
-  const feedbackThirtyDayBuckets = createMemo(() => feedbackBucketsForDays(30));
-  const feedbackThirtyDayCount = createMemo(() => feedbackBucketCount(feedbackThirtyDayBuckets()));
-  const feedbackThirtyDayAverage = createMemo(() => feedbackBucketAverage(feedbackThirtyDayBuckets()));
   const feedbackBuckets = createMemo(() => feedbackBucketsForDays(feedbackRangeDays()));
+  const feedbackRangeCount = createMemo(() => feedbackBucketCount(feedbackBuckets()));
+  const feedbackRangeAverage = createMemo(() => feedbackBucketAverage(feedbackBuckets()));
   const feedbackChartLabels = createMemo(() => feedbackBuckets().map((bucket) => fmtDate(bucket.date)));
   const feedbackChartData = createMemo(() =>
     feedbackBuckets()
@@ -83,7 +102,9 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
   const filteredFeedbackEntries = createMemo(() =>
     props.dashboard.feedbackEntries.filter((entry) => withinLastDays(entry.createdAt, feedbackRangeDays())),
   );
-  const openRegistrationCount = createMemo(() => props.dashboard.slots.reduce((sum, slot) => sum + slot.missingPeople, 0));
+  const activeSlots = createMemo(() => props.dashboard.slots.filter(isSlotActive));
+  const openRegistrationCount = createMemo(() => activeSlots().reduce((sum, slot) => sum + slot.missingPeople, 0));
+  const feedbackCommentCount = createMemo(() => filteredFeedbackEntries().filter((entry) => Boolean(entry.comment?.trim())).length);
   const feedbackColumns: DataTableColumn<FeedbackEntry>[] = [
     { id: "rating", header: "Rating", value: (entry) => entry.rating, cellClass: "w-px" },
     { id: "comment", header: "Comment", value: (entry) => entry.comment, cellClass: "min-w-64" },
@@ -287,18 +308,13 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
       <AppWorkspace.Sidebar>
         <AppWorkspace.SidebarHeader
           title={venue().name}
+          subtitle={permissionLabel(venue().permission)}
           icon={venue().icon || "ti ti-building-carousel"}
-          action={
-            <button
-              type="button"
-              onClick={openSettings}
-              class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
-              title="Settings"
-              aria-label={`Settings for ${venue().name}`}
-            >
-              <i class="ti ti-settings text-xs" />
-            </button>
-          }
+          iconStyle={`background-color: color-mix(in srgb, ${venue().accentColor} 12%, var(--ui-surface)); color: ${
+            venue().accentColor
+          }; box-shadow: inset 0 0 0 1px color-mix(in srgb, ${venue().accentColor} 22%, transparent)`}
+          iconViewTransitionName={`venue-color-${venue().id}`}
+          titleViewTransitionName={`venue-name-${venue().id}`}
         />
 
         <AppWorkspace.SidebarMobile>
@@ -310,6 +326,9 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
             </Show>
             <AppWorkspace.SidebarItem href="/app/venue" navigation="document" icon="ti ti-layout-grid">
               All venues
+            </AppWorkspace.SidebarItem>
+            <AppWorkspace.SidebarItem icon="ti ti-device-tv" onClick={openPublicPage}>
+              Public page
             </AppWorkspace.SidebarItem>
             <For each={views}>
               {(item) => (
@@ -340,25 +359,23 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                 </AppWorkspace.SidebarItem>
               )}
             </For>
-            <AppWorkspace.SidebarItem icon="ti ti-device-tv" onClick={openPublicPage}>
-              Public page
+            <AppWorkspace.SidebarItem icon="ti ti-settings" onClick={openSettings}>
+              Venue settings
             </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarMobileItems>
         </AppWorkspace.SidebarMobile>
 
         <AppWorkspace.SidebarDesktop>
           <div class="flex flex-col gap-3">
-            <AppWorkspace.SidebarSection title="Actions">
-              <AppWorkspace.SidebarIconGrid columns={3}>
-                <Show when={canWrite(venue())}>
-                  <AppWorkspace.SidebarIconAction icon="ti ti-user-plus" label="Sign up for a shift" tone="success" onClick={openSignup} />
-                </Show>
-                <AppWorkspace.SidebarIconAction href="/app/venue" navigation="document" icon="ti ti-layout-grid" label="All venues" />
-                <AppWorkspace.SidebarIconAction icon="ti ti-device-tv" label="Public page options" onClick={openPublicPage} />
-              </AppWorkspace.SidebarIconGrid>
-            </AppWorkspace.SidebarSection>
+            <AppWorkspace.SidebarIconGrid columns={canWrite(venue()) ? 3 : 2}>
+              <Show when={canWrite(venue())}>
+                <AppWorkspace.SidebarIconAction icon="ti ti-user-plus" label="Sign up for a shift" tone="success" onClick={openSignup} />
+              </Show>
+              <AppWorkspace.SidebarIconAction icon="ti ti-device-tv" label="Public page" onClick={openPublicPage} />
+              <AppWorkspace.SidebarIconAction href="/app/venue" navigation="document" icon="ti ti-layout-grid" label="All venues" />
+            </AppWorkspace.SidebarIconGrid>
 
-            <AppWorkspace.SidebarSection title="Navigation">
+            <AppWorkspace.SidebarSection title="Workspace">
               <For each={views}>
                 {(item) => (
                   <AppWorkspace.SidebarItem
@@ -375,7 +392,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
           </div>
 
           <AppWorkspace.SidebarBody scrollPreserveKey={`venue-sidebar-${venue().id}`}>
-            <AppWorkspace.SidebarSection title="Public sections">
+            <AppWorkspace.SidebarSection title="Public content">
               <Show when={canAdmin(venue())}>
                 <AppWorkspace.SidebarItem icon="ti ti-plus" tone="success" onClick={() => addSection.mutate()}>
                   Add public section
@@ -402,198 +419,254 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
               </For>
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
+
+          <AppWorkspace.SidebarFooter>
+            <AppWorkspace.SidebarItem icon="ti ti-settings" onClick={openSettings}>
+              Venue settings
+            </AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarFooter>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
 
-      <AppWorkspace.Main>
+      <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
         <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`venue-main-${venue().id}`} style="scrollbar-gutter: stable">
           <div class="flex flex-col gap-2">
-            <StatGrid columns={3} class="shrink-0">
-              <StatCell
-                label="Customer satisfaction"
-                value={feedbackThirtyDayAverage() === null ? "-" : `${feedbackThirtyDayAverage()!.toFixed(1)}/5`}
-                sub={`${feedbackThirtyDayCount()} rating${feedbackThirtyDayCount() === 1 ? "" : "s"} · Last 30 days`}
-                accent={{
-                  tone: feedbackThirtyDayAverage() !== null && feedbackThirtyDayAverage()! >= 4 ? "emerald" : "amber",
-                  icon: "ti ti-star",
-                }}
-              />
-              <StatCell
-                label="Open registrations"
-                value={openRegistrationCount()}
-                sub="still needed in visible shift window"
-                accent={{
-                  tone: openRegistrationCount() > 0 ? "amber" : "emerald",
-                  icon: openRegistrationCount() > 0 ? "ti ti-user-plus" : "ti ti-check",
-                }}
-              />
-              <StatCell
-                label="My shifts"
-                value={props.dashboard.myShiftCount}
-                sub={`${props.dashboard.myUpcomingShifts.length} upcoming assignment${
-                  props.dashboard.myUpcomingShifts.length === 1 ? "" : "s"
-                }`}
-                accent={{ tone: "blue", icon: "ti ti-user-check" }}
-              />
-            </StatGrid>
-
             <Show when={selectedSection()}>
               {(section) => (
-                <section class="paper p-4">
-                  <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div class="min-w-0">
-                      <div class="mb-2 flex items-center gap-2">
-                        <i class={`${sectionKindIcon(section().kind)} text-dimmed`} />
-                        <span class="tag">{section().kind}</span>
-                        <Show when={!section().enabled}>
-                          <span class="tag bg-zinc-100 text-dimmed dark:bg-zinc-800">Hidden</span>
+                <>
+                  <ViewHeader
+                    title={section().title}
+                    description="Preview this section as it appears on the public venue page."
+                    action={
+                      <>
+                        <button type="button" class="btn-secondary btn-sm" onClick={openPublicPage}>
+                          <i class="ti ti-device-tv" /> Public page
+                        </button>
+                        <Show when={canAdmin(venue())}>
+                          <button
+                            type="button"
+                            class="btn-secondary btn-sm"
+                            disabled={editSection.loading()}
+                            onClick={() => editSection.mutate(section())}
+                          >
+                            <i class={editSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-pencil"} /> Edit
+                          </button>
+                          <button
+                            type="button"
+                            class="btn-secondary btn-sm px-2"
+                            disabled={duplicateSection.loading()}
+                            onClick={() => duplicateSection.mutate(section())}
+                            title="Duplicate section"
+                            aria-label="Duplicate section"
+                          >
+                            <i class={duplicateSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-copy"} />
+                          </button>
+                          <button
+                            type="button"
+                            class="btn-danger btn-sm px-2"
+                            disabled={deleteSection.loading()}
+                            onClick={() => deleteSection.mutate(section())}
+                            title="Delete section"
+                            aria-label="Delete section"
+                          >
+                            <i class={deleteSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
+                          </button>
                         </Show>
-                      </div>
-                      <h2 class="text-lg font-semibold text-primary">{section().title}</h2>
-                      <p class="text-xs text-dimmed">Preview of this public section.</p>
-                    </div>
-                    <Show when={canAdmin(venue())}>
-                      <div class="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          class="btn-secondary btn-sm"
-                          disabled={editSection.loading()}
-                          onClick={() => editSection.mutate(section())}
-                        >
-                          <i class={editSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-pencil"} /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          class="btn-secondary btn-sm"
-                          disabled={duplicateSection.loading()}
-                          onClick={() => duplicateSection.mutate(section())}
-                        >
-                          <i class={duplicateSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-copy"} /> Duplicate
-                        </button>
-                        <button
-                          type="button"
-                          class="btn-danger btn-sm"
-                          disabled={deleteSection.loading()}
-                          onClick={() => deleteSection.mutate(section())}
-                        >
-                          <i class={deleteSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} /> Delete
-                        </button>
-                      </div>
+                      </>
+                    }
+                  />
+                  <div class="flex items-center gap-2 px-1">
+                    <i class={`${sectionKindIcon(section().kind)} text-dimmed`} />
+                    <span class="tag">{section().kind}</span>
+                    <Show when={!section().enabled}>
+                      <span class="tag bg-zinc-100 text-dimmed dark:bg-zinc-800">Hidden</span>
                     </Show>
                   </div>
-                  <PublicSectionPreview section={section()} />
-                </section>
+                  <section class="paper p-4">
+                    <PublicSectionPreview section={section()} />
+                  </section>
+                </>
               )}
             </Show>
 
             <Show when={!selectedSection() && view() === "shifts"}>
-              <section class="paper flex min-h-[42rem] flex-col p-4">
-                <div class="mb-3 flex items-center justify-between gap-2">
-                  <h2 class="section-label mb-0">Shifts</h2>
-                  <Show when={canWrite(venue())}>
-                    <button type="button" class="btn-primary btn-sm" onClick={openSignup}>
-                      <i class="ti ti-user-plus" /> Sign up
-                    </button>
-                  </Show>
-                </div>
-                <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-zinc-100 dark:border-zinc-800">
-                  <Calendar
-                    class="h-full"
-                    date={calendarDate()}
-                    view={calendarView()}
-                    views={["week", "month"]}
-                    events={shiftEvents()}
-                    dateConfig={timeZoneDateConfig(venue().timezone)}
-                    hideAllDay
-                    startHour={7}
-                    endHour={23}
-                    visibleStartHour={8}
-                    visibleEndHour={20}
-                    getViewHref={(nextView) => calendarHref(nextView, calendarDate())}
-                    getDateHref={(nextDate, nextView) => calendarHref(nextView, nextDate)}
-                    onEventDoubleClick={(event) => {
-                      const slot = slotByKey().get(event.id);
-                      if (slot) void signupFromCalendar(slot);
-                    }}
-                    renderEvent={(event, context) => {
-                      const slot = slotByKey().get(event.id);
-                      const slotProgress = !context.compact ? slot : undefined;
-                      const slotAttendees = context.durationHours >= 1.5 ? slot : undefined;
-                      const ended = slot ? !isSlotActive(slot) : false;
-                      return (
-                        <div class="flex min-h-0 min-w-0 flex-col gap-1">
-                          <span class="block truncate text-[11px] font-semibold">{event.title}</span>
-                          <span class="block truncate text-[10px] opacity-75">
-                            {fmtTime(context.start.toISOString(), venue().timezone)}-{fmtTime(context.end.toISOString(), venue().timezone)}
-                          </span>
-                          <Show
-                            when={ended}
-                            fallback={<Show when={slotProgress}>{(currentSlot) => <ProgressBar slot={currentSlot()} compact />}</Show>}
-                          >
-                            <span class="block truncate text-[10px] font-semibold opacity-75">Ended</span>
-                          </Show>
-                          <Show when={slotAttendees}>
-                            {(currentSlot) => (
-                              <span class="block truncate text-[10px] opacity-75">
-                                {currentSlot()
-                                  .assignments.map((entry) => entry.userDisplayName)
-                                  .join(", ") || "No one yet"}
-                              </span>
-                            )}
-                          </Show>
-                        </div>
-                      );
+              <>
+                <ViewHeader
+                  title="Schedule"
+                  description="See staffing coverage and join an available shift."
+                  action={
+                    <Show when={canWrite(venue())}>
+                      <button type="button" class="btn-primary btn-sm" onClick={openSignup}>
+                        <i class="ti ti-user-plus" /> Sign up
+                      </button>
+                    </Show>
+                  }
+                />
+                <StatGrid columns={3} size="sm" class="shrink-0">
+                  <StatCell
+                    label="Open spots"
+                    value={openRegistrationCount()}
+                    sub="people still needed in this window"
+                    accent={{
+                      tone: openRegistrationCount() > 0 ? "amber" : "emerald",
+                      icon: openRegistrationCount() > 0 ? "ti ti-user-plus" : "ti ti-check",
                     }}
                   />
-                </div>
-              </section>
+                  <StatCell
+                    label="Upcoming shifts"
+                    value={activeSlots().length}
+                    sub="visible in the current calendar window"
+                    accent={{ tone: "blue", icon: "ti ti-calendar-event" }}
+                  />
+                  <StatCell
+                    label="My upcoming"
+                    value={props.dashboard.myUpcomingShifts.length}
+                    sub={`${props.dashboard.myShiftCount} assignment${props.dashboard.myShiftCount === 1 ? "" : "s"} in total`}
+                    accent={{ tone: "blue", icon: "ti ti-user-check" }}
+                  />
+                </StatGrid>
+                <Calendar
+                  class="min-h-[42rem] flex-1"
+                  date={calendarDate()}
+                  view={calendarView()}
+                  views={["week", "month"]}
+                  events={shiftEvents()}
+                  dateConfig={timeZoneDateConfig(venue().timezone)}
+                  hideAllDay
+                  startHour={7}
+                  endHour={23}
+                  visibleStartHour={8}
+                  visibleEndHour={20}
+                  getViewHref={(nextView) => calendarHref(nextView, calendarDate())}
+                  getDateHref={(nextDate, nextView) => calendarHref(nextView, nextDate)}
+                  onEventDoubleClick={(event) => {
+                    const slot = slotByKey().get(event.id);
+                    if (slot) void signupFromCalendar(slot);
+                  }}
+                  renderEvent={(event, context) => {
+                    const slot = slotByKey().get(event.id);
+                    const slotProgress = !context.compact ? slot : undefined;
+                    const slotAttendees = context.durationHours >= 1.5 ? slot : undefined;
+                    const ended = slot ? !isSlotActive(slot) : false;
+                    return (
+                      <div class="flex min-h-0 min-w-0 flex-col gap-1">
+                        <span class="block truncate text-[11px] font-semibold">{event.title}</span>
+                        <span class="block truncate text-[10px] opacity-75">
+                          {fmtTime(context.start.toISOString(), venue().timezone)}-{fmtTime(context.end.toISOString(), venue().timezone)}
+                        </span>
+                        <Show
+                          when={ended}
+                          fallback={<Show when={slotProgress}>{(currentSlot) => <ProgressBar slot={currentSlot()} compact />}</Show>}
+                        >
+                          <span class="block truncate text-[10px] font-semibold opacity-75">Ended</span>
+                        </Show>
+                        <Show when={slotAttendees}>
+                          {(currentSlot) => (
+                            <span class="block truncate text-[10px] opacity-75">
+                              {currentSlot()
+                                .assignments.map((entry) => entry.userDisplayName)
+                                .join(", ") || "No one yet"}
+                            </span>
+                          )}
+                        </Show>
+                      </div>
+                    );
+                  }}
+                />
+              </>
             </Show>
 
             <Show when={!selectedSection() && view() === "my-shifts"}>
-              <section class="paper p-4">
-                <h2 class="section-label">My shifts</h2>
-                <Show
-                  when={props.dashboard.myUpcomingShifts.length > 0}
-                  fallback={
-                    <Placeholder align="left" class="px-0 py-2">
-                      No upcoming shifts.
-                    </Placeholder>
+              <>
+                <ViewHeader
+                  title="My shifts"
+                  description="Review your upcoming assignments or subscribe to them in your calendar."
+                  action={
+                    <>
+                      <a class="btn-secondary btn-sm" href={`/api/venue/calendar/${props.icalToken}.ics`}>
+                        <i class="ti ti-calendar-down" /> iCal
+                      </a>
+                      <Show when={canWrite(venue())}>
+                        <button type="button" class="btn-primary btn-sm" onClick={openSignup}>
+                          <i class="ti ti-user-plus" /> Sign up
+                        </button>
+                      </Show>
+                    </>
                   }
-                >
-                  <div class="grid gap-2">
-                    <For each={props.dashboard.myUpcomingShifts}>
-                      {(shift) => (
-                        <div class="paper flex items-center justify-between gap-3 p-3 text-sm">
-                          <div class="min-w-0">
-                            <p class="font-medium text-primary">{fmt(shift.startsAt)}</p>
-                            <p class="text-xs text-dimmed">{shift.note || "Shift"}</p>
+                />
+                <section class="paper p-2">
+                  <Show
+                    when={props.dashboard.myUpcomingShifts.length > 0}
+                    fallback={
+                      <Placeholder align="left" class="px-2 py-6">
+                        You have no upcoming shifts.
+                      </Placeholder>
+                    }
+                  >
+                    <div class="grid gap-1">
+                      <For each={props.dashboard.myUpcomingShifts}>
+                        {(shift) => (
+                          <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-3 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900">
+                            <div class="min-w-0">
+                              <p class="font-medium text-primary">{fmt(shift.startsAt)}</p>
+                              <p class="text-xs text-dimmed">{shift.note || "Shift"}</p>
+                            </div>
+                            <button
+                              type="button"
+                              class="btn-danger btn-sm"
+                              disabled={cancelAssignment.loading()}
+                              onClick={() => cancelAssignment.mutate(shift)}
+                            >
+                              <i class={cancelAssignment.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-x"} /> Cancel
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            class="btn-danger btn-sm"
-                            disabled={cancelAssignment.loading()}
-                            onClick={() => cancelAssignment.mutate(shift)}
-                          >
-                            <i class={cancelAssignment.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-x"} /> Cancel
-                          </button>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </section>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </section>
+              </>
             </Show>
 
             <Show when={!selectedSection() && view() === "feedback"}>
-              <section class="flex flex-col gap-3 px-1 py-2">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div class="min-w-0">
-                    <h2 class="section-label mb-1">Feedback</h2>
-                    <p class="text-sm text-dimmed">Average customer rating over the last {feedbackRangeDays()} days.</p>
-                  </div>
-                </div>
+              <section class="flex flex-col gap-2">
+                <ViewHeader
+                  title="Feedback"
+                  description={`Visitor ratings and comments from the last ${feedbackRangeDays()} days.`}
+                  action={
+                    <Show when={venue().feedbackEnabled}>
+                      <a href={`/app/venue/public/${venue().slug}/feedback`} target="_blank" rel="noreferrer" class="btn-secondary btn-sm">
+                        <i class="ti ti-external-link" /> Feedback page
+                      </a>
+                    </Show>
+                  }
+                />
 
-                <div class="h-64 rounded-xl px-1 py-2 text-dimmed">
+                <StatGrid columns={3} size="sm" class="shrink-0">
+                  <StatCell
+                    label="Average rating"
+                    value={feedbackRangeAverage() === null ? "-" : `${feedbackRangeAverage()!.toFixed(1)}/5`}
+                    sub={`over the last ${feedbackRangeDays()} days`}
+                    accent={{
+                      tone: feedbackRangeAverage() !== null && feedbackRangeAverage()! >= 4 ? "emerald" : "amber",
+                      icon: "ti ti-star",
+                    }}
+                  />
+                  <StatCell
+                    label="Ratings"
+                    value={feedbackRangeCount()}
+                    sub={`received in the last ${feedbackRangeDays()} days`}
+                    accent={{ tone: "blue", icon: "ti ti-message-star" }}
+                  />
+                  <StatCell
+                    label="Comments"
+                    value={feedbackCommentCount()}
+                    sub="ratings with written feedback"
+                    accent={{ tone: "blue", icon: "ti ti-message" }}
+                  />
+                </StatGrid>
+
+                <div class="paper h-64 p-3 text-dimmed">
                   <Chart
                     kind="line"
                     class="h-full min-h-0"
@@ -604,7 +677,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                   />
                 </div>
 
-                <div class="flex items-stretch gap-2">
+                <div class="flex items-stretch gap-2 px-1">
                   <div class="min-w-0 flex-1">
                     <SearchBar
                       action={feedbackSearchAction()}

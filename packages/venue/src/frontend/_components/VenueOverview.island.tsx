@@ -1,13 +1,14 @@
-import { AppOverview, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { For } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { Venue, VenueTemplateSummary } from "../../contracts";
 
 type Props = {
   venues: Venue[];
   templates: VenueTemplateSummary[];
+  initialQuery: string;
 };
 
 const readError = async (res: Response, fallback: string): Promise<string> => {
@@ -29,7 +30,33 @@ const slugify = (value: string): string =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 
+const venueMatches = (venue: Venue, query: string): boolean => {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return `${venue.name} ${venue.description ?? ""} ${venue.slug}`.toLowerCase().includes(normalized);
+};
+
+const updateQueryParam = (value: string) => {
+  const url = new URL(window.location.href);
+  const normalized = value.trim();
+  if (normalized) url.searchParams.set("q", normalized);
+  else url.searchParams.delete("q");
+  window.history.replaceState({}, "", url.toString());
+};
+
+const permissionLabel = (permission: Venue["permission"]): string => {
+  if (permission === "admin") return "Admin";
+  if (permission === "write") return "Staff";
+  return "Viewer";
+};
+
 export default function VenueOverview(props: Props) {
+  const [query, setQuery] = createSignal(props.initialQuery);
+  const filteredVenues = createMemo(() => props.venues.filter((venue) => venueMatches(venue, query())));
+  const onSearchInput = (value: string) => {
+    setQuery(value);
+    updateQueryParam(value);
+  };
   const createVenue = mutation.create<string | null, void>({
     mutation: async () => {
       const result = await prompts.form({
@@ -127,6 +154,20 @@ export default function VenueOverview(props: Props) {
             ? "Create your first venue to start scheduling."
             : `${props.venues.length} venue${props.venues.length === 1 ? "" : "s"} available`
         }
+        toolbar={
+          <TextInput
+            name="venue-search"
+            type="search"
+            ariaLabel="Search venues"
+            placeholder="Search venues..."
+            icon="ti ti-search"
+            activeIcon="ti ti-search"
+            value={query}
+            onInput={onSearchInput}
+            clearable
+            onClear={() => onSearchInput("")}
+          />
+        }
       >
         {props.venues.length === 0 ? (
           <AppOverview.EmptyState
@@ -136,25 +177,51 @@ export default function VenueOverview(props: Props) {
             class="min-h-72"
           />
         ) : (
-          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {props.venues.map((venue) => (
-              <a
-                href={`/app/venue/${venue.id}`}
-                class="paper flex items-center gap-4 p-4 no-underline transition-all hover:paper-highlighted"
-              >
-                <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-blue-100 dark:bg-blue-900/50">
-                  <i class={`${venue.icon || "ti ti-building-carousel"} text-lg text-blue-600 dark:text-blue-400`} />
-                </div>
-                <div class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-semibold text-primary">{venue.name}</span>
-                  <p class="truncate text-xs text-dimmed">
-                    {venue.description || `${venue.openMode} opening · ${signupLabel(venue.signupMode)}`}
-                  </p>
-                </div>
-                <i class="ti ti-chevron-right text-dimmed" />
-              </a>
-            ))}
-          </div>
+          <Show
+            when={filteredVenues().length > 0}
+            fallback={
+              <AppOverview.EmptyState title="No matching venues" description="Try a different name or public slug." icon="ti ti-search">
+                <button type="button" class="btn-secondary btn-sm" onClick={() => onSearchInput("")}>
+                  <i class="ti ti-x" /> Clear search
+                </button>
+              </AppOverview.EmptyState>
+            }
+          >
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <For each={filteredVenues()}>
+                {(venue) => (
+                  <a
+                    href={`/app/venue/${venue.id}`}
+                    class="paper group flex items-center gap-4 p-4 no-underline transition-all hover:paper-highlighted"
+                    style={`view-transition-name: venue-card-${venue.id}`}
+                  >
+                    <div
+                      class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center"
+                      style={`background-color: color-mix(in srgb, ${venue.accentColor} 12%, var(--ui-surface)); color: ${venue.accentColor}; view-transition-name: venue-color-${venue.id}`}
+                    >
+                      <i class={`${venue.icon || "ti ti-building-carousel"} text-lg`} />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-2">
+                        <span
+                          class="block truncate text-sm font-semibold text-primary"
+                          style={`view-transition-name: venue-name-${venue.id}`}
+                        >
+                          {venue.name}
+                        </span>
+                        <span class="tag shrink-0">{permissionLabel(venue.permission)}</span>
+                      </div>
+                      <p class="truncate text-xs text-dimmed">
+                        {venue.description ||
+                          `${signupLabel(venue.signupMode)} · ${venue.publicEnabled ? "public page active" : "public page hidden"}`}
+                      </p>
+                    </div>
+                    <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5" />
+                  </a>
+                )}
+              </For>
+            </div>
+          </Show>
         )}
       </AppOverview.Main>
 

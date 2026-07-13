@@ -9,11 +9,12 @@ import VenueOverview from "./_components/VenueOverview.island";
 export default ssr<AuthContext>(async (c) => {
   const venues = await venueService.venues.list(expectUserBackedActor(c));
   const templates = venueService.venueTemplates.list();
+  const initialQuery = (c.req.query("q") ?? "").trim();
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Venues" }]}>
       <VenueLayoutHelp />
-      <VenueOverview venues={venues} templates={templates} />
+      <VenueOverview venues={venues} templates={templates} initialQuery={initialQuery} />
     </Layout>
   );
 });

@@ -360,12 +360,12 @@ export function PublicSectionPreview(props: { section: PublicSection }) {
               const item = raw as Record<string, unknown>;
               const image = typeof item.image === "string" ? item.image : "";
               return (
-                <div class="paper p-3 text-sm">
+                <div class="px-1 py-2 text-sm">
                   <div class="flex items-start justify-between gap-3">
                     <Show when={image}>
                       <img src={image} alt="" class="h-14 w-14 shrink-0 rounded-lg object-cover" />
                     </Show>
-                    <div class="min-w-0">
+                    <div class="min-w-0 flex-1">
                       <p class="font-medium text-primary">{String(item.name ?? "Item")}</p>
                       <Show when={item.description}>
                         <p class="text-xs text-dimmed">{String(item.description)}</p>
