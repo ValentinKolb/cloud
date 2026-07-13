@@ -4,6 +4,7 @@ import type { PulseIngestBatch } from "../contracts";
 import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
 import { telemetryValueKind, type PulseTelemetryValueKind } from "../telemetry-contract";
 import { enforceMetricSeriesBudget } from "./metric-cardinality";
+import { lockStateIdentities } from "./state-transitions";
 import { normalizeDimensions } from "./telemetry-values";
 
 export type PulseSqlClient = typeof sql;
@@ -316,6 +317,37 @@ const writeStates = async (baseId: string, sourceId: string | null | undefined, 
   if (rows.length === 0) return;
   const input = json(rows);
   const columns = `ordinal int, key text, value jsonb, ts timestamptz, \"entityId\" text, \"entityType\" text, \"dimensionsHash\" text, dimensions jsonb, \"resourceKey\" text, \"resourceId\" text, \"resourceType\" text, \"resourceLabel\" text`;
+  await lockStateIdentities(
+    baseId,
+    rows.map((row) => ({ key: row.key, entityId: row.entityId, dimensionsHash: row.dimensionsHash })),
+    db,
+  );
+  await db.unsafe(
+    `
+    WITH input AS (
+      SELECT * FROM jsonb_to_recordset(($1::jsonb #>> '{}')::jsonb) AS row(${columns})
+    ), current_rows AS (
+      SELECT DISTINCT ON (key, "entityId", "dimensionsHash") *
+      FROM input ORDER BY key, "entityId", "dimensionsHash", ts DESC, ordinal DESC
+    )
+    INSERT INTO pulse.state_changes (
+      base_id, state_key, source_id, entity_id, entity_type, value, dimensions_hash, dimensions,
+      resource_key, resource_id, resource_type, resource_label, changed_at
+    )
+    SELECT $2::uuid, incoming.key, $3::uuid, NULLIF(incoming."entityId", ''), incoming."entityType", incoming.value,
+      incoming."dimensionsHash", incoming.dimensions, incoming."resourceKey", incoming."resourceId", incoming."resourceType",
+      incoming."resourceLabel", incoming.ts
+    FROM current_rows incoming
+    LEFT JOIN pulse.states_current current
+      ON current.base_id = $2::uuid
+      AND current.state_key = incoming.key
+      AND current.entity_id = incoming."entityId"
+      AND current.dimensions_hash = incoming."dimensionsHash"
+    WHERE current.base_id IS NULL
+      OR (current.updated_at <= incoming.ts AND current.value IS DISTINCT FROM incoming.value)
+  `,
+    [input, baseId, sourceId ?? null],
+  );
   await db.unsafe(
     `
     WITH input AS (
@@ -336,19 +368,6 @@ const writeStates = async (baseId: string, sourceId: string | null | undefined, 
       dimensions = EXCLUDED.dimensions, resource_key = EXCLUDED.resource_key, resource_id = EXCLUDED.resource_id,
       resource_type = EXCLUDED.resource_type, resource_label = EXCLUDED.resource_label, updated_at = EXCLUDED.updated_at
     WHERE pulse.states_current.updated_at <= EXCLUDED.updated_at
-  `,
-    [input, baseId, sourceId ?? null],
-  );
-  await db.unsafe(
-    `
-    WITH input AS (SELECT * FROM jsonb_to_recordset(($1::jsonb #>> '{}')::jsonb) AS row(${columns}))
-    INSERT INTO pulse.state_changes (
-      base_id, state_key, source_id, entity_id, entity_type, value, dimensions_hash, dimensions,
-      resource_key, resource_id, resource_type, resource_label, changed_at
-    )
-    SELECT $2::uuid, key, $3::uuid, NULLIF("entityId", ''), "entityType", value, "dimensionsHash", dimensions,
-      "resourceKey", "resourceId", "resourceType", "resourceLabel", ts
-    FROM input
   `,
     [input, baseId, sourceId ?? null],
   );

@@ -15,6 +15,7 @@ import { requireBaseActive } from "./access-control";
 import { type PulseSqlClient, prepareIngestBatch, writePreparedIngestBatchInTransaction } from "./ingest-bulk";
 import { enforceMetricSeriesBudget, MetricSeriesLimitError } from "./metric-cardinality";
 import { PULSE_INGEST_SCOPE, resolveIngestSourceForServiceAccount } from "./source-management";
+import { lockStateIdentities } from "./state-transitions";
 import { jsonbObject, normalizeDimensions } from "./telemetry-values";
 
 type SqlClient = typeof sql;
@@ -458,6 +459,36 @@ const setStateInClient = async (params: {
     dimensions,
   });
 
+  await lockStateIdentities(params.baseId, [{ key: params.state.key, entityId: params.state.entityId ?? "", dimensionsHash: hash }], db);
+  await db`
+    INSERT INTO pulse.state_changes (
+      base_id, state_key, source_id, entity_id, entity_type, value, dimensions_hash, dimensions,
+      resource_key, resource_id, resource_type, resource_label, changed_at
+    )
+    SELECT
+      ${params.baseId}::uuid,
+      ${params.state.key},
+      ${params.sourceId ?? null}::uuid,
+      ${params.state.entityId ?? null},
+      ${params.state.entityType ?? null},
+      ${encodedValue}::jsonb,
+      ${hash},
+      (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb,
+      ${resource?.key ?? null},
+      ${resource?.id ?? null},
+      ${resource?.type ?? null},
+      ${resource?.label ?? null},
+      ${changedAt.data}
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM pulse.states_current current
+      WHERE current.base_id = ${params.baseId}::uuid
+        AND current.state_key = ${params.state.key}
+        AND current.entity_id = ${params.state.entityId ?? ""}
+        AND current.dimensions_hash = ${hash}
+        AND (current.updated_at > ${changedAt.data} OR current.value IS NOT DISTINCT FROM ${encodedValue}::jsonb)
+    )
+  `;
   await db`
     INSERT INTO pulse.states_current (
       base_id,
@@ -500,38 +531,7 @@ const setStateInClient = async (params: {
       resource_type = EXCLUDED.resource_type,
       resource_label = EXCLUDED.resource_label,
       updated_at = EXCLUDED.updated_at
-  `;
-  await db`
-    INSERT INTO pulse.state_changes (
-      base_id,
-      state_key,
-      source_id,
-      entity_id,
-      entity_type,
-      value,
-      dimensions_hash,
-      dimensions,
-      resource_key,
-      resource_id,
-      resource_type,
-      resource_label,
-      changed_at
-    )
-    VALUES (
-      ${params.baseId}::uuid,
-      ${params.state.key},
-      ${params.sourceId ?? null}::uuid,
-      ${params.state.entityId ?? null},
-      ${params.state.entityType ?? null},
-      ${encodedValue}::jsonb,
-      ${hash},
-      (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb,
-      ${resource?.key ?? null},
-      ${resource?.id ?? null},
-      ${resource?.type ?? null},
-      ${resource?.label ?? null},
-      ${changedAt.data}
-    )
+    WHERE pulse.states_current.updated_at <= EXCLUDED.updated_at
   `;
   await upsertObservedResource({ baseId: params.baseId, sourceId: params.sourceId, resource, dimensions, seenAt: changedAt.data, db });
   await upsertSignalFields({
@@ -548,7 +548,7 @@ const setStateInClient = async (params: {
 };
 
 export const setState = async (params: { baseId: string; sourceId?: string | null; state: PulseState }): Promise<Result<void>> =>
-  setStateInClient(params);
+  sql.begin((tx) => setStateInClient({ ...params, db: tx }));
 
 type IngestCounts = { metrics: number; events: number; states: number };
 
