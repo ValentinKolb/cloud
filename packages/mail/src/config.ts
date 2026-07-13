@@ -1,4 +1,5 @@
 import { defineApp } from "@valentinkolb/cloud";
+import { NOTIFICATIONS } from "./notifications";
 
 export const MAIL_APP_ID = "mail";
 export const MAILBOX_RESOURCE_TYPE = "mailbox";
@@ -19,6 +20,7 @@ export const app = defineApp({
     requiresRoles: ["user"],
   },
   openapi: "/api/mail/openapi.json",
+  notifications: NOTIFICATIONS,
   routes: ["/api/mail", "/app/mail"],
 });
 

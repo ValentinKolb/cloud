@@ -656,13 +656,14 @@ const changeMessageState = async (
         changedState = true;
       }
       const message = await client.fetchOne(target.uid, { uid: true, flags: true, envelope: true }, { uid: true });
-      if (!message) return { exists: false, flags: [], keywords: [], messageId: null };
+      if (!message) return { exists: false, flags: [], keywords: [], messageId: null, modseq: null };
       const state = splitRemoteFlags(message.flags ?? []);
       return {
         exists: true,
         flags: state.flags,
         keywords: state.keywords,
         messageId: message.envelope?.messageId?.trim() || null,
+        modseq: message.modseq?.toString() ?? null,
       };
     } catch (cause) {
       if (!changedState) throw cause;
@@ -756,13 +757,14 @@ const getMessageState = async (config: ProviderConnectionInput, target: RemoteMu
     const message = await client.fetchOne(target.uid, { uid: true, flags: true, envelope: true }, { uid: true });
     const state = message ? splitRemoteFlags(message.flags ?? []) : { flags: [], keywords: [] };
     return message
-      ? {
+        ? {
           exists: true,
           flags: state.flags,
           keywords: state.keywords,
           messageId: message.envelope?.messageId?.trim() || null,
+          modseq: message.modseq?.toString() ?? null,
         }
-      : { exists: false, flags: [], keywords: [], messageId: null };
+      : { exists: false, flags: [], keywords: [], messageId: null, modseq: null };
   });
 
 const createFolder = async (config: ProviderConnectionInput, path: string, subscribe: boolean): Promise<void> =>

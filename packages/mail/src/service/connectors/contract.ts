@@ -112,6 +112,7 @@ export type RemoteMessageState = {
   flags: string[];
   keywords: string[];
   messageId: string | null;
+  modseq: string | null;
 };
 
 export type RemoteMessageStateChange = {

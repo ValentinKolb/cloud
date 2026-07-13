@@ -11,7 +11,7 @@ import {
   maintenanceCommandInputSchema,
 } from "../contracts";
 import { requireMailboxPermission } from "./access";
-import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
+import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
 import { resolveMailExecution } from "./execution";
@@ -134,6 +134,9 @@ const actorDatabaseId = (actor: ActorRef): string | null => {
   return null;
 };
 
+const commandActorMatches = (command: DbCommand, actor: ActorRef): boolean =>
+  command.actor_kind === actor.kind && command.actor_id === actorDatabaseId(actor);
+
 const accessSubjectDatabaseId = (context: MailRequestContext): string =>
   context.accessSubject.type === "user" ? context.accessSubject.userId : context.accessSubject.serviceAccountId;
 
@@ -156,7 +159,11 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
   if (input.kind === "set_flags") {
     return ok({
       ...base,
-      target: { remoteMessageRefId: input.remoteMessageRefId, folderId: input.folderId },
+      target: {
+        remoteMessageRefId: input.remoteMessageRefId,
+        folderId: input.folderId,
+        expectedRemoteState: input.expectedRemoteState,
+      },
       payload: { flags: [...new Set(input.flags.map((flag) => flag.trim()))].sort() },
       folderRequirements: [{ folderId: input.folderId, rights: ["write_flags"] }],
       remoteMessageRefId: input.remoteMessageRefId,
@@ -166,7 +173,11 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
   if (input.kind === "change_message_state") {
     return ok({
       ...base,
-      target: { remoteMessageRefId: input.remoteMessageRefId, folderId: input.folderId },
+      target: {
+        remoteMessageRefId: input.remoteMessageRefId,
+        folderId: input.folderId,
+        expectedRemoteState: input.expectedRemoteState,
+      },
       payload: {
         addFlags: [...new Set(input.change.addFlags)].sort(),
         removeFlags: [...new Set(input.change.removeFlags)].sort(),
@@ -185,6 +196,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
         remoteMessageRefId: input.remoteMessageRefId,
         sourceFolderId: input.sourceFolderId,
         destinationFolderId: input.destinationFolderId,
+        expectedRemoteState: input.expectedRemoteState,
       },
       payload: {},
       folderRequirements: [
@@ -198,7 +210,11 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
   if (input.kind === "delete") {
     return ok({
       ...base,
-      target: { remoteMessageRefId: input.remoteMessageRefId, folderId: input.folderId },
+      target: {
+        remoteMessageRefId: input.remoteMessageRefId,
+        folderId: input.folderId,
+        expectedRemoteState: input.expectedRemoteState,
+      },
       payload: { deleted: true },
       folderRequirements: [{ folderId: input.folderId, rights: ["delete_messages"] }],
       remoteMessageRefId: input.remoteMessageRefId,
@@ -440,15 +456,15 @@ const createActorCommandInTransaction = async (
   const requestHash = sha256Json({ kind: prepared.kind, target: prepared.target, payload: prepared.payload });
   const initiator = actorRefFromRequest(params.context);
   const actor = params.actorOverride ?? initiator;
+  const credential = durableCredentialSnapshot(params.context);
+  if (!credential) return fail(err.forbidden("Durable Mail work requires a current service credential"));
 
   const [mailbox] = await tx<{ id: string }[]>`
     SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
   `;
   if (!mailbox) return fail(err.notFound("Mailbox"));
-  if (prepared.requiredPermission === "admin") {
-    const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
-    if (!permission.ok) return permission;
-  }
+  const permission = await requireMailboxPermission(params.context, params.mailboxId, prepared.requiredPermission, tx);
+  if (!permission.ok) return permission;
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:${prepared.kind}:${stableTargetKey(prepared.target)}`}, 0))`;
 
   const [existing] = await tx<DbCommand[]>`
@@ -458,6 +474,7 @@ const createActorCommandInTransaction = async (
     FOR UPDATE
   `;
   if (existing) {
+    if (!commandActorMatches(existing, actor)) return fail(err.conflict("Idempotency key is already in use"));
     return existing.request_hash === requestHash
       ? ok(mapCommand(existing))
       : fail(err.conflict("Idempotency key with a different mail command"));
@@ -496,7 +513,9 @@ const createActorCommandInTransaction = async (
       initiator_actor_id,
       access_subject_kind,
       access_subject_id,
-      credential_scopes
+      credential_scopes,
+      credential_id,
+      credential_expires_at
     )
     VALUES (
       ${params.mailboxId}::uuid,
@@ -517,7 +536,9 @@ const createActorCommandInTransaction = async (
       ${actorDatabaseId(initiator)}::uuid,
       ${params.context.accessSubject.type},
       ${accessSubjectDatabaseId(params.context)}::uuid,
-      ${toPgTextArray(params.context.actor.kind === "service_account" ? params.context.actor.scopes : [])}::text[]
+      ${toPgTextArray(credential.scopes)}::text[],
+      ${credential.credentialId}::uuid,
+      ${credential.credentialExpiresAt}::timestamptz
     )
     RETURNING ${commandColumns}
   `;
@@ -684,6 +705,8 @@ export const createMaintenanceCommand = async (params: {
   const prepared = prepareMaintenanceCommand(input);
   const requestHash = sha256Json({ kind: input.kind, target: prepared.target, payload: prepared.payload });
   const actor = actorRefFromRequest(params.context);
+  const credential = durableCredentialSnapshot(params.context);
+  if (!credential) return fail(err.forbidden("Durable Mail work requires a current service credential"));
 
   try {
     const result = await sql.begin(async (tx) => {
@@ -701,6 +724,7 @@ export const createMaintenanceCommand = async (params: {
         FOR UPDATE
       `;
       if (existing) {
+        if (!commandActorMatches(existing, actor)) return fail(err.conflict("Idempotency key is already in use"));
         return existing.request_hash === requestHash
           ? ok(mapCommand(existing))
           : fail(err.conflict("Idempotency key with a different mail command"));
@@ -713,7 +737,7 @@ export const createMaintenanceCommand = async (params: {
           mailbox_id, kind, actor_kind, actor_id, delegated_user_id, idempotency_key,
           request_hash, correlation_id, target, payload, transport_metadata,
           initiator_actor_kind, initiator_actor_id,
-          access_subject_kind, access_subject_id, credential_scopes
+          access_subject_kind, access_subject_id, credential_scopes, credential_id, credential_expires_at
         )
         VALUES (
           ${params.mailboxId}::uuid,
@@ -731,7 +755,9 @@ export const createMaintenanceCommand = async (params: {
           ${actorDatabaseId(actor)}::uuid,
           ${params.context.accessSubject.type},
           ${accessSubjectDatabaseId(params.context)}::uuid,
-          ${toPgTextArray(params.context.actor.kind === "service_account" ? params.context.actor.scopes : [])}::text[]
+          ${toPgTextArray(credential.scopes)}::text[],
+          ${credential.credentialId}::uuid,
+          ${credential.credentialExpiresAt}::timestamptz
         )
         RETURNING ${commandColumns}
       `;

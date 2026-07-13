@@ -12,7 +12,11 @@ import { type MailRequestContext, workflows } from "../service";
 
 const mailboxParamSchema = z.object({ mailboxId: z.string().uuid() });
 const workflowParamSchema = z.object({ mailboxId: z.string().uuid(), workflowId: z.string().uuid() });
+const workflowVersionParamSchema = workflowParamSchema.extend({
+  version: z.coerce.number().int().positive().max(2_147_483_647),
+});
 const runParamSchema = z.object({ mailboxId: z.string().uuid(), runId: z.string().uuid() });
+const validateWorkflowInputSchema = z.object({ definition: z.unknown() }).strict();
 const runListQuerySchema = z.object({
   workflowId: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -25,7 +29,7 @@ const requestContext = (c: Context<AuthContext>): MailRequestContext => ({
 });
 
 const workflowRoutes = new Hono<AuthContext>()
-  .post("/mailboxes/:mailboxId/workflows/validate", v("param", mailboxParamSchema), v("json", createWorkflowInputSchema), async (c) =>
+  .post("/mailboxes/:mailboxId/workflows/validate", v("param", mailboxParamSchema), v("json", validateWorkflowInputSchema), async (c) =>
     respond(
       c,
       workflows.validateWorkflow({
@@ -64,6 +68,9 @@ const workflowRoutes = new Hono<AuthContext>()
   })
   .get("/mailboxes/:mailboxId/workflows/:workflowId/versions", v("param", workflowParamSchema), async (c) =>
     respond(c, workflows.listWorkflowVersions({ context: requestContext(c), ...c.req.valid("param") })),
+  )
+  .get("/mailboxes/:mailboxId/workflows/:workflowId/versions/:version", v("param", workflowVersionParamSchema), async (c) =>
+    respond(c, workflows.getWorkflowVersion({ context: requestContext(c), ...c.req.valid("param") })),
   )
   .post(
     "/mailboxes/:mailboxId/workflows/:workflowId/versions",

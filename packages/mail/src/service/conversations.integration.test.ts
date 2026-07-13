@@ -1,0 +1,1336 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Readable } from "node:stream";
+import { notifications } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
+import { app } from "../config";
+import { migrate } from "../migrate";
+import { grantMailboxAccess } from "./access";
+import type { MailRequestContext } from "./auth";
+import { createConversationComment, setConversationWatcher } from "./collaboration";
+import { mergeConversations, splitConversation } from "./conversations";
+import { createMailbox } from "./mailboxes";
+import { hydrateMessageFromSource } from "./message-hydration";
+import { mailNotificationTargetHref, resolveMailNotificationTarget } from "./notification-targets";
+import { setConversationReminder } from "./reminders";
+import { ingestEnvelope } from "./sync-runtime";
+
+const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
+const suite = enabled ? describe : describe.skip;
+
+const contextFor = (user: { id: string; uid: string }): MailRequestContext => ({
+  actor: {
+    kind: "user",
+    user: {
+      id: user.id,
+      uid: user.uid,
+      provider: "local",
+      profile: "user",
+      displayName: user.uid,
+      givenName: user.uid,
+      sn: "Test",
+      mail: `${user.uid}@example.com`,
+      roles: ["user"],
+      memberofGroupIds: [],
+      memberofGroups: [],
+    } as never,
+  },
+  accessSubject: { type: "user", userId: user.id },
+  requestId: `mail-threading-${user.uid}`,
+});
+
+suite("mail manual conversation threading", () => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const userIds: string[] = [];
+  const accessIds: string[] = [];
+  const mailboxIds: string[] = [];
+  let mailboxId = "";
+  let remoteResourceId = "";
+  let folderId = "";
+  let targetConversationId = "";
+  let sourceConversationId = "";
+  let targetMessageId = "";
+  let sourceMessageId = "";
+  let sourceMessageEnvelopeId = "";
+  let sourceCommentId = "";
+  let otherConversationId = "";
+  let owner: { id: string; uid: string };
+  let writer: { id: string; uid: string };
+  let reader: { id: string; uid: string };
+  let ownerContext: MailRequestContext;
+  let writerContext: MailRequestContext;
+  let readerContext: MailRequestContext;
+
+  beforeAll(async () => {
+    await migrate();
+    await migrate();
+    const [createdOwner] = await sql<{ id: string; uid: string }[]>`
+      INSERT INTO auth.users (uid, provider, profile, display_name, admin)
+      VALUES (${`mail-thread-owner-${suffix}`}, 'local', 'user', 'Thread Owner', false)
+      RETURNING id, uid
+    `;
+    const [createdWriter] = await sql<{ id: string; uid: string }[]>`
+      INSERT INTO auth.users (uid, provider, profile, display_name, admin)
+      VALUES (${`mail-thread-writer-${suffix}`}, 'local', 'user', 'Thread Writer', false)
+      RETURNING id, uid
+    `;
+    const [createdReader] = await sql<{ id: string; uid: string }[]>`
+      INSERT INTO auth.users (uid, provider, profile, display_name, admin)
+      VALUES (${`mail-thread-reader-${suffix}`}, 'local', 'user', 'Thread Reader', false)
+      RETURNING id, uid
+    `;
+    if (!createdOwner || !createdWriter || !createdReader) throw new Error("Failed to create conversation threading users");
+    owner = createdOwner;
+    writer = createdWriter;
+    reader = createdReader;
+    userIds.push(owner.id, writer.id, reader.id);
+    ownerContext = contextFor(owner);
+    writerContext = contextFor(writer);
+    readerContext = contextFor(reader);
+
+    const mailbox = await createMailbox(ownerContext, {
+      name: `Threading ${suffix}`,
+      connectionPolicy: "shared_connection",
+    });
+    if (!mailbox.ok) throw new Error(mailbox.error.message);
+    mailboxId = mailbox.data.id;
+    mailboxIds.push(mailboxId);
+    const writerAccess = await grantMailboxAccess({
+      context: ownerContext,
+      mailboxId,
+      principal: { type: "user", userId: writer.id },
+      permission: "write",
+    });
+    const readerAccess = await grantMailboxAccess({
+      context: ownerContext,
+      mailboxId,
+      principal: { type: "user", userId: reader.id },
+      permission: "read",
+    });
+    if (!writerAccess.ok || !readerAccess.ok) throw new Error("Failed to grant conversation threading access");
+    accessIds.push(writerAccess.data.id, readerAccess.data.id);
+
+    const [resource] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_resources (mailbox_id, remote_locator, server_identity, scope_fingerprint, status)
+      VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${"a".repeat(64)}, 'active')
+      RETURNING id
+    `;
+    const [folder] = await sql<{ id: string }[]>`
+      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${resource!.id}::uuid, ${`threading-${suffix}`}, 'Inbox', 'inbox', 'current')
+      RETURNING id
+    `;
+    remoteResourceId = resource!.id;
+    folderId = folder!.id;
+
+    const createMessage = async (params: { uid: number; messageId: string; subject: string; date: Date }) => {
+      const [message] = await sql<{ id: string }[]>`
+        INSERT INTO mail.message_contents (
+          mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
+        ) VALUES (
+          ${mailboxId}::uuid,
+          ${params.messageId},
+          ${params.subject},
+          ${params.subject.toLowerCase()},
+          ${params.date},
+          128,
+          ${params.uid.toString(16).padStart(64, "0")},
+          'complete'
+        ) RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
+        VALUES (${message!.id}::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com')
+      `;
+      const [remoteRef] = await sql<{ id: string }[]>`
+        INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+        VALUES (${folderId}::uuid, ${message!.id}::uuid, 1, ${params.uid})
+        RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id)
+        VALUES (${remoteRef!.id}::uuid, ${folderId}::uuid, ${message!.id}::uuid)
+      `;
+      const [conversation] = await sql<{ id: string }[]>`
+        INSERT INTO mail.conversations (
+          mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at, response_needed
+        ) VALUES (
+          ${mailboxId}::uuid, ${params.subject}, 'Customer', ${params.date}, ${params.date}, true
+        ) RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
+        VALUES (${conversation!.id}::uuid, ${message!.id}::uuid, ${params.date.getTime()}, 'headers')
+      `;
+      return { messageId: message!.id, conversationId: conversation!.id };
+    };
+
+    const target = await createMessage({
+      uid: 101,
+      messageId: `<thread-target-${suffix}@example.com>`,
+      subject: "Thread target",
+      date: new Date("2026-07-13T10:00:00.000Z"),
+    });
+    const source = await createMessage({
+      uid: 102,
+      messageId: `<thread-source-${suffix}@example.com>`,
+      subject: "Thread source",
+      date: new Date("2026-07-13T11:00:00.000Z"),
+    });
+    targetConversationId = target.conversationId;
+    sourceConversationId = source.conversationId;
+    targetMessageId = target.messageId;
+    sourceMessageId = source.messageId;
+    sourceMessageEnvelopeId = `<thread-source-${suffix}@example.com>`;
+    await sql`
+      UPDATE mail.remote_message_refs
+      SET connector_ref = ${{ providerMessageId: `thread-source-provider-${suffix}` }}::jsonb
+      WHERE message_id = ${sourceMessageId}::uuid
+    `;
+
+    const watched = await setConversationWatcher({
+      context: writerContext,
+      mailboxId,
+      conversationId: sourceConversationId,
+      userId: reader.id,
+      watching: true,
+    });
+    if (!watched.ok) throw new Error(watched.error.message);
+    const comment = await createConversationComment({
+      context: readerContext,
+      mailboxId,
+      conversationId: sourceConversationId,
+      input: { body: "Context for the source message", referencedMessageId: sourceMessageId, mentionUserIds: [owner.id] },
+    });
+    if (!comment.ok) throw new Error(comment.error.message);
+    sourceCommentId = comment.data.id;
+    const [identity] = await sql<{ id: string }[]>`
+      INSERT INTO mail.sender_identities (mailbox_id, display_name, from_address, is_default, status)
+      VALUES (${mailboxId}::uuid, 'Thread Sender', 'support@example.com', true, 'verified')
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.drafts (
+        mailbox_id, conversation_id, sender_identity_id, author_kind, author_id, subject, body_markdown
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${sourceConversationId}::uuid,
+        ${identity!.id}::uuid,
+        'user',
+        ${writer.id}::uuid,
+        'Merged draft',
+        'Draft body'
+      )
+    `;
+
+    const otherMailbox = await createMailbox(ownerContext, {
+      name: `Other threading ${suffix}`,
+      connectionPolicy: "shared_connection",
+    });
+    if (!otherMailbox.ok) throw new Error(otherMailbox.error.message);
+    mailboxIds.push(otherMailbox.data.id);
+    const [otherConversation] = await sql<{ id: string }[]>`
+      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${otherMailbox.data.id}::uuid, 'Other mailbox', '', now())
+      RETURNING id
+    `;
+    otherConversationId = otherConversation!.id;
+  });
+
+  afterAll(async () => {
+    for (const id of mailboxIds) {
+      const rows = await sql<{ access_id: string }[]>`SELECT access_id FROM mail.mailbox_access WHERE mailbox_id = ${id}::uuid`;
+      accessIds.push(...rows.map((row) => row.access_id));
+      await sql`DELETE FROM mail.mailboxes WHERE id = ${id}::uuid`;
+    }
+    const uniqueAccessIds = [...new Set(accessIds)];
+    if (uniqueAccessIds.length > 0) {
+      await sql`DELETE FROM auth.access WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${uniqueAccessIds}::jsonb))`;
+    }
+    if (userIds.length > 0) {
+      await sql`DELETE FROM auth.users WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${userIds}::jsonb))`;
+    }
+  });
+
+  test("merges and splits with durable overrides, revisions, related state, and permission checks", async () => {
+    const denied = await mergeConversations({
+      context: readerContext,
+      mailboxId,
+      targetConversationId,
+      input: {
+        sourceConversationId,
+        expectedTargetRevision: 1,
+        expectedSourceRevision: 1,
+        confirm: true,
+      },
+    });
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.status).toBe(403);
+
+    const stale = await mergeConversations({
+      context: writerContext,
+      mailboxId,
+      targetConversationId,
+      input: {
+        sourceConversationId,
+        expectedTargetRevision: 2,
+        expectedSourceRevision: 1,
+        confirm: true,
+      },
+    });
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.error.status).toBe(409);
+
+    const crossMailbox = await mergeConversations({
+      context: writerContext,
+      mailboxId,
+      targetConversationId,
+      input: {
+        sourceConversationId: otherConversationId,
+        expectedTargetRevision: 1,
+        expectedSourceRevision: 1,
+        confirm: true,
+      },
+    });
+    expect(crossMailbox.ok).toBe(false);
+    if (!crossMailbox.ok) expect(crossMailbox.error.status).toBe(404);
+
+    const targetReminderDueAt = new Date(Date.now() + 120_000).toISOString();
+    const sourceReminderDueAt = new Date(Date.now() + 60_000).toISOString();
+    const movedReminderDueAt = new Date(Date.now() + 180_000).toISOString();
+    const targetReminder = await setConversationReminder({
+      context: writerContext,
+      mailboxId,
+      conversationId: targetConversationId,
+      input: { dueAt: targetReminderDueAt, expectedRevision: null },
+    });
+    const conflictingSourceReminder = await setConversationReminder({
+      context: writerContext,
+      mailboxId,
+      conversationId: sourceConversationId,
+      input: { dueAt: sourceReminderDueAt, expectedRevision: null },
+    });
+    const movedSourceReminder = await setConversationReminder({
+      context: ownerContext,
+      mailboxId,
+      conversationId: sourceConversationId,
+      input: { dueAt: movedReminderDueAt, expectedRevision: null },
+    });
+    expect(targetReminder.ok && conflictingSourceReminder.ok && movedSourceReminder.ok).toBe(true);
+    if (!targetReminder.ok || !conflictingSourceReminder.ok || !movedSourceReminder.ok) return;
+
+    const conflictingReminderIdempotencyKey = `mail:reminder:${conflictingSourceReminder.data.id}:${conflictingSourceReminder.data.revision}:${writer.id}`;
+    await notifications.send(app.notifications.conversationReminder, {
+      recipient: { userId: writer.id },
+      data: {
+        mailboxId,
+        conversationId: sourceConversationId,
+        sourceId: conflictingSourceReminder.data.id,
+        subject: "Thread source",
+      },
+      idempotencyKey: conflictingReminderIdempotencyKey,
+    });
+    await sql`
+      UPDATE mail.collaboration_notification_deliveries
+      SET state = 'sent', sent_at = now()
+      WHERE kind = 'reminder'
+        AND source_id = ${conflictingSourceReminder.data.id}::uuid
+        AND source_revision = ${conflictingSourceReminder.data.revision}
+        AND recipient_user_id = ${writer.id}::uuid
+    `;
+    const rescheduledConflictingSourceReminder = await setConversationReminder({
+      context: writerContext,
+      mailboxId,
+      conversationId: sourceConversationId,
+      input: {
+        dueAt: new Date(Date.now() + 240_000).toISOString(),
+        expectedRevision: conflictingSourceReminder.data.revision,
+      },
+    });
+    expect(rescheduledConflictingSourceReminder.ok).toBe(true);
+    if (!rescheduledConflictingSourceReminder.ok) return;
+    const stableConflictingReminderTarget = mailNotificationTargetHref({
+      mailboxId,
+      kind: "reminder",
+      sourceId: conflictingSourceReminder.data.id,
+    });
+    const resolvedConflictingReminderBeforeMerge = await resolveMailNotificationTarget({
+      context: writerContext,
+      mailboxId,
+      kind: "reminder",
+      sourceId: conflictingSourceReminder.data.id,
+    });
+    expect(resolvedConflictingReminderBeforeMerge.ok && resolvedConflictingReminderBeforeMerge.data.href).toContain(
+      `conversation=${sourceConversationId}`,
+    );
+
+    const mergeDeliveryClaimId = crypto.randomUUID();
+    await sql`
+      UPDATE mail.collaboration_notification_deliveries
+      SET state = 'sending', claim_id = ${mergeDeliveryClaimId}::uuid, claimed_at = now()
+      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+    `;
+    const mergeDuringDelivery = await mergeConversations({
+      context: writerContext,
+      mailboxId,
+      targetConversationId,
+      input: {
+        sourceConversationId,
+        expectedTargetRevision: 1,
+        expectedSourceRevision: 1,
+        confirm: true,
+      },
+    });
+    expect(mergeDuringDelivery.ok).toBe(false);
+    if (!mergeDuringDelivery.ok) expect(mergeDuringDelivery.error.status).toBe(409);
+    await sql`
+      UPDATE mail.collaboration_notification_deliveries
+      SET state = 'pending', claim_id = NULL, claimed_at = NULL
+      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+    `;
+    const notificationIdempotencyKey = `mail:mention:${sourceCommentId}:${owner.id}`;
+    await notifications.send(app.notifications.commentMention, {
+      recipient: { userId: owner.id },
+      data: {
+        mailboxId,
+        conversationId: sourceConversationId,
+        sourceId: sourceCommentId,
+        subject: "Thread source",
+        actorDisplayName: reader.uid,
+        commentId: sourceCommentId,
+      },
+      idempotencyKey: notificationIdempotencyKey,
+    });
+    await notifications.send(app.notifications.conversationReminder, {
+      recipient: { userId: owner.id },
+      data: {
+        mailboxId,
+        conversationId: sourceConversationId,
+        sourceId: movedSourceReminder.data.id,
+        subject: "Thread source",
+      },
+      idempotencyKey: notificationIdempotencyKey,
+    });
+    await sql`
+      UPDATE mail.collaboration_notification_deliveries
+      SET state = 'sent', sent_at = now()
+      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid AND recipient_user_id = ${owner.id}::uuid
+    `;
+    const [notificationBeforeMerge] = await sql<{ target_href: string | null }[]>`
+      SELECT target_href
+      FROM notifications.events
+      WHERE definition_id = ${app.notifications.commentMention.id}
+        AND recipient_user_id = ${owner.id}::uuid
+        AND idempotency_key = ${notificationIdempotencyKey}
+    `;
+    const stableMentionTarget = mailNotificationTargetHref({ mailboxId, kind: "mention", sourceId: sourceCommentId });
+    const stableReminderTarget = mailNotificationTargetHref({
+      mailboxId,
+      kind: "reminder",
+      sourceId: movedSourceReminder.data.id,
+    });
+    expect(notificationBeforeMerge?.target_href).toBe(stableMentionTarget);
+    const resolvedBeforeMerge = await resolveMailNotificationTarget({
+      context: ownerContext,
+      mailboxId,
+      kind: "mention",
+      sourceId: sourceCommentId,
+    });
+    expect(resolvedBeforeMerge.ok && resolvedBeforeMerge.data.href).toContain(`conversation=${sourceConversationId}`);
+
+    const merged = await mergeConversations({
+      context: writerContext,
+      mailboxId,
+      targetConversationId,
+      input: {
+        sourceConversationId,
+        expectedTargetRevision: 1,
+        expectedSourceRevision: 1,
+        reason: "Provider separated one customer thread",
+        confirm: true,
+      },
+    });
+    expect(merged.ok).toBe(true);
+    if (!merged.ok) return;
+    expect(merged.data).toMatchObject({
+      removedConversationId: sourceConversationId,
+      movedMessageCount: 1,
+      target: { id: targetConversationId, revision: 2, messageCount: 2 },
+    });
+    const [sourceCommentActivityAfterMerge] = await sql<{ conversation_id: string }[]>`
+      SELECT conversation_id::text
+      FROM mail.activity_events
+      WHERE target_type = 'comment' AND target_id = ${sourceCommentId}::uuid
+    `;
+    expect(sourceCommentActivityAfterMerge?.conversation_id).toBe(sourceConversationId);
+    const [mergeProjection] = await sql<
+      {
+        source_exists: boolean;
+        messages: number;
+        overrides: number;
+        watchers: number;
+        comments: number;
+        drafts: number;
+      }[]
+    >`
+      SELECT
+        EXISTS (SELECT 1 FROM mail.conversations WHERE id = ${sourceConversationId}::uuid) AS source_exists,
+        (SELECT COUNT(*)::int FROM mail.conversation_messages WHERE conversation_id = ${targetConversationId}::uuid) AS messages,
+        (SELECT COUNT(*)::int FROM mail.conversation_thread_overrides WHERE conversation_id = ${targetConversationId}::uuid) AS overrides,
+        (SELECT COUNT(*)::int FROM mail.conversation_watchers WHERE conversation_id = ${targetConversationId}::uuid) AS watchers,
+        (SELECT COUNT(*)::int FROM mail.conversation_comments WHERE conversation_id = ${targetConversationId}::uuid) AS comments,
+        (SELECT COUNT(*)::int FROM mail.drafts WHERE conversation_id = ${targetConversationId}::uuid) AS drafts
+    `;
+    expect(mergeProjection).toEqual({ source_exists: false, messages: 2, overrides: 2, watchers: 1, comments: 1, drafts: 1 });
+    const mergedReminders = await sql<{ user_id: string; due_at: Date | string }[]>`
+      SELECT user_id, due_at
+      FROM mail.conversation_reminders
+      WHERE conversation_id = ${targetConversationId}::uuid
+      ORDER BY user_id
+    `;
+    expect(new Map(mergedReminders.map((reminder) => [reminder.user_id, new Date(reminder.due_at).toISOString()]))).toEqual(
+      new Map([
+        [writer.id, targetReminderDueAt],
+        [owner.id, movedReminderDueAt],
+      ]),
+    );
+    const [mergedDeliveries] = await sql<
+      {
+        mention_conversation_id: string;
+        conflicting_reminder_state: string;
+        sent_conflicting_reminder_state: string;
+        moved_reminder_conversation_id: string;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT conversation_id::text
+          FROM mail.collaboration_notification_deliveries
+          WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+        ) AS mention_conversation_id,
+        (
+          SELECT state
+          FROM mail.collaboration_notification_deliveries
+          WHERE kind = 'reminder' AND source_id = ${conflictingSourceReminder.data.id}::uuid
+            AND source_revision = ${rescheduledConflictingSourceReminder.data.revision}
+        ) AS conflicting_reminder_state,
+        (
+          SELECT state
+          FROM mail.collaboration_notification_deliveries
+          WHERE kind = 'reminder' AND source_id = ${conflictingSourceReminder.data.id}::uuid
+            AND source_revision = ${conflictingSourceReminder.data.revision}
+        ) AS sent_conflicting_reminder_state,
+        (
+          SELECT conversation_id::text
+          FROM mail.collaboration_notification_deliveries
+          WHERE kind = 'reminder' AND source_id = ${movedSourceReminder.data.id}::uuid
+        ) AS moved_reminder_conversation_id
+    `;
+    expect(mergedDeliveries).toEqual({
+      mention_conversation_id: targetConversationId,
+      conflicting_reminder_state: "skipped",
+      sent_conflicting_reminder_state: "sent",
+      moved_reminder_conversation_id: targetConversationId,
+    });
+    const [conflictingReminderNotificationAfterMerge] = await sql<{ target_href: string | null }[]>`
+      SELECT target_href
+      FROM notifications.events
+      WHERE definition_id = ${app.notifications.conversationReminder.id}
+        AND recipient_user_id = ${writer.id}::uuid
+        AND idempotency_key = ${conflictingReminderIdempotencyKey}
+    `;
+    expect(conflictingReminderNotificationAfterMerge?.target_href).toBe(stableConflictingReminderTarget);
+    const resolvedConflictingReminderAfterMerge = await resolveMailNotificationTarget({
+      context: writerContext,
+      mailboxId,
+      kind: "reminder",
+      sourceId: conflictingSourceReminder.data.id,
+    });
+    expect(resolvedConflictingReminderAfterMerge.ok && resolvedConflictingReminderAfterMerge.data.href).toContain(
+      `conversation=${targetConversationId}`,
+    );
+    const [notificationAfterMerge] = await sql<{ target_href: string | null }[]>`
+      SELECT target_href
+      FROM notifications.events
+      WHERE definition_id = ${app.notifications.commentMention.id}
+        AND recipient_user_id = ${owner.id}::uuid
+        AND idempotency_key = ${notificationIdempotencyKey}
+    `;
+    expect(notificationAfterMerge?.target_href).toBe(stableMentionTarget);
+    const resolvedAfterMerge = await resolveMailNotificationTarget({
+      context: ownerContext,
+      mailboxId,
+      kind: "mention",
+      sourceId: sourceCommentId,
+    });
+    expect(resolvedAfterMerge.ok && resolvedAfterMerge.data.href).toContain(`conversation=${targetConversationId}`);
+    const [foreignDefinitionAfterMerge] = await sql<{ target_href: string | null }[]>`
+      SELECT target_href
+      FROM notifications.events
+      WHERE definition_id = ${app.notifications.conversationReminder.id}
+        AND recipient_user_id = ${owner.id}::uuid
+        AND idempotency_key = ${notificationIdempotencyKey}
+    `;
+    expect(foreignDefinitionAfterMerge?.target_href).toBe(stableReminderTarget);
+
+    const rejectWholeSplit = await splitConversation({
+      context: writerContext,
+      mailboxId,
+      conversationId: targetConversationId,
+      input: { messageIds: [targetMessageId, sourceMessageId], expectedRevision: 2, confirm: true },
+    });
+    expect(rejectWholeSplit.ok).toBe(false);
+    if (!rejectWholeSplit.ok) expect(rejectWholeSplit.error.code).toBe("BAD_INPUT");
+
+    const splitDeliveryClaimId = crypto.randomUUID();
+    await sql`
+      UPDATE mail.collaboration_notification_deliveries
+      SET state = 'sending', claim_id = ${splitDeliveryClaimId}::uuid, claimed_at = now()
+      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+    `;
+    const splitDuringDelivery = await splitConversation({
+      context: writerContext,
+      mailboxId,
+      conversationId: targetConversationId,
+      input: { messageIds: [sourceMessageId], expectedRevision: 2, confirm: true },
+    });
+    expect(splitDuringDelivery.ok).toBe(false);
+    if (!splitDuringDelivery.ok) expect(splitDuringDelivery.error.status).toBe(409);
+    await sql`
+      UPDATE mail.collaboration_notification_deliveries
+      SET state = 'pending', claim_id = NULL, claimed_at = NULL
+      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+    `;
+
+    const split = await splitConversation({
+      context: writerContext,
+      mailboxId,
+      conversationId: targetConversationId,
+      input: {
+        messageIds: [sourceMessageId],
+        expectedRevision: 2,
+        reason: "Replies belong to a separate request",
+        confirm: true,
+      },
+    });
+    expect(split.ok).toBe(true);
+    if (!split.ok) return;
+    expect(split.data).toMatchObject({
+      movedMessageCount: 1,
+      source: { id: targetConversationId, revision: 3, messageCount: 1 },
+      created: { revision: 1, messageCount: 1 },
+    });
+    const [splitProjection] = await sql<
+      {
+        target_override: string;
+        moved_override: string;
+        moved_comments: number;
+        copied_watchers: number;
+        source_drafts: number;
+        moved_mention_delivery: string;
+        source_reminders: number;
+      }[]
+    >`
+      SELECT
+        (SELECT conversation_id::text FROM mail.conversation_thread_overrides WHERE message_id = ${targetMessageId}::uuid) AS target_override,
+        (SELECT conversation_id::text FROM mail.conversation_thread_overrides WHERE message_id = ${sourceMessageId}::uuid) AS moved_override,
+        (SELECT COUNT(*)::int FROM mail.conversation_comments WHERE conversation_id = ${split.data.created.id}::uuid) AS moved_comments,
+        (SELECT COUNT(*)::int FROM mail.conversation_watchers WHERE conversation_id = ${split.data.created.id}::uuid) AS copied_watchers,
+        (SELECT COUNT(*)::int FROM mail.drafts WHERE conversation_id = ${targetConversationId}::uuid) AS source_drafts,
+        (
+          SELECT conversation_id::text
+          FROM mail.collaboration_notification_deliveries
+          WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+        ) AS moved_mention_delivery,
+        (SELECT COUNT(*)::int FROM mail.conversation_reminders WHERE conversation_id = ${targetConversationId}::uuid) AS source_reminders
+    `;
+    expect(splitProjection).toEqual({
+      target_override: targetConversationId,
+      moved_override: split.data.created.id,
+      moved_comments: 1,
+      copied_watchers: 1,
+      source_drafts: 1,
+      moved_mention_delivery: split.data.created.id,
+      source_reminders: 2,
+    });
+    const [notificationAfterSplit] = await sql<{ target_href: string | null }[]>`
+      SELECT target_href
+      FROM notifications.events
+      WHERE definition_id = ${app.notifications.commentMention.id}
+        AND recipient_user_id = ${owner.id}::uuid
+        AND idempotency_key = ${notificationIdempotencyKey}
+    `;
+    expect(notificationAfterSplit?.target_href).toBe(stableMentionTarget);
+    const resolvedAfterSplit = await resolveMailNotificationTarget({
+      context: ownerContext,
+      mailboxId,
+      kind: "mention",
+      sourceId: sourceCommentId,
+    });
+    expect(resolvedAfterSplit.ok && resolvedAfterSplit.data.href).toContain(`conversation=${split.data.created.id}`);
+    const [sourceCommentActivityAfterSplit] = await sql<{ conversation_id: string }[]>`
+      SELECT conversation_id::text
+      FROM mail.activity_events
+      WHERE target_type = 'comment' AND target_id = ${sourceCommentId}::uuid
+    `;
+    expect(sourceCommentActivityAfterSplit?.conversation_id).toBe(sourceConversationId);
+    const [splitActivity] = await sql<{ metadata: { createdConversationId?: string } }[]>`
+      SELECT metadata
+      FROM mail.activity_events
+      WHERE action = 'conversation.split' AND conversation_id = ${targetConversationId}::uuid
+      ORDER BY id DESC
+      LIMIT 1
+    `;
+    expect(splitActivity?.metadata.createdConversationId).toBe(split.data.created.id);
+
+    await sql`DELETE FROM mail.conversation_messages WHERE message_id = ${sourceMessageId}::uuid`;
+    await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId,
+      message: {
+        remoteRef: { folderStableKey: folderId, uidValidity: "2", uid: "1", modseq: "2" },
+        providerMessageId: `thread-source-provider-${suffix}`,
+        providerThreadId: "provider-would-merge",
+        messageId: sourceMessageEnvelopeId,
+        inReplyTo: `<thread-target-${suffix}@example.com>`,
+        references: [`<thread-target-${suffix}@example.com>`],
+        subject: "Re: Thread target",
+        sentAt: new Date("2026-07-13T11:00:00.000Z"),
+        internalDate: new Date("2026-07-13T11:00:00.000Z"),
+        sizeBytes: 128,
+        flags: [],
+        labels: [],
+        addresses: {
+          from: [{ name: "Customer", address: "customer@example.com" }],
+          replyTo: [],
+          to: [{ name: "Support", address: "support@example.com" }],
+          cc: [],
+          bcc: [],
+        },
+        mimeStructure: {},
+      },
+    });
+    const [reindexed] = await sql<{ conversation_id: string; added_by: string }[]>`
+      SELECT conversation_id, added_by
+      FROM mail.conversation_messages
+      WHERE message_id = ${sourceMessageId}::uuid
+    `;
+    expect(reindexed).toEqual({ conversation_id: split.data.created.id, added_by: "manual" });
+    const [uidValidityProjection] = await sql<{ contents: number; refs: number; canonical_refs: number }[]>`
+      SELECT
+        (
+          SELECT COUNT(*)::int
+          FROM mail.message_contents
+          WHERE mailbox_id = ${mailboxId}::uuid AND lower(message_id) = lower(${sourceMessageEnvelopeId})
+        ) AS contents,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.remote_message_refs remote_ref
+          WHERE remote_ref.folder_id = ${folderId}::uuid
+            AND remote_ref.message_id = ${sourceMessageId}::uuid
+        ) AS refs,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.remote_message_refs remote_ref
+          WHERE remote_ref.folder_id = ${folderId}::uuid
+            AND remote_ref.uid_validity = 2
+            AND remote_ref.uid = 1
+            AND remote_ref.message_id = ${sourceMessageId}::uuid
+        ) AS canonical_refs
+    `;
+    expect(uidValidityProjection).toEqual({ contents: 1, refs: 2, canonical_refs: 1 });
+  }, 30_000);
+
+  test("rolls back a split when a selected message disappears after validation", async () => {
+    const [conversation] = await sql<{ id: string }[]>`
+      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${mailboxId}::uuid, 'Concurrent split', '', '2026-07-13T12:10:00.000Z')
+      RETURNING id
+    `;
+    const keepInternetMessageId = `<split-keep-${suffix}@example.com>`;
+    const disappearingInternetMessageId = `<split-disappears-${suffix}@example.com>`;
+    const messages = await sql<{ id: string; message_id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
+      ) VALUES
+        (
+          ${mailboxId}::uuid,
+          ${keepInternetMessageId},
+          'Concurrent split',
+          'concurrent split',
+          '2026-07-13T12:00:00.000Z',
+          128,
+          ${"c".repeat(64)},
+          'complete'
+        ),
+        (
+          ${mailboxId}::uuid,
+          ${disappearingInternetMessageId},
+          'Concurrent split',
+          'concurrent split',
+          '2026-07-13T12:10:00.000Z',
+          128,
+          ${"d".repeat(64)},
+          'complete'
+        )
+      RETURNING id, message_id
+    `;
+    const keepMessageId = messages.find((message) => message.message_id === keepInternetMessageId)!.id;
+    const disappearingMessageId = messages.find((message) => message.message_id === disappearingInternetMessageId)!.id;
+    await sql`
+      INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
+      VALUES
+        (${conversation!.id}::uuid, ${keepMessageId}::uuid, 1, 'headers'),
+        (${conversation!.id}::uuid, ${disappearingMessageId}::uuid, 2, 'headers')
+    `;
+    const [before] = await sql<{ conversations: number }[]>`
+      SELECT COUNT(*)::int AS conversations FROM mail.conversations WHERE mailbox_id = ${mailboxId}::uuid
+    `;
+
+    let releaseDelete: () => void = () => undefined;
+    let markLocked: () => void = () => undefined;
+    const locked = new Promise<void>((resolve) => {
+      markLocked = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    const deletion = sql.begin(async (tx) => {
+      await tx`
+        SELECT message_id
+        FROM mail.conversation_messages
+        WHERE message_id = ${disappearingMessageId}::uuid
+        FOR UPDATE
+      `;
+      markLocked();
+      await released;
+      await tx`DELETE FROM mail.message_contents WHERE id = ${disappearingMessageId}::uuid`;
+    });
+    await locked;
+    const split = splitConversation({
+      context: writerContext,
+      mailboxId,
+      conversationId: conversation!.id,
+      input: { messageIds: [disappearingMessageId], expectedRevision: 1, confirm: true },
+    });
+    let splitWaitingOnMessage = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const [waiting] = await sql<{ waiting: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_stat_activity
+          WHERE pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock'
+            AND query LIKE '%UPDATE mail.conversation_messages%'
+        ) AS waiting
+      `;
+      if (waiting?.waiting) {
+        splitWaitingOnMessage = true;
+        break;
+      }
+      await Bun.sleep(10);
+    }
+    releaseDelete();
+    await deletion;
+    const result = await split;
+    expect(splitWaitingOnMessage).toBe(true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.status).toBe(409);
+    const [after] = await sql<{ conversations: number; source_messages: number }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.conversations WHERE mailbox_id = ${mailboxId}::uuid) AS conversations,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.conversation_messages
+          WHERE conversation_id = ${conversation!.id}::uuid
+        ) AS source_messages
+    `;
+    expect(after).toEqual({ conversations: before!.conversations, source_messages: 1 });
+  }, 30_000);
+
+  test("projects the latest verified message when a newer envelope fails hydration", async () => {
+    const olderDate = new Date("2026-07-13T11:30:00.000Z");
+    const newerDate = new Date("2026-07-13T11:45:00.000Z");
+    const olderMessageId = `<verified-before-failure-${suffix}@example.com>`;
+    const newerMessageId = `<failed-after-verified-${suffix}@example.com>`;
+    const envelope = (params: { uid: string; messageId: string; date: Date; inReplyTo: string | null }) => ({
+      remoteRef: { folderStableKey: folderId, uidValidity: "8", uid: params.uid, modseq: null },
+      providerMessageId: null,
+      providerThreadId: null,
+      messageId: params.messageId,
+      inReplyTo: params.inReplyTo,
+      references: params.inReplyTo ? [params.inReplyTo] : [],
+      subject: params.inReplyTo ? "Re: Verified projection" : "Verified projection",
+      sentAt: params.date,
+      internalDate: params.date,
+      sizeBytes: 128,
+      flags: [],
+      labels: [],
+      addresses: {
+        from: [{ name: "Customer", address: "projection@example.com" }],
+        replyTo: [],
+        to: [{ name: "Support", address: "support@example.com" }],
+        cc: [],
+        bcc: [],
+      },
+      mimeStructure: {},
+    });
+    const olderEnvelope = envelope({ uid: "1", messageId: olderMessageId, date: olderDate, inReplyTo: null });
+    const olderId = await ingestEnvelope({ db: sql, mailboxId, remoteResourceId, folderId, message: olderEnvelope });
+    const [link] = await sql<{ conversation_id: string }[]>`
+      SELECT conversation_id FROM mail.conversation_messages WHERE message_id = ${olderId}::uuid
+    `;
+    if (!link) throw new Error("Verified projection fixture was not threaded");
+    await sql`
+      UPDATE mail.conversations
+      SET work_status = 'done', response_needed = false, revision = revision + 1
+      WHERE id = ${link.conversation_id}::uuid
+    `;
+
+    const newerEnvelope = envelope({ uid: "2", messageId: newerMessageId, date: newerDate, inReplyTo: olderMessageId });
+    const newerId = await ingestEnvelope({ db: sql, mailboxId, remoteResourceId, folderId, message: newerEnvelope });
+    const newerSource = Buffer.from(
+      [
+        `Message-ID: ${newerMessageId}`,
+        `In-Reply-To: ${olderMessageId}`,
+        "From: Customer <projection@example.com>",
+        "To: Support <support@example.com>",
+        "Subject: Re: Verified projection",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "This source intentionally fails its advertised size.",
+      ].join("\r\n"),
+    );
+    await expect(
+      hydrateMessageFromSource({
+        messageId: newerId,
+        source: Readable.from([newerSource]),
+        expectedSize: newerSource.byteLength + 1,
+      }),
+    ).rejects.toMatchObject({ code: "MESSAGE_SIZE_MISMATCH" });
+    const [pendingProjection] = await sql<{ work_status: string; response_needed: boolean; revision: number }[]>`
+      SELECT work_status, response_needed, revision::int AS revision
+      FROM mail.conversations
+      WHERE id = ${link.conversation_id}::uuid
+    `;
+    expect(pendingProjection).toEqual({ work_status: "done", response_needed: false, revision: 2 });
+
+    const olderSource = Buffer.from(
+      [
+        `Message-ID: ${olderMessageId}`,
+        "From: Customer <projection@example.com>",
+        "To: Support <support@example.com>",
+        "Subject: Verified projection",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "This older source is verified.",
+      ].join("\r\n"),
+    );
+    await hydrateMessageFromSource({ messageId: olderId, source: Readable.from([olderSource]), expectedSize: olderSource.byteLength });
+    const [verifiedProjection] = await sql<
+      {
+        work_status: string;
+        response_needed: boolean;
+        revision: number;
+        latest_message_at: Date | string;
+        newer_hydration_status: string;
+        reopen_events: number;
+      }[]
+    >`
+      SELECT
+        conversation.work_status,
+        conversation.response_needed,
+        conversation.revision::int AS revision,
+        conversation.latest_message_at,
+        newer.hydration_status AS newer_hydration_status,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.activity_events activity
+          WHERE activity.action = 'conversation.reopened'
+            AND activity.metadata ->> 'messageId' = ${olderId}
+        ) AS reopen_events
+      FROM mail.conversations conversation
+      JOIN mail.message_contents newer ON newer.id = ${newerId}::uuid
+      WHERE conversation.id = ${link.conversation_id}::uuid
+    `;
+    expect(verifiedProjection).toMatchObject({
+      work_status: "open",
+      response_needed: true,
+      revision: 3,
+      newer_hydration_status: "failed",
+      reopen_events: 1,
+    });
+    expect(new Date(verifiedProjection!.latest_message_at).toISOString()).toBe(olderDate.toISOString());
+  }, 30_000);
+
+  test("does not collapse distinct generic IMAP messages with matching envelope metadata", async () => {
+    const messageId = `<generic-collision-${suffix}@example.com>`;
+    const date = new Date("2026-07-13T12:00:00.000Z");
+    const rawMessage = (body: string) =>
+      Buffer.from(
+        [
+          `Message-ID: ${messageId}`,
+          "Date: Mon, 13 Jul 2026 12:00:00 +0000",
+          "From: Customer <collision@example.com>",
+          "To: Support <support@example.com>",
+          "Subject: Generic IMAP collision guard",
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          body,
+        ].join("\r\n"),
+      );
+    const firstSource = rawMessage("Body A");
+    const secondSource = rawMessage("Body B");
+    const envelope = (uidValidity: string) => ({
+      remoteRef: { folderStableKey: folderId, uidValidity, uid: "1", modseq: null },
+      providerMessageId: null,
+      providerThreadId: null,
+      messageId,
+      inReplyTo: null,
+      references: [],
+      subject: "Generic IMAP collision guard",
+      sentAt: date,
+      internalDate: date,
+      sizeBytes: firstSource.byteLength,
+      flags: [],
+      labels: [],
+      addresses: {
+        from: [{ name: "Customer", address: "collision@example.com" }],
+        replyTo: [],
+        to: [{ name: "Support", address: "support@example.com" }],
+        cc: [],
+        bcc: [],
+      },
+      mimeStructure: {},
+    });
+    const firstId = await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId,
+      message: envelope("3"),
+    });
+    const secondId = await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId,
+      message: envelope("4"),
+    });
+    expect(secondId).not.toBe(firstId);
+    expect(
+      await hydrateMessageFromSource({
+        messageId: firstId,
+        source: Readable.from([firstSource]),
+        expectedSize: firstSource.byteLength,
+      }),
+    ).toMatchObject({ status: "hydrated" });
+    expect(
+      await hydrateMessageFromSource({
+        messageId: secondId,
+        source: Readable.from([secondSource]),
+        expectedSize: secondSource.byteLength,
+      }),
+    ).toMatchObject({ status: "hydrated" });
+    const [projection] = await sql<{ contents: number; refs: number }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.message_contents WHERE mailbox_id = ${mailboxId}::uuid AND message_id = ${messageId}) AS contents,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.remote_message_refs remote_ref
+          JOIN mail.message_contents message ON message.id = remote_ref.message_id
+          WHERE message.mailbox_id = ${mailboxId}::uuid AND message.message_id = ${messageId}
+        ) AS refs
+    `;
+    expect(projection).toEqual({ contents: 2, refs: 2 });
+  }, 30_000);
+
+  test("reuses exact hydrated source identity across a generic IMAP UIDVALIDITY reset", async () => {
+    const messageId = `<generic-reset-${suffix}@example.com>`;
+    const date = new Date("2026-07-13T13:00:00.000Z");
+    const source = Buffer.from(
+      [
+        `Message-ID: ${messageId}`,
+        "Date: Mon, 13 Jul 2026 13:00:00 +0000",
+        "From: Customer <reset@example.com>",
+        "To: Support <support@example.com>",
+        "Subject: Generic UIDVALIDITY reset",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Stable source body",
+      ].join("\r\n"),
+    );
+    const envelope = (uidValidity: string) => ({
+      remoteRef: { folderStableKey: folderId, uidValidity, uid: "1", modseq: null },
+      providerMessageId: null,
+      providerThreadId: null,
+      messageId,
+      inReplyTo: null,
+      references: [],
+      subject: "Generic UIDVALIDITY reset",
+      sentAt: date,
+      internalDate: date,
+      sizeBytes: source.byteLength,
+      flags: [],
+      labels: [],
+      addresses: {
+        from: [{ name: "Customer", address: "reset@example.com" }],
+        replyTo: [],
+        to: [{ name: "Support", address: "support@example.com" }],
+        cc: [],
+        bcc: [],
+      },
+      mimeStructure: {},
+    });
+    const canonicalId = await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId,
+      message: envelope("5"),
+    });
+    await hydrateMessageFromSource({
+      messageId: canonicalId,
+      source: Readable.from([source]),
+      expectedSize: source.byteLength,
+    });
+    const [canonicalLink] = await sql<{ conversation_id: string }[]>`
+      SELECT conversation_id FROM mail.conversation_messages WHERE message_id = ${canonicalId}::uuid
+    `;
+    if (!canonicalLink) throw new Error("Canonical reset fixture was not threaded");
+    await sql`
+      INSERT INTO mail.conversation_thread_overrides (
+        message_id, mailbox_id, conversation_id, reason, actor_kind, actor_id
+      ) VALUES (
+        ${canonicalId}::uuid,
+        ${mailboxId}::uuid,
+        ${canonicalLink.conversation_id}::uuid,
+        'split',
+        'user',
+        ${writer.id}::uuid
+      )
+    `;
+    const preservedSnooze = new Date(Date.now() + 60 * 60_000).toISOString();
+    await sql`
+      UPDATE mail.conversations
+      SET work_status = 'waiting', response_needed = false, snoozed_until = ${preservedSnooze}::timestamptz, revision = revision + 1
+      WHERE id = ${canonicalLink.conversation_id}::uuid
+    `;
+
+    const resetId = await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId,
+      message: envelope("6"),
+    });
+    expect(resetId).not.toBe(canonicalId);
+    const [stateBeforeHydration] = await sql<{ work_status: string; response_needed: boolean; snoozed_until: Date | string | null }[]>`
+      SELECT work_status, response_needed, snoozed_until
+      FROM mail.conversations
+      WHERE id = ${canonicalLink.conversation_id}::uuid
+    `;
+    expect(stateBeforeHydration).toMatchObject({ work_status: "waiting", response_needed: false });
+    expect(new Date(stateBeforeHydration!.snoozed_until!).toISOString()).toBe(preservedSnooze);
+    const hydrated = await hydrateMessageFromSource({
+      messageId: resetId,
+      source: Readable.from([source]),
+      expectedSize: source.byteLength,
+    });
+    expect(hydrated).toMatchObject({ status: "deduplicated", canonicalMessageId: canonicalId });
+    const [projection] = await sql<
+      {
+        contents: number;
+        refs: number;
+        links: number;
+        override_conversation_id: string;
+        work_status: string;
+        response_needed: boolean;
+        snoozed_until: Date | string | null;
+        reopen_events: number;
+      }[]
+    >`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.message_contents WHERE mailbox_id = ${mailboxId}::uuid AND message_id = ${messageId}) AS contents,
+        (SELECT COUNT(*)::int FROM mail.remote_message_refs WHERE message_id = ${canonicalId}::uuid) AS refs,
+        (SELECT COUNT(*)::int FROM mail.conversation_messages WHERE message_id = ${canonicalId}::uuid) AS links,
+        (
+          SELECT conversation_id::text
+          FROM mail.conversation_thread_overrides
+          WHERE message_id = ${canonicalId}::uuid
+        ) AS override_conversation_id,
+        conversation.work_status,
+        conversation.response_needed,
+        conversation.snoozed_until,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.activity_events activity
+          WHERE activity.action = 'conversation.reopened'
+            AND activity.metadata ->> 'messageId' = ${resetId}
+        ) AS reopen_events
+      FROM mail.conversations conversation
+      WHERE conversation.id = ${canonicalLink.conversation_id}::uuid
+    `;
+    expect(projection).toMatchObject({
+      contents: 1,
+      refs: 2,
+      links: 1,
+      override_conversation_id: canonicalLink.conversation_id,
+      work_status: "waiting",
+      response_needed: false,
+      reopen_events: 0,
+    });
+    expect(new Date(projection!.snoozed_until!).toISOString()).toBe(preservedSnooze);
+
+    const incompatibleResetId = await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId,
+      message: envelope("7"),
+    });
+    const incompatibleSnooze = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+    const [manualConversation] = await sql<{ id: string }[]>`
+      INSERT INTO mail.conversations (
+        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at,
+        work_status, response_needed, snoozed_until
+      ) VALUES (
+        ${mailboxId}::uuid,
+        'Manually separated exact copy',
+        'Customer',
+        ${date},
+        ${date},
+        'waiting',
+        false,
+        ${incompatibleSnooze}::timestamptz
+      )
+      RETURNING id
+    `;
+    await sql`
+      UPDATE mail.conversation_messages
+      SET conversation_id = ${manualConversation!.id}::uuid, added_by = 'manual'
+      WHERE message_id = ${incompatibleResetId}::uuid
+    `;
+    await sql`
+      INSERT INTO mail.conversation_thread_overrides (
+        message_id, mailbox_id, conversation_id, reason, actor_kind, actor_id
+      ) VALUES (
+        ${incompatibleResetId}::uuid,
+        ${mailboxId}::uuid,
+        ${manualConversation!.id}::uuid,
+        'split',
+        'user',
+        ${writer.id}::uuid
+      )
+    `;
+    const incompatibleHydration = await hydrateMessageFromSource({
+      messageId: incompatibleResetId,
+      source: Readable.from([source]),
+      expectedSize: source.byteLength,
+    });
+    expect(incompatibleHydration).toMatchObject({ status: "hydrated" });
+    const [incompatibleProjection] = await sql<
+      {
+        contents: number;
+        work_status: string;
+        response_needed: boolean;
+        snoozed_until: Date | string | null;
+        revision: number;
+        reopen_events: number;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT COUNT(*)::int
+          FROM mail.message_contents
+          WHERE mailbox_id = ${mailboxId}::uuid AND message_id = ${messageId}
+        ) AS contents,
+        conversation.work_status,
+        conversation.response_needed,
+        conversation.snoozed_until,
+        conversation.revision::int AS revision,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.activity_events activity
+          WHERE activity.action = 'conversation.reopened'
+            AND activity.metadata ->> 'messageId' = ${incompatibleResetId}
+        ) AS reopen_events
+      FROM mail.conversations conversation
+      WHERE conversation.id = ${manualConversation!.id}::uuid
+    `;
+    expect(incompatibleProjection).toMatchObject({
+      contents: 2,
+      work_status: "waiting",
+      response_needed: false,
+      revision: 1,
+      reopen_events: 0,
+    });
+    expect(new Date(incompatibleProjection!.snoozed_until!).toISOString()).toBe(incompatibleSnooze);
+
+    const thirdResetId = await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId,
+      message: envelope("9"),
+    });
+    await sql`
+      UPDATE mail.conversation_messages
+      SET conversation_id = ${manualConversation!.id}::uuid, added_by = 'manual'
+      WHERE message_id = ${thirdResetId}::uuid
+    `;
+    await sql`
+      INSERT INTO mail.conversation_thread_overrides (
+        message_id, mailbox_id, conversation_id, reason, actor_kind, actor_id
+      ) VALUES (
+        ${thirdResetId}::uuid,
+        ${mailboxId}::uuid,
+        ${manualConversation!.id}::uuid,
+        'split',
+        'user',
+        ${writer.id}::uuid
+      )
+    `;
+    const thirdHydration = await hydrateMessageFromSource({
+      messageId: thirdResetId,
+      source: Readable.from([source]),
+      expectedSize: source.byteLength,
+    });
+    expect(thirdHydration).toMatchObject({ status: "deduplicated", canonicalMessageId: incompatibleResetId });
+    const [thirdProjection] = await sql<
+      { contents: number; refs: number; work_status: string; response_needed: boolean; revision: number; reopen_events: number }[]
+    >`
+      SELECT
+        (
+          SELECT COUNT(*)::int
+          FROM mail.message_contents
+          WHERE mailbox_id = ${mailboxId}::uuid AND message_id = ${messageId}
+        ) AS contents,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.remote_message_refs
+          WHERE message_id = ${incompatibleResetId}::uuid
+        ) AS refs,
+        conversation.work_status,
+        conversation.response_needed,
+        conversation.revision::int AS revision,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.activity_events activity
+          WHERE activity.action = 'conversation.reopened'
+            AND activity.metadata ->> 'messageId' = ${thirdResetId}
+        ) AS reopen_events
+      FROM mail.conversations conversation
+      WHERE conversation.id = ${manualConversation!.id}::uuid
+    `;
+    expect(thirdProjection).toEqual({
+      contents: 2,
+      refs: 2,
+      work_status: "waiting",
+      response_needed: false,
+      revision: 1,
+      reopen_events: 0,
+    });
+  }, 30_000);
+});

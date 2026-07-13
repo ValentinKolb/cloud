@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Readable } from "node:stream";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
@@ -17,6 +18,7 @@ import {
 } from "./collaboration";
 import type { ConnectorEnvelope } from "./connectors";
 import { createMailbox } from "./mailboxes";
+import { hydrateMessageFromSource } from "./message-hydration";
 import { getConversationViewCounts, listConversations } from "./messages";
 import { latestMailCollaborationEventCursor, liveMailCollaborationEvents } from "./events";
 import { ingestEnvelope } from "./sync-runtime";
@@ -402,7 +404,31 @@ suite("mail collaboration backend", () => {
       },
       mimeStructure: {},
     };
-    await ingestEnvelope({ db: sql, mailboxId, remoteResourceId, folderId, message: inbound });
+    const inboundMessageId = await ingestEnvelope({ db: sql, mailboxId, remoteResourceId, folderId, message: inbound });
+    const pendingHydration = await getConversationCollaboration({ context: writerContext, mailboxId, conversationId });
+    expect(pendingHydration.ok && pendingHydration.data).toMatchObject({
+      workStatus: "done",
+      responseNeeded: false,
+      snoozedUntil: null,
+      revision: 4,
+    });
+    await hydrateMessageFromSource({
+      messageId: inboundMessageId,
+      source: Readable.from([
+        Buffer.from(
+          [
+            `Message-ID: ${inbound.messageId}`,
+            `In-Reply-To: ${inbound.inReplyTo}`,
+            "From: Customer <customer@example.com>",
+            "To: Support <support@example.com>",
+            `Subject: ${inbound.subject}`,
+            "Content-Type: text/plain; charset=utf-8",
+            "",
+            "A verified inbound reply",
+          ].join("\r\n"),
+        ),
+      ]),
+    });
     const reopened = await getConversationCollaboration({ context: writerContext, mailboxId, conversationId });
     expect(reopened.ok && reopened.data).toMatchObject({ workStatus: "open", responseNeeded: true, snoozedUntil: null, revision: 5 });
     const reopenActivity = await listActivity({ context: writerContext, mailboxId, conversationId, limit: 20 });

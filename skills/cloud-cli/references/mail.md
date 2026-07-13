@@ -129,6 +129,54 @@ cld --json mail conversation messages <conversation-id>
 cld --json mail message get <message-id>
 ```
 
+## Collaborate on conversations
+
+Inspect and update durable collaboration state with optimistic revisions:
+
+```bash
+cld --json mail conversation collaboration <conversation-id>
+cld --json mail conversation update <conversation-id> --revision <revision> --assignee <user-id> --status waiting
+cld --json mail conversation watch <conversation-id> <user-id>
+cld --json mail conversation activity <conversation-id>
+```
+
+Add, edit, or tombstone internal Markdown comments. Use `comment users` to resolve mentionable user ids:
+
+```bash
+cld --json mail comment users --search "Alex"
+cld --json mail comment add <conversation-id> --body-file note.md --mention <user-id> --message <message-id>
+cld --json mail comment edit <conversation-id> <comment-id> --revision <revision> --body-file note.md
+cld --json mail comment delete <conversation-id> <comment-id> --revision <revision> --yes
+```
+
+Personal reminders are revisioned. Omit `--revision` only when creating the first reminder:
+
+```bash
+cld --json mail reminder set <conversation-id> --due <ISO-timestamp>
+cld --json mail reminder get <conversation-id>
+cld --json mail reminder set <conversation-id> --due <ISO-timestamp> --revision <revision>
+cld --json mail reminder cancel <conversation-id> --revision <revision>
+```
+
+Saved-view filters use the same bounded collaboration filter contract as the Mail app. Pass JSON or YAML through a file or stdin:
+
+```bash
+cld --json mail saved-view create "My open queue" --scope private --filter-file filter.yml
+cld --json mail saved-view list
+cld --json mail saved-view conversations <view-id>
+cld --json mail saved-view update <view-id> --revision <revision> --name "Priority queue"
+cld --json mail saved-view delete <view-id> --revision <revision> --yes
+```
+
+Manual thread repair is also revisioned and requires confirmation:
+
+```bash
+cld --json mail conversation split <conversation-id> --revision <revision> --message <message-id> --yes
+cld --json mail conversation merge <target-id> <source-id> --target-revision <revision> --source-revision <revision> --yes
+```
+
+Live presence, reply-composer leases, and SSE heartbeats are intentionally browser transport concerns rather than durable CLI operations.
+
 ## Draft and send
 
 Create or replace a revision-checked shared draft:

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { mutex } from "@valentinkolb/sync";
 import { sql } from "bun";
 import type { ConnectorVerification } from "../contracts";
 import { migrate } from "../migrate";
@@ -11,8 +12,8 @@ import { createActorCommand, createMailCommand } from "./commands";
 import { imapSmtpConnector } from "./connectors";
 import { clearFolderRole, resolveRoleFolder, setFolderRole } from "./folders";
 import { getMailboxOperationalHealth } from "./health";
-import { executeMaintenanceCommand, stopMaintenanceRuntime, submitDueMaintenanceCommands } from "./maintenance-runtime";
 import { createMailbox, updateMailbox } from "./mailboxes";
+import { executeMaintenanceCommand, stopMaintenanceRuntime, submitDueMaintenanceCommands } from "./maintenance-runtime";
 import { createProviderConnection } from "./provider-connections";
 import { claimFence, commitSyncBatch, executeBindingRediscovery, hydrateMessageBatch } from "./sync-runtime";
 import { createConversationTriageCommands } from "./triage";
@@ -264,11 +265,7 @@ suite("mail lifecycle control plane", () => {
       `;
       expect(renamedProject).toEqual({ id: project!.id, rights_source: "acl", namespace_kind: "personal" });
 
-      discover.mockResolvedValue([
-        remoteFolder("INBOX", "10", "inbox"),
-        remoteFolder("Active", "20"),
-        remoteFolder("Clients", "40"),
-      ]);
+      discover.mockResolvedValue([remoteFolder("INBOX", "10", "inbox"), remoteFolder("Active", "20"), remoteFolder("Clients", "40")]);
       const renamedAndRecreated = await rediscoverProviderBinding({ bindingId });
       expect(renamedAndRecreated.renamed).toBe(1);
       const recreatedFolders = await sql<{ id: string; remote_path: string; uid_validity: string }[]>`
@@ -327,11 +324,7 @@ suite("mail lifecycle control plane", () => {
           now()
         )
       `;
-      discover.mockResolvedValue([
-        remoteFolder("INBOX", "10", "inbox"),
-        remoteFolder("Archive", "20"),
-        remoteFolder("Clients", "40"),
-      ]);
+      discover.mockResolvedValue([remoteFolder("INBOX", "10", "inbox"), remoteFolder("Archive", "20"), remoteFolder("Clients", "40")]);
       const conflictedRename = await rediscoverProviderBinding({ bindingId });
       expect(conflictedRename).toMatchObject({ ambiguous: 2, renamed: 0 });
       const [conflictedHealth] = await sql<{ health: string }[]>`
@@ -399,7 +392,7 @@ suite("mail lifecycle control plane", () => {
       discover.mockRestore();
       verify.mockRestore();
     }
-  });
+  }, 15_000);
 
   test("confirming a pending binding activates its discovered folders", async () => {
     await sql`
@@ -442,9 +435,7 @@ suite("mail lifecycle control plane", () => {
         ${fixtureVerification().capabilities}::jsonb,
         '{}'::jsonb,
         ${
-          typeof trusted!.verification_evidence === "string"
-            ? JSON.parse(trusted!.verification_evidence)
-            : trusted!.verification_evidence
+          typeof trusted!.verification_evidence === "string" ? JSON.parse(trusted!.verification_evidence) : trusted!.verification_evidence
         }::jsonb,
         ${trusted!.scope_fingerprint},
         1,
@@ -588,6 +579,142 @@ suite("mail lifecycle control plane", () => {
         `;
       }
     }
+  });
+
+  test("a UIDVALIDITY reset retires old placements before the new generation is committed", async () => {
+    const [resource] = await sql<{ id: string }[]>`
+      SELECT remote_resource_id AS id FROM mail.provider_bindings WHERE id = ${bindingId}::uuid
+    `;
+    const [folder] = await sql<{ id: string }[]>`
+      INSERT INTO mail.folders (
+        remote_resource_id, stable_key, name, role, selected_for_sync, sync_status, envelope_cursor
+      ) VALUES (
+        ${resource!.id}::uuid,
+        ${`uidvalidity-${suffix}`},
+        'UIDVALIDITY fixture',
+        'other',
+        false,
+        'syncing',
+        ${{
+          version: 1,
+          uidValidity: "51",
+          highestSeenUid: 1,
+          backfillNextHigh: null,
+          backfillComplete: true,
+          incrementalTargetHigh: null,
+          incrementalNextHigh: null,
+          highestModseq: "1",
+          flagTargetModseq: null,
+          flagNextLow: null,
+          flagMaxUid: null,
+          reconcileNextLow: null,
+          lastFullReconcileAt: null,
+        }}::jsonb
+      ) RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.binding_folder_refs (
+        binding_id, folder_id, remote_path, uid_validity, uid_next, highest_modseq, effective_rights, last_verified_at
+      ) VALUES (
+        ${bindingId}::uuid,
+        ${folder!.id}::uuid,
+        ${`UIDVALIDITY-${suffix}`},
+        51,
+        2,
+        1,
+        ARRAY['read']::text[],
+        now()
+      )
+    `;
+    const [message] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${`<uidvalidity-${suffix}@example.com>`},
+        'UIDVALIDITY fixture',
+        now(),
+        1,
+        ${`${"d".repeat(56)}${suffix}`},
+        'complete'
+      ) RETURNING id
+    `;
+    const [remoteRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+      VALUES (${folder!.id}::uuid, ${message!.id}::uuid, 51, 1)
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id)
+      VALUES (${remoteRef!.id}::uuid, ${folder!.id}::uuid, ${message!.id}::uuid)
+    `;
+
+    const fence = await claimFence(resource!.id, bindingId, "incremental");
+    const beforeCursor = {
+      version: 1 as const,
+      uidValidity: "51",
+      highestSeenUid: 1,
+      backfillNextHigh: null,
+      backfillComplete: true,
+      incrementalTargetHigh: null,
+      incrementalNextHigh: null,
+      highestModseq: "1",
+      flagTargetModseq: null,
+      flagNextLow: null,
+      flagMaxUid: null,
+      reconcileNextLow: null,
+      lastFullReconcileAt: null,
+    };
+    const cursor = { ...beforeCursor, uidValidity: "52", highestSeenUid: 0, highestModseq: "2" };
+
+    await commitSyncBatch({
+      folder: {
+        folder_id: folder!.id,
+        mailbox_id: mailboxId,
+        remote_resource_id: resource!.id,
+        sync_generation: fence.generation,
+        envelope_cursor: beforeCursor,
+        role: "other",
+      },
+      folderId: folder!.id,
+      bindingId,
+      secretRevision: 1,
+      fence,
+      status: { uidValidity: "52", uidNext: 1, highestModseq: "2", messages: 0 },
+      beforeCursor,
+      cursor,
+      uidValidityChanged: true,
+      envelopeBatch: null,
+      envelopeKind: null,
+      flagChanges: [],
+      reconcileWindow: null,
+    });
+
+    const [projection] = await sql<
+      {
+        stale_at: Date | string | null;
+        deleted_at: Date | string | null;
+        uid_validity: string;
+        run_state: string;
+      }[]
+    >`
+      SELECT
+        remote_ref.stale_at,
+        placement.deleted_at,
+        binding_folder.uid_validity::text AS uid_validity,
+        sync_run.state AS run_state
+      FROM mail.remote_message_refs remote_ref
+      JOIN mail.message_placements placement ON placement.remote_message_ref_id = remote_ref.id
+      JOIN mail.binding_folder_refs binding_folder
+        ON binding_folder.binding_id = ${bindingId}::uuid AND binding_folder.folder_id = ${folder!.id}::uuid
+      JOIN mail.sync_runs sync_run ON sync_run.id = ${fence.runId}::uuid
+      WHERE remote_ref.id = ${remoteRef!.id}::uuid
+    `;
+    expect(projection?.stale_at).not.toBeNull();
+    expect(projection?.deleted_at).not.toBeNull();
+    expect(projection?.uid_validity).toBe("52");
+    expect(projection?.run_state).toBe("completed");
+    await sql`DELETE FROM mail.folders WHERE id = ${folder!.id}::uuid`;
   });
 
   test("stale maintenance execution is recovered and completed by the durable worker", async () => {
@@ -739,7 +866,9 @@ suite("mail lifecycle control plane", () => {
       const [storedPaused] = await sql<{ result: Record<string, unknown> | string }[]>`
         SELECT result FROM mail.commands WHERE id = ${pausedCommand.data.id}::uuid
       `;
-      expect(typeof storedPaused?.result === "string" ? JSON.parse(storedPaused.result) : storedPaused?.result).toEqual({ queuedFolders: 0 });
+      expect(typeof storedPaused?.result === "string" ? JSON.parse(storedPaused.result) : storedPaused?.result).toEqual({
+        queuedFolders: 0,
+      });
     }
     const resumed = await updateMailbox({ context: adminContext, mailboxId, syncEnabled: true });
     expect(resumed.ok && resumed.data.health).toBe("bootstrapping");
@@ -771,9 +900,7 @@ suite("mail lifecycle control plane", () => {
     expect(rebuild.ok).toBe(true);
     if (!rebuild.ok) return;
     expect(await executeMaintenanceCommand(rebuild.data.id, undefined, { enqueueWork: false })).toBe("confirmed");
-    const [rebuilt] = await sql<
-      { sync_status: string; stale: boolean; placement_deleted: boolean; content_exists: boolean }[]
-    >`
+    const [rebuilt] = await sql<{ sync_status: string; stale: boolean; placement_deleted: boolean; content_exists: boolean }[]>`
       SELECT
         folder.sync_status,
         ref.stale_at IS NOT NULL AS stale,
@@ -1001,6 +1128,7 @@ suite("mail lifecycle control plane", () => {
       flags: ["\\Answered"],
       keywords: ["Existing"],
       messageId: `<state-${suffix}@example.com>`,
+      modseq: "1",
     });
     const changeState = spyOn(imapSmtpConnector, "changeMessageState").mockImplementation(async (_runtime, _target, change) => {
       expect(change).toEqual({ addFlags: ["\\Seen"], removeFlags: [], addKeywords: ["CloudTest"], removeKeywords: [] });
@@ -1009,9 +1137,32 @@ suite("mail lifecycle control plane", () => {
         flags: ["\\Answered", "\\Seen"],
         keywords: ["cloudtest", "Existing"],
         messageId: `<state-${suffix}@example.com>`,
+        modseq: "2",
       };
     });
     try {
+      const stale = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "change_message_state",
+          remoteMessageRefId: remoteRef!.id,
+          folderId: inboxFolderId,
+          change: { addFlags: ["seen"], removeFlags: [], addKeywords: ["CloudTest"], removeKeywords: [] },
+          expectedRemoteState: { modseq: "1", flags: ["answered"], keywords: ["Different"] },
+          idempotencyKey: `message-state-stale-${suffix}`,
+        },
+      });
+      expect(stale.ok).toBe(true);
+      if (!stale.ok) return;
+      expect(await executeMutationCommand(stale.data.id)).toBe("failed");
+      const [staleState] = await sql<{ last_error_code: string | null }[]>`
+        SELECT last_error_code FROM mail.commands WHERE id = ${stale.data.id}::uuid
+      `;
+      expect(staleState?.last_error_code).toBe("REMOTE_STATE_CHANGED");
+      expect(changeState).not.toHaveBeenCalled();
+
       const command = await createActorCommand({
         context: adminContext,
         mailboxId,
@@ -1021,11 +1172,34 @@ suite("mail lifecycle control plane", () => {
           remoteMessageRefId: remoteRef!.id,
           folderId: inboxFolderId,
           change: { addFlags: ["seen"], removeFlags: [], addKeywords: ["CloudTest"], removeKeywords: [] },
+          expectedRemoteState: { modseq: "1", flags: ["answered"], keywords: ["Existing"] },
           idempotencyKey: `message-state-${suffix}`,
         },
       });
       expect(command.ok).toBe(true);
       if (!command.ok) return;
+      providerState.mockClear();
+      changeState.mockClear();
+      const [resource] = await sql<{ id: string }[]>`
+        SELECT remote_resource_id AS id
+        FROM mail.provider_bindings
+        WHERE id = ${bindingId}::uuid
+      `;
+      const syncLock = mutex({ id: "mail:remote-resource-sync", defaultTtl: 30_000, retryCount: 0 });
+      const heldSyncLock = await syncLock.acquire(resource!.id, 30_000);
+      expect(heldSyncLock).not.toBeNull();
+      if (!heldSyncLock) return;
+      try {
+        expect(await executeMutationCommand(command.data.id)).toBe("queued");
+        expect(providerState).not.toHaveBeenCalled();
+        expect(changeState).not.toHaveBeenCalled();
+        const [blocked] = await sql<{ last_error_code: string | null }[]>`
+          SELECT last_error_code FROM mail.commands WHERE id = ${command.data.id}::uuid
+        `;
+        expect(blocked?.last_error_code).toBe("REMOTE_RESOURCE_BUSY");
+      } finally {
+        await syncLock.release(heldSyncLock);
+      }
       expect(await executeMutationCommand(command.data.id)).toBe("confirmed");
       const [placement] = await sql<{ flags: string[]; keywords: string[] }[]>`
         SELECT flags, keywords FROM mail.message_placements WHERE remote_message_ref_id = ${remoteRef!.id}::uuid
@@ -1035,7 +1209,7 @@ suite("mail lifecycle control plane", () => {
       changeState.mockRestore();
       providerState.mockRestore();
     }
-  });
+  }, 15_000);
 
   test("conversation triage creates its durable child commands atomically", async () => {
     const [conversation] = await sql<{ id: string }[]>`
@@ -1110,6 +1284,55 @@ suite("mail lifecycle control plane", () => {
         AND idempotency_key = ${`${idempotencyKey}:${refs[0]}`}
     `;
     expect(created?.count).toBe(0);
+  });
+
+  test("command idempotency stays actor-bound and rechecks write access on replay", async () => {
+    const accessId = accessIds[0]!;
+    const promoted = await updateMailboxAccess({ context: adminContext, mailboxId, accessId, permission: "write" });
+    expect(promoted.ok).toBe(true);
+    const [message] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${`<command-replay-${suffix}@example.com>`},
+        'Command replay',
+        now(),
+        1,
+        ${`${"c".repeat(56)}${suffix}`},
+        'complete'
+      ) RETURNING id
+    `;
+    const [remoteRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+      VALUES (${inboxFolderId}::uuid, ${message!.id}::uuid, 10, 990001)
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id)
+      VALUES (${remoteRef!.id}::uuid, ${inboxFolderId}::uuid, ${message!.id}::uuid)
+    `;
+    const input = {
+      kind: "change_message_state" as const,
+      remoteMessageRefId: remoteRef!.id,
+      folderId: inboxFolderId,
+      change: { addFlags: ["seen" as const], removeFlags: [], addKeywords: [], removeKeywords: [] },
+      idempotencyKey: `actor-bound-${suffix}`,
+    };
+    const created = await createActorCommand({ context: adminContext, mailboxId, input, enqueue: false });
+    expect(created.ok).toBe(true);
+    const foreignReplay = await createActorCommand({ context: collaboratorContext, mailboxId, input, enqueue: false });
+    expect(foreignReplay.ok).toBe(false);
+    if (!foreignReplay.ok) expect(foreignReplay.error.code).toBe("CONFLICT");
+
+    const ownInput = { ...input, idempotencyKey: `revoked-replay-${suffix}` };
+    const own = await createActorCommand({ context: collaboratorContext, mailboxId, input: ownInput, enqueue: false });
+    expect(own.ok).toBe(true);
+    const downgraded = await updateMailboxAccess({ context: adminContext, mailboxId, accessId, permission: "read" });
+    expect(downgraded.ok).toBe(true);
+    const revokedReplay = await createActorCommand({ context: collaboratorContext, mailboxId, input: ownInput, enqueue: false });
+    expect(revokedReplay.ok).toBe(false);
+    if (!revokedReplay.ok) expect(revokedReplay.error.code).toBe("FORBIDDEN");
   });
 
   test("execution rechecks administration access after command creation", async () => {

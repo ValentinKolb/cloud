@@ -38,6 +38,47 @@ export type WorkflowSnapshot = {
   } | null;
 };
 
+export type WorkflowSnapshotField =
+  | "subject"
+  | "body"
+  | "sender"
+  | "recipient"
+  | "attachmentName"
+  | "hasAttachment"
+  | "folder"
+  | "keyword"
+  | "flag"
+  | "collaboration";
+
+export const workflowSnapshotRequirements = (definition: WorkflowDefinition): ReadonlySet<WorkflowSnapshotField> => {
+  const fields = new Set<WorkflowSnapshotField>();
+  const steps = [...definition.steps];
+  const conditions: WorkflowCondition[] = [];
+  while (steps.length > 0) {
+    const step = steps.pop()!;
+    if ("when" in step) {
+      conditions.push(step.when);
+      steps.push(...step.then, ...(step.else ?? []));
+      continue;
+    }
+    if (!("action" in step)) continue;
+    if (step.action === "remote.keyword.add" || step.action === "remote.keyword.remove") {
+      fields.add("keyword");
+      fields.add("folder");
+    }
+    else if (step.action === "remote.move") fields.add("folder");
+    else fields.add("collaboration");
+  }
+  while (conditions.length > 0) {
+    const condition = conditions.pop()!;
+    if ("all" in condition) conditions.push(...condition.all);
+    else if ("any" in condition) conditions.push(...condition.any);
+    else if ("not" in condition) conditions.push(condition.not);
+    else fields.add(condition.field);
+  }
+  return fields;
+};
+
 export type PlannedWorkflowAction = {
   sequence: number;
   path: string;

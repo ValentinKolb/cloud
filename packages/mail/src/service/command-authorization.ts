@@ -1,3 +1,4 @@
+import { accounts, toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 
 export type StoredCommandAuthorization = {
@@ -9,6 +10,8 @@ export type StoredCommandAuthorization = {
   access_subject_kind: "user" | "service_account" | "system";
   access_subject_id: string | null;
   credential_scopes: string[] | null;
+  credential_id: string | null;
+  credential_expires_at: Date | string | null;
 };
 
 const permissionRank = (permission: string | null | undefined): number => {
@@ -35,6 +38,25 @@ const serviceAccountActorAllowed = async (
   const actorId = command.initiator_actor_id ?? command.actor_id;
   if (actorKind !== "service_account") return true;
   if (!actorId || scopeRank(command.credential_scopes ?? []) < requiredRank(permission)) return false;
+  if (command.credential_id) {
+    const [credential] = await sql<{ active: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM auth.service_account_credentials credential
+        WHERE credential.id = ${command.credential_id}::uuid
+          AND credential.service_account_id = ${actorId}::uuid
+          AND credential.status = 'active'
+          AND credential.revoked_at IS NULL
+          AND (credential.expires_at IS NULL OR credential.expires_at > now())
+          AND credential.scopes @> ${toPgTextArray(command.credential_scopes ?? [])}::text[]
+          AND credential.scopes <@ ${toPgTextArray(command.credential_scopes ?? [])}::text[]
+      ) AS active
+    `;
+    if (credential?.active !== true) return false;
+  } else {
+    const expiresAt = command.credential_expires_at ? new Date(command.credential_expires_at).getTime() : Number.NaN;
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
+  }
   const [serviceAccount] = await sql<
     {
       status: string;
@@ -58,13 +80,9 @@ const serviceAccountActorAllowed = async (
 const loadAccessSubjectState = async (command: StoredCommandAuthorization): Promise<{ active: boolean; admin: boolean }> => {
   if (!command.access_subject_id) return { active: false, admin: false };
   if (command.access_subject_kind === "user") {
-    const [user] = await sql<{ admin: boolean }[]>`
-      SELECT admin
-      FROM auth.users
-      WHERE id = ${command.access_subject_id}::uuid
-        AND (account_expires IS NULL OR account_expires > now())
-    `;
-    return { active: Boolean(user), admin: user?.admin === true };
+    const user = await accounts.users.get({ id: command.access_subject_id });
+    const active = Boolean(user && (user.accountExpires === null || Date.parse(user.accountExpires) > Date.now()));
+    return { active, admin: active && user?.roles.includes("admin") === true };
   }
   const [serviceAccount] = await sql<{ status: string }[]>`
     SELECT status FROM auth.service_accounts WHERE id = ${command.access_subject_id}::uuid

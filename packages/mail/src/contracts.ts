@@ -191,20 +191,63 @@ export const mailSearchTermSchema = z.object({
   match: z.enum(["words", "phrase", "contains", "exact"]).default("words"),
 });
 
+const MAX_BOOLEAN_TREE_DEPTH = 8;
+const MAX_BOOLEAN_TREE_NODES = 100;
+
+const boundedTreeInputSchema = (params: {
+  label: string;
+  children: (value: Record<string, unknown>) => unknown[];
+}): z.ZodType<unknown> =>
+  z.unknown().superRefine((value, context) => {
+    const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 1 }];
+    const seen = new WeakSet<object>();
+    let nodes = 0;
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      if (!current.value || typeof current.value !== "object" || Array.isArray(current.value)) continue;
+      if (seen.has(current.value)) {
+        context.addIssue({ code: "custom", message: `${params.label} may not contain cyclic or repeated nodes` });
+        return;
+      }
+      seen.add(current.value);
+      nodes += 1;
+      if (current.depth > MAX_BOOLEAN_TREE_DEPTH) {
+        context.addIssue({ code: "custom", message: `${params.label} may be at most ${MAX_BOOLEAN_TREE_DEPTH} levels deep` });
+        return;
+      }
+      if (nodes > MAX_BOOLEAN_TREE_NODES) {
+        context.addIssue({ code: "custom", message: `${params.label} may contain at most ${MAX_BOOLEAN_TREE_NODES} nodes` });
+        return;
+      }
+      for (const child of params.children(current.value as Record<string, unknown>)) {
+        stack.push({ value: child, depth: current.depth + 1 });
+      }
+    }
+  });
+
 export type MailSearchExpression =
   | z.infer<typeof mailSearchTermSchema>
   | { and: MailSearchExpression[] }
   | { or: MailSearchExpression[] }
   | { not: MailSearchExpression };
 
-export const mailSearchExpressionSchema: z.ZodType<MailSearchExpression> = z.lazy(() =>
+const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> = z.lazy(() =>
   z.union([
     mailSearchTermSchema,
-    z.object({ and: z.array(mailSearchExpressionSchema).min(1).max(20) }).strict(),
-    z.object({ or: z.array(mailSearchExpressionSchema).min(1).max(20) }).strict(),
-    z.object({ not: mailSearchExpressionSchema }).strict(),
+    z.object({ and: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
+    z.object({ or: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
+    z.object({ not: mailSearchExpressionRecursiveSchema }).strict(),
   ]),
 );
+
+export const mailSearchExpressionSchema = boundedTreeInputSchema({
+  label: "Search expressions",
+  children: (value) => [
+    ...(Array.isArray(value.and) ? value.and : []),
+    ...(Array.isArray(value.or) ? value.or : []),
+    ...(value.not === undefined ? [] : [value.not]),
+  ],
+}).pipe(mailSearchExpressionRecursiveSchema) as z.ZodType<MailSearchExpression>;
 
 export const searchRequestSchema = z.object({
   expression: mailSearchExpressionSchema,
@@ -261,6 +304,15 @@ export const mailKeywordSchema = z
   .max(100)
   .refine((value) => !value.startsWith("\\"), "Keywords cannot use the IMAP system-flag namespace")
   .refine((value) => !/[\u0000-\u001f\u007f()\{\s]/.test(value), "Keyword contains unsupported IMAP characters");
+
+export const remoteMessagePreconditionSchema = z
+  .object({
+    modseq: z.string().regex(/^\d+$/).nullable().optional(),
+    flags: z.array(standardMessageFlagSchema).max(4).optional(),
+    keywords: z.array(mailKeywordSchema).max(100).optional(),
+  })
+  .strict();
+export type RemoteMessagePrecondition = z.infer<typeof remoteMessagePreconditionSchema>;
 
 const folderLeafNameSchema = z
   .string()
@@ -320,29 +372,34 @@ export const actorCommandInputSchema = z.discriminatedUnion("kind", [
     remoteMessageRefId: z.string().uuid(),
     folderId: z.string().uuid(),
     flags: z.array(z.string().trim().min(1).max(100)).max(100),
+    expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("change_message_state"),
     remoteMessageRefId: z.string().uuid(),
     folderId: z.string().uuid(),
     change: messageStateChangeSchema,
+    expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("move"),
     remoteMessageRefId: z.string().uuid(),
     sourceFolderId: z.string().uuid(),
     destinationFolderId: z.string().uuid(),
+    expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("copy"),
     remoteMessageRefId: z.string().uuid(),
     sourceFolderId: z.string().uuid(),
     destinationFolderId: z.string().uuid(),
+    expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("delete"),
     remoteMessageRefId: z.string().uuid(),
     folderId: z.string().uuid(),
+    expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("create_folder"),
@@ -423,7 +480,7 @@ const workflowTextConditionSchema = z
   .object({
     field: z.enum(["subject", "body", "sender", "recipient", "attachmentName"]),
     operator: z.enum(["contains", "equals", "startsWith", "endsWith"]),
-    value: z.string().min(1).max(500),
+    value: z.string().trim().min(1).max(500),
   })
   .strict();
 
@@ -469,18 +526,32 @@ export type WorkflowCondition =
   | { any: WorkflowCondition[] }
   | { not: WorkflowCondition };
 
-export const workflowConditionSchema: z.ZodType<WorkflowCondition> = z.lazy(() =>
+const workflowConditionRecursiveSchema: z.ZodType<WorkflowCondition> = z.lazy(() =>
   z.union([
     workflowTextConditionSchema,
     workflowFolderConditionSchema,
     workflowKeywordConditionSchema,
     workflowFlagConditionSchema,
     workflowAttachmentConditionSchema,
-    z.object({ all: z.array(workflowConditionSchema).min(1).max(20) }).strict(),
-    z.object({ any: z.array(workflowConditionSchema).min(1).max(20) }).strict(),
-    z.object({ not: workflowConditionSchema }).strict(),
+    z.object({ all: z.array(workflowConditionRecursiveSchema).min(1).max(20) }).strict(),
+    z.object({ any: z.array(workflowConditionRecursiveSchema).min(1).max(20) }).strict(),
+    z.object({ not: workflowConditionRecursiveSchema }).strict(),
   ]),
 );
+
+const workflowTreeChildren = (value: Record<string, unknown>): unknown[] => [
+  ...(Array.isArray(value.all) ? value.all : []),
+  ...(Array.isArray(value.any) ? value.any : []),
+  ...(value.not === undefined ? [] : [value.not]),
+  ...(value.when === undefined ? [] : [value.when]),
+  ...(Array.isArray(value.then) ? value.then : []),
+  ...(Array.isArray(value.else) ? value.else : []),
+];
+
+export const workflowConditionSchema = boundedTreeInputSchema({
+  label: "Workflow conditions",
+  children: workflowTreeChildren,
+}).pipe(workflowConditionRecursiveSchema) as z.ZodType<WorkflowCondition>;
 
 export const workflowActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("remote.keyword.add"), keyword: mailKeywordSchema }).strict(),
@@ -496,19 +567,24 @@ export type WorkflowStep =
   | WorkflowAction
   | { stop: "workflow" };
 
-export const workflowStepSchema: z.ZodType<WorkflowStep> = z.lazy(() =>
+const workflowStepRecursiveSchema: z.ZodType<WorkflowStep> = z.lazy(() =>
   z.union([
     z
       .object({
-        when: workflowConditionSchema,
-        then: z.array(workflowStepSchema).min(1).max(50),
-        else: z.array(workflowStepSchema).min(1).max(50).optional(),
+        when: workflowConditionRecursiveSchema,
+        then: z.array(workflowStepRecursiveSchema).min(1).max(50),
+        else: z.array(workflowStepRecursiveSchema).min(1).max(50).optional(),
       })
       .strict(),
     workflowActionSchema,
     z.object({ stop: z.literal("workflow") }).strict(),
   ]),
 );
+
+export const workflowStepSchema = boundedTreeInputSchema({
+  label: "Workflow trees",
+  children: workflowTreeChildren,
+}).pipe(workflowStepRecursiveSchema) as z.ZodType<WorkflowStep>;
 
 export const workflowEffectBudgetSchema = z
   .object({
@@ -565,7 +641,7 @@ export const createOneShotWorkflowRunInputSchema = workflowRunBaseSchema
 export type CreateOneShotWorkflowRunInput = z.infer<typeof createOneShotWorkflowRunInputSchema>;
 
 export const createSavedWorkflowRunInputSchema = workflowRunBaseSchema
-  .extend({ version: z.number().int().positive().optional() })
+  .extend({ version: z.number().int().positive().max(2_147_483_647).optional() })
   .strict();
 export type CreateSavedWorkflowRunInput = z.infer<typeof createSavedWorkflowRunInputSchema>;
 
@@ -661,6 +737,31 @@ export type MailWorkflowRun = {
 export const conversationViewSchema = z.enum(["inbox", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"]);
 export type ConversationView = z.infer<typeof conversationViewSchema>;
 
+export const mergeConversationsInputSchema = z
+  .object({
+    sourceConversationId: z.string().uuid(),
+    expectedTargetRevision: z.number().int().positive(),
+    expectedSourceRevision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500).optional(),
+    confirm: z.literal(true),
+  })
+  .strict();
+export type MergeConversationsInput = z.infer<typeof mergeConversationsInputSchema>;
+
+export const splitConversationInputSchema = z
+  .object({
+    messageIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(5_000)
+      .refine((ids) => new Set(ids).size === ids.length, "Message ids must be unique"),
+    expectedRevision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500).optional(),
+    confirm: z.literal(true),
+  })
+  .strict();
+export type SplitConversationInput = z.infer<typeof splitConversationInputSchema>;
+
 export const updateConversationCollaborationSchema = z
   .object({
     expectedRevision: z.number().int().positive(),
@@ -710,6 +811,86 @@ export const deleteConversationCommentSchema = z.object({
   expectedRevision: z.number().int().positive(),
 });
 export type DeleteConversationComment = z.infer<typeof deleteConversationCommentSchema>;
+
+export const setConversationReminderSchema = z
+  .object({
+    dueAt: z.string().datetime(),
+    expectedRevision: z.number().int().positive().nullable(),
+  })
+  .strict();
+export type SetConversationReminder = z.infer<typeof setConversationReminderSchema>;
+
+export const cancelConversationReminderSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
+export type CancelConversationReminder = z.infer<typeof cancelConversationReminderSchema>;
+
+export const savedConversationViewScopeSchema = z.enum(["private", "mailbox"]);
+export type SavedConversationViewScope = z.infer<typeof savedConversationViewScopeSchema>;
+
+export const savedConversationAssigneeFilterSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("any") }).strict(),
+  z.object({ kind: z.literal("me") }).strict(),
+  z.object({ kind: z.literal("unassigned") }).strict(),
+  z.object({ kind: z.literal("user"), userId: z.string().uuid() }).strict(),
+]);
+export type SavedConversationAssigneeFilter = z.infer<typeof savedConversationAssigneeFilterSchema>;
+
+export const savedConversationViewFilterSchema = z
+  .object({
+    folderId: z.string().uuid().optional(),
+    workStatuses: z
+      .array(conversationWorkStatusSchema)
+      .min(1)
+      .max(3)
+      .refine((statuses) => new Set(statuses).size === statuses.length, "Work statuses must be unique")
+      .optional(),
+    assignee: savedConversationAssigneeFilterSchema.optional(),
+    responseNeeded: z.boolean().optional(),
+    snoozed: z.boolean().optional(),
+    watchedByMe: z.boolean().optional(),
+  })
+  .strict();
+export type SavedConversationViewFilter = z.infer<typeof savedConversationViewFilterSchema>;
+
+export const createSavedConversationViewSchema = z
+  .object({
+    scope: savedConversationViewScopeSchema,
+    name: z.string().trim().min(1).max(120),
+    filter: savedConversationViewFilterSchema,
+  })
+  .strict();
+export type CreateSavedConversationView = z.infer<typeof createSavedConversationViewSchema>;
+
+export const updateSavedConversationViewSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    name: z.string().trim().min(1).max(120).optional(),
+    filter: savedConversationViewFilterSchema.optional(),
+  })
+  .strict()
+  .refine((value) => value.name !== undefined || value.filter !== undefined, "At least one saved view field is required");
+export type UpdateSavedConversationView = z.infer<typeof updateSavedConversationViewSchema>;
+
+export const deleteSavedConversationViewSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
+export type DeleteSavedConversationView = z.infer<typeof deleteSavedConversationViewSchema>;
+
+export const conversationPresenceModeSchema = z.enum(["viewing", "composing"]);
+export type ConversationPresenceMode = z.infer<typeof conversationPresenceModeSchema>;
+
+export const conversationPresenceHeartbeatSchema = z
+  .object({
+    peerId: z.string().uuid(),
+    mode: conversationPresenceModeSchema,
+  })
+  .strict();
+export type ConversationPresenceHeartbeat = z.infer<typeof conversationPresenceHeartbeatSchema>;
+
+export const conversationPresenceLeaveSchema = z.object({ peerId: z.string().uuid() }).strict();
+
+export const replyLeaseTokenSchema = z.object({ token: z.string().uuid() }).strict();
 
 export const senderAuthenticationPolicySchema = z.object({
   interactive: z.enum(["mailbox", "actor"]),

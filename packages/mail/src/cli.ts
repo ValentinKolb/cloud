@@ -14,6 +14,7 @@ import {
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+import { z } from "zod";
 import {
   type Mailbox,
   type MailboxHealth,
@@ -28,20 +29,20 @@ import {
   mailSearchExpressionSchema,
   type ProviderBinding,
   type ProviderConnection,
+  type SavedConversationViewFilter,
   type SenderIdentity,
+  savedConversationViewFilterSchema,
   type WorkflowDefinition,
   type WorkflowPreview,
   type WorkflowTargetQuery,
   workflowDefinitionSchema,
   workflowTargetQuerySchema,
 } from "./contracts";
-import type {
-  ConversationCollaboration,
-  ConversationComment,
-  MailActivityEvent,
-  MailAssignableUser,
-} from "./service/collaboration";
+import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
+import type { MergeConversationsResult, SplitConversationResult } from "./service/conversations";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
+import type { ConversationReminder } from "./service/reminders";
+import type { SavedConversationView } from "./service/saved-views";
 import type { MessageSearchHit, MessageSearchPage } from "./service/search";
 
 type MailboxWithPermission = Mailbox & { permission: PermissionLevel };
@@ -74,6 +75,13 @@ const jsonRequest = (method: string, value: unknown): RequestInit => ({
   body: JSON.stringify(value),
 });
 const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+const offsetDateTimeSchema = z.iso.datetime({ offset: true });
+const parseOffsetDateTime = (value: string, flagName: string): string => {
+  if (!offsetDateTimeSchema.safeParse(value).success) {
+    throw new Error(`${flagName} must be an ISO date-time with a UTC offset, for example 2026-08-01T12:00:00Z.`);
+  }
+  return new Date(value).toISOString();
+};
 
 const streamResponseToFile = async (response: Response, path: string): Promise<number> => {
   if (!response.body) throw new Error("Attachment download returned an empty response body.");
@@ -111,7 +119,7 @@ const waitFlags = {
 };
 
 const pollUntil = async <T>(params: {
-  load: () => Promise<T>;
+  load: (signal: AbortSignal) => Promise<T>;
   done: (value: T) => boolean;
   timeoutSeconds: number | undefined;
   description: string;
@@ -119,10 +127,23 @@ const pollUntil = async <T>(params: {
   const timeoutMs = (params.timeoutSeconds ?? DEFAULT_WAIT_TIMEOUT_SECONDS) * 1_000;
   const deadline = Date.now() + timeoutMs;
   const pollIntervalMs = Math.min(1_000, Math.max(100, Math.floor(timeoutMs / 20)));
+  const timeoutError = () => new Error(`Timed out waiting for ${params.description}.`);
   while (true) {
-    const value = await params.load();
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw timeoutError();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), remaining);
+    let value: T;
+    try {
+      value = await params.load(controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) throw timeoutError();
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
     if (params.done(value)) return value;
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${params.description}.`);
+    if (Date.now() >= deadline) throw timeoutError();
     await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, Math.max(0, deadline - Date.now()))));
   }
 };
@@ -138,7 +159,8 @@ const printTable = <T extends Record<string, unknown>>(
 };
 
 const listMailboxes = (ctx: CloudCliContext): Promise<MailboxWithPermission[]> => readApi(ctx, "/mailboxes?limit=200");
-const getMailbox = (ctx: CloudCliContext, mailboxId: string): Promise<Mailbox> => readApi(ctx, `/mailboxes/${mailboxId}`);
+const getMailbox = (ctx: CloudCliContext, mailboxId: string, signal?: AbortSignal): Promise<Mailbox> =>
+  readApi(ctx, `/mailboxes/${mailboxId}`, { signal });
 
 const resolveMailbox = async (ctx: CloudCliContext, ref?: string): Promise<MailboxWithPermission> => {
   const effectiveRef = ref ?? (await ctx.getDefault(DEFAULT_MAILBOX_KEY));
@@ -167,6 +189,11 @@ const workflowQueryInput = flag.input({
   stdinName: "query-stdin",
   description: "Optional target query as JSON or YAML; defaults to all messages",
 });
+const savedViewFilterInput = flag.input({
+  fileName: "filter-file",
+  stdinName: "filter-stdin",
+  description: "Saved view filter as JSON or YAML",
+});
 
 const parseStructuredDocument = (value: string, label: string): unknown => {
   try {
@@ -180,18 +207,41 @@ const parseStructuredDocument = (value: string, label: string): unknown => {
   }
 };
 
-const readWorkflowDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<WorkflowDefinition> => {
+const readWorkflowDefinitionDocument = async (input: Parameters<typeof readCliInput>[0]): Promise<unknown> => {
   const raw = await readCliInput(input, { label: "workflow definition", required: true });
-  const parsed = workflowDefinitionSchema.safeParse(parseStructuredDocument(raw ?? "", "Workflow definition"));
+  return parseStructuredDocument(raw ?? "", "Workflow definition");
+};
+
+const readWorkflowDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<WorkflowDefinition> => {
+  const parsed = workflowDefinitionSchema.safeParse(await readWorkflowDefinitionDocument(input));
   if (!parsed.success) throw new Error(`Invalid workflow definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
 };
 
+const readWorkflowValidationDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<unknown> => {
+  const definition = await readWorkflowDefinitionDocument(input);
+  const parsed = workflowDefinitionSchema.safeParse(definition);
+  return parsed.success ? parsed.data : definition;
+};
+
 const readWorkflowQuery = async (input: Parameters<typeof readCliInput>[0]): Promise<WorkflowTargetQuery> => {
   const raw = await readCliInput(input, { label: "workflow target query", required: false });
-  if (!raw) return { type: "all" };
+  if (raw === undefined) return { type: "all" };
+  if (raw.trim().length === 0) throw new Error("Workflow target query cannot be empty.");
   const parsed = workflowTargetQuerySchema.safeParse(parseStructuredDocument(raw, "Workflow target query"));
   if (!parsed.success) throw new Error(`Invalid workflow target query: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
+  return parsed.data;
+};
+
+const readSavedViewFilter = async (
+  input: Parameters<typeof readCliInput>[0],
+  required: boolean,
+): Promise<SavedConversationViewFilter | undefined> => {
+  const raw = await readCliInput(input, { label: "saved view filter", required });
+  if (raw === undefined) return undefined;
+  if (raw.trim().length === 0) throw new Error("Saved view filter cannot be empty.");
+  const parsed = savedConversationViewFilterSchema.safeParse(parseStructuredDocument(raw, "Saved view filter"));
+  if (!parsed.success) throw new Error(`Invalid saved view filter: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
 };
 
@@ -221,7 +271,7 @@ const waitForWorkflowRun = async (
   timeoutSeconds?: number,
 ): Promise<MailWorkflowRun> => {
   const run = await pollUntil({
-    load: () => readApi<MailWorkflowRun>(ctx, `/mailboxes/${mailboxId}/workflow-runs/${runId}`),
+    load: (signal) => readApi<MailWorkflowRun>(ctx, `/mailboxes/${mailboxId}/workflow-runs/${runId}`, { signal }),
     done: (value) => WORKFLOW_TERMINAL_STATES.has(value.state),
     timeoutSeconds,
     description: `workflow run ${runId}`,
@@ -379,8 +429,8 @@ const commandResult = async (
   return result;
 };
 
-const loadCommand = (ctx: CloudCliContext, mailboxId: string, commandId: string): Promise<MailCommand> =>
-  readApi(ctx, `/mailboxes/${mailboxId}/commands/${commandId}`);
+const loadCommand = (ctx: CloudCliContext, mailboxId: string, commandId: string, signal?: AbortSignal): Promise<MailCommand> =>
+  readApi(ctx, `/mailboxes/${mailboxId}/commands/${commandId}`, { signal });
 
 const waitForCommand = async (
   ctx: CloudCliContext,
@@ -389,7 +439,7 @@ const waitForCommand = async (
   timeoutSeconds?: number,
 ): Promise<MailCommand> => {
   const result = await pollUntil({
-    load: () => loadCommand(ctx, mailboxId, commandId),
+    load: (signal) => loadCommand(ctx, mailboxId, commandId, signal),
     done: (value) => !COMMAND_PENDING_STATES.has(value.state),
     timeoutSeconds,
     description: `mail command ${commandId}`,
@@ -407,7 +457,7 @@ const waitForCommands = async (
   timeoutSeconds?: number,
 ): Promise<MailCommand[]> => {
   const commands = await pollUntil({
-    load: () => Promise.all(commandIds.map((commandId) => loadCommand(ctx, mailboxId, commandId))),
+    load: (signal) => Promise.all(commandIds.map((commandId) => loadCommand(ctx, mailboxId, commandId, signal))),
     done: (values) => values.every((value) => !COMMAND_PENDING_STATES.has(value.state)),
     timeoutSeconds,
     description: `${commandIds.length} mail commands`,
@@ -532,7 +582,8 @@ const searchMessages = async (
   ctx: CloudCliContext,
   mailboxId: string,
   request: { expression: MailSearchExpression; sort?: "relevance" | "newest"; cursor?: string; limit?: number },
-): Promise<MessageSearchPage> => readApi(ctx, `/mailboxes/${mailboxId}/search`, jsonRequest("POST", request));
+  signal?: AbortSignal,
+): Promise<MessageSearchPage> => readApi(ctx, `/mailboxes/${mailboxId}/search`, { ...jsonRequest("POST", request), signal });
 
 const submitMessageState = (
   ctx: CloudCliContext,
@@ -579,7 +630,10 @@ const submitConversationAction = async (params: {
     : result.commands;
   const output = { correlationId: result.correlationId, commands };
   if (params.ctx.options.output === "json") params.ctx.json(output);
-  else params.ctx.print(`${commands.length} conversation message command${commands.length === 1 ? "" : "s"} ${params.wait ? "completed" : "queued"}.`);
+  else
+    params.ctx.print(
+      `${commands.length} conversation message command${commands.length === 1 ? "" : "s"} ${params.wait ? "completed" : "queued"}.`,
+    );
 };
 
 const stateMutationFlags = {
@@ -770,7 +824,7 @@ export default defineCliCommands({
         const resolved = await resolveMailbox(ctx, args.mailbox);
         const target = flags.health ?? "active";
         const mailbox = await pollUntil({
-          load: () => getMailbox(ctx, resolved.id),
+          load: (signal) => getMailbox(ctx, resolved.id, signal),
           done: (value) => value.health === target || (MAILBOX_FAILURE_HEALTHS.has(value.health) && !MAILBOX_FAILURE_HEALTHS.has(target)),
           timeoutSeconds: flags.timeoutSeconds,
           description: `${resolved.name} to become ${target}`,
@@ -1149,7 +1203,8 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const expression = await resolveSearchExpression(flags);
         const hit = await pollUntil<MessageSearchHit | null>({
-          load: async () => (await searchMessages(ctx, mailbox.id, { expression, sort: "newest", limit: 1 })).items[0] ?? null,
+          load: async (signal) =>
+            (await searchMessages(ctx, mailbox.id, { expression, sort: "newest", limit: 1 }, signal)).items[0] ?? null,
           done: (value) => value !== null,
           timeoutSeconds: flags.timeoutSeconds,
           description: `a matching message in ${mailbox.name}`,
@@ -1366,6 +1421,67 @@ export default defineCliCommands({
         );
       },
     }),
+    command("conversation merge", {
+      summary: "Merge one conversation into another and pin the resulting thread",
+      args: {
+        targetConversationId: arg.required({ description: "Conversation that remains" }),
+        sourceConversationId: arg.required({ description: "Conversation merged into the target" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        targetRevision: flag.int({ name: "target-revision", required: true, min: 1 }),
+        sourceRevision: flag.int({ name: "source-revision", required: true, min: 1 }),
+        reason: flag.string({ description: "Optional audit reason" }),
+        yes: confirmFlag("Confirm conversation merge"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to merge the conversations.");
+        if (!flags.targetRevision || !flags.sourceRevision) throw new Error("Both expected conversation revisions are required.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<MergeConversationsResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.targetConversationId}/merge`,
+          jsonRequest("POST", {
+            sourceConversationId: args.sourceConversationId,
+            expectedTargetRevision: flags.targetRevision,
+            expectedSourceRevision: flags.sourceRevision,
+            reason: flags.reason,
+            confirm: true,
+          }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Merged ${value.movedMessageCount} messages into ${value.target.id} at revision ${value.target.revision}.`);
+      },
+    }),
+    command("conversation split", {
+      summary: "Move selected messages into a separately pinned conversation",
+      args: { conversationId: arg.required({ description: "Source conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        message: flag.stringList({ description: "Message id to move; repeatable" }),
+        revision: flag.int({ required: true, min: 1, description: "Expected source conversation revision" }),
+        reason: flag.string({ description: "Optional audit reason" }),
+        yes: confirmFlag("Confirm conversation split"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to split the conversation.");
+        if (!flags.revision) throw new Error("Missing expected conversation revision.");
+        if (flags.message.length === 0) throw new Error("Pass at least one --message id to move.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<SplitConversationResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/split`,
+          jsonRequest("POST", {
+            messageIds: flags.message,
+            expectedRevision: flags.revision,
+            reason: flags.reason,
+            confirm: true,
+          }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Split ${value.movedMessageCount} messages into ${value.created.id}.`);
+      },
+    }),
     command("conversation collaboration", {
       summary: "Show assignment, queue state, snooze, and watchers",
       args: { conversationId: arg.required({ description: "Conversation id" }) },
@@ -1490,7 +1606,10 @@ export default defineCliCommands({
         const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
         if (args.conversationId) query.set("conversationId", args.conversationId);
         if (flags.cursor) query.set("cursor", flags.cursor);
-        const page = await readApi<{ items: MailActivityEvent[]; nextCursor: string | null }>(ctx, `/mailboxes/${mailbox.id}/activity?${query}`);
+        const page = await readApi<{ items: MailActivityEvent[]; nextCursor: string | null }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/activity?${query}`,
+        );
         printTable(
           ctx,
           page,
@@ -1500,6 +1619,200 @@ export default defineCliCommands({
             { key: "actor", label: "ACTOR" },
             { key: "action", label: "ACTION" },
             { key: "id", label: "EVENT ID" },
+          ],
+        );
+      },
+    }),
+    command("reminder get", {
+      summary: "Show your reminder for one conversation",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationReminder | null>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/reminder`,
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else if (value) ctx.print(`${value.dueAt} (${value.state}, revision ${value.revision}, ${value.id}).`);
+        else ctx.print("No reminder.");
+      },
+    }),
+    command("reminder set", {
+      summary: "Create or reschedule your reminder for one conversation",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        due: flag.string({ required: true, description: "Reminder time as an ISO date-time" }),
+        revision: flag.int({ min: 1, description: "Expected current revision; omit when creating" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.due) throw new Error("Missing required flag --due.");
+        const dueAt = parseOffsetDateTime(flags.due, "--due");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationReminder>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/reminder`,
+          jsonRequest("PUT", { dueAt, expectedRevision: flags.revision ?? null }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Reminder set for ${value.dueAt} at revision ${value.revision}.`);
+      },
+    }),
+    command("reminder cancel", {
+      summary: "Cancel your pending conversation reminder",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current reminder revision" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.revision) throw new Error("Missing expected reminder revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationReminder>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/reminder`,
+          jsonRequest("DELETE", { expectedRevision: flags.revision }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Canceled reminder ${value.id} at revision ${value.revision}.`);
+      },
+    }),
+    command("saved-view list", {
+      summary: "List private and mailbox-wide saved conversation views",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const views = await readApi<SavedConversationView[]>(ctx, `/mailboxes/${mailbox.id}/saved-views`);
+        printTable(
+          ctx,
+          views,
+          views.map((view) => ({ name: view.name, scope: view.scope, revision: view.revision, id: view.id })),
+          [
+            { key: "name", label: "NAME" },
+            { key: "scope", label: "SCOPE" },
+            { key: "revision", label: "REV" },
+            { key: "id", label: "VIEW ID" },
+          ],
+        );
+      },
+    }),
+    command("saved-view get", {
+      summary: "Show one saved conversation view",
+      args: { viewId: arg.required({ description: "Saved view id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<SavedConversationView>(ctx, `/mailboxes/${mailbox.id}/saved-views/${args.viewId}`);
+        if (ctx.options.output === "json") ctx.json(value);
+        else {
+          ctx.print(`${value.name} (${value.scope}, revision ${value.revision}, ${value.id})`);
+          ctx.print(JSON.stringify(value.filter, null, 2));
+        }
+      },
+    }),
+    command("saved-view create", {
+      summary: "Create a private or mailbox-wide saved conversation view",
+      args: { name: arg.required({ description: "Saved view name" }) },
+      flags: {
+        ...mailboxFlag,
+        scope: flag.enum(["private", "mailbox"] as const, { default: "private" }),
+        filter: savedViewFilterInput,
+      },
+      run: async ({ ctx, args, flags }) => {
+        const filter = await readSavedViewFilter(flags.filter, true);
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<SavedConversationView>(
+          ctx,
+          `/mailboxes/${mailbox.id}/saved-views`,
+          jsonRequest("POST", { name: args.name, scope: flags.scope ?? "private", filter }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Created ${value.scope} saved view ${value.name} (${value.id}).`);
+      },
+    }),
+    command("saved-view update", {
+      summary: "Rename or change one saved conversation view",
+      args: { viewId: arg.required({ description: "Saved view id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current saved view revision" }),
+        name: flag.string({ description: "New saved view name" }),
+        filter: savedViewFilterInput,
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.revision) throw new Error("Missing expected saved view revision.");
+        const filter = await readSavedViewFilter(flags.filter, false);
+        if (flags.name === undefined && filter === undefined) throw new Error("Pass --name or a saved view filter.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<SavedConversationView>(
+          ctx,
+          `/mailboxes/${mailbox.id}/saved-views/${args.viewId}`,
+          jsonRequest("PATCH", {
+            expectedRevision: flags.revision,
+            ...(flags.name !== undefined ? { name: flags.name } : {}),
+            ...(filter ? { filter } : {}),
+          }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Updated saved view ${value.name} to revision ${value.revision}.`);
+      },
+    }),
+    command("saved-view delete", {
+      summary: "Delete one saved conversation view",
+      args: { viewId: arg.required({ description: "Saved view id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current saved view revision" }),
+        yes: confirmFlag("Confirm saved view deletion"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to delete the saved view.");
+        if (!flags.revision) throw new Error("Missing expected saved view revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<{ id: string }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/saved-views/${args.viewId}`,
+          jsonRequest("DELETE", { expectedRevision: flags.revision }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Deleted saved view ${value.id}.`);
+      },
+    }),
+    command("saved-view conversations", {
+      summary: "List conversations selected by one saved view",
+      args: { viewId: arg.required({ description: "Saved view id" }) },
+      flags: {
+        ...mailboxFlag,
+        cursor: flag.string({ description: "Opaque cursor returned by a previous page" }),
+        limit: flag.int({ min: 1, max: 100, default: 50 }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
+        if (flags.cursor) query.set("cursor", flags.cursor);
+        const page = await readApi<{ items: ConversationSummary[]; nextCursor: string | null }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/saved-views/${args.viewId}/conversations?${query}`,
+        );
+        printTable(
+          ctx,
+          page,
+          page.items.map((thread) => ({
+            date: thread.latestMessageAt,
+            unread: thread.unread ? "yes" : "",
+            status: thread.workStatus,
+            participants: thread.participantSummary,
+            subject: thread.subject,
+            id: thread.id,
+          })),
+          [
+            { key: "date", label: "DATE" },
+            { key: "unread", label: "UNREAD" },
+            { key: "status", label: "STATUS" },
+            { key: "participants", label: "PARTICIPANTS" },
+            { key: "subject", label: "SUBJECT" },
+            { key: "id", label: "THREAD ID" },
           ],
         );
       },
@@ -2165,7 +2478,7 @@ export default defineCliCommands({
         const validation = await readApi<WorkflowPreview["validation"]>(
           ctx,
           `/mailboxes/${mailbox.id}/workflows/validate`,
-          jsonRequest("POST", { definition: await readWorkflowDefinition(flags.definition) }),
+          jsonRequest("POST", { definition: await readWorkflowValidationDefinition(flags.definition) }),
         );
         if (ctx.options.output === "json") ctx.json(validation);
         else {
@@ -2285,6 +2598,30 @@ export default defineCliCommands({
         else ctx.print(`Created ${workflow.name} version ${workflow.currentVersion}.`);
       },
     }),
+    command("workflow version get", {
+      summary: "Show one immutable workflow version",
+      args: {
+        workflowId: arg.required({ description: "Workflow id" }),
+        version: arg.required({ description: "Immutable version number" }),
+      },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const versionNumber = Number(args.version);
+        if (!Number.isInteger(versionNumber) || versionNumber < 1 || versionNumber > 2_147_483_647) {
+          throw new Error("Workflow version must be a positive 32-bit integer.");
+        }
+        const version = await readApi<MailWorkflowVersion>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${versionNumber}`,
+        );
+        if (ctx.options.output === "json") ctx.json(version);
+        else {
+          ctx.print(`Version: ${version.version}; hash: ${version.definitionHash}`);
+          ctx.print(JSON.stringify(version.definition, null, 2));
+        }
+      },
+    }),
     command("workflow run one-shot", {
       summary: "Preview and execute one workflow definition once",
       flags: {
@@ -2297,7 +2634,6 @@ export default defineCliCommands({
         ...waitFlags,
       },
       run: async ({ ctx, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to execute workflow effects.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const definition = await readWorkflowDefinition(flags.definition);
         const query = await readWorkflowQuery(flags.query);
@@ -2306,6 +2642,10 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/workflows/preview`,
           jsonRequest("POST", { definition, query }),
         );
+        if (!flags.yes) {
+          printWorkflowPreview(ctx, preview);
+          throw new Error("Pass --yes to execute the previewed workflow effects.");
+        }
         if (!preview.previewHash) throw new Error("Workflow preview is not executable; inspect it with `cld mail workflow preview`.");
         const queued = await readApi<MailWorkflowRun>(
           ctx,
@@ -2328,22 +2668,21 @@ export default defineCliCommands({
       flags: {
         ...mailboxFlag,
         query: workflowQueryInput,
-        version: flag.int({ min: 1, description: "Immutable version; defaults to current" }),
+        version: flag.int({ min: 1, max: 2_147_483_647, description: "Immutable version; defaults to current" }),
         idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
         yes: confirmFlag("Confirm workflow effects"),
         wait: flag.boolean({ description: "Wait for the workflow run to finish" }),
         ...waitFlags,
       },
       run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to execute workflow effects.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const workflow = await readApi<MailWorkflowDetail>(ctx, `/mailboxes/${mailbox.id}/workflows/${args.workflowId}`);
         let version = workflow.version;
         if (flags.version !== undefined && flags.version !== workflow.version.version) {
-          const versions = await readApi<MailWorkflowVersion[]>(ctx, `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions`);
-          const selected = versions.find((item) => item.version === flags.version);
-          if (!selected) throw new Error(`Workflow version ${flags.version} was not found.`);
-          version = selected;
+          version = await readApi<MailWorkflowVersion>(
+            ctx,
+            `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${flags.version}`,
+          );
         }
         const query = await readWorkflowQuery(flags.query);
         const preview = await readApi<WorkflowPreview>(
@@ -2351,6 +2690,10 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/workflows/preview`,
           jsonRequest("POST", { definition: version.definition, query }),
         );
+        if (!flags.yes) {
+          printWorkflowPreview(ctx, preview);
+          throw new Error("Pass --yes to execute the previewed workflow effects.");
+        }
         if (!preview.previewHash) throw new Error("Workflow preview is not executable; inspect it with `cld mail workflow preview`.");
         const queued = await readApi<MailWorkflowRun>(
           ctx,

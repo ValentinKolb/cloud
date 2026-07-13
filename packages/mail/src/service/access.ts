@@ -54,6 +54,38 @@ const lockMailbox = async (mailboxId: string, db: SqlClient): Promise<boolean> =
   return Boolean(row);
 };
 
+const isCurrentActorActive = async (context: MailRequestContext, db: SqlClient): Promise<boolean> => {
+  if (context.actor.kind === "user") {
+    const [row] = await db<{ active: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM auth.users
+        WHERE id = ${context.actor.user.id}::uuid
+          AND (account_expires IS NULL OR account_expires > now())
+      ) AS active
+    `;
+    return row?.active === true;
+  }
+  const [row] = await db<{ active: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM auth.service_accounts service_account
+      WHERE service_account.id = ${context.actor.serviceAccount.id}::uuid
+        AND service_account.status = 'active'
+        AND (
+          service_account.delegated_user_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM auth.users delegated_user
+            WHERE delegated_user.id = service_account.delegated_user_id
+              AND (delegated_user.account_expires IS NULL OR delegated_user.account_expires > now())
+          )
+        )
+    ) AS active
+  `;
+  return row?.active === true;
+};
+
 const getPrincipalGrant = async (mailboxId: string, principal: Principal, db: SqlClient): Promise<DbAccess | null> => {
   if (principal.type === "user") {
     const [row] = await db<DbAccess[]>`
@@ -93,6 +125,7 @@ export const getMailboxPermission = async (
   mailboxId: string,
   db: SqlClient = sql,
 ): Promise<PermissionLevel> => {
+  if (!(await isCurrentActorActive(context, db))) return "none";
   if (!isResourceBoundToMailbox(context, mailboxId)) return "none";
 
   let permission: PermissionLevel = "none";

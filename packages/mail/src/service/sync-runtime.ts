@@ -3,17 +3,16 @@ import { logger } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { type JobCtx, job, mutex, ratelimit, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
-import { rediscoverProviderBinding, type BindingRediscoveryResult } from "./bindings";
+import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
 import type { ConnectorEnvelope, FlagChange } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
 import { resolveMailExecution } from "./execution";
-import { publishMailCollaborationEvent, type MailCollaborationEvent } from "./events";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
-import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
+import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 
 const log = logger("mail:sync");
 const ENVELOPE_BATCH_SIZE = 200;
@@ -250,13 +249,42 @@ const findConversation = async (params: {
   return fallback?.conversation_id ?? null;
 };
 
+const findManualConversationOverride = async (params: { db: typeof sql; mailboxId: string; messageId: string }): Promise<string | null> => {
+  const [override] = await params.db<{ conversation_id: string }[]>`
+    SELECT thread_override.conversation_id
+    FROM mail.conversation_thread_overrides thread_override
+    JOIN mail.conversations conversation ON conversation.id = thread_override.conversation_id
+    WHERE thread_override.message_id = ${params.messageId}::uuid
+      AND thread_override.mailbox_id = ${params.mailboxId}::uuid
+      AND conversation.mailbox_id = ${params.mailboxId}::uuid
+  `;
+  return override?.conversation_id ?? null;
+};
+
+const findCanonicalMessageContent = async (params: {
+  db: typeof sql;
+  remoteResourceId: string;
+  message: ConnectorEnvelope;
+}): Promise<string | null> => {
+  if (!params.message.providerMessageId) return null;
+  const candidates = await params.db<{ message_id: string }[]>`
+    SELECT DISTINCT remote_ref.message_id
+    FROM mail.remote_message_refs remote_ref
+    JOIN mail.folders folder ON folder.id = remote_ref.folder_id
+    WHERE folder.remote_resource_id = ${params.remoteResourceId}::uuid
+      AND remote_ref.connector_ref ->> 'providerMessageId' = ${params.message.providerMessageId}
+    ORDER BY remote_ref.message_id
+    LIMIT 2
+  `;
+  return candidates.length === 1 ? candidates[0]!.message_id : null;
+};
+
 export const ingestEnvelope = async (params: {
   db: typeof sql;
   mailboxId: string;
   remoteResourceId: string;
   folderId: string;
   message: ConnectorEnvelope;
-  collaborationEvents?: Array<Omit<MailCollaborationEvent, "type" | "at">>;
 }): Promise<string> => {
   const contentHash = sha256Json({
     remoteResourceId: params.remoteResourceId,
@@ -272,7 +300,13 @@ export const ingestEnvelope = async (params: {
       AND uid_validity = ${params.message.remoteRef.uidValidity}::numeric
       AND uid = ${params.message.remoteRef.uid}::numeric
   `;
-  let messageContentId = knownRemoteRef?.message_id;
+  let messageContentId =
+    knownRemoteRef?.message_id ??
+    (await findCanonicalMessageContent({
+      db: params.db,
+      remoteResourceId: params.remoteResourceId,
+      message: params.message,
+    }));
   if (!messageContentId) {
     const [messageRow] = await params.db<{ id: string }[]>`
       INSERT INTO mail.message_contents (
@@ -397,13 +431,20 @@ export const ingestEnvelope = async (params: {
   `;
   if (existingConversation) return messageContentId;
 
-  let conversationId = await findConversation({
+  const manualConversationId = await findManualConversationOverride({
     db: params.db,
     mailboxId: params.mailboxId,
     messageId: messageContentId,
-    message: params.message,
-    normalizedSubject,
   });
+  let conversationId =
+    manualConversationId ??
+    (await findConversation({
+      db: params.db,
+      mailboxId: params.mailboxId,
+      messageId: messageContentId,
+      message: params.message,
+      normalizedSubject,
+    }));
   const participants = allParticipantEmails(params.message);
   const outbound = await params.db<{ outbound: boolean }[]>`
     SELECT EXISTS (
@@ -414,7 +455,6 @@ export const ingestEnvelope = async (params: {
         AND si.status <> 'disabled'
     ) AS outbound
   `;
-  const createdConversation = !conversationId;
   if (!conversationId) {
     const [conversation] = await params.db<{ id: string }[]>`
       INSERT INTO mail.conversations (
@@ -446,84 +486,20 @@ export const ingestEnvelope = async (params: {
       ${conversationId}::uuid,
       ${messageContentId}::uuid,
       ${params.message.internalDate.getTime()},
-      ${params.message.providerThreadId ? "provider" : params.message.inReplyTo || params.message.references.length ? "headers" : "heuristic"}
+      ${
+        manualConversationId
+          ? "manual"
+          : params.message.providerThreadId
+            ? "provider"
+            : params.message.inReplyTo || params.message.references.length
+              ? "headers"
+              : "heuristic"
+      }
     )
     ON CONFLICT (message_id) DO NOTHING
     RETURNING message_id
   `;
   if (!linked) return messageContentId;
-  const [before] = await params.db<
-    { latest_message_at: Date | string; work_status: "open" | "waiting" | "done"; response_needed: boolean; snoozed_until: Date | string | null }[]
-  >`
-    SELECT latest_message_at, work_status, response_needed, snoozed_until
-    FROM mail.conversations
-    WHERE id = ${conversationId}::uuid
-    FOR UPDATE
-  `;
-  if (!before) throw new Error("Conversation disappeared during message ingestion");
-  await params.db`
-    UPDATE mail.conversations
-    SET
-      subject = CASE WHEN latest_message_at <= ${params.message.internalDate} THEN ${params.message.subject} ELSE subject END,
-      participant_summary = CASE WHEN latest_message_at <= ${params.message.internalDate} THEN ${participants.slice(0, 20).join(", ")} ELSE participant_summary END,
-      latest_message_at = GREATEST(latest_message_at, ${params.message.internalDate}),
-      latest_inbound_at = CASE
-        WHEN ${!outbound[0]?.outbound} THEN GREATEST(COALESCE(latest_inbound_at, '-infinity'::timestamptz), ${params.message.internalDate})
-        ELSE latest_inbound_at
-      END,
-      latest_outbound_at = CASE
-        WHEN ${Boolean(outbound[0]?.outbound)} THEN GREATEST(COALESCE(latest_outbound_at, '-infinity'::timestamptz), ${params.message.internalDate})
-        ELSE latest_outbound_at
-      END,
-      response_needed = CASE
-        WHEN latest_message_at <= ${params.message.internalDate} THEN ${!outbound[0]?.outbound}
-        ELSE response_needed
-      END,
-      work_status = CASE
-        WHEN ${!outbound[0]?.outbound} AND latest_message_at <= ${params.message.internalDate} THEN 'open'
-        ELSE work_status
-      END,
-      snoozed_until = CASE
-        WHEN ${!outbound[0]?.outbound} AND latest_message_at <= ${params.message.internalDate} THEN NULL
-        ELSE snoozed_until
-      END,
-      revision = revision + 1
-    WHERE id = ${conversationId}::uuid
-  `;
-  const latestInbound = !outbound[0]?.outbound && new Date(before.latest_message_at).getTime() <= params.message.internalDate.getTime();
-  if (!createdConversation && latestInbound && (before.work_status !== "open" || !before.response_needed || before.snoozed_until !== null)) {
-    const [activity] = await params.db<{ id: string | number }[]>`
-      INSERT INTO mail.activity_events (
-        mailbox_id, conversation_id, actor_kind, action, outcome, target_type, target_id, metadata
-      ) VALUES (
-        ${params.mailboxId}::uuid,
-        ${conversationId}::uuid,
-        'system',
-        'conversation.reopened',
-        'reconciled',
-        'conversation',
-        ${conversationId}::uuid,
-        ${{
-          messageId: messageContentId,
-          before: {
-            workStatus: before.work_status,
-            responseNeeded: before.response_needed,
-            snoozedUntil: before.snoozed_until ? new Date(before.snoozed_until).toISOString() : null,
-          },
-          after: { workStatus: "open", responseNeeded: true, snoozedUntil: null },
-        }}::jsonb
-      )
-      RETURNING id
-    `;
-    if (!activity) throw new Error("Conversation reopen activity insert returned no row");
-    params.collaborationEvents?.push({
-      mailboxId: params.mailboxId,
-      conversationId,
-      reason: "inbound",
-      targetId: messageContentId,
-      activityId: String(activity.id),
-    });
-  }
   return messageContentId;
 };
 
@@ -847,7 +823,6 @@ export const commitSyncBatch = async (params: {
   flagChanges: FlagChange[];
   reconcileWindow: ReconcileWindow | null;
 }): Promise<{ hydratedIds: string[]; flagsUpdated: number; removed: number }> => {
-  const collaborationEvents: Array<Omit<MailCollaborationEvent, "type" | "at">> = [];
   const result = await sql.begin(async (tx) => {
     const [resource] = await tx<{ id: string }[]>`
       SELECT id
@@ -893,7 +868,6 @@ export const commitSyncBatch = async (params: {
           remoteResourceId: params.folder.remote_resource_id,
           folderId: params.folderId,
           message,
-          collaborationEvents,
         }),
       );
     }
@@ -998,7 +972,6 @@ export const commitSyncBatch = async (params: {
     `;
     return { hydratedIds, flagsUpdated, removed };
   });
-  await Promise.all(collaborationEvents.map((event) => publishMailCollaborationEvent(event)));
   return result;
 };
 
@@ -1266,7 +1239,7 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
               expectedSize: source.expectedSize,
               claimId,
             });
-            hydrated ||= result.status === "hydrated" || result.status === "already_complete";
+            hydrated ||= result.status === "hydrated" || result.status === "already_complete" || result.status === "deduplicated";
           } catch (error) {
             const code = normalizeSyncErrorCode(error);
             if (code !== "HYDRATION_NOT_CLAIMED") {

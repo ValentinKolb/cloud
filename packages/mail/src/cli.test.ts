@@ -19,6 +19,9 @@ const COMMENT_ID = "00000000-0000-4000-8000-000000000012";
 const WORKFLOW_ID = "00000000-0000-4000-8000-000000000013";
 const WORKFLOW_VERSION_ID = "00000000-0000-4000-8000-000000000014";
 const WORKFLOW_RUN_ID = "00000000-0000-4000-8000-000000000015";
+const SOURCE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000016";
+const REMINDER_ID = "00000000-0000-4000-8000-000000000017";
+const SAVED_VIEW_ID = "00000000-0000-4000-8000-000000000018";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -118,7 +121,10 @@ test("search forwards nested expressions and cursors", async () => {
 test("conversation update sends one optimistic collaboration mutation", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
-    if (request.method === "PATCH" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/collaboration`) {
+    if (
+      request.method === "PATCH" &&
+      new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/collaboration`
+    ) {
       requestBody = await request.json();
       return api({
         conversationId: CONVERSATION_ID,
@@ -164,10 +170,328 @@ test("conversation update sends one optimistic collaboration mutation", async ()
   expect(JSON.parse(result.stdout)).toMatchObject({ revision: 5, workStatus: "waiting" });
 });
 
+test("conversation merge requires confirmation and forwards both revisions", async () => {
+  let requests = 0;
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (
+      request.method === "POST" &&
+      new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/merge`
+    ) {
+      requests += 1;
+      requestBody = await request.json();
+      return api({
+        target: { id: CONVERSATION_ID, revision: 5, messageCount: 3 },
+        removedConversationId: SOURCE_CONVERSATION_ID,
+        movedMessageCount: 1,
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const args = [
+    "--json",
+    "mail",
+    "conversation",
+    "merge",
+    CONVERSATION_ID,
+    SOURCE_CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--target-revision",
+    "4",
+    "--source-revision",
+    "2",
+    "--reason",
+    "same request",
+  ];
+  const denied = await runCli(`http://127.0.0.1:${server.port}`, args);
+  expect(denied.exitCode).toBe(1);
+  expect(denied.stderr).toContain("Pass --yes");
+  expect(requests).toBe(0);
+
+  const confirmed = await runCli(`http://127.0.0.1:${server.port}`, [...args, "--yes"]);
+  expect(confirmed.exitCode).toBe(0);
+  expect(requestBody).toEqual({
+    sourceConversationId: SOURCE_CONVERSATION_ID,
+    expectedTargetRevision: 4,
+    expectedSourceRevision: 2,
+    reason: "same request",
+    confirm: true,
+  });
+  expect(JSON.parse(confirmed.stdout)).toMatchObject({ movedMessageCount: 1 });
+});
+
+test("conversation split forwards the bounded selected message set", async () => {
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (
+      request.method === "POST" &&
+      new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/split`
+    ) {
+      requestBody = await request.json();
+      return api({
+        source: { id: CONVERSATION_ID, revision: 6, messageCount: 2 },
+        created: { id: SOURCE_CONVERSATION_ID, revision: 1, messageCount: 1 },
+        movedMessageCount: 1,
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "split",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "5",
+    "--message",
+    MESSAGE_ID,
+    "--yes",
+  ]);
+  expect(result.exitCode).toBe(0);
+  expect(requestBody).toEqual({ messageIds: [MESSAGE_ID], expectedRevision: 5, confirm: true });
+  expect(JSON.parse(result.stdout)).toMatchObject({ movedMessageCount: 1 });
+});
+
+test("reminder commands use revisioned create, reschedule, read, and cancel requests", async () => {
+  const requests: Array<{ method: string; body: unknown }> = [];
+  const reminder = {
+    id: REMINDER_ID,
+    conversationId: CONVERSATION_ID,
+    userId: USER_ID,
+    dueAt: "2026-08-01T12:00:00.000Z",
+    state: "pending",
+    revision: 1,
+    createdAt: "2026-07-13T00:00:00.000Z",
+    updatedAt: "2026-07-13T00:00:00.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    if (new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/reminder`) {
+      const body = request.method === "GET" ? null : await request.json();
+      requests.push({ method: request.method, body });
+      if (request.method === "DELETE") return api({ ...reminder, state: "canceled", revision: 3 });
+      if (request.method === "PUT" && body && (body as { expectedRevision?: number }).expectedRevision === 1) {
+        return api({ ...reminder, dueAt: "2026-08-02T12:00:00.000Z", revision: 2 });
+      }
+      return api(reminder);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const created = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "reminder",
+    "set",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--due",
+    "2026-08-01T12:00:00Z",
+  ]);
+  const loaded = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "reminder",
+    "get",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const rescheduled = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "reminder",
+    "set",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--due",
+    "2026-08-02T14:00:00+02:00",
+    "--revision",
+    "1",
+  ]);
+  const canceled = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "reminder",
+    "cancel",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "2",
+  ]);
+
+  expect(created.exitCode).toBe(0);
+  expect(loaded.exitCode).toBe(0);
+  expect(rescheduled.exitCode).toBe(0);
+  expect(canceled.exitCode).toBe(0);
+  expect(requests).toEqual([
+    { method: "PUT", body: { dueAt: "2026-08-01T12:00:00.000Z", expectedRevision: null } },
+    { method: "GET", body: null },
+    { method: "PUT", body: { dueAt: "2026-08-02T12:00:00.000Z", expectedRevision: 1 } },
+    { method: "DELETE", body: { expectedRevision: 2 } },
+  ]);
+  expect(JSON.parse(canceled.stdout)).toMatchObject({ state: "canceled", revision: 3 });
+}, 30_000);
+
+test("reminder set rejects dates without an explicit UTC offset", async () => {
+  for (const due of ["2026-08-01", "0", "2026-02-30T12:00:00Z"]) {
+    const result = await runCli("http://127.0.0.1:1", ["mail", "reminder", "set", CONVERSATION_ID, "--mailbox", MAILBOX_ID, "--due", due]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("--due must be an ISO date-time with a UTC offset");
+  }
+}, 10_000);
+
+test("saved view commands cover structured filters and revisioned lifecycle", async () => {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const savedView = {
+    id: SAVED_VIEW_ID,
+    mailboxId: MAILBOX_ID,
+    scope: "private",
+    ownerUserId: USER_ID,
+    name: "My queue",
+    filter: { workStatuses: ["open"], assignee: { kind: "me" } },
+    revision: 1,
+    createdAt: "2026-07-13T00:00:00.000Z",
+    updatedAt: "2026-07-13T00:00:00.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const requestPath = `${url.pathname}${url.search}`;
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/saved-views` && request.method === "GET") {
+      requests.push({ method: request.method, path: requestPath, body: null });
+      return api([savedView]);
+    }
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/saved-views` && request.method === "POST") {
+      requests.push({ method: request.method, path: requestPath, body: await request.json() });
+      return api(savedView);
+    }
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/saved-views/${SAVED_VIEW_ID}` && request.method === "GET") {
+      requests.push({ method: request.method, path: requestPath, body: null });
+      return api(savedView);
+    }
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/saved-views/${SAVED_VIEW_ID}` && request.method === "PATCH") {
+      const body = await request.json();
+      requests.push({ method: request.method, path: requestPath, body });
+      return api({ ...savedView, filter: (body as { filter: unknown }).filter, revision: 2 });
+    }
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/saved-views/${SAVED_VIEW_ID}/conversations` && request.method === "GET") {
+      requests.push({ method: request.method, path: requestPath, body: null });
+      return api({ items: [], nextCursor: null });
+    }
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/saved-views/${SAVED_VIEW_ID}` && request.method === "DELETE") {
+      requests.push({ method: request.method, path: requestPath, body: await request.json() });
+      return api({ id: SAVED_VIEW_ID });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const created = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    ["--json", "mail", "saved-view", "create", "My queue", "--mailbox", MAILBOX_ID, "--filter-stdin"],
+    JSON.stringify(savedView.filter),
+  );
+  const listed = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "saved-view", "list", "--mailbox", MAILBOX_ID]);
+  const loaded = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "saved-view",
+    "get",
+    SAVED_VIEW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const updatedFilter = { workStatuses: ["waiting"], responseNeeded: true };
+  const updated = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    ["--json", "mail", "saved-view", "update", SAVED_VIEW_ID, "--mailbox", MAILBOX_ID, "--revision", "1", "--filter-stdin"],
+    JSON.stringify(updatedFilter),
+  );
+  const conversations = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "saved-view",
+    "conversations",
+    SAVED_VIEW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--cursor",
+    "cursor-1",
+    "--limit",
+    "25",
+  ]);
+  const deleted = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "saved-view",
+    "delete",
+    SAVED_VIEW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "2",
+    "--yes",
+  ]);
+
+  expect(created.exitCode).toBe(0);
+  expect(listed.exitCode).toBe(0);
+  expect(loaded.exitCode).toBe(0);
+  expect(updated.exitCode).toBe(0);
+  expect(conversations.exitCode).toBe(0);
+  expect(deleted.exitCode).toBe(0);
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/saved-views`,
+      body: { name: "My queue", scope: "private", filter: savedView.filter },
+    },
+    {
+      method: "GET",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/saved-views`,
+      body: null,
+    },
+    {
+      method: "GET",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/saved-views/${SAVED_VIEW_ID}`,
+      body: null,
+    },
+    {
+      method: "PATCH",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/saved-views/${SAVED_VIEW_ID}`,
+      body: { expectedRevision: 1, filter: updatedFilter },
+    },
+    {
+      method: "GET",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/saved-views/${SAVED_VIEW_ID}/conversations?limit=25&cursor=cursor-1`,
+      body: null,
+    },
+    {
+      method: "DELETE",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/saved-views/${SAVED_VIEW_ID}`,
+      body: { expectedRevision: 2 },
+    },
+  ]);
+}, 45_000);
+
 test("comment add forwards stdin, mentions, and references", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
-    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/comments`) {
+    if (
+      request.method === "POST" &&
+      new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/comments`
+    ) {
       requestBody = await request.json();
       return api({
         id: COMMENT_ID,
@@ -425,6 +749,33 @@ test("command wait has a bounded timeout", async () => {
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain(`Timed out waiting for mail command ${COMMAND_ID}`);
+});
+
+test("command wait aborts an in-flight request at the deadline", async () => {
+  const server = withMailbox(async (request) => {
+    if (new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands/${COMMAND_ID}`) {
+      await Bun.sleep(5_000);
+      return api(mailCommand("queued"));
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const startedAt = Date.now();
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "mail",
+    "command",
+    "wait",
+    COMMAND_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--timeout-seconds",
+    "1",
+  ]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain(`Timed out waiting for mail command ${COMMAND_ID}`);
+  expect(Date.now() - startedAt).toBeLessThan(4_500);
 });
 
 test("message wait polls indexed search for the expected message", async () => {
@@ -901,10 +1252,7 @@ test("default sender setup preserves an existing display name when no name is pa
 test("workflow validate accepts YAML and sends the normalized typed definition", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
-    if (
-      request.method === "POST" &&
-      new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/validate`
-    ) {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/validate`) {
       requestBody = await request.json();
       return api({
         valid: true,
@@ -959,7 +1307,12 @@ test("workflow one-shot previews before submitting the exact approved run", asyn
       const body = await request.json();
       requests.push({ path: url.pathname, body });
       return api({
-        validation: { valid: true, definition: (body as { definition: unknown }).definition, definitionHash: "a".repeat(64), diagnostics: [] },
+        validation: {
+          valid: true,
+          definition: (body as { definition: unknown }).definition,
+          definitionHash: "a".repeat(64),
+          diagnostics: [],
+        },
         queryHash: "c".repeat(64),
         previewHash,
         targetCount: 2,
@@ -1031,8 +1384,150 @@ test("workflow one-shot previews before submitting the exact approved run", asyn
     path: `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/one-shot`,
     body: { query: { type: "all" }, previewHash, idempotencyKey: "workflow-cli-test" },
   });
-  expect((requests[1]!.body as { definition: unknown }).definition).toEqual(
-    (requests[0]!.body as { definition: unknown }).definition,
-  );
+  expect((requests[1]!.body as { definition: unknown }).definition).toEqual((requests[0]!.body as { definition: unknown }).definition);
   expect(JSON.parse(result.stdout)).toMatchObject({ preview: { previewHash }, run: { id: WORKFLOW_RUN_ID, state: "queued" } });
+});
+
+test("workflow run shows its preview before requiring confirmation", async () => {
+  let runRequested = false;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/preview`) {
+      return api({
+        validation: {
+          valid: true,
+          definition: ((await request.json()) as { definition: unknown }).definition,
+          definitionHash: "a".repeat(64),
+          diagnostics: [],
+        },
+        queryHash: "c".repeat(64),
+        previewHash: "b".repeat(64),
+        targetCount: 2,
+        actionTargetCount: 2,
+        waitingDataCount: 0,
+        truncated: false,
+        budgetExceeded: false,
+        actionCounts: { "remote.keyword.add": 2 },
+        samples: [],
+      });
+    }
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/one-shot`) runRequested = true;
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    ["mail", "workflow", "run", "one-shot", "--mailbox", MAILBOX_ID, "--definition-stdin"],
+    JSON.stringify({
+      version: 1,
+      name: "Route invoices",
+      trigger: { type: "backfill" },
+      steps: [{ action: "remote.keyword.add", keyword: "Finance" }],
+    }),
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toContain("Targets: 2; actions on 2; waiting data: 0");
+  expect(result.stderr).toContain("Pass --yes to execute the previewed workflow effects");
+  expect(runRequested).toBe(false);
+});
+
+test("workflow query input cannot silently turn an empty explicit file into all messages", async () => {
+  const queryPath = `/tmp/cloud-mail-empty-query-${crypto.randomUUID()}.yaml`;
+  await writeFile(queryPath, "");
+  temporaryFiles.push(queryPath);
+  let previewRequested = false;
+  const server = withMailbox((request) => {
+    if (new URL(request.url).pathname.endsWith("/workflows/preview")) previewRequested = true;
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    ["mail", "workflow", "preview", "--mailbox", MAILBOX_ID, "--definition-stdin", "--query-file", queryPath],
+    JSON.stringify({
+      version: 1,
+      name: "Route invoices",
+      trigger: { type: "backfill" },
+      steps: [{ action: "remote.keyword.add", keyword: "Finance" }],
+    }),
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("Workflow target query cannot be empty");
+  expect(previewRequested).toBe(false);
+});
+
+test("saved workflow runs load and submit the requested immutable version", async () => {
+  const oldDefinition = {
+    version: 1,
+    name: "Old routing",
+    priority: 100,
+    trigger: { type: "backfill" },
+    effectBudget: { maxTargets: 100, maxMoves: 100, maxKeywordChanges: 100, maxCollaborationChanges: 100 },
+    steps: [{ action: "remote.keyword.add", keyword: "Old" }],
+  };
+  const currentDefinition = { ...oldDefinition, name: "Current routing", steps: [{ action: "remote.keyword.add", keyword: "Current" }] };
+  const previewHash = "b".repeat(64);
+  let submittedBody: Record<string, unknown> | null = null;
+  const requestedPaths: string[] = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    requestedPaths.push(url.pathname);
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}`) {
+      return api({
+        id: WORKFLOW_ID,
+        name: "Routing",
+        currentVersion: 2,
+        version: { id: WORKFLOW_VERSION_ID, version: 2, definition: currentDefinition, definitionHash: "2".repeat(64) },
+      });
+    }
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/versions/1`) {
+      return api({ id: "00000000-0000-4000-8000-000000000016", version: 1, definition: oldDefinition, definitionHash: "1".repeat(64) });
+    }
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/preview`) {
+      const body = (await request.json()) as { definition: unknown };
+      expect(body.definition).toEqual(oldDefinition);
+      return api({
+        validation: { valid: true, definition: oldDefinition, definitionHash: "1".repeat(64), diagnostics: [] },
+        queryHash: "c".repeat(64),
+        previewHash,
+        targetCount: 1,
+        actionTargetCount: 1,
+        waitingDataCount: 0,
+        truncated: false,
+        budgetExceeded: false,
+        actionCounts: { "remote.keyword.add": 1 },
+        samples: [],
+      });
+    }
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/runs`) {
+      submittedBody = (await request.json()) as Record<string, unknown>;
+      return api({ id: WORKFLOW_RUN_ID, state: "queued" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "workflow",
+    "run",
+    "saved",
+    WORKFLOW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--version",
+    "1",
+    "--idempotency-key",
+    "saved-version-one",
+    "--yes",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(requestedPaths).toContain(`/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/versions/1`);
+  expect(submittedBody).toMatchObject({ version: 1, previewHash, idempotencyKey: "saved-version-one" });
 });

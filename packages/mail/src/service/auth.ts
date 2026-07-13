@@ -8,6 +8,12 @@ export type MailRequestContext = {
   requestId?: string | null;
 };
 
+type DurableCredentialSnapshot = {
+  scopes: string[];
+  credentialId: string | null;
+  credentialExpiresAt: string | null;
+};
+
 const PERMISSION_RANK: Record<PermissionLevel, number> = {
   none: 0,
   read: 1,
@@ -42,6 +48,16 @@ export const isResourceBoundToMailbox = (context: MailRequestContext, mailboxId:
 export const capByCredentialScopes = (context: MailRequestContext, permission: PermissionLevel): PermissionLevel => {
   if (context.actor.kind !== "service_account") return permission;
   return minPermission(permission, permissionFromScopes(context.actor.scopes));
+};
+
+export const durableCredentialSnapshot = (context: MailRequestContext): DurableCredentialSnapshot | null => {
+  if (context.actor.kind === "user") return { scopes: [], credentialId: null, credentialExpiresAt: null };
+  const credentialId = context.actor.credentialId ?? null;
+  const credentialExpiresAt = context.actor.credentialExpiresAt ?? null;
+  const expiresAt = credentialExpiresAt ? Date.parse(credentialExpiresAt) : null;
+  if (expiresAt !== null && (!Number.isFinite(expiresAt) || expiresAt <= Date.now())) return null;
+  if (!credentialId && expiresAt === null) return null;
+  return { scopes: [...context.actor.scopes], credentialId, credentialExpiresAt };
 };
 
 export const actorRefFromRequest = (context: MailRequestContext): ActorRef => {

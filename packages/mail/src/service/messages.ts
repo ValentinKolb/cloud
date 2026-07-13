@@ -1,6 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { ConversationView, ConversationWorkStatus } from "../contracts";
+import type { ConversationView, ConversationWorkStatus, SavedConversationViewFilter } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { resolveMailExecution } from "./execution";
 
@@ -170,6 +170,7 @@ export const listConversations = async (params: {
   folderId?: string | null;
   status?: ConversationWorkStatus | null;
   view?: ConversationView | null;
+  filter?: SavedConversationViewFilter | null;
   cursor?: string;
   limit?: number;
 }): Promise<Result<{ items: ConversationSummary[]; nextCursor: string | null }>> => {
@@ -180,6 +181,12 @@ export const listConversations = async (params: {
   const limit = Math.min(Math.max(Math.floor(params.limit ?? 50), 1), 100);
   const currentUserId = userBackedActor(params.context)?.id ?? null;
   const view = params.view ?? null;
+  const filter = params.filter ?? null;
+  const folderId = params.folderId ?? filter?.folderId ?? null;
+  const workStatuses = filter?.workStatuses ?? [];
+  const assigneeKind = filter?.assignee?.kind ?? "any";
+  const assigneeUserId = filter?.assignee?.kind === "user" ? filter.assignee.userId : null;
+  const watchedByMe = filter?.watchedByMe ?? null;
   const rows = await sql<DbConversation[]>`
     SELECT
       c.id,
@@ -222,6 +229,40 @@ export const listConversations = async (params: {
     ) latest ON true
     WHERE c.mailbox_id = ${params.mailboxId}::uuid
       AND (${params.status ?? null}::text IS NULL OR c.work_status = ${params.status ?? null})
+      AND (cardinality(${sql.array(workStatuses, "TEXT")}) = 0 OR c.work_status = ANY(${sql.array(workStatuses, "TEXT")}))
+      AND (
+        ${assigneeKind} = 'any'
+        OR (${assigneeKind} = 'me' AND c.assignee_user_id = ${currentUserId}::uuid)
+        OR (${assigneeKind} = 'unassigned' AND c.assignee_user_id IS NULL)
+        OR (${assigneeKind} = 'user' AND c.assignee_user_id = ${assigneeUserId}::uuid)
+      )
+      AND (${filter?.responseNeeded ?? null}::boolean IS NULL OR c.response_needed = ${filter?.responseNeeded ?? null})
+      AND (
+        ${filter?.snoozed ?? null}::boolean IS NULL
+        OR (${filter?.snoozed ?? null} = true AND c.snoozed_until > now())
+        OR (${filter?.snoozed ?? null} = false AND (c.snoozed_until IS NULL OR c.snoozed_until <= now()))
+      )
+      AND (
+        ${watchedByMe}::boolean IS NULL
+        OR (
+          ${watchedByMe} = true
+          AND ${currentUserId}::uuid IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM mail.conversation_watchers watcher
+            WHERE watcher.conversation_id = c.id AND watcher.user_id = ${currentUserId}::uuid
+          )
+        )
+        OR (
+          ${watchedByMe} = false
+          AND (
+            ${currentUserId}::uuid IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM mail.conversation_watchers watcher
+              WHERE watcher.conversation_id = c.id AND watcher.user_id = ${currentUserId}::uuid
+            )
+          )
+        )
+      )
       AND (
         ${view}::text IS NULL
         OR (${view} = 'inbox' AND c.work_status = 'open' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now()))
@@ -243,13 +284,13 @@ export const listConversations = async (params: {
         OR ${view} = 'recently_active'
       )
       AND (
-        ${params.folderId ?? null}::uuid IS NULL
+        ${folderId}::uuid IS NULL
         OR EXISTS (
           SELECT 1
           FROM mail.conversation_messages folder_cm
           JOIN mail.message_placements folder_mp ON folder_mp.message_id = folder_cm.message_id
           WHERE folder_cm.conversation_id = c.id
-            AND folder_mp.folder_id = ${params.folderId ?? null}::uuid
+            AND folder_mp.folder_id = ${folderId}::uuid
             AND folder_mp.deleted_at IS NULL
         )
       )

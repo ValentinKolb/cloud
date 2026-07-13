@@ -10,6 +10,7 @@ import type {
   MailWorkflowDetail,
   MailWorkflowRun,
   MailWorkflowVersion,
+  RemoteMessagePrecondition,
   WorkflowAction,
   WorkflowCondition,
   WorkflowDefinition,
@@ -21,12 +22,23 @@ import type {
   WorkflowValidation,
 } from "../contracts";
 import { requireMailboxPermission } from "./access";
-import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
+import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveMailExecution } from "./execution";
 import { validateSearchComplexity } from "./search";
-import { listWorkflowSnapshots, type WorkflowTargetSnapshot, workflowSourceStateHash } from "./workflow-data";
-import { evaluateWorkflow, type PlannedWorkflowAction, validateWorkflowDefinition } from "./workflow-evaluator";
+import {
+  countWorkflowQueryBodyGaps,
+  listWorkflowSnapshots,
+  type WorkflowTargetSnapshot,
+  workflowSourceStateHash,
+} from "./workflow-data";
+import {
+  evaluateWorkflow,
+  type PlannedWorkflowAction,
+  validateWorkflowDefinition,
+  type WorkflowSnapshotField,
+  workflowSnapshotRequirements,
+} from "./workflow-evaluator";
 import { enqueueWorkflowRun } from "./workflow-runtime";
 
 type SqlClient = typeof sql;
@@ -66,6 +78,8 @@ export type DbWorkflowRun = {
   access_subject_kind: "user" | "service_account";
   access_subject_id: string;
   credential_scopes: string[] | null;
+  credential_id: string | null;
+  credential_expires_at: Date | string | null;
   idempotency_key: string;
   request_hash: string;
   target_query: WorkflowTargetQuery | string;
@@ -83,9 +97,33 @@ export type DbWorkflowRun = {
 };
 
 type PreparedTarget = {
-  snapshot: WorkflowTargetSnapshot;
+  remoteMessageRefId: string;
+  messageId: string;
+  conversationId: string | null;
+  sourceFolderId: string;
+  sourceStateHash: string;
+  remoteState: RemoteMessagePrecondition;
+  subject: string;
   state: "ready" | "waiting_data";
   actions: PlannedWorkflowAction[];
+};
+
+const workflowRemoteState = (
+  snapshot: WorkflowTargetSnapshot,
+  requirements: ReadonlySet<WorkflowSnapshotField>,
+): RemoteMessagePrecondition => {
+  const tracksProviderState = requirements.has("flag") || requirements.has("keyword");
+  return {
+    ...(tracksProviderState && snapshot.remoteModseq ? { modseq: snapshot.remoteModseq } : {}),
+    ...(requirements.has("flag")
+      ? {
+          flags: snapshot.flags.filter((flag): flag is "seen" | "answered" | "flagged" | "draft" =>
+            ["seen", "answered", "flagged", "draft"].includes(flag),
+          ),
+        }
+      : {}),
+    ...(requirements.has("keyword") ? { keywords: snapshot.keywords } : {}),
+  };
 };
 
 type PreparedPreview = {
@@ -129,6 +167,8 @@ export const workflowRunColumns = sql`
   run.access_subject_kind,
   run.access_subject_id,
   run.credential_scopes,
+  run.credential_id,
+  run.credential_expires_at,
   run.idempotency_key,
   run.request_hash,
   run.target_query,
@@ -332,42 +372,74 @@ const preparePreview = async (params: { mailboxId: string; input: WorkflowPrevie
     };
   }
 
-  const maxTargets = validation.definition.effectBudget.maxTargets;
-  const snapshots = await sql.begin(async (tx) => {
-    await tx`SET LOCAL statement_timeout = '30s'`;
-    return listWorkflowSnapshots({ mailboxId: params.mailboxId, query: params.input.query, limit: maxTargets + 1, db: tx });
-  });
+  const definition = validation.definition;
+  const maxTargets = definition.effectBudget.maxTargets;
+  const requirements = workflowSnapshotRequirements(definition);
   const collaborationByConversation = new Map<string, NonNullable<WorkflowTargetSnapshot["collaboration"]>>();
   const targets: PreparedTarget[] = [];
-  for (const originalSnapshot of snapshots) {
-    const collaboration = originalSnapshot.conversationId
-      ? (collaborationByConversation.get(originalSnapshot.conversationId) ?? originalSnapshot.collaboration)
-      : null;
-    const snapshot = {
-      ...originalSnapshot,
-      collaboration,
-      sourceStateHash: workflowSourceStateHash({ ...originalSnapshot, collaboration }, originalSnapshot.remoteModseq),
-    };
-    const evaluation = evaluateWorkflow(validation.definition, snapshot);
-    if (snapshot.conversationId && collaboration && evaluation.state === "ready") {
-      const next = { ...collaboration };
-      for (const planned of evaluation.actions) {
-        if (planned.action.action === "assign") {
-          next.assigneeUserId = planned.action.userId;
-          next.revision += 1;
-        } else if (planned.action.action === "status.set") {
-          next.workStatus = planned.action.status;
-          if (planned.action.status === "done") next.responseNeeded = false;
-          next.revision += 1;
+  let queryWaitingDataCount = 0;
+  await sql.begin(async (tx) => {
+    await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`;
+    await tx`SET LOCAL statement_timeout = '30s'`;
+    queryWaitingDataCount = await countWorkflowQueryBodyGaps({ mailboxId: params.mailboxId, query: params.input.query, db: tx });
+    let after: { internalDate: string; remoteMessageRefId: string } | null = null;
+    const batchSize = requirements.has("body") ? 100 : 1_000;
+    while (targets.length < maxTargets + 1) {
+      const limit = Math.min(batchSize, maxTargets + 1 - targets.length);
+      const batch = await listWorkflowSnapshots({
+        mailboxId: params.mailboxId,
+        query: params.input.query,
+        requirements,
+        limit,
+        after,
+        db: tx,
+      });
+      if (batch.length === 0) break;
+      for (const originalSnapshot of batch) {
+        const simulatedCollaboration = originalSnapshot.conversationId
+          ? collaborationByConversation.get(originalSnapshot.conversationId)
+          : undefined;
+        const collaboration = simulatedCollaboration ?? originalSnapshot.collaboration;
+        const snapshot = { ...originalSnapshot, collaboration };
+        const evaluation = evaluateWorkflow(definition, snapshot);
+        if (snapshot.conversationId && collaboration && evaluation.state === "ready") {
+          const next = { ...collaboration };
+          let changed = false;
+          for (const planned of evaluation.actions) {
+            if (planned.action.action === "assign") {
+              next.assigneeUserId = planned.action.userId;
+              next.revision += 1;
+              changed = true;
+            } else if (planned.action.action === "status.set") {
+              next.workStatus = planned.action.status;
+              if (planned.action.status === "done") next.responseNeeded = false;
+              next.revision += 1;
+              changed = true;
+            }
+          }
+          if (changed) collaborationByConversation.set(snapshot.conversationId, next);
         }
+        targets.push({
+          remoteMessageRefId: snapshot.remoteMessageRefId,
+          messageId: snapshot.messageId,
+          conversationId: snapshot.conversationId,
+          sourceFolderId: snapshot.folderId,
+          sourceStateHash:
+            simulatedCollaboration === undefined ? originalSnapshot.sourceStateHash : workflowSourceStateHash(snapshot, requirements),
+          remoteState: workflowRemoteState(snapshot, requirements),
+          subject: snapshot.subject,
+          state: evaluation.state,
+          actions: evaluation.actions,
+        });
       }
-      collaborationByConversation.set(snapshot.conversationId, next);
+      const last = batch.at(-1)!;
+      after = { internalDate: last.internalDate, remoteMessageRefId: last.remoteMessageRefId };
+      if (batch.length < limit) break;
     }
-    targets.push({ snapshot, state: evaluation.state, actions: evaluation.actions });
-  }
+  });
   const actionCounts: Record<string, number> = {};
   let actionTargetCount = 0;
-  let waitingDataCount = 0;
+  let waitingDataCount = queryWaitingDataCount;
   let moves = 0;
   let keywordChanges = 0;
   let collaborationChanges = 0;
@@ -382,8 +454,8 @@ const preparePreview = async (params: { mailboxId: string; input: WorkflowPrevie
       else collaborationChanges += 1;
     }
   }
-  const truncated = snapshots.length > maxTargets;
-  const budget = validation.definition.effectBudget;
+  const truncated = targets.length > maxTargets;
+  const budget = definition.effectBudget;
   const budgetExceeded =
     truncated ||
     moves > budget.maxMoves ||
@@ -391,8 +463,8 @@ const preparePreview = async (params: { mailboxId: string; input: WorkflowPrevie
     collaborationChanges > budget.maxCollaborationChanges;
   const targetSnapshotHash = sha256Json(
     targets.map((target) => ({
-      remoteMessageRefId: target.snapshot.remoteMessageRefId,
-      sourceStateHash: target.snapshot.sourceStateHash,
+      remoteMessageRefId: target.remoteMessageRefId,
+      sourceStateHash: target.sourceStateHash,
       state: target.state,
       actions: target.actions.map(({ path, action, expectedConversationRevision }) => ({
         path,
@@ -425,9 +497,9 @@ const preparePreview = async (params: { mailboxId: string; input: WorkflowPrevie
       budgetExceeded,
       actionCounts,
       samples: targets.slice(0, 20).map((target) => ({
-        messageId: target.snapshot.messageId,
-        conversationId: target.snapshot.conversationId,
-        subject: target.snapshot.subject,
+        messageId: target.messageId,
+        conversationId: target.conversationId,
+        subject: target.subject,
         state: target.state,
         actions: target.actions.map(({ path, action }) => ({ path, action })),
       })),
@@ -506,6 +578,18 @@ export const listWorkflowVersions = async (params: {
     LIMIT 200
   `;
   return rows.length > 0 ? ok(rows.map(mapWorkflowVersion)) : fail(err.notFound("Workflow"));
+};
+
+export const getWorkflowVersion = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  workflowId: string;
+  version: number;
+}): Promise<Result<MailWorkflowVersion>> => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
+  if (!allowed.ok) return allowed;
+  const version = await loadSavedVersion(params);
+  return version ? ok(mapWorkflowVersion(version)) : fail(err.notFound("Workflow version"));
 };
 
 const creator = (context: MailRequestContext): { kind: "user" | "service_account"; id: string } => {
@@ -643,7 +727,8 @@ const loadRunByIdempotency = async (
   const [row] = await db<DbWorkflowRun[]>`
     SELECT ${workflowRunColumns}
     FROM mail.workflow_runs run
-    WHERE run.mailbox_id = ${mailboxId}::uuid AND run.idempotency_key = ${idempotencyKey}
+    WHERE run.mailbox_id = ${mailboxId}::uuid
+      AND run.idempotency_key = ${idempotencyKey}
     ${lock ? sql`FOR UPDATE` : sql``}
   `;
   return row ?? null;
@@ -653,11 +738,11 @@ const insertPreparedTargets = async (db: SqlClient, runId: string, targets: Prep
   for (let offset = 0; offset < targets.length; offset += 1_000) {
     const rows = targets.slice(offset, offset + 1_000).map((target, index) => ({
       ordinal: offset + index,
-      remote_message_ref_id: target.snapshot.remoteMessageRefId,
-      message_id: target.snapshot.messageId,
-      conversation_id: target.snapshot.conversationId,
-      source_folder_id: target.snapshot.folderId,
-      source_state_hash: target.snapshot.sourceStateHash,
+      remote_message_ref_id: target.remoteMessageRefId,
+      message_id: target.messageId,
+      conversation_id: target.conversationId,
+      source_folder_id: target.sourceFolderId,
+      source_state_hash: target.sourceStateHash,
       planned_action_count: target.actions.length,
     }));
     await db`
@@ -679,32 +764,48 @@ const insertPreparedTargets = async (db: SqlClient, runId: string, targets: Prep
       )
     `;
   }
-  const steps = targets.flatMap((target, ordinal) =>
-    target.actions.map((planned) => ({
-      target_ordinal: ordinal,
-      sequence: planned.sequence,
-      step_path: planned.path,
-      action: planned.action,
-      expected_conversation_revision: planned.expectedConversationRevision,
-      idempotency_key: `workflow:${runId}:${ordinal}:${planned.sequence}`,
-    })),
-  );
+  const steps = targets.flatMap((target, ordinal) => {
+    let expectedRemoteState: RemoteMessagePrecondition = { ...target.remoteState };
+    return target.actions.map((planned) => {
+      const providerAction = planned.action.action.startsWith("remote.");
+      const step = {
+        target_ordinal: ordinal,
+        sequence: planned.sequence,
+        step_path: planned.path,
+        action: planned.action,
+        expected_conversation_revision: planned.expectedConversationRevision,
+        expected_remote_state: providerAction ? expectedRemoteState : null,
+        idempotency_key: `workflow:${runId}:${ordinal}:${planned.sequence}`,
+      };
+      if (planned.action.action === "remote.keyword.add" || planned.action.action === "remote.keyword.remove") {
+        const keyword = planned.action.keyword.toLowerCase();
+        const current = expectedRemoteState.keywords ?? [];
+        const keywords =
+          planned.action.action === "remote.keyword.add"
+            ? [...current.filter((value) => value.toLowerCase() !== keyword), planned.action.keyword]
+            : current.filter((value) => value.toLowerCase() !== keyword);
+        expectedRemoteState = { ...expectedRemoteState, modseq: undefined, keywords: keywords.sort() };
+      }
+      return step;
+    });
+  });
   for (let offset = 0; offset < steps.length; offset += 1_000) {
     const rows = steps.slice(offset, offset + 1_000);
     await db`
       INSERT INTO mail.workflow_step_runs (
         run_id, target_ordinal, sequence, step_path, action,
-        expected_conversation_revision, idempotency_key
+        expected_conversation_revision, expected_remote_state, idempotency_key
       )
       SELECT
         ${runId}::uuid, row.target_ordinal, row.sequence, row.step_path, row.action,
-        row.expected_conversation_revision, row.idempotency_key
+        row.expected_conversation_revision, row.expected_remote_state, row.idempotency_key
       FROM jsonb_to_recordset(${rows}::jsonb) AS row(
         target_ordinal bigint,
         sequence integer,
         step_path text,
         action jsonb,
         expected_conversation_revision bigint,
+        expected_remote_state jsonb,
         idempotency_key text
       )
     `;
@@ -720,15 +821,24 @@ const runPrincipal = (context: MailRequestContext) => {
   const actorId = actor.kind === "user" ? actor.userId : actor.serviceAccountId;
   const delegatedUserId = actor.kind === "service_account" ? actor.delegatedUserId : null;
   const accessSubjectId = context.accessSubject.type === "user" ? context.accessSubject.userId : context.accessSubject.serviceAccountId;
+  const credential = durableCredentialSnapshot(context);
+  if (!credential) return null;
   return {
     actorKind,
     actorId,
     delegatedUserId,
     accessSubjectKind: context.accessSubject.type,
     accessSubjectId,
-    credentialScopes: context.actor.kind === "service_account" ? context.actor.scopes : [],
+    credentialScopes: credential.scopes,
+    credentialId: credential.credentialId,
+    credentialExpiresAt: credential.credentialExpiresAt,
   };
 };
+
+const workflowRunActorMatches = (
+  run: DbWorkflowRun,
+  principal: NonNullable<ReturnType<typeof runPrincipal>>,
+): boolean => run.actor_kind === principal.actorKind && run.actor_id === principal.actorId;
 
 const persistRun = async (params: {
   context: MailRequestContext;
@@ -747,6 +857,7 @@ const persistRun = async (params: {
   const oneShotWorkflowId = crypto.randomUUID();
   const oneShotVersionId = crypto.randomUUID();
   const principal = runPrincipal(params.context);
+  if (!principal) return fail(err.forbidden("Durable Mail work requires a current service credential"));
   const createdBy = creator(params.context);
   try {
     const result = await sql.begin(async (tx) => {
@@ -757,9 +868,19 @@ const persistRun = async (params: {
         db: tx,
       });
       if (!currentPermission.ok) return currentPermission;
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:${params.idempotencyKey}`}, 0))`;
-      const existing = await loadRunByIdempotency(params.mailboxId, params.idempotencyKey, tx, true);
+      await tx`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`${params.mailboxId}:${params.idempotencyKey}`}, 0)
+        )
+      `;
+      const existing = await loadRunByIdempotency(
+        params.mailboxId,
+        params.idempotencyKey,
+        tx,
+        true,
+      );
       if (existing) {
+        if (!workflowRunActorMatches(existing, principal)) return fail(err.conflict("Idempotency key is already in use"));
         return existing.request_hash === params.requestHash
           ? ok(mapWorkflowRun(existing))
           : fail(err.conflict("Idempotency key with a different workflow run"));
@@ -790,13 +911,14 @@ const persistRun = async (params: {
         INSERT INTO mail.workflow_runs AS run (
           id, mailbox_id, workflow_id, workflow_version_id, workflow_version, trigger_type,
           actor_kind, actor_id, delegated_user_id, access_subject_kind, access_subject_id,
-          credential_scopes, idempotency_key, request_hash, target_query, query_hash,
+          credential_scopes, credential_id, credential_expires_at, idempotency_key, request_hash, target_query, query_hash,
           target_snapshot_hash, preview_hash, effect_budget, action_counts, target_count, action_target_count
         ) VALUES (
           ${runId}::uuid, ${params.mailboxId}::uuid, ${workflowId}::uuid, ${workflowVersionId}::uuid,
           ${workflowVersion}, ${params.definition.trigger.type}, ${principal.actorKind}, ${principal.actorId}::uuid,
           ${principal.delegatedUserId}::uuid, ${principal.accessSubjectKind}, ${principal.accessSubjectId}::uuid,
-          ${toPgTextArray(principal.credentialScopes)}::text[], ${params.idempotencyKey}, ${params.requestHash},
+          ${toPgTextArray(principal.credentialScopes)}::text[], ${principal.credentialId}::uuid,
+          ${principal.credentialExpiresAt}::timestamptz, ${params.idempotencyKey}, ${params.requestHash},
           ${params.query}::jsonb, ${params.preview.preview.queryHash}, ${params.preview.targetSnapshotHash},
           ${params.previewHash}, ${params.definition.effectBudget}::jsonb, ${params.preview.preview.actionCounts}::jsonb,
           ${params.preview.preview.targetCount}, ${params.preview.preview.actionTargetCount}
@@ -827,6 +949,11 @@ const persistRun = async (params: {
             workflowVersionId,
             targetCount: params.preview.preview.targetCount,
             actionCounts: params.preview.preview.actionCounts,
+            actorKind: principal.actorKind,
+            actorId: principal.actorId,
+            delegatedUserId: principal.delegatedUserId,
+            credentialId: principal.credentialId,
+            credentialExpiresAt: principal.credentialExpiresAt,
           },
         },
         tx,
@@ -849,8 +976,11 @@ const existingRunResult = async (
 ): Promise<Result<MailWorkflowRun> | null> => {
   const allowed = await requireMailboxPermission(context, mailboxId, "write");
   if (!allowed.ok) return allowed;
+  const principal = runPrincipal(context);
+  if (!principal) return fail(err.forbidden("Durable Mail work requires a current service credential"));
   const existing = await loadRunByIdempotency(mailboxId, idempotencyKey);
   if (!existing) return null;
+  if (!workflowRunActorMatches(existing, principal)) return fail(err.conflict("Idempotency key is already in use"));
   return existing.request_hash === requestHash
     ? ok(mapWorkflowRun(existing))
     : fail(err.conflict("Idempotency key with a different workflow run"));
@@ -880,6 +1010,8 @@ export const createOneShotRun = async (params: {
     input: { definition: validation.definition, query: params.input.query },
   });
   if (!prepared.preview.previewHash || prepared.preview.previewHash !== params.input.previewHash) {
+    const replay = await existingRunResult(params.context, params.mailboxId, params.input.idempotencyKey, requestHash);
+    if (replay) return replay;
     return fail(err.conflict("Workflow preview is stale or cannot be executed"));
   }
   return persistRun({
@@ -919,7 +1051,11 @@ export const createSavedRun = async (params: {
 }): Promise<Result<MailWorkflowRun>> => {
   const allowed = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorMutation", context: params.context });
   if (!allowed.ok) return allowed;
-  const version = await loadSavedVersion(params);
+  const version = await loadSavedVersion({
+    mailboxId: params.mailboxId,
+    workflowId: params.workflowId,
+    version: params.input.version,
+  });
   if (!version) return fail(err.notFound("Workflow version"));
   const definition = parseJson(version.definition);
   const requestHash = sha256Json({
@@ -934,6 +1070,8 @@ export const createSavedRun = async (params: {
   if (existing) return existing;
   const prepared = await preparePreview({ mailboxId: params.mailboxId, input: { definition, query: params.input.query } });
   if (!prepared.preview.previewHash || prepared.preview.previewHash !== params.input.previewHash) {
+    const replay = await existingRunResult(params.context, params.mailboxId, params.input.idempotencyKey, requestHash);
+    if (replay) return replay;
     return fail(err.conflict("Workflow preview is stale or cannot be executed"));
   }
   return persistRun({

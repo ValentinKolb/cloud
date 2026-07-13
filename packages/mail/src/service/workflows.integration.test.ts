@@ -231,6 +231,108 @@ suite("mail deterministic workflow foundation", () => {
     }
   });
 
+  test("blocks executable body-search previews while mailbox bodies are incomplete", async () => {
+    const [message] = await sql<{ id: string; hydration_status: string }[]>`
+      SELECT id, hydration_status
+      FROM mail.message_contents
+      WHERE mailbox_id = ${mailboxId}::uuid
+      ORDER BY internal_date
+      LIMIT 1
+    `;
+    if (!message) throw new Error("Workflow fixture message is missing");
+    await sql`UPDATE mail.message_contents SET hydration_status = 'envelope' WHERE id = ${message.id}::uuid`;
+    try {
+      const preview = await previewWorkflow({
+        context: ownerContext,
+        mailboxId,
+        input: {
+          definition: definition({ writerId: writer.id, description: "Body query hydration gate" }),
+          query: {
+            type: "search",
+            expression: { field: "body", query: "request", match: "contains" },
+          },
+        },
+      });
+      expect(preview.ok).toBe(true);
+      if (!preview.ok) return;
+      expect(preview.data.waitingDataCount).toBeGreaterThanOrEqual(1);
+      expect(preview.data.previewHash).toBeNull();
+    } finally {
+      await sql`
+        UPDATE mail.message_contents
+        SET hydration_status = ${message.hydration_status}
+        WHERE id = ${message.id}::uuid
+      `;
+    }
+  });
+
+  test("continues later targets after one provider command fails", async () => {
+    const providerDefinition: WorkflowDefinition = {
+      ...definition({ writerId: writer.id, description: "Continue after target failure" }),
+      name: "Continue after target failure",
+      effectBudget: {
+        maxTargets: 100,
+        maxMoves: 0,
+        maxKeywordChanges: 100,
+        maxCollaborationChanges: 0,
+      },
+      steps: [{ action: "remote.keyword.add", keyword: "ContinueTest" }],
+    };
+    const preview = await previewWorkflow({
+      context: writerContext,
+      mailboxId,
+      input: { definition: providerDefinition, query: { type: "all" } },
+    });
+    expect(preview.ok && preview.data.previewHash).not.toBeNull();
+    if (!preview.ok || !preview.data.previewHash) return;
+    const run = await createOneShotRun({
+      context: writerContext,
+      mailboxId,
+      input: {
+        definition: providerDefinition,
+        query: { type: "all" },
+        previewHash: preview.data.previewHash,
+        idempotencyKey: `continue-after-failure-${suffix}`,
+      },
+      enqueue: false,
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+
+    expect(await executeWorkflowRunSlice(run.data.id, async () => undefined)).toBe("waiting_command");
+    const [first] = await sql<{ command_id: string }[]>`
+      SELECT command_id
+      FROM mail.workflow_step_runs
+      WHERE run_id = ${run.data.id}::uuid AND target_ordinal = 0
+    `;
+    await sql`
+      UPDATE mail.commands
+      SET state = 'failed', last_error_code = 'TEST_FAILURE', last_error_message = 'First target failed', finished_at = now()
+      WHERE id = ${first!.command_id}::uuid
+    `;
+
+    expect(await executeWorkflowRunSlice(run.data.id, async () => undefined)).toBe("waiting_command");
+    const targets = await sql<{ ordinal: number; state: string }[]>`
+      SELECT ordinal::int, state
+      FROM mail.workflow_run_targets
+      WHERE run_id = ${run.data.id}::uuid
+      ORDER BY ordinal
+    `;
+    expect(targets).toEqual([
+      { ordinal: 0, state: "failed" },
+      { ordinal: 1, state: "waiting_command" },
+    ]);
+    const [second] = await sql<{ command_id: string }[]>`
+      SELECT command_id
+      FROM mail.workflow_step_runs
+      WHERE run_id = ${run.data.id}::uuid AND target_ordinal = 1
+    `;
+    await sql`UPDATE mail.commands SET state = 'confirmed', finished_at = now() WHERE id = ${second!.command_id}::uuid`;
+    expect(await executeWorkflowRunSlice(run.data.id, async () => undefined)).toBe("failed");
+    const stored = await getWorkflowRun({ context: writerContext, mailboxId, runId: run.data.id });
+    expect(stored.ok && stored.data).toMatchObject({ state: "failed", completedTargets: 1, failedTargets: 1 });
+  }, 15_000);
+
   test("versions, previews, executes, replays, and cancels on revoked access", async () => {
     const versionOne = await createWorkflow({
       context: ownerContext,
@@ -248,6 +350,52 @@ suite("mail deterministic workflow foundation", () => {
     expect(versionTwo.ok && versionTwo.data.currentVersion).toBe(2);
     const versions = await listWorkflowVersions({ context: ownerContext, mailboxId, workflowId: versionOne.data.id });
     expect(versions.ok && versions.data.map((version) => version.version)).toEqual([2, 1]);
+    let immutableUpdateCode: string | null = null;
+    try {
+      await sql`
+        UPDATE mail.workflow_versions
+        SET definition_hash = ${"f".repeat(64)}
+        WHERE id = ${versionOne.data.version.id}::uuid
+      `;
+    } catch (error) {
+      const postgresError = error as { code?: string; errno?: string };
+      immutableUpdateCode = postgresError.errno ?? postgresError.code ?? null;
+    }
+    expect(immutableUpdateCode).toBe("55000");
+    const constraints = await sql<{ conname: string }[]>`
+      SELECT conname
+      FROM pg_constraint
+      WHERE conrelid = 'mail.workflow_runs'::regclass
+        AND conname IN (
+          'workflow_runs_mailbox_id_idempotency_key_key',
+          'workflow_runs_actor_idempotency_key'
+        )
+      ORDER BY conname
+    `;
+    expect(constraints.map((constraint) => constraint.conname)).toEqual([
+      "workflow_runs_mailbox_id_idempotency_key_key",
+    ]);
+
+    const versionOnePreview = await previewWorkflow({
+      context: writerContext,
+      mailboxId,
+      input: { definition: versionOne.data.version.definition, query: { type: "all" } },
+    });
+    expect(versionOnePreview.ok && versionOnePreview.data.previewHash).not.toBeNull();
+    if (!versionOnePreview.ok || !versionOnePreview.data.previewHash) return;
+    const versionOneRun = await createSavedRun({
+      context: writerContext,
+      mailboxId,
+      workflowId: versionOne.data.id,
+      input: {
+        version: 1,
+        query: { type: "all" },
+        previewHash: versionOnePreview.data.previewHash,
+        idempotencyKey: `saved-version-one-${suffix}`,
+      },
+      enqueue: false,
+    });
+    expect(versionOneRun.ok && versionOneRun.data.workflowVersion).toBe(1);
 
     const currentDefinition = versionTwo.ok ? versionTwo.data.version.definition : versionOne.data.version.definition;
     const providerDefinition: WorkflowDefinition = {
@@ -287,6 +435,8 @@ suite("mail deterministic workflow foundation", () => {
           actor_id: string;
           initiator_actor_kind: string | null;
           initiator_actor_id: string | null;
+          expected_remote_state: Record<string, unknown> | string | null;
+          target: Record<string, unknown> | string;
         }[]
       >`
         SELECT
@@ -296,7 +446,9 @@ suite("mail deterministic workflow foundation", () => {
           command.actor_kind,
           command.actor_id,
           command.initiator_actor_kind,
-          command.initiator_actor_id
+          command.initiator_actor_id,
+          step.expected_remote_state,
+          command.target
         FROM mail.workflow_step_runs step
         JOIN mail.commands command ON command.id = step.command_id
         WHERE step.run_id = ${providerRun.data.id}::uuid AND step.target_ordinal = ${ordinal}
@@ -308,6 +460,13 @@ suite("mail deterministic workflow foundation", () => {
         initiator_actor_kind: "user",
         initiator_actor_id: writer.id,
       });
+      const expectedRemoteState =
+        typeof journaled!.expected_remote_state === "string"
+          ? JSON.parse(journaled!.expected_remote_state)
+          : journaled!.expected_remote_state;
+      const commandTarget = typeof journaled!.target === "string" ? JSON.parse(journaled!.target) : journaled!.target;
+      expect(expectedRemoteState).toEqual({ modseq: "1", keywords: [] });
+      expect(commandTarget.expectedRemoteState).toEqual(expectedRemoteState);
       await sql`
         UPDATE mail.commands
         SET state = 'confirmed', finished_at = now()
@@ -341,6 +500,15 @@ suite("mail deterministic workflow foundation", () => {
     });
     expect(queued.ok && queued.data.state).toBe("queued");
     if (!queued.ok) return;
+    const foreignActor = await createSavedRun({
+      context: ownerContext,
+      mailboxId,
+      workflowId: versionOne.data.id,
+      input: savedRunInput,
+      enqueue: false,
+    });
+    expect(foreignActor.ok).toBe(false);
+    if (!foreignActor.ok) expect(foreignActor.error.code).toBe("CONFLICT");
     const [materialized] = await sql<{ targets: number; steps: number }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM mail.workflow_run_targets WHERE run_id = ${queued.data.id}::uuid) AS targets,
@@ -466,13 +634,54 @@ suite("mail deterministic workflow foundation", () => {
     });
     expect(pending.ok).toBe(true);
     if (!pending.ok) return;
+    const revokeProviderPreview = await previewWorkflow({
+      context: writerContext,
+      mailboxId,
+      input: { definition: providerDefinition, query: { type: "all" } },
+    });
+    expect(revokeProviderPreview.ok && revokeProviderPreview.data.previewHash).not.toBeNull();
+    if (!revokeProviderPreview.ok || !revokeProviderPreview.data.previewHash) return;
+    const revokeProviderRun = await createOneShotRun({
+      context: writerContext,
+      mailboxId,
+      input: {
+        definition: providerDefinition,
+        query: { type: "all" },
+        previewHash: revokeProviderPreview.data.previewHash,
+        idempotencyKey: `confirmed-before-revoke-${suffix}`,
+      },
+      enqueue: false,
+    });
+    expect(revokeProviderRun.ok).toBe(true);
+    if (!revokeProviderRun.ok) return;
+    expect(await executeWorkflowRunSlice(revokeProviderRun.data.id, async () => undefined)).toBe("waiting_command");
+    const [confirmedBeforeRevoke] = await sql<{ command_id: string }[]>`
+      SELECT command_id
+      FROM mail.workflow_step_runs
+      WHERE run_id = ${revokeProviderRun.data.id}::uuid AND target_ordinal = 0
+    `;
+    await sql`
+      UPDATE mail.commands SET state = 'confirmed', finished_at = now()
+      WHERE id = ${confirmedBeforeRevoke!.command_id}::uuid
+    `;
     const revoked = await revokeMailboxAccess({ context: ownerContext, mailboxId, accessId: writerAccessId });
     expect(revoked.ok).toBe(true);
+    expect(await executeWorkflowRunSlice(revokeProviderRun.data.id, async () => undefined)).toBe("canceled");
+    const revokedTargets = await sql<{ ordinal: number; state: string }[]>`
+      SELECT ordinal::int, state
+      FROM mail.workflow_run_targets
+      WHERE run_id = ${revokeProviderRun.data.id}::uuid
+      ORDER BY ordinal
+    `;
+    expect(revokedTargets).toEqual([
+      { ordinal: 0, state: "succeeded" },
+      { ordinal: 1, state: "failed" },
+    ]);
     expect(await executeWorkflowRunSlice(pending.data.id, async () => undefined)).toBe("canceled");
     const canceled = await getWorkflowRun({ context: ownerContext, mailboxId, runId: pending.data.id });
     expect(canceled.ok && canceled.data).toMatchObject({
       state: "canceled",
       lastError: "Mailbox or provider write access was revoked before workflow execution",
     });
-  });
+  }, 30_000);
 });

@@ -5,7 +5,10 @@ import { mailCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes from "./frontend";
 import { migrate } from "./migrate";
+import { createMailNotificationService } from "./notifications";
 import { commandRuntime, mailRuntime, workflowRuntime } from "./service";
+
+const mailNotifications = createMailNotificationService(app.notifications);
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -20,14 +23,27 @@ export default await app.start({
   lifecycle: {
     setup: migrate,
     start: async () => {
-      await mailRuntime.start();
-      await commandRuntime.start();
-      await workflowRuntime.start();
+      await mailNotifications.start();
+      try {
+        await mailRuntime.start();
+        await commandRuntime.start();
+        await workflowRuntime.start();
+      } catch (error) {
+        await workflowRuntime.stop().catch(() => undefined);
+        await commandRuntime.stop().catch(() => undefined);
+        await mailRuntime.stop().catch(() => undefined);
+        await mailNotifications.stop().catch(() => undefined);
+        throw error;
+      }
     },
     stop: async () => {
-      await workflowRuntime.stop();
-      await commandRuntime.stop();
-      await mailRuntime.stop();
+      try {
+        await workflowRuntime.stop();
+        await commandRuntime.stop();
+        await mailRuntime.stop();
+      } finally {
+        await mailNotifications.stop();
+      }
     },
   },
 });

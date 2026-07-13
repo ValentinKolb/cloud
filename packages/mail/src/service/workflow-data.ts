@@ -1,10 +1,45 @@
 import { sql } from "bun";
-import type { WorkflowTargetQuery } from "../contracts";
-import { sha256Json } from "./canonical";
+import type { MailSearchExpression, WorkflowTargetQuery } from "../contracts";
+import { sha256Json, sha256Text } from "./canonical";
 import { compileSearchExpression } from "./search";
-import type { WorkflowSnapshot } from "./workflow-evaluator";
+import type { WorkflowSnapshot, WorkflowSnapshotField } from "./workflow-evaluator";
 
 type SqlClient = typeof sql;
+
+const searchExpressionUsesBody = (expression: MailSearchExpression): boolean => {
+  const remaining: MailSearchExpression[] = [expression];
+  while (remaining.length > 0) {
+    const current = remaining.pop()!;
+    if ("and" in current) remaining.push(...current.and);
+    else if ("or" in current) remaining.push(...current.or);
+    else if ("not" in current) remaining.push(current.not);
+    else if (current.field === "body" || current.field === "any") return true;
+  }
+  return false;
+};
+
+export const countWorkflowQueryBodyGaps = async (params: {
+  mailboxId: string;
+  query: WorkflowTargetQuery;
+  db?: SqlClient;
+}): Promise<number> => {
+  if (params.query.type !== "search" || !searchExpressionUsesBody(params.query.expression)) return 0;
+  const db = params.db ?? sql;
+  const [row] = await db<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM mail.remote_message_refs rmr
+    JOIN mail.message_placements mp ON mp.remote_message_ref_id = rmr.id
+    JOIN mail.message_contents mc ON mc.id = rmr.message_id
+    JOIN mail.folders folder ON folder.id = rmr.folder_id
+    JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
+    WHERE resource.mailbox_id = ${params.mailboxId}::uuid
+      AND rmr.stale_at IS NULL
+      AND mp.deleted_at IS NULL
+      AND folder.discovery_state = 'active'
+      AND mc.hydration_status NOT IN ('body', 'complete')
+  `;
+  return row?.count ?? 0;
+};
 
 type WorkflowSnapshotRow = {
   remote_message_ref_id: string;
@@ -38,18 +73,29 @@ const parseTextArray = (value: string[] | string): string[] => (typeof value ===
 
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 
-export const workflowSourceStateHash = (snapshot: WorkflowSnapshot, remoteModseq: string | null): string =>
-  sha256Json({
+export const workflowSourceStateHash = (snapshot: WorkflowSnapshot, requirements: ReadonlySet<WorkflowSnapshotField>): string => {
+  const state: Record<string, unknown> = {
+    version: 1,
     remoteMessageRefId: snapshot.remoteMessageRefId,
     messageId: snapshot.messageId,
     conversationId: snapshot.conversationId,
-    contentHash: snapshot.contentHash,
-    folderId: snapshot.folderId,
-    modseq: remoteModseq,
-    flags: snapshot.flags,
-    keywords: snapshot.keywords,
-    collaboration: snapshot.collaboration,
-  });
+  };
+  if (requirements.has("subject")) state.subject = snapshot.subject;
+  if (requirements.has("body")) state.body = { available: snapshot.bodyAvailable, hash: sha256Text(snapshot.body) };
+  if (requirements.has("sender")) state.sender = snapshot.senderValues;
+  if (requirements.has("recipient")) state.recipient = snapshot.recipientValues;
+  if (requirements.has("attachmentName")) {
+    state.attachments = { available: snapshot.attachmentsAvailable, names: snapshot.attachmentNames };
+  }
+  if (requirements.has("hasAttachment")) {
+    state.hasAttachment = { available: snapshot.attachmentsAvailable, value: snapshot.hasAttachment };
+  }
+  if (requirements.has("folder")) state.folderId = snapshot.folderId;
+  if (requirements.has("flag")) state.flags = snapshot.flags;
+  if (requirements.has("keyword")) state.keywords = snapshot.keywords;
+  if (requirements.has("collaboration")) state.collaboration = snapshot.collaboration;
+  return sha256Json(state);
+};
 
 const standardFlagNames: Record<string, string> = {
   "\\answered": "answered",
@@ -61,7 +107,7 @@ const standardFlagNames: Record<string, string> = {
 export const normalizeWorkflowFlags = (flags: readonly string[]): string[] =>
   flags.map((flag) => standardFlagNames[flag.toLowerCase()] ?? flag).sort();
 
-const mapSnapshot = (row: WorkflowSnapshotRow): WorkflowTargetSnapshot => {
+const mapSnapshot = (row: WorkflowSnapshotRow, requirements: ReadonlySet<WorkflowSnapshotField>): WorkflowTargetSnapshot => {
   const flags = normalizeWorkflowFlags(row.flags ?? []);
   const keywords = [...(row.keywords ?? [])].sort();
   const collaboration =
@@ -93,40 +139,40 @@ const mapSnapshot = (row: WorkflowSnapshotRow): WorkflowTargetSnapshot => {
     collaboration,
   };
   const remoteModseq = row.modseq == null ? null : String(row.modseq);
-  return { ...snapshot, remoteModseq, sourceStateHash: workflowSourceStateHash(snapshot, remoteModseq) };
+  return { ...snapshot, remoteModseq, sourceStateHash: workflowSourceStateHash(snapshot, requirements) };
 };
 
-const snapshotColumns = sql`
+const snapshotColumns = (requirements: ReadonlySet<WorkflowSnapshotField>) => sql`
   rmr.id AS remote_message_ref_id,
   mc.id AS message_id,
   cm.conversation_id,
   mc.subject,
-  mc.plain_text,
+  ${requirements.has("body") ? sql`mc.plain_text` : sql`NULL::text`} AS plain_text,
   mc.hydration_status,
-  COALESCE(sender.values, '[]'::jsonb) AS sender_values,
-  COALESCE(recipient.values, '[]'::jsonb) AS recipient_values,
-  COALESCE(attachment.values, '[]'::jsonb) AS attachment_names,
-  EXISTS (SELECT 1 FROM mail.attachments a WHERE a.message_id = mc.id) AS has_attachment,
+  ${requirements.has("sender") ? sql`COALESCE(sender.values, '[]'::jsonb)` : sql`'[]'::jsonb`} AS sender_values,
+  ${requirements.has("recipient") ? sql`COALESCE(recipient.values, '[]'::jsonb)` : sql`'[]'::jsonb`} AS recipient_values,
+  ${requirements.has("attachmentName") ? sql`COALESCE(attachment.values, '[]'::jsonb)` : sql`'[]'::jsonb`} AS attachment_names,
+  ${requirements.has("hasAttachment") ? sql`EXISTS (SELECT 1 FROM mail.attachments a WHERE a.message_id = mc.id)` : sql`false`} AS has_attachment,
   mc.content_hash,
   mc.internal_date,
   mp.folder_id,
   rmr.modseq,
-  mp.flags,
-  mp.keywords,
-  conversation.revision AS collaboration_revision,
-  conversation.assignee_user_id,
-  conversation.work_status,
-  conversation.response_needed
+  ${requirements.has("flag") ? sql`mp.flags` : sql`ARRAY[]::text[]`} AS flags,
+  ${requirements.has("keyword") ? sql`mp.keywords` : sql`ARRAY[]::text[]`} AS keywords,
+  ${requirements.has("collaboration") ? sql`conversation.revision` : sql`NULL::bigint`} AS collaboration_revision,
+  ${requirements.has("collaboration") ? sql`conversation.assignee_user_id` : sql`NULL::uuid`} AS assignee_user_id,
+  ${requirements.has("collaboration") ? sql`conversation.work_status` : sql`NULL::text`} AS work_status,
+  ${requirements.has("collaboration") ? sql`conversation.response_needed` : sql`NULL::boolean`} AS response_needed
 `;
 
-const snapshotJoins = sql`
+const snapshotJoins = (requirements: ReadonlySet<WorkflowSnapshotField>) => sql`
   JOIN mail.message_placements mp ON mp.remote_message_ref_id = rmr.id
   JOIN mail.message_contents mc ON mc.id = rmr.message_id
   JOIN mail.folders folder ON folder.id = rmr.folder_id
   JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
   LEFT JOIN mail.conversation_messages cm ON cm.message_id = mc.id
-  LEFT JOIN mail.conversations conversation ON conversation.id = cm.conversation_id
-  LEFT JOIN LATERAL (
+  ${requirements.has("collaboration") ? sql`LEFT JOIN mail.conversations conversation ON conversation.id = cm.conversation_id` : sql``}
+  ${requirements.has("sender") ? sql`LEFT JOIN LATERAL (
     SELECT jsonb_agg(value ORDER BY role, position, value) AS values
     FROM (
       SELECT ma.role, ma.position, ma.email AS value
@@ -137,8 +183,8 @@ const snapshotJoins = sql`
       FROM mail.message_addresses ma
       WHERE ma.message_id = mc.id AND ma.role IN ('from', 'reply_to') AND ma.display_name IS NOT NULL
     ) sender_value
-  ) sender ON true
-  LEFT JOIN LATERAL (
+  ) sender ON true` : sql``}
+  ${requirements.has("recipient") ? sql`LEFT JOIN LATERAL (
     SELECT jsonb_agg(value ORDER BY role, position, value) AS values
     FROM (
       SELECT ma.role, ma.position, ma.email AS value
@@ -149,52 +195,62 @@ const snapshotJoins = sql`
       FROM mail.message_addresses ma
       WHERE ma.message_id = mc.id AND ma.role IN ('to', 'cc', 'bcc') AND ma.display_name IS NOT NULL
     ) recipient_value
-  ) recipient ON true
-  LEFT JOIN LATERAL (
+  ) recipient ON true` : sql``}
+  ${requirements.has("attachmentName") ? sql`LEFT JOIN LATERAL (
     SELECT jsonb_agg(a.filename ORDER BY a.id) AS values
     FROM mail.attachments a
     WHERE a.message_id = mc.id AND a.filename IS NOT NULL
-  ) attachment ON true
+  ) attachment ON true` : sql``}
 `;
 
 export const listWorkflowSnapshots = async (params: {
   mailboxId: string;
   query: WorkflowTargetQuery;
+  requirements: ReadonlySet<WorkflowSnapshotField>;
   limit: number;
+  after?: { internalDate: string; remoteMessageRefId: string } | null;
   db?: SqlClient;
 }): Promise<WorkflowTargetSnapshot[]> => {
   const db = params.db ?? sql;
   const predicate = params.query.type === "search" ? compileSearchExpression(params.query.expression) : sql`TRUE`;
   const rows = await db<WorkflowSnapshotRow[]>`
-    SELECT ${snapshotColumns}
+    SELECT ${snapshotColumns(params.requirements)}
     FROM mail.remote_message_refs rmr
-    ${snapshotJoins}
+    ${snapshotJoins(params.requirements)}
     WHERE resource.mailbox_id = ${params.mailboxId}::uuid
       AND rmr.stale_at IS NULL
       AND mp.deleted_at IS NULL
       AND folder.discovery_state = 'active'
       AND (${predicate})
+      AND (
+        ${params.after?.internalDate ?? null}::timestamptz IS NULL
+        OR (mc.internal_date, rmr.id) < (${params.after?.internalDate ?? null}::timestamptz, ${params.after?.remoteMessageRefId ?? null}::uuid)
+      )
     ORDER BY mc.internal_date DESC, rmr.id DESC
     LIMIT ${params.limit}
   `;
-  return rows.map(mapSnapshot);
+  return rows.map((row) => mapSnapshot(row, params.requirements));
 };
 
 export const getWorkflowSnapshot = async (params: {
   mailboxId: string;
   remoteMessageRefId: string;
+  query: WorkflowTargetQuery;
+  requirements: ReadonlySet<WorkflowSnapshotField>;
   db?: SqlClient;
 }): Promise<WorkflowTargetSnapshot | null> => {
   const db = params.db ?? sql;
+  const predicate = params.query.type === "search" ? compileSearchExpression(params.query.expression) : sql`TRUE`;
   const [row] = await db<WorkflowSnapshotRow[]>`
-    SELECT ${snapshotColumns}
+    SELECT ${snapshotColumns(params.requirements)}
     FROM mail.remote_message_refs rmr
-    ${snapshotJoins}
+    ${snapshotJoins(params.requirements)}
     WHERE resource.mailbox_id = ${params.mailboxId}::uuid
       AND rmr.id = ${params.remoteMessageRefId}::uuid
       AND rmr.stale_at IS NULL
       AND mp.deleted_at IS NULL
       AND folder.discovery_state = 'active'
+      AND (${predicate})
   `;
-  return row ? mapSnapshot(row) : null;
+  return row ? mapSnapshot(row, params.requirements) : null;
 };

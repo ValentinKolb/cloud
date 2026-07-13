@@ -1196,6 +1196,273 @@ const addWorkflowRuntimeFencing = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const hardenWorkflowFoundation = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.commands ADD COLUMN credential_id UUID`;
+  await db`ALTER TABLE mail.commands ADD COLUMN credential_expires_at TIMESTAMPTZ`;
+  await db`ALTER TABLE mail.workflow_runs ADD COLUMN credential_id UUID`;
+  await db`ALTER TABLE mail.workflow_runs ADD COLUMN credential_expires_at TIMESTAMPTZ`;
+  await db`
+    CREATE FUNCTION mail.reject_workflow_version_update()
+    RETURNS trigger AS $$
+    BEGIN
+      RAISE EXCEPTION 'workflow versions are immutable' USING ERRCODE = '55000';
+    END;
+    $$ LANGUAGE plpgsql
+  `;
+  await db`
+    CREATE TRIGGER workflow_versions_reject_update
+    BEFORE UPDATE ON mail.workflow_versions
+    FOR EACH ROW EXECUTE FUNCTION mail.reject_workflow_version_update()
+  `;
+};
+
+const addWorkflowRemotePreconditions = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.workflow_step_runs
+    ADD COLUMN expected_remote_state JSONB,
+    ADD CONSTRAINT workflow_step_runs_expected_remote_state_check CHECK (
+      expected_remote_state IS NULL OR jsonb_typeof(expected_remote_state) = 'object'
+    )
+  `;
+};
+
+const repairWorkflowHardening = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.commands ADD COLUMN IF NOT EXISTS credential_expires_at TIMESTAMPTZ`;
+  await db`ALTER TABLE mail.workflow_runs ADD COLUMN IF NOT EXISTS credential_expires_at TIMESTAMPTZ`;
+  await db`
+    UPDATE mail.commands
+    SET
+      state = 'needs_attention',
+      last_error_code = 'AUTH_PROVENANCE_MISSING',
+      last_error_message = 'Stored service credential provenance is unavailable after upgrade',
+      finished_at = now()
+    WHERE state IN ('queued', 'executing', 'ambiguous')
+      AND (actor_kind = 'service_account' OR initiator_actor_kind = 'service_account')
+      AND credential_id IS NULL
+      AND credential_expires_at IS NULL
+  `;
+  await db`
+    UPDATE mail.workflow_step_runs step
+    SET
+      state = 'failed',
+      last_error_code = 'AUTH_PROVENANCE_MISSING',
+      last_error_message = 'Stored service credential provenance is unavailable after upgrade',
+      provider_lease_token = NULL,
+      provider_lease_expires_at = NULL,
+      finished_at = now()
+    FROM mail.workflow_runs run
+    WHERE step.run_id = run.id
+      AND run.actor_kind = 'service_account'
+      AND run.credential_id IS NULL
+      AND run.credential_expires_at IS NULL
+      AND step.state IN ('queued', 'executing', 'waiting_command')
+  `;
+  await db`
+    UPDATE mail.workflow_run_targets target
+    SET
+      state = 'failed',
+      last_error_code = 'AUTH_PROVENANCE_MISSING',
+      last_error_message = 'Stored service credential provenance is unavailable after upgrade',
+      finished_at = now()
+    FROM mail.workflow_runs run
+    WHERE target.run_id = run.id
+      AND run.actor_kind = 'service_account'
+      AND run.credential_id IS NULL
+      AND run.credential_expires_at IS NULL
+      AND target.state IN ('pending', 'running', 'waiting_command')
+  `;
+  await db`
+    UPDATE mail.workflow_runs
+    SET
+      state = 'needs_attention',
+      completed_targets = target.completed,
+      failed_targets = target.failed,
+      last_error_code = 'AUTH_PROVENANCE_MISSING',
+      last_error_message = 'Stored service credential provenance is unavailable after upgrade',
+      finished_at = now()
+    FROM (
+      SELECT
+        run.id AS run_id,
+        COUNT(target.run_id) FILTER (WHERE target.state = 'succeeded')::int AS completed,
+        COUNT(target.run_id) FILTER (WHERE target.state IN ('failed', 'needs_attention'))::int AS failed
+      FROM mail.workflow_runs run
+      LEFT JOIN mail.workflow_run_targets target ON target.run_id = run.id
+      WHERE run.actor_kind = 'service_account'
+        AND run.credential_id IS NULL
+        AND run.credential_expires_at IS NULL
+        AND run.state IN ('queued', 'running', 'waiting_command')
+      GROUP BY run.id
+    ) target
+    WHERE workflow_runs.id = target.run_id
+  `;
+  await db`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'mail.workflow_runs'::regclass
+          AND conname = 'workflow_runs_actor_idempotency_key'
+      ) THEN
+        ALTER TABLE mail.workflow_runs DROP CONSTRAINT workflow_runs_actor_idempotency_key;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'mail.workflow_runs'::regclass
+          AND conname = 'workflow_runs_mailbox_id_idempotency_key_key'
+      ) THEN
+        ALTER TABLE mail.workflow_runs
+        ADD CONSTRAINT workflow_runs_mailbox_id_idempotency_key_key UNIQUE (mailbox_id, idempotency_key);
+      END IF;
+    END
+    $$
+  `;
+};
+
+const addConversationThreadOverrides = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.conversation_thread_overrides (
+      message_id UUID PRIMARY KEY REFERENCES mail.message_contents(id) ON DELETE CASCADE,
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL CHECK (reason IN ('merge', 'split')),
+      actor_kind TEXT NOT NULL CHECK (actor_kind IN ('user', 'service_account')),
+      actor_id UUID NOT NULL,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await db`
+    CREATE INDEX conversation_thread_overrides_conversation_idx
+    ON mail.conversation_thread_overrides (conversation_id, message_id)
+  `;
+};
+
+const addCollaborationOperations = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.conversation_reminders (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      due_at TIMESTAMPTZ NOT NULL,
+      state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'sent', 'canceled')),
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      sent_at TIMESTAMPTZ,
+      canceled_at TIMESTAMPTZ,
+      UNIQUE (conversation_id, user_id)
+    )
+  `;
+  await db`
+    CREATE INDEX conversation_reminders_due_idx
+    ON mail.conversation_reminders (due_at, id)
+    WHERE state = 'pending'
+  `;
+
+  await db`
+    CREATE TABLE mail.collaboration_notification_deliveries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      kind TEXT NOT NULL CHECK (kind IN ('mention', 'reminder')),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
+      recipient_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      source_id UUID NOT NULL,
+      source_revision BIGINT NOT NULL CHECK (source_revision > 0),
+      state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'sending', 'sent', 'skipped')),
+      available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+      claim_id UUID,
+      claimed_at TIMESTAMPTZ,
+      last_error TEXT CHECK (last_error IS NULL OR char_length(last_error) <= 1000),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      sent_at TIMESTAMPTZ,
+      CONSTRAINT collaboration_notification_claim_check CHECK (
+        (state = 'sending' AND claim_id IS NOT NULL AND claimed_at IS NOT NULL)
+        OR
+        (state <> 'sending' AND claim_id IS NULL AND claimed_at IS NULL)
+      ),
+      UNIQUE (kind, source_id, source_revision, recipient_user_id)
+    )
+  `;
+  await db`
+    CREATE INDEX collaboration_notification_dispatch_idx
+    ON mail.collaboration_notification_deliveries (available_at, created_at, id)
+    WHERE state = 'pending'
+  `;
+  await db`
+    CREATE INDEX collaboration_notification_stale_claim_idx
+    ON mail.collaboration_notification_deliveries (claimed_at, id)
+    WHERE state = 'sending'
+  `;
+
+  await db`
+    CREATE TABLE mail.saved_conversation_views (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      scope TEXT NOT NULL CHECK (scope IN ('private', 'mailbox')),
+      owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 120),
+      filter JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(filter) = 'object'),
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_by_kind TEXT NOT NULL CHECK (created_by_kind IN ('user', 'service_account')),
+      created_by_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT saved_conversation_views_owner_check CHECK (
+        (scope = 'private' AND owner_user_id IS NOT NULL)
+        OR
+        (scope = 'mailbox' AND owner_user_id IS NULL)
+      )
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX saved_conversation_views_private_name_idx
+    ON mail.saved_conversation_views (mailbox_id, owner_user_id, lower(name))
+    WHERE scope = 'private'
+  `;
+  await db`
+    CREATE UNIQUE INDEX saved_conversation_views_mailbox_name_idx
+    ON mail.saved_conversation_views (mailbox_id, lower(name))
+    WHERE scope = 'mailbox'
+  `;
+  await db`
+    CREATE INDEX saved_conversation_views_list_idx
+    ON mail.saved_conversation_views (mailbox_id, scope, owner_user_id, name, id)
+  `;
+
+  for (const table of ["conversation_reminders", "collaboration_notification_deliveries", "saved_conversation_views"]) {
+    await db.unsafe(`
+      CREATE TRIGGER ${table}_touch_updated_at
+      BEFORE UPDATE ON mail.${table}
+      FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+    `);
+  }
+};
+
+const hardenRuntimeHistory = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE INDEX IF NOT EXISTS workflow_runs_mailbox_history_idx
+    ON mail.workflow_runs (mailbox_id, created_at DESC, id DESC)
+  `;
+  await db`
+    ALTER TABLE mail.activity_events
+    DROP CONSTRAINT IF EXISTS activity_events_conversation_id_fkey
+  `;
+};
+
+const addVerifiedSourceIdentityLookup = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE INDEX IF NOT EXISTS message_contents_source_identity_idx
+    ON mail.message_contents (mailbox_id, source_hash, created_at, id)
+    WHERE source_hash IS NOT NULL AND hydration_status = 'complete'
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -1215,6 +1482,13 @@ const migrations = [
   { version: 16, name: "conversation_collaboration", run: addConversationCollaboration },
   { version: 17, name: "workflow_foundation", run: addWorkflowFoundation },
   { version: 18, name: "workflow_runtime_fencing", run: addWorkflowRuntimeFencing },
+  { version: 19, name: "workflow_foundation_hardening", run: hardenWorkflowFoundation },
+  { version: 20, name: "workflow_remote_preconditions", run: addWorkflowRemotePreconditions },
+  { version: 21, name: "workflow_hardening_repair", run: repairWorkflowHardening },
+  { version: 22, name: "conversation_thread_overrides", run: addConversationThreadOverrides },
+  { version: 23, name: "collaboration_operations", run: addCollaborationOperations },
+  { version: 24, name: "runtime_history_hardening", run: hardenRuntimeHistory },
+  { version: 25, name: "verified_source_identity_lookup", run: addVerifiedSourceIdentityLookup },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

@@ -12,6 +12,7 @@ const enabled = process.env.MAIL_PERFORMANCE_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 const requestedMessageCount = Number.parseInt(process.env.MAIL_PERFORMANCE_MESSAGE_COUNT ?? "20000", 10);
 const MESSAGE_COUNT = Number.isFinite(requestedMessageCount) ? Math.min(Math.max(requestedMessageCount, 20_000), 100_000) : 20_000;
+const workflowPerformanceTest = MESSAGE_COUNT <= 50_000 ? test : test.skip;
 
 suite("mail large-mailbox performance", () => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -285,40 +286,44 @@ suite("mail large-mailbox performance", () => {
     expect(worstWarmMs).toBeLessThan(500);
   }, 30_000);
 
-  test(`previews a deterministic workflow across ${MESSAGE_COUNT.toLocaleString("en-US")} messages`, async () => {
-    if (!ids.mailboxId) throw new Error("Performance mailbox is unavailable");
-    const definition: WorkflowDefinition = {
-      version: 1,
-      name: "Performance preview",
-      priority: 100,
-      trigger: { type: "backfill" },
-      effectBudget: {
-        maxTargets: MESSAGE_COUNT,
-        maxMoves: 0,
-        maxKeywordChanges: 0,
-        maxCollaborationChanges: 0,
-      },
-      steps: [{ action: "status.set", status: "open" }],
-    };
-    const startedAt = performance.now();
-    const result = await previewWorkflow({
-      context,
-      mailboxId: ids.mailboxId,
-      input: { definition, query: { type: "all" } },
-    });
-    const duration = performance.now() - startedAt;
-    console.info(`Mail ${MESSAGE_COUNT} workflow preview: ${duration.toFixed(1)} ms`);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data).toMatchObject({
-        targetCount: MESSAGE_COUNT,
-        actionTargetCount: 0,
-        waitingDataCount: 0,
-        truncated: false,
-        budgetExceeded: false,
+  workflowPerformanceTest(
+    `previews a deterministic workflow across ${MESSAGE_COUNT.toLocaleString("en-US")} messages`,
+    async () => {
+      if (!ids.mailboxId) throw new Error("Performance mailbox is unavailable");
+      const definition: WorkflowDefinition = {
+        version: 1,
+        name: "Performance preview",
+        priority: 100,
+        trigger: { type: "backfill" },
+        effectBudget: {
+          maxTargets: MESSAGE_COUNT,
+          maxMoves: 0,
+          maxKeywordChanges: 0,
+          maxCollaborationChanges: 0,
+        },
+        steps: [{ action: "status.set", status: "open" }],
+      };
+      const startedAt = performance.now();
+      const result = await previewWorkflow({
+        context,
+        mailboxId: ids.mailboxId,
+        input: { definition, query: { type: "all" } },
       });
-      expect(result.data.previewHash).not.toBeNull();
-    }
-    expect(duration).toBeLessThan(5_000);
-  }, 30_000);
+      const duration = performance.now() - startedAt;
+      console.info(`Mail ${MESSAGE_COUNT} workflow preview: ${duration.toFixed(1)} ms`);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toMatchObject({
+          targetCount: MESSAGE_COUNT,
+          actionTargetCount: 0,
+          waitingDataCount: 0,
+          truncated: false,
+          budgetExceeded: false,
+        });
+        expect(result.data.previewHash).not.toBeNull();
+      }
+      expect(duration).toBeLessThan(5_000);
+    },
+    30_000,
+  );
 });

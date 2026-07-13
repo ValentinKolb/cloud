@@ -78,8 +78,17 @@ describe("mail workflow validation", () => {
 describe("mail workflow evaluation", () => {
   test("normalizes IMAP system flags and binds source hashes to message identity", () => {
     expect(normalizeWorkflowFlags(["\\Seen", "\\Answered"])).toEqual(["answered", "seen"]);
-    expect(workflowSourceStateHash(snapshot(), "1")).not.toBe(
-      workflowSourceStateHash(snapshot({ conversationId: "00000000-0000-4000-8000-000000000099" }), "1"),
+    expect(workflowSourceStateHash(snapshot(), new Set())).not.toBe(
+      workflowSourceStateHash(snapshot({ conversationId: "00000000-0000-4000-8000-000000000099" }), new Set()),
+    );
+    expect(workflowSourceStateHash(snapshot(), new Set(["subject"]))).toBe(
+      workflowSourceStateHash(snapshot({ body: "Changed later" }), new Set(["subject"])),
+    );
+    expect(workflowSourceStateHash(snapshot(), new Set(["subject"]))).not.toBe(
+      workflowSourceStateHash(snapshot({ subject: "Changed later" }), new Set(["subject"])),
+    );
+    expect(workflowSourceStateHash(snapshot(), new Set(["body"]))).not.toBe(
+      workflowSourceStateHash(snapshot({ bodyAvailable: false }), new Set(["body"])),
     );
   });
 

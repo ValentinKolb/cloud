@@ -7,7 +7,7 @@ export type MailCollaborationEvent = {
   type: "conversation.changed";
   mailboxId: string;
   conversationId: string;
-  reason: "collaboration" | "watcher" | "comment" | "inbound";
+  reason: "collaboration" | "watcher" | "comment" | "inbound" | "threading" | "reminder";
   targetId: string | null;
   activityId: string;
   at: string;

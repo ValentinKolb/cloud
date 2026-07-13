@@ -1,4 +1,4 @@
-import { type AccessUser, listUsersWithAccess, type PermissionLevel } from "@valentinkolb/cloud/server";
+import type { AccessUser, PermissionLevel } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type {
@@ -10,7 +10,10 @@ import type {
 } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
-import { publishMailCollaborationEvent, type MailCollaborationEvent } from "./events";
+import { listCurrentMailboxUsers } from "./collaborators";
+import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
+import { resolveMailExecution } from "./execution";
+import { enqueueCollaborationNotifications } from "./notification-outbox";
 
 type SqlClient = typeof sql;
 type CommentActorKind = "user" | "service_account";
@@ -188,22 +191,12 @@ const actorIdentity = (context: MailRequestContext): { kind: CommentActorKind; i
   throw new Error("Request actor cannot author Mail collaboration changes");
 };
 
-const activityActorIdentity = (
-  context: MailRequestContext,
-  actorOverride?: ActorRef,
-): { kind: ActorRef["kind"]; id: string | null } => {
+const activityActorIdentity = (context: MailRequestContext, actorOverride?: ActorRef): { kind: ActorRef["kind"]; id: string | null } => {
   const actor = actorOverride ?? actorRefFromRequest(context);
   if (actor.kind === "user") return { kind: actor.kind, id: actor.userId };
   if (actor.kind === "service_account") return { kind: actor.kind, id: actor.serviceAccountId };
   if (actor.kind === "workflow") return { kind: actor.kind, id: actor.workflowVersionId };
   return { kind: actor.kind, id: null };
-};
-
-const listMailboxAccessIds = async (mailboxId: string, db: SqlClient = sql): Promise<string[]> => {
-  const rows = await db<{ access_id: string }[]>`
-    SELECT access_id FROM mail.mailbox_access WHERE mailbox_id = ${mailboxId}::uuid
-  `;
-  return rows.map((row) => row.access_id);
 };
 
 const collaboratorFromAccessUser = (user: AccessUser): MailCollaborator => ({
@@ -216,23 +209,18 @@ const collaboratorFromAccessUser = (user: AccessUser): MailCollaborator => ({
 const accessUserDescription = (user: AccessUser): string =>
   user.source.type === "direct" ? `${user.uid} · direct access` : `${user.uid} · via ${user.source.groupName}`;
 
-const listCurrentUsers = async (params: {
-  mailboxId: string;
-  db?: SqlClient;
-  userIds?: string[];
-  minimumPermission?: "read" | "write" | "admin";
-  search?: string;
-  limit?: number;
-}): Promise<AccessUser[]> => {
-  const accessIds = await listMailboxAccessIds(params.mailboxId, params.db);
-  return listUsersWithAccess({
-    accessIds,
-    userIds: params.userIds,
-    minimumPermission: params.minimumPermission,
-    search: params.search,
-    limit: params.limit,
-    db: params.db,
-  });
+export const listCurrentUsers = listCurrentMailboxUsers;
+
+export const requireMailboxCollaborationPermission = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  permission: "read" | "write",
+  db: SqlClient = sql,
+): Promise<Result<PermissionLevel>> => {
+  const allowed = await requireMailboxPermission(context, mailboxId, permission, db);
+  if (!allowed.ok) return allowed;
+  const execution = await resolveMailExecution({ mailboxId, operation: "actorRead", context, db });
+  return execution.ok ? allowed : execution;
 };
 
 const validateCurrentUsers = async (params: {
@@ -257,7 +245,7 @@ const validateCurrentUsers = async (params: {
     : fail(err.badInput(`${params.label} must have current ${params.minimumPermission} access to this mailbox`));
 };
 
-const lockMailboxForCollaboration = async (
+export const lockMailboxForCollaboration = async (
   context: MailRequestContext,
   mailboxId: string,
   permission: "read" | "write",
@@ -269,7 +257,7 @@ const lockMailboxForCollaboration = async (
     FOR SHARE
   `;
   if (!mailbox) return fail(err.notFound("Mailbox"));
-  return requireMailboxPermission(context, mailboxId, permission, db);
+  return requireMailboxCollaborationPermission(context, mailboxId, permission, db);
 };
 
 const loadCollaboration = async (
@@ -327,7 +315,7 @@ const loadCollaboration = async (
   };
 };
 
-const insertActivity = async (params: {
+export const insertActivity = async (params: {
   db: SqlClient;
   mailboxId: string;
   conversationId: string;
@@ -372,7 +360,7 @@ const listEligibleUsers = async (params: {
   limit?: number;
   minimumPermission: "read" | "write";
 }): Promise<Result<MailAssignableUser[]>> => {
-  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
+  const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
   const users = await listCurrentUsers({
     mailboxId: params.mailboxId,
@@ -408,7 +396,7 @@ export const getConversationCollaboration = async (params: {
   mailboxId: string;
   conversationId: string;
 }): Promise<Result<ConversationCollaboration>> => {
-  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
+  const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
   const state = await loadCollaboration(params.mailboxId, params.conversationId);
   return state ? ok(state) : fail(err.notFound("Conversation"));
@@ -421,6 +409,7 @@ export const updateConversationCollaborationInTransaction = async (params: {
   input: UpdateConversationCollaboration;
   db: SqlClient;
   actorOverride?: ActorRef;
+  activityMetadata?: Record<string, unknown>;
 }): Promise<Result<CollaborationMutation<ConversationCollaboration>>> => {
   const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "write", params.db);
   if (!allowed.ok) return allowed;
@@ -505,6 +494,7 @@ export const updateConversationCollaborationInTransaction = async (params: {
     targetType: "conversation",
     targetId: params.conversationId,
     metadata: {
+      ...params.activityMetadata,
       before: {
         assigneeUserId: current.assignee_user_id,
         workStatus: current.work_status,
@@ -639,7 +629,7 @@ const commentColumns = sql`
   comment.parent_comment_id,
   comment.referenced_message_id,
   ARRAY(
-    SELECT mention.user_id
+    SELECT mention.user_id::text
     FROM mail.conversation_comment_mentions mention
     WHERE mention.comment_id = comment.id AND mention.revision = comment.revision
     ORDER BY mention.user_id
@@ -746,11 +736,22 @@ const lockCommentForMutation = async (params: {
     FOR UPDATE OF comment
   `;
   if (!comment) return fail(err.notFound("Comment"));
-  if (comment.deleted_at) return fail(err.badInput(params.action === "edit" ? "Deleted comments cannot be edited" : "Comment is already deleted"));
+  if (comment.deleted_at)
+    return fail(err.badInput(params.action === "edit" ? "Deleted comments cannot be edited" : "Comment is already deleted"));
   if (Number(comment.revision) !== params.expectedRevision) return fail(err.conflict("Comment was changed by another collaborator"));
   const owner = comment.author_kind === params.actor.kind && comment.author_id === params.actor.id;
   if (!owner && params.permission !== "admin") {
     return fail(err.forbidden(`Only the comment author or a mailbox admin can ${params.action} this comment`));
+  }
+  const deliveries = await params.db<{ state: string }[]>`
+    SELECT state
+    FROM mail.collaboration_notification_deliveries
+    WHERE kind = 'mention' AND source_id = ${params.commentId}::uuid
+    ORDER BY id
+    FOR UPDATE
+  `;
+  if (deliveries.some((delivery) => delivery.state === "sending")) {
+    return fail(err.conflict("Comment notifications are currently being delivered; retry shortly"));
   }
   return ok(comment);
 };
@@ -762,7 +763,7 @@ export const listConversationComments = async (params: {
   cursor?: string;
   limit?: number;
 }): Promise<Result<{ items: ConversationComment[]; nextCursor: string | null }>> => {
-  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
+  const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
   const cursor = decodeDateCursor(params.cursor);
   if (!cursor.ok) return cursor;
@@ -848,6 +849,15 @@ export const createConversationComment = async (params: {
         commentId: comment.id,
         revision: 1,
         userIds: params.input.mentionUserIds,
+      });
+      await enqueueCollaborationNotifications({
+        db: tx,
+        kind: "mention",
+        mailboxId: params.mailboxId,
+        conversationId: params.conversationId,
+        recipientUserIds: params.input.mentionUserIds.filter((userId) => actor.kind !== "user" || userId !== actor.id),
+        sourceId: comment.id,
+        sourceRevision: 1,
       });
       await tx`UPDATE mail.conversations SET updated_at = now() WHERE id = ${params.conversationId}::uuid`;
       const value = await loadComment({
@@ -953,6 +963,23 @@ export const updateConversationComment = async (params: {
         commentId: params.commentId,
         revision,
         userIds: nextMentionIds,
+      });
+      await tx`
+        UPDATE mail.collaboration_notification_deliveries
+        SET state = 'skipped', last_error = 'Mention revision was superseded before delivery'
+        WHERE kind = 'mention'
+          AND source_id = ${params.commentId}::uuid
+          AND source_revision < ${revision}
+          AND state = 'pending'
+      `;
+      await enqueueCollaborationNotifications({
+        db: tx,
+        kind: "mention",
+        mailboxId: params.mailboxId,
+        conversationId: params.conversationId,
+        recipientUserIds: nextMentionIds.filter((userId) => actor.kind !== "user" || userId !== actor.id),
+        sourceId: params.commentId,
+        sourceRevision: revision,
       });
       await tx`UPDATE mail.conversations SET updated_at = now() WHERE id = ${params.conversationId}::uuid`;
       const value = await loadComment({
@@ -1065,7 +1092,7 @@ export const listActivity = async (params: {
   cursor?: string;
   limit?: number;
 }): Promise<Result<{ items: MailActivityEvent[]; nextCursor: string | null }>> => {
-  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
+  const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
   const cursor = decodeActivityCursor(params.cursor);
   if (!cursor.ok) return cursor;

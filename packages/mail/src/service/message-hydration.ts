@@ -4,6 +4,7 @@ import { pipeline } from "node:stream/promises";
 import { sql } from "bun";
 import { type AttachmentStream, type Headers, MailParser, type MessageText } from "mailparser";
 import sanitizeHtml from "sanitize-html";
+import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
 import { type StoredBlob, storeReadableBlob } from "./message-blobs";
 import { splitSearchText } from "./search-chunks";
 
@@ -22,6 +23,28 @@ type HydratedPart = {
 type ClaimedMessage = {
   id: string;
   mime_structure: Record<string, unknown> | string;
+};
+
+type MessageIdentityProjection = {
+  id: string;
+  conversation_id: string | null;
+  override_conversation_id: string | null;
+};
+
+type VerifiedConversationProjection = {
+  conversation_id: string;
+  mailbox_id: string;
+  work_status: "open" | "waiting" | "done";
+  response_needed: boolean;
+  snoozed_until: Date | string | null;
+  outbound: boolean;
+  is_latest_verified: boolean;
+  message_count: number;
+};
+
+type VerifiedDuplicateResult = {
+  canonicalMessageId: string | null;
+  duplicateFound: boolean;
 };
 
 const incomingAllowedTags = [
@@ -151,12 +174,276 @@ const claimMessage = async (messageId: string, claimId: string): Promise<Claimed
   return current.hydration_status === "complete" ? "complete" : null;
 };
 
+const mergeVerifiedDuplicate = async (params: {
+  db: typeof sql;
+  messageId: string;
+  sourceHash: string;
+}): Promise<VerifiedDuplicateResult> => {
+  await params.db`
+    SELECT pg_advisory_xact_lock(hashtextextended(message.mailbox_id::text || ':' || ${params.sourceHash}, 0))
+    FROM mail.message_contents message
+    WHERE message.id = ${params.messageId}::uuid
+  `;
+  const canonicalIdentities = await params.db<{ id: string }[]>`
+    SELECT candidate.id
+    FROM mail.message_contents current_message
+    JOIN mail.message_contents candidate
+      ON candidate.mailbox_id = current_message.mailbox_id
+     AND candidate.id <> current_message.id
+     AND candidate.source_hash = ${params.sourceHash}
+     AND candidate.hydration_status = 'complete'
+    WHERE current_message.id = ${params.messageId}::uuid
+    ORDER BY EXISTS (
+      SELECT 1 FROM mail.conversation_thread_overrides thread_override WHERE thread_override.message_id = candidate.id
+    ) DESC, candidate.created_at, candidate.id
+    FOR UPDATE OF candidate
+  `;
+  if (canonicalIdentities.length === 0) return { canonicalMessageId: null, duplicateFound: false };
+  const identityIds = [params.messageId, ...canonicalIdentities.map((candidate) => candidate.id)].sort();
+  await params.db`
+    SELECT message_id
+    FROM mail.conversation_messages
+    WHERE message_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${identityIds}::jsonb))
+    ORDER BY message_id
+    FOR UPDATE
+  `;
+  await params.db`
+    SELECT message_id
+    FROM mail.conversation_thread_overrides
+    WHERE message_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${identityIds}::jsonb))
+    ORDER BY message_id
+    FOR UPDATE
+  `;
+  const projections = await params.db<MessageIdentityProjection[]>`
+    SELECT
+      message.id,
+      link.conversation_id,
+      thread_override.conversation_id AS override_conversation_id
+    FROM mail.message_contents message
+    LEFT JOIN mail.conversation_messages link ON link.message_id = message.id
+    LEFT JOIN mail.conversation_thread_overrides thread_override ON thread_override.message_id = message.id
+    WHERE message.id IN (SELECT value::uuid FROM jsonb_array_elements_text(${identityIds}::jsonb))
+  `;
+  const current = projections.find((projection) => projection.id === params.messageId);
+  if (!current) return { canonicalMessageId: null, duplicateFound: true };
+
+  const currentConversationId = current.override_conversation_id ?? current.conversation_id;
+  const canonical = canonicalIdentities
+    .map((candidate) => projections.find((projection) => projection.id === candidate.id))
+    .find((candidate) => {
+      if (!candidate) return false;
+      const candidateConversationId = candidate.override_conversation_id ?? candidate.conversation_id;
+      return !currentConversationId || !candidateConversationId || currentConversationId === candidateConversationId;
+    });
+  if (!canonical) return { canonicalMessageId: null, duplicateFound: true };
+
+  if (current.override_conversation_id && !canonical.override_conversation_id) {
+    await params.db`
+      INSERT INTO mail.conversation_thread_overrides (
+        message_id, mailbox_id, conversation_id, reason, actor_kind, actor_id, revision, created_at, updated_at
+      )
+      SELECT
+        ${canonical.id}::uuid,
+        mailbox_id,
+        conversation_id,
+        reason,
+        actor_kind,
+        actor_id,
+        revision,
+        created_at,
+        updated_at
+      FROM mail.conversation_thread_overrides
+      WHERE message_id = ${params.messageId}::uuid
+      ON CONFLICT (message_id) DO NOTHING
+    `;
+  }
+  if (current.conversation_id && !canonical.conversation_id) {
+    await params.db`
+      INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by, created_at)
+      SELECT conversation_id, ${canonical.id}::uuid, position, added_by, created_at
+      FROM mail.conversation_messages
+      WHERE message_id = ${params.messageId}::uuid
+      ON CONFLICT DO NOTHING
+    `;
+  }
+  await params.db`
+    UPDATE mail.conversation_comments
+    SET referenced_message_id = ${canonical.id}::uuid
+    WHERE referenced_message_id = ${params.messageId}::uuid
+  `;
+  await params.db`
+    UPDATE mail.message_placements
+    SET message_id = ${canonical.id}::uuid, updated_at = now()
+    WHERE message_id = ${params.messageId}::uuid
+  `;
+  await params.db`
+    UPDATE mail.remote_message_refs
+    SET message_id = ${canonical.id}::uuid
+    WHERE message_id = ${params.messageId}::uuid
+  `;
+  await params.db`DELETE FROM mail.message_contents WHERE id = ${params.messageId}::uuid`;
+  return { canonicalMessageId: canonical.id, duplicateFound: true };
+};
+
+const applyVerifiedConversationTransition = async (params: {
+  db: typeof sql;
+  messageId: string;
+}): Promise<Omit<MailCollaborationEvent, "type" | "at"> | null> => {
+  const [lockedConversation] = await params.db<{ id: string }[]>`
+    SELECT conversation.id
+    FROM mail.message_contents message
+    JOIN mail.conversation_messages link ON link.message_id = message.id
+    JOIN mail.conversations conversation ON conversation.id = link.conversation_id
+    WHERE message.id = ${params.messageId}::uuid
+    FOR UPDATE OF conversation
+  `;
+  if (!lockedConversation) return null;
+
+  const [projection] = await params.db<VerifiedConversationProjection[]>`
+    SELECT
+      conversation.id AS conversation_id,
+      conversation.mailbox_id,
+      conversation.work_status,
+      conversation.response_needed,
+      conversation.snoozed_until,
+      EXISTS (
+        SELECT 1
+        FROM mail.message_addresses sender
+        JOIN mail.sender_identities identity
+          ON identity.mailbox_id = conversation.mailbox_id
+         AND identity.status <> 'disabled'
+         AND lower(identity.from_address) = sender.normalized_email
+        WHERE sender.message_id = message.id AND sender.role = 'from'
+      ) AS outbound,
+      NOT EXISTS (
+        SELECT 1
+        FROM mail.conversation_messages newer_link
+        JOIN mail.message_contents newer_message ON newer_message.id = newer_link.message_id
+        WHERE newer_link.conversation_id = conversation.id
+          AND newer_message.hydration_status = 'complete'
+          AND (newer_message.internal_date, newer_message.id) > (message.internal_date, message.id)
+      ) AS is_latest_verified,
+      (
+        SELECT COUNT(*)::int
+        FROM mail.conversation_messages conversation_link
+        WHERE conversation_link.conversation_id = conversation.id
+      ) AS message_count
+    FROM mail.message_contents message
+    JOIN mail.conversation_messages link ON link.message_id = message.id
+    JOIN mail.conversations conversation ON conversation.id = link.conversation_id
+    WHERE message.id = ${params.messageId}::uuid
+  `;
+  if (!projection) return null;
+
+  const nextWorkStatus = projection.is_latest_verified && !projection.outbound ? "open" : projection.work_status;
+  const nextResponseNeeded = projection.is_latest_verified ? !projection.outbound : projection.response_needed;
+  const nextSnoozedUntil = projection.is_latest_verified && !projection.outbound ? null : projection.snoozed_until;
+  const changed =
+    projection.work_status !== nextWorkStatus ||
+    projection.response_needed !== nextResponseNeeded ||
+    (projection.snoozed_until ? new Date(projection.snoozed_until).toISOString() : null) !==
+      (nextSnoozedUntil ? new Date(nextSnoozedUntil).toISOString() : null);
+  await params.db`
+    WITH classified AS (
+      SELECT
+        message.id AS message_id,
+        message.subject,
+        message.internal_date,
+        EXISTS (
+          SELECT 1
+          FROM mail.message_addresses sender
+          JOIN mail.sender_identities identity
+            ON identity.mailbox_id = conversation.mailbox_id
+           AND identity.status <> 'disabled'
+           AND lower(identity.from_address) = sender.normalized_email
+          WHERE sender.message_id = message.id AND sender.role = 'from'
+        ) AS outbound
+      FROM mail.conversations conversation
+      JOIN mail.conversation_messages link ON link.conversation_id = conversation.id
+      JOIN mail.message_contents message ON message.id = link.message_id
+      WHERE conversation.id = ${projection.conversation_id}::uuid
+        AND message.hydration_status = 'complete'
+    ),
+    timeline AS (
+      SELECT
+        MAX(internal_date) AS latest_message_at,
+        MAX(internal_date) FILTER (WHERE NOT outbound) AS latest_inbound_at,
+        MAX(internal_date) FILTER (WHERE outbound) AS latest_outbound_at
+      FROM classified
+    ),
+    latest AS (
+      SELECT message_id, subject
+      FROM classified
+      ORDER BY internal_date DESC, message_id DESC
+      LIMIT 1
+    ),
+    participant_labels AS (
+      SELECT DISTINCT ON (address.normalized_email)
+        address.normalized_email,
+        COALESCE(NULLIF(address.display_name, ''), address.email) AS label
+      FROM mail.message_addresses address
+      JOIN latest ON latest.message_id = address.message_id
+      ORDER BY address.normalized_email, address.position
+    ),
+    participants AS (
+      SELECT COALESCE(string_agg(label, ', ' ORDER BY label), '') AS summary
+      FROM participant_labels
+    )
+    UPDATE mail.conversations conversation
+    SET
+      subject = latest.subject,
+      participant_summary = participants.summary,
+      latest_message_at = timeline.latest_message_at,
+      latest_inbound_at = timeline.latest_inbound_at,
+      latest_outbound_at = timeline.latest_outbound_at,
+      work_status = ${nextWorkStatus},
+      response_needed = ${nextResponseNeeded},
+      snoozed_until = ${nextSnoozedUntil},
+      revision = conversation.revision + CASE WHEN ${projection.message_count > 1 || changed} THEN 1 ELSE 0 END
+    FROM timeline, latest, participants
+    WHERE conversation.id = ${projection.conversation_id}::uuid
+  `;
+  if (!changed || projection.outbound || !projection.is_latest_verified) return null;
+
+  const [activity] = await params.db<{ id: string | number }[]>`
+    INSERT INTO mail.activity_events (
+      mailbox_id, conversation_id, actor_kind, action, outcome, target_type, target_id, metadata
+    ) VALUES (
+      ${projection.mailbox_id}::uuid,
+      ${projection.conversation_id}::uuid,
+      'system',
+      'conversation.reopened',
+      'reconciled',
+      'conversation',
+      ${projection.conversation_id}::uuid,
+      ${{
+        messageId: params.messageId,
+        before: {
+          workStatus: projection.work_status,
+          responseNeeded: projection.response_needed,
+          snoozedUntil: projection.snoozed_until ? new Date(projection.snoozed_until).toISOString() : null,
+        },
+        after: { workStatus: "open", responseNeeded: true, snoozedUntil: null },
+      }}::jsonb
+    )
+    RETURNING id
+  `;
+  if (!activity) throw new Error("Conversation reopen activity insert returned no row");
+  return {
+    mailboxId: projection.mailbox_id,
+    conversationId: projection.conversation_id,
+    reason: "inbound",
+    targetId: params.messageId,
+    activityId: String(activity.id),
+  };
+};
+
 export const hydrateMessageFromSource = async (params: {
   messageId: string;
   source: Readable;
   expectedSize?: number | null;
   claimId?: string;
-}): Promise<{ status: "hydrated" | "already_complete"; sourceHash?: string }> => {
+}): Promise<{ status: "hydrated" | "already_complete" | "deduplicated"; sourceHash?: string; canonicalMessageId?: string }> => {
   const claimId = params.claimId ?? randomUUID();
   const claimed = await claimMessage(params.messageId, claimId);
   if (claimed === "complete") {
@@ -264,6 +551,8 @@ export const hydrateMessageFromSource = async (params: {
 
     const sourceHash = sourceHasher.digest("hex");
     const sanitizedHtml = originalHtml ? sanitizeIncomingMailHtml(originalHtml) : null;
+    let canonicalMessageId: string | null = null;
+    let collaborationEvent: Omit<MailCollaborationEvent, "type" | "at"> | null = null;
     await sql.begin(async (tx) => {
       const [current] = await tx<{ id: string }[]>`
         SELECT id
@@ -274,6 +563,9 @@ export const hydrateMessageFromSource = async (params: {
         FOR UPDATE
       `;
       if (!current) throw Object.assign(new Error("Message hydration claim was lost"), { code: "HYDRATION_CLAIM_LOST" });
+      const duplicate = await mergeVerifiedDuplicate({ db: tx, messageId: params.messageId, sourceHash });
+      canonicalMessageId = duplicate.canonicalMessageId;
+      if (canonicalMessageId) return;
       await tx`DELETE FROM mail.message_parts WHERE message_id = ${params.messageId}::uuid`;
       await tx`DELETE FROM mail.message_search_chunks WHERE message_id = ${params.messageId}::uuid`;
       for (const part of parts) {
@@ -359,7 +651,12 @@ export const hydrateMessageFromSource = async (params: {
           hydrated_at = now()
         WHERE id = ${params.messageId}::uuid AND hydration_claim_id = ${claimId}::uuid
       `;
+      if (!duplicate.duplicateFound) {
+        collaborationEvent = await applyVerifiedConversationTransition({ db: tx, messageId: params.messageId });
+      }
     });
+    if (canonicalMessageId) return { status: "deduplicated", sourceHash, canonicalMessageId };
+    if (collaborationEvent) await publishMailCollaborationEvent(collaborationEvent);
     return { status: "hydrated", sourceHash };
   } catch (error) {
     params.source.destroy();
