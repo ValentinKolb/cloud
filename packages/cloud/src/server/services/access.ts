@@ -317,6 +317,7 @@ export const listUsersWithAccess = async (params: {
   excludeUserIds?: string[];
   minimumPermission?: Exclude<PermissionLevel, "none">;
   limit?: number;
+  db?: AccessDb;
 }): Promise<AccessUser[]> => {
   const accessIds = uniqueIds(params.accessIds);
   if (accessIds.length === 0) return [];
@@ -328,9 +329,10 @@ export const listUsersWithAccess = async (params: {
   const minimumRank = PERMISSION_RANK[params.minimumPermission ?? "read"];
   const defaultLimit = requestedUserIds.length > 0 ? requestedUserIds.length : 20;
   const limit = Math.min(Math.max(params.limit ?? defaultLimit, 1), 500);
-  const userFilter = requestedUserIds.length > 0 ? sql`AND id = ANY(${toPgUuidArray(requestedUserIds)}::uuid[])` : sql``;
+  const db = params.db ?? sql;
+  const userFilter = requestedUserIds.length > 0 ? db`AND id = ANY(${toPgUuidArray(requestedUserIds)}::uuid[])` : db``;
 
-  const rows = await sql<DbAccessUser[]>`
+  const rows = await db<DbAccessUser[]>`
     WITH RECURSIVE
       root_groups(root_group_id, root_group_name, group_id, group_ids, permission, permission_rank) AS (
         SELECT

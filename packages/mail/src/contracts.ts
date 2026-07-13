@@ -416,6 +416,62 @@ export const actorRefSchema = z.discriminatedUnion("kind", [
 ]);
 export type ActorRef = z.infer<typeof actorRefSchema>;
 
+export const conversationWorkStatusSchema = z.enum(["open", "waiting", "done"]);
+export type ConversationWorkStatus = z.infer<typeof conversationWorkStatusSchema>;
+
+export const conversationViewSchema = z.enum(["inbox", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"]);
+export type ConversationView = z.infer<typeof conversationViewSchema>;
+
+export const updateConversationCollaborationSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    assigneeUserId: z.string().uuid().nullable().optional(),
+    workStatus: conversationWorkStatusSchema.optional(),
+    responseNeeded: z.boolean().optional(),
+    snoozedUntil: z.string().datetime().nullable().optional(),
+  })
+  .refine(
+    (value) =>
+      value.assigneeUserId !== undefined ||
+      value.workStatus !== undefined ||
+      value.responseNeeded !== undefined ||
+      value.snoozedUntil !== undefined,
+    "At least one collaboration field is required",
+  );
+export type UpdateConversationCollaboration = z.infer<typeof updateConversationCollaborationSchema>;
+
+const mentionUserIdsSchema = z
+  .array(z.string().uuid())
+  .max(50)
+  .default([])
+  .refine((ids) => new Set(ids).size === ids.length, "Mentioned users must be unique");
+
+const internalCommentBodySchema = z
+  .string()
+  .min(1)
+  .max(50_000)
+  .refine((body) => body.trim().length > 0, "Comment cannot be blank");
+
+export const createConversationCommentSchema = z.object({
+  body: internalCommentBodySchema,
+  parentCommentId: z.string().uuid().nullable().optional(),
+  referencedMessageId: z.string().uuid().nullable().optional(),
+  mentionUserIds: mentionUserIdsSchema,
+});
+export type CreateConversationComment = z.infer<typeof createConversationCommentSchema>;
+
+export const updateConversationCommentSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+  body: internalCommentBodySchema,
+  mentionUserIds: mentionUserIdsSchema,
+});
+export type UpdateConversationComment = z.infer<typeof updateConversationCommentSchema>;
+
+export const deleteConversationCommentSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+});
+export type DeleteConversationComment = z.infer<typeof deleteConversationCommentSchema>;
+
 export const senderAuthenticationPolicySchema = z.object({
   interactive: z.enum(["mailbox", "actor"]),
   automation: z.enum(["disabled", "mailbox", "pool"]),

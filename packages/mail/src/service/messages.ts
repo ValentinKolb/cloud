@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { MailRequestContext } from "./auth";
+import type { ConversationView, ConversationWorkStatus } from "../contracts";
+import { type MailRequestContext, userBackedActor } from "./auth";
 import { resolveMailExecution } from "./execution";
 
 type DateCursor = { version: 1; date: string; id: string };
@@ -136,6 +137,9 @@ export type ConversationSummary = {
   workStatus: "open" | "waiting" | "done";
   assigneeUserId: string | null;
   responseNeeded: boolean;
+  snoozedUntil: string | null;
+  revision: number;
+  updatedAt: string;
   unread: boolean;
   messageCount: number;
   preview: string | null;
@@ -149,6 +153,10 @@ type DbConversation = {
   work_status: ConversationSummary["workStatus"];
   assignee_user_id: string | null;
   response_needed: boolean;
+  snoozed_until: Date | string | null;
+  revision: string | number;
+  updated_at: Date | string;
+  sort_date: Date | string;
   unread: boolean;
   message_count: number;
   preview: string | null;
@@ -158,7 +166,8 @@ export const listConversations = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   folderId?: string | null;
-  status?: ConversationSummary["workStatus"] | null;
+  status?: ConversationWorkStatus | null;
+  view?: ConversationView | null;
   cursor?: string;
   limit?: number;
 }): Promise<Result<{ items: ConversationSummary[]; nextCursor: string | null }>> => {
@@ -167,6 +176,8 @@ export const listConversations = async (params: {
   const cursor = decodeCursor(params.cursor);
   if (!cursor.ok) return cursor;
   const limit = Math.min(Math.max(Math.floor(params.limit ?? 50), 1), 100);
+  const currentUserId = userBackedActor(params.context)?.id ?? null;
+  const view = params.view ?? null;
   const rows = await sql<DbConversation[]>`
     SELECT
       c.id,
@@ -176,6 +187,10 @@ export const listConversations = async (params: {
       c.work_status,
       c.assignee_user_id,
       c.response_needed,
+      c.snoozed_until,
+      c.revision,
+      c.updated_at,
+      CASE WHEN ${view}::text = 'recently_active' THEN c.updated_at ELSE c.latest_message_at END AS sort_date,
       EXISTS (
         SELECT 1
         FROM mail.conversation_messages unread_cm
@@ -200,6 +215,26 @@ export const listConversations = async (params: {
     WHERE c.mailbox_id = ${params.mailboxId}::uuid
       AND (${params.status ?? null}::text IS NULL OR c.work_status = ${params.status ?? null})
       AND (
+        ${view}::text IS NULL
+        OR (${view} = 'inbox' AND c.work_status = 'open' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now()))
+        OR (
+          ${view} = 'mine'
+          AND c.assignee_user_id = ${currentUserId}::uuid
+          AND c.work_status <> 'done'
+          AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())
+        )
+        OR (
+          ${view} = 'unassigned'
+          AND c.assignee_user_id IS NULL
+          AND c.work_status <> 'done'
+          AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())
+        )
+        OR (${view} = 'waiting' AND c.work_status = 'waiting' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now()))
+        OR (${view} = 'done' AND c.work_status = 'done')
+        OR (${view} = 'snoozed' AND c.snoozed_until > now())
+        OR ${view} = 'recently_active'
+      )
+      AND (
         ${params.folderId ?? null}::uuid IS NULL
         OR EXISTS (
           SELECT 1
@@ -218,9 +253,12 @@ export const listConversations = async (params: {
       )
       AND (
         ${cursor.data?.id ?? null}::uuid IS NULL
-        OR (c.latest_message_at, c.id) < (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid)
+        OR (
+          CASE WHEN ${view}::text = 'recently_active' THEN c.updated_at ELSE c.latest_message_at END,
+          c.id
+        ) < (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid)
       )
-    ORDER BY c.latest_message_at DESC, c.id DESC
+    ORDER BY sort_date DESC, c.id DESC
     LIMIT ${limit + 1}
   `;
   const hasMore = rows.length > limit;
@@ -233,14 +271,78 @@ export const listConversations = async (params: {
     workStatus: row.work_status,
     assigneeUserId: row.assignee_user_id,
     responseNeeded: row.response_needed,
+    snoozedUntil: row.snoozed_until ? toIso(row.snoozed_until) : null,
+    revision: Number(row.revision),
+    updatedAt: toIso(row.updated_at),
     unread: row.unread,
     messageCount: row.message_count,
     preview: row.preview || null,
   }));
   const last = items.at(-1);
+  const lastRow = pageRows.at(-1);
   return ok({
     items,
-    nextCursor: hasMore && last ? encodeCursor({ version: 1, date: last.latestMessageAt, id: last.id }) : null,
+    nextCursor: hasMore && last && lastRow ? encodeCursor({ version: 1, date: toIso(lastRow.sort_date), id: last.id }) : null,
+  });
+};
+
+export type ConversationViewCounts = Record<ConversationView, number>;
+
+export const getConversationViewCounts = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+}): Promise<Result<ConversationViewCounts>> => {
+  const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
+  if (!access.ok) return access;
+  const currentUserId = userBackedActor(params.context)?.id ?? null;
+  const [row] = await sql<
+    {
+      inbox: number;
+      mine: number;
+      unassigned: number;
+      waiting: number;
+      done: number;
+      snoozed: number;
+      recently_active: number;
+    }[]
+  >`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE c.work_status = 'open' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())
+      )::int AS inbox,
+      COUNT(*) FILTER (
+        WHERE c.assignee_user_id = ${currentUserId}::uuid
+          AND c.work_status <> 'done'
+          AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())
+      )::int AS mine,
+      COUNT(*) FILTER (
+        WHERE c.assignee_user_id IS NULL
+          AND c.work_status <> 'done'
+          AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())
+      )::int AS unassigned,
+      COUNT(*) FILTER (
+        WHERE c.work_status = 'waiting' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())
+      )::int AS waiting,
+      COUNT(*) FILTER (WHERE c.work_status = 'done')::int AS done,
+      COUNT(*) FILTER (WHERE c.snoozed_until > now())::int AS snoozed,
+      COUNT(*)::int AS recently_active
+    FROM mail.conversations c
+    WHERE c.mailbox_id = ${params.mailboxId}::uuid
+      AND EXISTS (
+        SELECT 1
+        FROM mail.conversation_messages visible_cm
+        JOIN mail.message_placements visible_mp ON visible_mp.message_id = visible_cm.message_id
+        WHERE visible_cm.conversation_id = c.id AND visible_mp.deleted_at IS NULL
+      )
+  `;
+  return ok({
+    inbox: row?.inbox ?? 0,
+    mine: row?.mine ?? 0,
+    unassigned: row?.unassigned ?? 0,
+    waiting: row?.waiting ?? 0,
+    done: row?.done ?? 0,
+    snoozed: row?.snoozed ?? 0,
+    recently_active: row?.recently_active ?? 0,
   });
 };
 

@@ -14,6 +14,8 @@ const CONVERSATION_ID = "00000000-0000-4000-8000-000000000007";
 const CONNECTION_ID = "00000000-0000-4000-8000-000000000008";
 const FOLDER_ID = "00000000-0000-4000-8000-000000000009";
 const REMOTE_MESSAGE_REF_ID = "00000000-0000-4000-8000-000000000010";
+const USER_ID = "00000000-0000-4000-8000-000000000011";
+const COMMENT_ID = "00000000-0000-4000-8000-000000000012";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -108,6 +110,182 @@ test("search forwards nested expressions and cursors", async () => {
     cursor: "next-page",
     limit: 50,
   });
+});
+
+test("conversation update sends one optimistic collaboration mutation", async () => {
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (request.method === "PATCH" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/collaboration`) {
+      requestBody = await request.json();
+      return api({
+        conversationId: CONVERSATION_ID,
+        assignee: { id: USER_ID, uid: "writer", displayName: "Writer", avatarHash: null },
+        workStatus: "waiting",
+        responseNeeded: true,
+        snoozedUntil: "2026-08-01T12:00:00.000Z",
+        revision: 5,
+        watchers: [],
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "update",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "4",
+    "--assignee",
+    USER_ID,
+    "--status",
+    "waiting",
+    "--response-needed",
+    "--snooze-until",
+    "2026-08-01T12:00:00Z",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(requestBody).toEqual({
+    expectedRevision: 4,
+    assigneeUserId: USER_ID,
+    workStatus: "waiting",
+    responseNeeded: true,
+    snoozedUntil: "2026-08-01T12:00:00.000Z",
+  });
+  expect(JSON.parse(result.stdout)).toMatchObject({ revision: 5, workStatus: "waiting" });
+});
+
+test("comment add forwards stdin, mentions, and references", async () => {
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/comments`) {
+      requestBody = await request.json();
+      return api({
+        id: COMMENT_ID,
+        conversationId: CONVERSATION_ID,
+        body: "Internal note\n",
+        author: { kind: "user", id: USER_ID, displayName: "Writer", avatarHash: null },
+        parentCommentId: COMMENT_ID,
+        referencedMessageId: MESSAGE_ID,
+        mentionUserIds: [USER_ID],
+        revision: 1,
+        editedAt: null,
+        deletedAt: null,
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T00:00:00.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    [
+      "--json",
+      "mail",
+      "comment",
+      "add",
+      CONVERSATION_ID,
+      "--mailbox",
+      MAILBOX_ID,
+      "--body-stdin",
+      "--mention",
+      USER_ID,
+      "--parent",
+      COMMENT_ID,
+      "--message",
+      MESSAGE_ID,
+    ],
+    "Internal note\n",
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(requestBody).toEqual({
+    body: "Internal note\n",
+    mentionUserIds: [USER_ID],
+    parentCommentId: COMMENT_ID,
+    referencedMessageId: MESSAGE_ID,
+  });
+});
+
+test("comment delete uses a revisioned tombstone request", async () => {
+  let method = "";
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/comments/${COMMENT_ID}`) {
+      method = request.method;
+      requestBody = await request.json();
+      return api({
+        id: COMMENT_ID,
+        conversationId: CONVERSATION_ID,
+        body: null,
+        author: { kind: "user", id: USER_ID, displayName: "Writer", avatarHash: null },
+        parentCommentId: null,
+        referencedMessageId: null,
+        mentionUserIds: [],
+        revision: 3,
+        editedAt: "2026-07-13T00:00:01.000Z",
+        deletedAt: "2026-07-13T00:00:01.000Z",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T00:00:01.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "comment",
+    "delete",
+    CONVERSATION_ID,
+    COMMENT_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "2",
+    "--yes",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(method).toBe("DELETE");
+  expect(requestBody).toEqual({ expectedRevision: 2 });
+  expect(JSON.parse(result.stdout)).toMatchObject({ body: null, revision: 3 });
+});
+
+test("conversation list forwards a built-in collaboration view", async () => {
+  let query = "";
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations`) {
+      query = url.search;
+      return api({ items: [], nextCursor: null });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "list",
+    "--mailbox",
+    MAILBOX_ID,
+    "--view",
+    "mine",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(new URLSearchParams(query).get("view")).toBe("mine");
 });
 
 test("command wait polls until a successful terminal state", async () => {

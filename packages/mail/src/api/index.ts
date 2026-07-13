@@ -7,22 +7,29 @@ import { z } from "zod";
 import {
   connectionOwnerSchema,
   configurableFolderRoleSchema,
+  conversationViewSchema,
   conversationTriageInputSchema,
+  createConversationCommentSchema,
   createMailboxInputSchema,
   createSenderIdentityInputSchema,
   defaultSenderSetupInputSchema,
+  deleteConversationCommentSchema,
   draftContentInputSchema,
   mailCommandInputSchema,
   providerConnectionInputSchema,
   searchBackendSchema,
   searchRequestSchema,
+  updateConversationCollaborationSchema,
+  updateConversationCommentSchema,
   updateSenderIdentityInputSchema,
 } from "../contracts";
 import {
   bindings,
   cancelSendCommand,
   commands,
+  collaboration,
   drafts,
+  events,
   folders,
   health,
   type MailRequestContext,
@@ -46,7 +53,14 @@ const cursorQuerySchema = z.object({
 const conversationQuerySchema = cursorQuerySchema.extend({
   folderId: z.string().uuid().optional(),
   status: z.enum(["open", "waiting", "done"]).optional(),
+  view: conversationViewSchema.optional(),
 });
+const collaboratorQuerySchema = z.object({
+  search: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+const activityQuerySchema = cursorQuerySchema.extend({ conversationId: z.string().uuid().optional() });
+const eventQuerySchema = z.object({ after: z.string().max(200).optional() });
 const attachmentQuerySchema = z.object({
   offset: z.coerce.number().int().nonnegative().optional(),
   length: z.coerce
@@ -202,6 +216,114 @@ const api = new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/folders", v("param", uuidParamSchema), async (c) =>
     respond(c, messages.listFolders(requestContext(c), c.req.valid("param").mailboxId)),
   )
+  .get("/mailboxes/:mailboxId/assignable-users", v("param", uuidParamSchema), v("query", collaboratorQuerySchema), async (c) =>
+    respond(
+      c,
+      collaboration.listAssignableUsers({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        ...c.req.valid("query"),
+      }),
+    ),
+  )
+  .get("/mailboxes/:mailboxId/mentionable-users", v("param", uuidParamSchema), v("query", collaboratorQuerySchema), async (c) =>
+    respond(
+      c,
+      collaboration.listMentionableUsers({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        ...c.req.valid("query"),
+      }),
+    ),
+  )
+  .get("/mailboxes/:mailboxId/conversation-view-counts", v("param", uuidParamSchema), async (c) =>
+    respond(c, messages.getConversationViewCounts({ context: requestContext(c), mailboxId: c.req.valid("param").mailboxId })),
+  )
+  .get("/mailboxes/:mailboxId/activity", v("param", uuidParamSchema), v("query", activityQuerySchema), async (c) =>
+    respond(
+      c,
+      collaboration.listActivity({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        ...c.req.valid("query"),
+      }),
+    ),
+  )
+  .get("/mailboxes/:mailboxId/events", v("param", uuidParamSchema), v("query", eventQuerySchema), async (c) => {
+    const mailboxId = c.req.valid("param").mailboxId;
+    const context = requestContext(c);
+    const allowed = await mailboxAccess.requireMailboxPermission(context, mailboxId, "read");
+    if (!allowed.ok) return respond(c, allowed);
+
+    const encoder = new TextEncoder();
+    const streamAbort = new AbortController();
+    let keepalive: ReturnType<typeof setInterval> | undefined;
+    let closed = false;
+    let checkingAccess = false;
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (event: string, data: unknown, id?: string) => {
+          if (closed) return;
+          controller.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        };
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          streamAbort.abort();
+          if (keepalive) clearInterval(keepalive);
+          try {
+            controller.close();
+          } catch {
+            // Client disconnects race with server-side access revocation.
+          }
+        };
+        try {
+          const requestedCursor = c.req.valid("query").after ?? c.req.header("last-event-id") ?? null;
+          const startCursor = requestedCursor ?? (await events.latestMailCollaborationEventCursor(mailboxId)) ?? "0-0";
+          send("ready", { mailboxId, cursor: startCursor }, startCursor);
+          keepalive = setInterval(() => {
+            if (checkingAccess || closed) return;
+            checkingAccess = true;
+            void mailboxAccess
+              .requireMailboxPermission(context, mailboxId, "read")
+              .then((permission) => {
+                if (!permission.ok) close();
+                else send("ping", { at: new Date().toISOString() });
+              })
+              .catch(() => close())
+              .finally(() => {
+                checkingAccess = false;
+              });
+          }, 25_000);
+          for await (const event of events.liveMailCollaborationEvents({ mailboxId, after: startCursor, signal: streamAbort.signal })) {
+            if (closed || streamAbort.signal.aborted) break;
+            const currentPermission = await mailboxAccess.requireMailboxPermission(context, mailboxId, "read");
+            if (!currentPermission.ok) break;
+            send(event.data.type, event.data, event.cursor);
+          }
+        } catch {
+          if (!closed && !streamAbort.signal.aborted) {
+            send("error", { message: "Mail event stream failed" });
+          }
+        } finally {
+          close();
+        }
+      },
+      cancel() {
+        closed = true;
+        streamAbort.abort();
+        if (keepalive) clearInterval(keepalive);
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
+  })
   .put(
     "/mailboxes/:mailboxId/folder-roles/:role",
     v("param", roleParamSchema),
@@ -245,6 +367,82 @@ const api = new Hono<AuthContext>()
       const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
       return respond(c, messages.listConversationMessages({ context: requestContext(c), ...params, ...c.req.valid("query") }));
     },
+  )
+  .get(
+    "/mailboxes/:mailboxId/conversations/:conversationId/collaboration",
+    v("param", mailboxAndIdParamSchema("conversationId")),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
+      return respond(c, collaboration.getConversationCollaboration({ context: requestContext(c), ...params }));
+    },
+  )
+  .patch(
+    "/mailboxes/:mailboxId/conversations/:conversationId/collaboration",
+    v("param", mailboxAndIdParamSchema("conversationId")),
+    v("json", updateConversationCollaborationSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
+      return respond(
+        c,
+        collaboration.updateConversationCollaboration({ context: requestContext(c), ...params, input: c.req.valid("json") }),
+      );
+    },
+  )
+  .put(
+    "/mailboxes/:mailboxId/conversations/:conversationId/watchers/:userId",
+    v("param", z.object({ mailboxId: z.string().uuid(), conversationId: z.string().uuid(), userId: z.string().uuid() })),
+    async (c) =>
+      respond(
+        c,
+        collaboration.setConversationWatcher({ context: requestContext(c), ...c.req.valid("param"), watching: true }),
+      ),
+  )
+  .delete(
+    "/mailboxes/:mailboxId/conversations/:conversationId/watchers/:userId",
+    v("param", z.object({ mailboxId: z.string().uuid(), conversationId: z.string().uuid(), userId: z.string().uuid() })),
+    async (c) =>
+      respond(
+        c,
+        collaboration.setConversationWatcher({ context: requestContext(c), ...c.req.valid("param"), watching: false }),
+      ),
+  )
+  .get(
+    "/mailboxes/:mailboxId/conversations/:conversationId/comments",
+    v("param", mailboxAndIdParamSchema("conversationId")),
+    v("query", cursorQuerySchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
+      return respond(c, collaboration.listConversationComments({ context: requestContext(c), ...params, ...c.req.valid("query") }));
+    },
+  )
+  .post(
+    "/mailboxes/:mailboxId/conversations/:conversationId/comments",
+    v("param", mailboxAndIdParamSchema("conversationId")),
+    v("json", createConversationCommentSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
+      return respond(c, collaboration.createConversationComment({ context: requestContext(c), ...params, input: c.req.valid("json") }));
+    },
+  )
+  .patch(
+    "/mailboxes/:mailboxId/conversations/:conversationId/comments/:commentId",
+    v("param", z.object({ mailboxId: z.string().uuid(), conversationId: z.string().uuid(), commentId: z.string().uuid() })),
+    v("json", updateConversationCommentSchema),
+    async (c) =>
+      respond(
+        c,
+        collaboration.updateConversationComment({ context: requestContext(c), ...c.req.valid("param"), input: c.req.valid("json") }),
+      ),
+  )
+  .delete(
+    "/mailboxes/:mailboxId/conversations/:conversationId/comments/:commentId",
+    v("param", z.object({ mailboxId: z.string().uuid(), conversationId: z.string().uuid(), commentId: z.string().uuid() })),
+    v("json", deleteConversationCommentSchema),
+    async (c) =>
+      respond(
+        c,
+        collaboration.deleteConversationComment({ context: requestContext(c), ...c.req.valid("param"), input: c.req.valid("json") }),
+      ),
   )
   .post(
     "/mailboxes/:mailboxId/conversations/:conversationId/actions",

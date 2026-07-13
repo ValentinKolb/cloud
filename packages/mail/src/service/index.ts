@@ -2,8 +2,10 @@ import * as mailboxAccess from "./access";
 import * as bindings from "./bindings";
 import { cancelSendCommand, commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
+import * as collaboration from "./collaboration";
 import * as drafts from "./drafts";
 import * as execution from "./execution";
+import * as events from "./events";
 import * as health from "./health";
 import * as folders from "./folders";
 import * as mailboxes from "./mailboxes";
@@ -21,8 +23,10 @@ export {
   cancelSendCommand,
   commandRuntime,
   commands,
+  collaboration,
   drafts,
   enqueueMailboxSync,
+  events,
   health,
   folders,
   mailboxAccess,
@@ -39,8 +43,10 @@ export const mailService = {
   access: mailboxAccess,
   bindings,
   commands,
+  collaboration,
   drafts,
   execution,
+  events,
   health,
   folders,
   hydration,

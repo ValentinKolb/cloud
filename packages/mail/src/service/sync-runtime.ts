@@ -8,6 +8,7 @@ import { sha256Json } from "./canonical";
 import type { ConnectorEnvelope, FlagChange } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
 import { resolveMailExecution } from "./execution";
+import { publishMailCollaborationEvent, type MailCollaborationEvent } from "./events";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
@@ -255,6 +256,7 @@ export const ingestEnvelope = async (params: {
   remoteResourceId: string;
   folderId: string;
   message: ConnectorEnvelope;
+  collaborationEvents?: Array<Omit<MailCollaborationEvent, "type" | "at">>;
 }): Promise<string> => {
   const contentHash = sha256Json({
     remoteResourceId: params.remoteResourceId,
@@ -412,6 +414,7 @@ export const ingestEnvelope = async (params: {
         AND si.status <> 'disabled'
     ) AS outbound
   `;
+  const createdConversation = !conversationId;
   if (!conversationId) {
     const [conversation] = await params.db<{ id: string }[]>`
       INSERT INTO mail.conversations (
@@ -449,6 +452,15 @@ export const ingestEnvelope = async (params: {
     RETURNING message_id
   `;
   if (!linked) return messageContentId;
+  const [before] = await params.db<
+    { latest_message_at: Date | string; work_status: "open" | "waiting" | "done"; response_needed: boolean; snoozed_until: Date | string | null }[]
+  >`
+    SELECT latest_message_at, work_status, response_needed, snoozed_until
+    FROM mail.conversations
+    WHERE id = ${conversationId}::uuid
+    FOR UPDATE
+  `;
+  if (!before) throw new Error("Conversation disappeared during message ingestion");
   await params.db`
     UPDATE mail.conversations
     SET
@@ -467,9 +479,51 @@ export const ingestEnvelope = async (params: {
         WHEN latest_message_at <= ${params.message.internalDate} THEN ${!outbound[0]?.outbound}
         ELSE response_needed
       END,
+      work_status = CASE
+        WHEN ${!outbound[0]?.outbound} AND latest_message_at <= ${params.message.internalDate} THEN 'open'
+        ELSE work_status
+      END,
+      snoozed_until = CASE
+        WHEN ${!outbound[0]?.outbound} AND latest_message_at <= ${params.message.internalDate} THEN NULL
+        ELSE snoozed_until
+      END,
       revision = revision + 1
     WHERE id = ${conversationId}::uuid
   `;
+  const latestInbound = !outbound[0]?.outbound && new Date(before.latest_message_at).getTime() <= params.message.internalDate.getTime();
+  if (!createdConversation && latestInbound && (before.work_status !== "open" || !before.response_needed || before.snoozed_until !== null)) {
+    const [activity] = await params.db<{ id: string | number }[]>`
+      INSERT INTO mail.activity_events (
+        mailbox_id, conversation_id, actor_kind, action, outcome, target_type, target_id, metadata
+      ) VALUES (
+        ${params.mailboxId}::uuid,
+        ${conversationId}::uuid,
+        'system',
+        'conversation.reopened',
+        'reconciled',
+        'conversation',
+        ${conversationId}::uuid,
+        ${{
+          messageId: messageContentId,
+          before: {
+            workStatus: before.work_status,
+            responseNeeded: before.response_needed,
+            snoozedUntil: before.snoozed_until ? new Date(before.snoozed_until).toISOString() : null,
+          },
+          after: { workStatus: "open", responseNeeded: true, snoozedUntil: null },
+        }}::jsonb
+      )
+      RETURNING id
+    `;
+    if (!activity) throw new Error("Conversation reopen activity insert returned no row");
+    params.collaborationEvents?.push({
+      mailboxId: params.mailboxId,
+      conversationId,
+      reason: "inbound",
+      targetId: messageContentId,
+      activityId: String(activity.id),
+    });
+  }
   return messageContentId;
 };
 
@@ -792,8 +846,9 @@ export const commitSyncBatch = async (params: {
   envelopeKind: "incremental" | "backfill" | null;
   flagChanges: FlagChange[];
   reconcileWindow: ReconcileWindow | null;
-}): Promise<{ hydratedIds: string[]; flagsUpdated: number; removed: number }> =>
-  sql.begin(async (tx) => {
+}): Promise<{ hydratedIds: string[]; flagsUpdated: number; removed: number }> => {
+  const collaborationEvents: Array<Omit<MailCollaborationEvent, "type" | "at">> = [];
+  const result = await sql.begin(async (tx) => {
     const [resource] = await tx<{ id: string }[]>`
       SELECT id
       FROM mail.remote_resources
@@ -838,6 +893,7 @@ export const commitSyncBatch = async (params: {
           remoteResourceId: params.folder.remote_resource_id,
           folderId: params.folderId,
           message,
+          collaborationEvents,
         }),
       );
     }
@@ -942,6 +998,9 @@ export const commitSyncBatch = async (params: {
     `;
     return { hydratedIds, flagsUpdated, removed };
   });
+  await Promise.all(collaborationEvents.map((event) => publishMailCollaborationEvent(event)));
+  return result;
+};
 
 const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<void>): Promise<SyncBatchResult> => {
   const folder = await loadSyncFolder(folderId);

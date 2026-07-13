@@ -939,6 +939,72 @@ const hardenProviderBackedOperations = async (db: SqlClient): Promise<void> => {
   await db`ALTER TABLE mail.draft_attachments ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ`;
 };
 
+const addConversationCollaboration = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.conversation_watchers (
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (conversation_id, user_id)
+    )
+  `;
+  await db`CREATE INDEX conversation_watchers_user_idx ON mail.conversation_watchers (user_id, conversation_id)`;
+
+  await db`
+    CREATE TABLE mail.conversation_comments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
+      author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'service_account')),
+      author_id UUID NOT NULL,
+      body_markdown TEXT NOT NULL CHECK (char_length(body_markdown) BETWEEN 1 AND 50000),
+      parent_comment_id UUID REFERENCES mail.conversation_comments(id) ON DELETE SET NULL,
+      referenced_message_id UUID REFERENCES mail.message_contents(id) ON DELETE SET NULL,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      edited_at TIMESTAMPTZ,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await db`CREATE INDEX conversation_comments_conversation_idx ON mail.conversation_comments (conversation_id, created_at, id)`;
+  await db`
+    CREATE TRIGGER conversation_comments_touch_updated_at
+    BEFORE UPDATE ON mail.conversation_comments
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+
+  await db`
+    CREATE TABLE mail.conversation_comment_versions (
+      comment_id UUID NOT NULL REFERENCES mail.conversation_comments(id) ON DELETE CASCADE,
+      revision BIGINT NOT NULL CHECK (revision > 0),
+      body_markdown TEXT NOT NULL CHECK (char_length(body_markdown) BETWEEN 1 AND 50000),
+      editor_kind TEXT NOT NULL CHECK (editor_kind IN ('user', 'service_account')),
+      editor_id UUID NOT NULL,
+      deleted BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (comment_id, revision)
+    )
+  `;
+
+  await db`
+    CREATE TABLE mail.conversation_comment_mentions (
+      comment_id UUID NOT NULL,
+      revision BIGINT NOT NULL,
+      user_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (comment_id, revision, user_id),
+      FOREIGN KEY (comment_id, revision)
+        REFERENCES mail.conversation_comment_versions(comment_id, revision)
+        ON DELETE CASCADE
+    )
+  `;
+  await db`CREATE INDEX conversation_comment_mentions_user_idx ON mail.conversation_comment_mentions (user_id, created_at DESC, comment_id)`;
+
+  await db`CREATE INDEX conversations_mailbox_assignee_idx ON mail.conversations (mailbox_id, assignee_user_id, latest_message_at DESC, id DESC)`;
+  await db`CREATE INDEX conversations_mailbox_snoozed_idx ON mail.conversations (mailbox_id, snoozed_until, id) WHERE snoozed_until IS NOT NULL`;
+  await db`CREATE INDEX conversations_mailbox_activity_idx ON mail.conversations (mailbox_id, updated_at DESC, id DESC)`;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -955,6 +1021,7 @@ const migrations = [
   { version: 13, name: "lifecycle_control_plane", run: addLifecycleControlPlane },
   { version: 14, name: "provider_backed_operations", run: addProviderBackedOperations },
   { version: 15, name: "provider_backed_operations_hardening", run: hardenProviderBackedOperations },
+  { version: 16, name: "conversation_collaboration", run: addConversationCollaboration },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

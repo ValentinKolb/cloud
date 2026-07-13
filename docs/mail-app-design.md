@@ -2,11 +2,12 @@
 
 Cloud Mail is a production-oriented shared inbox with a feature-complete IMAP/SMTP baseline, a provider-neutral domain model, local collaboration, structured automation, fast PostgreSQL search, and permission-bound agents.
 
-Status: Draft. Last consistency review: 2026-07-11. This document records accepted direction and implementation proposals. No product or policy decision remains open before implementation planning.
+Status: Draft. Last consistency review: 2026-07-13. This document records accepted direction, implementation progress, and remaining delivery work. No product or policy decision remains open before implementation planning.
 
 ## Contents
 
 - [Decision status](#decision-status)
+- [Implementation progress](#implementation-progress)
 - [Product direction](#product-direction)
 - [System boundaries](#system-boundaries)
 - [Connector architecture](#connector-architecture)
@@ -55,6 +56,23 @@ This document uses two decision states:
 | Connector and sync contracts | Proposed contract | Typed capabilities and remote identities, ImapFlow, Nodemailer, durable commands, recent-first backfill, and capability-driven fallbacks. |
 | Data model and API names | Proposed contract | The `mail.*` responsibilities and mailbox-scoped routes in this document. |
 | Work states | Proposed contract | One assignee and `open`/`waiting`/`done`; `done` is local collaboration state and never archives or moves mail implicitly. |
+
+## Implementation progress
+
+This snapshot records the verified `main` state through commit `352259ac` plus the collaboration backend slice on 2026-07-13. It tracks delivered behavior, not architectural decisions; the delivery plan remains the source of truth for unfinished scope.
+
+| Delivery slice | State | Implemented | Remaining |
+| --- | --- | --- | --- |
+| 1. Foundation contracts | In progress | Mail package and schema; mailbox access adapter; encrypted write-only provider connections; mailbox remote resource and binding pool; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping; collaboration persistence; typed API and CLI. | Manual thread overrides, references, response schedules, workflow records, and a connector conformance harness. |
+| 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; body and attachment hydration into PostgreSQL; repair and health operations; field-specific structured search with keyset pagination, native FTS, and optional `pg_textsearch`. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, saved views, and the 100,000-message release gate. |
+| 3. Core mail operations | Backend and CLI substantially implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, and ambiguous-outcome reconciliation. | Complete thread and compose UI, quote collapsing, manual merge and split, and frontend attachment workflows. |
+| 4. Collaboration | Backend and CLI implemented | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, and tombstones; current-access mention and assignee pickers; durable cursor activity; built-in views and counts; mailbox-scoped live invalidation; permission-safe API and CLI. | Scheduled reminder and mention delivery, presence and reply leases, saved custom views, and the full collaboration UI. |
+| 5. Deterministic workflows | Not started | The command journal, idempotency, actor model, and background runtime provide the required execution substrate. | Workflow schema, evaluator, versioning, runs, preview, effect budgets, backfill, references, and guarded automatic replies. |
+| 6. AI decisions and agents | Not started | Mail is exposed through typed API and CLI operations suitable for later tools. | Mail AI resource, tools, approvals, workflow decision nodes, summaries, classification, suggested drafts, and bulk-plan generation. |
+| 7. Product-speed pass | Not started | A basic Mail application shell and settings surface exist. | Command-first production UI, shortcuts, split views, focus behavior, prefetch, accessibility, and frontend performance gates. |
+| 8-9. Enhanced connectors | Not started | Provider-neutral connector, capability, identity, and command boundaries are established. | JMAP, Microsoft Graph, and Gmail API connectors and their conformance suites. |
+
+Current verification covers Cloud and Mail type checking, 66 Mail unit tests, 14 PostgreSQL integration tests, the transactional recursive-access helper test, cross-instance topic replay, and 20,000-message search, conversation-list, collaboration-view, and count performance gates. Warm collaboration views and counts stayed below 42 ms in the 20,000-conversation fixture. Live generic IMAP/SMTP smoke tests against two INWX mailboxes created, subscribed, renamed, and deleted a provider folder; delivered mail with an attachment whose downloaded SHA-256 matched the source; and confirmed additive read, star, and keyword state through IMAP.
 
 ## Product direction
 

@@ -160,6 +160,9 @@ describe("listUsersWithAccess", () => {
       expect(writers.map((user) => user.id)).not.toContain(fixture.userIds.direct);
       expect(writers.map((user) => user.id)).toContain(fixture.userIds.group);
 
+      const transactionalUsers = await sql.begin((tx) => listUsersWithAccess({ accessIds: fixture.accessIds, limit: 20, db: tx }));
+      expect(transactionalUsers.map((user) => user.id)).toEqual(users.map((user) => user.id));
+
       const serviceAccountPublicPermission = await getEffectivePermission({
         accessIds: fixture.accessIds,
         userId: null,

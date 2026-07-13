@@ -27,6 +27,12 @@ import {
   type SenderIdentity,
 } from "./contracts";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
+import type {
+  ConversationCollaboration,
+  ConversationComment,
+  MailActivityEvent,
+  MailAssignableUser,
+} from "./service/collaboration";
 import type { MessageSearchHit, MessageSearchPage } from "./service/search";
 
 type MailboxWithPermission = Mailbox & { permission: PermissionLevel };
@@ -358,6 +364,33 @@ const mutationFlags = {
   idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
   correlationId: flag.string({ name: "correlation-id", description: "Optional external operation id" }),
 };
+
+const printCollaboration = (ctx: CloudCliContext, value: ConversationCollaboration): void => {
+  if (ctx.options.output === "json") return ctx.json(value);
+  ctx.print(`Conversation: ${value.conversationId}`);
+  ctx.print(`Revision: ${value.revision}`);
+  ctx.print(`Status: ${value.workStatus}`);
+  ctx.print(`Assignee: ${value.assignee ? `${value.assignee.displayName} (${value.assignee.id})` : "unassigned"}`);
+  ctx.print(`Response needed: ${value.responseNeeded ? "yes" : "no"}`);
+  ctx.print(`Snoozed until: ${value.snoozedUntil ?? "not snoozed"}`);
+  ctx.print(`Watchers: ${value.watchers.map((watcher) => watcher.displayName).join(", ") || "none"}`);
+};
+
+const collaborationPath = (mailboxId: string, conversationId: string): string =>
+  `/mailboxes/${mailboxId}/conversations/${conversationId}/collaboration`;
+
+const printCollaborators = (ctx: CloudCliContext, users: MailAssignableUser[]): void =>
+  printTable(
+    ctx,
+    users,
+    users.map((user) => ({ name: user.displayName, permission: user.permission, access: user.description, id: user.id })),
+    [
+      { key: "name", label: "NAME" },
+      { key: "permission", label: "PERMISSION" },
+      { key: "access", label: "ACCESS" },
+      { key: "id", label: "USER ID" },
+    ],
+  );
 
 type SearchTermFlagValues = {
   any: string[];
@@ -1174,6 +1207,9 @@ export default defineCliCommands({
         ...mailboxFlag,
         folder: flag.string({ description: "Folder id" }),
         status: flag.enum(["open", "waiting", "done"] as const, { description: "Workflow status" }),
+        view: flag.enum(["inbox", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"] as const, {
+          description: "Built-in collaboration view",
+        }),
         cursor: flag.string({ description: "Opaque cursor returned by a previous page" }),
         limit: flag.int({ min: 1, max: 100, default: 50 }),
       },
@@ -1182,6 +1218,7 @@ export default defineCliCommands({
         const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
         if (flags.folder) query.set("folderId", flags.folder);
         if (flags.status) query.set("status", flags.status);
+        if (flags.view) query.set("view", flags.view);
         if (flags.cursor) query.set("cursor", flags.cursor);
         const page = await readApi<{ items: ConversationSummary[]; nextCursor: string | null }>(
           ctx,
@@ -1193,6 +1230,7 @@ export default defineCliCommands({
           page.items.map((thread) => ({
             date: thread.latestMessageAt,
             unread: thread.unread ? "yes" : "",
+            status: thread.workStatus,
             participants: thread.participantSummary,
             subject: thread.subject,
             id: thread.id,
@@ -1200,6 +1238,7 @@ export default defineCliCommands({
           [
             { key: "date", label: "DATE" },
             { key: "unread", label: "UNREAD" },
+            { key: "status", label: "STATUS" },
             { key: "participants", label: "PARTICIPANTS" },
             { key: "subject", label: "SUBJECT" },
             { key: "id", label: "THREAD ID" },
@@ -1241,6 +1280,270 @@ export default defineCliCommands({
             { key: "id", label: "MESSAGE ID" },
           ],
         );
+      },
+    }),
+    command("conversation collaboration", {
+      summary: "Show assignment, queue state, snooze, and watchers",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        printCollaboration(ctx, await readApi(ctx, collaborationPath(mailbox.id, args.conversationId)));
+      },
+    }),
+    command("conversation update", {
+      summary: "Update assignment, queue state, response-needed, or snooze",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current conversation revision" }),
+        assignee: flag.string({ description: "User id with current mailbox write access" }),
+        unassign: flag.boolean({ description: "Clear the current assignee" }),
+        status: flag.enum(["open", "waiting", "done"] as const),
+        responseNeeded: flag.boolean({ name: "response-needed", description: "Mark a response as needed" }),
+        noResponseNeeded: flag.boolean({ name: "no-response-needed", description: "Clear response-needed" }),
+        snoozeUntil: flag.string({ name: "snooze-until", description: "Future ISO date-time" }),
+        unsnooze: flag.boolean({ description: "Clear the snooze time" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.revision) throw new Error("Missing expected conversation revision.");
+        if (flags.assignee && flags.unassign) throw new Error("Use either --assignee or --unassign.");
+        if (flags.responseNeeded && flags.noResponseNeeded) throw new Error("Use either --response-needed or --no-response-needed.");
+        if (flags.snoozeUntil && flags.unsnooze) throw new Error("Use either --snooze-until or --unsnooze.");
+
+        let snoozedUntil: string | null | undefined;
+        if (flags.snoozeUntil) {
+          const date = new Date(flags.snoozeUntil);
+          if (!Number.isFinite(date.getTime())) throw new Error("--snooze-until must be a valid ISO date-time.");
+          snoozedUntil = date.toISOString();
+        } else if (flags.unsnooze) snoozedUntil = null;
+        const input = {
+          expectedRevision: flags.revision,
+          ...(flags.assignee !== undefined || flags.unassign ? { assigneeUserId: flags.unassign ? null : flags.assignee } : {}),
+          ...(flags.status ? { workStatus: flags.status } : {}),
+          ...(flags.responseNeeded || flags.noResponseNeeded ? { responseNeeded: flags.responseNeeded } : {}),
+          ...(snoozedUntil !== undefined ? { snoozedUntil } : {}),
+        };
+        if (Object.keys(input).length === 1) throw new Error("Pass at least one collaboration change.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationCollaboration>(
+          ctx,
+          collaborationPath(mailbox.id, args.conversationId),
+          jsonRequest("PATCH", input),
+        );
+        printCollaboration(ctx, value);
+      },
+    }),
+    command("conversation watch", {
+      summary: "Add a mailbox user as conversation watcher",
+      args: {
+        conversationId: arg.required({ description: "Conversation id" }),
+        userId: arg.required({ description: "Watcher user id" }),
+      },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationCollaboration>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/watchers/${args.userId}`,
+          { method: "PUT" },
+        );
+        printCollaboration(ctx, value);
+      },
+    }),
+    command("conversation unwatch", {
+      summary: "Remove a conversation watcher",
+      args: {
+        conversationId: arg.required({ description: "Conversation id" }),
+        userId: arg.required({ description: "Watcher user id" }),
+      },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationCollaboration>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/watchers/${args.userId}`,
+          { method: "DELETE" },
+        );
+        printCollaboration(ctx, value);
+      },
+    }),
+    command("conversation users", {
+      summary: "List users eligible for assignment",
+      flags: {
+        ...mailboxFlag,
+        search: flag.string({ description: "Search display name, uid, or granting group" }),
+        limit: flag.int({ min: 1, max: 200, default: 50 }),
+      },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
+        if (flags.search) query.set("search", flags.search);
+        const users = await readApi<MailAssignableUser[]>(ctx, `/mailboxes/${mailbox.id}/assignable-users?${query}`);
+        printCollaborators(ctx, users);
+      },
+    }),
+    command("conversation counts", {
+      summary: "Show built-in collaboration view counts",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const counts = await readApi<Record<string, number>>(ctx, `/mailboxes/${mailbox.id}/conversation-view-counts`);
+        if (ctx.options.output === "json") ctx.json(counts);
+        else for (const [view, count] of Object.entries(counts)) ctx.print(`${view}: ${count}`);
+      },
+    }),
+    command("conversation activity", {
+      summary: "List durable mailbox or conversation activity",
+      args: { conversationId: arg.optional({ description: "Optional conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        cursor: flag.string({ description: "Opaque cursor returned by a previous page" }),
+        limit: flag.int({ min: 1, max: 100, default: 50 }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
+        if (args.conversationId) query.set("conversationId", args.conversationId);
+        if (flags.cursor) query.set("cursor", flags.cursor);
+        const page = await readApi<{ items: MailActivityEvent[]; nextCursor: string | null }>(ctx, `/mailboxes/${mailbox.id}/activity?${query}`);
+        printTable(
+          ctx,
+          page,
+          page.items.map((event) => ({ date: event.createdAt, actor: event.actor.displayName, action: event.action, id: event.id })),
+          [
+            { key: "date", label: "DATE" },
+            { key: "actor", label: "ACTOR" },
+            { key: "action", label: "ACTION" },
+            { key: "id", label: "EVENT ID" },
+          ],
+        );
+      },
+    }),
+    command("comment list", {
+      summary: "List internal comments in chronological order",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        cursor: flag.string({ description: "Opaque cursor returned by a previous page" }),
+        limit: flag.int({ min: 1, max: 100, default: 50 }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
+        if (flags.cursor) query.set("cursor", flags.cursor);
+        const page = await readApi<{ items: ConversationComment[]; nextCursor: string | null }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments?${query}`,
+        );
+        printTable(
+          ctx,
+          page,
+          page.items.map((comment) => ({
+            date: comment.createdAt,
+            author: comment.author.displayName,
+            revision: comment.revision,
+            body: comment.body?.replace(/\s+/g, " ").slice(0, 120) ?? "[deleted]",
+            id: comment.id,
+          })),
+          [
+            { key: "date", label: "DATE" },
+            { key: "author", label: "AUTHOR" },
+            { key: "revision", label: "REV" },
+            { key: "body", label: "COMMENT" },
+            { key: "id", label: "COMMENT ID" },
+          ],
+        );
+      },
+    }),
+    command("comment users", {
+      summary: "List mailbox users eligible for mentions",
+      flags: {
+        ...mailboxFlag,
+        search: flag.string({ description: "Search display name, uid, or granting group" }),
+        limit: flag.int({ min: 1, max: 200, default: 50 }),
+      },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
+        if (flags.search) query.set("search", flags.search);
+        printCollaborators(ctx, await readApi(ctx, `/mailboxes/${mailbox.id}/mentionable-users?${query}`));
+      },
+    }),
+    command("comment add", {
+      summary: "Add an internal Markdown comment",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        body: flag.input({ required: true, fileName: "body-file", stdinName: "body-stdin", description: "Comment body" }),
+        mention: flag.stringList({ description: "Mentioned user id; repeatable" }),
+        parent: flag.string({ description: "Parent comment id" }),
+        message: flag.string({ description: "Referenced message id" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const body = await readCliInput(flags.body, { label: "comment body", required: true });
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationComment>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments`,
+          jsonRequest("POST", {
+            body: body ?? "",
+            mentionUserIds: flags.mention,
+            parentCommentId: flags.parent,
+            referencedMessageId: flags.message,
+          }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Created comment ${value.id} at revision ${value.revision}.`);
+      },
+    }),
+    command("comment edit", {
+      summary: "Edit an internal comment with optimistic concurrency",
+      args: {
+        conversationId: arg.required({ description: "Conversation id" }),
+        commentId: arg.required({ description: "Comment id" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current comment revision" }),
+        body: flag.input({ required: true, fileName: "body-file", stdinName: "body-stdin", description: "Updated comment body" }),
+        mention: flag.stringList({ description: "Mentioned user id; repeatable" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.revision) throw new Error("Missing expected comment revision.");
+        const body = await readCliInput(flags.body, { label: "comment body", required: true });
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationComment>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments/${args.commentId}`,
+          jsonRequest("PATCH", { expectedRevision: flags.revision, body: body ?? "", mentionUserIds: flags.mention }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Updated comment ${value.id} to revision ${value.revision}.`);
+      },
+    }),
+    command("comment delete", {
+      summary: "Replace an internal comment with a deletion tombstone",
+      args: {
+        conversationId: arg.required({ description: "Conversation id" }),
+        commentId: arg.required({ description: "Comment id" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current comment revision" }),
+        yes: confirmFlag("Confirm internal comment deletion"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to delete the internal comment.");
+        if (!flags.revision) throw new Error("Missing expected comment revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ConversationComment>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments/${args.commentId}`,
+          jsonRequest("DELETE", { expectedRevision: flags.revision }),
+        );
+        if (ctx.options.output === "json") ctx.json(value);
+        else ctx.print(`Deleted comment ${value.id} at revision ${value.revision}.`);
       },
     }),
     conversationActionCommand("conversation read", "Mark every message in a conversation folder placement as read", {

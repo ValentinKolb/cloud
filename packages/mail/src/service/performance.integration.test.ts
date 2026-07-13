@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
-import { listConversations } from "./messages";
+import { getConversationViewCounts, listConversations } from "./messages";
 import { searchMessages } from "./search";
 
 const enabled = process.env.MAIL_PERFORMANCE_TESTS === "1";
@@ -260,6 +260,26 @@ suite("mail large-mailbox performance", () => {
     const warmDurations = durations.slice(1);
     const worstWarmMs = Math.max(...warmDurations);
     console.info(`Mail ${MESSAGE_COUNT} conversation list: ${warmDurations.map((value) => value.toFixed(1)).join(", ")} ms`);
+    expect(worstWarmMs).toBeLessThan(500);
+  }, 30_000);
+
+  test(`keeps collaboration views bounded at ${MESSAGE_COUNT.toLocaleString("en-US")} conversations`, async () => {
+    if (!ids.mailboxId) throw new Error("Performance mailbox is unavailable");
+    const durations: number[] = [];
+    for (let iteration = 0; iteration < 5; iteration += 1) {
+      const startedAt = performance.now();
+      const [view, counts] = await Promise.all([
+        listConversations({ context, mailboxId: ids.mailboxId, view: "inbox", limit: 50 }),
+        getConversationViewCounts({ context, mailboxId: ids.mailboxId }),
+      ]);
+      durations.push(performance.now() - startedAt);
+      expect(view.ok && view.data.items).toHaveLength(50);
+      expect(counts.ok && counts.data.inbox).toBe(MESSAGE_COUNT);
+      expect(counts.ok && counts.data.recently_active).toBe(MESSAGE_COUNT);
+    }
+    const warmDurations = durations.slice(1);
+    const worstWarmMs = Math.max(...warmDurations);
+    console.info(`Mail ${MESSAGE_COUNT} collaboration views: ${warmDurations.map((value) => value.toFixed(1)).join(", ")} ms`);
     expect(worstWarmMs).toBeLessThan(500);
   }, 30_000);
 });
