@@ -8,7 +8,7 @@ export const migrate = async (): Promise<void> => {
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.bases (
-      id UUID NOT NULL DEFAULT gen_random_uuid(),
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name TEXT NOT NULL,
       description TEXT,
       retention_days INTEGER NOT NULL DEFAULT 30,
@@ -240,7 +240,7 @@ export const migrate = async (): Promise<void> => {
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.events (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      id UUID NOT NULL DEFAULT gen_random_uuid(),
       base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
       source_id UUID REFERENCES pulse.sources(id) ON DELETE SET NULL,
       ts TIMESTAMPTZ NOT NULL,
@@ -264,25 +264,6 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_correlation_ts ON pulse.events(base_id, correlation_id, ts DESC) WHERE correlation_id IS NOT NULL`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS attributes JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
   await sql`DROP TABLE IF EXISTS pulse.event_dimensions`.simple();
-  await sql`
-    DO $$
-    DECLARE primary_key_definition text;
-    BEGIN
-      SELECT pg_get_constraintdef(constraint_row.oid)
-      INTO primary_key_definition
-      FROM pg_constraint constraint_row
-      JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
-      JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
-      WHERE schema_row.nspname = 'pulse'
-        AND table_row.relname = 'events'
-        AND constraint_row.contype = 'p';
-
-      IF primary_key_definition = 'PRIMARY KEY (id)' THEN
-        ALTER TABLE pulse.events DROP CONSTRAINT events_pkey;
-        ALTER TABLE pulse.events ADD CONSTRAINT events_pkey PRIMARY KEY (id, ts);
-      END IF;
-    END $$
-  `.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_key TEXT`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_id TEXT`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_type TEXT`.simple();
