@@ -60,7 +60,7 @@ export default function GlobalAnnouncements(props: Props) {
   return (
     <>
       <Show when={banners().length > 0}>
-        <div class="mx-2 flex flex-col gap-1 pb-1 md:ml-0 md:mr-1.5">
+        <div class="flex shrink-0 flex-col gap-1">
           <For each={banners()}>
             {(banner) => (
               <section

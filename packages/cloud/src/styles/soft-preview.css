@@ -85,7 +85,9 @@ body:has(.cloud-ui-soft),
   --ui-space-section: 0.75rem;
   --ui-space-control: 0.375rem;
   --ui-shadow-surface: none;
-  --ui-shadow-frame: 0 0 18px -9px rgb(15 23 19 / 0.24), 0 18px 44px -34px rgb(15 23 19 / 0.3), 0 2px 8px rgb(15 23 19 / 0.05);
+  --ui-shadow-frame:
+    0 -3px 10px -8px rgb(15 23 19 / 0.16), 0 0 16px -9px rgb(15 23 19 / 0.16), 0 14px 36px -32px rgb(15 23 19 / 0.22),
+    0 1px 5px rgb(15 23 19 / 0.04);
   --ui-shadow-float: 0 18px 46px -18px rgb(0 0 0 / 0.22), 0 5px 16px rgb(0 0 0 / 0.08);
   --ui-paper-highlighted: var(--ui-surface-subtle);
   --theme-bevel-top: none;
@@ -135,44 +137,20 @@ body:has(.cloud-ui-soft),
   --ui-check-hover-transform: none;
   --ui-shadow-surface: none;
   --ui-dropdown-menu-surface: rgb(30 31 31 / 0.94);
-  --ui-shadow-frame: 0 0 20px -9px rgb(0 0 0 / 0.82), 0 20px 48px -30px rgb(0 0 0 / 0.72), 0 2px 10px rgb(0 0 0 / 0.2);
+  --ui-shadow-frame:
+    0 -3px 10px -8px rgb(0 0 0 / 0.32), 0 0 16px -9px rgb(0 0 0 / 0.56), 0 16px 40px -30px rgb(0 0 0 / 0.48), 0 1px 7px rgb(0 0 0 / 0.14);
   --ui-shadow-float: 0 22px 54px -18px rgb(0 0 0 / 0.72), 0 6px 18px rgb(0 0 0 / 0.3);
   --theme-press: inset 0 1px 3px rgb(0 0 0 / 0.48);
   --theme-shadow-hover: 0 14px 32px -24px rgb(0 0 0 / 0.8), 0 3px 12px rgb(0 0 0 / 0.22);
 }
 
-/* Keep the opt-in canvas inside the layout viewport on scrolling mobile pages.
-   `w-screen` includes the browser scrollbar and otherwise creates x-overflow. */
-.cloud-app-canvas:has(.cloud-ui-soft) {
-  width: 100%;
-  max-width: 100%;
-}
-
-/* The rail is part of the canvas, not a separately tinted column. */
-.cloud-app-canvas:has(.cloud-ui-soft) > .layout-rail {
-  width: 2.5rem;
-  background-color: transparent !important;
-  background-image: none !important;
-}
-
-.cloud-app-canvas:has(.cloud-ui-soft) > .layout-rail-navigation {
-  gap: 0.25rem;
-  padding-top: 0.25rem;
-}
-
 /* Compact breadcrumb paper with optical balance against the narrow rail. */
 @media (min-width: 768px) {
-  .cloud-app-canvas:has(.cloud-ui-soft) > .layout-header {
-    min-height: 2.875rem;
-    margin: var(--ui-space-shell) var(--ui-space-shell) var(--ui-space-shell) 0;
+  .cloud-app-canvas:has(.cloud-ui-soft) .layout-header {
     padding: 0.375rem 0.75rem 0.375rem 1.125rem;
     border-color: transparent;
     border-radius: var(--ui-radius-surface);
     box-shadow: var(--ui-shadow-frame) !important;
-  }
-
-  .cloud-app-canvas:has(.cloud-ui-soft) .layout-content-main {
-    padding: 0 var(--ui-space-shell) var(--ui-space-shell) 0;
   }
 }
 
@@ -944,12 +922,6 @@ body:has(.cloud-ui-soft) .info-block-warning {
 body:has(.cloud-ui-soft) .info-block-danger {
   border-color: color-mix(in srgb, var(--color-red-500) 20%, var(--ui-border));
   background: color-mix(in srgb, var(--color-red-500) 7%, var(--ui-surface));
-}
-
-@media (max-width: 767px) {
-  .cloud-app-canvas:has(.cloud-ui-soft) .layout-content-main {
-    padding: 0 var(--ui-space-shell) var(--ui-space-shell);
-  }
 }
 
 @media (max-width: 1023px) {

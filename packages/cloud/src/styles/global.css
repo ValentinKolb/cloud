@@ -56,6 +56,7 @@
 }
 
 .cloud-app-canvas {
+  padding: var(--ui-space-shell);
   background: linear-gradient(
     var(--app-canvas-angle, 135deg),
     color-mix(in srgb, var(--app-canvas-from, var(--color-zinc-50)) var(--app-canvas-strength, 0%), var(--color-zinc-50)),
@@ -69,8 +70,12 @@
   );
 }
 
-/* The authenticated rail is part of the canvas. Keeping its cells transparent
-   also covers shell-only routes such as 404 pages that have no app workspace. */
+.cloud-app-canvas > :is(.layout-rail, .layout-shell-content) {
+  gap: var(--ui-space-shell);
+}
+
+/* The authenticated rail is part of the canvas. Keeping it transparent also
+   covers shell-only routes such as 404 pages that have no app workspace. */
 .cloud-app-canvas > .layout-rail {
   background-color: transparent !important;
   background-image: none !important;

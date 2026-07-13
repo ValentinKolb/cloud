@@ -43,8 +43,8 @@ type LayoutProps = {
   children: JSX.Element;
   c: LayoutContext;
   title?: string | Breadcrumb[];
-  fullPage?: boolean /** Remove main padding for fullwidth app layouts */;
-  fullWidth?: boolean;
+  fullPage?: boolean /** Keep the shell viewport-bound and suppress its footer. */;
+  fullWidth?: boolean /** Delegate scrolling and clipping to the page's work surface. */;
 }; // ==========================
 // Helpers
 function active(pathname: string, match: string): string {
@@ -90,7 +90,7 @@ function ProfileWarnings({ user }: { user: User }) {
   if (!user.sn) missing.push("last name");
   if (missing.length === 0) return null;
   return (
-    <a href="/me" class="flex items-center gap-2 text-xs info-block-warning no-underline mb-2 md:mb-1.5 mx-2 md:ml-0 md:mr-1.5">
+    <a href="/me" class="info-block-warning flex shrink-0 items-center gap-2 text-xs no-underline">
       <i class="ti ti-user-exclamation" /> <span>Your profile is incomplete: {missing.join(",")} not set.</span>
     </a>
   );
@@ -119,7 +119,7 @@ function ExpiryWarnings({ user }: { user: User }) {
   }
   if (warnings.length === 0) return null;
   return (
-    <div class="flex flex-col gap-1 px-2">
+    <div class="flex shrink-0 flex-col gap-1">
       {" "}
       {warnings.map((w) => (
         <div class={`flex items-center gap-2 text-xs ${w.expired ? "info-block-danger" : "info-block-warning"}`}>
@@ -191,15 +191,11 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   const pageTitle = typeof title === "string" ? title : (title?.at(-1)?.title ?? appName);
   if (!page.title) page.title = pageTitle;
   const breadcrumbs: Breadcrumb[] = !title ? [{ title: appName }] : typeof title === "string" ? [{ title }] : title;
-  const showRail =
-    !!user; /* * Grid layout: * Rail mode: [rail | content] * No rail: [content] * * Rows: [header] [main] [footer?] * The rail spans rows 1+2 via grid-row, so logo aligns with the header. */
-  const contentPadding = "p-2.5 md:p-0 md:pr-2 md:pb-2";
-  const gridClass = showRail
-    ? "grid-cols-1 md:grid-cols-[auto_1fr] grid-rows-[auto_1fr]"
-    : `grid-cols-1 ${!fullPage ? "grid-rows-[auto_1fr_auto]" : "grid-rows-[auto_1fr]"}`;
+  const showRail = !!user;
+  const mainLayoutClass = fullPage || fullWidth ? "flex flex-col" : "md:overflow-auto";
   return (
     <div
-      class={`cloud-app-canvas relative grid w-screen ${fullPage ? "h-dvh overflow-hidden" : "min-h-screen"} md:h-screen md:overflow-hidden ${gridClass}`}
+      class={`cloud-app-canvas relative flex w-full ${fullPage ? "h-dvh overflow-hidden" : "min-h-screen md:h-screen md:overflow-hidden"}`}
       style={appAppearanceStyle(currentApp?.appearance)}
     >
       <TimezoneCookie />
@@ -210,103 +206,82 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
           {jsonScript({ apps: launchpadApps, legalLinks })}
         </script>
       )}{" "}
-      {/* ── Rail: logo cell (row 1, col 1) — grid gives it the same height as the header ── */}{" "}
       {showRail && (
-        <div class="layout-rail hidden md:flex items-center justify-center w-12 bg-white/20 dark:bg-zinc-950/20">
-          {" "}
-          <a href="/" aria-label="Home">
-            {" "}
-            <img src="/branding/logo" alt="Logo" class="h-5 w-5" />{" "}
-          </a>{" "}
-        </div>
-      )}{" "}
-      {/* ── Header (row 1) ── */}{" "}
-      <header
-        class="layout-header flex justify-between items-center m-2 md:ml-0 md:m-1.5 py-1.5 md:py-2 px-2 md:px-3 paper"
-        style="box-shadow: var(--theme-shadow-elevated)"
-      >
-        {" "}
-        <div class="flex items-center gap-2 min-w-0">
-          {" "}
-          {/* Logo — only when no rail */}{" "}
-          {!showRail && (
-            <a href="/" class="shrink-0 flex items-center" aria-label="Home">
-              {" "}
-              <img src="/branding/logo" alt="Logo" class="h-6 w-6" />{" "}
+        <aside class="layout-rail hidden w-10 shrink-0 flex-col md:flex">
+          <div class="layout-rail-logo flex h-[2.875rem] shrink-0 items-center justify-center">
+            <a href="/" aria-label="Home">
+              <img src="/branding/logo" alt="Logo" class="h-5 w-5" />
             </a>
-          )}{" "}
-          {showRail && (
-            <a
-              href="/"
-              aria-label="Home"
-              class="md:hidden inline-flex items-center justify-center w-8 h-8 rounded-lg text-dimmed hover:text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-            >
-              <img src="/branding/logo" alt="Home" class="h-4 w-4" />
-            </a>
-          )}{" "}
-          {/* Breadcrumbs — desktop, rail mode only */}{" "}
-          <div class="hidden md:flex items-center min-w-0">
-            {" "}
-            <LayoutBreadcrumbs breadcrumbs={breadcrumbs} />{" "}
-          </div>{" "}
-          {/* Mobile breadcrumb */}{" "}
-          <div class="md:hidden flex items-center min-w-0">
-            {" "}
-            <LayoutBreadcrumbs breadcrumbs={breadcrumbs} mobile />{" "}
-          </div>{" "}
-        </div>{" "}
-        <div class="flex items-center shrink-0 gap-1">
-          {user && (
-            <GlobalSearchTrigger variant="header" registerHotkey class={showRail ? "md:hidden" : ""} searchHelpApps={searchHelpApps} />
-          )}{" "}
-          {/* Desktop: direct /me link with avatar (logged in) or NavMenu (not logged in) */}{" "}
-          {user ? (
-            <>
-              {" "}
-              <a href="/me" class="hidden md:flex items-center justify-center cursor-pointer" aria-label="Profile">
-                {" "}
-                <Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="xs" />{" "}
-              </a>{" "}
-              <div class="md:hidden">
-                {" "}
-                <div class="flex items-center gap-1">
-                  <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="header" label="Open apps" />
-                </div>{" "}
-              </div>{" "}
-            </>
-          ) : (
-            <NavMenu user={navMenuUser} />
-          )}{" "}
-        </div>{" "}
-      </header>{" "}
-      {/* ── Rail: apps cell (row 2, col 1) ── */}{" "}
-      {showRail && (
-        <div class="layout-rail layout-rail-navigation hidden md:flex flex-col items-center w-12 gap-1 pt-1 bg-white/20 dark:bg-zinc-950/20">
-          {" "}
-          {primaryApps.map((app) => (
-            <a
-              href={app.href}
-              class={`rail-item ${active(pathname, app.match) ? "rail-item-active" : ""}`}
-              aria-label={app.label}
-              aria-current={active(pathname, app.match) ? "page" : undefined}
-              title={app.label}
-              style={appAccentStyle(app.accent)}
-            >
-              {" "}
-              <i class={`${app.iconClass} text-base`} />{" "}
-            </a>
-          ))}{" "}
-          <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="rail" label="Open apps" />
-          <div class="mt-auto pb-1 flex flex-col items-center gap-1">
-            {" "}
-            <GlobalSearchTrigger variant="rail" searchHelpApps={searchHelpApps} /> <HotkeysHelpRail searchHelpApps={searchHelpApps} />{" "}
-            <ThemeToggleRail />{" "}
-          </div>{" "}
-        </div>
-      )}{" "}
-      {/* ── Main content (row 2) ── */}{" "}
-      <div class="flex flex-col min-h-0 min-w-0">
-        {" "}
+          </div>
+          <nav class="layout-rail-navigation flex min-h-0 flex-1 flex-col items-center gap-1" aria-label="Apps">
+            {primaryApps.map((app) => (
+              <a
+                href={app.href}
+                class={`rail-item ${active(pathname, app.match) ? "rail-item-active" : ""}`}
+                aria-label={app.label}
+                aria-current={active(pathname, app.match) ? "page" : undefined}
+                title={app.label}
+                style={appAccentStyle(app.accent)}
+              >
+                <i class={`${app.iconClass} text-base`} />
+              </a>
+            ))}
+            <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="rail" label="Open apps" />
+            <div class="mt-auto flex flex-col items-center gap-1">
+              <GlobalSearchTrigger variant="rail" searchHelpApps={searchHelpApps} />
+              <HotkeysHelpRail searchHelpApps={searchHelpApps} />
+              <ThemeToggleRail />
+            </div>
+          </nav>
+        </aside>
+      )}
+      <div class="layout-shell-content flex min-h-0 min-w-0 flex-1 flex-col">
+        <header
+          class="layout-header paper flex min-h-[2.875rem] shrink-0 items-center justify-between px-2 py-1.5 md:px-3 md:py-2"
+          style="box-shadow: var(--theme-shadow-elevated)"
+        >
+          <div class="flex min-w-0 items-center gap-2">
+            {!showRail && (
+              <a href="/" class="flex shrink-0 items-center" aria-label="Home">
+                <img src="/branding/logo" alt="Logo" class="h-6 w-6" />
+              </a>
+            )}
+            {showRail && (
+              <a
+                href="/"
+                aria-label="Home"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-dimmed transition-colors hover:bg-zinc-100 hover:text-secondary md:hidden dark:hover:bg-zinc-800"
+              >
+                <img src="/branding/logo" alt="Home" class="h-4 w-4" />
+              </a>
+            )}
+            <div class="hidden min-w-0 items-center md:flex">
+              <LayoutBreadcrumbs breadcrumbs={breadcrumbs} />
+            </div>
+            <div class="flex min-w-0 items-center md:hidden">
+              <LayoutBreadcrumbs breadcrumbs={breadcrumbs} mobile />
+            </div>
+          </div>
+          <div class="flex shrink-0 items-center gap-1">
+            {user && (
+              <GlobalSearchTrigger variant="header" registerHotkey class={showRail ? "md:hidden" : ""} searchHelpApps={searchHelpApps} />
+            )}
+            {user ? (
+              <>
+                <a href="/me" class="hidden cursor-pointer items-center justify-center md:flex" aria-label="Profile">
+                  <Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="xs" />
+                </a>
+                <div class="md:hidden">
+                  <div class="flex items-center gap-1">
+                    <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="header" label="Open apps" />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <NavMenu user={navMenuUser} />
+            )}
+          </div>
+        </header>
         {user && announcements && (
           <GlobalAnnouncements
             banners={announcements.banners}
@@ -314,25 +289,16 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
             latestAnnouncementVersion={announcements.latestAnnouncementVersion}
             cookieState={announcements.cookieState}
           />
-        )}{" "}
-        {user && <ProfileWarnings user={user} />} {user && <ExpiryWarnings user={user} />}{" "}
-        <main
-          class={`layout-content-main min-h-0 flex-1 ${contentPadding} ${fullPage ? "flex flex-col overflow-hidden" : fullWidth ? "flex flex-col md:overflow-hidden" : "md:overflow-auto"}`}
-        >
-          {" "}
-          {children}{" "}
-        </main>{" "}
-      </div>{" "}
-      {/* ── Footer / Bottom bar (row 3) ── */}{" "}
-      {!fullPage && !showRail && (
-        <div>
-          {" "}
-          <div class="hidden md:block">
-            {" "}
-            <Footer isLoggedIn={!!user} appName={settings?.app?.copyright || appName} legalLinks={legalLinks} />{" "}
-          </div>{" "}
-        </div>
-      )}{" "}
+        )}
+        {user && <ProfileWarnings user={user} />}
+        {user && <ExpiryWarnings user={user} />}
+        <main class={`layout-content-main min-h-0 min-w-0 flex-1 ${mainLayoutClass}`}>{children}</main>
+        {!fullPage && !showRail && (
+          <div class="hidden shrink-0 md:block">
+            <Footer isLoggedIn={!!user} appName={settings?.app?.copyright || appName} legalLinks={legalLinks} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
