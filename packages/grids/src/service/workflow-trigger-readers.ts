@@ -75,6 +75,7 @@ export const createWorkflowTriggerReaderRuntime = (deps: WorkflowTriggerReaderRu
       await deps.queuePreparedRun(
         {
           workflow: item.workflow,
+          workflowCatalog: item.workflowCatalog,
           triggerKind: "recordEvent",
           actorUserId: item.actorUserId,
           actorGroupIds: item.actorGroupIds,

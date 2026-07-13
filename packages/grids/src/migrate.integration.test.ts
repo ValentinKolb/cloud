@@ -142,6 +142,62 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
+    "fails legacy active workflow runs instead of attaching the current workflow revision",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrate(database);
+        await database`DROP TRIGGER populate_workflow_run_snapshots ON grids.workflow_runs`.simple();
+        await database`DROP FUNCTION grids.populate_workflow_run_snapshots()`.simple();
+        await database`ALTER TABLE grids.workflow_runs DROP COLUMN workflow_definition`.simple();
+        await database`ALTER TABLE grids.workflow_runs DROP COLUMN workflow_catalog`.simple();
+        const baseId = uuid();
+        const workflowId = uuid();
+        const runId = uuid();
+        const originalDefinition = { triggers: { form: {} }, steps: [{ succeed: { message: "original" } }] };
+        const editedDefinition = { triggers: { form: {} }, steps: [{ succeed: { message: "edited" } }] };
+        await database`
+          INSERT INTO grids.bases (id, short_id, name)
+          VALUES (${baseId}::uuid, ${shortId("B")}, 'Legacy workflow runs')
+        `;
+        await database`
+          INSERT INTO grids.workflows (id, short_id, base_id, name, source, compiled, enabled)
+          VALUES (${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, 'Legacy workflow', 'steps: []', ${originalDefinition}::jsonb, TRUE)
+        `;
+        await database`
+          INSERT INTO grids.workflow_runs (id, workflow_id, base_id, trigger_kind, status)
+          VALUES (${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 'form', 'queued')
+        `;
+        await database`UPDATE grids.workflows SET compiled = ${editedDefinition}::jsonb WHERE id = ${workflowId}::uuid`;
+
+        await migrate(database);
+
+        const [run] = await database<Array<{ status: string; error: string | null; definition: unknown }>>`
+          SELECT status, error, workflow_definition AS definition
+          FROM grids.workflow_runs
+          WHERE id = ${runId}::uuid
+        `;
+        expect(run?.status).toBe("failed");
+        expect(run?.error).toBe("Could not recover workflow run created before immutable execution snapshots were available");
+        expect(run?.definition).not.toEqual(editedDefinition);
+
+        const rollingRunId = uuid();
+        await database`
+          INSERT INTO grids.workflow_runs (id, workflow_id, base_id, trigger_kind, status)
+          VALUES (${rollingRunId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 'form', 'queued')
+        `;
+        const [rollingRun] = await database<Array<{ definition: unknown; catalog: unknown }>>`
+          SELECT workflow_definition AS definition, workflow_catalog AS catalog
+          FROM grids.workflow_runs
+          WHERE id = ${rollingRunId}::uuid
+        `;
+        expect(rollingRun?.definition).toEqual(editedDefinition);
+        expect(rollingRun?.catalog).toEqual({ tables: [], fieldsByTable: {}, templates: [], emailTemplates: [] });
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
     "removes intentional alpha-only schema surfaces",
     async () => {
       await migrate();

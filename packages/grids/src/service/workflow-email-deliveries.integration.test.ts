@@ -38,10 +38,10 @@ const insertFixture = async (): Promise<DeliveryFixture> => {
       (${otherWorkflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, 'Notify operator', 'steps: []', '{}'::jsonb, TRUE)
   `;
   await sql`
-    INSERT INTO grids.workflow_runs (id, workflow_id, base_id, trigger_kind, status)
+    INSERT INTO grids.workflow_runs (id, workflow_id, base_id, workflow_definition, workflow_catalog, trigger_kind, status)
     VALUES
-      (${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 'form', 'running'),
-      (${otherRunId}::uuid, ${otherWorkflowId}::uuid, ${baseId}::uuid, 'form', 'running')
+      (${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, '{"triggers":{"form":{}},"steps":[]}'::jsonb, '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, 'form', 'running'),
+      (${otherRunId}::uuid, ${otherWorkflowId}::uuid, ${baseId}::uuid, '{"triggers":{"form":{}},"steps":[]}'::jsonb, '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, 'form', 'running')
   `;
   await sql`
     INSERT INTO grids.email_templates (id, short_id, base_id, name, subject, html)

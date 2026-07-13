@@ -8,6 +8,7 @@ import {
   executeRecordEvent,
   executeScanner,
   prepareBulkSelection,
+  prepareDashboardWorkflowTriggerRun,
   prepareWorkflowTriggerRun,
 } from "./workflow-runtime";
 import {
@@ -35,6 +36,7 @@ type RuntimeFixture = {
   baseId: string;
   tableId: string;
   workflowId: string;
+  workflowDefinition: WorkflowDefinition;
   scannerWorkflowId: string;
   fieldScannerWorkflowId: string;
   nameFieldId: string;
@@ -180,7 +182,8 @@ const insertFixture = async (permission: "read" | "write" = "write"): Promise<Ru
   `;
   await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${accessId}::uuid)`;
 
-  const workflowId = await insertWorkflow(baseId, "Bulk update", bulkWorkflowDefinition());
+  const workflowDefinition = bulkWorkflowDefinition();
+  const workflowId = await insertWorkflow(baseId, "Bulk update", workflowDefinition);
   const scannerWorkflowId = await insertWorkflow(baseId, "Scan code", scannerWorkflowDefinition());
   const fieldScannerWorkflowId = await insertWorkflow(baseId, "Scan sku", scannerWorkflowDefinition({ by: "field", field: "Sku" }));
 
@@ -188,6 +191,7 @@ const insertFixture = async (permission: "read" | "write" = "write"): Promise<Ru
     baseId,
     tableId,
     workflowId,
+    workflowDefinition,
     scannerWorkflowId,
     fieldScannerWorkflowId,
     nameFieldId,
@@ -256,6 +260,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
         triggerKind: "form",
         triggerInput: { source: "original" },
         resolvedInput: { source: "resolved" },
@@ -302,6 +307,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
         triggerKind: "form",
       });
       const first = await claimRun(run.id, 60_000);
@@ -364,6 +370,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
         triggerKind: "form",
       });
       const first = await claimRun(run.id);
@@ -500,11 +507,12 @@ describe("workflow runtime integration", () => {
           '{{ document.number }}.pdf'
         )
       `;
-      const workflowId = await insertWorkflow(fixture.baseId, "Generate runtime document", {
+      const definition: WorkflowDefinition = {
         inputs: { item: { type: "record", table: "Items" } },
         triggers: { form: {} },
         steps: [{ generateDocument: { template: "Runtime document", record: "inputs.item" } }],
-      });
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Generate runtime document", definition);
       const templateAccessId = await groupAccess(actorGroupId, "write");
       const workflowAccessId = await groupAccess(actorGroupId, "write");
       fixture.accessIds.push(templateAccessId, workflowAccessId);
@@ -530,6 +538,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: definition,
         triggerKind: prepared.data.triggerKind,
         triggerInput: prepared.data.triggerInput,
         resolvedInput: prepared.data.resolvedInput,
@@ -541,16 +550,8 @@ describe("workflow runtime integration", () => {
       expect(run).toMatchObject({ actorUserId, actorGroupIds: [actorGroupId], serviceAccountId });
 
       const executed = await executePreparedRun({
-        workflowId,
         runId: run.id,
         queueAttempt: 0,
-        triggerKind: run.triggerKind,
-        triggerInput: run.triggerInput,
-        resolvedInput: run.resolvedInput,
-        actorUserId: run.actorUserId,
-        actorGroupIds: run.actorGroupIds,
-        serviceAccountId: run.serviceAccountId,
-        authorization: prepared.data.authorization,
       });
       expect(executed.ok).toBe(true);
       if (!executed.ok) throw new Error(executed.error.message);
@@ -574,6 +575,212 @@ describe("workflow runtime integration", () => {
     }
   });
 
+  postgresTest("prepared runs execute their persisted definition and input after the workflow is edited", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const definition: WorkflowDefinition = {
+        inputs: { item: { type: "record", table: "Items" } },
+        triggers: { form: {} },
+        steps: [{ updateRecord: { record: "inputs.item", set: { Status: "queued definition" } } }],
+      };
+      const editedDefinition: WorkflowDefinition = {
+        ...definition,
+        steps: [{ updateRecord: { record: "inputs.item", set: { Status: "edited definition" } } }],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Pinned definition", definition);
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: definition,
+        triggerKind: "form",
+        resolvedInput: { item: fixture.recordAId },
+      });
+      const replacementStatusFieldId = uuid();
+      await sql`UPDATE grids.fields SET name = 'Legacy status' WHERE id = ${fixture.statusFieldId}::uuid`;
+      await sql`
+        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
+        VALUES (${replacementStatusFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Status', 'text', '{}'::jsonb, 4)
+      `;
+      await sql`UPDATE grids.workflows SET compiled = ${editedDefinition}::jsonb WHERE id = ${workflowId}::uuid`;
+
+      const executed = await executePreparedRun({ runId: run.id, queueAttempt: 0 });
+      expect(executed.ok).toBe(true);
+      expect((await recordStatuses(fixture))[fixture.recordAId]).toBe("queued definition");
+      const [replacement] = await sql<Array<{ value: string | null }>>`
+        SELECT data ->> ${replacementStatusFieldId} AS value
+        FROM grids.records
+        WHERE id = ${fixture.recordAId}::uuid
+      `;
+      expect(replacement?.value).toBeNull();
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("prepared runs recheck current workflow access for their persisted principal", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const definition: WorkflowDefinition = {
+        triggers: { form: {} },
+        steps: [{ succeed: { message: "should not run" } }],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Revoked workflow", definition);
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: definition,
+        triggerKind: "form",
+      });
+      await sql`DELETE FROM grids.base_access WHERE base_id = ${fixture.baseId}::uuid`;
+
+      const executed = await executePreparedRun({ runId: run.id, queueAttempt: 0 });
+      expect(executed.ok).toBe(false);
+      if (executed.ok) throw new Error("Expected workflow permission denial");
+      expect(executed.error.message).toBe("Workflow actor cannot run this workflow.");
+      const [persisted] = await sql<Array<{ status: string; error: string | null }>>`
+        SELECT status, error FROM grids.workflow_runs WHERE id = ${run.id}::uuid
+      `;
+      expect(persisted).toEqual({ status: "failed", error: "Workflow actor cannot run this workflow." });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("prepared runs reload current group membership before authorization", async () => {
+    const fixture = await insertFixture("write");
+    const actorUserId = uuid();
+    const actorGroupId = uuid();
+    try {
+      const publicAccessId = fixture.accessIds.shift();
+      if (!publicAccessId) throw new Error("Missing public fixture access");
+      await sql`DELETE FROM grids.base_access WHERE access_id = ${publicAccessId}::uuid`;
+      await sql`DELETE FROM auth.access WHERE id = ${publicAccessId}::uuid`;
+      await sql`
+        INSERT INTO auth.users (id, uid, provider, profile, display_name, mail, given_name, sn)
+        VALUES (${actorUserId}::uuid, ${`workflow-${actorUserId}`}, 'local', 'user', 'Workflow Actor', 'workflow@example.test', 'Workflow', 'Actor')
+      `;
+      await sql`
+        INSERT INTO auth.groups (id, cn, provider, name, description)
+        VALUES (${actorGroupId}::uuid, ${`workflow-${actorGroupId}`}, 'local', 'Workflow actors', 'Workflow authorization test')
+      `;
+      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${actorUserId}::uuid, ${actorGroupId}::uuid)`;
+      const definition: WorkflowDefinition = {
+        triggers: { form: {} },
+        steps: [{ succeed: { message: "should not run" } }],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Group workflow", definition);
+      const workflowAccessId = await groupAccess(actorGroupId, "write");
+      fixture.accessIds.push(workflowAccessId);
+      await sql`INSERT INTO grids.workflow_access (workflow_id, access_id) VALUES (${workflowId}::uuid, ${workflowAccessId}::uuid)`;
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: definition,
+        triggerKind: "form",
+        actorUserId,
+        actorGroupIds: [actorGroupId],
+      });
+      await sql`DELETE FROM auth.user_groups_v2 WHERE user_id = ${actorUserId}::uuid AND group_id = ${actorGroupId}::uuid`;
+
+      const executed = await executePreparedRun({ runId: run.id, queueAttempt: 0 });
+      expect(executed.ok).toBe(false);
+      if (executed.ok) throw new Error("Expected revoked group membership denial");
+      expect(executed.error.message).toBe("Workflow actor cannot run this workflow.");
+    } finally {
+      await cleanupFixture(fixture);
+      await sql`DELETE FROM auth.user_groups_v2 WHERE user_id = ${actorUserId}::uuid OR group_id = ${actorGroupId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${actorUserId}::uuid`;
+      await sql`DELETE FROM auth.groups WHERE id = ${actorGroupId}::uuid`;
+    }
+  });
+
+  postgresTest("prepared runs fail terminally when their workflow was deleted", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const definition: WorkflowDefinition = {
+        triggers: { form: {} },
+        steps: [{ succeed: { message: "should not run" } }],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Deleted workflow", definition);
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: definition,
+        triggerKind: "form",
+      });
+      await sql`DELETE FROM grids.workflows WHERE id = ${workflowId}::uuid`;
+
+      const executed = await executePreparedRun({ runId: run.id, queueAttempt: 0 });
+      expect(executed.ok).toBe(false);
+      if (executed.ok) throw new Error("Expected deleted workflow failure");
+      expect(executed.error.message).toBe("workflow run no longer references a workflow");
+      const [persisted] = await sql<Array<{ status: string; error: string | null }>>`
+        SELECT status, error FROM grids.workflow_runs WHERE id = ${run.id}::uuid
+      `;
+      expect(persisted).toEqual({ status: "failed", error: "workflow run no longer references a workflow" });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("prepared dashboard runs require their original workflow button to remain available", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const definition: WorkflowDefinition = {
+        triggers: { dashboardButton: {} },
+        steps: [{ succeed: { message: "dashboard run" } }],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Dashboard workflow", definition);
+      const dashboardId = uuid();
+      const widgetId = "workflow-widget";
+      await sql`
+        INSERT INTO grids.dashboards (id, short_id, base_id, name, config, position)
+        VALUES (
+          ${dashboardId}::uuid,
+          ${shortId("D")},
+          ${fixture.baseId}::uuid,
+          'Workflow dashboard',
+          ${{
+            rows: [
+              {
+                id: "row-1",
+                kind: "row",
+                height: "md",
+                cells: [{ id: widgetId, kind: "workflow-button", span: 4, workflowId }],
+              },
+            ],
+          }}::jsonb,
+          0
+        )
+      `;
+      const prepared = await prepareDashboardWorkflowTriggerRun({
+        workflowId,
+        triggerKind: "dashboardButton",
+        dashboardId,
+        dashboardWidgetId: widgetId,
+      });
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error(prepared.error.message);
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: definition,
+        triggerKind: prepared.data.triggerKind,
+        triggerInput: prepared.data.triggerInput,
+        resolvedInput: prepared.data.resolvedInput,
+        authorization: prepared.data.authorization,
+      });
+      await sql`UPDATE grids.dashboards SET config = '{"rows":[]}'::jsonb WHERE id = ${dashboardId}::uuid`;
+
+      const executed = await executePreparedRun({ runId: run.id, queueAttempt: 0 });
+      expect(executed.ok).toBe(false);
+      if (executed.ok) throw new Error("Expected dashboard widget denial");
+      expect(executed.error.message).toBe("Workflow dashboard button is no longer available.");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
   postgresTest("bulk selection resumes completed loop steps by record path", async () => {
     const fixture = await insertFixture("write");
     try {
@@ -582,6 +789,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
@@ -603,13 +811,8 @@ describe("workflow runtime integration", () => {
       await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
 
       const executed = await executePreparedRun({
-        workflowId: fixture.workflowId,
         runId: run.id,
         queueAttempt: 0,
-        triggerKind: "bulkSelection",
-        triggerInput,
-        resolvedInput,
-        authorization: { kind: "workflow" },
       });
       expect(executed.ok).toBe(true);
       if (!executed.ok) throw new Error(executed.error.message);
@@ -626,24 +829,22 @@ describe("workflow runtime integration", () => {
     const fixture = await insertFixture("write");
     try {
       const resolvedInput = { records: [fixture.recordAId, fixture.recordBId] };
-      const serializationWorkflowId = await insertWorkflow(fixture.baseId, "Persist saved records", {
+      const serializationDefinition: WorkflowDefinition = {
         inputs: { records: { type: "recordList", table: "Items" } },
         triggers: { form: {} },
         steps: [{ setVariable: { name: "savedRecords", value: "${{ inputs.records }}" } }],
-      });
+      };
+      const serializationWorkflowId = await insertWorkflow(fixture.baseId, "Persist saved records", serializationDefinition);
       const serializationRun = await createWorkflowRun({
         workflowId: serializationWorkflowId,
         baseId: fixture.baseId,
+        workflowDefinition: serializationDefinition,
         triggerKind: "form",
         resolvedInput,
       });
       const serialized = await executePreparedRun({
-        workflowId: serializationWorkflowId,
         runId: serializationRun.id,
         queueAttempt: 0,
-        triggerKind: "form",
-        resolvedInput,
-        authorization: { kind: "workflow" },
       });
       expect(serialized.ok).toBe(true);
       if (!serialized.ok) throw new Error(serialized.error.message);
@@ -659,7 +860,7 @@ describe("workflow runtime integration", () => {
       });
       if (!serializedStep) throw new Error("Expected persisted setVariable output");
 
-      const workflowId = await insertWorkflow(fixture.baseId, "Resume saved records", {
+      const definition: WorkflowDefinition = {
         inputs: { records: { type: "recordList", table: "Items" } },
         triggers: { form: {} },
         steps: [
@@ -670,10 +871,12 @@ describe("workflow runtime integration", () => {
             do: [{ updateRecord: { record: "item", set: { Status: "resumed" } } }],
           },
         ],
-      });
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Resume saved records", definition);
       const run = await createWorkflowRun({
         workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: definition,
         triggerKind: "form",
         resolvedInput,
       });
@@ -691,15 +894,23 @@ describe("workflow runtime integration", () => {
         status: "succeeded",
         output: serializedStep.output,
       });
+      const editedDefinition: WorkflowDefinition = {
+        ...definition,
+        steps: [
+          definition.steps[0]!,
+          {
+            forEach: "savedRecords",
+            as: "item",
+            do: [{ updateRecord: { record: "item", set: { Status: "edited" } } }],
+          },
+        ],
+      };
+      await sql`UPDATE grids.workflows SET compiled = ${editedDefinition}::jsonb WHERE id = ${workflowId}::uuid`;
       await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
 
       const executed = await executePreparedRun({
-        workflowId,
         runId: run.id,
         queueAttempt: 0,
-        triggerKind: "form",
-        resolvedInput,
-        authorization: { kind: "workflow" },
       });
       expect(executed.ok).toBe(true);
       if (!executed.ok) throw new Error(executed.error.message);
@@ -719,24 +930,27 @@ describe("workflow runtime integration", () => {
       await sql`DELETE FROM auth.access WHERE id = ${fixture.accessIds[0]}::uuid`;
       fixture.accessIds.length = 0;
 
-      const workflowId = await insertWorkflow(fixture.baseId, "Protected record expression", {
+      const definition: WorkflowDefinition = {
         inputs: { item: { type: "record", table: "Items" } },
         triggers: { form: {} },
         steps: [{ succeed: { message: "${{ inputs.item.Name }}" } }],
-      });
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Protected record expression", definition);
       const workflowAccessId = await publicAccess("write");
       accessIds.push(workflowAccessId);
       await sql`INSERT INTO grids.workflow_access (workflow_id, access_id) VALUES (${workflowId}::uuid, ${workflowAccessId}::uuid)`;
       const resolvedInput = { item: fixture.recordAId };
-      const run = await createWorkflowRun({ workflowId, baseId: fixture.baseId, triggerKind: "form", resolvedInput });
-
-      const executed = await executePreparedRun({
+      const run = await createWorkflowRun({
         workflowId,
-        runId: run.id,
-        queueAttempt: 0,
+        baseId: fixture.baseId,
+        workflowDefinition: definition,
         triggerKind: "form",
         resolvedInput,
-        authorization: { kind: "workflow" },
+      });
+
+      const executed = await executePreparedRun({
+        runId: run.id,
+        queueAttempt: 0,
       });
       expect(executed.ok).toBe(false);
       if (executed.ok) throw new Error("Expected record read permission denial");
@@ -755,6 +969,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
@@ -769,13 +984,8 @@ describe("workflow runtime integration", () => {
       `;
 
       const executed = await executePreparedRun({
-        workflowId: fixture.workflowId,
         runId: run.id,
         queueAttempt: 0,
-        triggerKind: "bulkSelection",
-        triggerInput,
-        resolvedInput,
-        authorization: { kind: "workflow" },
       });
       expect(executed.ok).toBe(true);
       if (!executed.ok) throw new Error(executed.error.message);
@@ -795,6 +1005,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
@@ -810,13 +1021,8 @@ describe("workflow runtime integration", () => {
       await sql`UPDATE grids.workflows SET enabled = FALSE WHERE id = ${fixture.workflowId}::uuid`;
 
       const executed = await executePreparedRun({
-        workflowId: fixture.workflowId,
         runId: run.id,
         queueAttempt: 0,
-        triggerKind: "bulkSelection",
-        triggerInput,
-        resolvedInput,
-        authorization: { kind: "workflow" },
       });
       expect(executed.ok).toBe(true);
       if (!executed.ok) throw new Error(executed.error.message);
@@ -837,6 +1043,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
@@ -854,13 +1061,8 @@ describe("workflow runtime integration", () => {
       await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
 
       const executed = await executePreparedRun({
-        workflowId: fixture.workflowId,
         runId: run.id,
         queueAttempt: 0,
-        triggerKind: "bulkSelection",
-        triggerInput,
-        resolvedInput,
-        authorization: { kind: "workflow" },
       });
       expect(executed.ok).toBe(false);
       if (executed.ok) throw new Error("Expected interrupted step failure");
@@ -916,6 +1118,7 @@ describe("workflow runtime integration", () => {
       const run = await createWorkflowRun({
         workflowId,
         baseId: fixture.baseId,
+        workflowDefinition: definition,
         triggerKind: "form",
         triggerInput: {},
         resolvedInput: {},
@@ -925,13 +1128,8 @@ describe("workflow runtime integration", () => {
       const failedNotificationId = uuid();
 
       const executed = await executePreparedRun({
-        workflowId,
         runId: run.id,
         queueAttempt: 0,
-        triggerKind: "form",
-        triggerInput: {},
-        resolvedInput: {},
-        authorization: { kind: "workflow" },
         notificationSender: {
           send: async () => {
             sends += 1;

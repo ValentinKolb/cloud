@@ -1,10 +1,22 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { WorkflowEmailDelivery, WorkflowRun, WorkflowTriggerKind } from "../contracts";
+import {
+  type WorkflowDefinition,
+  WorkflowDefinitionSchema,
+  type WorkflowEmailDelivery,
+  type WorkflowRun,
+  type WorkflowTriggerKind,
+} from "../contracts";
 import type { WorkflowRunEventScope } from "../lib/workflow-run-events";
 import { logAudit, type SqlClient } from "./audit";
 import { parseJsonbRow } from "./jsonb";
+import {
+  loadWorkflowCatalog,
+  snapshotWorkflowCatalog,
+  type WorkflowCatalogSnapshot,
+  WorkflowCatalogSnapshotSchema,
+} from "./workflow-catalog";
 import { listWorkflowEmailDeliveries } from "./workflow-email-deliveries";
 import { notifyWorkflowRunEvent } from "./workflow-run-events";
 import { listStepRuns } from "./workflow-step-runs";
@@ -14,6 +26,8 @@ type DbRow = Record<string, unknown>;
 type CreateRunInput = {
   workflowId: string;
   baseId: string;
+  workflowDefinition: WorkflowDefinition;
+  workflowCatalog?: WorkflowCatalogSnapshot;
   triggerKind: WorkflowTriggerKind;
   triggerKey?: string | null;
   triggerInput?: Record<string, unknown> | null;
@@ -24,7 +38,29 @@ type CreateRunInput = {
   authorization?: StoredWorkflowAuthorization;
 };
 
-type StoredWorkflowAuthorization = { kind: "workflow" } | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
+export type StoredWorkflowAuthorization =
+  | { kind: "workflow" }
+  | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
+
+const parseStoredWorkflowAuthorization = (value: unknown): StoredWorkflowAuthorization | null => {
+  if (!value || typeof value !== "object") return null;
+  const authorization = value as Record<string, unknown>;
+  if (authorization.kind === "workflow") return { kind: "workflow" };
+  if (
+    authorization.kind === "dashboard-widget" &&
+    typeof authorization.dashboardId === "string" &&
+    authorization.dashboardId.length > 0 &&
+    typeof authorization.dashboardWidgetId === "string" &&
+    authorization.dashboardWidgetId.length > 0
+  ) {
+    return {
+      kind: "dashboard-widget",
+      dashboardId: authorization.dashboardId,
+      dashboardWidgetId: authorization.dashboardWidgetId,
+    };
+  }
+  return null;
+};
 
 const workflowRunEventScope = (value: unknown): WorkflowRunEventScope => {
   if (!value || typeof value !== "object") return { kind: "workflow" };
@@ -40,6 +76,12 @@ export type RecoverableQueuedWorkflowRun = WorkflowRun & {
   actorGroupIds: string[];
   authorization: unknown;
   queueAttempts: number;
+};
+
+export type PersistedWorkflowRun = Omit<RecoverableQueuedWorkflowRun, "authorization"> & {
+  authorization: StoredWorkflowAuthorization;
+  workflowDefinition: WorkflowDefinition;
+  workflowCatalog: WorkflowCatalogSnapshot;
 };
 
 type FinishRunInput = {
@@ -122,11 +164,27 @@ const mapRecoverableRunRow = (row: DbRow): RecoverableQueuedWorkflowRun => ({
   queueAttempts: Number(row.queue_attempts ?? 0),
 });
 
-export const createWorkflowRun = async (input: CreateRunInput, client: SqlClient = sql): Promise<RecoverableQueuedWorkflowRun> => {
+const mapPersistedRunRow = (row: DbRow): PersistedWorkflowRun => {
+  const definition = WorkflowDefinitionSchema.safeParse(parseJsonbRow<unknown>(row.workflow_definition, null));
+  if (!definition.success) throw err.internal("stored workflow run definition is invalid");
+  const catalog = WorkflowCatalogSnapshotSchema.safeParse(parseJsonbRow<unknown>(row.workflow_catalog, null));
+  if (!catalog.success) throw err.internal("stored workflow run catalog is invalid");
+  const authorization = parseStoredWorkflowAuthorization(parseJsonbRow<unknown>(row.trigger_authorization, null));
+  if (!authorization) throw err.internal("stored workflow run authorization is invalid");
+  return {
+    ...mapRecoverableRunRow(row),
+    authorization,
+    workflowDefinition: definition.data,
+    workflowCatalog: catalog.data,
+  };
+};
+
+export const createWorkflowRun = async (input: CreateRunInput, client: SqlClient = sql): Promise<PersistedWorkflowRun> => {
+  const workflowCatalog = input.workflowCatalog ?? snapshotWorkflowCatalog(await loadWorkflowCatalog(input.baseId));
   const [row] = await client<DbRow[]>`
     INSERT INTO grids.workflow_runs (
       workflow_id, base_id, actor_user_id, actor_group_ids, service_account_id, trigger_authorization, trigger_kind,
-      trigger_key, trigger_input, resolved_input, status
+      trigger_key, trigger_input, resolved_input, workflow_definition, workflow_catalog, status
     )
     VALUES (
       ${input.workflowId}::uuid,
@@ -139,6 +197,8 @@ export const createWorkflowRun = async (input: CreateRunInput, client: SqlClient
       ${input.triggerKey ?? null},
       ${input.triggerInput ?? null}::jsonb,
       ${input.resolvedInput ?? null}::jsonb,
+      ${input.workflowDefinition}::jsonb,
+      ${workflowCatalog}::jsonb,
       'queued'
     )
     ON CONFLICT (workflow_id, trigger_kind, trigger_key)
@@ -146,11 +206,11 @@ export const createWorkflowRun = async (input: CreateRunInput, client: SqlClient
     DO UPDATE SET trigger_key = grids.workflow_runs.trigger_key
     RETURNING id, workflow_id, base_id, actor_user_id, to_json(actor_group_ids) AS actor_group_ids,
               service_account_id, trigger_authorization,
-              trigger_kind, trigger_input, resolved_input, status, error, result_message, queue_attempts,
+              trigger_kind, trigger_input, resolved_input, workflow_definition, workflow_catalog, status, error, result_message, queue_attempts,
               created_at, started_at, finished_at
   `;
   if (!row) throw err.internal("workflow run insert failed");
-  const run = mapRecoverableRunRow(row);
+  const run = mapPersistedRunRow(row);
   await notifyWorkflowRunEvent(run, [], workflowRunEventScope(run.authorization));
   return run;
 };
@@ -444,6 +504,18 @@ export const getWorkflowRun = async (runId: string): Promise<WorkflowRun | null>
     WHERE id = ${runId}::uuid
   `;
   return row ? mapRunRow(row) : null;
+};
+
+export const getPersistedWorkflowRun = async (runId: string): Promise<PersistedWorkflowRun | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT id, workflow_id, base_id, actor_user_id, to_json(actor_group_ids) AS actor_group_ids,
+           service_account_id, trigger_authorization, trigger_kind, trigger_input, resolved_input, workflow_definition,
+           workflow_catalog,
+           status, error, result_message, queue_attempts, created_at, started_at, finished_at
+    FROM grids.workflow_runs
+    WHERE id = ${runId}::uuid
+  `;
+  return row ? mapPersistedRunRow(row) : null;
 };
 
 export const getWorkflowRunScope = async (runId: string): Promise<WorkflowRunEventScope | null> => {

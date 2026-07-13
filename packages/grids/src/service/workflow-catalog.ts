@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { z } from "zod";
 
 export type WorkflowCatalogEntry = { id: string; name: string; shortId: string };
 
@@ -13,6 +14,18 @@ export type WorkflowCatalog = {
   templates: WorkflowCatalogIndex<WorkflowCatalogEntry & { tableId: string }>;
   emailTemplates: WorkflowCatalogIndex<WorkflowCatalogEntry>;
 };
+
+const WorkflowCatalogEntrySchema = z.object({ id: z.string().uuid(), name: z.string(), shortId: z.string().min(1) });
+const WorkflowTemplateCatalogEntrySchema = WorkflowCatalogEntrySchema.extend({ tableId: z.string().uuid() });
+
+export const WorkflowCatalogSnapshotSchema = z.object({
+  tables: z.array(WorkflowCatalogEntrySchema),
+  fieldsByTable: z.record(z.string().uuid(), z.array(WorkflowCatalogEntrySchema)),
+  templates: z.array(WorkflowTemplateCatalogEntrySchema),
+  emailTemplates: z.array(WorkflowCatalogEntrySchema),
+});
+
+export type WorkflowCatalogSnapshot = z.infer<typeof WorkflowCatalogSnapshotSchema>;
 
 type WorkflowCatalogInput = {
   tables: WorkflowCatalogEntry[];
@@ -56,6 +69,28 @@ export const buildWorkflowCatalog = (input: WorkflowCatalogInput): WorkflowCatal
   for (const template of input.emailTemplates ?? []) addRefAliases(emailTemplates, template);
   return { tables, fieldsByTable, templates, emailTemplates };
 };
+
+const uniqueEntries = <T extends WorkflowCatalogEntry>(index: WorkflowCatalogIndex<T>): T[] =>
+  [...new Map([...index.refs.values()].map((entry) => [entry.id, entry])).values()].sort((left, right) => left.id.localeCompare(right.id));
+
+export const snapshotWorkflowCatalog = (catalog: WorkflowCatalog): WorkflowCatalogSnapshot => ({
+  tables: uniqueEntries(catalog.tables),
+  fieldsByTable: Object.fromEntries(
+    [...catalog.fieldsByTable.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([tableId, fields]) => [tableId, uniqueEntries(fields)]),
+  ),
+  templates: uniqueEntries(catalog.templates),
+  emailTemplates: uniqueEntries(catalog.emailTemplates),
+});
+
+export const restoreWorkflowCatalog = (snapshot: WorkflowCatalogSnapshot): WorkflowCatalog =>
+  buildWorkflowCatalog({
+    tables: snapshot.tables,
+    fieldsByTable: new Map(Object.entries(snapshot.fieldsByTable)),
+    templates: snapshot.templates,
+    emailTemplates: snapshot.emailTemplates,
+  });
 
 export const workflowRefDiagnostic = <T extends WorkflowCatalogEntry>(
   index: WorkflowCatalogIndex<T>,

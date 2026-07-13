@@ -18,7 +18,7 @@ import { validateWorkflowReferences } from "./workflow-reference-validator";
 type DbRow = Record<string, unknown>;
 
 export { ensureRecordScanCode, getOrCreateRecordScanCode, getRecordScanCode } from "./record-scan-codes";
-export type { WorkflowCatalog, WorkflowCatalogEntry } from "./workflow-catalog";
+export type { WorkflowCatalog, WorkflowCatalogEntry, WorkflowCatalogSnapshot } from "./workflow-catalog";
 export {
   buildWorkflowCatalog,
   loadWorkflowCatalog,
@@ -26,6 +26,8 @@ export {
   resolveWorkflowFieldRef,
   resolveWorkflowTableRef,
   resolveWorkflowTemplateRef,
+  restoreWorkflowCatalog,
+  snapshotWorkflowCatalog,
 } from "./workflow-catalog";
 export { validateWorkflowReferences } from "./workflow-reference-validator";
 export { runStats } from "./workflow-run-stats";
@@ -35,13 +37,16 @@ export {
   createWorkflowRun,
   failQueuedRunAttempt,
   finishRun,
+  getPersistedWorkflowRun,
   getWorkflowRun,
   getWorkflowRunScope,
   heartbeatRun,
   listEmailDeliveriesPage,
   listRuns,
   listRunsPage,
+  type PersistedWorkflowRun,
   type RecoverableQueuedWorkflowRun,
+  type StoredWorkflowAuthorization,
 } from "./workflow-runs";
 export { createStepRun, finishStepRun, getStepRunByPath, listStepRuns } from "./workflow-step-runs";
 

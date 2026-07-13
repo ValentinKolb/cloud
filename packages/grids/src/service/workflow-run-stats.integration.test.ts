@@ -31,13 +31,13 @@ describe("workflow run statistics integration", () => {
       `;
       await sql`
         INSERT INTO grids.workflow_runs (
-          id, workflow_id, base_id, trigger_kind, status, created_at, started_at, finished_at
+          id, workflow_id, base_id, workflow_definition, workflow_catalog, trigger_kind, status, created_at, started_at, finished_at
         )
         VALUES
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 'form', 'succeeded', now() - interval '5 minutes', now() - interval '5 minutes', now() - interval '5 minutes' + interval '1 second'),
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 'form', 'failed', now() - interval '4 minutes', now() - interval '4 minutes', now() - interval '4 minutes' + interval '3 seconds'),
-          (${uuid()}::uuid, ${workflowBId}::uuid, ${baseId}::uuid, 'api', 'running', now() - interval '3 minutes', now() - interval '3 minutes', NULL),
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 'schedule', 'failed', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours' + interval '2 seconds')
+          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, '{"triggers":{"form":{}},"steps":[]}'::jsonb, '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, 'form', 'succeeded', now() - interval '5 minutes', now() - interval '5 minutes', now() - interval '5 minutes' + interval '1 second'),
+          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, '{"triggers":{"form":{}},"steps":[]}'::jsonb, '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, 'form', 'failed', now() - interval '4 minutes', now() - interval '4 minutes', now() - interval '4 minutes' + interval '3 seconds'),
+          (${uuid()}::uuid, ${workflowBId}::uuid, ${baseId}::uuid, '{"triggers":{"api":{}},"steps":[]}'::jsonb, '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, 'api', 'running', now() - interval '3 minutes', now() - interval '3 minutes', NULL),
+          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, '{"triggers":{"schedule":{"cron":"0 * * * *"}},"steps":[]}'::jsonb, '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, 'schedule', 'failed', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours' + interval '2 seconds')
       `;
 
       const stats = await runStats(baseId, [workflowAId, workflowBId], { window: "1h" });

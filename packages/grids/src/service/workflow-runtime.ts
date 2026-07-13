@@ -20,6 +20,8 @@ import {
   workflowValueExpression,
 } from "../workflows/value-expression";
 import { logAudit } from "./audit";
+import { canReadDashboardIncludedData } from "./dashboard-included-access";
+import { get as getDashboard } from "./dashboards";
 import { createDocumentLink, createRunForRecord, getTemplate, publicDocumentLinkUrl } from "./documents";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import type { GridsRecordEvent } from "./record-events";
@@ -34,14 +36,19 @@ import {
   createWorkflowRun,
   finishRun,
   get,
+  getPersistedWorkflowRun,
   getRecordScanCode,
-  getWorkflowRun,
   heartbeatRun,
   loadWorkflowCatalog,
+  type PersistedWorkflowRun,
   resolveWorkflowFieldRef,
   resolveWorkflowTableRef,
   resolveWorkflowTemplateRef,
+  restoreWorkflowCatalog,
+  type StoredWorkflowAuthorization,
+  snapshotWorkflowCatalog,
   type WorkflowCatalog,
+  type WorkflowCatalogSnapshot,
 } from "./workflows";
 
 type RuntimeRecord = { kind: "record"; tableId: string; recordId: string };
@@ -79,7 +86,7 @@ type RuntimeHttpRequestAction = {
 };
 type RuntimeSetVariableAction = { name: string; value: WorkflowValue };
 
-export type WorkflowRuntimeInput = Record<string, unknown>;
+type WorkflowRuntimeInput = Record<string, unknown>;
 
 export type ExecuteWorkflowParams = {
   workflowId: string;
@@ -94,14 +101,14 @@ export type ExecuteWorkflowParams = {
   notificationSender?: WorkflowNotificationSender;
 };
 
-export type WorkflowTriggerAuthorization =
-  | { kind: "workflow" }
-  | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
+type WorkflowTriggerAuthorization = StoredWorkflowAuthorization;
 
-type ExecutePreparedWorkflowRunParams = ExecuteWorkflowParams & {
+type ExecutePreparedWorkflowRunParams = {
   runId: string;
   queueAttempt: number;
-  authorization: WorkflowTriggerAuthorization;
+  leaseMs?: number;
+  heartbeat?: () => Promise<void>;
+  notificationSender?: WorkflowNotificationSender;
 };
 
 export type ExecuteScannerWorkflowParams = Omit<ExecuteWorkflowParams, "triggerKind" | "triggerInput" | "resolvedInput"> & {
@@ -127,6 +134,7 @@ export type PreparedWorkflowTriggerRun = {
   actorGroupIds: string[];
   serviceAccountId: string | null;
   authorization: WorkflowTriggerAuthorization;
+  workflowCatalog?: WorkflowCatalogSnapshot;
 };
 
 type WorkflowRunPrincipal = {
@@ -319,24 +327,49 @@ const requireDeclaredTrigger = (definition: WorkflowDefinition, kind: WorkflowTr
   return ok();
 };
 
-const createRuntimeContext = async (params: ExecuteWorkflowParams, workflow: Workflow): Promise<RuntimeContext> => ({
-  workflow,
-  definition: workflow.compiled,
-  catalog: await loadWorkflowCatalog(workflow.baseId),
-  runId: null,
-  executionGeneration: null,
-  actorUserId: params.actorUserId ?? null,
-  actorGroupIds: params.actorGroupIds ?? [],
-  serviceAccountId: params.serviceAccountId ?? null,
-  input: new Map(),
-  variables: new Map(),
-  records: new Map(),
-  readableTableIds: new Set(),
-  dateConfig: await workflowDateConfig(),
-  leaseMs: params.leaseMs,
-  heartbeat: params.heartbeat,
-  notificationSender: params.notificationSender ?? notifications,
-});
+const createRuntimeContext = async (
+  params: ExecuteWorkflowParams,
+  workflow: Workflow,
+  definition: WorkflowDefinition = workflow.compiled,
+  catalogSnapshot?: WorkflowCatalogSnapshot,
+): Promise<RuntimeContext> => {
+  const catalog = catalogSnapshot ? restoreWorkflowCatalog(catalogSnapshot) : await loadWorkflowCatalog(workflow.baseId);
+  return {
+    workflow,
+    definition,
+    catalog,
+    runId: null,
+    executionGeneration: null,
+    actorUserId: params.actorUserId ?? null,
+    actorGroupIds: params.actorGroupIds ?? [],
+    serviceAccountId: params.serviceAccountId ?? null,
+    input: new Map(),
+    variables: new Map(),
+    records: new Map(),
+    readableTableIds: new Set(),
+    dateConfig: await workflowDateConfig(),
+    leaseMs: params.leaseMs,
+    heartbeat: params.heartbeat,
+    notificationSender: params.notificationSender ?? notifications,
+  };
+};
+
+const requireExecutionAuthorization = async (ctx: RuntimeContext, authorization: WorkflowTriggerAuthorization): Promise<Result<void>> => {
+  // Runs keep their accepted principal and definition, but current resource ACLs still govern execution.
+  if (authorization.kind === "workflow") return requireWorkflowRunPermission(ctx);
+  const dashboard = await getDashboard(authorization.dashboardId);
+  if (!dashboard || dashboard.baseId !== ctx.workflow.baseId) return fail(err.forbidden("Workflow dashboard access was revoked."));
+  const canRead = await canReadDashboardIncludedData(dashboard, {
+    userId: ctx.actorUserId,
+    userGroups: ctx.actorGroupIds,
+    serviceAccountId: ctx.serviceAccountId,
+  });
+  if (!canRead) return fail(err.forbidden("Workflow dashboard access was revoked."));
+  const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === authorization.dashboardWidgetId);
+  return widget?.kind === "workflow-button" && widget.workflowId === ctx.workflow.id
+    ? ok()
+    : fail(err.forbidden("Workflow dashboard button is no longer available."));
+};
 
 const plainResolvedInput = (ctx: RuntimeContext): WorkflowRuntimeInput =>
   Object.fromEntries([...ctx.input.entries()].map(([key, value]) => [key, valueToPlain(value)]));
@@ -348,17 +381,18 @@ type WorkflowExecutionPreparation = PreparedWorkflowTriggerRun & {
 const prepareWorkflowExecution = async (
   params: ExecuteWorkflowParams,
   authorization: WorkflowTriggerAuthorization = { kind: "workflow" },
+  pinnedDefinition?: WorkflowDefinition,
+  pinnedCatalog?: WorkflowCatalogSnapshot,
 ): Promise<Result<WorkflowExecutionPreparation>> => {
   const workflow = await get(params.workflowId);
   if (!workflow) return fail(err.notFound("workflow"));
   if (!workflow.enabled) return fail(err.badInput("workflow is disabled"));
-  const trigger = requireDeclaredTrigger(workflow.compiled, params.triggerKind);
+  const definition = pinnedDefinition ?? workflow.compiled;
+  const trigger = requireDeclaredTrigger(definition, params.triggerKind);
   if (!trigger.ok) return trigger;
-  const ctx = await createRuntimeContext(params, workflow);
-  if (authorization.kind === "workflow") {
-    const permission = await requireWorkflowRunPermission(ctx);
-    if (!permission.ok) return permission;
-  }
+  const ctx = await createRuntimeContext(params, workflow, definition, pinnedCatalog);
+  const permission = await requireExecutionAuthorization(ctx, authorization);
+  if (!permission.ok) return permission;
   const input = resolveInputs(ctx, params.resolvedInput ?? params.triggerInput ?? {});
   if (!input.ok) return input;
   return ok({
@@ -371,6 +405,7 @@ const prepareWorkflowExecution = async (
     actorGroupIds: ctx.actorGroupIds,
     serviceAccountId: ctx.serviceAccountId,
     authorization,
+    workflowCatalog: snapshotWorkflowCatalog(ctx.catalog),
   });
 };
 
@@ -991,7 +1026,7 @@ const executeSteps = (ctx: RuntimeContext, runId: string): Promise<Result<Runtim
       valuesEqual,
       withVariableScope: (run) => withVariableScope(ctx, run),
     },
-    ctx.workflow.compiled.steps,
+    ctx.definition.steps,
     runId,
     ctx.executionGeneration,
     "steps",
@@ -1002,20 +1037,18 @@ const isTerminalRun = (run: WorkflowRun): boolean => run.status === "succeeded" 
 
 const executeWorkflowRun = async (
   params: ExecuteWorkflowParams & { queueAttempt?: number },
-  preparedRun: WorkflowRun | null = null,
-  authorization: WorkflowTriggerAuthorization = { kind: "workflow" },
+  persistedRun: PersistedWorkflowRun | null = null,
 ): Promise<Result<WorkflowRun>> => {
   let claimedPreparedRun: { run: WorkflowRun; claimed: true; executionGeneration: number } | null = null;
-  if (preparedRun) {
-    if (preparedRun.workflowId !== params.workflowId) return fail(err.badInput("workflow run does not belong to this workflow"));
-    if (preparedRun.triggerKind !== params.triggerKind) return fail(err.badInput("workflow run trigger does not match this execution"));
-    if (isTerminalRun(preparedRun)) return ok(preparedRun);
-    if (preparedRun.status !== "queued" && preparedRun.status !== "running") return ok(preparedRun);
-    const claimed = await claimRun(preparedRun.id, params.leaseMs, params.queueAttempt);
+  if (persistedRun) {
+    if (isTerminalRun(persistedRun)) return ok(persistedRun);
+    if (persistedRun.status !== "queued" && persistedRun.status !== "running") return ok(persistedRun);
+    const claimed = await claimRun(persistedRun.id, params.leaseMs, params.queueAttempt);
     if (!claimed.claimed || claimed.run.status !== "running" || claimed.executionGeneration === null) return ok(claimed.run);
     claimedPreparedRun = { run: claimed.run, claimed: true, executionGeneration: claimed.executionGeneration };
   }
-  const prepared = await prepareWorkflowExecution(params, authorization);
+  const authorization = persistedRun?.authorization ?? { kind: "workflow" };
+  const prepared = await prepareWorkflowExecution(params, authorization, persistedRun?.workflowDefinition, persistedRun?.workflowCatalog);
   if (!prepared.ok) {
     if (claimedPreparedRun) {
       await finishRun(claimedPreparedRun.run.id, claimedPreparedRun.executionGeneration, {
@@ -1032,6 +1065,8 @@ const executeWorkflowRun = async (
     (await createWorkflowRun({
       workflowId: workflow.id,
       baseId: workflow.baseId,
+      workflowDefinition: ctx.definition,
+      workflowCatalog: snapshotWorkflowCatalog(ctx.catalog),
       triggerKind: params.triggerKind,
       triggerInput: params.triggerInput ?? null,
       resolvedInput: prepared.data.resolvedInput,
@@ -1079,6 +1114,7 @@ export const prepareWorkflowTriggerRun = async (params: ExecuteWorkflowParams): 
     actorGroupIds: prepared.data.actorGroupIds,
     serviceAccountId: prepared.data.serviceAccountId,
     authorization: prepared.data.authorization,
+    workflowCatalog: prepared.data.workflowCatalog,
   });
 };
 
@@ -1101,13 +1137,37 @@ export const prepareDashboardWorkflowTriggerRun = async (
     actorGroupIds: prepared.data.actorGroupIds,
     serviceAccountId: prepared.data.serviceAccountId,
     authorization,
+    workflowCatalog: prepared.data.workflowCatalog,
   });
 };
 
 export const executePreparedRun = async (params: ExecutePreparedWorkflowRunParams): Promise<Result<WorkflowRun>> => {
-  const run = await getWorkflowRun(params.runId);
+  const run = await getPersistedWorkflowRun(params.runId);
   if (!run) return fail(err.notFound("workflow run"));
-  return executeWorkflowRun(params, run, params.authorization);
+  if (isTerminalRun(run)) return ok(run);
+  if (!run.workflowId) {
+    const claimed = await claimRun(run.id, params.leaseMs, params.queueAttempt);
+    if (!claimed.claimed || claimed.executionGeneration === null) return ok(claimed.run);
+    const failure = err.badInput("workflow run no longer references a workflow");
+    await finishRun(run.id, claimed.executionGeneration, { status: "failed", error: failure.message });
+    return fail(failure);
+  }
+  return executeWorkflowRun(
+    {
+      workflowId: run.workflowId,
+      triggerKind: run.triggerKind,
+      actorUserId: run.actorUserId,
+      actorGroupIds: run.actorUserId ? await loadUserGroupIds(run.actorUserId) : [],
+      serviceAccountId: run.serviceAccountId,
+      triggerInput: run.triggerInput,
+      resolvedInput: run.resolvedInput,
+      queueAttempt: params.queueAttempt,
+      leaseMs: params.leaseMs,
+      heartbeat: params.heartbeat,
+      notificationSender: params.notificationSender,
+    },
+    run,
+  );
 };
 
 const scannerWorkflowContext = async (
@@ -1278,10 +1338,8 @@ const prepareScannerWithAuthorization = async (
   const prepared = await scannerWorkflowContext(params);
   if (!prepared.ok) return prepared;
   const { inputName, tableId, ...ctx } = prepared.data;
-  if (authorization.kind === "workflow") {
-    const runPermission = await requireWorkflowRunPermission(ctx);
-    if (!runPermission.ok) return runPermission;
-  }
+  const runPermission = await requireExecutionAuthorization(ctx, authorization);
+  if (!runPermission.ok) return runPermission;
   const readPermission = await requireTableReadPermission(ctx, tableId);
   if (!readPermission.ok) return readPermission;
   const scanner = ctx.definition.triggers.scanner!;
@@ -1301,6 +1359,7 @@ const prepareScannerWithAuthorization = async (
     actorGroupIds: ctx.actorGroupIds,
     serviceAccountId: ctx.serviceAccountId,
     authorization,
+    workflowCatalog: snapshotWorkflowCatalog(ctx.catalog),
   });
 };
 
@@ -1318,6 +1377,7 @@ export const prepareDashboardScanner = async (
 
 type PreparedBulkSelectionWorkflowRun = {
   workflow: Workflow;
+  workflowCatalog: WorkflowCatalogSnapshot;
   triggerInput: WorkflowRuntimeInput;
   resolvedInput: WorkflowRuntimeInput;
   actorUserId: string | null;
@@ -1345,6 +1405,7 @@ export const prepareBulkSelection = async (
   const triggerInput = hasIds ? { input: inputName, recordIds: params.recordIds } : { input: inputName, query: params.query };
   return ok({
     workflow: ctx.workflow,
+    workflowCatalog: snapshotWorkflowCatalog(ctx.catalog),
     triggerInput,
     resolvedInput: { [inputName]: recordIds.data },
     actorUserId: ctx.actorUserId,
@@ -1370,6 +1431,7 @@ export const executeBulkSelection = async (params: ExecuteBulkSelectionWorkflowP
 
 type PreparedRecordEventWorkflowRun = {
   workflow: Workflow;
+  workflowCatalog: WorkflowCatalogSnapshot;
   triggerInput: WorkflowRuntimeInput;
   resolvedInput: WorkflowRuntimeInput;
   actorUserId: string | null;
@@ -1422,6 +1484,7 @@ export const prepareRecordEvent = async (params: ExecuteRecordEventWorkflowParam
 
   return ok({
     workflow,
+    workflowCatalog: snapshotWorkflowCatalog(catalog),
     actorUserId: ctx.actorUserId,
     actorGroupIds: ctx.actorGroupIds,
     serviceAccountId: ctx.serviceAccountId,

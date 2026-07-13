@@ -268,10 +268,12 @@ describe("dashboard-scoped workflow execution", () => {
 
       const [unscoped] = await sql<Array<{ id: string }>>`
         INSERT INTO grids.workflow_runs (
-          workflow_id, base_id, trigger_authorization, trigger_kind, trigger_input, resolved_input, status, finished_at
+          workflow_id, base_id, workflow_definition, workflow_catalog, trigger_authorization, trigger_kind, trigger_input, resolved_input, status, finished_at
         )
         VALUES (
-          ${fixture.workflowId}::uuid, ${fixture.baseId}::uuid, '{"kind":"workflow"}'::jsonb,
+          ${fixture.workflowId}::uuid, ${fixture.baseId}::uuid,
+          '{"triggers":{"dashboardButton":{}},"steps":[]}'::jsonb,
+          '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, '{"kind":"workflow"}'::jsonb,
           'dashboardButton', '{}'::jsonb, '{}'::jsonb, 'succeeded', now()
         )
         RETURNING id::text AS id

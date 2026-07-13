@@ -169,8 +169,12 @@ describe("document audit integration", () => {
         )
       `;
       await sql`
-        INSERT INTO grids.workflow_runs (id, workflow_id, base_id, actor_user_id, trigger_kind, status)
-        VALUES (${workflowRunId}::uuid, ${workflowId}::uuid, ${fixture.baseId}::uuid, ${fixture.actorId}::uuid, 'api', 'running')
+        INSERT INTO grids.workflow_runs (id, workflow_id, base_id, actor_user_id, workflow_definition, workflow_catalog, trigger_kind, status)
+        VALUES (
+          ${workflowRunId}::uuid, ${workflowId}::uuid, ${fixture.baseId}::uuid, ${fixture.actorId}::uuid,
+          '{"triggers":{"api":{}},"steps":[]}'::jsonb,
+          '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, 'api', 'running'
+        )
       `;
 
       const template = await getTemplate(fixture.templateId);

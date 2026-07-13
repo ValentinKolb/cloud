@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Workflow, WorkflowRun } from "../contracts";
 import { createWorkflowTriggerRuntime } from "./workflow-trigger-runtime";
-import type { RecoverableQueuedWorkflowRun } from "./workflows";
+import type { PersistedWorkflowRun, RecoverableQueuedWorkflowRun } from "./workflows";
 
 const workflowId = "11111111-1111-4111-8111-111111111111";
 const baseId = "22222222-2222-4222-8222-222222222222";
@@ -19,6 +19,7 @@ const base = {
   createdAt: "2026-07-08T00:00:00.000Z",
   updatedAt: "2026-07-08T00:00:00.000Z",
 };
+const workflowCatalog = { tables: [], fieldsByTable: {}, templates: [], emailTemplates: [] };
 
 const scheduledWorkflow = {
   id: workflowId,
@@ -57,7 +58,9 @@ const workflowRun = {
   startedAt: null,
   finishedAt: null,
   queueAttempts: 0,
-} satisfies RecoverableQueuedWorkflowRun;
+  workflowDefinition: scheduledWorkflow.compiled,
+  workflowCatalog,
+} satisfies PersistedWorkflowRun;
 
 const schedulerState = {
   created: [] as Array<{
@@ -78,18 +81,7 @@ const jobState = {
   submitted: [] as Array<{
     key: string;
     leaseMs: number;
-    input: {
-      triggerKind: string;
-      workflowId: string;
-      runId: string;
-      queueAttempt: number;
-      actorUserId: string | null;
-      actorGroupIds: string[];
-      serviceAccountId: string | null;
-      triggerInput: Record<string, unknown>;
-      resolvedInput: Record<string, unknown>;
-      authorization: { kind: string; dashboardId?: string; dashboardWidgetId?: string };
-    };
+    input: { runId: string; queueAttempt: number };
   }>,
   failSubmit: false,
   stopped: 0,
@@ -97,7 +89,7 @@ const jobState = {
 
 let getWorkflowResult: Workflow | null = scheduledWorkflow;
 let listScheduledResult: Workflow[] = [];
-let createRunResult: RecoverableQueuedWorkflowRun | null = null;
+let createRunResult: PersistedWorkflowRun | null = null;
 let createRunInputs: Array<Record<string, unknown>> = [];
 let staleQueuedRuns: RecoverableQueuedWorkflowRun[] = [];
 let failQueuedAttemptAllowed = true;
@@ -107,6 +99,14 @@ let recordEventBaseIds: string[] = [];
 let recordEventReadersStarted = 0;
 let recordEventReadersAborted = 0;
 let workflowTriggerRuntime: ReturnType<typeof createWorkflowTriggerRuntime>;
+
+const waitFor = async (condition: () => boolean): Promise<void> => {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (condition()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error("Timed out waiting for workflow trigger runtime state");
+};
 
 const createTestRuntime = () =>
   createWorkflowTriggerRuntime({
@@ -142,22 +142,7 @@ const createTestRuntime = () =>
       },
     } as never,
     workflowJob: {
-      submit: async (cfg: {
-        key: string;
-        leaseMs: number;
-        input: {
-          triggerKind: string;
-          workflowId: string;
-          runId: string;
-          queueAttempt: number;
-          actorUserId: string | null;
-          actorGroupIds: string[];
-          serviceAccountId: string | null;
-          triggerInput: Record<string, unknown>;
-          resolvedInput: Record<string, unknown>;
-          authorization: { kind: string; dashboardId?: string; dashboardWidgetId?: string };
-        };
-      }) => {
+      submit: async (cfg: { key: string; leaseMs: number; input: { runId: string; queueAttempt: number } }) => {
         if (jobState.failSubmit) throw new Error("queue unavailable");
         jobState.submitted.push(cfg);
       },
@@ -179,6 +164,7 @@ const createTestRuntime = () =>
             triggerKind: input.triggerKind,
             triggerInput: input.triggerInput ?? null,
             resolvedInput: input.resolvedInput ?? null,
+            workflowDefinition: input.workflowDefinition,
           }
         );
       },
@@ -267,6 +253,7 @@ const createTestRuntime = () =>
         else signal?.addEventListener("abort", () => resolve(), { once: true });
       });
     },
+    loadWorkflowCatalogSnapshot: async () => workflowCatalog,
   });
 
 beforeEach(async () => {
@@ -322,10 +309,9 @@ describe("workflow trigger runtime", () => {
     await process({ ctx: { slotTs: 1, trigger: "manual", runNumber: 1 } as never });
 
     expect(jobState.submitted).toHaveLength(1);
-    expect(jobState.submitted[0]?.input).toMatchObject({
-      workflowId,
-      runId,
-      triggerKind: "schedule",
+    expect(jobState.submitted[0]?.input).toEqual({ runId, queueAttempt: 0 });
+    expect(createRunInputs[0]).toMatchObject({
+      workflowDefinition: scheduledWorkflow.compiled,
       actorUserId: scheduledWorkflow.ownerUserId,
       actorGroupIds: [ownerGroupId],
     });
@@ -358,7 +344,7 @@ describe("workflow trigger runtime", () => {
     recordEventBaseIds = [baseId];
 
     await workflowTriggerRuntime.sync(scheduledWorkflow);
-    await Bun.sleep(300);
+    await waitFor(() => recordEventReadersStarted === 1);
 
     expect(recordEventReadersStarted).toBe(1);
   });
@@ -370,7 +356,7 @@ describe("workflow trigger runtime", () => {
 
     recordEventBaseIds = [];
     await workflowTriggerRuntime.sync(scheduledWorkflow);
-    await Bun.sleep(300);
+    await waitFor(() => recordEventReadersAborted === 1);
 
     expect(recordEventReadersAborted).toBe(1);
   });
@@ -393,12 +379,9 @@ describe("workflow trigger runtime", () => {
     expect(result.ok).toBe(true);
     expect(jobState.submitted).toHaveLength(1);
     expect(jobState.submitted[0]?.key).toBe(`run:${runId}:attempt:0`);
-    expect(jobState.submitted[0]?.input).toMatchObject({
-      workflowId,
-      runId,
-      triggerKind: "form",
-    });
+    expect(jobState.submitted[0]?.input).toEqual({ runId, queueAttempt: 0 });
     expect(createRunInputs[0]).toMatchObject({
+      workflowDefinition: scheduledWorkflow.compiled,
       actorGroupIds: [],
       authorization: { kind: "workflow" },
     });
@@ -414,14 +397,15 @@ describe("workflow trigger runtime", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(jobState.submitted[0]?.input.authorization).toEqual({
+    expect(jobState.submitted[0]?.input).toEqual({ runId, queueAttempt: 0 });
+    expect(createRunInputs[0]?.authorization).toEqual({
       kind: "dashboard-widget",
       dashboardId: "66666666-6666-4666-8666-666666666666",
       dashboardWidgetId: "widget-1",
     });
   });
 
-  test("duplicate triggers submit only the principal persisted on the canonical run", async () => {
+  test("duplicate triggers submit only the canonical run identity", async () => {
     createRunResult = {
       ...workflowRun,
       actorUserId: scheduledWorkflow.ownerUserId,
@@ -437,11 +421,7 @@ describe("workflow trigger runtime", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(jobState.submitted[0]?.input).toMatchObject({
-      actorUserId: scheduledWorkflow.ownerUserId,
-      actorGroupIds: [ownerGroupId],
-      authorization: { kind: "workflow" },
-    });
+    expect(jobState.submitted[0]?.input).toEqual({ runId, queueAttempt: 0 });
   });
 
   test("queueDirectRun fails the created run when submit fails", async () => {
@@ -504,22 +484,7 @@ describe("workflow trigger runtime", () => {
       {
         key: `run:${runId}:attempt:1`,
         leaseMs: 30 * 60 * 1000,
-        input: {
-          workflowId,
-          runId,
-          queueAttempt: 1,
-          triggerKind: "dashboardButton",
-          actorUserId: scheduledWorkflow.ownerUserId,
-          actorGroupIds: [ownerGroupId],
-          serviceAccountId: null,
-          triggerInput: { value: "original" },
-          resolvedInput: { value: "resolved" },
-          authorization: {
-            kind: "dashboard-widget",
-            dashboardId: "66666666-6666-4666-8666-666666666666",
-            dashboardWidgetId: "widget-1",
-          },
-        },
+        input: { runId, queueAttempt: 1 },
       },
     ]);
   });

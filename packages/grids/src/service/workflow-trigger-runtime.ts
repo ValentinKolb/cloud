@@ -19,8 +19,6 @@ import {
   prepareRecordEvent,
   prepareScanner,
   prepareWorkflowTriggerRun,
-  type WorkflowRuntimeInput,
-  type WorkflowTriggerAuthorization,
   workflowOwnerPrincipal,
 } from "./workflow-runtime";
 import { createWorkflowTriggerReaderRuntime } from "./workflow-trigger-readers";
@@ -35,61 +33,24 @@ const WORKFLOW_JOB_MAX_RETRIES = 3;
 const RUNTIME_RECONCILE_INTERVAL_MS = 15_000;
 const RUNTIME_RECONCILE_DEBOUNCE_MS = 250;
 
-type QueuedWorkflowTriggerKind = Extract<
-  WorkflowTriggerKind,
-  "form" | "api" | "scanner" | "bulkSelection" | "dashboardButton" | "schedule" | "recordEvent"
->;
-
 type DirectWorkflowTriggerKind = Extract<WorkflowTriggerKind, "form" | "api" | "dashboardButton">;
 
-type WorkflowTriggerJobInput = PreparedTriggerJobInput<QueuedWorkflowTriggerKind>;
-
-type PreparedTriggerJobInput<T extends QueuedWorkflowTriggerKind> = {
-  workflowId: string;
+type WorkflowTriggerJobInput = {
   runId: string;
   queueAttempt: number;
-  triggerKind: T;
-  actorUserId: string | null;
-  actorGroupIds: string[];
-  serviceAccountId: string | null;
-  triggerInput: WorkflowRuntimeInput;
-  resolvedInput: WorkflowRuntimeInput;
-  authorization: WorkflowTriggerAuthorization;
-};
-
-const parseStoredAuthorization = (value: unknown): WorkflowTriggerAuthorization | null => {
-  if (!value || typeof value !== "object") return null;
-  const authorization = value as Record<string, unknown>;
-  if (authorization.kind === "workflow") return { kind: "workflow" };
-  if (
-    authorization.kind === "dashboard-widget" &&
-    typeof authorization.dashboardId === "string" &&
-    authorization.dashboardId.length > 0 &&
-    typeof authorization.dashboardWidgetId === "string" &&
-    authorization.dashboardWidgetId.length > 0
-  ) {
-    return {
-      kind: "dashboard-widget",
-      dashboardId: authorization.dashboardId,
-      dashboardWidgetId: authorization.dashboardWidgetId,
-    };
-  }
-  return null;
 };
 
 const defaultWorkflowJob = job<WorkflowTriggerJobInput, { runId: string | null; status: string }>({
-  id: "grids:workflows:trigger",
+  id: "grids:workflows:trigger:v2",
   defaults: { leaseMs: WORKFLOW_JOB_LEASE_MS, keyTtlMs: 24 * 60 * 60 * 1000 },
   trace: trace.fromSyncJob<WorkflowTriggerJobInput, { runId: string | null; status: string }>({
     name: "Grid workflow trigger",
-    source: "grids:workflows:trigger",
+    source: "grids:workflows:trigger:v2",
     appId: "grids",
     attributes: (event) =>
       "input" in event && event.input
         ? {
-            "cloud.grids.workflow_id": event.input.workflowId,
             "cloud.grids.workflow_run_id": event.input.runId,
-            "cloud.grids.workflow_trigger": event.input.triggerKind,
           }
         : {},
     summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
@@ -97,23 +58,14 @@ const defaultWorkflowJob = job<WorkflowTriggerJobInput, { runId: string | null; 
   process: async ({ ctx }) => {
     const input = ctx.input;
     const result = await executePreparedRun({
-      workflowId: input.workflowId,
       runId: input.runId,
       queueAttempt: input.queueAttempt,
-      triggerKind: input.triggerKind,
-      actorUserId: input.actorUserId,
-      actorGroupIds: input.actorGroupIds,
-      serviceAccountId: input.serviceAccountId,
-      triggerInput: input.triggerInput,
-      resolvedInput: input.resolvedInput,
-      authorization: input.authorization,
       leaseMs: WORKFLOW_JOB_LEASE_MS,
       heartbeat: () => ctx.heartbeat({ leaseMs: WORKFLOW_JOB_LEASE_MS }),
     });
     if (!result.ok) {
       defaultLog.warn("Workflow trigger execution failed before run completion", {
-        workflowId: input.workflowId,
-        triggerKind: input.triggerKind,
+        runId: input.runId,
         error: result.error.message,
       });
       return { runId: null, status: "failed" };
@@ -164,6 +116,7 @@ type WorkflowTriggerRuntimeDeps = {
   reclaimRecordEventDeliveries?: typeof reclaimRecordEventDeliveries;
   latestMetadataEventCursor?: typeof latestMetadataEventCursor;
   liveMetadataEvents?: typeof liveMetadataEvents;
+  loadWorkflowCatalogSnapshot?: (baseId: string) => Promise<import("./workflows").WorkflowCatalogSnapshot>;
 };
 
 export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = {}) => {
@@ -185,29 +138,22 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   const reclaimRecordEventDeliveriesImpl = deps.reclaimRecordEventDeliveries ?? reclaimRecordEventDeliveries;
   const latestMetadataEventCursorImpl = deps.latestMetadataEventCursor ?? latestMetadataEventCursor;
   const liveMetadataEventsImpl = deps.liveMetadataEvents ?? liveMetadataEvents;
+  const loadWorkflowCatalogSnapshot =
+    deps.loadWorkflowCatalogSnapshot ??
+    (async (baseId: string) => workflowStore.snapshotWorkflowCatalog(await workflowStore.loadWorkflowCatalog(baseId)));
 
   let started = false;
   let reconcilePromise: Promise<void> | null = null;
   let reconcileInterval: ReturnType<typeof setInterval> | null = null;
   let reconcileDebounce: ReturnType<typeof setTimeout> | null = null;
 
-  const submitWorkflowJob = async (workflow: Workflow, run: RecoverableQueuedWorkflowRun): Promise<void> => {
-    const authorization = parseStoredAuthorization(run.authorization);
-    if (!authorization) throw new Error("stored authorization is invalid");
+  const submitWorkflowJob = async (run: RecoverableQueuedWorkflowRun): Promise<void> => {
     await workflowJob.submit({
       key: `run:${run.id}:attempt:${run.queueAttempts}`,
       leaseMs: WORKFLOW_JOB_LEASE_MS,
       input: {
-        workflowId: workflow.id,
         runId: run.id,
         queueAttempt: run.queueAttempts,
-        triggerKind: run.triggerKind as QueuedWorkflowTriggerKind,
-        actorUserId: run.actorUserId,
-        actorGroupIds: run.actorGroupIds,
-        serviceAccountId: run.serviceAccountId,
-        triggerInput: run.triggerInput ?? {},
-        resolvedInput: run.resolvedInput ?? {},
-        authorization,
       },
     });
   };
@@ -221,9 +167,12 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   };
 
   const queuePreparedRun = async (item: PreparedWorkflowTriggerRun, options: { triggerKey?: string } = {}): Promise<WorkflowRun> => {
+    const workflowCatalog = item.workflowCatalog ?? (await loadWorkflowCatalogSnapshot(item.workflow.baseId));
     const run = await workflows.createWorkflowRun({
       workflowId: item.workflow.id,
       baseId: item.workflow.baseId,
+      workflowDefinition: item.workflow.compiled,
+      workflowCatalog,
       actorUserId: item.actorUserId,
       actorGroupIds: item.actorGroupIds,
       serviceAccountId: item.serviceAccountId,
@@ -235,7 +184,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
     });
     if (run.status === "queued") {
       try {
-        await submitWorkflowJob(item.workflow, run);
+        await submitWorkflowJob(run);
       } catch (error) {
         return failQueuedAttempt(run, `Could not enqueue workflow run: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -255,7 +204,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
         continue;
       }
       try {
-        await submitWorkflowJob(workflow, run);
+        await submitWorkflowJob(run);
       } catch (error) {
         await failQueuedAttempt(run, `Could not recover workflow run: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -316,6 +265,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
       await queuePreparedRun(
         {
           workflow: item.workflow,
+          workflowCatalog: item.workflowCatalog,
           triggerKind: "bulkSelection",
           actorUserId: item.actorUserId,
           actorGroupIds: item.actorGroupIds,

@@ -1002,6 +1002,8 @@ const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
       trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('form', 'api', 'scanner', 'bulkSelection', 'dashboardButton', 'schedule', 'recordEvent')),
       trigger_input JSONB,
       resolved_input JSONB,
+      workflow_definition JSONB NOT NULL,
+      workflow_catalog JSONB NOT NULL,
       trigger_key TEXT,
       status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
       error TEXT,
@@ -1020,11 +1022,107 @@ const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS execution_generation INT NOT NULL DEFAULT 0`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS workflow_definition JSONB`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS workflow_catalog JSONB`.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.populate_workflow_run_snapshots()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      workflow_base_id UUID;
+      workflow_compiled JSONB;
+    BEGIN
+      IF NEW.workflow_definition IS NOT NULL AND NEW.workflow_catalog IS NOT NULL THEN
+        RETURN NEW;
+      END IF;
+      SELECT base_id, compiled
+      INTO workflow_base_id, workflow_compiled
+      FROM grids.workflows
+      WHERE id = NEW.workflow_id;
+      IF NOT FOUND THEN
+        RETURN NEW;
+      END IF;
+      NEW.workflow_definition := COALESCE(NEW.workflow_definition, workflow_compiled);
+      NEW.workflow_catalog := COALESCE(
+        NEW.workflow_catalog,
+        jsonb_build_object(
+          'tables', COALESCE((
+            SELECT jsonb_agg(jsonb_build_object('id', t.id::text, 'name', t.name, 'shortId', t.short_id) ORDER BY t.id)
+            FROM grids.tables t
+            WHERE t.base_id = workflow_base_id AND t.deleted_at IS NULL
+          ), '[]'::jsonb),
+          'fieldsByTable', COALESCE((
+            SELECT jsonb_object_agg(grouped.table_id, grouped.fields)
+            FROM (
+              SELECT f.table_id::text AS table_id,
+                     jsonb_agg(jsonb_build_object('id', f.id::text, 'name', f.name, 'shortId', f.short_id) ORDER BY f.id) AS fields
+              FROM grids.fields f
+              JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+              WHERE t.base_id = workflow_base_id AND f.deleted_at IS NULL
+              GROUP BY f.table_id
+            ) grouped
+          ), '{}'::jsonb),
+          'templates', COALESCE((
+            SELECT jsonb_agg(
+              jsonb_build_object('id', dt.id::text, 'name', dt.name, 'shortId', dt.short_id, 'tableId', dt.table_id::text)
+              ORDER BY dt.id
+            )
+            FROM grids.document_templates dt
+            JOIN grids.tables t ON t.id = dt.table_id AND t.deleted_at IS NULL
+            WHERE t.base_id = workflow_base_id AND dt.deleted_at IS NULL
+          ), '[]'::jsonb),
+          'emailTemplates', COALESCE((
+            SELECT jsonb_agg(jsonb_build_object('id', et.id::text, 'name', et.name, 'shortId', et.short_id) ORDER BY et.id)
+            FROM grids.email_templates et
+            WHERE et.base_id = workflow_base_id AND et.deleted_at IS NULL
+          ), '[]'::jsonb)
+        )
+      );
+      RETURN NEW;
+    END;
+    $$
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS populate_workflow_run_snapshots ON grids.workflow_runs`.simple();
+  await sql`
+    CREATE TRIGGER populate_workflow_run_snapshots
+    BEFORE INSERT ON grids.workflow_runs
+    FOR EACH ROW
+    EXECUTE FUNCTION grids.populate_workflow_run_snapshots()
+  `.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS result_message TEXT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS actor_group_ids UUID[]`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS trigger_authorization JSONB`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS queue_attempts INT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS last_queue_attempt_at TIMESTAMPTZ`.simple();
+  await sql`
+    UPDATE grids.workflow_runs run
+    SET workflow_definition = workflow.compiled
+    FROM grids.workflows workflow
+    WHERE run.workflow_definition IS NULL
+      AND run.workflow_id = workflow.id
+      AND run.status NOT IN ('queued', 'running')
+  `.simple();
+  await sql`
+    UPDATE grids.workflow_runs
+    SET status = 'failed',
+        error = 'Could not recover workflow run created before immutable execution snapshots were available',
+        finished_at = now()
+    WHERE (workflow_definition IS NULL OR workflow_catalog IS NULL)
+      AND status IN ('queued', 'running')
+  `.simple();
+  await sql`
+    UPDATE grids.workflow_runs
+    SET workflow_definition = '{"triggers":{"form":{}},"steps":[]}'::jsonb
+    WHERE workflow_definition IS NULL
+  `.simple();
+  await sql`
+    UPDATE grids.workflow_runs
+    SET workflow_catalog = '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb
+    WHERE workflow_catalog IS NULL
+  `.simple();
+  await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN workflow_definition SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN workflow_catalog SET NOT NULL`.simple();
   await sql`
     UPDATE grids.workflow_runs
     SET status = 'failed',
