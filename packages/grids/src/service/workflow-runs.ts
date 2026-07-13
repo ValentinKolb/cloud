@@ -38,6 +38,10 @@ type CreateRunInput = {
   authorization?: StoredWorkflowAuthorization;
 };
 
+type CreateFailedRunInput = CreateRunInput & {
+  error: string;
+};
+
 export type StoredWorkflowAuthorization =
   | { kind: "workflow" }
   | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
@@ -212,6 +216,66 @@ export const createWorkflowRun = async (input: CreateRunInput, client: SqlClient
   if (!row) throw err.internal("workflow run insert failed");
   const run = mapPersistedRunRow(row);
   await notifyWorkflowRunEvent(run, [], workflowRunEventScope(run.authorization));
+  return run;
+};
+
+export const createFailedWorkflowRun = async (input: CreateFailedRunInput): Promise<WorkflowRun | null> => {
+  const workflowCatalog = input.workflowCatalog ?? snapshotWorkflowCatalog(await loadWorkflowCatalog(input.baseId));
+  const row = await sql.begin(async (tx) => {
+    const [inserted] = await tx<DbRow[]>`
+      INSERT INTO grids.workflow_runs (
+        workflow_id, base_id, actor_user_id, actor_group_ids, service_account_id, trigger_authorization, trigger_kind,
+        trigger_key, trigger_input, resolved_input, workflow_definition, workflow_catalog, status, error, finished_at
+      )
+      VALUES (
+        ${input.workflowId}::uuid,
+        ${input.baseId}::uuid,
+        ${input.actorUserId ?? null}::uuid,
+        ${toPgUuidArray(input.actorGroupIds ?? [])}::uuid[],
+        ${input.serviceAccountId ?? null}::uuid,
+        ${input.authorization ?? { kind: "workflow" }}::jsonb,
+        ${input.triggerKind},
+        ${input.triggerKey ?? null},
+        ${input.triggerInput ?? null}::jsonb,
+        ${input.resolvedInput ?? null}::jsonb,
+        ${input.workflowDefinition}::jsonb,
+        ${workflowCatalog}::jsonb,
+        'failed',
+        ${input.error},
+        now()
+      )
+      ON CONFLICT (workflow_id, trigger_kind, trigger_key)
+      WHERE trigger_key IS NOT NULL AND workflow_id IS NOT NULL
+      DO NOTHING
+      RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
+                resolved_input, status, error, result_message, created_at, started_at, finished_at
+    `;
+    if (!inserted) return null;
+    await logAudit(
+      {
+        baseId: inserted.base_id as string,
+        userId: (inserted.actor_user_id as string | null) ?? null,
+        action: "workflow.run.failed",
+        diff: {
+          workflowRun: {
+            old: null,
+            new: {
+              id: inserted.id,
+              workflowId: inserted.workflow_id,
+              serviceAccountId: inserted.service_account_id,
+              triggerKind: inserted.trigger_kind,
+              status: "failed",
+            },
+          },
+        },
+      },
+      tx,
+    );
+    return inserted;
+  });
+  if (!row) return null;
+  const run = mapRunRow(row);
+  await notifyWorkflowRunEvent(run, [], workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)));
   return run;
 };
 

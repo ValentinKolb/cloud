@@ -41,6 +41,7 @@ export { runStats } from "./workflow-run-stats";
 export {
   claimRecoverableRuns,
   claimRun,
+  createFailedWorkflowRun,
   createWorkflowRun,
   failQueuedRunAttempt,
   finishRun,

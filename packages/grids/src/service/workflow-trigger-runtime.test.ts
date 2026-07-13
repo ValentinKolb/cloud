@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Workflow, WorkflowRun } from "../contracts";
+import type { GridsRecordEvent } from "./record-events";
 import { createWorkflowTriggerRuntime } from "./workflow-trigger-runtime";
 import type { PersistedWorkflowRun, RecoverableQueuedWorkflowRun } from "./workflows";
 
@@ -63,6 +64,18 @@ const workflowRun = {
   workflowCatalog,
 } satisfies PersistedWorkflowRun;
 
+const recordEvent: GridsRecordEvent = {
+  v: 1,
+  type: "record.updated",
+  baseId,
+  tableId: "77777777-7777-4777-8777-777777777777",
+  recordId: "88888888-8888-4888-8888-888888888888",
+  version: 2,
+  changedFieldIds: [],
+  actorId: null,
+  occurredAt: "2026-07-13T00:00:00.000Z",
+};
+
 const schedulerState = {
   created: [] as Array<{
     id: string;
@@ -113,6 +126,8 @@ let failQueuedAttemptAllowed = true;
 let currentRunResult: WorkflowRun | null = workflowRun;
 let finishedRuns: Array<{ runId: string; status: "succeeded" | "failed" | "canceled"; error?: string | null }> = [];
 let recordEventBaseIds: string[] = [];
+let recordEventCandidates: Workflow[] = [];
+let recordEventFilterError: string | null = null;
 let recordEventReadersStarted = 0;
 let recordEventReadersAborted = 0;
 let runtimeEvents: Array<{ data: { workflowId: string }; cursor: string }> = [];
@@ -215,6 +230,11 @@ const createTestRuntime = () =>
           }
         );
       },
+      createFailedWorkflowRun: async (input) => {
+        createRunInputs.push(input);
+        finishedRuns.push({ runId, status: "failed", error: input.error });
+        return { ...workflowRun, status: "failed", error: input.error, finishedAt: "2026-07-08T00:00:01.000Z" };
+      },
       claimRecoverableRuns: async () => {
         const claimed = staleQueuedRuns;
         staleQueuedRuns = [];
@@ -228,12 +248,28 @@ const createTestRuntime = () =>
       getWorkflowRun: async () => currentRunResult,
       listRecordEventBaseIds: async () => recordEventBaseIds,
       listScheduledEnabled: async () => listScheduledResult,
-      listRecordEventEnabled: async () => [],
-      recordMatchesWorkflowFilter: async () => ({ ok: true, data: false }),
+      listRecordEventEnabled: async () => recordEventCandidates,
+      recordMatchesWorkflowFilter: async () =>
+        recordEventFilterError ? ({ ok: false, error: { message: recordEventFilterError } } as never) : { ok: true, data: true },
     },
     getBase: async () => base,
     prepareBulkSelection: async () => ({ ok: true, data: null as never }),
-    prepareRecordEvent: async () => ({ ok: true, data: null as never }),
+    prepareRecordEvent: async ({ workflowId }) => {
+      const candidate = recordEventCandidates.find((workflow) => workflow.id === workflowId);
+      if (!candidate) throw new Error("Expected record event workflow candidate");
+      return {
+        ok: true,
+        data: {
+          workflow: candidate,
+          workflowCatalog,
+          actorUserId: candidate.ownerUserId,
+          actorGroupIds: [ownerGroupId],
+          serviceAccountId: null,
+          triggerInput: { recordId: recordEvent.recordId },
+          resolvedInput: {},
+        },
+      };
+    },
     prepareScanner: async () => ({ ok: true, data: null as never }),
     prepareWorkflowTriggerRun: async () => ({
       ok: true,
@@ -341,6 +377,8 @@ beforeEach(async () => {
   currentRunResult = workflowRun;
   finishedRuns = [];
   recordEventBaseIds = [];
+  recordEventCandidates = [];
+  recordEventFilterError = null;
   recordEventReadersStarted = 0;
   recordEventReadersAborted = 0;
   runtimeEvents = [];
@@ -704,6 +742,35 @@ describe("workflow trigger runtime", () => {
     ]);
   });
 
+  test("record event submit failures leave the durable run queued for recovery", async () => {
+    recordEventCandidates = [scheduledWorkflow];
+    jobState.failSubmit = true;
+
+    await workflowTriggerRuntime.dispatchRecordEvent(recordEvent);
+
+    expect(createRunInputs).toHaveLength(1);
+    expect(createRunInputs[0]).toMatchObject({ triggerKind: "recordEvent" });
+    expect(createRunInputs[0]?.triggerKey).toContain(`${workflowId}:record.updated:${recordEvent.recordId}:2:`);
+    expect(finishedRuns).toHaveLength(0);
+  });
+
+  test("record event filter failures become observable failed runs", async () => {
+    recordEventCandidates = [scheduledWorkflow];
+    recordEventFilterError = "filter database unavailable";
+
+    await workflowTriggerRuntime.dispatchRecordEvent(recordEvent);
+
+    expect(createRunInputs).toHaveLength(1);
+    expect(createRunInputs[0]).toMatchObject({ triggerKind: "recordEvent" });
+    expect(finishedRuns).toEqual([
+      {
+        runId,
+        status: "failed",
+        error: "Record event filter failed: filter database unavailable",
+      },
+    ]);
+  });
+
   test("submit failures do not overwrite a run that has already started", async () => {
     jobState.failSubmit = true;
     failQueuedAttemptAllowed = false;
@@ -771,7 +838,7 @@ describe("workflow trigger runtime", () => {
     ]);
   });
 
-  test("fails stale queued runs when recovery cannot submit the job", async () => {
+  test("keeps stale queued runs recoverable when queue submission is unavailable", async () => {
     jobState.failSubmit = true;
     staleQueuedRuns = [
       {
@@ -784,12 +851,7 @@ describe("workflow trigger runtime", () => {
 
     await workflowTriggerRuntime.start();
 
-    expect(finishedRuns).toEqual([
-      {
-        runId,
-        status: "failed",
-        error: "Could not recover workflow run: queue unavailable",
-      },
-    ]);
+    expect(jobState.submitted).toHaveLength(0);
+    expect(finishedRuns).toHaveLength(0);
   });
 });

@@ -6,7 +6,7 @@ import { job, mutex, scheduler } from "@valentinkolb/sync";
 import type { Workflow, WorkflowRun, WorkflowTriggerKind } from "../contracts";
 import * as bases from "./bases";
 import { latestMetadataEventCursor, liveMetadataEvents } from "./metadata-events";
-import { reclaimRecordEventDeliveries, recordEventReader } from "./record-events";
+import { type GridsRecordEvent, reclaimRecordEventDeliveries, recordEventReader } from "./record-events";
 import {
   type ExecuteBulkSelectionWorkflowParams,
   type ExecuteScannerWorkflowParams,
@@ -104,6 +104,7 @@ type WorkflowTriggerRuntimeDeps = {
     typeof workflowStore,
     | "createWorkflowRun"
     | "claimRecoverableRuns"
+    | "createFailedWorkflowRun"
     | "failQueuedRunAttempt"
     | "get"
     | "getWorkflowRun"
@@ -185,7 +186,10 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
     return current;
   };
 
-  const queuePreparedRun = async (item: PreparedWorkflowTriggerRun, options: { triggerKey?: string } = {}): Promise<WorkflowRun> => {
+  const queuePreparedRun = async (
+    item: PreparedWorkflowTriggerRun,
+    options: { triggerKey?: string; submitFailure?: "defer" | "fail" } = {},
+  ): Promise<WorkflowRun> => {
     const workflowCatalog = item.workflowCatalog ?? (await loadWorkflowCatalogSnapshot(item.workflow.baseId));
     const run = await workflows.createWorkflowRun({
       workflowId: item.workflow.id,
@@ -205,10 +209,50 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
       try {
         await submitWorkflowJob(run);
       } catch (error) {
+        if (options.submitFailure === "defer") {
+          log.warn("Workflow run remains queued after submission failure", {
+            runId: run.id,
+            workflowId: run.workflowId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return run;
+        }
         return failQueuedAttempt(run, `Could not enqueue workflow run: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     return run;
+  };
+
+  const recordDispatchFailure = async (input: {
+    workflow: Workflow;
+    event: GridsRecordEvent;
+    triggerKey: string;
+    stage: "filter" | "preparation" | "queue";
+    error: string;
+  }): Promise<void> => {
+    await workflows.createFailedWorkflowRun({
+      workflowId: input.workflow.id,
+      baseId: input.workflow.baseId,
+      workflowDefinition: input.workflow.compiled,
+      workflowCatalog: await loadWorkflowCatalogSnapshot(input.workflow.baseId),
+      actorUserId: input.workflow.ownerUserId,
+      actorGroupIds: [],
+      serviceAccountId: null,
+      authorization: { kind: "workflow" },
+      triggerKind: "recordEvent",
+      triggerKey: input.triggerKey,
+      triggerInput: {
+        event: input.event.type,
+        tableId: input.event.tableId,
+        recordId: input.event.recordId,
+        version: input.event.version,
+        changedFieldIds: input.event.changedFieldIds,
+        eventActorUserId: input.event.actorId,
+        occurredAt: input.event.occurredAt,
+      },
+      resolvedInput: {},
+      error: `Record event ${input.stage} failed: ${input.error}`,
+    });
   };
 
   const recoverStaleQueuedRuns = async (): Promise<void> => {
@@ -225,7 +269,12 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
       try {
         await submitWorkflowJob(run);
       } catch (error) {
-        await failQueuedAttempt(run, `Could not recover workflow run: ${error instanceof Error ? error.message : String(error)}`);
+        log.warn("Could not resubmit recoverable workflow run", {
+          runId: run.id,
+          workflowId: run.workflowId,
+          queueAttempt: run.queueAttempts,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   };
@@ -251,6 +300,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
     latestMetadataEventCursor: latestMetadataEventCursorImpl,
     liveMetadataEvents: liveMetadataEventsImpl,
     queuePreparedRun,
+    recordDispatchFailure,
     scheduleReconcile: scheduleRuntimeReconcile,
   });
 

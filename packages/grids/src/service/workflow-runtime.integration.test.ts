@@ -14,6 +14,7 @@ import {
 import {
   claimRecoverableRuns,
   claimRun,
+  createFailedWorkflowRun,
   createStepRun,
   createWorkflowRun,
   failQueuedRunAttempt,
@@ -301,6 +302,79 @@ describe("workflow runtime integration", () => {
         SELECT status FROM grids.workflow_runs WHERE id = ${run.id}::uuid
       `;
       expect(current?.status).toBe("running");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("deduplicates concurrent record event redelivery into one durable run", async () => {
+    const fixture = await insertFixture();
+    try {
+      const triggerKey = `${fixture.workflowId}:record.updated:${fixture.recordAId}:2:2026-07-13T00:00:00.000Z`;
+      const createRun = () =>
+        createWorkflowRun({
+          workflowId: fixture.workflowId,
+          baseId: fixture.baseId,
+          workflowDefinition: fixture.workflowDefinition,
+          triggerKind: "recordEvent",
+          triggerKey,
+          triggerInput: { recordId: fixture.recordAId, version: 2 },
+          resolvedInput: {},
+        });
+
+      const [first, second] = await Promise.all([createRun(), createRun()]);
+      const [stored] = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count
+        FROM grids.workflow_runs
+        WHERE workflow_id = ${fixture.workflowId}::uuid
+          AND trigger_kind = 'recordEvent'
+          AND trigger_key = ${triggerKey}
+      `;
+
+      expect(first.id).toBe(second.id);
+      expect(stored?.count).toBe(1);
+      expect(first.status).toBe("queued");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("record event failure intents never overwrite an existing run", async () => {
+    const fixture = await insertFixture();
+    try {
+      const triggerKey = `${fixture.workflowId}:record.updated:${fixture.recordAId}:3:2026-07-13T00:00:01.000Z`;
+      const existing = await createWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
+        triggerKind: "recordEvent",
+        triggerKey,
+      });
+      const conflict = await createFailedWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
+        triggerKind: "recordEvent",
+        triggerKey,
+        error: "late filter failure",
+      });
+      const failure = await createFailedWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: fixture.workflowDefinition,
+        triggerKind: "recordEvent",
+        triggerKey: `${triggerKey}:failed`,
+        error: "filter database unavailable",
+      });
+      const [persisted] = await sql<Array<{ status: string; error: string | null }>>`
+        SELECT status, error
+        FROM grids.workflow_runs
+        WHERE id = ${existing.id}::uuid
+      `;
+
+      expect(conflict).toBeNull();
+      expect(persisted).toEqual({ status: "queued", error: null });
+      expect(failure).toMatchObject({ status: "failed", error: "filter database unavailable" });
     } finally {
       await cleanupFixture(fixture);
     }
