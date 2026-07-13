@@ -40,6 +40,25 @@ type QuerySourceRow = {
   search: string;
 };
 const MAX_SYNCED_QUERY_HREF_LENGTH = 2800;
+const QUERY_EDITOR_SELECTOR = 'textarea[aria-label="GQL query"]';
+
+type QueryEditorSelection = Pick<HTMLTextAreaElement, "selectionEnd" | "selectionStart">;
+
+export const queryEditorForScope = (scope: ParentNode | undefined): HTMLTextAreaElement | null =>
+  scope?.querySelector<HTMLTextAreaElement>(QUERY_EDITOR_SELECTOR) ?? null;
+
+export const insertTextAtEditorSelection = (
+  source: string,
+  text: string,
+  editor: QueryEditorSelection | null,
+): { caret: number; value: string } => {
+  const start = editor?.selectionStart ?? source.length;
+  const end = editor?.selectionEnd ?? start;
+  return {
+    caret: start + text.length,
+    value: `${source.slice(0, start)}${text}${source.slice(end)}`,
+  };
+};
 
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
 
@@ -311,6 +330,7 @@ export default function QueryWorkspace(props: Props) {
   let previewToken = 0;
   let previewAbort: AbortController | undefined;
   let lastPreviewQuery = props.initialPreview !== undefined ? props.initialQuery : "";
+  let queryEditorScope: HTMLDivElement | undefined;
 
   createEffect(() => {
     setQuery((current) => (current === props.initialQuery ? current : props.initialQuery));
@@ -392,24 +412,13 @@ export default function QueryWorkspace(props: Props) {
   };
 
   const insertAtEditorCursor = (text: string) => {
-    if (typeof document === "undefined") {
-      onInput(`${query()}${text}`);
-      return;
-    }
-    const textarea = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="GQL query"]');
-    if (!textarea) {
-      onInput(`${query()}${text}`);
-      return;
-    }
-    const start = textarea.selectionStart ?? query().length;
-    const end = textarea.selectionEnd ?? start;
-    const current = query();
-    const next = `${current.slice(0, start)}${text}${current.slice(end)}`;
-    onInput(next);
+    const textarea = queryEditorForScope(queryEditorScope);
+    const insertion = insertTextAtEditorSelection(query(), text, textarea);
+    onInput(insertion.value);
+    if (!textarea || typeof requestAnimationFrame === "undefined") return;
     requestAnimationFrame(() => {
       textarea.focus();
-      const caret = start + text.length;
-      textarea.setSelectionRange(caret, caret);
+      textarea.setSelectionRange(insertion.caret, insertion.caret);
     });
   };
 
@@ -523,7 +532,7 @@ export default function QueryWorkspace(props: Props) {
 
         <Panes.Element id="query" title="Query" icon="ti ti-code">
           <section class="flex h-full min-h-0 flex-col overflow-hidden">
-            <div class="min-h-0 flex-1">
+            <div ref={(element) => (queryEditorScope = element)} class="min-h-0 flex-1">
               <AutocompleteEditor
                 value={query}
                 onInput={onInput}
