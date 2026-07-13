@@ -4,6 +4,8 @@ export type StoredCommandAuthorization = {
   mailbox_id: string;
   actor_kind: "user" | "service_account" | "workflow" | "system";
   actor_id: string | null;
+  initiator_actor_kind: "user" | "service_account" | null;
+  initiator_actor_id: string | null;
   access_subject_kind: "user" | "service_account" | "system";
   access_subject_id: string | null;
   credential_scopes: string[] | null;
@@ -29,8 +31,10 @@ const serviceAccountActorAllowed = async (
   command: StoredCommandAuthorization,
   permission: "write" | "admin",
 ): Promise<boolean> => {
-  if (command.actor_kind !== "service_account") return true;
-  if (!command.actor_id || scopeRank(command.credential_scopes ?? []) < requiredRank(permission)) return false;
+  const actorKind = command.initiator_actor_kind ?? command.actor_kind;
+  const actorId = command.initiator_actor_id ?? command.actor_id;
+  if (actorKind !== "service_account") return true;
+  if (!actorId || scopeRank(command.credential_scopes ?? []) < requiredRank(permission)) return false;
   const [serviceAccount] = await sql<
     {
       status: string;
@@ -42,7 +46,7 @@ const serviceAccountActorAllowed = async (
   >`
     SELECT status, kind, app_id, resource_type, resource_id
     FROM auth.service_accounts
-    WHERE id = ${command.actor_id}::uuid
+    WHERE id = ${actorId}::uuid
   `;
   if (!serviceAccount || serviceAccount.status !== "active") return false;
   if (serviceAccount.kind !== "resource_bound") return true;

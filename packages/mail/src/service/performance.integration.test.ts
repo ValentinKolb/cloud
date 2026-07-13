@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import type { WorkflowDefinition } from "../contracts";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
 import { getConversationViewCounts, listConversations } from "./messages";
 import { searchMessages } from "./search";
+import { previewWorkflow } from "./workflows";
 
 const enabled = process.env.MAIL_PERFORMANCE_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -281,5 +283,42 @@ suite("mail large-mailbox performance", () => {
     const worstWarmMs = Math.max(...warmDurations);
     console.info(`Mail ${MESSAGE_COUNT} collaboration views: ${warmDurations.map((value) => value.toFixed(1)).join(", ")} ms`);
     expect(worstWarmMs).toBeLessThan(500);
+  }, 30_000);
+
+  test(`previews a deterministic workflow across ${MESSAGE_COUNT.toLocaleString("en-US")} messages`, async () => {
+    if (!ids.mailboxId) throw new Error("Performance mailbox is unavailable");
+    const definition: WorkflowDefinition = {
+      version: 1,
+      name: "Performance preview",
+      priority: 100,
+      trigger: { type: "backfill" },
+      effectBudget: {
+        maxTargets: MESSAGE_COUNT,
+        maxMoves: 0,
+        maxKeywordChanges: 0,
+        maxCollaborationChanges: 0,
+      },
+      steps: [{ action: "status.set", status: "open" }],
+    };
+    const startedAt = performance.now();
+    const result = await previewWorkflow({
+      context,
+      mailboxId: ids.mailboxId,
+      input: { definition, query: { type: "all" } },
+    });
+    const duration = performance.now() - startedAt;
+    console.info(`Mail ${MESSAGE_COUNT} workflow preview: ${duration.toFixed(1)} ms`);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toMatchObject({
+        targetCount: MESSAGE_COUNT,
+        actionTargetCount: 0,
+        waitingDataCount: 0,
+        truncated: false,
+        budgetExceeded: false,
+      });
+      expect(result.data.previewHash).not.toBeNull();
+    }
+    expect(duration).toBeLessThan(5_000);
   }, 30_000);
 });

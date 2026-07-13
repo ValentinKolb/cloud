@@ -130,6 +130,7 @@ type DraftForOutbox = {
 const actorDatabaseId = (actor: ActorRef): string | null => {
   if (actor.kind === "user") return actor.userId;
   if (actor.kind === "service_account") return actor.serviceAccountId;
+  if (actor.kind === "workflow") return actor.workflowVersionId;
   return null;
 };
 
@@ -423,8 +424,12 @@ type CreateActorCommandParams = {
   enqueue?: boolean;
 };
 
+type CreateActorCommandInternalParams = CreateActorCommandParams & {
+  actorOverride?: ActorRef;
+};
+
 const createActorCommandInTransaction = async (
-  params: CreateActorCommandParams,
+  params: CreateActorCommandInternalParams,
   tx: typeof sql,
 ): Promise<Result<MailCommand>> => {
   const parsed = actorCommandInputSchema.safeParse(params.input);
@@ -433,7 +438,8 @@ const createActorCommandInTransaction = async (
   if (!preparedResult.ok) return preparedResult;
   const prepared = preparedResult.data;
   const requestHash = sha256Json({ kind: prepared.kind, target: prepared.target, payload: prepared.payload });
-  const actor = actorRefFromRequest(params.context);
+  const initiator = actorRefFromRequest(params.context);
+  const actor = params.actorOverride ?? initiator;
 
   const [mailbox] = await tx<{ id: string }[]>`
     SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
@@ -486,6 +492,8 @@ const createActorCommandInTransaction = async (
       selected_secret_revision,
       rights_snapshot,
       transport_metadata,
+      initiator_actor_kind,
+      initiator_actor_id,
       access_subject_kind,
       access_subject_id,
       credential_scopes
@@ -505,6 +513,8 @@ const createActorCommandInTransaction = async (
       ${execution.data.secretRevision},
       ${execution.data.rightsSnapshot}::jsonb,
       ${{ sentDelivery: execution.data.sentDelivery }}::jsonb,
+      ${initiator.kind},
+      ${actorDatabaseId(initiator)}::uuid,
       ${params.context.accessSubject.type},
       ${accessSubjectDatabaseId(params.context)}::uuid,
       ${toPgTextArray(params.context.actor.kind === "service_account" ? params.context.actor.scopes : [])}::text[]
@@ -542,7 +552,12 @@ const createActorCommandInTransaction = async (
       actor: auditActorFromRequest(params.context),
       target: { type: "mailbox", id: params.mailboxId },
       requestId: params.context.requestId,
-      metadata: { commandId: row.id, selectedBindingId: execution.data.bindingId, target: prepared.target },
+      metadata: {
+        commandId: row.id,
+        selectedBindingId: execution.data.bindingId,
+        target: prepared.target,
+        workflowVersionId: actor.kind === "workflow" ? actor.workflowVersionId : null,
+      },
     },
     tx,
   );
@@ -553,7 +568,7 @@ const enqueueActorCommands = async (commands: MailCommand[]): Promise<void> => {
   await Promise.all(commands.map((command) => enqueueMailCommand(command.id, command.kind).catch(() => undefined)));
 };
 
-export const createActorCommand = async (params: CreateActorCommandParams): Promise<Result<MailCommand>> => {
+const createActorCommandWithActor = async (params: CreateActorCommandInternalParams): Promise<Result<MailCommand>> => {
   try {
     const result = await sql.begin((tx) => createActorCommandInTransaction(params, tx));
     if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
@@ -563,6 +578,20 @@ export const createActorCommand = async (params: CreateActorCommandParams): Prom
     return fail(err.internal("Failed to create mail command"));
   }
 };
+
+export const createActorCommand = (params: CreateActorCommandParams): Promise<Result<MailCommand>> => createActorCommandWithActor(params);
+
+export const createWorkflowCommand = (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  workflowVersionId: string;
+  input: ActorCommandInput;
+  enqueue?: boolean;
+}): Promise<Result<MailCommand>> =>
+  createActorCommandWithActor({
+    ...params,
+    actorOverride: { kind: "workflow", workflowVersionId: params.workflowVersionId },
+  });
 
 export const createActorCommands = async (params: {
   context: MailRequestContext;
@@ -683,6 +712,7 @@ export const createMaintenanceCommand = async (params: {
         INSERT INTO mail.commands AS c (
           mailbox_id, kind, actor_kind, actor_id, delegated_user_id, idempotency_key,
           request_hash, correlation_id, target, payload, transport_metadata,
+          initiator_actor_kind, initiator_actor_id,
           access_subject_kind, access_subject_id, credential_scopes
         )
         VALUES (
@@ -697,6 +727,8 @@ export const createMaintenanceCommand = async (params: {
           ${prepared.target}::jsonb,
           ${prepared.payload}::jsonb,
           '{}'::jsonb,
+          ${actor.kind},
+          ${actorDatabaseId(actor)}::uuid,
           ${params.context.accessSubject.type},
           ${accessSubjectDatabaseId(params.context)}::uuid,
           ${toPgTextArray(params.context.actor.kind === "service_account" ? params.context.actor.scopes : [])}::text[]

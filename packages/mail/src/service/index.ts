@@ -16,6 +16,8 @@ import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
 import * as triage from "./triage";
 import { enqueueMailboxSync, mailRuntime } from "./sync-runtime";
+import { workflowRuntime } from "./workflow-runtime";
+import * as workflows from "./workflows";
 
 export type { MailRequestContext } from "./auth";
 export {
@@ -37,6 +39,8 @@ export {
   search,
   senderIdentities,
   triage,
+  workflowRuntime,
+  workflows,
 };
 
 export const mailService = {
@@ -56,6 +60,7 @@ export const mailService = {
   search,
   senderIdentities,
   triage,
+  workflows,
   sync: {
     enqueue: enqueueMailboxSync,
   },

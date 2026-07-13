@@ -1005,6 +1005,197 @@ const addConversationCollaboration = async (db: SqlClient): Promise<void> => {
   await db`CREATE INDEX conversations_mailbox_activity_idx ON mail.conversations (mailbox_id, updated_at DESC, id DESC)`;
 };
 
+const addWorkflowFoundation = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.commands
+    ADD COLUMN initiator_actor_kind TEXT,
+    ADD COLUMN initiator_actor_id UUID
+  `;
+  await db`
+    ALTER TABLE mail.commands
+    ADD CONSTRAINT commands_initiator_actor_check CHECK (
+      (initiator_actor_kind IS NULL AND initiator_actor_id IS NULL)
+      OR
+      (initiator_actor_kind IN ('user', 'service_account') AND initiator_actor_id IS NOT NULL)
+    )
+  `;
+
+  await db`
+    CREATE TABLE mail.workflows (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      lifecycle TEXT NOT NULL CHECK (lifecycle IN ('saved', 'one_shot')),
+      name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 160),
+      description TEXT CHECK (description IS NULL OR char_length(description) <= 2000),
+      current_version INTEGER NOT NULL DEFAULT 1 CHECK (current_version > 0),
+      created_by_kind TEXT NOT NULL CHECK (created_by_kind IN ('user', 'service_account')),
+      created_by_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (id, mailbox_id)
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX workflows_saved_name_idx
+    ON mail.workflows (mailbox_id, lower(name))
+    WHERE lifecycle = 'saved'
+  `;
+
+  await db`
+    CREATE TABLE mail.workflow_versions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      workflow_id UUID NOT NULL,
+      mailbox_id UUID NOT NULL,
+      version INTEGER NOT NULL CHECK (version > 0),
+      definition JSONB NOT NULL CHECK (jsonb_typeof(definition) = 'object'),
+      definition_hash TEXT NOT NULL CHECK (char_length(definition_hash) = 64),
+      created_by_kind TEXT NOT NULL CHECK (created_by_kind IN ('user', 'service_account')),
+      created_by_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (workflow_id, mailbox_id)
+        REFERENCES mail.workflows(id, mailbox_id)
+        ON DELETE CASCADE,
+      UNIQUE (workflow_id, version),
+      UNIQUE (id, workflow_id, mailbox_id)
+    )
+  `;
+  await db`CREATE INDEX workflow_versions_mailbox_idx ON mail.workflow_versions (mailbox_id, created_at DESC, id DESC)`;
+
+  await db`
+    CREATE TABLE mail.workflow_runs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      workflow_id UUID NOT NULL,
+      workflow_version_id UUID NOT NULL,
+      workflow_version INTEGER NOT NULL CHECK (workflow_version > 0),
+      trigger_type TEXT NOT NULL CHECK (trigger_type IN ('manual', 'backfill')),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN (
+        'queued', 'running', 'waiting_command', 'succeeded',
+        'failed', 'canceled', 'needs_attention'
+      )),
+      actor_kind TEXT NOT NULL CHECK (actor_kind IN ('user', 'service_account')),
+      actor_id UUID NOT NULL,
+      delegated_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      access_subject_kind TEXT NOT NULL CHECK (access_subject_kind IN ('user', 'service_account')),
+      access_subject_id UUID NOT NULL,
+      credential_scopes TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+      idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+      request_hash TEXT NOT NULL CHECK (char_length(request_hash) = 64),
+      target_query JSONB NOT NULL CHECK (jsonb_typeof(target_query) = 'object'),
+      query_hash TEXT NOT NULL CHECK (char_length(query_hash) = 64),
+      target_snapshot_hash TEXT NOT NULL CHECK (char_length(target_snapshot_hash) = 64),
+      preview_hash TEXT NOT NULL CHECK (char_length(preview_hash) = 64),
+      effect_budget JSONB NOT NULL CHECK (jsonb_typeof(effect_budget) = 'object'),
+      action_counts JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(action_counts) = 'object'),
+      target_count INTEGER NOT NULL DEFAULT 0 CHECK (target_count >= 0),
+      action_target_count INTEGER NOT NULL DEFAULT 0 CHECK (action_target_count >= 0),
+      completed_targets INTEGER NOT NULL DEFAULT 0 CHECK (completed_targets >= 0),
+      failed_targets INTEGER NOT NULL DEFAULT 0 CHECK (failed_targets >= 0),
+      cursor_ordinal BIGINT NOT NULL DEFAULT -1 CHECK (cursor_ordinal >= -1),
+      last_error_code TEXT,
+      last_error_message TEXT CHECK (last_error_message IS NULL OR char_length(last_error_message) <= 1000),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (workflow_version_id, workflow_id, mailbox_id)
+        REFERENCES mail.workflow_versions(id, workflow_id, mailbox_id)
+        ON DELETE RESTRICT,
+      UNIQUE (mailbox_id, idempotency_key)
+    )
+  `;
+  await db`
+    CREATE INDEX workflow_runs_dispatch_idx
+    ON mail.workflow_runs (state, updated_at, id)
+    WHERE state IN ('queued', 'running', 'waiting_command')
+  `;
+  await db`CREATE INDEX workflow_runs_workflow_idx ON mail.workflow_runs (workflow_id, created_at DESC, id DESC)`;
+
+  await db`
+    CREATE TABLE mail.workflow_run_targets (
+      run_id UUID NOT NULL REFERENCES mail.workflow_runs(id) ON DELETE CASCADE,
+      ordinal BIGINT NOT NULL CHECK (ordinal >= 0),
+      remote_message_ref_id UUID NOT NULL,
+      message_id UUID NOT NULL,
+      conversation_id UUID,
+      source_folder_id UUID NOT NULL,
+      source_state_hash TEXT NOT NULL CHECK (char_length(source_state_hash) = 64),
+      state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN (
+        'pending', 'running', 'waiting_command', 'succeeded', 'failed', 'needs_attention'
+      )),
+      planned_action_count INTEGER NOT NULL DEFAULT 0 CHECK (planned_action_count >= 0),
+      last_error_code TEXT,
+      last_error_message TEXT CHECK (last_error_message IS NULL OR char_length(last_error_message) <= 1000),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (run_id, ordinal),
+      UNIQUE (run_id, remote_message_ref_id)
+    )
+  `;
+  await db`
+    CREATE INDEX workflow_run_targets_dispatch_idx
+    ON mail.workflow_run_targets (run_id, state, ordinal)
+    WHERE state IN ('pending', 'running', 'waiting_command')
+  `;
+
+  await db`
+    CREATE TABLE mail.workflow_step_runs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      run_id UUID NOT NULL,
+      target_ordinal BIGINT NOT NULL,
+      sequence INTEGER NOT NULL CHECK (sequence >= 0),
+      step_path TEXT NOT NULL CHECK (char_length(step_path) BETWEEN 1 AND 1000),
+      action JSONB NOT NULL CHECK (jsonb_typeof(action) = 'object'),
+      expected_conversation_revision BIGINT CHECK (expected_conversation_revision IS NULL OR expected_conversation_revision > 0),
+      idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN (
+        'queued', 'executing', 'waiting_command', 'succeeded', 'failed', 'needs_attention'
+      )),
+      command_id UUID REFERENCES mail.commands(id) ON DELETE SET NULL,
+      attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+      result JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(result) = 'object'),
+      last_error_code TEXT,
+      last_error_message TEXT CHECK (last_error_message IS NULL OR char_length(last_error_message) <= 1000),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (run_id, target_ordinal)
+        REFERENCES mail.workflow_run_targets(run_id, ordinal)
+        ON DELETE CASCADE,
+      UNIQUE (run_id, target_ordinal, sequence),
+      UNIQUE (run_id, target_ordinal, step_path),
+      UNIQUE (idempotency_key)
+    )
+  `;
+  await db`
+    CREATE INDEX workflow_step_runs_dispatch_idx
+    ON mail.workflow_step_runs (run_id, target_ordinal, state, sequence)
+    WHERE state IN ('queued', 'executing', 'waiting_command')
+  `;
+
+  for (const table of ["workflows", "workflow_runs", "workflow_run_targets", "workflow_step_runs"]) {
+    await db.unsafe(`
+      CREATE TRIGGER ${table}_touch_updated_at
+      BEFORE UPDATE ON mail.${table}
+      FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+    `);
+  }
+};
+
+const addWorkflowRuntimeFencing = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.workflow_step_runs
+    ADD COLUMN provider_lease_token UUID,
+    ADD COLUMN provider_lease_expires_at TIMESTAMPTZ,
+    ADD CONSTRAINT workflow_step_runs_provider_lease_check CHECK (
+      (provider_lease_token IS NULL AND provider_lease_expires_at IS NULL)
+      OR
+      (provider_lease_token IS NOT NULL AND provider_lease_expires_at IS NOT NULL)
+    )
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -1022,6 +1213,8 @@ const migrations = [
   { version: 14, name: "provider_backed_operations", run: addProviderBackedOperations },
   { version: 15, name: "provider_backed_operations_hardening", run: hardenProviderBackedOperations },
   { version: 16, name: "conversation_collaboration", run: addConversationCollaboration },
+  { version: 17, name: "workflow_foundation", run: addWorkflowFoundation },
+  { version: 18, name: "workflow_runtime_fencing", run: addWorkflowRuntimeFencing },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

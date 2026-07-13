@@ -42,6 +42,7 @@ import {
   triage,
 } from "../service";
 import { resolveByteRange } from "../service/byte-range";
+import workflowRoutes from "./workflows";
 
 const uuidParamSchema = z.object({ mailboxId: z.string().uuid() });
 const mailboxAndIdParamSchema = (name: string) => z.object({ mailboxId: z.string().uuid(), [name]: z.string().uuid() });
@@ -664,7 +665,8 @@ const api = new Hono<AuthContext>()
   .post("/mailboxes/:mailboxId/commands/:commandId/cancel", v("param", mailboxAndIdParamSchema("commandId")), async (c) => {
     const params = c.req.valid("param") as { mailboxId: string; commandId: string };
     return respond(c, cancelSendCommand({ context: requestContext(c), ...params }));
-  });
+  })
+  .route("/", workflowRoutes);
 
 export default api;
 export type ApiType = typeof api;

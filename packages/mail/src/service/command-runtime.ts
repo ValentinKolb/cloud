@@ -34,6 +34,8 @@ type DbCommandExecution = {
   state: MailCommand["state"];
   actor_kind: "user" | "service_account" | "workflow" | "system";
   actor_id: string | null;
+  initiator_actor_kind: "user" | "service_account" | null;
+  initiator_actor_id: string | null;
   access_subject_kind: "user" | "service_account" | "system";
   access_subject_id: string | null;
   credential_scopes: string[] | null;
@@ -257,7 +259,8 @@ const claimCommand = async (
   sql.begin(async (tx) => {
     const [current] = await tx<DbCommandExecution[]>`
       SELECT
-        id, mailbox_id, kind, state, actor_kind, actor_id, access_subject_kind, access_subject_id,
+        id, mailbox_id, kind, state, actor_kind, actor_id, initiator_actor_kind, initiator_actor_id,
+        access_subject_kind, access_subject_id,
         credential_scopes, target, payload, transport_metadata, selected_binding_id, selected_secret_revision, attempt
       FROM mail.commands
       WHERE id = ${commandId}::uuid
@@ -276,7 +279,8 @@ const claimCommand = async (
         updated_at = now()
       WHERE id = ${commandId}::uuid
       RETURNING
-        id, mailbox_id, kind, state, actor_kind, actor_id, access_subject_kind, access_subject_id,
+        id, mailbox_id, kind, state, actor_kind, actor_id, initiator_actor_kind, initiator_actor_id,
+        access_subject_kind, access_subject_id,
         credential_scopes, target, payload, transport_metadata, selected_binding_id, selected_secret_revision, attempt
     `;
     return claimed ? { command: claimed, previousState } : null;
@@ -1213,6 +1217,8 @@ type DbOutboxExecutionRow = DbOutboxExecution & {
   command_state: DbCommandExecution["state"];
   command_actor_kind: DbCommandExecution["actor_kind"];
   command_actor_id: string | null;
+  command_initiator_actor_kind: DbCommandExecution["initiator_actor_kind"];
+  command_initiator_actor_id: string | null;
   command_access_subject_kind: DbCommandExecution["access_subject_kind"];
   command_access_subject_id: string | null;
   command_credential_scopes: string[] | null;
@@ -1254,6 +1260,8 @@ const loadOutbox = async (outboxId: string): Promise<{ outbox: DbOutboxExecution
       c.state AS command_state,
       c.actor_kind AS command_actor_kind,
       c.actor_id AS command_actor_id,
+      c.initiator_actor_kind AS command_initiator_actor_kind,
+      c.initiator_actor_id AS command_initiator_actor_id,
       c.access_subject_kind AS command_access_subject_kind,
       c.access_subject_id AS command_access_subject_id,
       c.credential_scopes AS command_credential_scopes,
@@ -1295,6 +1303,8 @@ const loadOutbox = async (outboxId: string): Promise<{ outbox: DbOutboxExecution
       state: row.command_state,
       actor_kind: row.command_actor_kind,
       actor_id: row.command_actor_id,
+      initiator_actor_kind: row.command_initiator_actor_kind,
+      initiator_actor_id: row.command_initiator_actor_id,
       access_subject_kind: row.command_access_subject_kind,
       access_subject_id: row.command_access_subject_id,
       credential_scopes: row.command_credential_scopes,

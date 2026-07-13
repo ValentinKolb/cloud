@@ -254,7 +254,7 @@ const actorCommandBaseSchema = z.object({
   correlationId: z.string().trim().max(200).optional(),
 });
 
-const keywordSchema = z
+export const mailKeywordSchema = z
   .string()
   .trim()
   .min(1)
@@ -273,8 +273,8 @@ export const messageStateChangeSchema = z
   .object({
     addFlags: z.array(standardMessageFlagSchema).max(4).default([]),
     removeFlags: z.array(standardMessageFlagSchema).max(4).default([]),
-    addKeywords: z.array(keywordSchema).max(100).default([]),
-    removeKeywords: z.array(keywordSchema).max(100).default([]),
+    addKeywords: z.array(mailKeywordSchema).max(100).default([]),
+    removeKeywords: z.array(mailKeywordSchema).max(100).default([]),
   })
   .superRefine((value, context) => {
     const additions = new Set([
@@ -418,6 +418,245 @@ export type ActorRef = z.infer<typeof actorRefSchema>;
 
 export const conversationWorkStatusSchema = z.enum(["open", "waiting", "done"]);
 export type ConversationWorkStatus = z.infer<typeof conversationWorkStatusSchema>;
+
+const workflowTextConditionSchema = z
+  .object({
+    field: z.enum(["subject", "body", "sender", "recipient", "attachmentName"]),
+    operator: z.enum(["contains", "equals", "startsWith", "endsWith"]),
+    value: z.string().min(1).max(500),
+  })
+  .strict();
+
+const workflowFolderConditionSchema = z
+  .object({
+    field: z.literal("folder"),
+    operator: z.literal("equals"),
+    value: z.string().uuid(),
+  })
+  .strict();
+
+const workflowKeywordConditionSchema = z
+  .object({
+    field: z.literal("keyword"),
+    operator: z.literal("contains"),
+    value: mailKeywordSchema,
+  })
+  .strict();
+
+const workflowFlagConditionSchema = z
+  .object({
+    field: z.literal("flag"),
+    operator: z.literal("contains"),
+    value: standardMessageFlagSchema,
+  })
+  .strict();
+
+const workflowAttachmentConditionSchema = z
+  .object({
+    field: z.literal("hasAttachment"),
+    operator: z.literal("equals"),
+    value: z.boolean(),
+  })
+  .strict();
+
+export type WorkflowCondition =
+  | z.infer<typeof workflowTextConditionSchema>
+  | z.infer<typeof workflowFolderConditionSchema>
+  | z.infer<typeof workflowKeywordConditionSchema>
+  | z.infer<typeof workflowFlagConditionSchema>
+  | z.infer<typeof workflowAttachmentConditionSchema>
+  | { all: WorkflowCondition[] }
+  | { any: WorkflowCondition[] }
+  | { not: WorkflowCondition };
+
+export const workflowConditionSchema: z.ZodType<WorkflowCondition> = z.lazy(() =>
+  z.union([
+    workflowTextConditionSchema,
+    workflowFolderConditionSchema,
+    workflowKeywordConditionSchema,
+    workflowFlagConditionSchema,
+    workflowAttachmentConditionSchema,
+    z.object({ all: z.array(workflowConditionSchema).min(1).max(20) }).strict(),
+    z.object({ any: z.array(workflowConditionSchema).min(1).max(20) }).strict(),
+    z.object({ not: workflowConditionSchema }).strict(),
+  ]),
+);
+
+export const workflowActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("remote.keyword.add"), keyword: mailKeywordSchema }).strict(),
+  z.object({ action: z.literal("remote.keyword.remove"), keyword: mailKeywordSchema }).strict(),
+  z.object({ action: z.literal("remote.move"), destinationFolderId: z.string().uuid() }).strict(),
+  z.object({ action: z.literal("assign"), userId: z.string().uuid().nullable() }).strict(),
+  z.object({ action: z.literal("status.set"), status: conversationWorkStatusSchema }).strict(),
+]);
+export type WorkflowAction = z.infer<typeof workflowActionSchema>;
+
+export type WorkflowStep =
+  | { when: WorkflowCondition; then: WorkflowStep[]; else?: WorkflowStep[] }
+  | WorkflowAction
+  | { stop: "workflow" };
+
+export const workflowStepSchema: z.ZodType<WorkflowStep> = z.lazy(() =>
+  z.union([
+    z
+      .object({
+        when: workflowConditionSchema,
+        then: z.array(workflowStepSchema).min(1).max(50),
+        else: z.array(workflowStepSchema).min(1).max(50).optional(),
+      })
+      .strict(),
+    workflowActionSchema,
+    z.object({ stop: z.literal("workflow") }).strict(),
+  ]),
+);
+
+export const workflowEffectBudgetSchema = z
+  .object({
+    maxTargets: z.number().int().min(1).max(50_000).default(1_000),
+    maxMoves: z.number().int().min(0).max(50_000).default(1_000),
+    maxKeywordChanges: z.number().int().min(0).max(100_000).default(2_000),
+    maxCollaborationChanges: z.number().int().min(0).max(100_000).default(2_000),
+  })
+  .strict()
+  .default({
+    maxTargets: 1_000,
+    maxMoves: 1_000,
+    maxKeywordChanges: 2_000,
+    maxCollaborationChanges: 2_000,
+  });
+export type WorkflowEffectBudget = z.infer<typeof workflowEffectBudgetSchema>;
+
+export const workflowDefinitionSchema = z
+  .object({
+    version: z.literal(1),
+    name: z.string().trim().min(1).max(160),
+    description: z.string().trim().max(2_000).nullable().optional(),
+    priority: z.number().int().min(-1_000).max(1_000).default(100),
+    trigger: z.object({ type: z.enum(["manual", "backfill"]) }).strict(),
+    effectBudget: workflowEffectBudgetSchema,
+    steps: z.array(workflowStepSchema).min(1).max(50),
+  })
+  .strict();
+export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
+
+export const workflowTargetQuerySchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("all") }).strict(),
+  z.object({ type: z.literal("search"), expression: mailSearchExpressionSchema }).strict(),
+]);
+export type WorkflowTargetQuery = z.infer<typeof workflowTargetQuerySchema>;
+
+export const workflowPreviewInputSchema = z
+  .object({ definition: workflowDefinitionSchema, query: workflowTargetQuerySchema })
+  .strict();
+export type WorkflowPreviewInput = z.infer<typeof workflowPreviewInputSchema>;
+
+export const createWorkflowInputSchema = z.object({ definition: workflowDefinitionSchema }).strict();
+export const createWorkflowVersionInputSchema = z.object({ definition: workflowDefinitionSchema }).strict();
+
+const workflowRunBaseSchema = z.object({
+  query: workflowTargetQuerySchema,
+  previewHash: z.string().regex(/^[a-f0-9]{64}$/),
+  idempotencyKey: z.string().trim().min(1).max(200),
+});
+
+export const createOneShotWorkflowRunInputSchema = workflowRunBaseSchema
+  .extend({ definition: workflowDefinitionSchema })
+  .strict();
+export type CreateOneShotWorkflowRunInput = z.infer<typeof createOneShotWorkflowRunInputSchema>;
+
+export const createSavedWorkflowRunInputSchema = workflowRunBaseSchema
+  .extend({ version: z.number().int().positive().optional() })
+  .strict();
+export type CreateSavedWorkflowRunInput = z.infer<typeof createSavedWorkflowRunInputSchema>;
+
+export const workflowRunStateSchema = z.enum([
+  "queued",
+  "running",
+  "waiting_command",
+  "succeeded",
+  "failed",
+  "canceled",
+  "needs_attention",
+]);
+export type WorkflowRunState = z.infer<typeof workflowRunStateSchema>;
+
+export type WorkflowDiagnostic = {
+  severity: "error" | "warning";
+  code: string;
+  path: string;
+  message: string;
+};
+
+export type WorkflowValidation = {
+  valid: boolean;
+  definition: WorkflowDefinition | null;
+  definitionHash: string | null;
+  diagnostics: WorkflowDiagnostic[];
+};
+
+export type WorkflowPreview = {
+  validation: WorkflowValidation;
+  queryHash: string;
+  previewHash: string | null;
+  targetCount: number;
+  actionTargetCount: number;
+  waitingDataCount: number;
+  truncated: boolean;
+  budgetExceeded: boolean;
+  actionCounts: Record<string, number>;
+  samples: Array<{
+    messageId: string;
+    conversationId: string | null;
+    subject: string;
+    state: "ready" | "waiting_data";
+    actions: Array<{ path: string; action: WorkflowAction }>;
+  }>;
+};
+
+export type MailWorkflow = {
+  id: string;
+  mailboxId: string;
+  lifecycle: "saved" | "one_shot";
+  name: string;
+  description: string | null;
+  currentVersion: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MailWorkflowVersion = {
+  id: string;
+  workflowId: string;
+  mailboxId: string;
+  version: number;
+  definition: WorkflowDefinition;
+  definitionHash: string;
+  createdAt: string;
+};
+
+export type MailWorkflowDetail = MailWorkflow & { version: MailWorkflowVersion };
+
+export type MailWorkflowRun = {
+  id: string;
+  mailboxId: string;
+  workflowId: string;
+  workflowVersionId: string;
+  workflowVersion: number;
+  triggerType: "manual" | "backfill";
+  state: WorkflowRunState;
+  query: WorkflowTargetQuery;
+  previewHash: string;
+  targetCount: number;
+  actionTargetCount: number;
+  completedTargets: number;
+  failedTargets: number;
+  actionCounts: Record<string, number>;
+  lastError: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  updatedAt: string;
+};
 
 export const conversationViewSchema = z.enum(["inbox", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"]);
 export type ConversationView = z.infer<typeof conversationViewSchema>;

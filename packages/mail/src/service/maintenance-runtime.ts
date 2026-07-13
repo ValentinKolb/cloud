@@ -51,7 +51,7 @@ const claimMaintenanceCommand = async (commandId: string): Promise<DbMaintenance
   sql.begin(async (tx) => {
     const [current] = await tx<DbMaintenanceCommand[]>`
       SELECT
-        id, mailbox_id, kind, state, actor_kind, actor_id, access_subject_kind,
+        id, mailbox_id, kind, state, actor_kind, actor_id, initiator_actor_kind, initiator_actor_id, access_subject_kind,
         access_subject_id, credential_scopes, target, payload, attempt
       FROM mail.commands
       WHERE id = ${commandId}::uuid
@@ -71,7 +71,7 @@ const claimMaintenanceCommand = async (commandId: string): Promise<DbMaintenance
         updated_at = now()
       WHERE id = ${commandId}::uuid
       RETURNING
-        id, mailbox_id, kind, state, actor_kind, actor_id, access_subject_kind,
+        id, mailbox_id, kind, state, actor_kind, actor_id, initiator_actor_kind, initiator_actor_id, access_subject_kind,
         access_subject_id, credential_scopes, target, payload, attempt
     `;
     return claimed ?? null;

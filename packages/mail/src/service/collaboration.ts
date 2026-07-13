@@ -2,6 +2,7 @@ import { type AccessUser, listUsersWithAccess, type PermissionLevel } from "@val
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type {
+  ActorRef,
   CreateConversationComment,
   DeleteConversationComment,
   UpdateConversationCollaboration,
@@ -126,7 +127,7 @@ type MutableCommentRow = {
   deleted_at: Date | string | null;
 };
 
-type Mutation<T> = {
+export type CollaborationMutation<T> = {
   value: T;
   event: Omit<MailCollaborationEvent, "type" | "at"> | null;
 };
@@ -185,6 +186,17 @@ const actorIdentity = (context: MailRequestContext): { kind: CommentActorKind; i
   if (actor.kind === "user") return { kind: "user", id: actor.userId };
   if (actor.kind === "service_account") return { kind: "service_account", id: actor.serviceAccountId };
   throw new Error("Request actor cannot author Mail collaboration changes");
+};
+
+const activityActorIdentity = (
+  context: MailRequestContext,
+  actorOverride?: ActorRef,
+): { kind: ActorRef["kind"]; id: string | null } => {
+  const actor = actorOverride ?? actorRefFromRequest(context);
+  if (actor.kind === "user") return { kind: actor.kind, id: actor.userId };
+  if (actor.kind === "service_account") return { kind: actor.kind, id: actor.serviceAccountId };
+  if (actor.kind === "workflow") return { kind: actor.kind, id: actor.workflowVersionId };
+  return { kind: actor.kind, id: null };
 };
 
 const listMailboxAccessIds = async (mailboxId: string, db: SqlClient = sql): Promise<string[]> => {
@@ -320,12 +332,13 @@ const insertActivity = async (params: {
   mailboxId: string;
   conversationId: string;
   context: MailRequestContext;
+  actorOverride?: ActorRef;
   action: string;
   targetType: string;
   targetId: string;
   metadata?: Record<string, unknown>;
 }): Promise<string> => {
-  const actor = actorIdentity(params.context);
+  const actor = activityActorIdentity(params.context, params.actorOverride);
   const [event] = await params.db<{ id: string | number }[]>`
     INSERT INTO mail.activity_events (
       mailbox_id, conversation_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
@@ -346,7 +359,7 @@ const insertActivity = async (params: {
   return String(event.id);
 };
 
-const finishMutation = async <T>(result: Result<Mutation<T>>): Promise<Result<T>> => {
+const finishMutation = async <T>(result: Result<CollaborationMutation<T>>): Promise<Result<T>> => {
   if (!result.ok) return result;
   if (result.data.event) await publishMailCollaborationEvent(result.data.event);
   return ok(result.data.value);
@@ -401,6 +414,125 @@ export const getConversationCollaboration = async (params: {
   return state ? ok(state) : fail(err.notFound("Conversation"));
 };
 
+export const updateConversationCollaborationInTransaction = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+  input: UpdateConversationCollaboration;
+  db: SqlClient;
+  actorOverride?: ActorRef;
+}): Promise<Result<CollaborationMutation<ConversationCollaboration>>> => {
+  const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "write", params.db);
+  if (!allowed.ok) return allowed;
+  const [current] = await params.db<CollaborationRow[]>`
+    SELECT
+      c.id,
+      c.assignee_user_id,
+      NULL::text AS assignee_uid,
+      NULL::text AS assignee_display_name,
+      NULL::text AS assignee_avatar_hash,
+      c.work_status,
+      c.response_needed,
+      c.snoozed_until,
+      c.revision
+    FROM mail.conversations c
+    WHERE c.id = ${params.conversationId}::uuid AND c.mailbox_id = ${params.mailboxId}::uuid
+    FOR UPDATE
+  `;
+  if (!current) return fail(err.notFound("Conversation"));
+  if (Number(current.revision) !== params.input.expectedRevision) {
+    return fail(err.conflict("Conversation was changed by another collaborator"));
+  }
+  if (params.input.assigneeUserId) {
+    const validAssignee = await validateCurrentUsers({
+      mailboxId: params.mailboxId,
+      db: params.db,
+      userIds: [params.input.assigneeUserId],
+      minimumPermission: "write",
+      label: "Assignee",
+    });
+    if (!validAssignee.ok) return validAssignee;
+  }
+
+  const nextStatus = params.input.workStatus ?? current.work_status;
+  if (nextStatus === "done" && params.input.responseNeeded === true) {
+    return fail(err.badInput("A completed conversation cannot require a response"));
+  }
+  const requestedSnooze =
+    params.input.snoozedUntil === undefined
+      ? undefined
+      : params.input.snoozedUntil === null
+        ? null
+        : new Date(params.input.snoozedUntil).toISOString();
+  if (requestedSnooze) {
+    if (Date.parse(requestedSnooze) <= Date.now()) return fail(err.badInput("Snooze time must be in the future"));
+    if (nextStatus === "done") return fail(err.badInput("A completed conversation cannot be snoozed"));
+  }
+
+  const nextAssignee = params.input.assigneeUserId === undefined ? current.assignee_user_id : params.input.assigneeUserId;
+  const nextResponseNeeded = nextStatus === "done" ? false : (params.input.responseNeeded ?? current.response_needed);
+  const nextSnoozedUntil =
+    nextStatus === "done" ? null : requestedSnooze === undefined ? toNullableIso(current.snoozed_until) : requestedSnooze;
+  const unchanged =
+    nextAssignee === current.assignee_user_id &&
+    nextStatus === current.work_status &&
+    nextResponseNeeded === current.response_needed &&
+    nextSnoozedUntil === toNullableIso(current.snoozed_until);
+  if (unchanged) {
+    const state = await loadCollaboration(params.mailboxId, params.conversationId, params.db);
+    return state ? ok({ value: state, event: null }) : fail(err.notFound("Conversation"));
+  }
+
+  await params.db`
+    UPDATE mail.conversations
+    SET
+      assignee_user_id = ${nextAssignee}::uuid,
+      work_status = ${nextStatus},
+      response_needed = ${nextResponseNeeded},
+      snoozed_until = ${nextSnoozedUntil}::timestamptz,
+      revision = revision + 1
+    WHERE id = ${params.conversationId}::uuid
+  `;
+  const state = await loadCollaboration(params.mailboxId, params.conversationId, params.db);
+  if (!state) return fail(err.internal("Updated conversation could not be loaded"));
+  const activityId = await insertActivity({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    conversationId: params.conversationId,
+    context: params.context,
+    actorOverride: params.actorOverride,
+    action: "conversation.collaboration_updated",
+    targetType: "conversation",
+    targetId: params.conversationId,
+    metadata: {
+      before: {
+        assigneeUserId: current.assignee_user_id,
+        workStatus: current.work_status,
+        responseNeeded: current.response_needed,
+        snoozedUntil: toNullableIso(current.snoozed_until),
+        revision: Number(current.revision),
+      },
+      after: {
+        assigneeUserId: state.assignee?.id ?? null,
+        workStatus: state.workStatus,
+        responseNeeded: state.responseNeeded,
+        snoozedUntil: state.snoozedUntil,
+        revision: state.revision,
+      },
+    },
+  });
+  return ok({
+    value: state,
+    event: {
+      mailboxId: params.mailboxId,
+      conversationId: params.conversationId,
+      reason: "collaboration",
+      targetId: params.conversationId,
+      activityId,
+    },
+  });
+};
+
 export const updateConversationCollaboration = async (params: {
   context: MailRequestContext;
   mailboxId: string;
@@ -408,121 +540,7 @@ export const updateConversationCollaboration = async (params: {
   input: UpdateConversationCollaboration;
 }): Promise<Result<ConversationCollaboration>> => {
   try {
-    const result = await sql.begin(async (tx): Promise<Result<Mutation<ConversationCollaboration>>> => {
-      const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "write", tx);
-      if (!allowed.ok) return allowed;
-      const [current] = await tx<CollaborationRow[]>`
-        SELECT
-          c.id,
-          c.assignee_user_id,
-          NULL::text AS assignee_uid,
-          NULL::text AS assignee_display_name,
-          NULL::text AS assignee_avatar_hash,
-          c.work_status,
-          c.response_needed,
-          c.snoozed_until,
-          c.revision
-        FROM mail.conversations c
-        WHERE c.id = ${params.conversationId}::uuid AND c.mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE
-      `;
-      if (!current) return fail(err.notFound("Conversation"));
-      if (Number(current.revision) !== params.input.expectedRevision) {
-        return fail(err.conflict("Conversation was changed by another collaborator"));
-      }
-      if (params.input.assigneeUserId) {
-        const validAssignee = await validateCurrentUsers({
-          mailboxId: params.mailboxId,
-          db: tx,
-          userIds: [params.input.assigneeUserId],
-          minimumPermission: "write",
-          label: "Assignee",
-        });
-        if (!validAssignee.ok) return validAssignee;
-      }
-
-      const nextStatus = params.input.workStatus ?? current.work_status;
-      if (nextStatus === "done" && params.input.responseNeeded === true) {
-        return fail(err.badInput("A completed conversation cannot require a response"));
-      }
-      const requestedSnooze =
-        params.input.snoozedUntil === undefined
-          ? undefined
-          : params.input.snoozedUntil === null
-            ? null
-            : new Date(params.input.snoozedUntil).toISOString();
-      if (requestedSnooze) {
-        if (Date.parse(requestedSnooze) <= Date.now()) return fail(err.badInput("Snooze time must be in the future"));
-        if (nextStatus === "done") return fail(err.badInput("A completed conversation cannot be snoozed"));
-      }
-
-      const nextAssignee = params.input.assigneeUserId === undefined ? current.assignee_user_id : params.input.assigneeUserId;
-      const nextResponseNeeded = nextStatus === "done" ? false : (params.input.responseNeeded ?? current.response_needed);
-      const nextSnoozedUntil =
-        nextStatus === "done"
-          ? null
-          : requestedSnooze === undefined
-            ? toNullableIso(current.snoozed_until)
-            : requestedSnooze;
-      const unchanged =
-        nextAssignee === current.assignee_user_id &&
-        nextStatus === current.work_status &&
-        nextResponseNeeded === current.response_needed &&
-        nextSnoozedUntil === toNullableIso(current.snoozed_until);
-      if (unchanged) {
-        const state = await loadCollaboration(params.mailboxId, params.conversationId, tx);
-        if (!state) return fail(err.notFound("Conversation"));
-        return ok({ value: state, event: null });
-      }
-
-      await tx`
-        UPDATE mail.conversations
-        SET
-          assignee_user_id = ${nextAssignee}::uuid,
-          work_status = ${nextStatus},
-          response_needed = ${nextResponseNeeded},
-          snoozed_until = ${nextSnoozedUntil}::timestamptz,
-          revision = revision + 1
-        WHERE id = ${params.conversationId}::uuid
-      `;
-      const state = await loadCollaboration(params.mailboxId, params.conversationId, tx);
-      if (!state) return fail(err.internal("Updated conversation could not be loaded"));
-      const activityId = await insertActivity({
-        db: tx,
-        mailboxId: params.mailboxId,
-        conversationId: params.conversationId,
-        context: params.context,
-        action: "conversation.collaboration_updated",
-        targetType: "conversation",
-        targetId: params.conversationId,
-        metadata: {
-          before: {
-            assigneeUserId: current.assignee_user_id,
-            workStatus: current.work_status,
-            responseNeeded: current.response_needed,
-            snoozedUntil: toNullableIso(current.snoozed_until),
-            revision: Number(current.revision),
-          },
-          after: {
-            assigneeUserId: state.assignee?.id ?? null,
-            workStatus: state.workStatus,
-            responseNeeded: state.responseNeeded,
-            snoozedUntil: state.snoozedUntil,
-            revision: state.revision,
-          },
-        },
-      });
-      return ok({
-        value: state,
-        event: {
-          mailboxId: params.mailboxId,
-          conversationId: params.conversationId,
-          reason: "collaboration",
-          targetId: params.conversationId,
-          activityId,
-        },
-      });
-    });
+    const result = await sql.begin((tx) => updateConversationCollaborationInTransaction({ ...params, db: tx }));
     return finishMutation(result);
   } catch {
     return fail(err.internal("Failed to update conversation collaboration"));
@@ -537,7 +555,7 @@ export const setConversationWatcher = async (params: {
   watching: boolean;
 }): Promise<Result<ConversationCollaboration>> => {
   try {
-    const result = await sql.begin(async (tx): Promise<Result<Mutation<ConversationCollaboration>>> => {
+    const result = await sql.begin(async (tx): Promise<Result<CollaborationMutation<ConversationCollaboration>>> => {
       const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
       const [conversation] = await tx<{ id: string }[]>`
@@ -781,7 +799,7 @@ export const createConversationComment = async (params: {
   input: CreateConversationComment;
 }): Promise<Result<ConversationComment>> => {
   try {
-    const result = await sql.begin(async (tx): Promise<Result<Mutation<ConversationComment>>> => {
+    const result = await sql.begin(async (tx): Promise<Result<CollaborationMutation<ConversationComment>>> => {
       const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "read", tx);
       if (!allowed.ok) return allowed;
       const [conversation] = await tx<{ id: string }[]>`
@@ -879,7 +897,7 @@ export const updateConversationComment = async (params: {
   input: UpdateConversationComment;
 }): Promise<Result<ConversationComment>> => {
   try {
-    const result = await sql.begin(async (tx): Promise<Result<Mutation<ConversationComment>>> => {
+    const result = await sql.begin(async (tx): Promise<Result<CollaborationMutation<ConversationComment>>> => {
       const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "read", tx);
       if (!allowed.ok) return allowed;
       const actor = actorIdentity(params.context);
@@ -979,7 +997,7 @@ export const deleteConversationComment = async (params: {
   input: DeleteConversationComment;
 }): Promise<Result<ConversationComment>> => {
   try {
-    const result = await sql.begin(async (tx): Promise<Result<Mutation<ConversationComment>>> => {
+    const result = await sql.begin(async (tx): Promise<Result<CollaborationMutation<ConversationComment>>> => {
       const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "read", tx);
       if (!allowed.ok) return allowed;
       const actor = actorIdentity(params.context);

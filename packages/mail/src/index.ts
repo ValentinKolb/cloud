@@ -5,7 +5,7 @@ import { mailCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes from "./frontend";
 import { migrate } from "./migrate";
-import { commandRuntime, mailRuntime } from "./service";
+import { commandRuntime, mailRuntime, workflowRuntime } from "./service";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -22,8 +22,10 @@ export default await app.start({
     start: async () => {
       await mailRuntime.start();
       await commandRuntime.start();
+      await workflowRuntime.start();
     },
     stop: async () => {
+      await workflowRuntime.stop();
       await commandRuntime.stop();
       await mailRuntime.stop();
     },
