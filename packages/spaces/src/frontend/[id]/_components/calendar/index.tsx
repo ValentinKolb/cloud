@@ -4,6 +4,8 @@ import {
   Calendar as CoreCalendar,
   type CalendarView as CoreCalendarView,
   dialogCore,
+  FilterChip,
+  type FilterChipSection,
   PanelDialog,
   panelDialogOptions,
   prompts,
@@ -12,7 +14,7 @@ import {
 import type { DateContext } from "@valentinkolb/stdlib";
 import { dates as calendar } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CalendarItem, SpaceItem } from "@/contracts";
 import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
@@ -180,29 +182,20 @@ export default function Calendar(props: CalendarProps) {
         },
       ]),
     );
-  const tagChipClass = (active: boolean) =>
-    `inline-flex min-h-7 items-center justify-center gap-1.5 rounded-full border px-2.5 text-xs font-medium leading-5 transition-colors ${
-      active
-        ? "border-blue-300 bg-blue-500/[0.08] text-blue-700 dark:border-blue-400/45 dark:bg-blue-400/10 dark:text-blue-200"
-        : "border-zinc-200/80 bg-white/65 text-secondary hover:border-blue-300/70 hover:bg-blue-500/[0.04] hover:text-primary dark:border-zinc-700/70 dark:bg-zinc-900/45 dark:hover:border-blue-400/40 dark:hover:bg-blue-400/[0.06]"
-    }`;
+  const tagOptions = (): FilterChipSection[] => [
+    {
+      multiple: true,
+      options: props.tags.map((tag) => ({ value: tag.id, label: tag.name, color: tag.color })),
+    },
+  ];
   const routeTo = (view: CalendarView, date: Date, replace = false) => {
     requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.selectedTagIds, undefined, props.dateConfig), {
       replace,
       scroll: "preserve",
     });
   };
-  const toggleTag = (tagId: string) => {
-    const selected = props.selectedTagIds.includes(tagId)
-      ? props.selectedTagIds.filter((id) => id !== tagId)
-      : [...props.selectedTagIds, tagId];
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, selected, undefined, props.dateConfig), {
-      replace: true,
-      scroll: "preserve",
-    });
-  };
-  const clearTags = () => {
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, [], undefined, props.dateConfig), {
+  const setTags = (tagIds: string[]) => {
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, tagIds, undefined, props.dateConfig), {
       replace: true,
       scroll: "preserve",
     });
@@ -426,27 +419,39 @@ export default function Calendar(props: CalendarProps) {
     onSuccess: handleEditItemSuccess,
     onError: (error) => prompts.error(error.message),
   });
+  const defaultNewEventSlot = (): CalendarEventTimeChange => {
+    const start = new Date(props.date);
+    start.setHours(9, 0, 0, 0);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    return { start, end, allDay: false };
+  };
 
   return (
-    <div id={rootId} class="flex min-h-0 flex-1 flex-col gap-2">
+    <div id={rootId} class="flex min-h-0 flex-1 flex-col gap-[var(--ui-space-shell)]">
       <CalendarDetailNavigation rootId={rootId} />
-      <Show when={props.tags.length > 0}>
-        <div class="flex flex-wrap items-center gap-2 px-1">
-          <button type="button" class={tagChipClass(props.selectedTagIds.length === 0)} onClick={clearTags}>
-            All tags
-          </button>
-          <For each={props.tags}>
-            {(tag) => (
-              <button
-                type="button"
-                class={`${tagChipClass(props.selectedTagIds.includes(tag.id))} gap-1.5`}
-                onClick={() => toggleTag(tag.id)}
-              >
-                <span class="h-2 w-2 shrink-0 rounded-full" style={{ "background-color": tag.color }} />
-                {tag.name}
-              </button>
-            )}
-          </For>
+      <Show when={props.tags.length > 0 || props.canWrite}>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <Show when={props.tags.length > 0}>
+            <FilterChip
+              label="Tags"
+              icon="ti ti-tag"
+              options={tagOptions()}
+              value={props.selectedTagIds}
+              defaultValue={[]}
+              onChange={setTags}
+            />
+          </Show>
+          <Show when={props.canWrite}>
+            <button
+              type="button"
+              class="btn-secondary btn-sm ml-auto"
+              disabled={createEvent.loading()}
+              onClick={() => createEvent.mutate(defaultNewEventSlot())}
+            >
+              <i class={`ti ${createEvent.loading() ? "ti-loader-2 animate-spin" : "ti-calendar-plus"}`} />
+              New event
+            </button>
+          </Show>
         </div>
       </Show>
       <CoreCalendar
@@ -470,10 +475,10 @@ export default function Calendar(props: CalendarProps) {
         onViewChange={(view: CoreCalendarView) => routeTo(view as CalendarView, props.date)}
         onDateChange={(date, view) => routeTo(view as CalendarView, date)}
         onEventClick={selectEvent}
-        onEventDrop={(event, next) => updateEventTime.mutate({ event, next })}
-        onEventResize={(event, next) => updateEventTime.mutate({ event, next })}
-        onEventDoubleClick={(event) => editEvent.mutate(event)}
-        onSlotDoubleClick={(slot) => createEvent.mutate(slot)}
+        onEventDrop={props.canWrite ? (event, next) => updateEventTime.mutate({ event, next }) : undefined}
+        onEventResize={props.canWrite ? (event, next) => updateEventTime.mutate({ event, next }) : undefined}
+        onEventDoubleClick={props.canWrite ? (event) => editEvent.mutate(event) : undefined}
+        onSlotDoubleClick={props.canWrite ? (slot) => createEvent.mutate(slot) : undefined}
       />
     </div>
   );

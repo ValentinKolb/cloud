@@ -63,15 +63,16 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
                   <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
                     <Avatar username={assignee.displayName} userId={assignee.id} avatarHash={assignee.avatarHash} size="xs" />
                     <span>{assignee.displayName}</span>
-                    <button
-                      type="button"
-                      onClick={() => remove(assignee.id)}
-                      disabled={props.disabled}
-                      class="text-dimmed hover:text-red-500 disabled:opacity-50"
-                      aria-label={`Remove ${assignee.displayName}`}
-                    >
-                      <i class="ti ti-x text-xs" />
-                    </button>
+                    <Show when={!props.disabled}>
+                      <button
+                        type="button"
+                        onClick={() => remove(assignee.id)}
+                        class="text-dimmed hover:text-red-500"
+                        aria-label={`Remove ${assignee.displayName}`}
+                      >
+                        <i class="ti ti-x text-xs" />
+                      </button>
+                    </Show>
                   </span>
                 )}
               </For>
@@ -86,15 +87,17 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
                   <div class="min-w-0 flex-1">
                     <span class="block truncate text-sm">{assignee.displayName}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => remove(assignee.id)}
-                    disabled={props.disabled}
-                    class="p-1 text-zinc-400 opacity-0 transition-all hover:text-red-500 group-hover:opacity-100 disabled:opacity-50"
-                    aria-label={`Remove ${assignee.displayName}`}
-                  >
-                    <i class="ti ti-x text-sm" />
-                  </button>
+                  <Show when={!props.disabled}>
+                    <button
+                      type="button"
+                      onClick={() => remove(assignee.id)}
+                      class="focus-ui rounded-[var(--ui-radius-control)] p-1 text-zinc-400 opacity-0 transition-all hover:text-red-500 focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                      aria-label={`Remove ${assignee.displayName}`}
+                      title={`Remove ${assignee.displayName}`}
+                    >
+                      <i class="ti ti-x text-sm" />
+                    </button>
+                  </Show>
                 </div>
               )}
             </For>
@@ -102,12 +105,13 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
         </Show>
       </Show>
 
-      <Combobox
-        placeholder={props.placeholder ?? "Search people with access..."}
-        fetchData={fetchAssignableUsers}
-        onSelect={addAssignee}
-        disabled={props.disabled}
-      />
+      <Show when={!props.disabled}>
+        <Combobox
+          placeholder={props.placeholder ?? "Search people with access..."}
+          fetchData={fetchAssignableUsers}
+          onSelect={addAssignee}
+        />
+      </Show>
     </div>
   );
 }

@@ -487,12 +487,12 @@ const result = await prompts.dialog(
 );
 ```
 
-When you need to drive the whole dialog shell explicitly, use the bare surface. This is how Notebook settings render `SettingsModal`: the prompt supplies only the overlay/portal, while the body owns header, tabs, and close action. Source: `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`.
+When you need to drive the whole dialog shell explicitly, use the bare surface. This is how Notebook settings render `SettingsModal`: the prompt supplies only the overlay/portal, while the body owns the category rail, active section heading, and close action. Source: `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`.
 
 ```tsx
 await prompts.dialog<void>(
   (close) => (
-    <SettingsModal title="Notebook settings" icon="ti ti-notebook" onClose={close}>
+    <SettingsModal title="Notebook settings" onClose={close}>
       <SettingsModal.Tab id="general" title="General" icon="ti ti-settings">
         ...
       </SettingsModal.Tab>
@@ -1241,12 +1241,14 @@ list; consistency makes app start pages easier to scan.
 
 ### SettingsModal
 
-Tabbed settings shell for app configuration dialogs. Source: `packages/cloud/src/ui/misc/SettingsModal.tsx`; Notebook settings use it inside a bare prompt dialog at `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`.
+`SettingsModal` is the single-frame shell for tabbed app configuration. Desktop uses a compact category rail inside the same surface as the content; narrow screens turn that rail into a horizontal strip. The rail supplies the settings context, so the shell does not repeat a generic visual header. The active pane owns its title and optional explanation. Source: `packages/cloud/src/ui/misc/SettingsModal.tsx`.
+
+Open settings through a bare `prompts.dialog` so `dialogCore` supplies the modal backdrop, focus trap, Escape handling, and backdrop dismissal. Do not render app settings as a third workspace pane or build a second frame around `SettingsModal`. Notebook settings are the reference flow at `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.tsx`.
 
 ```tsx
 await prompts.dialog<void>(
   (close) => (
-    <SettingsModal title="Notebook settings" subtitle={notebook.name} icon={notebook.icon} onClose={close}>
+    <SettingsModal title="Notebook settings" onClose={close}>
       <SettingsModal.Tab id="general" icon="ti ti-id" title="General" description="Name, icon, and metadata.">
         <GeneralSettings />
       </SettingsModal.Tab>
@@ -1259,11 +1261,11 @@ await prompts.dialog<void>(
 );
 ```
 
-`SettingsModal` props: `title`, `subtitle?`, `icon?`, `defaultTab?`, `activeTab?`, `onTabChange?`, `onClose?`, `closeLabel?`, `class?`, `children`.
+`SettingsModal` props: `title`, `subtitle?`, `icon?`, `defaultTab?`, `activeTab?`, `onTabChange?`, `onClose?`, `closeLabel?`, `class?`, `children`. `title` names the settings surface for assistive technology; it is not rendered as a generic banner. `subtitle` and `icon` remain compatibility props for existing callers and should not be used by new settings flows.
 
 `SettingsModal.Tab` props: `id`, `title`, `description?`, `icon?`, `tone?: "default" | "danger"`, `children`.
 
-The component owns tab layout and optional internal active-tab state. Keep saving, dirty state, permissions, and mutations in the app.
+The component owns tab layout, arrow-key navigation, and optional internal active-tab state. Keep saving, dirty state, permissions, and mutations in the app. Settings categories reuse the compact `AppWorkspace` sidebar item and active marker language; do not add a settings-specific selection treatment or use primary-action colours there.
 
 ### PanelDialog
 
@@ -1338,7 +1340,7 @@ Rule of thumb: route state stores stable date keys (`YYYY-MM-DD`) and persisted 
 
 #### Settings dialog recipe
 
-When opening settings from an island, use a bare prompt dialog. `SettingsModal` supplies the header, tabs, and close button; the prompt supplies only the overlay/portal. For access callbacks, do not import `GrantableLevel` from contracts: it is local to `PermissionEditor.tsx`. Prefer inference, or type grantable permissions as `Exclude<PermissionLevel, "none">` with `PermissionLevel` from `@valentinkolb/cloud/contracts`.
+When opening settings from an island, use a bare prompt dialog. `SettingsModal` supplies the category rail, active section heading, and close button; the prompt supplies only the overlay/portal. For access callbacks, do not import `GrantableLevel` from contracts: it is local to `PermissionEditor.tsx`. Prefer inference, or type grantable permissions as `Exclude<PermissionLevel, "none">` with `PermissionLevel` from `@valentinkolb/cloud/contracts`.
 
 ```tsx
 import { PermissionEditor, SettingsModal, prompts } from "@valentinkolb/cloud/ui";

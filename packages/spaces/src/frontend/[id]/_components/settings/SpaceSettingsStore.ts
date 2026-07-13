@@ -5,8 +5,8 @@
  * These are personal defaults that can be overridden via query params.
  */
 
-import type { Priority } from "@/contracts";
 import { cookies } from "@valentinkolb/stdlib/browser";
+import type { Priority } from "@/contracts";
 
 /** Cookie name for space settings */
 const COOKIE_NAME = "settings-app-spaces";
@@ -14,23 +14,11 @@ const COOKIE_NAME = "settings-app-spaces";
 /** Cookie name for global widget settings (applies across all spaces) */
 const WIDGET_SETTINGS_COOKIE = "settings-widgets";
 
-/** Detail panel width options */
-export type DetailPanelWidth = "narrow" | "medium" | "wide" | "xl";
-
 /** View type */
 export type ViewType = "list" | "table" | "kanban" | "calendar";
 
-/** Tailwind classes for panel widths */
-const DETAIL_PANEL_WIDTH_VALUES: Record<DetailPanelWidth, string> = {
-  narrow: "w-80",
-  medium: "w-[28rem]",
-  wide: "w-[36rem]",
-  xl: "w-[44rem]",
-};
-
 /** Settings for a single space (stored in cookie as user defaults) */
 export type SpaceUserSettings = {
-  detailPanelWidth: DetailPanelWidth;
   view: ViewType;
   hideSettings: boolean;
 };
@@ -43,21 +31,13 @@ export type AllSpacesSettings = {
 
 /** Default settings for a single space */
 export const DEFAULT_SPACE_SETTINGS: SpaceUserSettings = {
-  detailPanelWidth: "medium",
   view: "list",
   hideSettings: false,
 };
 
-/** Get Tailwind class for detail panel width */
-export const getDetailPanelWidthClass = (width: DetailPanelWidth): string => DETAIL_PANEL_WIDTH_VALUES[width];
-
 /** Check if a string is a valid view type */
 export const isValidView = (view: string | undefined): view is ViewType =>
   view === "list" || view === "table" || view === "kanban" || view === "calendar";
-
-/** Check if a string is a valid panel width */
-export const isValidPanelWidth = (width: string | undefined): width is DetailPanelWidth =>
-  width === "narrow" || width === "medium" || width === "wide" || width === "xl";
 
 const DEFAULT_ALL: AllSpacesSettings = {
   lastSpaceId: null,

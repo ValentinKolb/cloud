@@ -1,9 +1,9 @@
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
-import spacesPage from "./page";
 import spaceDetailPage from "./[id]/page";
 import spaceSettingsPage from "./[id]/settings/page";
 import spacesAdminPage from "./admin";
+import spacesPage from "./page";
 
 export const adminPages = new Hono<AuthContext>().get("/", auth.requireRole("admin", auth.redirectToLogin), ...spacesAdminPage);
 

@@ -4,7 +4,8 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Space } from "@/contracts";
-import { setLastSpaceId } from "./[id]/_components/settings/SpaceSettingsStore";
+import { setLastSpaceId, type ViewType, writeSpaceSettings } from "./[id]/_components/settings/SpaceSettingsStore";
+import { readResponseError } from "./lib/response";
 
 type Props = {
   spaces: Space[];
@@ -23,6 +24,13 @@ type SpaceDraft = {
   name: string;
   description: string;
   color: string;
+};
+
+const starterView: Record<SpaceStarter["id"], ViewType> = {
+  blank: "list",
+  tasks: "kanban",
+  calendar: "calendar",
+  project: "table",
 };
 
 const starters: SpaceStarter[] = [
@@ -52,7 +60,7 @@ const starters: SpaceStarter[] = [
 const blankStarter: SpaceStarter = {
   id: "blank",
   name: "Blank space",
-  description: "Create an empty space with the default workflow columns.",
+  description: "Start with only To Do and Done, then shape the workflow as needed.",
   icon: "ti ti-plus",
   color: "#3b82f6",
 };
@@ -69,16 +77,6 @@ const setQueryParam = (value: string) => {
   if (trimmed) url.searchParams.set("q", trimmed);
   else url.searchParams.delete("q");
   window.history.replaceState({}, "", url.toString());
-};
-
-const errorMessage = async (res: Response, fallback: string) => {
-  try {
-    const body = await res.json();
-    if (body && typeof body === "object" && "message" in body && typeof body.message === "string") return body.message;
-  } catch {
-    // Keep fallback.
-  }
-  return fallback;
 };
 
 function CreateSpaceForm(props: { starter: SpaceStarter; close: (result: SpaceDraft | null) => void }) {
@@ -145,7 +143,7 @@ export default function SpacesOverview(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
   const filteredSpaces = createMemo(() => props.spaces.filter((space) => spaceMatches(space, query())));
 
-  const createSpaceMutation = mutations.create<Space | null, SpaceStarter>({
+  const createSpaceMutation = mutations.create<{ space: Space; starter: SpaceStarter } | null, SpaceStarter>({
     mutation: async (starter) => {
       const result = await prompts.dialog<SpaceDraft | null>((close) => <CreateSpaceForm starter={starter} close={close} />, {
         title: starter.id === "blank" ? "New space" : starter.name,
@@ -158,15 +156,18 @@ export default function SpacesOverview(props: Props) {
           name: result.name,
           description: result.description || undefined,
           color: result.color,
+          starter: starter.id as "blank" | "tasks" | "calendar" | "project",
         },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create space"));
-      return res.json();
+      if (!res.ok) throw new Error(await readResponseError(res, "Failed to create space"));
+      return { space: await res.json(), starter };
     },
-    onSuccess: (space) => {
-      if (!space) return;
+    onSuccess: (result) => {
+      if (!result) return;
+      const { space, starter } = result;
       toast.success("Space created");
       setLastSpaceId(space.id);
+      writeSpaceSettings(space.id, { view: starterView[starter.id] });
       navigateTo(`/app/spaces/${space.id}`);
     },
     onError: (error) => prompts.error(error.message),
@@ -209,16 +210,32 @@ export default function SpacesOverview(props: Props) {
         <Show
           when={props.spaces.length > 0}
           fallback={
-            <AppOverview.EmptyState title="No spaces yet" icon="ti ti-layout-kanban" class="min-h-72">
-              <p class="max-w-sm text-xs text-dimmed">
-                Starters create a focused space shell; columns, tags, permissions, and calendar settings can be adjusted later.
-              </p>
+            <AppOverview.EmptyState
+              title="No spaces yet"
+              description="Create a simple workspace now; its workflow and access can be refined later."
+              icon="ti ti-layout-kanban"
+              class="min-h-72"
+            >
+              <button
+                type="button"
+                class="btn-secondary btn-sm"
+                onClick={() => createSpaceMutation.mutate(blankStarter)}
+                disabled={createSpaceMutation.loading()}
+              >
+                <i class="ti ti-plus" /> Create a space
+              </button>
             </AppOverview.EmptyState>
           }
         >
           <Show
             when={filteredSpaces().length > 0}
-            fallback={<AppOverview.EmptyState title="No matching spaces" description="Try a different search term." icon="ti ti-search" />}
+            fallback={
+              <AppOverview.EmptyState title="No matching spaces" description="Try a different search term." icon="ti ti-search">
+                <button type="button" class="btn-secondary btn-sm" onClick={() => onSearchInput("")}>
+                  <i class="ti ti-x" /> Clear search
+                </button>
+              </AppOverview.EmptyState>
+            }
           >
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <For each={filteredSpaces()}>
@@ -241,7 +258,9 @@ export default function SpacesOverview(props: Props) {
                       >
                         {space.name}
                       </span>
-                      <p class="truncate text-xs text-dimmed">{space.description || "No description"}</p>
+                      <Show when={space.description}>
+                        <p class="truncate text-xs text-dimmed">{space.description}</p>
+                      </Show>
                     </div>
                     <i class="ti ti-chevron-right text-dimmed" />
                   </a>
@@ -284,7 +303,7 @@ export default function SpacesOverview(props: Props) {
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-semibold text-primary">Blank space</span>
-              <span class="block text-xs leading-snug text-dimmed">Create an empty space with the default workflow columns.</span>
+              <span class="block text-xs leading-snug text-dimmed">Start with only To Do and Done, then shape the workflow as needed.</span>
             </span>
           </button>
         </div>

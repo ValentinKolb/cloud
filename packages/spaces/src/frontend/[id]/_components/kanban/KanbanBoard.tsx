@@ -11,7 +11,9 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid
 import { apiClient } from "@/api/client";
 import type { ItemFilter, ItemListResult, SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { getDetailItemFromUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import { readResponseError } from "../../../lib/response";
 import AssigneeAvatars from "../shared/AssigneeAvatars";
+import CreateItemButton from "../sidebar/CreateItemButton";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import type { KanbanBucketInitial } from "./types";
 
@@ -23,8 +25,8 @@ type Props = {
   selectedItemId?: string;
   initialBuckets: KanbanBucketInitial[];
   pageSize: number;
-  completedColumnId?: string | null;
   dateConfig?: DateContext;
+  canWrite: boolean;
 };
 
 type LoadMoreContext = {
@@ -104,14 +106,12 @@ const computeInsertRank = (items: SpaceItem[], insertIndex: number): bigint => {
 
 const buildRequest = (params: { bucket: KanbanBucketInitial; page: number; pageSize: number }): ItemFilter => {
   const { bucket, page, pageSize } = params;
-  const isCompletedBucket = bucket.kind === "completed";
-
   return {
     type: "all",
-    status: isCompletedBucket ? "completed" : "active",
+    status: bucket.isDone ? "completed" : "active",
     priority: undefined,
     tagIds: undefined,
-    columnIds: isCompletedBucket ? undefined : bucket.columnId ? [bucket.columnId] : undefined,
+    columnIds: bucket.columnId ? [bucket.columnId] : undefined,
     assignedTo: "all",
     deadlineFilter: "all",
     search: undefined,
@@ -179,7 +179,6 @@ export default function KanbanBoard(props: Props) {
     });
   };
   const resolveTargetColumnId = (bucket: KanbanBucketInitial) => {
-    if (bucket.kind === "completed") return props.completedColumnId ?? null;
     return bucket.columnId;
   };
 
@@ -346,8 +345,7 @@ export default function KanbanBoard(props: Props) {
         json: ctx.request,
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error("message" in data ? data.message : "Failed to load items");
+        throw new Error(await readResponseError(res, "Failed to load items"));
       }
       return (await res.json()) as ItemListResult;
     },
@@ -389,7 +387,7 @@ export default function KanbanBoard(props: Props) {
 
       const targetColumnId = resolveTargetColumnId(resolved.targetBucket);
       if (!targetColumnId) {
-        throw new Error("No completed column available for drop target");
+        throw new Error("Target column is unavailable");
       }
 
       const targetItemsWithoutSource = resolved.targetBucket.items.filter((item) => item.id !== itemId);
@@ -399,7 +397,7 @@ export default function KanbanBoard(props: Props) {
         ...resolved.source.item,
         columnId: targetColumnId,
         rank: targetRank.toString(),
-        completedAt: resolved.targetBucket.kind === "completed" ? new Date().toISOString() : null,
+        completedAt: resolved.targetBucket.isDone ? new Date().toISOString() : null,
       };
 
       withBoardScrollPreserved(() => {
@@ -433,7 +431,7 @@ export default function KanbanBoard(props: Props) {
         targetColumnId,
         targetRank: targetRank.toString(),
         targetIndex: targetIndexClamped,
-        targetCompleted: resolved.targetBucket.kind === "completed",
+        targetCompleted: resolved.targetBucket.isDone,
       };
     },
     mutation: async (vars, ctx) => {
@@ -446,8 +444,7 @@ export default function KanbanBoard(props: Props) {
         },
       });
       if (!moveRes.ok) {
-        const data = await moveRes.json();
-        throw new Error("message" in data ? data.message : "Failed to move item");
+        throw new Error(await readResponseError(moveRes, "Failed to move item"));
       }
       return (await moveRes.json()) as SpaceItem;
     },
@@ -497,21 +494,20 @@ export default function KanbanBoard(props: Props) {
   return (
     <div
       ref={boardScrollContainer}
-      class="h-full overflow-x-auto overflow-y-hidden px-2 py-1"
+      class="h-full overflow-x-auto overflow-y-hidden"
       data-scroll-preserve={`spaces-kanban-board-${props.spaceId}`}
     >
-      <div class="flex h-full min-w-max items-stretch gap-2">
+      <div class="flex h-full min-w-max items-stretch gap-[var(--ui-space-shell)]">
         <For each={buckets()}>
           {(bucket) => {
-            const isCompletedBucket = bucket.kind === "completed";
-            const canDropInBucket = !!resolveTargetColumnId(bucket);
+            const canDropInBucket = props.canWrite && !!resolveTargetColumnId(bucket);
 
             return (
               <section class="flex h-full w-72 shrink-0 flex-col rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1">
                 <header class="flex items-center gap-2 px-1.5 py-1.5">
                   <span
                     class="h-2 w-2 shrink-0 rounded-full"
-                    style={`background-color:${bucket.color ?? (isCompletedBucket ? "#10b981" : "#6b7280")}`}
+                    style={`background-color:${bucket.color ?? (bucket.isDone ? "#10b981" : "#6b7280")}`}
                   />
                   <h3 class="flex-1 truncate text-xs font-medium">{bucket.label}</h3>
                   <span class="text-[11px] tabular-nums text-dimmed">{bucket.total}</span>
@@ -562,7 +558,7 @@ export default function KanbanBoard(props: Props) {
                                 }));
                                 boardDnd.draggable(element, () => ({
                                   id: dragId,
-                                  disabled: moveMutation.loading(),
+                                  disabled: !props.canWrite || moveMutation.loading(),
                                   focusable: false,
                                   keyboard: false,
                                   handleSelector: "[data-dnd-card-handle]",
@@ -576,27 +572,29 @@ export default function KanbanBoard(props: Props) {
                                   : "border-[var(--ui-border)] bg-[var(--ui-surface)] hover:bg-[var(--ui-hover)]"
                               } ${isDraggingThis() ? "opacity-40" : ""}`}
                             >
-                              <Show
-                                when={isMovingThis()}
-                                fallback={
-                                  <button
-                                    type="button"
-                                    data-dnd-card-handle
-                                    aria-label={`Drag ${item.title}`}
-                                    title="Drag"
-                                    class="focus-ui absolute right-1.5 top-1.5 inline-flex h-5 w-5 cursor-grab items-center justify-center rounded-[var(--ui-radius-control)] text-dimmed opacity-0 transition-[color,background-color,opacity] hover:bg-[var(--ui-hover)] hover:text-primary group-hover/card:opacity-100 group-focus-within/card:opacity-100 active:cursor-grabbing"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                    }}
-                                  >
-                                    <i class="ti ti-grip-vertical text-[13px]" />
-                                  </button>
-                                }
-                              >
-                                <div class="pointer-events-none absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center text-dimmed">
-                                  <i class="ti ti-loader-2 animate-spin text-[11px]" />
-                                </div>
+                              <Show when={props.canWrite}>
+                                <Show
+                                  when={isMovingThis()}
+                                  fallback={
+                                    <button
+                                      type="button"
+                                      data-dnd-card-handle
+                                      aria-label={`Drag ${item.title}`}
+                                      title="Drag"
+                                      class="focus-ui absolute right-1.5 top-1.5 inline-flex h-5 w-5 cursor-grab items-center justify-center rounded-[var(--ui-radius-control)] text-dimmed opacity-0 transition-[color,background-color,opacity] hover:bg-[var(--ui-hover)] hover:text-primary group-hover/card:opacity-100 group-focus-within/card:opacity-100 active:cursor-grabbing"
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                      }}
+                                    >
+                                      <i class="ti ti-grip-vertical text-[13px]" />
+                                    </button>
+                                  }
+                                >
+                                  <div class="pointer-events-none absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center text-dimmed">
+                                    <i class="ti ti-loader-2 animate-spin text-[11px]" />
+                                  </div>
+                                </Show>
                               </Show>
                               <a
                                 href={buildItemUrl(props.baseUrl, item.id)}
@@ -607,7 +605,7 @@ export default function KanbanBoard(props: Props) {
                                   setSelectedItemId(item.id);
                                   requestSpacesRouteNavigation(href, { scroll: "preserve" });
                                 }}
-                                class="block pr-5"
+                                class={`block ${props.canWrite ? "pr-5" : ""}`}
                               >
                                 <div class="flex items-start gap-2">
                                   <Show when={priority}>
@@ -660,6 +658,18 @@ export default function KanbanBoard(props: Props) {
                     >
                       <i class={`ti ${isLoadingBucket(bucket.key) ? "ti-loader-2 animate-spin" : "ti-arrow-down"} text-sm`} />
                     </button>
+                  </Show>
+
+                  <Show when={props.canWrite && bucket.columnId}>
+                    <CreateItemButton
+                      spaceId={props.spaceId}
+                      columns={props.columns}
+                      tags={props.tags}
+                      dateConfig={props.dateConfig}
+                      variant="inline"
+                      defaultType="task"
+                      defaultColumnId={bucket.columnId!}
+                    />
                   </Show>
                 </div>
               </section>

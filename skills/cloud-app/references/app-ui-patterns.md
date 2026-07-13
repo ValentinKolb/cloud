@@ -91,7 +91,7 @@ await prompts.dialog<void>(
 
 Cloud-specific rules:
 
-- Do not add an extra dialog header around `SettingsModal`; the modal owns header, tabs, and close action.
+- Do not add an extra dialog header around `SettingsModal`; the modal owns its category rail, active section heading, and close action.
 - A route-backed settings page may still render `SettingsModal` as its body when that is the existing app pattern. The point is to reuse the shared settings shell, not to force every settings screen into the same navigation shape.
 - Keep save state, dirty tracking, access callbacks, and API mutations in the app.
 - Access tabs use `PermissionEditor`; callback functions close over the resource id and call the app's typed `apiClient`.

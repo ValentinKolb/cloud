@@ -48,7 +48,7 @@ body:has(.cloud-ui-soft),
   --ui-context-menu-surface: var(--ui-surface-raised);
   --ui-context-menu-radius: var(--ui-radius-surface);
   --ui-context-menu-shadow: var(--ui-shadow-float);
-  --ui-dropdown-menu-surface: var(--ui-surface-raised);
+  --ui-dropdown-menu-surface: rgb(246 247 246 / 0.94);
   --ui-dropdown-menu-radius: var(--ui-radius-surface);
   --ui-dropdown-menu-shadow: var(--ui-shadow-float);
   --ui-menu-border: var(--ui-border-strong);
@@ -85,7 +85,7 @@ body:has(.cloud-ui-soft),
   --ui-space-section: 0.75rem;
   --ui-space-control: 0.375rem;
   --ui-shadow-surface: none;
-  --ui-shadow-frame: 0 18px 44px -34px rgb(15 23 19 / 0.3), 0 2px 8px rgb(15 23 19 / 0.04);
+  --ui-shadow-frame: 0 0 18px -9px rgb(15 23 19 / 0.24), 0 18px 44px -34px rgb(15 23 19 / 0.3), 0 2px 8px rgb(15 23 19 / 0.05);
   --ui-shadow-float: 0 18px 46px -18px rgb(0 0 0 / 0.22), 0 5px 16px rgb(0 0 0 / 0.08);
   --ui-paper-highlighted: var(--ui-surface-subtle);
   --theme-bevel-top: none;
@@ -134,7 +134,8 @@ body:has(.cloud-ui-soft),
   --ui-check-shadow: none;
   --ui-check-hover-transform: none;
   --ui-shadow-surface: none;
-  --ui-shadow-frame: 0 20px 48px -30px rgb(0 0 0 / 0.72), 0 2px 10px rgb(0 0 0 / 0.18);
+  --ui-dropdown-menu-surface: rgb(30 31 31 / 0.94);
+  --ui-shadow-frame: 0 0 20px -9px rgb(0 0 0 / 0.82), 0 20px 48px -30px rgb(0 0 0 / 0.72), 0 2px 10px rgb(0 0 0 / 0.2);
   --ui-shadow-float: 0 22px 54px -18px rgb(0 0 0 / 0.72), 0 6px 18px rgb(0 0 0 / 0.3);
   --theme-press: inset 0 1px 3px rgb(0 0 0 / 0.48);
   --theme-shadow-hover: 0 14px 32px -24px rgb(0 0 0 / 0.8), 0 3px 12px rgb(0 0 0 / 0.22);
@@ -167,6 +168,7 @@ body:has(.cloud-ui-soft),
     padding: 0.375rem 0.75rem 0.375rem 1.125rem;
     border-color: transparent;
     border-radius: var(--ui-radius-surface);
+    box-shadow: var(--ui-shadow-frame) !important;
   }
 
   .cloud-app-canvas:has(.cloud-ui-soft) .layout-content-main {
@@ -209,10 +211,12 @@ body:has(.cloud-ui-soft),
 }
 
 .cloud-ui-soft.app-workspace > .workspace-main {
+  position: relative;
+  z-index: 1;
   border: 0;
   border-radius: 0;
   background: var(--ui-surface);
-  box-shadow: none;
+  box-shadow: var(--ui-shadow-workspace-edge);
 }
 
 .cloud-ui-soft.app-workspace > .workspace-detail {
@@ -274,9 +278,10 @@ body:has(.cloud-ui-soft),
 }
 
 .cloud-ui-soft .sidebar-header-title {
-  font-size: 0.75rem;
-  font-weight: 620;
-  letter-spacing: -0.01em;
+  font-size: 1rem;
+  line-height: 1.375rem;
+  font-weight: 650;
+  letter-spacing: -0.016em;
 }
 
 .cloud-ui-soft .sidebar-header-subtitle {
@@ -607,98 +612,16 @@ body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor)[data-variant="paper"]:focus
 
 /* Settings and data views read as one composed tool, not piles of cards. */
 .cloud-ui-soft .settings-modal {
-  gap: 0;
-  overflow: hidden;
-  border-radius: var(--ui-radius-frame);
   background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-frame);
+  box-shadow: var(--ui-shadow-float);
 }
 
-.cloud-ui-soft .settings-modal-header {
-  border: 0;
-  border-bottom: 1px solid var(--ui-divider);
-  border-radius: 0;
-  background: var(--ui-surface);
-  box-shadow: none;
-}
-
-.cloud-ui-soft .settings-modal-identity {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: var(--ui-radius-control);
-  background: var(--ui-surface-muted) !important;
-  color: var(--color-zinc-700) !important;
-}
-
-.dark .cloud-ui-soft .settings-modal-identity {
-  color: var(--color-zinc-200) !important;
-}
-
-.cloud-ui-soft .settings-modal-workspace {
-  gap: 0;
-}
-
-.cloud-ui-soft .settings-modal-nav {
-  border: 0;
-  border-radius: 0;
+.cloud-ui-soft .settings-modal-rail {
   background: var(--ui-surface-subtle);
-  box-shadow: none;
-}
-
-@media (min-width: 768px) {
-  .cloud-ui-soft .settings-modal-nav {
-    border-right: 1px solid var(--ui-divider);
-  }
-}
-
-.cloud-ui-soft .settings-modal-nav > button {
-  border-radius: var(--ui-radius-control);
-  color: var(--color-zinc-600);
-  background: transparent;
-}
-
-.dark .cloud-ui-soft .settings-modal-nav > button {
-  color: var(--color-zinc-400);
-}
-
-.cloud-ui-soft .settings-modal-nav > button:hover {
-  color: var(--color-zinc-900);
-  background: var(--ui-hover);
-}
-
-.dark .cloud-ui-soft .settings-modal-nav > button:hover {
-  color: var(--color-zinc-100);
-}
-
-.cloud-ui-soft .settings-modal-nav > button[data-state="active"] {
-  color: var(--color-zinc-950);
-  background: var(--ui-surface-raised);
-  box-shadow: 0 0 0 1px var(--ui-border);
-}
-
-.dark .cloud-ui-soft .settings-modal-nav > button[data-state="active"] {
-  color: var(--color-zinc-50);
-}
-
-.cloud-ui-soft .settings-modal-nav > button[data-tone="danger"]:not([data-state="active"]) {
-  color: var(--color-red-600);
 }
 
 .cloud-ui-soft .settings-modal-main {
-  border: 0;
-  border-radius: 0;
   background: var(--ui-surface);
-  box-shadow: none;
-}
-
-.cloud-ui-soft .settings-modal-main > section[data-tone="danger"] {
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.cloud-ui-soft .settings-modal-section-icon {
-  background: var(--ui-surface-muted) !important;
-  color: var(--color-zinc-600) !important;
 }
 
 .cloud-ui-soft [aria-label="Data table"],

@@ -1,5 +1,4 @@
-import type { ItemType, ItemStatus, DeadlineFilter, ItemSort, ItemGroupBy, Priority, AssignedToFilter } from "@/contracts";
-import type { ViewType, DetailPanelWidth } from "../settings/SpaceSettingsStore";
+import type { AssignedToFilter, DeadlineFilter, ItemGroupBy, ItemSort, ItemStatus, ItemType, Priority } from "@/contracts";
 
 // =============================================================================
 // Query Parameter Constants
@@ -22,7 +21,6 @@ export const QueryParams = {
   PAGE: "page",
   // View override params (temporary, not persisted)
   VIEW: "view",
-  PANEL_WIDTH: "panelWidth",
   // Item selection
   ITEM: "item",
   // Mode
@@ -63,13 +61,12 @@ export const defaultFilter: FilterState = {
   search: "",
   sort: "deadline",
   sortDesc: false,
-  groupBy: "priority",
+  groupBy: "deadline",
   page: 1,
 };
 
 const PRESERVED_QUERY_PARAMS = [
   QueryParams.VIEW,
-  QueryParams.PANEL_WIDTH,
   QueryParams.ITEM,
   QueryParams.MODE,
   QueryParams.CALENDAR_VIEW,
@@ -170,21 +167,11 @@ export function hasActiveFilters(filter: FilterState): boolean {
 // =============================================================================
 
 /**
- * Build URL with a panel width override parameter.
- */
-export function buildPanelWidthUrl(width: DetailPanelWidth): string {
-  const url = new URL(window.location.href);
-  url.searchParams.set(QueryParams.PANEL_WIDTH, width);
-  return url.toString();
-}
-
-/**
  * Remove all view override params (revert to cookie defaults).
  */
 export function clearViewOverrides(): string {
   const url = new URL(window.location.href);
   url.searchParams.delete(QueryParams.VIEW);
-  url.searchParams.delete(QueryParams.PANEL_WIDTH);
   return url.toString();
 }
 

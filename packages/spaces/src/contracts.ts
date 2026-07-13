@@ -139,6 +139,7 @@ export type OverlapItem = z.infer<typeof OverlapItemSchema>;
 export const CreateSpaceSchema = z.object({
   name: z.string().min(1).max(100).describe("Space name"),
   description: z.string().max(500).optional().describe("Space description"),
+  starter: z.enum(["blank", "tasks", "calendar", "project"]).optional().describe("Initial workflow template"),
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
@@ -338,7 +339,7 @@ export const ItemFilterSchema = z.object({
   sortDesc: z.boolean().default(false).describe("Sort descending"),
 
   // Grouping
-  groupBy: ItemGroupBySchema.default("priority").describe("Group items by field"),
+  groupBy: ItemGroupBySchema.default("deadline").describe("Group items by field"),
 
   // Pagination
   page: z.number().int().min(1).default(1).describe("Page number (1-indexed)"),

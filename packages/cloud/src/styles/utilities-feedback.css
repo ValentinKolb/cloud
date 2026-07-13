@@ -62,21 +62,23 @@
 }
 
 @utility context-menu-surface {
-  border: 1px solid var(--ui-menu-border);
+  border: 0;
   border-radius: var(--ui-context-menu-radius);
   background: var(--ui-context-menu-surface);
   box-shadow: var(--ui-context-menu-shadow);
 }
 
 @utility dropdown-menu-surface {
-  border: 1px solid var(--ui-menu-border);
+  border: 0;
   border-radius: var(--ui-dropdown-menu-radius);
   background: var(--ui-dropdown-menu-surface);
   box-shadow: var(--ui-dropdown-menu-shadow);
+  backdrop-filter: blur(14px) saturate(1.12);
+  -webkit-backdrop-filter: blur(14px) saturate(1.12);
 }
 
 @utility menu-item {
-  @apply flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors;
+  @apply flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors;
 
   &:hover,
   &:focus-visible {
@@ -84,8 +86,8 @@
   }
 }
 
-@utility menu-divider {
-  border-color: var(--ui-menu-divider);
+@utility menu-section {
+  @apply mt-1 pt-1;
 }
 
 @utility menu-label {

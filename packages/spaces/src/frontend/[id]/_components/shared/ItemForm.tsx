@@ -55,7 +55,7 @@ export default function ItemForm(props: ItemFormProps) {
   const [url, setUrl] = createSignal(props.item?.url ?? "");
   const [columnId, setColumnId] = createSignal(props.item?.columnId ?? props.defaults?.columnId ?? props.columns[0]?.id ?? "");
   const [itemType, setItemType] = createSignal<ItemType>(
-    initialIsEvent() ? "event" : isEditMode() ? "task" : (props.defaults?.type ?? "event"),
+    initialIsEvent() ? "event" : isEditMode() ? "task" : (props.defaults?.type ?? "task"),
   );
   const [deadline, setDeadline] = createSignal(dateTimeInitial(props.item?.deadline ?? props.defaults?.deadline));
   const [startsAt, setStartsAt] = createSignal(dateTimeInitial(props.item?.startsAt ?? props.defaults?.startsAt));
@@ -457,7 +457,7 @@ export default function ItemForm(props: ItemFormProps) {
             <PanelDialog.Section title="Organize" subtitle="Workflow, priority, tags, and ownership." icon="ti ti-tags">
               <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <SelectInput
-                  label="Kanban"
+                  label="Status"
                   description={!isEditMode() ? "Current workflow state" : undefined}
                   placeholder="Select column"
                   icon="ti ti-progress"
@@ -527,17 +527,15 @@ export default function ItemForm(props: ItemFormProps) {
         </PanelDialog.Body>
 
         <PanelDialog.Footer>
-          <Show fallback={<span />} when={isEditMode() || !advancedOpen()}>
-            <button
-              type="button"
-              class="btn-secondary btn-sm"
-              aria-expanded={advancedOpen()}
-              onClick={() => setAdvancedOpen((open) => !open)}
-            >
-              <i class={`ti ${advancedOpen() ? "ti-eye-off" : "ti-eye"}`} />
-              <span>{advancedOpen() ? "Hide options" : "More options"}</span>
-            </button>
-          </Show>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            aria-expanded={advancedOpen()}
+            onClick={() => setAdvancedOpen((open) => !open)}
+          >
+            <i class={`ti ${advancedOpen() ? "ti-eye-off" : "ti-eye"}`} />
+            <span>{advancedOpen() ? "Hide options" : "More options"}</span>
+          </button>
           <div class="flex items-center gap-2">
             <button type="button" onClick={props.onCancel} class="btn-secondary btn-sm">
               Cancel

@@ -1,6 +1,7 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { Show } from "solid-js";
 import SearchButton from "../search/SearchButton";
 import type { ViewType } from "../settings/SpaceSettingsStore";
 import CopyICalButton from "./CopyICalButton";
@@ -15,7 +16,7 @@ type Props = {
 };
 
 const views: Array<{ id: ViewType; label: string; icon: string }> = [
-  { id: "list", label: "List", icon: "ti-list-check" },
+  { id: "list", label: "Overview", icon: "ti-home" },
   { id: "table", label: "Table", icon: "ti-table" },
   { id: "kanban", label: "Kanban", icon: "ti-layout-kanban" },
   { id: "calendar", label: "Calendar", icon: "ti-calendar" },
@@ -25,7 +26,7 @@ const views: Array<{ id: ViewType; label: string; icon: string }> = [
 const getViewIcon = (view: ViewType): string => {
   switch (view) {
     case "list":
-      return "ti-list-check";
+      return "ti-home";
     case "table":
       return "ti-table";
     case "kanban":
@@ -53,38 +54,22 @@ export default function SpaceSidebar(props: Props) {
         iconStyle={`background-color: color-mix(in srgb, ${props.ctx.space.color} 12%, var(--ui-surface)); color: ${props.ctx.space.color}; box-shadow: inset 0 0 0 1px color-mix(in srgb, ${props.ctx.space.color} 22%, transparent)`}
         iconViewTransitionName={`space-color-${props.ctx.space.id}`}
         titleViewTransitionName={`space-name-${props.ctx.space.id}`}
-        action={
-          <button
-            type="button"
-            onClick={() => void props.onOpenSettings()}
-            class="icon-btn h-7 w-7"
-            title="Settings"
-            aria-label={`Settings for ${props.ctx.space.name}`}
-            style={`view-transition-name:${vt("settings-desktop")}`}
-          >
-            <i class="ti ti-settings text-xs" />
-          </button>
-        }
       />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems scrollPreserveKey={`spaces-sidebar-mobile-${props.ctx.space.id}`}>
-          <AppWorkspace.SidebarItem
-            onClick={() => void props.onOpenSettings()}
-            icon="ti ti-settings"
-            viewTransitionName={vt("settings-mobile")}
-          >
-            Settings
-          </AppWorkspace.SidebarItem>
-          <div style={`view-transition-name:${vt("create-mobile")}`}>
-            <CreateItemButton
-              spaceId={props.ctx.space.id}
-              columns={props.ctx.columns}
-              tags={props.ctx.tags}
-              dateConfig={props.dateConfig}
-              variant="chip"
-            />
-          </div>
+          <Show when={props.ctx.canWrite}>
+            <div style={`view-transition-name:${vt("create-mobile")}`}>
+              <CreateItemButton
+                spaceId={props.ctx.space.id}
+                columns={props.ctx.columns}
+                tags={props.ctx.tags}
+                dateConfig={props.dateConfig}
+                variant="chip"
+                defaultType={props.ctx.currentView === "calendar" ? "event" : "task"}
+              />
+            </div>
+          </Show>
           <div style={`view-transition-name:${vt("search-mobile")}`}>
             <SearchButton
               spaceId={props.ctx.space.id}
@@ -120,21 +105,31 @@ export default function SpaceSidebar(props: Props) {
           <div style={`view-transition-name:${vt("copy-ical-mobile")}`}>
             <CopyICalButton icalToken={props.ctx.space.icalToken} variant="chip" />
           </div>
+          <AppWorkspace.SidebarItem
+            onClick={() => void props.onOpenSettings()}
+            icon="ti ti-settings"
+            viewTransitionName={vt("settings-mobile")}
+          >
+            Space settings
+          </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarMobileItems>
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
         <div class="flex flex-col gap-3">
-          <AppWorkspace.SidebarIconGrid columns={3}>
-            <div style={`view-transition-name:${vt("create-desktop")}`}>
-              <CreateItemButton
-                spaceId={props.ctx.space.id}
-                columns={props.ctx.columns}
-                tags={props.ctx.tags}
-                dateConfig={props.dateConfig}
-                variant="icon"
-              />
-            </div>
+          <AppWorkspace.SidebarIconGrid columns={props.ctx.canWrite ? 3 : 2}>
+            <Show when={props.ctx.canWrite}>
+              <div style={`view-transition-name:${vt("create-desktop")}`}>
+                <CreateItemButton
+                  spaceId={props.ctx.space.id}
+                  columns={props.ctx.columns}
+                  tags={props.ctx.tags}
+                  dateConfig={props.dateConfig}
+                  variant="icon"
+                  defaultType={props.ctx.currentView === "calendar" ? "event" : "task"}
+                />
+              </div>
+            </Show>
             <div style={`view-transition-name:${vt("search-desktop")}`}>
               <SearchButton
                 spaceId={props.ctx.space.id}
@@ -176,8 +171,17 @@ export default function SpaceSidebar(props: Props) {
         <div class="min-h-0 flex-1" />
 
         <AppWorkspace.SidebarFooter>
-          <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
-            <CopyICalButton icalToken={props.ctx.space.icalToken} />
+          <div class="flex flex-col gap-1">
+            <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
+              <CopyICalButton icalToken={props.ctx.space.icalToken} />
+            </div>
+            <AppWorkspace.SidebarItem
+              onClick={() => void props.onOpenSettings()}
+              icon="ti ti-settings"
+              viewTransitionName={vt("settings-desktop")}
+            >
+              Space settings
+            </AppWorkspace.SidebarItem>
           </div>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>

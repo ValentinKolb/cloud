@@ -11,4 +11,5 @@ export type SpaceEditPanelProps = {
   accessEntries?: AccessEntry[];
   apiKeys?: ResourceApiKey[];
   isAdmin?: boolean;
+  canWrite?: boolean;
 };

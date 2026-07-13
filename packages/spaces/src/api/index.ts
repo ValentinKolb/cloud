@@ -968,7 +968,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Spaces"],
       summary: "Set completed status",
-      description: "Mark item as completed or reopen it.",
+      description: "Mark an item as completed or reopen it and move it to the first matching workflow status when needed.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(SpaceItemSchema, "Updated item"),

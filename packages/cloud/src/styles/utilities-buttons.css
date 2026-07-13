@@ -112,6 +112,18 @@
   }
 }
 
+/* Success, quiet: same geometry as secondary controls, with state carried by
+   a low-chroma fill instead of a louder outline or solid action surface. */
+@utility btn-success-subtle {
+  @apply btn-base border-transparent bg-emerald-500/10 text-emerald-700;
+  @apply hover:bg-emerald-500/15 hover:text-emerald-800;
+  @apply active:bg-emerald-500/20;
+  @apply dark:bg-emerald-400/12 dark:text-emerald-300;
+  @apply dark:hover:bg-emerald-400/18 dark:hover:text-emerald-200;
+  @apply dark:active:bg-emerald-400/22;
+  box-shadow: none;
+}
+
 /* Danger: filled red + soft bevel; sinks on press */
 @utility btn-danger {
   @apply btn-base bg-red-500 text-white border-red-600;

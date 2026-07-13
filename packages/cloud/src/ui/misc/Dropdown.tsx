@@ -270,15 +270,14 @@ export default function Dropdown(props: DropdownProps) {
         role="menu"
         aria-label="Dropdown menu"
         onKeyDown={handleMenuKeyDown}
-        class={`${width} dropdown-menu-surface max-h-[min(24rem,80dvh)] overflow-y-auto p-0 ${props.className ?? ""}`}
+        class={`${width} dropdown-menu-surface max-h-[min(24rem,80dvh)] overflow-y-auto p-1 ${props.className ?? ""}`}
       >
         {props.elements.map((item, i) =>
           "items" in item ? (
-            <>
-              {i > 0 && <hr class="menu-divider" />}
+            <div class={i > 0 ? "menu-section" : undefined}>
               {item.sectionLabel && <div class="menu-label">{item.sectionLabel}</div>}
               {item.items.map(renderItem)}
-            </>
+            </div>
           ) : (
             renderItem(item)
           ),

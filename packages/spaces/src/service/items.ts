@@ -657,7 +657,9 @@ export const listFiltered = async (params: {
         : sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END ASC, i.rank ASC`;
       break;
     case "deadline":
-      orderClause = sortDesc ? sql`i.deadline DESC NULLS FIRST, i.rank ASC` : sql`i.deadline ASC NULLS LAST, i.rank ASC`;
+      orderClause = sortDesc
+        ? sql`CASE WHEN i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL THEN i.starts_at ELSE i.deadline END DESC NULLS FIRST, i.rank ASC`
+        : sql`CASE WHEN i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL THEN i.starts_at ELSE i.deadline END ASC NULLS LAST, i.rank ASC`;
       break;
     case "created":
       orderClause = sortDesc ? sql`i.created_at DESC` : sql`i.created_at ASC`;
@@ -1277,11 +1279,43 @@ export const setCompleted = async (params: { id: string; completed: boolean }): 
 
   const completedAt = completed ? new Date() : null;
 
+  // Completion and workflow status are one concept: keep items in a column
+  // whose `is_done` value matches the requested state. If the current column
+  // already matches, preserve it; otherwise use the first matching column and
+  // append the item there.
   const [row] = await sql<{ id: string }[]>`
-    UPDATE spaces.items
-    SET completed_at = ${completedAt}, updated_at = now()
-    WHERE id = ${id}
-    RETURNING id
+    WITH current_item AS (
+      SELECT i.id, i.space_id, i.column_id, c.is_done AS column_is_done
+      FROM spaces.items i
+      JOIN spaces.columns c ON c.id = i.column_id
+      WHERE i.id = ${id}
+    ), target_column AS (
+      SELECT COALESCE(
+        (SELECT column_id FROM current_item WHERE column_is_done = ${completed}),
+        (
+          SELECT c.id
+          FROM spaces.columns c
+          JOIN current_item current ON current.space_id = c.space_id
+          WHERE c.is_done = ${completed}
+          ORDER BY c.rank ASC
+          LIMIT 1
+        )
+      ) AS id
+    ), target_rank AS (
+      SELECT COALESCE(MAX(i.rank), 0) + 1024 AS value
+      FROM spaces.items i
+      JOIN target_column target ON target.id = i.column_id
+    )
+    UPDATE spaces.items item
+    SET completed_at = ${completedAt},
+        column_id = COALESCE((SELECT id FROM target_column), item.column_id),
+        rank = CASE
+          WHEN (SELECT id FROM target_column) IS DISTINCT FROM item.column_id THEN (SELECT value FROM target_rank)
+          ELSE item.rank
+        END,
+        updated_at = now()
+    WHERE item.id = ${id}
+    RETURNING item.id
   `;
 
   if (!row) {

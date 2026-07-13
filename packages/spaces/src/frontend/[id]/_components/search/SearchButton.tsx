@@ -1,8 +1,8 @@
 import {
   isSpotlightShortcut,
   openSpotlightSearch,
-  SpotlightButton,
   SPOTLIGHT_SHORTCUT_TITLE,
+  SpotlightButton,
   type SpotlightButtonVariant,
 } from "@valentinkolb/cloud/ui";
 import { onCleanup, onMount } from "solid-js";

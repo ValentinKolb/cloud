@@ -5,6 +5,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceComment } from "@/contracts";
+import { readResponseError } from "../../../lib/response";
 
 type Props = {
   spaceId: string;
@@ -13,18 +14,7 @@ type Props = {
   currentUserId: string;
   onUpdate: () => void;
   dateConfig?: DateContext;
-};
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
-
-const getResponseErrorMessage = async (res: Response, fallback: string) => {
-  try {
-    const data = (await res.json()) as unknown;
-    if (isObject(data) && typeof data["message"] === "string" && data["message"].length > 0) {
-      return data["message"];
-    }
-  } catch {}
-  return fallback;
+  canWrite: boolean;
 };
 
 export default function CommentsSection(props: Props) {
@@ -38,7 +28,7 @@ export default function CommentsSection(props: Props) {
         json: { content },
       });
       if (!res.ok) {
-        throw new Error(await getResponseErrorMessage(res, "Failed to add comment"));
+        throw new Error(await readResponseError(res, "Failed to add comment"));
       }
       return res.json();
     },
@@ -65,7 +55,7 @@ export default function CommentsSection(props: Props) {
         param: { id: props.spaceId, itemId: props.itemId, commentId: id },
       });
       if (!res.ok) {
-        throw new Error(await getResponseErrorMessage(res, "Failed to delete comment"));
+        throw new Error(await readResponseError(res, "Failed to delete comment"));
       }
       await res.json();
       return true;
@@ -114,7 +104,7 @@ export default function CommentsSection(props: Props) {
           <span class="inline-flex items-center rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 text-[11px] font-medium text-secondary">
             {props.comments.length} {props.comments.length === 1 ? "comment" : "comments"}
           </span>
-          <Show when={!composerOpen()}>
+          <Show when={props.canWrite && !composerOpen()}>
             <button type="button" class="btn-simple btn-sm" onClick={() => setComposerOpen(true)}>
               <i class="ti ti-plus" /> Add comment
             </button>
@@ -141,7 +131,7 @@ export default function CommentsSection(props: Props) {
                     <span class="text-[11px] text-dimmed" title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
                       {formatDate(comment.createdAt)}
                     </span>
-                    <Show when={comment.canDelete}>
+                    <Show when={props.canWrite && comment.canDelete}>
                       <button
                         type="button"
                         onClick={() => deleteCommentMutation.mutate(comment.id)}
@@ -164,7 +154,7 @@ export default function CommentsSection(props: Props) {
         </ol>
       </Show>
 
-      <Show when={composerOpen()}>
+      <Show when={props.canWrite && composerOpen()}>
         <form onSubmit={handleSubmit} class="flex flex-col gap-2">
           <TextInput
             value={() => newComment()}

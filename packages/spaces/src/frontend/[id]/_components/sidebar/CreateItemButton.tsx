@@ -3,7 +3,9 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
+import { readResponseError } from "../../../lib/response";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
+import type { ItemType } from "../shared/item-form/types";
 import { requestCurrentSpacesRouteRefresh } from "../workspace/workspace-events";
 
 type Props = {
@@ -11,10 +13,14 @@ type Props = {
   columns: SpaceColumn[];
   tags: SpaceTag[];
   dateConfig?: DateContext;
-  variant?: "primary" | "secondary" | "sidebar" | "chip" | "icon";
+  variant?: "primary" | "secondary" | "sidebar" | "chip" | "icon" | "inline";
+  defaultType?: ItemType;
+  defaultColumnId?: string;
 };
 
 export default function CreateItemButton(props: Props) {
+  const defaultType = () => props.defaultType ?? "task";
+  const label = () => (defaultType() === "event" ? "New event" : "New task");
   const mutation = mutations.create<SpaceItem | null, void>({
     mutation: async () => {
       const result = await dialogCore.open<ItemFormData | null>(
@@ -23,10 +29,11 @@ export default function CreateItemButton(props: Props) {
             spaceId={props.spaceId}
             columns={props.columns}
             tags={props.tags}
+            defaults={{ type: defaultType(), columnId: props.defaultColumnId }}
             onSubmit={(data) => close(data)}
             onCancel={() => close(null)}
-            title="New item"
-            icon="ti ti-plus"
+            title={label()}
+            icon={defaultType() === "event" ? "ti ti-calendar-plus" : "ti ti-square-plus"}
             dateConfig={props.dateConfig}
           />
         ),
@@ -45,14 +52,13 @@ export default function CreateItemButton(props: Props) {
         },
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error("message" in data ? data.message : "Failed to create item");
+        throw new Error(await readResponseError(res, "Failed to create item"));
       }
       return res.json();
     },
     onSuccess: (item) => {
       if (!item) return;
-      toast.success("Item created");
+      toast.success(defaultType() === "event" ? "Event created" : "Task created");
       requestCurrentSpacesRouteRefresh();
     },
     onError: (err) => prompts.error(err.message),
@@ -66,7 +72,7 @@ export default function CreateItemButton(props: Props) {
         ) : (
           <>
             <i class="ti ti-plus" />
-            <span>New Item</span>
+            <span>{label()}</span>
           </>
         )}
       </button>
@@ -81,7 +87,7 @@ export default function CreateItemButton(props: Props) {
         tone="success"
         icon={mutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"}
       >
-        New Item
+        {label()}
       </AppWorkspace.SidebarItem>
     );
   }
@@ -93,10 +99,24 @@ export default function CreateItemButton(props: Props) {
         onClick={() => mutation.mutate(undefined)}
         disabled={mutation.loading()}
         class="sidebar-icon-action"
-        title="New Item"
-        aria-label="New Item"
+        title={label()}
+        aria-label={label()}
       >
         <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
+      </button>
+    );
+  }
+
+  if (props.variant === "inline") {
+    return (
+      <button
+        type="button"
+        onClick={() => mutation.mutate(undefined)}
+        disabled={mutation.loading()}
+        class="focus-ui flex w-full items-center gap-1.5 rounded-[var(--ui-radius-control)] px-2 py-1.5 text-left text-[11px] font-medium text-dimmed transition-colors hover:bg-[var(--ui-hover)] hover:text-primary"
+      >
+        <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-xs`} />
+        <span>{defaultType() === "event" ? "Add event" : "Add task"}</span>
       </button>
     );
   }
@@ -113,7 +133,7 @@ export default function CreateItemButton(props: Props) {
       ) : (
         <>
           <i class="ti ti-plus text-emerald-600 dark:text-emerald-400" />
-          <span class="text-emerald-700 dark:text-emerald-300">New Item</span>
+          <span class="text-emerald-700 dark:text-emerald-300">{label()}</span>
         </>
       )}
     </button>

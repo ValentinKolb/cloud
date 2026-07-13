@@ -5,14 +5,17 @@ import { streaming } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
+import { readResponseError } from "../../../lib/response";
 import Calendar from "../calendar";
 import ItemDetailHost from "../detail/ItemDetailHost";
 import SpaceDetailLayoutSync from "../detail/SpaceDetailLayoutSync";
 import SpaceEditPanel from "../edit/SpaceEditPanel";
 import FilterBar from "../filter/FilterBar";
-import { buildFilterUrl, defaultFilter, type FilterState, parseFilterFromUrl } from "../filter/types";
+import { buildFilterUrl, defaultFilter, type FilterState, hasActiveFilters, parseFilterFromUrl } from "../filter/types";
 import KanbanBoard from "../kanban/KanbanBoard";
 import ItemsList from "../list";
+import { setLastSpaceId } from "../settings/SpaceSettingsStore";
+import CreateItemButton from "../sidebar/CreateItemButton";
 import SpaceSidebar from "../sidebar/SpaceSidebar";
 import ItemsTable from "../table/ItemsTable";
 import { requestSpacesRouteNavigation, SPACES_ROUTE_NAVIGATION_EVENT, type SpacesRouteNavigationDetail } from "./workspace-events";
@@ -21,7 +24,6 @@ import {
   buildSpacesPaginationBaseUrl,
   parseSpacesWorkspaceHref,
   type SpacesWorkspaceState,
-  spacesDetailPanelWidthClass,
 } from "./workspace-types";
 
 type Props = {
@@ -62,8 +64,6 @@ export default function SpacesWorkspace(props: Props) {
       currentView: state().currentView,
       filter: filter(),
       hasViewOverride: state().hasOverride && new URLSearchParams(state().query).has("view"),
-      hasPanelWidthOverride: state().hasOverride && new URLSearchParams(state().query).has("panelWidth"),
-      currentPanelWidth: state().currentPanelWidth,
       calendarView: state().calendarView,
       calendarDate: state().calendarDate,
       calendarTagIds: state().calendarTagIds,
@@ -75,8 +75,6 @@ export default function SpacesWorkspace(props: Props) {
       filter: filter(),
       hasViewOverride: state().hasOverride && new URLSearchParams(state().query).has("view"),
       currentView: state().currentView,
-      hasPanelWidthOverride: state().hasOverride && new URLSearchParams(state().query).has("panelWidth"),
-      currentPanelWidth: state().currentPanelWidth,
     });
 
   const routeStateMutation = mutations.create<RouteStateResult, RouteStateRequest>({
@@ -86,8 +84,7 @@ export default function SpacesWorkspace(props: Props) {
       if (!target || target.spaceId !== spaceId()) return { request, state: null };
       const res = await apiClient.workspace.route.$get({ query: { href } }, { init: { signal: ctx.abortSignal } });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error("message" in data ? data.message : "Could not load workspace route");
+        throw new Error(await readResponseError(res, "Could not load workspace route"));
       }
       const next = (await res.json()) as SpacesWorkspaceState;
       return { request, state: next.kind === "ok" ? next : null };
@@ -131,6 +128,7 @@ export default function SpacesWorkspace(props: Props) {
               accessEntries={settingsState.accessEntries}
               apiKeys={settingsState.apiKeys}
               isAdmin={settingsState.isAdmin}
+              canWrite={settingsState.canWrite}
               onClose={() => {
                 close();
                 if (state().isSettingsMode) {
@@ -198,6 +196,7 @@ export default function SpacesWorkspace(props: Props) {
   };
 
   onMount(() => {
+    setLastSpaceId(spaceId());
     const abortController = new AbortController();
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     let lastEventCursor: string | null = null;
@@ -276,18 +275,18 @@ export default function SpacesWorkspace(props: Props) {
     columns: state().space.columns,
     tags: state().space.tags,
     currentView: state().currentView,
-    currentPanelWidth: state().currentPanelWidth,
     hasOverride: state().hasOverride,
     settings: state().settings,
     query: state().query,
+    canWrite: state().canWrite,
   });
 
   return (
     <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
       <SpaceSidebar ctx={spaceContext()} onNavigate={handleNavigate} onOpenSettings={openSettingsRoute} dateConfig={props.dateConfig} />
 
-      <AppWorkspace.Main>
-        {state().space.description && <p class="mb-2 px-1 text-xs leading-relaxed text-dimmed">{state().space.description}</p>}
+      <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
+        {state().space.description && <p class="mb-2 text-xs leading-relaxed text-dimmed">{state().space.description}</p>}
 
         {(state().currentView === "list" || state().currentView === "table") && (
           <>
@@ -314,11 +313,42 @@ export default function SpacesWorkspace(props: Props) {
           {(state().currentView === "list" || state().currentView === "table") && (
             <>
               {state().itemsResult.items.length === 0 ? (
-                <Placeholder icon="ti ti-checkbox">
-                  {state().itemsResult.total === 0 && filter().search === "" && filter().status === "active"
-                    ? "No items yet. Create your first item!"
-                    : "No items match your filters."}
-                </Placeholder>
+                !hasActiveFilters(filter()) ? (
+                  <Placeholder
+                    icon="ti ti-checkbox"
+                    variant="panel"
+                    title="No items yet"
+                    description={
+                      state().canWrite
+                        ? "Create a task to start organizing work in this space."
+                        : "This space does not contain any items yet."
+                    }
+                    action={
+                      state().canWrite ? (
+                        <CreateItemButton
+                          spaceId={spaceId()}
+                          columns={state().space.columns}
+                          tags={state().space.tags}
+                          dateConfig={props.dateConfig}
+                          variant="chip"
+                          defaultType="task"
+                        />
+                      ) : undefined
+                    }
+                  />
+                ) : (
+                  <Placeholder
+                    icon="ti ti-filter-off"
+                    variant="panel"
+                    title="No matching items"
+                    description="Try a different search or clear the active filters."
+                    action={
+                      <button type="button" class="btn-secondary btn-sm" onClick={clearFilters}>
+                        <i class="ti ti-filter-off" /> Clear filters
+                      </button>
+                    }
+                  />
+                )
               ) : state().currentView === "table" ? (
                 <ItemsTable
                   items={state().itemsResult.items}
@@ -341,17 +371,20 @@ export default function SpacesWorkspace(props: Props) {
                   showCompleted={filter().status !== "active"}
                   baseUrl={itemLinkBaseUrl()}
                   dateConfig={props.dateConfig}
+                  canWrite={state().canWrite}
                 />
               )}
 
-              <div class="px-3 py-2">
-                <Pagination
-                  currentPage={state().itemsResult.page}
-                  totalPages={state().itemsResult.totalPages}
-                  baseUrl={paginationBaseUrl()}
-                  onNavigate={handleNavigate}
-                />
-              </div>
+              {state().itemsResult.totalPages > 1 && (
+                <div class="py-2">
+                  <Pagination
+                    currentPage={state().itemsResult.page}
+                    totalPages={state().itemsResult.totalPages}
+                    baseUrl={paginationBaseUrl()}
+                    onNavigate={handleNavigate}
+                  />
+                </div>
+              )}
             </>
           )}
 
@@ -364,8 +397,8 @@ export default function SpacesWorkspace(props: Props) {
               selectedItemId={selectedItemId()}
               initialBuckets={state().kanbanBuckets}
               pageSize={KANBAN_PAGE_SIZE}
-              completedColumnId={state().completedColumnId}
               dateConfig={props.dateConfig}
+              canWrite={state().canWrite}
             />
           )}
 
@@ -382,17 +415,13 @@ export default function SpacesWorkspace(props: Props) {
               baseUrl={itemLinkBaseUrl()}
               weather={state().calendarWeather}
               dateConfig={props.dateConfig}
+              canWrite={state().canWrite}
             />
           )}
         </div>
       </AppWorkspace.Main>
 
-      <AppWorkspace.Detail
-        id="space-detail-panel"
-        open={Boolean(selectedItemId())}
-        widthClass={spacesDetailPanelWidthClass(state().currentPanelWidth)}
-        viewTransitionName="space-detail-panel-shell"
-      >
+      <AppWorkspace.Detail id="space-detail-panel" open={Boolean(selectedItemId())} viewTransitionName="space-detail-panel-shell">
         <div class="h-full min-h-0 flex-1" data-scroll-preserve={detailScrollPreserveKey()}>
           <ItemDetailHost
             spaceId={spaceId()}
@@ -403,6 +432,7 @@ export default function SpacesWorkspace(props: Props) {
             initialItem={state().selectedItem}
             initialComments={state().selectedItemComments}
             dateConfig={props.dateConfig}
+            canWrite={state().canWrite}
           />
         </div>
       </AppWorkspace.Detail>

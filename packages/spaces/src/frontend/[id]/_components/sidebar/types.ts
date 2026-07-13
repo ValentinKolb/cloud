@@ -1,5 +1,5 @@
-import type { SpaceDetail, SpaceColumn, SpaceTag } from "@/contracts";
-import type { SpaceUserSettings, ViewType, DetailPanelWidth } from "../settings/SpaceSettingsStore";
+import type { SpaceColumn, SpaceDetail, SpaceTag } from "@/contracts";
+import type { SpaceUserSettings, ViewType } from "../settings/SpaceSettingsStore";
 
 /**
  * Shared context object for space-related components.
@@ -14,12 +14,12 @@ export type SpaceContext = {
   tags: SpaceTag[];
   /** Current effective view (from query param or cookie default) */
   currentView: ViewType;
-  /** Current effective panel width (from query param or cookie default) */
-  currentPanelWidth: DetailPanelWidth;
   /** Whether current values are overridden by query params */
   hasOverride: boolean;
   /** User settings for this space (cookie defaults) */
   settings: SpaceUserSettings;
   /** Current query string without leading question mark */
   query: string;
+  /** Whether the current user may mutate this space and its items */
+  canWrite: boolean;
 };

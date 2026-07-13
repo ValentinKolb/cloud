@@ -51,11 +51,11 @@ function CellLink(props: { href: string; class?: string; title?: string; tabInde
   );
 }
 
-const formatSchedule = (item: SpaceItem) => {
+const formatSchedule = (item: SpaceItem, dateConfig?: DateContext) => {
   if (item.startsAt && item.endsAt) {
-    return `${dates.formatDateTime(item.startsAt)} -> ${dates.formatDateTime(item.endsAt)}`;
+    return `${dates.formatDateTime(item.startsAt, dateConfig)} – ${dates.formatDateTime(item.endsAt, dateConfig)}`;
   }
-  if (item.deadline) return dates.formatDateTime(item.deadline);
+  if (item.deadline) return dates.formatDateTime(item.deadline, dateConfig);
   return "—";
 };
 
@@ -63,7 +63,7 @@ export default function ItemsTable(props: Props) {
   const columnsById = new Map(props.columns.map((column) => [column.id, column]));
   const tableColumns: DataTableColumn<SpaceItem>[] = [
     { id: "title", header: "Title", value: (item) => item.title, cellClass: "max-w-[24rem]" },
-    { id: "kanban", header: "Kanban", value: (item) => columnsById.get(item.columnId)?.name },
+    { id: "status", header: "Status", value: (item) => columnsById.get(item.columnId)?.name },
     {
       id: "kind",
       header: "Kind",
@@ -71,23 +71,21 @@ export default function ItemsTable(props: Props) {
       cellClass: "whitespace-nowrap",
     },
     { id: "priority", header: "Priority", value: (item) => item.priority, cellClass: "whitespace-nowrap" },
-    { id: "schedule", header: "Schedule", value: formatSchedule, cellClass: "max-w-[18rem]" },
+    { id: "schedule", header: "Schedule", value: (item) => formatSchedule(item, props.dateConfig), cellClass: "max-w-[18rem]" },
     {
       id: "assignees",
       header: "Assignees",
       value: (item) => item.assignees?.map((assignee) => assignee.displayName).join(", "),
-      class: "hidden xl:table-cell",
       cellClass: "max-w-[14rem]",
     },
     {
       id: "tags",
       header: "Tags",
       value: (item) => item.tags?.map((tag) => tag.name).join(", "),
-      class: "hidden xl:table-cell",
       cellClass: "max-w-[12rem]",
     },
     { id: "updated", header: "Updated", value: (item) => item.updatedAt, cellClass: "whitespace-nowrap" },
-    { id: "created", header: "Created", value: (item) => item.createdAt, class: "hidden 2xl:table-cell", cellClass: "whitespace-nowrap" },
+    { id: "created", header: "Created", value: (item) => item.createdAt, cellClass: "whitespace-nowrap" },
   ];
 
   return (
@@ -99,6 +97,7 @@ export default function ItemsTable(props: Props) {
         selectedRowId={props.selectedItemId}
         hoverRows
         class="overflow-x-auto"
+        tableClass="min-w-[72rem] w-full text-xs"
         scrollPreserveKey={props.scrollPreserveKey}
         renderCell={({ row: item, col }) => {
           const column = columnsById.get(item.columnId) ?? null;
@@ -115,11 +114,17 @@ export default function ItemsTable(props: Props) {
               </CellLink>
             );
           }
-          if (col.id === "kanban") {
+          if (col.id === "status") {
             return (
               <CellLink href={href} class="block text-secondary" tabIndex={-1}>
                 {column ? (
-                  <span class="inline-flex items-center gap-1.5">
+                  <span
+                    class={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 ${
+                      item.completedAt
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        : "bg-[var(--ui-surface-subtle)] text-secondary"
+                    }`}
+                  >
                     {column.color && <span class="h-2 w-2 rounded-full" style={`background-color:${column.color}`} />}
                     <span>{column.name}</span>
                   </span>
@@ -140,7 +145,11 @@ export default function ItemsTable(props: Props) {
             return (
               <CellLink href={href} class="block" tabIndex={-1}>
                 {item.priority ? (
-                  <span class={`inline-flex items-center gap-1 ${PRIORITY_CLASS[item.priority] ?? "text-dimmed"}`}>
+                  <span
+                    class={`inline-flex items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 ${
+                      PRIORITY_CLASS[item.priority] ?? "text-dimmed"
+                    }`}
+                  >
                     <i class="ti ti-flag text-sm" />
                     <span>{PRIORITY_LABEL[item.priority]}</span>
                   </span>
@@ -152,8 +161,8 @@ export default function ItemsTable(props: Props) {
           }
           if (col.id === "schedule") {
             return (
-              <CellLink href={href} class="block truncate text-secondary" title={formatSchedule(item)} tabIndex={-1}>
-                {formatSchedule(item)}
+              <CellLink href={href} class="block truncate text-secondary" title={formatSchedule(item, props.dateConfig)} tabIndex={-1}>
+                {formatSchedule(item, props.dateConfig)}
               </CellLink>
             );
           }
@@ -178,11 +187,23 @@ export default function ItemsTable(props: Props) {
             return (
               <CellLink
                 href={href}
-                class="block truncate text-secondary"
+                class="flex min-w-0 items-center gap-1"
                 title={item.tags?.map((tag) => tag.name).join(", ") || "—"}
                 tabIndex={-1}
               >
-                {item.tags && item.tags.length > 0 ? item.tags.map((tag) => tag.name).join(", ") : "—"}
+                {item.tags && item.tags.length > 0 ? (
+                  <>
+                    {item.tags.slice(0, 2).map((tag) => (
+                      <span class="inline-flex min-w-0 items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-secondary">
+                        <span class="h-1.5 w-1.5 shrink-0 rounded-full" style={`background-color:${tag.color}`} />
+                        <span class="max-w-20 truncate">{tag.name}</span>
+                      </span>
+                    ))}
+                    {item.tags.length > 2 && <span class="shrink-0 text-dimmed">+{item.tags.length - 2}</span>}
+                  </>
+                ) : (
+                  <span class="text-dimmed">—</span>
+                )}
               </CellLink>
             );
           }

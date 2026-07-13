@@ -12,6 +12,8 @@
   --ui-hover: var(--color-zinc-50);
   --ui-active: var(--color-zinc-200);
   --ui-selected: var(--color-zinc-100);
+  --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, black);
+  --ui-app-accent-border: var(--app-accent, var(--color-blue-500));
   --ui-focus: var(--theme-focus-ring);
   --ui-action-primary-surface: var(--color-blue-500);
   --ui-action-primary-hover: var(--color-blue-600);
@@ -46,8 +48,8 @@
   --ui-dialog-radius: 1rem;
   --ui-context-menu-surface: rgb(255 255 255 / 0.95);
   --ui-context-menu-radius: 0.75rem;
-  --ui-context-menu-shadow: var(--theme-shadow-float), 0 0 0 1px rgb(0 0 0 / 0.05);
-  --ui-dropdown-menu-surface: var(--color-white);
+  --ui-context-menu-shadow: var(--theme-shadow-float);
+  --ui-dropdown-menu-surface: rgb(250 250 250 / 0.94);
   --ui-dropdown-menu-radius: 0.5rem;
   --ui-dropdown-menu-shadow: var(--theme-shadow-float);
   --ui-menu-border: rgb(212 212 216 / 0.6);
@@ -94,6 +96,7 @@
   --ui-shadow-surface: var(--theme-shadow-elevated);
   --ui-shadow-frame: var(--ui-shadow-surface);
   --ui-shadow-float: var(--theme-shadow-float);
+  --ui-shadow-workspace-edge: -3px 0 6px -5px rgb(0 0 0 / 0.1), 3px 0 6px -5px rgb(0 0 0 / 0.1);
   --ui-paper-highlighted: linear-gradient(90deg, rgb(239 246 255 / 0.34), rgb(255 255 255 / 0.82)), var(--color-white);
 }
 
@@ -108,6 +111,8 @@
   --ui-hover: rgb(30 30 33);
   --ui-active: var(--color-zinc-700);
   --ui-selected: var(--color-zinc-800);
+  --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
+  --ui-app-accent-border: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
   --ui-action-primary-surface: var(--color-blue-500);
   --ui-action-primary-hover: var(--color-blue-600);
   --ui-action-primary-active: var(--color-blue-700);
@@ -136,7 +141,7 @@
   --ui-dialog-section-border: var(--color-zinc-800);
   --ui-dialog-section-icon: var(--color-zinc-800);
   --ui-context-menu-surface: rgb(9 9 11 / 0.95);
-  --ui-dropdown-menu-surface: var(--color-zinc-900);
+  --ui-dropdown-menu-surface: rgb(30 30 33 / 0.94);
   --ui-menu-border: rgb(82 82 91 / 0.5);
   --ui-menu-hover: rgb(255 255 255 / 0.1);
   --ui-menu-divider: rgb(63 63 70 / 0.25);
@@ -163,7 +168,20 @@
   --ui-pagination-current-surface: rgb(23 37 84 / 0.4);
   --ui-pagination-current-border: rgb(96 165 250 / 0.4);
   --ui-pagination-current-text: var(--color-blue-200);
+  --ui-shadow-workspace-edge: -3px 0 6px -5px rgb(0 0 0 / 0.28), 3px 0 6px -5px rgb(0 0 0 / 0.28);
   --ui-paper-highlighted: rgb(23 37 84 / 0.2);
+}
+
+/* App appearance is applied on the canvas rather than :root. Recompute the
+   derived accent roles here so an app never inherits the platform fallback. */
+.cloud-app-canvas {
+  --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, black);
+  --ui-app-accent-border: var(--app-accent, var(--color-blue-500));
+}
+
+.dark .cloud-app-canvas {
+  --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
+  --ui-app-accent-border: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
 }
 
 @utility slider-track-colors {

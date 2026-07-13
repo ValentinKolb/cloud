@@ -903,7 +903,7 @@ export const SettingsModalDemo = () => (
     description="Settings shell for tabbed configuration dialogs. Apps can render it inline or inside a bare prompt dialog when they need the dialog chrome to come from SettingsModal."
     code={`prompts.dialog<void>(
   (close) => (
-    <SettingsModal title="Notebook settings" icon="ti ti-notebook" onClose={close}>
+    <SettingsModal title="Notebook settings" onClose={close}>
       <SettingsModal.Tab id="general" title="General" icon="ti ti-settings">
         …
       </SettingsModal.Tab>
@@ -915,18 +915,15 @@ export const SettingsModalDemo = () => (
   { surface: "bare", header: false, size: "large" },
 );`}
   >
-    <div class="h-[30rem] overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-      <SettingsModal title="Notebook settings" subtitle="Inline preview of the settings shell" icon="ti ti-notebook">
+    <div class="h-[32rem] overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--ui-canvas)] p-3">
+      <SettingsModal title="Notebook settings">
         <SettingsModal.Tab id="general" title="General" description="Name, icon, and basic metadata" icon="ti ti-settings">
-          <div class="detail-section">
-            <h3 class="detail-section-label">General</h3>
-            <div class="grid gap-2">
-              <TextInput value={() => "Team notebook"} onInput={() => {}} label="Name" />
-              <label class="flex items-center justify-between gap-3 rounded border border-zinc-200 p-3 text-sm dark:border-zinc-800">
-                <span class="text-primary">Show recent notes on overview</span>
-                <input type="checkbox" checked />
-              </label>
-            </div>
+          <div class="grid gap-3">
+            <TextInput value={() => "Team notebook"} onInput={() => {}} label="Name" />
+            <label class="flex items-center justify-between gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] p-3 text-sm">
+              <span class="text-primary">Show recent notes on overview</span>
+              <input type="checkbox" checked />
+            </label>
           </div>
         </SettingsModal.Tab>
         <SettingsModal.Tab id="access" title="Access" description="Members and shared permissions" icon="ti ti-users">

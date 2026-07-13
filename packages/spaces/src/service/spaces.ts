@@ -67,6 +67,25 @@ const DEFAULT_COLUMNS = [
   { name: "Done", color: "#22c55e", isDone: true },
 ];
 
+const STARTER_COLUMNS: Record<NonNullable<CreateSpace["starter"]>, typeof DEFAULT_COLUMNS> = {
+  blank: [
+    { name: "To Do", color: "#6b7280", isDone: false },
+    { name: "Done", color: "#22c55e", isDone: true },
+  ],
+  tasks: DEFAULT_COLUMNS,
+  calendar: [
+    { name: "Ideas", color: "#8b5cf6", isDone: false },
+    { name: "Scheduled", color: "#3b82f6", isDone: false },
+    { name: "Done", color: "#22c55e", isDone: true },
+  ],
+  project: [
+    { name: "Backlog", color: "#6b7280", isDone: false },
+    { name: "In Progress", color: "#3b82f6", isDone: false },
+    { name: "Review", color: "#f59e0b", isDone: false },
+    { name: "Done", color: "#22c55e", isDone: true },
+  ],
+};
+
 /**
  * Check if an actor has access to a space.
  */
@@ -279,6 +298,7 @@ export const getDetail = async (params: { id: string }): Promise<SpaceDetail | n
  */
 export const create = async (params: { data: CreateSpace; creatorId: string }): Promise<MutationResult<Space>> => {
   const { data, creatorId } = params;
+  const columns = STARTER_COLUMNS[data.starter ?? "blank"];
 
   const row = await sql.begin(async (tx): Promise<DbSpace | null> => {
     const [created] = await tx<DbSpace[]>`
@@ -289,7 +309,7 @@ export const create = async (params: { data: CreateSpace; creatorId: string }): 
 
     if (!created) return null;
 
-    for (const [index, col] of DEFAULT_COLUMNS.entries()) {
+    for (const [index, col] of columns.entries()) {
       await tx`
       INSERT INTO spaces.columns (space_id, name, color, rank, is_done)
       VALUES (${created.id}, ${col.name}, ${col.color}, ${rank.toDb(rank.atIndex(index))}::bigint, ${col.isDone})

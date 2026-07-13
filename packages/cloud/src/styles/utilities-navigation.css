@@ -219,6 +219,14 @@
 }
 
 /* Sidebar item primitives */
+@utility app-accent-text {
+  color: var(--ui-app-accent-text);
+}
+
+@utility app-accent-border {
+  border-color: var(--ui-app-accent-border);
+}
+
 @utility sidebar-item {
   display: flex !important;
   border-radius: var(--ui-radius-surface);

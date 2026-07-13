@@ -4,8 +4,9 @@ export type KanbanBucketInitial = {
   key: string;
   label: string;
   color: string | null;
-  kind: "column" | "completed";
+  kind: "column";
   columnId: string | null;
+  isDone: boolean;
   items: SpaceItem[];
   page: number;
   totalPages: number;

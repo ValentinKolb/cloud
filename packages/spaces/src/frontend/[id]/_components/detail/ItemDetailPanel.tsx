@@ -2,10 +2,11 @@ import { markdown } from "@valentinkolb/cloud/shared";
 import { Dropdown, type DropdownItem, MarkdownView, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceComment, SpaceItem, SpaceItemAssignee, SpaceTag } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
+import { readResponseError } from "../../../lib/response";
 import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 import { summarizeRecurrence } from "../shared/recurrence";
 import SpaceAssigneePicker from "../shared/SpaceAssigneePicker";
@@ -24,6 +25,7 @@ type Props = {
   /** Initial comments list */
   initialComments?: SpaceComment[];
   dateConfig?: DateContext;
+  canWrite: boolean;
 };
 
 // =============================================================================
@@ -76,16 +78,6 @@ const isSpaceComment = (value: unknown): value is SpaceComment => {
 
 const isSpaceCommentArray = (value: unknown): value is SpaceComment[] => Array.isArray(value) && value.every(isSpaceComment);
 
-const getResponseErrorMessage = async (res: Response, fallback: string) => {
-  try {
-    const data = (await res.json()) as unknown;
-    if (isObject(data) && typeof data["message"] === "string" && data["message"].length > 0) {
-      return data["message"];
-    }
-  } catch {}
-  return fallback;
-};
-
 // =============================================================================
 // Helper Components
 // =============================================================================
@@ -135,6 +127,7 @@ function EditableDropdown(props: {
   onChange: (value: string | null) => void;
   loading?: boolean;
   allowClear?: boolean;
+  readOnly?: boolean;
 }) {
   const selectedOption = () => props.options.find((o) => o.value === props.value);
 
@@ -143,7 +136,7 @@ function EditableDropdown(props: {
       element: (
         <button
           type="button"
-          class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-[var(--ui-menu-hover)]"
+          class="menu-item"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -206,13 +199,34 @@ function EditableDropdown(props: {
   return (
     <div>
       <h3 class="section-label mb-1">{props.label}</h3>
-      <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-48" />
+      <Show
+        when={!props.readOnly}
+        fallback={
+          <div class="flex min-h-8 items-center gap-2 text-xs text-secondary">
+            <Show when={selectedOption()?.color}>
+              <span class="h-2.5 w-2.5 shrink-0 rounded-full" style={`background-color: ${selectedOption()!.color}`} />
+            </Show>
+            <Show when={selectedOption()?.icon && !selectedOption()?.color}>
+              <i class={`${selectedOption()!.icon} text-dimmed`} />
+            </Show>
+            <span>{selectedOption()?.label ?? `No ${props.label}`}</span>
+          </div>
+        }
+      >
+        <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-48" />
+      </Show>
     </div>
   );
 }
 
 /** Multi-select tags dropdown */
-function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange: (ids: string[]) => void; loading?: boolean }) {
+function TagsDropdown(props: {
+  tags: SpaceTag[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  loading?: boolean;
+  readOnly?: boolean;
+}) {
   const [localSelection, setLocalSelection] = createSignal<string[]>([...props.selectedIds]);
 
   const selectedTags = () => props.tags.filter((t) => localSelection().includes(t.id));
@@ -236,7 +250,7 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
     if (props.tags.length === 0) {
       return [
         {
-          element: <div class="px-4 py-2 text-sm text-dimmed">No tags available</div>,
+          element: <div class="px-3 py-2 text-sm text-dimmed">No tags available</div>,
         },
       ];
     }
@@ -245,7 +259,7 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
       element: (
         <button
           type="button"
-          class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-[var(--ui-menu-hover)]"
+          class="menu-item"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -300,7 +314,27 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
     </div>
   );
 
-  return <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-52" onClose={handleClose} />;
+  return (
+    <Show
+      when={!props.readOnly}
+      fallback={
+        <div class="flex min-h-8 flex-wrap items-center gap-1.5">
+          <Show when={selectedTags().length > 0} fallback={<span class="text-xs text-secondary">No tags</span>}>
+            <For each={selectedTags()}>
+              {(tag) => (
+                <span class="inline-flex items-center gap-1 text-xs text-secondary">
+                  <span class="h-2 w-2 rounded-full" style={`background-color:${tag.color}`} />
+                  {tag.name}
+                </span>
+              )}
+            </For>
+          </Show>
+        </div>
+      }
+    >
+      <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-52" onClose={handleClose} />
+    </Show>
+  );
 }
 
 /** Assignees section with add/remove functionality */
@@ -309,13 +343,14 @@ function AssigneesSection(props: {
   assignees: SpaceItemAssignee[];
   onUpdate: (ids: string[]) => void;
   loading?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <SpaceAssigneePicker
       spaceId={props.spaceId}
       value={() => props.assignees}
       onChange={(next) => props.onUpdate(next.map((assignee) => assignee.id))}
-      disabled={props.loading}
+      disabled={props.loading || props.disabled}
       variant="rows"
       placeholder="Search people with access..."
     />
@@ -340,7 +375,7 @@ export default function ItemDetailPanel(props: Props) {
       json: data,
     });
     if (!res.ok) {
-      throw new Error(await getResponseErrorMessage(res, "Failed to update"));
+      throw new Error(await readResponseError(res, "Failed to update"));
     }
     return (await res.json()) as SpaceItem;
   };
@@ -360,7 +395,7 @@ export default function ItemDetailPanel(props: Props) {
         { init: { signal: ctx.abortSignal } },
       );
       if (!res.ok) {
-        throw new Error(await getResponseErrorMessage(res, "Failed to refresh comments"));
+        throw new Error(await readResponseError(res, "Failed to refresh comments"));
       }
       const data = await res.json();
       return isSpaceCommentArray(data) ? data : [];
@@ -392,7 +427,7 @@ export default function ItemDetailPanel(props: Props) {
         json: { completed },
       });
       if (!res.ok) {
-        throw new Error(await getResponseErrorMessage(res, "Failed to update"));
+        throw new Error(await readResponseError(res, "Failed to update"));
       }
       await res.json();
       return completed;
@@ -420,7 +455,7 @@ export default function ItemDetailPanel(props: Props) {
           tagIds: props.item.tags?.map((t) => t.id),
         },
       });
-      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to duplicate item"));
+      if (!res.ok) throw new Error(await readResponseError(res, "Failed to duplicate item"));
       return res.json();
     },
     onSuccess: () => {
@@ -443,7 +478,7 @@ export default function ItemDetailPanel(props: Props) {
       const res = await apiClient[":id"].items[":itemId"].$delete({
         param: { id: props.spaceId, itemId: props.item.id },
       });
-      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to delete item"));
+      if (!res.ok) throw new Error(await readResponseError(res, "Failed to delete item"));
       return true;
     },
     onSuccess: (deleted) => {
@@ -489,49 +524,55 @@ export default function ItemDetailPanel(props: Props) {
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1">
             <h2 class="break-words text-lg font-semibold leading-tight text-primary">{props.item.title}</h2>
-            <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span class="inline-flex items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 font-medium text-secondary">
+            <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-secondary">
+              <span class="inline-flex items-center gap-1.5 font-medium">
                 <i class={`ti ${isEvent() ? "ti-calendar-event" : "ti-checkbox"}`} />
                 {isEvent() ? "Event" : "Task"}
               </span>
               <span
-                class={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-medium ${
-                  isCompleted()
-                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                    : "bg-[var(--ui-surface-subtle)] text-secondary"
+                class={`inline-flex items-center gap-1.5 font-medium ${
+                  isCompleted() ? "text-emerald-700 dark:text-emerald-300" : "text-lime-700 dark:text-lime-300"
                 }`}
               >
-                <i class={`ti ${isCompleted() ? "ti-circle-check" : "ti-circle"}`} />
+                <span class={`h-1.5 w-1.5 rounded-full ${isCompleted() ? "bg-emerald-500" : "bg-lime-500"}`} aria-hidden="true" />
                 {isCompleted() ? "Completed" : "Active"}
               </span>
+              <Show when={!props.canWrite}>
+                <span class="inline-flex items-center gap-1.5 font-medium text-dimmed">
+                  <i class="ti ti-lock" /> Read only
+                </span>
+              </Show>
             </div>
           </div>
           <div class="flex shrink-0 items-center gap-1">
-            <Dropdown
-              trigger={
-                <button type="button" class="icon-btn" aria-label="More item actions">
-                  <i class="ti ti-dots" />
-                </button>
-              }
-              elements={[
-                {
-                  label: "Duplicate item",
-                  icon: "ti ti-copy",
-                  action: handleDuplicate,
-                },
-                {
-                  items: [
-                    {
-                      label: "Delete item",
-                      icon: "ti ti-trash",
-                      variant: "danger",
-                      action: handleDelete,
-                    },
-                  ],
-                },
-              ]}
-              position="bottom-left"
-            />
+            <Show when={props.canWrite}>
+              <Dropdown
+                trigger={
+                  <button type="button" class="icon-btn" aria-label="More item actions">
+                    <i class="ti ti-dots" />
+                  </button>
+                }
+                elements={[
+                  {
+                    label: "Edit item",
+                    icon: "ti ti-pencil",
+                    action: () => editItemMutation.mutate(undefined),
+                  },
+                  {
+                    label: "Duplicate item",
+                    icon: "ti ti-copy",
+                    action: handleDuplicate,
+                  },
+                  {
+                    label: "Delete item",
+                    icon: "ti ti-trash",
+                    variant: "danger",
+                    action: handleDelete,
+                  },
+                ]}
+                position="bottom-left"
+              />
+            </Show>
             <a
               href={props.baseUrl}
               onClick={(event) => {
@@ -547,25 +588,27 @@ export default function ItemDetailPanel(props: Props) {
           </div>
         </div>
 
-        <div class="mt-3 mb-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => completeMutation.mutate(!isCompleted())}
-            disabled={isLoading()}
-            class={`btn-secondary btn-sm ${isCompleted() ? "text-emerald-700 dark:text-emerald-300" : ""}`}
-          >
-            <Show when={isCompleted() || completeMutation.loading()}>
-              <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} />
-            </Show>
-            <Show when={!isCompleted() && !completeMutation.loading()}>
-              <i class="ti ti-circle-check" />
-            </Show>
-            {isCompleted() ? "Reopen" : "Mark complete"}
-          </button>
-          <button type="button" class="btn-secondary btn-sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
-            <i class="ti ti-pencil" /> Edit
-          </button>
-        </div>
+        <Show when={props.canWrite}>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => completeMutation.mutate(!isCompleted())}
+              disabled={isLoading()}
+              class={`${isCompleted() ? "btn-secondary text-emerald-700 dark:text-emerald-300" : "btn-success-subtle"} btn-sm`}
+            >
+              <Show when={isCompleted() || completeMutation.loading()}>
+                <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} />
+              </Show>
+              <Show when={!isCompleted() && !completeMutation.loading()}>
+                <i class="ti ti-circle-check" />
+              </Show>
+              {isCompleted() ? "Reopen" : "Mark complete"}
+            </button>
+            <button type="button" class="btn-simple btn-sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
+              <i class="ti ti-pencil" /> Edit
+            </button>
+          </div>
+        </Show>
       </header>
 
       <div class="detail-stack">
@@ -573,7 +616,7 @@ export default function ItemDetailPanel(props: Props) {
           <section class="detail-section">
             <SectionHeader
               title={scheduleTitle()}
-              onEdit={() => editItemMutation.mutate(undefined)}
+              onEdit={props.canWrite ? () => editItemMutation.mutate(undefined) : undefined}
               editLabel={isEvent() ? "Edit event time" : "Edit deadline"}
               disabled={isLoading()}
             />
@@ -614,7 +657,11 @@ export default function ItemDetailPanel(props: Props) {
 
         <Show when={isEvent() && (props.item.location || props.item.url)}>
           <section class="detail-section">
-            <SectionHeader title="Event details" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />
+            <SectionHeader
+              title="Event details"
+              onEdit={props.canWrite ? () => editItemMutation.mutate(undefined) : undefined}
+              disabled={isLoading()}
+            />
             <dl class="detail-facts">
               <Show when={props.item.location}>
                 <dt class="detail-fact-key">Location</dt>
@@ -634,55 +681,69 @@ export default function ItemDetailPanel(props: Props) {
 
         <Show when={props.item.description}>
           <section class="detail-section" style="view-transition-name: space-item-detail-description">
-            <SectionHeader title="Description" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />
+            <SectionHeader
+              title="Description"
+              onEdit={props.canWrite ? () => editItemMutation.mutate(undefined) : undefined}
+              disabled={isLoading()}
+            />
             <MarkdownView html={markdown.render(props.item.description!)} smallHeadings class="text-sm" />
           </section>
         </Show>
 
-        <section class="detail-section">
-          <h3 class="detail-section-label">Classify</h3>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <EditableDropdown
-              label="Priority"
-              icon="ti ti-flag"
-              value={props.item.priority}
-              options={PRIORITY_DROPDOWN_OPTIONS}
-              onChange={(v) => updateMutation.mutate({ priority: v })}
-              loading={isLoading()}
-              allowClear
-            />
-            <div>
-              <h3 class="section-label mb-1">Tags</h3>
-              <TagsDropdown
-                tags={props.tags}
-                selectedIds={props.item.tags?.map((t) => t.id) ?? []}
-                onChange={(ids) => updateMutation.mutate({ tagIds: ids })}
+        <Show when={props.canWrite || props.item.priority || (props.item.tags?.length ?? 0) > 0}>
+          <section class="detail-section">
+            <h3 class="detail-section-label">Classify</h3>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <EditableDropdown
+                label="Priority"
+                icon="ti ti-flag"
+                value={props.item.priority}
+                options={PRIORITY_DROPDOWN_OPTIONS}
+                onChange={(v) => updateMutation.mutate({ priority: v })}
                 loading={isLoading()}
+                allowClear
+                readOnly={!props.canWrite}
               />
+              <div>
+                <h3 class="section-label mb-1">Tags</h3>
+                <TagsDropdown
+                  tags={props.tags}
+                  selectedIds={props.item.tags?.map((t) => t.id) ?? []}
+                  onChange={(ids) => updateMutation.mutate({ tagIds: ids })}
+                  loading={isLoading()}
+                  readOnly={!props.canWrite}
+                />
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </Show>
 
-        <section class="detail-section">
-          <h3 class="detail-section-label">Assignees</h3>
-          <AssigneesSection
-            spaceId={props.spaceId}
-            assignees={props.item.assignees ?? []}
-            onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
-            loading={isLoading()}
-          />
-        </section>
+        <Show when={props.canWrite || (props.item.assignees?.length ?? 0) > 0}>
+          <section class="detail-section">
+            <h3 class="detail-section-label">Assignees</h3>
+            <AssigneesSection
+              spaceId={props.spaceId}
+              assignees={props.item.assignees ?? []}
+              onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
+              loading={isLoading()}
+              disabled={!props.canWrite}
+            />
+          </section>
+        </Show>
 
-        <section class="detail-section" style="view-transition-name: space-item-detail-comments">
-          <CommentsSection
-            spaceId={props.spaceId}
-            itemId={props.item.id}
-            comments={comments()}
-            currentUserId={props.currentUserId}
-            onUpdate={refreshComments}
-            dateConfig={props.dateConfig}
-          />
-        </section>
+        <Show when={props.canWrite || comments().length > 0}>
+          <section class="detail-section" style="view-transition-name: space-item-detail-comments">
+            <CommentsSection
+              spaceId={props.spaceId}
+              itemId={props.item.id}
+              comments={comments()}
+              currentUserId={props.currentUserId}
+              onUpdate={refreshComments}
+              dateConfig={props.dateConfig}
+              canWrite={props.canWrite}
+            />
+          </section>
+        </Show>
 
         <details class="detail-section group/details">
           <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] text-sm font-medium text-primary">

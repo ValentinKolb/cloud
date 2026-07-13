@@ -2,7 +2,6 @@ import { SegmentedControl } from "@valentinkolb/cloud/ui";
 import { createSignal } from "solid-js";
 import type { Priority } from "@/contracts";
 import {
-  type DetailPanelWidth,
   type EventsDaysAhead,
   readAllSettings,
   readWidgetSettings,
@@ -14,17 +13,10 @@ import {
 } from "../settings/SpaceSettingsStore";
 
 const VIEW_OPTIONS: { value: ViewType; label: string; icon: string }[] = [
-  { value: "list", label: "List", icon: "ti-list-check" },
+  { value: "list", label: "Overview", icon: "ti-home" },
   { value: "table", label: "Table", icon: "ti-table" },
   { value: "kanban", label: "Kanban", icon: "ti-layout-kanban" },
   { value: "calendar", label: "Calendar", icon: "ti-calendar" },
-];
-
-const WIDTH_OPTIONS: { value: DetailPanelWidth; label: string }[] = [
-  { value: "narrow", label: "Narrow" },
-  { value: "medium", label: "Medium" },
-  { value: "wide", label: "Wide" },
-  { value: "xl", label: "XL" },
 ];
 
 const EVENTS_DAYS_OPTIONS = [
@@ -66,15 +58,6 @@ function LocalSettingsForm(props: { spaceId: string; initialSettings: SpaceUserS
           }))}
           value={() => settings().view}
           onChange={(v) => updateSetting("view", v)}
-        />
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <p class="text-xs text-secondary">Default Panel Width</p>
-        <SegmentedControl
-          options={WIDTH_OPTIONS}
-          value={() => settings().detailPanelWidth}
-          onChange={(v) => updateSetting("detailPanelWidth", v)}
         />
       </div>
 

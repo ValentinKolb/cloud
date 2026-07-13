@@ -5,14 +5,7 @@ import { spacesService } from "@/service";
 import type { CalendarView, DayWeather } from "../calendar/types";
 import { defaultFilter, type FilterState, parseFilterFromUrl } from "../filter/types";
 import type { KanbanBucketInitial } from "../kanban/types";
-import {
-  type DetailPanelWidth,
-  isValidPanelWidth,
-  isValidView,
-  parseSpaceSettings,
-  type SpaceUserSettings,
-  type ViewType,
-} from "../settings/SpaceSettingsStore";
+import { isValidView, parseSpaceSettings, type SpaceUserSettings, type ViewType } from "../settings/SpaceSettingsStore";
 import type { SpacesWorkspaceState } from "./workspace-types";
 
 type AuthUser = {
@@ -34,7 +27,6 @@ type RouteState = {
   settings: SpaceUserSettings;
   isSettingsMode: boolean;
   currentView: ViewType;
-  currentPanelWidth: DetailPanelWidth;
   hasOverride: boolean;
   filter: FilterState;
   selectedItemId: string;
@@ -56,12 +48,6 @@ const resolveView = (url: URL, settings: SpaceUserSettings) => {
   return { currentView: hasViewOverride ? viewParam : settings.view, hasViewOverride };
 };
 
-const resolvePanelWidth = (url: URL, settings: SpaceUserSettings) => {
-  const panelWidthParam = url.searchParams.get("panelWidth") ?? undefined;
-  const hasPanelWidthOverride = isValidPanelWidth(panelWidthParam);
-  return { currentPanelWidth: hasPanelWidthOverride ? panelWidthParam : settings.detailPanelWidth, hasPanelWidthOverride };
-};
-
 const parseCalendarTags = (url: URL) => url.searchParams.get("ctags")?.split(",").filter(Boolean) ?? [];
 
 const resolveRouteState = (params: WorkspaceRequest): RouteState => {
@@ -69,15 +55,13 @@ const resolveRouteState = (params: WorkspaceRequest): RouteState => {
   const settings = parseSpaceSettings(params.cookieHeader, params.spaceId);
   const isSettingsMode = isSettingsRoute({ settings: params.settings, url });
   const { currentView, hasViewOverride } = resolveView(url, settings);
-  const { currentPanelWidth, hasPanelWidthOverride } = resolvePanelWidth(url, settings);
 
   return {
     url,
     settings,
     isSettingsMode,
     currentView,
-    currentPanelWidth,
-    hasOverride: hasViewOverride || hasPanelWidthOverride,
+    hasOverride: hasViewOverride,
     filter: currentView === "list" || currentView === "table" ? parseFilterFromUrl(url) : defaultFilter,
     selectedItemId: isSettingsMode ? "" : (url.searchParams.get("item") ?? ""),
     calendarViewParam: url.searchParams.get("cv") as CalendarView | null,
@@ -156,15 +140,16 @@ const loadKanbanBuckets = async (params: {
     key: string;
     label: string;
     color: string | null;
-    kind: "column" | "completed";
+    kind: "column";
     columnId: string | null;
+    isDone: boolean;
     columnIds?: string[];
   }): Promise<KanbanBucketInitial> => {
     const result = await spacesService.item.listFiltered({
       spaceId: params.spaceId,
       filter: {
         type: "all",
-        status: config.kind === "completed" ? "completed" : "active",
+        status: config.isDone ? "completed" : "active",
         priority: undefined,
         tagIds: undefined,
         columnIds: config.columnIds && config.columnIds.length > 0 ? config.columnIds : undefined,
@@ -192,11 +177,11 @@ const loadKanbanBuckets = async (params: {
         color: column.color,
         kind: "column",
         columnId: column.id,
+        isDone: column.isDone,
         columnIds: [column.id],
       }),
     );
   }
-  buckets.push(await loadBucket({ key: "completed", label: "Completed", color: "#10b981", kind: "completed", columnId: null }));
   return buckets;
 };
 
@@ -385,15 +370,6 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
   const permissions = await resolvePermissions({ spaceId: params.spaceId, user: params.user });
   if (!permissions) return { kind: "accessDenied", title: "Access denied", message: "You don't have access to this space" };
 
-  if (route.isSettingsMode && !permissions.canWrite) {
-    return {
-      kind: "accessDenied",
-      title: "Access denied",
-      message: "You don't have access to space settings",
-      redirectTo: `/app/spaces/${params.spaceId}`,
-    };
-  }
-
   const { accessEntries, apiKeys, itemsResult, kanbanBuckets, calendarState } = await loadWorkspaceData({
     route,
     space,
@@ -416,15 +392,14 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     space,
     settings: route.settings,
     currentView: route.currentView,
-    currentPanelWidth: route.currentPanelWidth,
     hasOverride: route.hasOverride,
     isSettingsMode: route.isSettingsMode,
     isAdmin: permissions.isAdmin,
+    canWrite: permissions.canWrite,
     query: route.url.searchParams.toString(),
     icalBaseUrl: `${route.url.protocol}//${route.url.host}`,
     itemsResult,
     kanbanBuckets,
-    completedColumnId: space.columns.find((column) => column.isDone)?.id ?? space.columns[0]?.id ?? null,
     calendarView: calendarState.calendarView,
     calendarDate: calendarState.calendarDate.toISOString(),
     calendarTagIds,

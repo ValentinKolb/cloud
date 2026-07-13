@@ -45,6 +45,8 @@ Keep these roles independent:
 
 An app accent must not recolour every primary button. A red app accent must not make normal navigation look destructive. Status and data colours must not leak into the page canvas.
 
+Every app uses its identity accent at a restrained set of high-information anchors, not as decoration. At minimum, connect the active rail or sidebar state with the resource currently selected in content. A selected resource title may use `app-accent-text`, and one adjacent micro-control boundary may use `app-accent-border`; surrounding metadata, surfaces, and ordinary actions stay neutral. Consume `--app-accent` through these shared utilities instead of hard-coding an app colour locally.
+
 ## Tokens
 
 Shared components consume semantic tokens instead of hard-coded neutral colours, radii, or shadows. Token names describe purpose, not the current colour value.
@@ -73,6 +75,7 @@ Use one radius family. A child may use the same radius as its parent only when t
 - `--ui-hover`: neutral hover tint.
 - `--ui-active`: neutral pressed tint.
 - `--ui-selected`: selected-row or active-tab tint.
+- `--ui-app-accent-text` and `--ui-app-accent-border`: light- and dark-aware derivatives of `--app-accent` for sparse identity cues inside content.
 - `--ui-focus`: visible keyboard focus ring.
 - `--ui-shadow-surface`: subtle in-flow depth.
 - `--ui-shadow-frame`: restrained depth reserved for unified workspace frames.
@@ -119,12 +122,14 @@ Segmented controls and pagination share density and focus rhythm, not semantics.
 
 Use surfaces to group content. Use borders only when they explain structure.
 
+Horizontal rules are an anti-pattern for ordinary grouping. Do not use `<hr>`, `divide-y`, or full-width top and bottom borders to compensate for weak hierarchy. Separate related content through spacing, type, surface tone, radius, or layout instead. A horizontal line is acceptable only when it encodes a necessary functional boundary, such as a true data-grid row or a compound control, and the shared primitive owns that treatment.
+
 - `paper` is the default in-flow surface.
 - A workspace is one clipped workbench frame. Sidebar, main, and detail are internal sibling regions, not three adjacent papers.
 - Detail panels start with a flat, full-width orientation layer. A transparent `detail-stack` below it contains separate `detail-section` papers.
 - Inputs are quiet wells. They need a clear focus state, not a permanently strong outline.
 - Floating layers use one outer shadow and a boundary that remains visible in dark mode.
-- Data-table row separators and key-value dividers are functional and may remain visible.
+- Data-table row separators are functional and may remain visible. Key-value content should prefer alignment and spacing; add a divider only when scanning would otherwise become ambiguous.
 
 Do not stack papers to manufacture hierarchy. In-flow papers use a boundary without an outer shadow; reserve frame depth for unified workspaces and floating depth for overlays. Do not add a border and shadow when either one already separates the surface. Do not place a full-page paper inside another full-page paper.
 
@@ -229,6 +234,19 @@ Use Cloud input components, including `Select`; do not substitute native control
 
 ## Data surfaces
 
+Choose the view from the user's question, not from the available component:
+
+- A list supports prioritizing and finishing work.
+- A table supports comparing records across stable fields.
+- A kanban board supports moving work through a workflow.
+- A calendar supports understanding and changing when work happens.
+
+In a task-and-event workspace, the default list may serve as an Overview agenda. Group it by the effective schedule—event start or task deadline—using exact date sections such as Today, Tomorrow, and upcoming weekdays, with overdue tasks and unscheduled items called out separately. Keep search, filters, sorting, and alternative grouping available. Do not add desktop field columns to this view; stable cross-field comparison belongs to the table.
+
+Overview groups use quiet rounded surfaces, like lightweight kanban columns. Rows inside them stay text-led: do not add horizontal separators or per-row hover fills. Use whitespace for rhythm. Hovering or focusing a row may colour its title with `app-accent-text`. A selected row keeps that colour and may repeat the accent on the boundary of a small neutral control such as its unchecked completion box; do not add decorative underlines merely to repeat selection.
+
+Creation inherits the context where it starts: a kanban column preselects its workflow state, a calendar slot preselects a useful time range, and an active filter may preselect a category when that will not hide the new record. Completion and workflow status must have one source of truth so list, table, board, calendar, and detail cannot disagree.
+
 ### Tables
 
 Use `DataTable` for tabular data.
@@ -258,6 +276,8 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
 - Use the smallest dialog shell that fits the task.
 - Keep one visible outer frame; avoid nested modal papers.
 - Headers and footers stay fixed only when the body scrolls.
+- A category-based settings dialog does not repeat a generic "Settings" banner. Its rail provides context and each active pane starts with its own title and optional explanation.
+- Settings categories reuse the `AppWorkspace` sidebar item states: a quiet selected surface, the same small identity marker, and an accent-coloured active icon. Do not introduce a second marker style, thick borders, inset frames, or decorative section icons.
 - Popovers align with their trigger and flip before overflowing the viewport.
 - Tooltips explain unfamiliar icon actions. They do not repeat visible labels.
 - Use `Tooltip` for short, non-interactive hints. Keep the control's accessible name on the control itself; the tooltip supplements it through `aria-describedby`.
@@ -275,6 +295,7 @@ Visibility follows frequency and risk:
 - Row-level edit, copy, remove, and overflow actions appear on hover and keyboard focus.
 - Rare configuration belongs in popovers, settings, or detail panels.
 - Destructive actions require clear wording and confirmation when reversal is not available.
+- Settings navigation follows capability boundaries: personal preferences stay available to every resource member, resource-editing sections require write access, and access or destructive sections remain admin-only. Do not hide the entire settings entry when only some sections are restricted.
 
 Hidden actions must still be discoverable through focus, tooltips, menus, or conventional placement.
 
@@ -291,8 +312,10 @@ Use `Placeholder` for state feedback instead of drawing app-local empty cards.
 
 - Compact placeholders belong inside tables, sidebars, and small sections. Panel placeholders may identify a whole work area and contain one next action.
 - Empty states explain what is absent and, when useful, what the user can do next.
+- A filtered or searched empty state offers a direct reset action; it is not the same state as an empty resource.
 - Loading states use `state="loading"`, expose polite status semantics, and avoid replacing stable content with a large spinner during background refreshes.
 - Error states use `state="error"`, name what failed, and offer a recovery action when one exists. Colour supplements the alert icon and wording.
+- Network error handling must tolerate plain text or HTML from proxies and upstreams. Never expose a JSON parser or transport exception as user-facing copy.
 - Determinate work uses `ProgressBar` with a task-specific accessible `label`; the visible percentage remains the primary measure.
 
 ## Responsive behaviour
@@ -303,6 +326,7 @@ Mobile is a composed state, not a squeezed desktop layout.
 - Sidebar content moves into the shared mobile navigation surface.
 - An open detail replaces the main view below the desktop breakpoint by default. Screens that deliberately stack detail and main must compose that mobile state explicitly; detail never becomes an unreadably narrow third column.
 - Toolbars wrap by priority. Search expands before secondary icon actions.
+- A compact horizontal control strip may scroll on narrow screens. Hide decorative scrollbar chrome when partial next-control visibility already communicates overflow; preserve touch and keyboard scrolling.
 - Tables scroll horizontally inside their own region.
 - Touch targets remain usable even when desktop density is compact.
 - Safe-area and viewport-height behaviour must work with mobile browser chrome.

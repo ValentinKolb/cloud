@@ -5,6 +5,7 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import { readResponseError } from "../../../lib/response";
 import AssigneeAvatars from "../shared/AssigneeAvatars";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
@@ -17,6 +18,8 @@ type ItemRowProps = {
   /** Base URL for item links (without item param) */
   baseUrl: string;
   dateConfig?: DateContext;
+  canWrite: boolean;
+  agenda?: boolean;
 };
 
 const PRIORITY_STYLES: Record<string, { icon: string; color: string }> = {
@@ -51,8 +54,7 @@ export default function ItemRow(props: ItemRowProps) {
         json: { completed },
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error("message" in data ? data.message : "Failed to update");
+        throw new Error(await readResponseError(res, "Failed to update item"));
       }
       await res.json();
       return completed;
@@ -66,108 +68,130 @@ export default function ItemRow(props: ItemRowProps) {
   const isCompleted = () => !!props.item.completedAt;
   const isEvent = () => !!(props.item.startsAt && props.item.endsAt);
   const priority = () => (props.item.priority ? PRIORITY_STYLES[props.item.priority] : null);
+  const status = () => props.columns.find((column) => column.id === props.item.columnId) ?? null;
   const isOverdue = () => props.item.deadline && new Date(props.item.deadline) < new Date() && !isCompleted();
+  const schedule = () => (isEvent() ? props.item.startsAt : props.item.deadline) ?? null;
+  const eventTime = () => {
+    if (!isEvent()) return null;
+    if (props.item.allDay) return "All day";
+    return `${dates.formatTime(props.item.startsAt!, props.dateConfig)}–${dates.formatTime(props.item.endsAt!, props.dateConfig)}`;
+  };
+  const hasMetadata = () =>
+    !!status() || (!props.agenda && !!schedule()) || (!props.agenda && isEvent()) || (props.item.tags?.length ?? 0) > 0;
+  const titleTone = () => {
+    if (isSelectedLocal()) return isCompleted() ? "app-accent-text line-through" : "app-accent-text";
+    if (isCompleted()) return "line-through text-dimmed";
+    return "text-secondary group-hover:app-accent-text group-focus-within:app-accent-text";
+  };
 
   const itemUrl = () => {
     const sep = props.baseUrl.includes("?") ? "&" : "?";
     return `${props.baseUrl}${sep}item=${props.item.id}`;
   };
   return (
-    <div
-      role="link"
-      tabIndex={0}
-      onClick={(event) => {
-        if (!shouldHandleDetailClick(event)) return;
-        event.preventDefault();
-        requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
-      }}
-      class={`group flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 transition-colors ${
-        isSelectedLocal()
-          ? "border-blue-500 bg-blue-500/[0.08] ring-1 ring-blue-500 dark:border-blue-400 dark:bg-blue-400/10 dark:ring-blue-400"
-          : "border-zinc-200 bg-white [box-shadow:var(--theme-bevel-top),var(--theme-bevel-bottom)] hover:border-blue-500/45 hover:bg-blue-500/[0.04] dark:border-zinc-700/70 dark:bg-zinc-900 dark:hover:border-blue-400/45 dark:hover:bg-blue-400/[0.06]"
-      }`}
-    >
+    <div class="group flex min-h-12 items-center gap-3 px-2.5 py-2 focus-within:relative focus-within:z-10">
       {/* Completion Toggle */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          completeMutation.mutate(!isCompleted());
-        }}
-        disabled={completeMutation.loading()}
-        class={`w-5 h-5 rounded border flex items-center justify-center transition-colors shrink-0 ${
-          isCompleted()
-            ? "border-emerald-500 bg-emerald-500 text-white [box-shadow:inset_0_1px_0_0_rgb(255_255_255/0.35)]"
-            : "border-zinc-300 bg-white hover:border-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 [box-shadow:var(--theme-recess-sm)]"
-        }`}
-        aria-label={isCompleted() ? "Mark incomplete" : "Mark complete"}
+      <Show
+        when={props.canWrite}
+        fallback={
+          <span
+            role="img"
+            class={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+              isCompleted()
+                ? "border-emerald-500 bg-emerald-500 text-white"
+                : `${isSelectedLocal() ? "app-accent-border" : "border-[var(--ui-border)]"} bg-[var(--ui-surface-muted)] text-dimmed`
+            }`}
+            aria-label={isCompleted() ? "Completed" : "Active"}
+          >
+            <Show when={isCompleted()}>
+              <i class="ti ti-check text-xs" />
+            </Show>
+          </span>
+        }
       >
-        <Show when={isCompleted() || completeMutation.loading()}>
-          <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-xs`} />
-        </Show>
-      </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            completeMutation.mutate(!isCompleted());
+          }}
+          disabled={completeMutation.loading()}
+          class={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
+            isCompleted()
+              ? "border-emerald-500 bg-emerald-500 text-white [box-shadow:inset_0_1px_0_0_rgb(255_255_255/0.35)]"
+              : `${isSelectedLocal() ? "app-accent-border" : "border-zinc-300 dark:border-zinc-600"} bg-white hover:border-emerald-500 dark:bg-zinc-900 [box-shadow:var(--theme-recess-sm)]`
+          }`}
+          aria-label={isCompleted() ? "Mark incomplete" : "Mark complete"}
+        >
+          <Show when={isCompleted() || completeMutation.loading()}>
+            <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-xs`} />
+          </Show>
+        </button>
+      </Show>
 
       {/* Item Link - Main content area */}
-      <a href={itemUrl()} class="flex-1 min-w-0 flex items-center gap-3">
-        {/* Priority Icon */}
-        <Show when={priority()}>
-          <i class={`ti ${priority()!.icon} ${priority()!.color} text-sm shrink-0`} />
-        </Show>
-
-        {/* Title */}
-        <span class={`font-medium text-sm truncate ${isCompleted() ? "line-through text-dimmed" : ""}`}>{props.item.title}</span>
-
-        {/* Spacer */}
-        <div class="flex-1" />
-
-        {/* Meta info - Desktop */}
-        <div class="hidden sm:flex items-center gap-3 shrink-0">
-          {/* Event badge */}
-          <Show when={isEvent()}>
-            <span class="text-xs text-purple-500 flex items-center gap-1">
-              <i class="ti ti-calendar-event" />
-              Event
-            </span>
-          </Show>
-
-          {/* Deadline */}
-          <Show when={props.item.deadline}>
-            <span class={`text-xs flex items-center gap-1 ${isOverdue() ? "text-red-500" : "text-dimmed"}`}>
-              <i class="ti ti-clock" />
-              {dates.formatDateRelative(props.item.deadline!)}
-            </span>
-          </Show>
-
-          {/* Tags */}
-          <Show when={props.item.tags?.length}>
-            <div class="flex items-center gap-1">
-              <For each={props.item.tags!.slice(0, 3)}>
+      <a
+        href={itemUrl()}
+        class="focus-ui flex min-w-0 flex-1 items-center gap-3 rounded-[var(--ui-radius-control)]"
+        aria-current={isSelectedLocal() ? "true" : undefined}
+        onClick={(event) => {
+          if (!shouldHandleDetailClick(event, event.currentTarget)) return;
+          event.preventDefault();
+          requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
+        }}
+      >
+        <div class="min-w-0 flex-1">
+          <div class="flex min-w-0 items-center gap-2">
+            <Show when={props.agenda && eventTime()}>
+              <span class="shrink-0 text-xs font-medium tabular-nums text-purple-600 dark:text-purple-300">{eventTime()}</span>
+            </Show>
+            <Show when={priority()}>
+              <i class={`ti ${priority()!.icon} ${priority()!.color} shrink-0 text-sm`} />
+            </Show>
+            <span class={`block truncate text-sm font-medium transition-colors ${titleTone()}`}>{props.item.title}</span>
+          </div>
+          <Show when={hasMetadata()}>
+            <div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-dimmed">
+              <Show when={status()}>
+                <span class="inline-flex min-w-0 items-center gap-1">
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full" style={`background-color:${status()!.color ?? "#6b7280"}`} />
+                  <span class="truncate">{status()!.name}</span>
+                </span>
+              </Show>
+              <Show when={!props.agenda && schedule()}>
+                <span class={`inline-flex shrink-0 items-center gap-1 ${isOverdue() ? "text-red-500" : ""}`}>
+                  <i class={`ti ${isEvent() ? "ti-calendar-event" : "ti-clock"}`} />
+                  {dates.formatDateRelative(schedule()!, props.dateConfig)}
+                </span>
+              </Show>
+              <Show when={!props.agenda && isEvent()}>
+                <span class="inline-flex items-center gap-1 text-[11px] text-purple-600 dark:text-purple-300">
+                  <i class="ti ti-calendar-event" /> Event
+                </span>
+              </Show>
+              <For each={props.item.tags?.slice(0, 2) ?? []}>
                 {(tag) => (
-                  <span class="px-1.5 py-0.5 rounded text-xs" style={`background-color: ${tag.color}20; color: ${tag.color}`}>
+                  <span
+                    class="max-w-24 truncate rounded px-1.5 py-0.5 text-[11px]"
+                    style={`background-color:${tag.color}20;color:${tag.color}`}
+                  >
                     {tag.name}
                   </span>
                 )}
               </For>
-              <Show when={(props.item.tags?.length ?? 0) > 3}>
-                <span class="text-xs text-dimmed">+{props.item.tags!.length - 3}</span>
+              <Show when={(props.item.tags?.length ?? 0) > 2}>
+                <span class="text-[11px] text-dimmed">+{props.item.tags!.length - 2}</span>
               </Show>
             </div>
           </Show>
-
-          {/* Assignees */}
-          <Show when={props.item.assignees?.length}>
-            <AssigneeAvatars assignees={props.item.assignees!} />
-          </Show>
         </div>
 
-        {/* Chevron */}
-        <i class="ti ti-chevron-right text-dimmed text-sm shrink-0" />
+        <Show when={props.item.assignees?.length}>
+          <div class="shrink-0">
+            <AssigneeAvatars assignees={props.item.assignees!} />
+          </div>
+        </Show>
       </a>
     </div>
   );

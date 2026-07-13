@@ -172,7 +172,7 @@ export default function ContextMenu(props: ContextMenuProps) {
             ref={menuRef}
             role="menu"
             aria-label="Context menu"
-            class="context-menu-surface fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto p-0 text-zinc-900 backdrop-blur-sm dark:text-zinc-100"
+            class="context-menu-surface fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto p-1 text-zinc-900 backdrop-blur-sm dark:text-zinc-100"
             style={{
               left: `${Math.min(coords().x, window.innerWidth - 220)}px`,
               top: `${Math.min(coords().y, window.innerHeight - 320)}px`,
@@ -180,8 +180,7 @@ export default function ContextMenu(props: ContextMenuProps) {
           >
             {props.elements.map((item, index) =>
               isSection(item) ? (
-                <>
-                  {index > 0 && <hr class="menu-divider" />}
+                <div class={index > 0 ? "menu-section" : undefined}>
                   <Show when={item.sectionLabel}>
                     <div class="menu-label">{item.sectionLabel}</div>
                   </Show>
@@ -192,7 +191,7 @@ export default function ContextMenu(props: ContextMenuProps) {
                         : sectionItem.element
                       : renderAction(sectionItem),
                   )}
-                </>
+                </div>
               ) : isElement(item) ? (
                 typeof item.element === "function" ? (
                   item.element(close)

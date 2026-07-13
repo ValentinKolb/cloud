@@ -1,6 +1,6 @@
-import { createSignal } from "solid-js";
-import { clipboard } from "@valentinkolb/stdlib/browser";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { clipboard } from "@valentinkolb/stdlib/browser";
+import { createSignal } from "solid-js";
 
 type Props = {
   icalToken: string | null;

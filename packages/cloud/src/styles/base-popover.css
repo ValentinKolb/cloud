@@ -4,11 +4,9 @@ solid-island {
   display: contents;
 }
 
-/* Popover positioning. Strip the UA-default white box for popovers
-   that don't opt into one of our paper-ish surfaces (`.paper`,
-   `.popup`) — those are typically tooltips / soft-hint popovers that
-   provide their own chrome. */
-[popover]:not(.paper):not(.popup):not(.tooltip-surface) {
+/* Popover positioning. Strip the UA-default white box only when a
+   popover has not opted into one of the shared floating surfaces. */
+[popover]:not(.paper):not(.popup):not(.tooltip-surface):not(.dropdown-menu-surface):not(.context-menu-surface) {
   background: transparent;
   border: none;
 }
@@ -26,13 +24,19 @@ solid-island {
 }
 
 [popover] {
-  transition: opacity 0.2s, transform 0.2s, overlay 0.2s allow-discrete,
+  transition:
+    opacity 0.2s,
+    transform 0.2s,
+    overlay 0.2s allow-discrete,
     display 0.2s allow-discrete;
 }
 
 .tooltip-surface[popover] {
   transform: none;
-  transition: opacity 0.12s, overlay 0.12s allow-discrete, display 0.12s allow-discrete;
+  transition:
+    opacity 0.12s,
+    overlay 0.12s allow-discrete,
+    display 0.12s allow-discrete;
 }
 
 .tooltip-surface[popover]:popover-open {

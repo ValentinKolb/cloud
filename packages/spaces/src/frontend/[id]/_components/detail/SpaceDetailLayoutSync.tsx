@@ -1,7 +1,7 @@
-import { onCleanup, onMount } from "solid-js";
-import { SPACE_ITEM_SELECT_EVENT, getDetailItemFromUrl } from "../../../lib/detail";
-import type { SpaceItem } from "@/contracts";
 import type { DetailSelectPayload } from "@valentinkolb/stdlib/solid";
+import { onCleanup, onMount } from "solid-js";
+import type { SpaceItem } from "@/contracts";
+import { getDetailItemFromUrl, SPACE_ITEM_SELECT_EVENT } from "../../../lib/detail";
 
 type Props = {
   detailContainerId: string;

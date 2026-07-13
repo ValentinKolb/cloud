@@ -11,19 +11,20 @@ import type { SpaceEditPanelProps } from "./types";
 
 export default function SpaceEditPanel(props: SpaceEditPanelProps) {
   const isAdmin = () => props.isAdmin === true;
+  const canWrite = () => props.canWrite === true;
 
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsModal
         title="Space settings"
-        subtitle={props.space.name}
-        icon="ti ti-layout-kanban"
         onClose={props.onClose ?? (() => requestSpacesRouteNavigation(`/app/spaces/${props.space.id}`, { scroll: "preserve" }))}
         closeLabel="Close settings"
       >
-        <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, description, and color.">
-          <GeneralSection space={props.space} />
-        </SettingsModal.Tab>
+        {canWrite() && (
+          <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, description, and color.">
+            <GeneralSection space={props.space} />
+          </SettingsModal.Tab>
+        )}
 
         <SettingsModal.Tab
           id="defaults"
@@ -34,13 +35,17 @@ export default function SpaceEditPanel(props: SpaceEditPanelProps) {
           <DefaultsSection spaceId={props.space.id} initialSettings={props.initialSettings} />
         </SettingsModal.Tab>
 
-        <SettingsModal.Tab id="tags" title="Tags" icon="ti ti-tags" description="Vocabulary used to categorize space items.">
-          <TagsSection spaceId={props.space.id} tags={props.space.tags} />
-        </SettingsModal.Tab>
+        {canWrite() && (
+          <SettingsModal.Tab id="tags" title="Tags" icon="ti ti-tags" description="Vocabulary used to categorize space items.">
+            <TagsSection spaceId={props.space.id} tags={props.space.tags} />
+          </SettingsModal.Tab>
+        )}
 
-        <SettingsModal.Tab id="statuses" title="Statuses" icon="ti ti-columns-3" description="Kanban columns and item workflow states.">
-          <StatusesSection spaceId={props.space.id} columns={props.space.columns} />
-        </SettingsModal.Tab>
+        {canWrite() && (
+          <SettingsModal.Tab id="statuses" title="Statuses" icon="ti ti-columns-3" description="Kanban columns and item workflow states.">
+            <StatusesSection spaceId={props.space.id} columns={props.space.columns} />
+          </SettingsModal.Tab>
+        )}
 
         {isAdmin() && props.accessEntries && (
           <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">

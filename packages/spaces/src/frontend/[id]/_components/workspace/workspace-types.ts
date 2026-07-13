@@ -1,12 +1,11 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
-import type { ItemListResult, SpaceComment, SpaceDetail, SpaceItem } from "@/contracts";
-import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
-import type { DetailPanelWidth, SpaceUserSettings, ViewType } from "../settings/SpaceSettingsStore";
-import type { CalendarItem } from "@/contracts";
+import type { CalendarItem, ItemListResult, SpaceComment, SpaceDetail, SpaceItem } from "@/contracts";
 import type { CalendarView, DayWeather } from "../calendar/types";
+import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
 import type { KanbanBucketInitial } from "../kanban/types";
+import type { SpaceUserSettings, ViewType } from "../settings/SpaceSettingsStore";
 
 type FilterState = ReturnType<typeof parseFilterFromUrl>;
 
@@ -20,15 +19,14 @@ export type SpacesWorkspaceState =
       space: SpaceDetail;
       settings: SpaceUserSettings;
       currentView: ViewType;
-      currentPanelWidth: DetailPanelWidth;
       hasOverride: boolean;
       isSettingsMode: boolean;
       isAdmin: boolean;
+      canWrite: boolean;
       query: string;
       icalBaseUrl: string;
       itemsResult: ItemListResult;
       kanbanBuckets: KanbanBucketInitial[];
-      completedColumnId: string | null;
       calendarView: CalendarView;
       calendarDate: string;
       calendarTagIds: string[];
@@ -49,16 +47,9 @@ export const parseSpacesWorkspaceHref = (href: string) => {
   return null;
 };
 
-const withViewOverrides = (params: {
-  baseUrl: string;
-  hasViewOverride: boolean;
-  currentView: string;
-  hasPanelWidthOverride: boolean;
-  currentPanelWidth: string;
-}) => {
+const withViewOverrides = (params: { baseUrl: string; hasViewOverride: boolean; currentView: string }) => {
   const url = new URL(params.baseUrl, "http://localhost");
   if (params.hasViewOverride) url.searchParams.set("view", params.currentView);
-  if (params.hasPanelWidthOverride) url.searchParams.set("panelWidth", params.currentPanelWidth);
   const query = url.searchParams.toString();
   return query ? `${url.pathname}?${query}` : url.pathname;
 };
@@ -75,15 +66,11 @@ export const buildSpacesPaginationBaseUrl = (params: {
   filter: FilterState;
   hasViewOverride: boolean;
   currentView: string;
-  hasPanelWidthOverride: boolean;
-  currentPanelWidth: string;
 }) =>
   withViewOverrides({
     baseUrl: buildFilterUrl(params.baseSpaceUrl, { page: 0 }, params.filter),
     hasViewOverride: params.hasViewOverride,
     currentView: params.currentView,
-    hasPanelWidthOverride: params.hasPanelWidthOverride,
-    currentPanelWidth: params.currentPanelWidth,
   }).replace("page=0", "page=");
 
 export const buildSpacesItemLinkBaseUrl = (params: {
@@ -91,8 +78,6 @@ export const buildSpacesItemLinkBaseUrl = (params: {
   currentView: string;
   filter: FilterState;
   hasViewOverride: boolean;
-  hasPanelWidthOverride: boolean;
-  currentPanelWidth: string;
   calendarView?: string;
   calendarDate?: string;
   calendarTagIds?: string[];
@@ -106,8 +91,6 @@ export const buildSpacesItemLinkBaseUrl = (params: {
           : buildCalendarUrl(params.baseSpaceUrl, params),
       hasViewOverride: params.hasViewOverride,
       currentView: params.currentView,
-      hasPanelWidthOverride: params.hasPanelWidthOverride,
-      currentPanelWidth: params.currentPanelWidth,
     }),
   );
 
@@ -129,12 +112,3 @@ const buildCalendarUrl = (
   const query = url.searchParams.toString();
   return query ? `${url.pathname}?${query}` : url.pathname;
 };
-
-export const spacesDetailPanelWidthClass = (width: DetailPanelWidth) =>
-  width === "narrow"
-    ? "w-full lg:w-80"
-    : width === "medium"
-      ? "w-full lg:w-[28rem]"
-      : width === "wide"
-        ? "w-full lg:w-[36rem]"
-        : "w-full lg:w-[44rem]";

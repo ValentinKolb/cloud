@@ -5,6 +5,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
 import { subscribeToDetailSelection } from "../../../lib/detail";
+import { readResponseError } from "../../../lib/response";
 import ItemDetailPanel from "./ItemDetailPanel";
 
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
   showEmpty?: boolean;
   emptyText?: string;
   dateConfig?: DateContext;
+  canWrite: boolean;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
@@ -61,8 +63,7 @@ export default function ItemDetailHost(props: Props) {
       { init: { signal } },
     );
     if (!commentsRes.ok) {
-      const data = await commentsRes.json();
-      throw new Error("message" in data ? data.message : "Failed to load comments");
+      throw new Error(await readResponseError(commentsRes, "Failed to load comments"));
     }
     const data = await commentsRes.json();
     if (!isSpaceCommentArray(data)) return [];
@@ -77,8 +78,7 @@ export default function ItemDetailHost(props: Props) {
       { init: { signal } },
     );
     if (!itemRes.ok) {
-      const data = await itemRes.json();
-      throw new Error("message" in data ? data.message : "Failed to load item");
+      throw new Error(await readResponseError(itemRes, "Failed to load item"));
     }
     return (await itemRes.json()) as SpaceItem;
   };
@@ -165,6 +165,7 @@ export default function ItemDetailHost(props: Props) {
             currentUserId={props.currentUserId}
             initialComments={comments()}
             dateConfig={props.dateConfig}
+            canWrite={props.canWrite}
           />
         )}
       </Show>

@@ -1,4 +1,4 @@
-import { children, createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import { children, createMemo, createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 
 const SETTINGS_MODAL_TAB = Symbol("SettingsModal.Tab");
 
@@ -18,8 +18,11 @@ type SettingsModalTabDefinition = SettingsModalTabProps & {
 };
 
 export type SettingsModalProps = {
+  /** Accessible name for the settings surface. */
   title: string;
+  /** @deprecated Retained for source compatibility; section descriptions provide visible context. */
   subtitle?: string;
+  /** @deprecated Retained for source compatibility; category icons identify the rail entries. */
   icon?: string;
   defaultTab?: string;
   activeTab?: string;
@@ -42,11 +45,6 @@ const collectTabs = (value: unknown): SettingsModalTabDefinition[] => {
   return isTabDefinition(value) ? [value] : [];
 };
 
-const tablerIconClass = (icon: string | null | undefined, fallback: string): string => {
-  const value = icon?.trim() || fallback;
-  return value.startsWith("ti ") ? value : `ti ${value}`;
-};
-
 function SettingsModalTab(props: SettingsModalTabProps): JSX.Element {
   return {
     kind: SETTINGS_MODAL_TAB,
@@ -57,6 +55,8 @@ function SettingsModalTab(props: SettingsModalTabProps): JSX.Element {
 const SettingsModal = ((props: SettingsModalProps) => {
   const resolved = children(() => props.children);
   const tabs = createMemo(() => collectTabs(resolved()));
+  const instanceId = `settings-${createUniqueId()}`;
+  const tabRefs = new Map<string, HTMLButtonElement>();
   const firstTabId = () => tabs()[0]?.id ?? "";
   const [localActiveTab, setLocalActiveTab] = createSignal(props.defaultTab ?? firstTabId());
   const activeTabId = () => props.activeTab ?? (localActiveTab() || firstTabId());
@@ -67,86 +67,106 @@ const SettingsModal = ((props: SettingsModalProps) => {
     props.onTabChange?.(id);
   };
 
-  return (
-    <div class={`settings-modal flex h-full min-h-0 flex-col gap-2 overflow-hidden ${props.class ?? ""}`}>
-      <section class="settings-modal-header paper shrink-0 p-4">
-        <div class="flex min-h-9 items-center gap-4">
-          <span class="settings-modal-identity flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500 text-white">
-            <i class={`${tablerIconClass(props.icon, "ti-settings")} text-sm`} />
-          </span>
-          <div class="min-w-0">
-            <p class="truncate font-semibold text-primary">{props.title}</p>
-            <Show when={props.subtitle}>
-              <p class="truncate text-xs text-dimmed">{props.subtitle}</p>
-            </Show>
-          </div>
-          <Show when={props.onClose}>
-            <button type="button" onClick={props.onClose} class="icon-btn ml-auto shrink-0" aria-label={props.closeLabel ?? "Close"}>
-              <i class="ti ti-x" />
-            </button>
-          </Show>
-        </div>
-      </section>
+  const moveTabFocus = (event: KeyboardEvent, currentId: string) => {
+    const currentIndex = tabs().findIndex((tab) => tab.id === currentId);
+    if (currentIndex < 0) return;
 
-      <div class="settings-modal-workspace grid min-h-0 flex-1 gap-3 md:grid-cols-[14rem_1fr]">
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % tabs().length;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + tabs().length) % tabs().length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = tabs().length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    const nextTab = tabs()[nextIndex];
+    if (!nextTab) return;
+    selectTab(nextTab.id);
+    tabRefs.get(nextTab.id)?.focus();
+  };
+
+  const tabId = (id: string) => `${instanceId}-tab-${id}`;
+  const panelId = (id: string) => `${instanceId}-panel-${id}`;
+
+  return (
+    <div
+      class={`settings-modal paper relative grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)] md:grid-cols-[11.5rem_minmax(0,1fr)] md:grid-rows-1 ${props.class ?? ""}`}
+      role="region"
+      aria-label={props.title}
+    >
+      <Show when={props.onClose}>
+        <button
+          type="button"
+          onClick={props.onClose}
+          class="icon-btn absolute right-4 top-4 z-10 shrink-0"
+          aria-label={props.closeLabel ?? "Close"}
+        >
+          <i class="ti ti-x" />
+        </button>
+      </Show>
+
+      <aside class="settings-modal-rail flex min-h-0 border-b border-[var(--ui-divider)] bg-[var(--ui-surface-subtle)] md:flex-col md:border-b-0 md:border-r">
         <nav
-          class="settings-modal-nav paper flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-col md:overflow-visible"
+          class="settings-modal-nav no-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto px-3 py-3 pr-14 md:flex-col md:overflow-y-auto md:pb-4 md:pr-3 md:pt-4"
           aria-label={`${props.title} sections`}
+          role="tablist"
         >
           <For each={tabs()}>
             {(tab) => (
               <button
+                ref={(element) => tabRefs.set(tab.id, element)}
+                id={tabId(tab.id)}
                 type="button"
+                role="tab"
+                aria-selected={activeTabId() === tab.id}
+                aria-controls={panelId(tab.id)}
+                tabIndex={activeTabId() === tab.id ? 0 : -1}
                 data-state={activeTabId() === tab.id ? "active" : "idle"}
                 data-tone={tab.tone ?? "default"}
-                class={`flex min-w-40 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors md:w-full md:min-w-0 ${
-                  activeTabId() === tab.id
-                    ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-200"
-                    : tab.tone === "danger"
-                      ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                      : "text-dimmed hover:bg-zinc-50 hover:text-primary dark:hover:bg-zinc-900"
+                class={`sidebar-item group shrink-0 text-xs md:w-full ${
+                  activeTabId() === tab.id ? "sidebar-item-active" : tab.tone === "danger" ? "text-red-600 dark:text-red-400" : ""
                 }`}
                 onClick={() => selectTab(tab.id)}
+                onKeyDown={(event) => moveTabFocus(event, tab.id)}
               >
                 <Show when={tab.icon}>
-                  <i class={`${tab.icon} shrink-0 text-base`} />
+                  <i class={`${tab.icon} shrink-0 text-sm`} aria-hidden="true" />
                 </Show>
-                <span class="min-w-0 flex-1 truncate whitespace-nowrap">{tab.title}</span>
+                <span class="truncate whitespace-nowrap">{tab.title}</span>
               </button>
             )}
           </For>
         </nav>
+      </aside>
 
-        <main class="settings-modal-main paper min-h-0 overflow-hidden">
-          <Show when={activeTab()}>
-            {(tab) => (
-              <section
-                data-tone={tab().tone ?? "default"}
-                class={`h-full overflow-y-auto px-5 py-5 ${tab().tone === "danger" ? "rounded-lg ring-1 ring-red-200 dark:ring-red-900/50" : ""}`}
-              >
-                <div class="mb-4 flex items-start gap-3">
-                  <span
-                    class={`settings-modal-section-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                      tab().tone === "danger"
-                        ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-300"
-                        : "bg-zinc-100 text-dimmed dark:bg-zinc-900"
-                    }`}
+      <main class="settings-modal-main min-h-0 overflow-hidden bg-[var(--ui-surface)]">
+        <Show when={activeTab()}>
+          {(tab) => (
+            <section
+              id={panelId(tab().id)}
+              role="tabpanel"
+              aria-labelledby={tabId(tab().id)}
+              tabIndex={0}
+              data-tone={tab().tone ?? "default"}
+              class="h-full overflow-y-auto"
+            >
+              <div class="mx-auto w-full max-w-3xl px-6 py-8 pr-14 md:px-9 md:py-9 md:pr-14">
+                <div class="mb-8 min-w-0">
+                  <h2
+                    class={`text-xl font-semibold leading-tight ${tab().tone === "danger" ? "text-red-600 dark:text-red-300" : "text-primary"}`}
                   >
-                    <i class={`${tab().icon || "ti ti-settings"} text-sm`} />
-                  </span>
-                  <div class="min-w-0">
-                    <h3 class={`section-label mb-1 ${tab().tone === "danger" ? "text-red-600 dark:text-red-300" : ""}`}>{tab().title}</h3>
-                    <Show when={tab().description}>
-                      <p class="text-xs text-dimmed">{tab().description}</p>
-                    </Show>
-                  </div>
+                    {tab().title}
+                  </h2>
+                  <Show when={tab().description}>
+                    <p class="mt-2 text-sm leading-relaxed text-dimmed">{tab().description}</p>
+                  </Show>
                 </div>
                 {tab().children}
-              </section>
-            )}
-          </Show>
-        </main>
-      </div>
+              </div>
+            </section>
+          )}
+        </Show>
+      </main>
     </div>
   );
 }) as SettingsModalComponent;

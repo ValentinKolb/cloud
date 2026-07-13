@@ -1,20 +1,18 @@
+import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import type {
+  AssignedToFilter,
+  DeadlineFilter,
+  ItemGroupBy,
+  ItemSort,
+  ItemStatus,
+  ItemType,
+  Priority,
   SpaceColumn,
   SpaceTag,
-  Priority,
-  ItemType,
-  ItemStatus,
-  DeadlineFilter,
-  ItemSort,
-  ItemGroupBy,
-  AssignedToFilter,
 } from "@/contracts";
-import { onMount } from "solid-js";
-import { type FilterState, defaultFilter, buildFilterUrl, hasActiveFilters } from "./types";
-import { setLastSpaceId } from "../settings/SpaceSettingsStore";
-import SearchInput from "./SearchInput";
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import SearchInput from "./SearchInput";
+import { buildFilterUrl, defaultFilter, type FilterState, hasActiveFilters } from "./types";
 
 type FilterBarProps = {
   spaceId: string;
@@ -94,8 +92,8 @@ const SORT_OPTIONS: FilterChipSection[] = [
   {
     label: "Sort by",
     options: [
-      { value: "sort:column", label: "Kanban", icon: "ti ti-layout-kanban" },
-      { value: "sort:deadline", label: "Deadline", icon: "ti ti-clock" },
+      { value: "sort:column", label: "Status", icon: "ti ti-layout-kanban" },
+      { value: "sort:deadline", label: "Schedule", icon: "ti ti-calendar-time" },
       { value: "sort:priority", label: "Priority", icon: "ti ti-flag" },
       { value: "sort:created", label: "Created", icon: "ti ti-calendar-plus" },
       { value: "sort:updated", label: "Updated", icon: "ti ti-history" },
@@ -119,10 +117,10 @@ const GROUP_BY_OPTIONS: FilterChipSection[] = [
   {
     options: [
       { value: "none", label: "None", icon: "ti ti-list" },
-      { value: "column", label: "Kanban", icon: "ti ti-layout-kanban" },
+      { value: "column", label: "Status", icon: "ti ti-layout-kanban" },
       { value: "priority", label: "Priority", icon: "ti ti-flag" },
       { value: "tag", label: "Tag", icon: "ti ti-tag" },
-      { value: "deadline", label: "Deadline", icon: "ti ti-clock" },
+      { value: "deadline", label: "Schedule", icon: "ti ti-calendar-time" },
     ],
   },
 ];
@@ -135,8 +133,6 @@ const SORT_DEFAULT = [`sort:${defaultFilter.sort}`, `dir:asc`];
  * Filter bar for the items list.
  */
 export default function FilterBar(props: FilterBarProps) {
-  onMount(() => setLastSpaceId(props.spaceId));
-
   const navigate = (params: Partial<FilterState>) => {
     if (props.onFilterChange) {
       props.onFilterChange(params);
@@ -189,10 +185,10 @@ export default function FilterBar(props: FilterBarProps) {
     <div class="flex flex-col gap-2" style="view-transition-name: filter-bar">
       <SearchInput value={props.filter.search} baseUrl={buildFilterUrl(props.baseUrl, {}, props.filter)} onSearch={props.onSearchChange} />
 
-      <div class="flex flex-wrap items-center gap-2">
-        {/* View: Type + Status + Assigned To */}
+      <div class="no-scrollbar flex items-center gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible">
+        {/* Scope: item type + completion state + assignment */}
         <FilterChip
-          label="View"
+          label="Scope"
           icon="ti ti-filter"
           options={VIEW_OPTIONS}
           value={[`type:${props.filter.type}`, `status:${props.filter.status}`, `assigned:${props.filter.assignedTo}`]}
@@ -241,10 +237,10 @@ export default function FilterBar(props: FilterBarProps) {
           />
         )}
 
-        {/* Columns */}
-        <div class="hidden lg:block">
+        {/* Workflow status */}
+        <div class="shrink-0">
           <FilterChip
-            label="Kanban"
+            label="Status"
             icon="ti ti-layout-kanban"
             options={columnOptions()}
             value={props.filter.columnIds}
@@ -253,7 +249,7 @@ export default function FilterBar(props: FilterBarProps) {
         </div>
 
         {/* Sort */}
-        <div class="hidden md:block">
+        <div class="shrink-0">
           <FilterChip
             label="Sort"
             icon="ti ti-arrows-sort"
@@ -271,7 +267,7 @@ export default function FilterBar(props: FilterBarProps) {
 
         {/* Group By */}
         {!props.hideGroupBy && (
-          <div class="hidden lg:block">
+          <div class="shrink-0">
             <FilterChip
               label="Group By"
               icon="ti ti-layout-list"
@@ -293,7 +289,7 @@ export default function FilterBar(props: FilterBarProps) {
           <a
             href={buildFilterUrl(props.baseUrl, defaultFilter, defaultFilter)}
             onClick={clearFilters}
-            class="inline-flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+            class="btn-simple btn-sm shrink-0"
             aria-label="Clear all filters"
           >
             <i class="ti ti-x" />
@@ -301,7 +297,7 @@ export default function FilterBar(props: FilterBarProps) {
           </a>
         )}
 
-        <span class="text-xs text-dimmed whitespace-nowrap">
+        <span class="shrink-0 whitespace-nowrap text-xs text-dimmed">
           {props.filter.search && `Results for "${props.filter.search}": `}
           {props.total === 0 ? "No items" : props.total === 1 ? "1 item" : `${props.total} items`}
           {hasFilters && !props.filter.search && " (filtered)"}
