@@ -5,6 +5,9 @@ export const PULSE_EVENT_ATTRIBUTE_KEY_LIMIT = 64;
 export const PULSE_EVENT_ATTRIBUTE_KEY_MAX_LENGTH = 80;
 export const PULSE_EVENT_ATTRIBUTES_MAX_BYTES = 32 * 1024;
 export const PULSE_EVENT_ATTRIBUTES_MAX_DEPTH = 4;
+export const PULSE_EVENT_SENSITIVE_KEY_LIMIT = 32;
+export const PULSE_EVENT_SENSITIVE_MAX_BYTES = 32 * 1024;
+export const PULSE_EVENT_SENSITIVE_MAX_DEPTH = 4;
 export const PULSE_EVENT_PAYLOAD_MAX_BYTES = 64 * 1024;
 export const PULSE_EVENT_PAYLOAD_MAX_DEPTH = 8;
 export const PULSE_EXTERNAL_INGEST_MAX_BYTES = 5 * 1024 * 1024;
@@ -75,9 +78,18 @@ export const validateEventAttributes = (attributes: Record<string, unknown> | un
   Object.keys(attributes ?? {}).some((key) => !key.trim() || key.length > PULSE_EVENT_ATTRIBUTE_KEY_MAX_LENGTH)
     ? `Event attribute keys must be non-empty and cannot exceed ${PULSE_EVENT_ATTRIBUTE_KEY_MAX_LENGTH} characters`
     : validateJsonObject("Event attributes", attributes, {
-    maxKeys: PULSE_EVENT_ATTRIBUTE_KEY_LIMIT,
-    maxBytes: PULSE_EVENT_ATTRIBUTES_MAX_BYTES,
-    maxDepth: PULSE_EVENT_ATTRIBUTES_MAX_DEPTH,
+        maxKeys: PULSE_EVENT_ATTRIBUTE_KEY_LIMIT,
+        maxBytes: PULSE_EVENT_ATTRIBUTES_MAX_BYTES,
+        maxDepth: PULSE_EVENT_ATTRIBUTES_MAX_DEPTH,
+      });
+
+export const validateEventSensitive = (sensitive: Record<string, unknown> | undefined): string | null =>
+  Object.keys(sensitive ?? {}).some((key) => !key.trim() || key.length > PULSE_EVENT_ATTRIBUTE_KEY_MAX_LENGTH)
+    ? `Sensitive event keys must be non-empty and cannot exceed ${PULSE_EVENT_ATTRIBUTE_KEY_MAX_LENGTH} characters`
+    : validateJsonObject("Sensitive event data", sensitive, {
+        maxKeys: PULSE_EVENT_SENSITIVE_KEY_LIMIT,
+        maxBytes: PULSE_EVENT_SENSITIVE_MAX_BYTES,
+        maxDepth: PULSE_EVENT_SENSITIVE_MAX_DEPTH,
       });
 
 export const validateEventPayload = (payload: Record<string, unknown> | undefined): string | null =>

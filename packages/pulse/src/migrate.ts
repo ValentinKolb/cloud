@@ -254,6 +254,7 @@ export const migrate = async (): Promise<void> => {
       dimensions_hash TEXT NOT NULL,
       dimensions JSONB NOT NULL DEFAULT '{}'::jsonb,
       attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
+      sensitive JSONB NOT NULL DEFAULT '{}'::jsonb,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (id, ts)
@@ -263,6 +264,7 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_actor_ts ON pulse.events(base_id, actor_id, ts DESC) WHERE actor_id IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_correlation_ts ON pulse.events(base_id, correlation_id, ts DESC) WHERE correlation_id IS NOT NULL`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS attributes JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
+  await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS sensitive JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
   await sql`DROP TABLE IF EXISTS pulse.event_dimensions`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_key TEXT`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_id TEXT`.simple();
@@ -320,7 +322,7 @@ export const migrate = async (): Promise<void> => {
       source_id UUID NOT NULL REFERENCES pulse.sources(id) ON DELETE CASCADE,
       scope TEXT NOT NULL CHECK (scope IN ('metric', 'event', 'state')),
       signal_name TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('dimension', 'attribute')),
+      role TEXT NOT NULL CHECK (role IN ('dimension', 'attribute', 'sensitive')),
       key TEXT NOT NULL,
       value_type TEXT NOT NULL CHECK (value_type IN ('null', 'string', 'number', 'boolean', 'object', 'array', 'mixed')),
       observed_count BIGINT NOT NULL DEFAULT 0,
@@ -328,6 +330,11 @@ export const migrate = async (): Promise<void> => {
       last_seen_at TIMESTAMPTZ NOT NULL,
       PRIMARY KEY (base_id, source_id, scope, signal_name, role, key)
     )
+  `.simple();
+  await sql`ALTER TABLE pulse.signal_fields DROP CONSTRAINT IF EXISTS signal_fields_role_check`.simple();
+  await sql`
+    ALTER TABLE pulse.signal_fields
+    ADD CONSTRAINT signal_fields_role_check CHECK (role IN ('dimension', 'attribute', 'sensitive'))
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_signal_fields_catalog ON pulse.signal_fields(base_id, scope, signal_name, role, key)`.simple();
 

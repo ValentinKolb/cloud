@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { prepareIngestBatch, writePreparedIngestBatchInTransaction } from "./ingest-bulk";
+import { recordEvent } from "./ingest-writer";
+import { queryEventsData } from "./query-execution";
 
 const runDbSmoke = process.env.PULSE_FIELD_CATALOG_DB_TEST === "1";
 const postgresTest = runDbSmoke ? test : test.skip;
@@ -29,17 +31,30 @@ describe("Pulse field catalog Postgres smoke", () => {
               kind: "page.viewed",
               dimensions: { campaign: "summer" },
               attributes: { request_id: "request-secret-1", result: 200 },
+              sensitive: { ip: "203.0.113.42" },
             },
             {
               kind: "page.viewed",
               dimensions: { campaign: "winter" },
               attributes: { request_id: "request-secret-2", result: "cached" },
+              sensitive: { ip: "198.51.100.9" },
             },
           ],
         },
         sourceId,
       );
       await sql.begin((tx) => writePreparedIngestBatchInTransaction({ baseId, sourceId, batch, db: tx }));
+      const single = await recordEvent({
+        baseId,
+        sourceId,
+        event: {
+          kind: "page.viewed",
+          dimensions: { campaign: "spring" },
+          attributes: { request_id: "request-secret-3", result: 201 },
+          sensitive: { ip: "192.0.2.15" },
+        },
+      });
+      expect(single.ok).toBe(true);
 
       const rows = await sql<
         Array<{ role: string; key: string; value_type: string; observed_count: number }>
@@ -50,9 +65,10 @@ describe("Pulse field catalog Postgres smoke", () => {
         ORDER BY role, key
       `;
       expect(rows).toEqual([
-        { role: "attribute", key: "request_id", value_type: "string", observed_count: 2 },
-        { role: "attribute", key: "result", value_type: "mixed", observed_count: 2 },
-        { role: "dimension", key: "campaign", value_type: "string", observed_count: 2 },
+        { role: "attribute", key: "request_id", value_type: "string", observed_count: 3 },
+        { role: "attribute", key: "result", value_type: "mixed", observed_count: 3 },
+        { role: "dimension", key: "campaign", value_type: "string", observed_count: 3 },
+        { role: "sensitive", key: "ip", value_type: "string", observed_count: 3 },
       ]);
 
       const [containsValues] = await sql<{ contains_values: boolean }[]>`
@@ -64,6 +80,28 @@ describe("Pulse field catalog Postgres smoke", () => {
         ) AS contains_values
       `;
       expect(containsValues?.contains_values).toBe(false);
+
+      const [stored] = await sql<{ sensitive_count: number }[]>`
+        SELECT COUNT(*)::int AS sensitive_count
+        FROM pulse.events
+        WHERE base_id = ${baseId}::uuid
+          AND sensitive ? 'ip'
+      `;
+      expect(stored?.sensitive_count).toBe(3);
+
+      const events = await queryEventsData({
+        kind: "events",
+        baseId,
+        event: "page.viewed",
+        since: "1h",
+        limit: 10,
+      });
+      expect(events.ok).toBe(true);
+      if (events.ok) {
+        expect(events.data).toHaveLength(3);
+        expect(JSON.stringify(events.data)).not.toContain("203.0.113.42");
+        expect(JSON.stringify(events.data)).not.toContain("192.0.2.15");
+      }
     } finally {
       await sql`DELETE FROM pulse.bases WHERE id = ${baseId}::uuid`;
     }

@@ -8,6 +8,7 @@ import {
   validateDimensions,
   validateEventAttributes,
   validateEventPayload,
+  validateEventSensitive,
 } from "../telemetry-contract";
 
 const durationToMs = (value: string): number | null => {
@@ -50,6 +51,14 @@ const EventPayloadSchema = z
   })
   .optional();
 
+const EventSensitiveSchema = z
+  .record(z.string(), z.unknown())
+  .superRefine((value, context) => {
+    const message = validateEventSensitive(value);
+    if (message) context.addIssue({ code: "custom", message });
+  })
+  .optional();
+
 const MetricSchema = z.object({
   name: z.string().trim().min(1),
   value: z.number().finite(),
@@ -82,6 +91,7 @@ const EventSchema = z.object({
     .optional(),
   dimensions: DimensionsSchema,
   attributes: EventAttributesSchema,
+  sensitive: EventSensitiveSchema,
   payload: EventPayloadSchema,
 });
 
@@ -461,7 +471,7 @@ export const SignalFieldQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   sourceId: z.string().uuid().optional(),
   scope: z.enum(["metric", "event", "state"]).optional(),
-  role: z.enum(["dimension", "attribute"]).optional(),
+  role: z.enum(["dimension", "attribute", "sensitive"]).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
 });
@@ -686,7 +696,7 @@ export const SignalFieldSchema = z.object({
   sourceId: z.string(),
   scope: z.enum(["metric", "event", "state"]),
   signalName: z.string(),
-  role: z.enum(["dimension", "attribute"]),
+  role: z.enum(["dimension", "attribute", "sensitive"]),
   key: z.string(),
   valueType: z.enum(["null", "string", "number", "boolean", "object", "array", "mixed"]),
   observedCount: z.number(),

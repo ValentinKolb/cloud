@@ -24,6 +24,7 @@ describe("Pulse bulk ingest preparation", () => {
             entityType: "host",
             resource: { type: "host", id: "host:alpha", label: "alpha" },
             attributes: { request_id: "request-1", location: { city: "Berlin" } },
+            sensitive: { ip: "203.0.113.42" },
           },
         ],
         states: [
@@ -43,6 +44,7 @@ describe("Pulse bulk ingest preparation", () => {
     expect(prepared.resources).toHaveLength(1);
     expect(prepared.resources[0]?.key).toBe("host:host:alpha");
     expect(prepared.events[0]?.attributes).toEqual({ request_id: "request-1", location: { city: "Berlin" } });
+    expect(prepared.events[0]?.sensitive).toEqual({ ip: "203.0.113.42" });
   });
 
   test("does not materialize event identities as resources without an explicit resource", () => {
@@ -66,7 +68,7 @@ describe("Pulse bulk ingest preparation", () => {
     expect(prepared.events[0]?.resourceKey).toBeNull();
   });
 
-  test("catalogs event dimensions and attributes without storing their values", () => {
+  test("catalogs event dimensions, attributes, and sensitive fields without storing their values", () => {
     const prepared = prepareIngestBatch(
       {
         events: [
@@ -74,11 +76,13 @@ describe("Pulse bulk ingest preparation", () => {
             kind: "page.viewed",
             dimensions: { campaign: "summer" },
             attributes: { request_id: "request-1", geo: { city: "Berlin" } },
+            sensitive: { ip: "203.0.113.42" },
           },
           {
             kind: "page.viewed",
             dimensions: { campaign: "winter" },
             attributes: { request_id: "request-2", geo: { city: "Hamburg" } },
+            sensitive: { ip: "198.51.100.9" },
           },
         ],
       },
@@ -90,10 +94,12 @@ describe("Pulse bulk ingest preparation", () => {
         expect.objectContaining({ role: "dimension", key: "campaign", valueType: "string", observedCount: 2 }),
         expect.objectContaining({ role: "attribute", key: "request_id", valueType: "string", observedCount: 2 }),
         expect.objectContaining({ role: "attribute", key: "geo", valueType: "object", observedCount: 2 }),
+        expect.objectContaining({ role: "sensitive", key: "ip", valueType: "string", observedCount: 2 }),
       ]),
     );
     expect(JSON.stringify(prepared.fields)).not.toContain("request-1");
     expect(JSON.stringify(prepared.fields)).not.toContain("Berlin");
+    expect(JSON.stringify(prepared.fields)).not.toContain("203.0.113.42");
   });
 
   test("deduplicates resource and field metadata for large set-based writes", () => {

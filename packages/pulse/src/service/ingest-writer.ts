@@ -10,7 +10,13 @@ import {
   PULSE_INTERNAL_INGEST_BATCH_LIMIT,
 } from "../ingest-limits";
 import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
-import { telemetryValueKind, validateDimensions, validateEventAttributes, validateEventPayload } from "../telemetry-contract";
+import {
+  telemetryValueKind,
+  validateDimensions,
+  validateEventAttributes,
+  validateEventPayload,
+  validateEventSensitive,
+} from "../telemetry-contract";
 import { requireBaseActive } from "./access-control";
 import { type PulseSqlClient, prepareIngestBatch, writePreparedIngestBatchInTransaction } from "./ingest-bulk";
 import { enforceMetricSeriesBudget, MetricSeriesLimitError } from "./metric-cardinality";
@@ -122,7 +128,7 @@ const upsertSignalFields = async (params: {
   sourceId?: string | null;
   scope: "metric" | "event" | "state";
   signalName: string;
-  role: "dimension" | "attribute";
+  role: "dimension" | "attribute" | "sensitive";
   values: Record<string, unknown>;
   seenAt: Date;
   db?: SqlClient;
@@ -242,6 +248,8 @@ const validateEvent = (event: PulseEvent): Result<void> => {
   if (dimensionsError) return fail(err.badInput(dimensionsError));
   const attributesError = validateEventAttributes(event.attributes);
   if (attributesError) return fail(err.badInput(attributesError));
+  const sensitiveError = validateEventSensitive(event.sensitive);
+  if (sensitiveError) return fail(err.badInput(sensitiveError));
   const payloadError = validateEventPayload(event.payload);
   if (payloadError) return fail(err.badInput(payloadError));
   return ok();
@@ -354,6 +362,7 @@ const insertEventRow = async (params: {
       dimensions_hash,
       dimensions,
       attributes,
+      sensitive,
       payload,
       resource_key,
       resource_id,
@@ -374,6 +383,7 @@ const insertEventRow = async (params: {
       ${params.dimensionsHash},
       (${jsonbObject(params.dimensions)}::jsonb #>> '{}')::jsonb,
       (${jsonbObject(objectOrEmpty(params.event.attributes))}::jsonb #>> '{}')::jsonb,
+      (${jsonbObject(objectOrEmpty(params.event.sensitive))}::jsonb #>> '{}')::jsonb,
       (${jsonbObject(objectOrEmpty(params.event.payload))}::jsonb #>> '{}')::jsonb,
       ${params.resource?.key ?? null},
       ${params.resource?.id ?? null},
@@ -418,6 +428,16 @@ const recordEventInClient = async (params: {
     signalName: params.event.kind,
     role: "dimension",
     values: dimensions,
+    seenAt: ts.data,
+    db,
+  });
+  await upsertSignalFields({
+    baseId: params.baseId,
+    sourceId: params.sourceId,
+    scope: "event",
+    signalName: params.event.kind,
+    role: "sensitive",
+    values: params.event.sensitive ?? {},
     seenAt: ts.data,
     db,
   });

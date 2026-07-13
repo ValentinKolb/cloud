@@ -92,6 +92,7 @@ export type PulseEvent = {
   resource?: PulseResourceRef | null;
   dimensions?: Record<string, string | number | boolean | null>;
   attributes?: Record<string, unknown>;
+  sensitive?: Record<string, unknown>;
   payload?: Record<string, unknown>;
 };
 
@@ -188,7 +189,7 @@ export type PulseSignalField = {
   sourceId: string;
   scope: "metric" | "event" | "state";
   signalName: string;
-  role: "dimension" | "attribute";
+  role: "dimension" | "attribute" | "sensitive";
   key: string;
   valueType: "null" | "string" | "number" | "boolean" | "object" | "array" | "mixed";
   observedCount: number;

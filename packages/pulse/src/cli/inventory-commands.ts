@@ -107,7 +107,7 @@ export const inventoryCommands = [
       ...sourceFilterFlags,
       q: flag.string({ description: "Search signal and field names" }),
       scope: flag.enum(["metric", "event", "state"] as const, { description: "Signal scope" }),
-      role: flag.enum(["dimension", "attribute"] as const, { description: "Field role" }),
+      role: flag.enum(["dimension", "attribute", "sensitive"] as const, { description: "Field role" }),
       limit: flag.int({ min: 1, max: 500, description: "Maximum rows" }),
     },
     args: { args: arg.rest({ valueLabel: "base" }) },

@@ -45,6 +45,7 @@ type PreparedEvent = PreparedResourceFields & {
   dimensionsHash: string;
   dimensions: Record<string, string>;
   attributes: Record<string, unknown>;
+  sensitive: Record<string, unknown>;
   payload: Record<string, unknown>;
 };
 
@@ -77,7 +78,7 @@ type PreparedIngestBatch = {
 type PreparedField = {
   scope: "metric" | "event" | "state";
   signalName: string;
-  role: "dimension" | "attribute";
+  role: "dimension" | "attribute" | "sensitive";
   key: string;
   valueType: PulseTelemetryValueKind | "mixed";
   observedCount: number;
@@ -176,6 +177,7 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     const ts = isoTime(event.ts);
     const resource = observe("event", event.kind, event.entityId, event.entityType, dimensions, ts, explicitPulseResource(event.resource));
     observeFields("event", event.kind, "attribute", event.attributes ?? {}, ts);
+    observeFields("event", event.kind, "sensitive", event.sensitive ?? {}, ts);
     return {
       id: randomUUID(),
       kind: event.kind,
@@ -189,6 +191,7 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
       dimensionsHash: hash,
       dimensions,
       attributes: event.attributes ?? {},
+      sensitive: event.sensitive ?? {},
       payload: event.payload ?? {},
       ...resourceFields(resource),
     };
@@ -300,15 +303,15 @@ const writeEvents = async (baseId: string, sourceId: string | null | undefined, 
       SELECT * FROM jsonb_to_recordset((${input}::jsonb #>> '{}')::jsonb) AS row(
         id uuid, kind text, ts timestamptz, value double precision, "entityId" text, "entityType" text,
         "actorId" text, "sessionId" text, "correlationId" text, "dimensionsHash" text, dimensions jsonb,
-        attributes jsonb, payload jsonb, "resourceKey" text, "resourceId" text, "resourceType" text, "resourceLabel" text
+        attributes jsonb, sensitive jsonb, payload jsonb, "resourceKey" text, "resourceId" text, "resourceType" text, "resourceLabel" text
       )
     )
     INSERT INTO pulse.events (
       id, base_id, source_id, ts, kind, value, entity_id, entity_type, actor_id, session_id,
-      correlation_id, dimensions_hash, dimensions, attributes, payload, resource_key, resource_id, resource_type, resource_label
+      correlation_id, dimensions_hash, dimensions, attributes, sensitive, payload, resource_key, resource_id, resource_type, resource_label
     )
     SELECT id, ${baseId}::uuid, ${sourceId ?? null}::uuid, ts, kind, value, "entityId", "entityType", "actorId",
-      "sessionId", "correlationId", "dimensionsHash", dimensions, attributes, payload, "resourceKey", "resourceId", "resourceType", "resourceLabel"
+      "sessionId", "correlationId", "dimensionsHash", dimensions, attributes, sensitive, payload, "resourceKey", "resourceId", "resourceType", "resourceLabel"
     FROM input
   `;
 };

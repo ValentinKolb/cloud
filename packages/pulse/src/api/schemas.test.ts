@@ -28,9 +28,9 @@ describe("Pulse ingest API limits", () => {
           dimensions: { campaign: "summer", country: "DE" },
           attributes: {
             url: "https://example.com/pricing?request=unique",
-            ip_hash: "high-cardinality-value",
-            geo: { city: "Berlin", asn: 680 },
+            request_id: "high-cardinality-value",
           },
+          sensitive: { ip: "203.0.113.42", geo: { city: "Berlin", asn: 680 } },
         },
       ],
     });
