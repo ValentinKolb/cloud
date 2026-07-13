@@ -18,35 +18,42 @@ const workflowRunTopic = topic<GridsWorkflowRunEvent>({
 
 const tenantId = (baseId: string, workflowId: string): string => `${baseId}:${workflowId}`;
 
-export const notifyWorkflowRunEvent = async (
-  run: WorkflowRun,
-  steps: WorkflowStepRun[] = [],
-  scope: WorkflowRunEventScope = { kind: "workflow" },
-): Promise<void> => {
-  if (!run.workflowId) return;
-  try {
-    await workflowRunTopic.pub({
-      tenantId: tenantId(run.baseId, run.workflowId),
-      orderingKey: run.workflowId,
-      idempotencyKey: `${run.id}:${run.status}:${run.finishedAt ?? run.startedAt ?? run.createdAt}`,
-      data: {
-        v: 1,
-        baseId: run.baseId,
+type WorkflowRunEventPublisher = (event: Parameters<typeof workflowRunTopic.pub>[0]) => Promise<unknown>;
+
+export const createWorkflowRunEventNotifier =
+  (publish: WorkflowRunEventPublisher) =>
+  async (
+    run: WorkflowRun,
+    steps: WorkflowStepRun[] = [],
+    scope: WorkflowRunEventScope = { kind: "workflow" },
+    transitionId?: string,
+  ): Promise<void> => {
+    if (!run.workflowId) return;
+    try {
+      await publish({
+        tenantId: tenantId(run.baseId, run.workflowId),
+        orderingKey: run.workflowId,
+        idempotencyKey: `${run.id}:${run.status}:${transitionId ?? run.finishedAt ?? run.startedAt ?? run.createdAt}`,
+        data: {
+          v: 1,
+          baseId: run.baseId,
+          workflowId: run.workflowId,
+          run: toWorkflowRunEventSummary(run),
+          scope,
+          steps: steps.map(toWorkflowRunStepSummary),
+        },
+      });
+    } catch (error) {
+      log.warn("Workflow run update publish failed", {
         workflowId: run.workflowId,
-        run: toWorkflowRunEventSummary(run),
-        scope,
-        steps: steps.map(toWorkflowRunStepSummary),
-      },
-    });
-  } catch (error) {
-    log.warn("Workflow run update publish failed", {
-      workflowId: run.workflowId,
-      runId: run.id,
-      status: run.status,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-};
+        runId: run.id,
+        status: run.status,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+export const notifyWorkflowRunEvent = createWorkflowRunEventNotifier((event) => workflowRunTopic.pub(event));
 
 export const latestWorkflowRunEventCursor = (baseId: string, workflowId: string): Promise<string | null> =>
   workflowRunTopic.latestCursor({ tenantId: tenantId(baseId, workflowId) });

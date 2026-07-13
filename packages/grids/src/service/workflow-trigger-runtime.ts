@@ -47,6 +47,7 @@ type WorkflowTriggerJobInput = PreparedTriggerJobInput<QueuedWorkflowTriggerKind
 type PreparedTriggerJobInput<T extends QueuedWorkflowTriggerKind> = {
   workflowId: string;
   runId: string;
+  queueAttempt: number;
   triggerKind: T;
   actorUserId: string | null;
   actorGroupIds: string[];
@@ -98,6 +99,7 @@ const defaultWorkflowJob = job<WorkflowTriggerJobInput, { runId: string | null; 
     const result = await executePreparedRun({
       workflowId: input.workflowId,
       runId: input.runId,
+      queueAttempt: input.queueAttempt,
       triggerKind: input.triggerKind,
       actorUserId: input.actorUserId,
       actorGroupIds: input.actorGroupIds,
@@ -124,10 +126,11 @@ const defaultWorkflowJob = job<WorkflowTriggerJobInput, { runId: string | null; 
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 30_000, maxMs: 5 * 60_000 }) });
       return;
     }
-    await workflowStore.finishRun(ctx.input.runId, {
-      status: "failed",
-      error: ctx.error instanceof Error ? ctx.error.message : String(ctx.error),
-    });
+    await workflowStore.failQueuedRunAttempt(
+      ctx.input.runId,
+      ctx.input.queueAttempt,
+      ctx.error instanceof Error ? ctx.error.message : String(ctx.error),
+    );
   },
 });
 
@@ -139,7 +142,7 @@ type WorkflowTriggerRuntimeDeps = {
   workflows?: Pick<
     typeof workflowStore,
     | "createWorkflowRun"
-    | "claimStaleQueuedRuns"
+    | "claimRecoverableRuns"
     | "failQueuedRunAttempt"
     | "get"
     | "getWorkflowRun"
@@ -197,6 +200,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
       input: {
         workflowId: workflow.id,
         runId: run.id,
+        queueAttempt: run.queueAttempts,
         triggerKind: run.triggerKind as QueuedWorkflowTriggerKind,
         actorUserId: run.actorUserId,
         actorGroupIds: run.actorGroupIds,
@@ -240,7 +244,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   };
 
   const recoverStaleQueuedRuns = async (): Promise<void> => {
-    const runs = await workflows.claimStaleQueuedRuns();
+    const runs = await workflows.claimRecoverableRuns();
     for (const run of runs) {
       const workflow = run.workflowId ? await workflows.get(run.workflowId) : null;
       if (!workflow || !workflow.enabled) {

@@ -82,6 +82,7 @@ const jobState = {
       triggerKind: string;
       workflowId: string;
       runId: string;
+      queueAttempt: number;
       actorUserId: string | null;
       actorGroupIds: string[];
       serviceAccountId: string | null;
@@ -148,6 +149,7 @@ const createTestRuntime = () =>
           triggerKind: string;
           workflowId: string;
           runId: string;
+          queueAttempt: number;
           actorUserId: string | null;
           actorGroupIds: string[];
           serviceAccountId: string | null;
@@ -180,7 +182,7 @@ const createTestRuntime = () =>
           }
         );
       },
-      claimStaleQueuedRuns: async () => {
+      claimRecoverableRuns: async () => {
         const claimed = staleQueuedRuns;
         staleQueuedRuns = [];
         return claimed;
@@ -505,6 +507,7 @@ describe("workflow trigger runtime", () => {
         input: {
           workflowId,
           runId,
+          queueAttempt: 1,
           triggerKind: "dashboardButton",
           actorUserId: scheduledWorkflow.ownerUserId,
           actorGroupIds: [ownerGroupId],

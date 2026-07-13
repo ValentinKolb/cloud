@@ -8,6 +8,7 @@ type DbRow = Record<string, unknown>;
 
 type CreateStepRunInput = {
   runId: string;
+  executionGeneration: number;
   stepIndex: number;
   stepPath: string;
   kind: string;
@@ -37,8 +38,17 @@ const mapStepRunRow = (row: DbRow): WorkflowStepRun => ({
 
 export const createStepRun = async (input: CreateStepRunInput, client: SqlClient = sql): Promise<WorkflowStepRun> => {
   const [row] = await client<DbRow[]>`
+    WITH owner AS (
+      SELECT id
+      FROM grids.workflow_runs
+      WHERE id = ${input.runId}::uuid
+        AND status = 'running'
+        AND execution_generation = ${input.executionGeneration}
+      FOR UPDATE
+    )
     INSERT INTO grids.workflow_step_runs (run_id, step_index, step_path, resume_key, kind, status, input, started_at)
-    VALUES (${input.runId}::uuid, ${input.stepIndex}, ${input.stepPath}, ${input.stepPath}, ${input.kind}, 'running', ${input.input ?? null}::jsonb, now())
+    SELECT owner.id, ${input.stepIndex}, ${input.stepPath}, ${input.stepPath}, ${input.kind}, 'running', ${input.input ?? null}::jsonb, now()
+    FROM owner
     ON CONFLICT (run_id, resume_key) WHERE resume_key IS NOT NULL
     DO UPDATE SET
       status = CASE WHEN grids.workflow_step_runs.status = 'succeeded' THEN grids.workflow_step_runs.status ELSE 'running' END,
@@ -50,7 +60,7 @@ export const createStepRun = async (input: CreateStepRunInput, client: SqlClient
       finished_at = CASE WHEN grids.workflow_step_runs.status = 'succeeded' THEN grids.workflow_step_runs.finished_at ELSE NULL END
     RETURNING id, run_id, step_index, step_path, kind, status, input, output, error, duration_ms, started_at, finished_at
   `;
-  if (!row) throw err.internal("workflow step run insert failed");
+  if (!row) throw err.conflict("workflow run lease lost");
   return mapStepRunRow(row);
 };
 
@@ -64,22 +74,39 @@ export const getStepRunByPath = async (runId: string, stepPath: string, client: 
   return row ? mapStepRunRow(row) : null;
 };
 
-export const finishStepRun = async (stepRunId: string, input: FinishStepRunInput, client: SqlClient = sql): Promise<WorkflowStepRun> => {
+export const finishStepRun = async (
+  stepRunId: string,
+  executionGeneration: number,
+  input: FinishStepRunInput,
+  client: SqlClient = sql,
+): Promise<WorkflowStepRun> => {
   const [row] = await client<DbRow[]>`
-    UPDATE grids.workflow_step_runs
+    WITH owner AS (
+      SELECT run.id
+      FROM grids.workflow_runs run
+      JOIN grids.workflow_step_runs step ON step.run_id = run.id
+      WHERE step.id = ${stepRunId}::uuid
+        AND run.status = 'running'
+        AND run.execution_generation = ${executionGeneration}
+      FOR UPDATE OF run
+    )
+    UPDATE grids.workflow_step_runs step
     SET status = ${input.status},
         output = ${input.output ?? null}::jsonb,
         error = ${input.error ?? null},
         duration_ms = GREATEST(0, (EXTRACT(EPOCH FROM (now() - COALESCE(started_at, now()))) * 1000)::int),
         finished_at = now()
-    WHERE id = ${stepRunId}::uuid
-    RETURNING id, run_id, step_index, step_path, kind, status, input, output, error, duration_ms, started_at, finished_at
+    FROM owner
+    WHERE step.id = ${stepRunId}::uuid
+      AND step.run_id = owner.id
+    RETURNING step.id, step.run_id, step.step_index, step.step_path, step.kind, step.status, step.input, step.output, step.error,
+              step.duration_ms, step.started_at, step.finished_at
   `;
-  if (!row) throw err.notFound("workflow step run");
+  if (!row) throw err.conflict("workflow run lease lost");
   return mapStepRunRow(row);
 };
 
-export const listStepRunsWithClient = async (runId: string, client: SqlClient): Promise<WorkflowStepRun[]> => {
+const listStepRunsWithClient = async (runId: string, client: SqlClient): Promise<WorkflowStepRun[]> => {
   const rows = await client<DbRow[]>`
     SELECT id, run_id, step_index, step_path, kind, status, input, output, error, duration_ms, started_at, finished_at
     FROM grids.workflow_step_runs

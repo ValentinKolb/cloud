@@ -11,12 +11,15 @@ import {
   prepareWorkflowTriggerRun,
 } from "./workflow-runtime";
 import {
-  claimStaleQueuedRuns,
+  claimRecoverableRuns,
+  claimRun,
   createStepRun,
   createWorkflowRun,
   failQueuedRunAttempt,
+  finishRun,
   finishStepRun,
   getOrCreateRecordScanCode,
+  heartbeatRun,
   listEmailDeliveriesPage,
   listRecordEventBaseIds,
   listRecordEventEnabled,
@@ -269,7 +272,7 @@ describe("workflow runtime integration", () => {
         WHERE id = ${run.id}::uuid
       `;
 
-      const claims = (await Promise.all([claimStaleQueuedRuns(24 * 60 * 60 * 1000), claimStaleQueuedRuns(24 * 60 * 60 * 1000)])).flat();
+      const claims = (await Promise.all([claimRecoverableRuns(24 * 60 * 60 * 1000), claimRecoverableRuns(24 * 60 * 60 * 1000)])).flat();
       const claimed = claims.filter((candidate) => candidate.id === run.id);
 
       expect(claimed).toHaveLength(1);
@@ -280,7 +283,7 @@ describe("workflow runtime integration", () => {
         authorization: { kind: "dashboard-widget", dashboardWidgetId: "widget-1" },
         queueAttempts: 1,
       });
-      expect((await claimStaleQueuedRuns(24 * 60 * 60 * 1000)).some((candidate) => candidate.id === run.id)).toBe(false);
+      expect((await claimRecoverableRuns(24 * 60 * 60 * 1000)).some((candidate) => candidate.id === run.id)).toBe(false);
 
       await sql`UPDATE grids.workflow_runs SET status = 'running' WHERE id = ${run.id}::uuid`;
       expect(await failQueuedRunAttempt(run.id, 1, "late submit failure")).toBeNull();
@@ -288,6 +291,113 @@ describe("workflow runtime integration", () => {
         SELECT status FROM grids.workflow_runs WHERE id = ${run.id}::uuid
       `;
       expect(current?.status).toBe("running");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("fences a stale worker after another worker takes over the run", async () => {
+    const fixture = await insertFixture();
+    try {
+      const run = await createWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        triggerKind: "form",
+      });
+      const first = await claimRun(run.id, 60_000);
+      if (!first.claimed || first.executionGeneration === null) throw new Error("First worker could not claim run");
+      const firstStep = await createStepRun({
+        runId: run.id,
+        executionGeneration: first.executionGeneration,
+        stepIndex: 0,
+        stepPath: "steps.0",
+        kind: "setVariable",
+      });
+
+      await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
+      const second = await claimRun(run.id, 60_000);
+      if (!second.claimed || second.executionGeneration === null) throw new Error("Second worker could not take over run");
+      expect(second.executionGeneration).toBe(first.executionGeneration + 1);
+
+      expect(await heartbeatRun(run.id, first.executionGeneration)).toBe(false);
+      expect(await heartbeatRun(run.id, second.executionGeneration)).toBe(true);
+      await expect(
+        createStepRun({
+          runId: run.id,
+          executionGeneration: first.executionGeneration,
+          stepIndex: 1,
+          stepPath: "steps.1",
+          kind: "setVariable",
+        }),
+      ).rejects.toThrow("workflow run lease lost");
+      await expect(
+        finishStepRun(firstStep.id, first.executionGeneration, { status: "succeeded", output: { worker: "first" } }),
+      ).rejects.toThrow("workflow run lease lost");
+      expect(await finishRun(run.id, first.executionGeneration, { status: "failed", error: "stale worker" })).toBeNull();
+
+      const resumedStep = await createStepRun({
+        runId: run.id,
+        executionGeneration: second.executionGeneration,
+        stepIndex: 0,
+        stepPath: "steps.0",
+        kind: "setVariable",
+      });
+      await finishStepRun(resumedStep.id, second.executionGeneration, { status: "succeeded", output: { worker: "second" } });
+      const finished = await finishRun(run.id, second.executionGeneration, { status: "succeeded" });
+      expect(finished?.status).toBe("succeeded");
+      expect(await finishRun(run.id, first.executionGeneration, { status: "failed", error: "late write" })).toBeNull();
+
+      const [persistedStep] = await sql<Array<{ status: string; output: { worker: string } }>>`
+        SELECT status, output
+        FROM grids.workflow_step_runs
+        WHERE id = ${firstStep.id}::uuid
+      `;
+      expect(persistedStep).toEqual({ status: "succeeded", output: { worker: "second" } });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("recovers an expired running lease once and advances its generation on reclaim", async () => {
+    const fixture = await insertFixture();
+    try {
+      const run = await createWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        triggerKind: "form",
+      });
+      const first = await claimRun(run.id);
+      if (!first.claimed || first.executionGeneration === null) throw new Error("First worker could not claim run");
+      await sql`
+        UPDATE grids.workflow_runs
+        SET lease_expires_at = now() - interval '1 minute',
+            last_queue_attempt_at = now() - interval '1 day'
+        WHERE id = ${run.id}::uuid
+      `;
+
+      const recovered = (await Promise.all([claimRecoverableRuns(30_000), claimRecoverableRuns(30_000)]))
+        .flat()
+        .filter((candidate) => candidate.id === run.id);
+      expect(recovered).toHaveLength(1);
+      expect(recovered[0]).toMatchObject({ status: "queued", queueAttempts: 1 });
+
+      const staleAttempt = await claimRun(run.id, 120_000, 0);
+      expect(staleAttempt).toMatchObject({ claimed: false, run: { status: "queued" } });
+      const second = await claimRun(run.id, 120_000, 1);
+      expect(second.claimed).toBe(true);
+      expect(second.executionGeneration).toBe(first.executionGeneration + 1);
+
+      const [recoveryAudit] = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count
+        FROM grids.audit_log
+        WHERE action = 'workflow.run.recovered'
+          AND diff->'workflowRun'->'new'->>'id' = ${run.id}
+      `;
+      expect(recoveryAudit?.count).toBe(1);
+
+      const recoveryEventKey = `cloud:grids:workflow-runs:${fixture.baseId}:${fixture.workflowId}:runs:idempotency:${run.id}:queued:attempt:1`;
+      expect(Number(await Bun.redis.send("EXISTS", [recoveryEventKey]))).toBe(1);
+      await Bun.redis.send("DEL", [recoveryEventKey]);
     } finally {
       await cleanupFixture(fixture);
     }
@@ -433,6 +543,7 @@ describe("workflow runtime integration", () => {
       const executed = await executePreparedRun({
         workflowId,
         runId: run.id,
+        queueAttempt: 0,
         triggerKind: run.triggerKind,
         triggerInput: run.triggerInput,
         resolvedInput: run.resolvedInput,
@@ -475,21 +586,26 @@ describe("workflow runtime integration", () => {
         triggerInput,
         resolvedInput,
       });
+      const seeded = await claimRun(run.id);
+      if (!seeded.claimed || seeded.executionGeneration === null) throw new Error("Could not claim seeded workflow run");
       const completed = await createStepRun({
         runId: run.id,
+        executionGeneration: seeded.executionGeneration,
         stepIndex: 0,
         stepPath: `steps.0.do.${fixture.recordAId}.0`,
         kind: "updateRecord",
         input: { kind: "updateRecord" },
       });
-      await finishStepRun(completed.id, {
+      await finishStepRun(completed.id, seeded.executionGeneration, {
         status: "succeeded",
         output: { ok: true, value: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordAId } },
       });
+      await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
 
       const executed = await executePreparedRun({
         workflowId: fixture.workflowId,
         runId: run.id,
+        queueAttempt: 0,
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
@@ -524,6 +640,7 @@ describe("workflow runtime integration", () => {
       const serialized = await executePreparedRun({
         workflowId: serializationWorkflowId,
         runId: serializationRun.id,
+        queueAttempt: 0,
         triggerKind: "form",
         resolvedInput,
         authorization: { kind: "workflow" },
@@ -560,21 +677,26 @@ describe("workflow runtime integration", () => {
         triggerKind: "form",
         resolvedInput,
       });
+      const seeded = await claimRun(run.id);
+      if (!seeded.claimed || seeded.executionGeneration === null) throw new Error("Could not claim seeded workflow run");
       const completed = await createStepRun({
         runId: run.id,
+        executionGeneration: seeded.executionGeneration,
         stepIndex: 0,
         stepPath: "steps.0",
         kind: "setVariable",
         input: { kind: "setVariable" },
       });
-      await finishStepRun(completed.id, {
+      await finishStepRun(completed.id, seeded.executionGeneration, {
         status: "succeeded",
         output: serializedStep.output,
       });
+      await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
 
       const executed = await executePreparedRun({
         workflowId,
         runId: run.id,
+        queueAttempt: 0,
         triggerKind: "form",
         resolvedInput,
         authorization: { kind: "workflow" },
@@ -611,6 +733,7 @@ describe("workflow runtime integration", () => {
       const executed = await executePreparedRun({
         workflowId,
         runId: run.id,
+        queueAttempt: 0,
         triggerKind: "form",
         resolvedInput,
         authorization: { kind: "workflow" },
@@ -648,6 +771,7 @@ describe("workflow runtime integration", () => {
       const executed = await executePreparedRun({
         workflowId: fixture.workflowId,
         runId: run.id,
+        queueAttempt: 0,
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
@@ -688,6 +812,7 @@ describe("workflow runtime integration", () => {
       const executed = await executePreparedRun({
         workflowId: fixture.workflowId,
         runId: run.id,
+        queueAttempt: 0,
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
@@ -716,17 +841,22 @@ describe("workflow runtime integration", () => {
         triggerInput,
         resolvedInput,
       });
+      const seeded = await claimRun(run.id);
+      if (!seeded.claimed || seeded.executionGeneration === null) throw new Error("Could not claim seeded workflow run");
       await createStepRun({
         runId: run.id,
+        executionGeneration: seeded.executionGeneration,
         stepIndex: 0,
         stepPath: `steps.0.do.${fixture.recordAId}.0`,
         kind: "updateRecord",
         input: { kind: "updateRecord" },
       });
+      await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
 
       const executed = await executePreparedRun({
         workflowId: fixture.workflowId,
         runId: run.id,
+        queueAttempt: 0,
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
@@ -797,6 +927,7 @@ describe("workflow runtime integration", () => {
       const executed = await executePreparedRun({
         workflowId,
         runId: run.id,
+        queueAttempt: 0,
         triggerKind: "form",
         triggerInput: {},
         resolvedInput: {},

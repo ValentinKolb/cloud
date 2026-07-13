@@ -29,6 +29,7 @@ const executeIf = async <Value>(
   executor: WorkflowStepExecutor<Value>,
   item: RuntimeStep,
   runId: string,
+  executionGeneration: number,
   currentPath: string,
 ): Promise<Result<Value | null>> => {
   const matched = await executor.evaluateCondition(item.if);
@@ -39,6 +40,7 @@ const executeIf = async <Value>(
       executor,
       matched.data ? (branches.then ?? []) : (branches.else ?? []),
       runId,
+      executionGeneration,
       `${currentPath}.${matched.data ? "then" : "else"}`,
     ),
   );
@@ -48,6 +50,7 @@ const executeSwitch = async <Value>(
   executor: WorkflowStepExecutor<Value>,
   item: RuntimeStep,
   runId: string,
+  executionGeneration: number,
   currentPath: string,
 ): Promise<Result<Value | null>> => {
   const switched = await executor.evaluateValue(item.switch as WorkflowValue);
@@ -62,7 +65,13 @@ const executeSwitch = async <Value>(
     }
   }
   return executor.withVariableScope(() =>
-    executeWorkflowSteps(executor, found?.do ?? (item as { default?: WorkflowStep[] }).default ?? [], runId, `${currentPath}.switch`),
+    executeWorkflowSteps(
+      executor,
+      found?.do ?? (item as { default?: WorkflowStep[] }).default ?? [],
+      runId,
+      executionGeneration,
+      `${currentPath}.switch`,
+    ),
   );
 };
 
@@ -70,6 +79,7 @@ const executeForEach = async <Value>(
   executor: WorkflowStepExecutor<Value>,
   item: RuntimeStep,
   runId: string,
+  executionGeneration: number,
   currentPath: string,
 ): Promise<Result<Value | null>> => {
   const list = await executor.evaluateReference(item.forEach as string);
@@ -86,7 +96,7 @@ const executeForEach = async <Value>(
     await executor.heartbeat();
     result = await executor.withVariableScope(() => {
       executor.setLoopRecord(alias, recordList.tableId, recordId);
-      return executeWorkflowSteps(executor, body, runId, `${currentPath}.do.${recordId}`);
+      return executeWorkflowSteps(executor, body, runId, executionGeneration, `${currentPath}.do.${recordId}`);
     });
     if (!result.ok || executor.isWorkflowSucceed(result.data)) break;
   }
@@ -97,11 +107,12 @@ const executeControlFlow = async <Value>(
   executor: WorkflowStepExecutor<Value>,
   item: RuntimeStep,
   runId: string,
+  executionGeneration: number,
   currentPath: string,
 ): Promise<Result<Value | null> | null> => {
-  if ("if" in item) return executeIf(executor, item, runId, currentPath);
-  if ("switch" in item) return executeSwitch(executor, item, runId, currentPath);
-  if ("forEach" in item) return executeForEach(executor, item, runId, currentPath);
+  if ("if" in item) return executeIf(executor, item, runId, executionGeneration, currentPath);
+  if ("switch" in item) return executeSwitch(executor, item, runId, executionGeneration, currentPath);
+  if ("forEach" in item) return executeForEach(executor, item, runId, executionGeneration, currentPath);
   return null;
 };
 
@@ -109,6 +120,7 @@ export const executeWorkflowSteps = async <Value>(
   executor: WorkflowStepExecutor<Value>,
   steps: WorkflowStep[],
   runId: string,
+  executionGeneration: number,
   path: string,
 ): Promise<Result<Value | null>> => {
   let last: Value | null = null;
@@ -122,7 +134,7 @@ export const executeWorkflowSteps = async <Value>(
     if (previousStepRun?.status === "running" && executor.isSideEffectStep(item)) {
       return fail(err.conflict(`workflow step "${currentPath}" was interrupted during a side effect and cannot be retried safely`));
     }
-    const stepRun = await createStepRun({ runId, stepIndex: index, stepPath: currentPath, kind, input: { kind } });
+    const stepRun = await createStepRun({ runId, executionGeneration, stepIndex: index, stepPath: currentPath, kind, input: { kind } });
     if (stepRun.status === "succeeded") {
       const restored = executor.restoreSucceededStep(item, stepRun);
       if (!restored.ok) return restored;
@@ -134,10 +146,10 @@ export const executeWorkflowSteps = async <Value>(
 
     const result =
       (await executor.executeAction(item)) ??
-      (await executeControlFlow(executor, item, runId, currentPath)) ??
+      (await executeControlFlow(executor, item, runId, executionGeneration, currentPath)) ??
       fail(err.badInput(`unsupported workflow step "${kind}"`));
 
-    await finishStepRun(stepRun.id, {
+    await finishStepRun(stepRun.id, executionGeneration, {
       status: result.ok ? "succeeded" : "failed",
       output: result.ok ? { ok: true, value: executor.stepOutputValue(result.data) } : null,
       error: result.ok ? null : result.error.message,

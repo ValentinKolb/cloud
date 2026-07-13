@@ -48,6 +48,7 @@ export type AuditAction =
   | "workflow.access.updated"
   | "workflow.access.revoked"
   | "workflow.run.started"
+  | "workflow.run.recovered"
   | "workflow.run.succeeded"
   | "workflow.run.failed"
   | "workflow.record.updated"

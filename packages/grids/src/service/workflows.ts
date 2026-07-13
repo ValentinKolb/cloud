@@ -30,8 +30,8 @@ export {
 export { validateWorkflowReferences } from "./workflow-reference-validator";
 export { runStats } from "./workflow-run-stats";
 export {
+  claimRecoverableRuns,
   claimRun,
-  claimStaleQueuedRuns,
   createWorkflowRun,
   failQueuedRunAttempt,
   finishRun,

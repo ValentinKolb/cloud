@@ -1010,6 +1010,7 @@ const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
       started_at TIMESTAMPTZ,
       heartbeat_at TIMESTAMPTZ,
       lease_expires_at TIMESTAMPTZ,
+      execution_generation INT NOT NULL DEFAULT 0 CHECK (execution_generation >= 0),
       queue_attempts INT NOT NULL DEFAULT 0 CHECK (queue_attempts >= 0),
       last_queue_attempt_at TIMESTAMPTZ,
       finished_at TIMESTAMPTZ
@@ -1018,6 +1019,7 @@ const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS trigger_key TEXT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS execution_generation INT NOT NULL DEFAULT 0`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS result_message TEXT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS actor_group_ids UUID[]`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS trigger_authorization JSONB`.simple();
@@ -1055,6 +1057,14 @@ const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
         ALTER TABLE grids.workflow_runs
           ADD CONSTRAINT workflow_runs_queue_attempts_check CHECK (queue_attempts >= 0);
       END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'workflow_runs_execution_generation_check'
+          AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.workflow_runs
+          ADD CONSTRAINT workflow_runs_execution_generation_check CHECK (execution_generation >= 0);
+      END IF;
     END $$
   `.simple();
   await sql`
@@ -1074,6 +1084,11 @@ const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_queued_recovery
     ON grids.workflow_runs(last_queue_attempt_at, created_at)
     WHERE status = 'queued'
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_running_recovery
+    ON grids.workflow_runs(lease_expires_at, last_queue_attempt_at, created_at)
+    WHERE status = 'running'
   `.simple();
   await sql`
     DO $$

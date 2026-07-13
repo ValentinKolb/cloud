@@ -7,7 +7,7 @@ import { logAudit, type SqlClient } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { listWorkflowEmailDeliveries } from "./workflow-email-deliveries";
 import { notifyWorkflowRunEvent } from "./workflow-run-events";
-import { listStepRunsWithClient } from "./workflow-step-runs";
+import { listStepRuns } from "./workflow-step-runs";
 
 type DbRow = Record<string, unknown>;
 
@@ -51,6 +51,7 @@ type FinishRunInput = {
 type ClaimedWorkflowRun = {
   run: WorkflowRun;
   claimed: boolean;
+  executionGeneration: number | null;
 };
 
 type WorkflowRunCursor = {
@@ -154,166 +155,225 @@ export const createWorkflowRun = async (input: CreateRunInput, client: SqlClient
   return run;
 };
 
-export const claimStaleQueuedRuns = async (staleMs = 30_000, limit = 100): Promise<RecoverableQueuedWorkflowRun[]> => {
+export const claimRecoverableRuns = async (staleMs = 30_000, limit = 100): Promise<RecoverableQueuedWorkflowRun[]> => {
   const cap = Math.min(Math.max(limit, 1), 500);
-  const rows = await sql<DbRow[]>`
-    WITH candidates AS (
-      SELECT id
-      FROM grids.workflow_runs
-      WHERE status = 'queued'
-        AND created_at < now() - (${staleMs} * interval '1 millisecond')
-        AND (last_queue_attempt_at IS NULL OR last_queue_attempt_at < now() - (${staleMs} * interval '1 millisecond'))
-      ORDER BY created_at, id
-      FOR UPDATE SKIP LOCKED
-      LIMIT ${cap}
-    )
-    UPDATE grids.workflow_runs wr
-    SET queue_attempts = queue_attempts + 1,
-        last_queue_attempt_at = now()
-    FROM candidates c
-    WHERE wr.id = c.id
-    RETURNING wr.id, wr.workflow_id, wr.base_id, wr.actor_user_id, to_json(wr.actor_group_ids) AS actor_group_ids,
-              wr.service_account_id,
-              wr.trigger_authorization, wr.trigger_kind, wr.trigger_input, wr.resolved_input, wr.status, wr.error,
-              wr.result_message, wr.queue_attempts, wr.created_at, wr.started_at, wr.finished_at
-  `;
-  return rows.map(mapRecoverableRunRow);
+  const rows = await sql.begin(async (tx) => {
+    const recovered = await tx<DbRow[]>`
+      WITH candidates AS (
+        SELECT id
+        FROM grids.workflow_runs
+        WHERE (
+            status = 'queued'
+            AND created_at < now() - (${staleMs} * interval '1 millisecond')
+            AND (last_queue_attempt_at IS NULL OR last_queue_attempt_at < now() - (${staleMs} * interval '1 millisecond'))
+          ) OR (
+            status = 'running'
+            AND lease_expires_at IS NOT NULL
+            AND lease_expires_at < now()
+            AND (last_queue_attempt_at IS NULL OR last_queue_attempt_at < now() - (${staleMs} * interval '1 millisecond'))
+          )
+        ORDER BY created_at, id
+        FOR UPDATE SKIP LOCKED
+        LIMIT ${cap}
+      )
+      UPDATE grids.workflow_runs wr
+      SET queue_attempts = queue_attempts + 1,
+          last_queue_attempt_at = now(),
+          status = 'queued',
+          heartbeat_at = NULL,
+          lease_expires_at = NULL
+      FROM candidates c
+      WHERE wr.id = c.id
+      RETURNING wr.id, wr.workflow_id, wr.base_id, wr.actor_user_id, to_json(wr.actor_group_ids) AS actor_group_ids,
+                wr.service_account_id,
+                wr.trigger_authorization, wr.trigger_kind, wr.trigger_input, wr.resolved_input, wr.status, wr.error,
+                wr.result_message, wr.queue_attempts, wr.created_at, wr.started_at, wr.finished_at
+    `;
+    for (const row of recovered) {
+      await logAudit(
+        {
+          baseId: row.base_id as string,
+          userId: (row.actor_user_id as string | null) ?? null,
+          action: "workflow.run.recovered",
+          diff: {
+            workflowRun: {
+              old: null,
+              new: { id: row.id, workflowId: row.workflow_id, status: "queued", queueAttempt: row.queue_attempts },
+            },
+          },
+        },
+        tx,
+      );
+    }
+    return recovered;
+  });
+  const runs = rows.map(mapRecoverableRunRow);
+  await Promise.all(
+    runs.map((run) => notifyWorkflowRunEvent(run, [], workflowRunEventScope(run.authorization), `attempt:${run.queueAttempts}`)),
+  );
+  return runs;
 };
 
-export const failQueuedRunAttempt = async (
-  runId: string,
-  queueAttempt: number,
-  error: string,
-  client: SqlClient = sql,
-): Promise<WorkflowRun | null> => {
-  const [row] = await client<DbRow[]>`
-    UPDATE grids.workflow_runs
-    SET status = 'failed',
-        error = ${error},
-        lease_expires_at = NULL,
-        finished_at = now()
-    WHERE id = ${runId}::uuid
-      AND status = 'queued'
-      AND queue_attempts = ${queueAttempt}
-    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
-              resolved_input, status, error, result_message, created_at, started_at, finished_at
-  `;
-  if (!row) return null;
-  await logAudit(
-    {
-      baseId: row.base_id as string,
-      userId: (row.actor_user_id as string | null) ?? null,
-      action: "workflow.run.failed",
-      diff: {
-        workflowRun: {
-          old: null,
-          new: {
-            id: row.id,
-            workflowId: row.workflow_id,
-            serviceAccountId: row.service_account_id,
-            status: "failed",
+export const failQueuedRunAttempt = async (runId: string, queueAttempt: number, error: string): Promise<WorkflowRun | null> => {
+  const row = await sql.begin(async (tx) => {
+    const [updated] = await tx<DbRow[]>`
+      UPDATE grids.workflow_runs
+      SET status = 'failed',
+          error = ${error},
+          lease_expires_at = NULL,
+          finished_at = now()
+      WHERE id = ${runId}::uuid
+        AND status = 'queued'
+        AND queue_attempts = ${queueAttempt}
+      RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
+                resolved_input, status, error, result_message, created_at, started_at, finished_at
+    `;
+    if (!updated) return null;
+    await logAudit(
+      {
+        baseId: updated.base_id as string,
+        userId: (updated.actor_user_id as string | null) ?? null,
+        action: "workflow.run.failed",
+        diff: {
+          workflowRun: {
+            old: null,
+            new: {
+              id: updated.id,
+              workflowId: updated.workflow_id,
+              serviceAccountId: updated.service_account_id,
+              status: "failed",
+            },
           },
         },
       },
-    },
-    client,
-  );
+      tx,
+    );
+    return updated;
+  });
+  if (!row) return null;
   const run = mapRunRow(row);
   await notifyWorkflowRunEvent(run, [], workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)));
   return run;
 };
 
-export const claimRun = async (runId: string, client: SqlClient = sql, leaseMs = DEFAULT_RUN_LEASE_MS): Promise<ClaimedWorkflowRun> => {
-  const [row] = await client<DbRow[]>`
-    UPDATE grids.workflow_runs
-    SET status = 'running',
-        started_at = COALESCE(started_at, now()),
-        heartbeat_at = now(),
-        lease_expires_at = now() + (${leaseMs} * interval '1 millisecond')
-    WHERE id = ${runId}::uuid
-      AND (
-        status = 'queued'
-        OR (status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
-      )
-    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
-              resolved_input, status, error, result_message, created_at, started_at, finished_at
-  `;
+export const claimRun = async (
+  runId: string,
+  leaseMs = DEFAULT_RUN_LEASE_MS,
+  expectedQueueAttempt?: number,
+): Promise<ClaimedWorkflowRun> => {
+  const row = await sql.begin(async (tx) => {
+    const [updated] = await tx<DbRow[]>`
+      UPDATE grids.workflow_runs
+      SET status = 'running',
+          started_at = COALESCE(started_at, now()),
+          heartbeat_at = now(),
+          lease_expires_at = now() + (${leaseMs} * interval '1 millisecond'),
+          execution_generation = execution_generation + 1
+      WHERE id = ${runId}::uuid
+        AND (${expectedQueueAttempt ?? null}::int IS NULL OR queue_attempts = ${expectedQueueAttempt ?? null})
+        AND (
+          status = 'queued'
+          OR (status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
+        )
+      RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
+                execution_generation,
+                resolved_input, status, error, result_message, created_at, started_at, finished_at
+    `;
+    if (!updated) return null;
+    await logAudit(
+      {
+        baseId: updated.base_id as string,
+        userId: (updated.actor_user_id as string | null) ?? null,
+        action: "workflow.run.started",
+        diff: {
+          workflowRun: {
+            old: null,
+            new: {
+              id: updated.id,
+              workflowId: updated.workflow_id,
+              serviceAccountId: updated.service_account_id,
+              triggerKind: updated.trigger_kind,
+            },
+          },
+        },
+      },
+      tx,
+    );
+    return updated;
+  });
   if (!row) {
     const existing = await getWorkflowRun(runId);
-    if (existing) return { run: existing, claimed: false };
+    if (existing) return { run: existing, claimed: false, executionGeneration: null };
     throw err.notFound("workflow run");
   }
-  await logAudit(
-    {
-      baseId: row.base_id as string,
-      userId: (row.actor_user_id as string | null) ?? null,
-      action: "workflow.run.started",
-      diff: {
-        workflowRun: {
-          old: null,
-          new: {
-            id: row.id,
-            workflowId: row.workflow_id,
-            serviceAccountId: row.service_account_id,
-            triggerKind: row.trigger_kind,
-          },
-        },
-      },
-    },
-    client,
-  );
-  const run = mapRunRow(row);
-  await notifyWorkflowRunEvent(run, [], workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)));
-  return { run, claimed: true };
-};
-
-export const heartbeatRun = async (runId: string, leaseMs = DEFAULT_RUN_LEASE_MS, client: SqlClient = sql): Promise<void> => {
-  await client`
-    UPDATE grids.workflow_runs
-    SET heartbeat_at = now(),
-        lease_expires_at = now() + (${leaseMs} * interval '1 millisecond')
-    WHERE id = ${runId}::uuid AND status = 'running'
-  `;
-};
-
-export const finishRun = async (runId: string, input: FinishRunInput, client: SqlClient = sql): Promise<WorkflowRun> => {
-  const [row] = await client<DbRow[]>`
-    UPDATE grids.workflow_runs
-    SET status = ${input.status},
-        error = ${input.error ?? null},
-        result_message = ${input.resultMessage ?? null},
-        lease_expires_at = NULL,
-        finished_at = now()
-    WHERE id = ${runId}::uuid
-    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
-              resolved_input, status, error, result_message, created_at, started_at, finished_at
-  `;
-  if (!row) throw err.notFound("workflow run");
-  await logAudit(
-    {
-      baseId: row.base_id as string,
-      userId: (row.actor_user_id as string | null) ?? null,
-      action: input.status === "succeeded" ? "workflow.run.succeeded" : "workflow.run.failed",
-      diff: {
-        workflowRun: {
-          old: null,
-          new: {
-            id: row.id,
-            workflowId: row.workflow_id,
-            serviceAccountId: row.service_account_id,
-            status: input.status,
-          },
-        },
-      },
-    },
-    client,
-  );
   const run = mapRunRow(row);
   await notifyWorkflowRunEvent(
     run,
-    await listStepRunsWithClient(run.id, client),
+    [],
     workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)),
+    `generation:${row.execution_generation}`,
   );
+  return { run, claimed: true, executionGeneration: Number(row.execution_generation) };
+};
+
+export const heartbeatRun = async (
+  runId: string,
+  executionGeneration: number,
+  leaseMs = DEFAULT_RUN_LEASE_MS,
+  client: SqlClient = sql,
+): Promise<boolean> => {
+  const [row] = await client<{ id: string }[]>`
+    UPDATE grids.workflow_runs
+    SET heartbeat_at = now(),
+        lease_expires_at = now() + (${leaseMs} * interval '1 millisecond')
+    WHERE id = ${runId}::uuid
+      AND status = 'running'
+      AND execution_generation = ${executionGeneration}
+    RETURNING id::text AS id
+  `;
+  return Boolean(row);
+};
+
+export const finishRun = async (runId: string, executionGeneration: number, input: FinishRunInput): Promise<WorkflowRun | null> => {
+  const row = await sql.begin(async (tx) => {
+    const [updated] = await tx<DbRow[]>`
+      UPDATE grids.workflow_runs
+      SET status = ${input.status},
+          error = ${input.error ?? null},
+          result_message = ${input.resultMessage ?? null},
+          lease_expires_at = NULL,
+          finished_at = now()
+      WHERE id = ${runId}::uuid
+        AND status = 'running'
+        AND execution_generation = ${executionGeneration}
+      RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
+                resolved_input, status, error, result_message, created_at, started_at, finished_at
+    `;
+    if (!updated) return null;
+    await logAudit(
+      {
+        baseId: updated.base_id as string,
+        userId: (updated.actor_user_id as string | null) ?? null,
+        action: input.status === "succeeded" ? "workflow.run.succeeded" : "workflow.run.failed",
+        diff: {
+          workflowRun: {
+            old: null,
+            new: {
+              id: updated.id,
+              workflowId: updated.workflow_id,
+              serviceAccountId: updated.service_account_id,
+              status: input.status,
+            },
+          },
+        },
+      },
+      tx,
+    );
+    return updated;
+  });
+  if (!row) return null;
+  const run = mapRunRow(row);
+  await notifyWorkflowRunEvent(run, await listStepRuns(run.id), workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)));
   return run;
 };
 

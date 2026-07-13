@@ -100,6 +100,7 @@ export type WorkflowTriggerAuthorization =
 
 type ExecutePreparedWorkflowRunParams = ExecuteWorkflowParams & {
   runId: string;
+  queueAttempt: number;
   authorization: WorkflowTriggerAuthorization;
 };
 
@@ -144,6 +145,7 @@ type RuntimeContext = {
   definition: WorkflowDefinition;
   catalog: WorkflowCatalog;
   runId: string | null;
+  executionGeneration: number | null;
   actorUserId: string | null;
   actorGroupIds: string[];
   serviceAccountId: string | null;
@@ -322,6 +324,7 @@ const createRuntimeContext = async (params: ExecuteWorkflowParams, workflow: Wor
   definition: workflow.compiled,
   catalog: await loadWorkflowCatalog(workflow.baseId),
   runId: null,
+  executionGeneration: null,
   actorUserId: params.actorUserId ?? null,
   actorGroupIds: params.actorGroupIds ?? [],
   serviceAccountId: params.serviceAccountId ?? null,
@@ -930,8 +933,9 @@ const executeHttpRequest = async (ctx: RuntimeContext, action: RuntimeHttpReques
 };
 
 const heartbeatWorkflow = async (ctx: RuntimeContext): Promise<void> => {
-  if (!ctx.runId) return;
-  await Promise.all([heartbeatRun(ctx.runId, ctx.leaseMs), ctx.heartbeat?.()]);
+  if (!ctx.runId || ctx.executionGeneration === null) return;
+  if (!(await heartbeatRun(ctx.runId, ctx.executionGeneration, ctx.leaseMs))) throw err.conflict("workflow run lease lost");
+  await ctx.heartbeat?.();
 };
 
 const withVariableScope = async <T>(ctx: RuntimeContext, run: () => Promise<T>): Promise<T> => {
@@ -968,8 +972,9 @@ const executeActionStep = async (ctx: RuntimeContext, item: RuntimeStep): Promis
   return null;
 };
 
-const executeSteps = (ctx: RuntimeContext, runId: string): Promise<Result<RuntimeValue | null>> =>
-  executeWorkflowSteps<RuntimeValue>(
+const executeSteps = (ctx: RuntimeContext, runId: string): Promise<Result<RuntimeValue | null>> => {
+  if (ctx.executionGeneration === null) return Promise.resolve(fail(err.internal("workflow run was not claimed")));
+  return executeWorkflowSteps<RuntimeValue>(
     {
       executeAction: (item) => executeActionStep(ctx, item),
       evaluateCondition: (condition) => evaluateCondition(ctx, condition as RuntimeCondition),
@@ -988,32 +993,42 @@ const executeSteps = (ctx: RuntimeContext, runId: string): Promise<Result<Runtim
     },
     ctx.workflow.compiled.steps,
     runId,
+    ctx.executionGeneration,
     "steps",
   );
+};
 
 const isTerminalRun = (run: WorkflowRun): boolean => run.status === "succeeded" || run.status === "failed" || run.status === "canceled";
 
 const executeWorkflowRun = async (
-  params: ExecuteWorkflowParams,
+  params: ExecuteWorkflowParams & { queueAttempt?: number },
   preparedRun: WorkflowRun | null = null,
   authorization: WorkflowTriggerAuthorization = { kind: "workflow" },
 ): Promise<Result<WorkflowRun>> => {
-  let startedPreparedRun: WorkflowRun | null = null;
+  let claimedPreparedRun: { run: WorkflowRun; claimed: true; executionGeneration: number } | null = null;
   if (preparedRun) {
     if (preparedRun.workflowId !== params.workflowId) return fail(err.badInput("workflow run does not belong to this workflow"));
     if (preparedRun.triggerKind !== params.triggerKind) return fail(err.badInput("workflow run trigger does not match this execution"));
     if (isTerminalRun(preparedRun)) return ok(preparedRun);
     if (preparedRun.status !== "queued" && preparedRun.status !== "running") return ok(preparedRun);
-    const claimed = await claimRun(preparedRun.id, undefined, params.leaseMs);
-    if (!claimed.claimed || claimed.run.status !== "running") return ok(claimed.run);
-    startedPreparedRun = claimed.run;
+    const claimed = await claimRun(preparedRun.id, params.leaseMs, params.queueAttempt);
+    if (!claimed.claimed || claimed.run.status !== "running" || claimed.executionGeneration === null) return ok(claimed.run);
+    claimedPreparedRun = { run: claimed.run, claimed: true, executionGeneration: claimed.executionGeneration };
   }
   const prepared = await prepareWorkflowExecution(params, authorization);
-  if (!prepared.ok) return prepared;
+  if (!prepared.ok) {
+    if (claimedPreparedRun) {
+      await finishRun(claimedPreparedRun.run.id, claimedPreparedRun.executionGeneration, {
+        status: "failed",
+        error: prepared.error.message,
+      });
+    }
+    return prepared;
+  }
   const { workflow, ctx } = prepared.data;
 
   const run =
-    startedPreparedRun ??
+    claimedPreparedRun?.run ??
     (await createWorkflowRun({
       workflowId: workflow.id,
       baseId: workflow.baseId,
@@ -1025,25 +1040,27 @@ const executeWorkflowRun = async (
       serviceAccountId: ctx.serviceAccountId,
       authorization,
     }));
-  let started = startedPreparedRun;
-  if (!started) {
-    const claimed = await claimRun(run.id, undefined, params.leaseMs);
-    if (!claimed.claimed || claimed.run.status !== "running") return ok(claimed.run);
-    started = claimed.run;
+  const claimed = claimedPreparedRun ?? (await claimRun(run.id, params.leaseMs));
+  if (!claimed.claimed || claimed.run.status !== "running" || claimed.executionGeneration === null) {
+    return ok(claimed.run);
   }
+  const started = claimed.run;
   ctx.runId = started.id;
+  ctx.executionGeneration = claimed.executionGeneration;
   await heartbeatWorkflow(ctx);
   try {
     const result = await executeSteps(ctx, started.id);
-    const finished = await finishRun(started.id, {
+    const finished = await finishRun(started.id, ctx.executionGeneration, {
       status: result.ok ? "succeeded" : "failed",
       error: result.ok ? null : result.error.message,
       resultMessage: result.ok && isWorkflowSucceed(result.data) ? result.data.message : null,
     });
+    if (!finished) return fail(err.conflict("workflow run lease lost"));
     return result.ok ? ok(finished) : fail(result.error);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await finishRun(started.id, { status: "failed", error: message });
+    const finished = await finishRun(started.id, ctx.executionGeneration, { status: "failed", error: message });
+    if (!finished) return fail(err.conflict("workflow run lease lost"));
     return fail(err.internal(message));
   }
 };
@@ -1090,14 +1107,7 @@ export const prepareDashboardWorkflowTriggerRun = async (
 export const executePreparedRun = async (params: ExecutePreparedWorkflowRunParams): Promise<Result<WorkflowRun>> => {
   const run = await getWorkflowRun(params.runId);
   if (!run) return fail(err.notFound("workflow run"));
-  const result = await executeWorkflowRun(params, run, params.authorization);
-  if (!result.ok) {
-    const latest = await getWorkflowRun(params.runId);
-    if (latest && (latest.status === "queued" || latest.status === "running")) {
-      await finishRun(params.runId, { status: "failed", error: result.error.message });
-    }
-  }
-  return result;
+  return executeWorkflowRun(params, run, params.authorization);
 };
 
 const scannerWorkflowContext = async (
@@ -1118,6 +1128,7 @@ const scannerWorkflowContext = async (
     definition: workflow.compiled,
     catalog,
     runId: null,
+    executionGeneration: null,
     actorUserId: params.actorUserId ?? null,
     actorGroupIds: params.actorGroupIds ?? [],
     serviceAccountId: params.serviceAccountId ?? null,
@@ -1185,6 +1196,7 @@ const bulkWorkflowContext = async (
     definition: workflow.compiled,
     catalog,
     runId: null,
+    executionGeneration: null,
     actorUserId: params.actorUserId ?? null,
     actorGroupIds: params.actorGroupIds ?? [],
     serviceAccountId: params.serviceAccountId ?? null,
@@ -1381,6 +1393,7 @@ export const prepareRecordEvent = async (params: ExecuteRecordEventWorkflowParam
     definition: workflow.compiled,
     catalog,
     runId: null,
+    executionGeneration: null,
     actorUserId: principal.actorUserId,
     actorGroupIds: principal.actorGroupIds,
     serviceAccountId: principal.serviceAccountId,
