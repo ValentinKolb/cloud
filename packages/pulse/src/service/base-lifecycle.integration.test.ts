@@ -371,6 +371,10 @@ describe("Pulse lifecycle Postgres smoke", () => {
       const first = await runRetentionBatch(baseId);
       expect(first.phase).toBe("event_sensitive");
       expect(first.sensitiveEvents).toBe(2);
+      expect(first.metricSamples).toBe(1);
+      expect(first.events).toBe(1);
+      expect(first.stateChanges).toBe(1);
+      expect(first.done).toBe(true);
       await runUntilDone(() => runRetentionBatch(baseId));
 
       await expect(countRows("pulse.metric_samples", baseId)).resolves.toBe(2);

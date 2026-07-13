@@ -213,98 +213,30 @@ const deleteExpiredIdempotencyChunk = async (baseId?: string): Promise<number> =
 
 export const runRetentionBatch = async (baseId?: string): Promise<RetentionResult> => {
   const sensitiveEvents = await clearExpiredEventSensitiveChunk(baseId);
-  if (sensitiveEvents > 0) {
-    return {
-      phase: "event_sensitive",
-      sensitiveEvents,
-      metricSamples: 0,
-      metricRollups: 0,
-      events: 0,
-      stateChanges: 0,
-      idempotencyRecords: 0,
-      done: false,
-    };
-  }
-
   const metricSamples = await deleteExpiredMetricSamplesChunk(baseId);
-  if (metricSamples > 0) {
-    return {
-      phase: "metric_samples",
-      sensitiveEvents: 0,
-      metricSamples,
-      metricRollups: 0,
-      events: 0,
-      stateChanges: 0,
-      idempotencyRecords: 0,
-      done: false,
-    };
-  }
-
   const metricRollups = await deleteExpiredMetricRollupsChunk(baseId);
-  if (metricRollups > 0) {
-    return {
-      phase: "metric_rollups_hourly",
-      sensitiveEvents: 0,
-      metricSamples: 0,
-      metricRollups,
-      events: 0,
-      stateChanges: 0,
-      idempotencyRecords: 0,
-      done: false,
-    };
-  }
-
   const events = await deleteExpiredEventsChunk(baseId);
-  if (events > 0) {
-    return {
-      phase: "events",
-      sensitiveEvents: 0,
-      metricSamples: 0,
-      metricRollups: 0,
-      events,
-      stateChanges: 0,
-      idempotencyRecords: 0,
-      done: false,
-    };
-  }
-
   const stateChanges = await deleteExpiredStateChangesChunk(baseId);
-  if (stateChanges > 0) {
-    return {
-      phase: "state_changes",
-      sensitiveEvents: 0,
-      metricSamples: 0,
-      metricRollups: 0,
-      events: 0,
-      stateChanges,
-      idempotencyRecords: 0,
-      done: false,
-    };
-  }
-
   const idempotencyRecords = await deleteExpiredIdempotencyChunk(baseId);
-  if (idempotencyRecords > 0) {
-    return {
-      phase: "ingest_idempotency",
-      sensitiveEvents: 0,
-      metricSamples: 0,
-      metricRollups: 0,
-      events: 0,
-      stateChanges: 0,
-      idempotencyRecords,
-      done: false,
-    };
-  }
-
+  const phases = [
+    ["event_sensitive", sensitiveEvents],
+    ["metric_samples", metricSamples],
+    ["metric_rollups_hourly", metricRollups],
+    ["events", events],
+    ["state_changes", stateChanges],
+    ["ingest_idempotency", idempotencyRecords],
+  ] as const;
+  const backlog = phases.find(([, count]) => count >= RETENTION_DELETE_BATCH_SIZE);
+  const work = phases.find(([, count]) => count > 0);
   return {
-    phase: "done",
-    sensitiveEvents: 0,
-    metricSamples: 0,
-    metricRollups: 0,
-    events: 0,
-    stateChanges: 0,
-    idempotencyRecords: 0,
-    done: true,
+    phase: backlog?.[0] ?? work?.[0] ?? "done",
+    sensitiveEvents,
+    metricSamples,
+    metricRollups,
+    events,
+    stateChanges,
+    idempotencyRecords,
+    done: !backlog,
   };
 };
 
