@@ -1,16 +1,16 @@
-import { CheckboxCard, IconInput, Placeholder, prompts, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
+import { CheckboxCard, IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import {
-  normalizeDashboardShortcutHref,
   type DashboardAppSummary,
   type DashboardLegalLink,
   type DashboardSettings,
   type DashboardShortcut,
   type DashboardWidgetSummary,
+  normalizeDashboardShortcutHref,
 } from "../shared";
 
 type Props = {
@@ -41,22 +41,23 @@ const saveSettings = async (settings: DashboardSettings): Promise<void> => {
 
 const isExternalHref = (href: string): boolean => /^https?:\/\//i.test(href);
 
-const ShortcutBadge = (props: { icon: string; title: string; href?: string; tone?: "blue" | "emerald" | "zinc"; onClick?: () => void }) => {
+const ShortcutBadge = (props: { icon: string; title: string; href?: string; accent?: boolean; onClick?: () => void }) => {
   const iconClass = () => {
-    if (props.tone === "blue") return "bg-blue-500 text-white";
-    if (props.tone === "emerald") return "bg-emerald-500 text-white";
-    return "bg-zinc-100 text-zinc-600 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700";
+    if (props.accent) return "app-accent-text";
+    return "bg-[var(--ui-surface-muted)] text-secondary";
   };
   const content = (
     <>
-      <span class={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm ${iconClass()}`}>
+      <span
+        class={`grid h-7 w-7 shrink-0 place-items-center rounded-[var(--ui-radius-control)] text-sm ${iconClass()}`}
+        style={props.accent ? "background-color: color-mix(in srgb, var(--app-accent) 12%, var(--ui-surface))" : undefined}
+      >
         <i class={props.icon} />
       </span>
       <span class="max-w-36 truncate text-sm font-medium text-primary">{props.title}</span>
     </>
   );
-  const className =
-    "paper inline-flex h-10 max-w-full items-center gap-2 rounded-lg px-1.5 transition-colors hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/50";
+  const className = "btn-input btn-input-sm h-9 max-w-full gap-2 px-1.5 pr-2.5";
 
   return props.href ? (
     <a
@@ -114,15 +115,13 @@ export default function DashboardControls(props: Props) {
   };
 
   return (
-    <div class="flex justify-center">
-      <div class="flex max-w-[68rem] flex-wrap justify-center gap-2">
-        <ShortcutBadge icon="ti ti-grid-dots" title="Apps" tone="blue" onClick={openApps} />
-        <ShortcutBadge icon="ti ti-plus" title="Add shortcut" tone="emerald" onClick={openAddShortcut} />
-        <For each={resolvedShortcuts()}>
-          {(shortcut) => <ShortcutBadge icon={shortcut.icon} title={shortcut.title} href={shortcut.href} />}
-        </For>
-      </div>
-    </div>
+    <nav aria-label="Dashboard shortcuts" class="flex flex-wrap gap-2">
+      <ShortcutBadge icon="ti ti-grid-dots" title="Apps" accent onClick={openApps} />
+      <ShortcutBadge icon="ti ti-plus" title="Add shortcut" onClick={openAddShortcut} />
+      <For each={resolvedShortcuts()}>
+        {(shortcut) => <ShortcutBadge icon={shortcut.icon} title={shortcut.title} href={shortcut.href} />}
+      </For>
+    </nav>
   );
 }
 
@@ -144,7 +143,7 @@ export function DashboardEditButton(props: Props) {
   };
 
   return (
-    <button type="button" class="btn-input btn-input-sm mx-auto" onClick={openEdit}>
+    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={openEdit}>
       <i class="ti ti-adjustments" />
       Edit dashboard
     </button>
@@ -184,25 +183,19 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
 
   return (
     <div class="flex flex-col gap-5">
-      <div class="inline-flex w-full rounded-lg bg-zinc-100 p-1 text-sm dark:bg-zinc-800">
-        <button
-          type="button"
-          class={`flex-1 rounded-md px-3 py-2 ${kind() === "app" ? "bg-white text-primary shadow-sm dark:bg-zinc-900" : "text-secondary"}`}
-          onClick={() => setKind("app")}
-          disabled={apps.length === 0}
-        >
-          <i class="ti ti-apps mr-1.5" />
-          App
-        </button>
-        <button
-          type="button"
-          class={`flex-1 rounded-md px-3 py-2 ${kind() === "link" ? "bg-white text-primary shadow-sm dark:bg-zinc-900" : "text-secondary"}`}
-          onClick={() => setKind("link")}
-        >
-          <i class="ti ti-link mr-1.5" />
-          Link
-        </button>
-      </div>
+      <SegmentedControl<"app" | "link">
+        value={kind}
+        onChange={setKind}
+        ariaLabel="Shortcut type"
+        options={
+          apps.length > 0
+            ? [
+                { value: "app", label: "App", icon: "ti ti-apps" },
+                { value: "link", label: "Link", icon: "ti ti-link" },
+              ]
+            : [{ value: "link", label: "Link", icon: "ti ti-link" }]
+        }
+      />
 
       <Show
         when={kind() === "app"}
@@ -281,7 +274,9 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                 title={preset.label}
                 onClick={() => setGradient(preset.id)}
                 class={`h-7 w-7 rounded-full transition-all ${
-                  gradient() === preset.id ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-zinc-900" : "hover:scale-110"
+                  gradient() === preset.id
+                    ? "ring-2 ring-[var(--ui-app-accent-border)] ring-offset-2 ring-offset-[var(--ui-dialog-surface)]"
+                    : "hover:scale-110"
                 }`}
                 style={`background:${preset.preview}`}
               />
@@ -314,15 +309,21 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                 const icon = shortcut.kind === "link" ? shortcut.icon : (shortcut.icon ?? app?.icon ?? "ti ti-apps");
                 const meta = shortcut.kind === "link" ? shortcut.href : (app?.description ?? shortcut.appId);
                 return (
-                  <li class="flex items-center gap-3 rounded-lg bg-zinc-100 p-2 dark:bg-zinc-800">
-                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-lg text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700">
+                  <li class="flex items-center gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2">
+                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] text-lg text-secondary">
                       <i class={icon} />
                     </span>
                     <span class="min-w-0 flex-1">
                       <span class="block truncate text-sm font-medium text-primary">{title}</span>
                       <span class="block truncate text-xs text-dimmed">{meta}</span>
                     </span>
-                    <button type="button" class="btn-ghost btn-sm" onClick={() => removeShortcut(shortcut.id)} title="Remove shortcut">
+                    <button
+                      type="button"
+                      class="btn-ghost btn-sm"
+                      onClick={() => removeShortcut(shortcut.id)}
+                      title="Remove shortcut"
+                      aria-label={`Remove ${title}`}
+                    >
                       <i class="ti ti-trash" />
                     </button>
                   </li>
@@ -358,7 +359,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
           <ul class="grid gap-2 sm:grid-cols-2">
             <For each={props.inaccessible}>
               {(widget) => (
-                <li class="flex items-center gap-3 rounded-lg bg-zinc-100 p-2 opacity-60 dark:bg-zinc-800">
+                <li class="flex items-center gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2 opacity-60">
                   <i class="ti ti-lock text-xs text-dimmed" />
                   <i class={`${widget.icon} text-sm text-dimmed`} />
                   <span class="min-w-0 truncate text-sm text-secondary">{widget.title}</span>

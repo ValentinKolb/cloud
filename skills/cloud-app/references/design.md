@@ -15,7 +15,7 @@ Cloud uses a quiet coloured canvas with a small number of soft work surfaces. Co
 The interface follows five rules:
 
 1. **Less, but better.** Remove decoration before reducing clarity. Each visible element needs one job.
-2. **Structure carries hierarchy.** Spacing, grouping, type weight, and surface placement come before borders and colour.
+2. **Structure carries hierarchy.** Spacing, grouping, type weight, and surface placement come before borders and colour. Ordinary content is never separated with horizontal rules.
 3. **Colour carries meaning.** App identity, actions, status, and data use separate colour roles.
 4. **Density follows the task.** Navigation and workspaces stay compact; forms and reading surfaces get more breathing room.
 5. **The whole flow is designed.** Desktop, mobile, empty, loading, error, hover, focus, selected, and dark states belong to the same component contract.
@@ -122,7 +122,11 @@ Segmented controls and pagination share density and focus rhythm, not semantics.
 
 Use surfaces to group content. Use borders only when they explain structure.
 
-Horizontal rules are an anti-pattern for ordinary grouping. Do not use `<hr>`, `divide-y`, or full-width top and bottom borders to compensate for weak hierarchy. Separate related content through spacing, type, surface tone, radius, or layout instead. A horizontal line is acceptable only when it encodes a necessary functional boundary, such as a true data-grid row or a compound control, and the shared primitive owns that treatment.
+**Hard rule: do not use horizontal lines to group ordinary application content.** This includes `<hr>`, `divide-y`, full-width `border-t` or `border-b`, pseudo-element rules, and inset-shadow hairlines. Making a line thinner, lighter, or more transparent does not make it acceptable. Do not use these treatments between list rows, cards, settings, detail sections, menu items, form sections, metadata groups, empty states, or pagination.
+
+Create hierarchy with whitespace, type, alignment, a quiet shared surface, radius, or a short semantic section label. Prefer one clear group over nested containers; do not replace a removed rule with another per-row box or hover fill.
+
+The exceptions are narrow: a real data table may expose row or column structure, and a compound control may expose a boundary required to understand how its parts operate. The shared table or control primitive must own that boundary. App code must not invent an exception. If a line can be removed without changing how the interface works, remove it.
 
 - `paper` is the default in-flow surface.
 - A workspace is one clipped workbench frame. Sidebar, main, and detail are internal sibling regions, not three adjacent papers.
@@ -261,13 +265,18 @@ Use `DataTable` for tabular data.
 ### Detail panels
 
 - Render only sections that contain data.
-- Put identity, close, and primary record actions in a flat full-width header at the panel edge. Do not inset that orientation layer in a rounded card where main and detail meet.
+- Start with a flat, full-width detail hero at the panel edge. It orients the user with the record identity, title, compact context or status, close and overflow controls, and the most frequent quick actions.
+- The detail hero is not a `paper` or content section. It has no independent background, border, radius, shadow, section label, or divider below it. Do not inset it where main and detail meet.
+- Put frequent, record-level quick actions directly below the identity inside the hero—for example Email, Call, and Note in Contacts or Mark complete and Edit in Spaces. Keep them compact, immediately understandable, and limited to actions users need often; move rare actions into the overflow menu.
+- Start the scrolling `detail-stack` after the hero with spacing, not a horizontal rule. Content papers begin there and contain facts, activity, editors, and other grouped information.
 - Group contact rows, facts, activity, and metadata into separate sections.
 - Offer a focused inline editor for frequently changed fields with explicit save and cancel. Keep uncommon, multi-value, or high-risk fields in the complete editor.
 - Keep empty composers and secondary workflows collapsed until the user asks for them. Existing content remains visible and scannable.
 - Inside the unified workspace, detail sections separate through surface tone and spacing rather than repeated outer shadows.
 - Use `StructuredDataPreview` for small JSON-like values.
 - Close controls and contextual actions stay reachable on mobile.
+
+Contacts and Spaces are the reference implementations for this orientation-first detail hierarchy. Do not move their identity and quick-action pattern into the first `detail-section`.
 
 ## Floating layers
 
@@ -381,12 +390,15 @@ After visual and interaction review, promote the preview values to the normal to
 - Recheck `git status` before every slice and before staging.
 - Stage exact owned paths.
 - Review representative apps before global activation.
+- Before handing off an app migration, search changed markup and styles for `<hr>`, `divide-y`, `border-t`, `border-b`, and decorative inset rules. Remove every ordinary-content separator; document any remaining functional exception in the review notes.
 
 ## Review checklist
 
 Before accepting a component or screen:
 
 - Does hierarchy work without decorative colour or extra borders?
+- Does the changed app avoid `<hr>`, `divide-y`, full-width `border-t` or `border-b`, and equivalent decorative rules outside shared data-table or compound-control primitives?
+- Are lists, menus, settings, details, forms, and pagination grouped without horizontal separator lines or replacement per-row boxes?
 - Are spacing, padding, radius, and control heights from shared roles?
 - Is app identity visible but kept out of content surfaces?
 - Are hover, focus, active, selected, disabled, loading, empty, and error states covered?

@@ -72,13 +72,13 @@ export default ssr<AuthContext>(async (c) => {
 
 const ShowToolHeader = (props: { show: boolean; icon: string; name: string; description: string }) =>
   props.show ? (
-    <header class="flex items-center gap-3">
-      <div class="thumbnail flex h-10 w-10 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
-        <i class={`${props.icon} text-xl text-zinc-600 dark:text-zinc-400`} />
+    <header class="tools-tool-header flex items-center gap-3" style="view-transition-name: tool-heading">
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[color-mix(in_srgb,var(--app-accent)_10%,var(--ui-surface-subtle))] app-accent-text">
+        <i class={`${props.icon} text-xl`} />
       </div>
       <div class="min-w-0">
-        <h1 class="text-lg font-semibold">{props.name}</h1>
-        <p class="text-xs text-dimmed">{props.description}</p>
+        <h1 class="text-xl font-semibold text-primary">{props.name}</h1>
+        <p class="text-sm text-dimmed">{props.description}</p>
       </div>
     </header>
   ) : null;

@@ -242,17 +242,27 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} title="Dashboard">
       <DashboardLayoutHelp />
-      <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
-        <div class="max-w-[88rem] mx-auto p-4 sm:p-8 flex flex-col gap-8">
-          {/* Welcome — large, centered */}
-          <div class="text-center" style="view-transition-name: page-title">
-            <h1 class="text-3xl sm:text-4xl font-bold text-primary">
-              Hi,{" "}
-              <span class={gradient.style ? "" : "text-blue-600 dark:text-blue-400"} style={gradient.style}>
-                {greeting}
-              </span>
-            </h1>
-          </div>
+      <div class="cloud-ui-soft flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
+        <div class="mx-auto flex w-full max-w-[68rem] flex-col gap-6 p-4 sm:p-6 lg:p-8">
+          <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between" style="view-transition-name: page-title">
+            <div class="min-w-0">
+              <p class="mb-1 text-xs font-medium text-dimmed">Your workspace</p>
+              <h1 class="text-2xl font-semibold text-primary sm:text-3xl">
+                Hi,{" "}
+                <span class={gradient.style ? "" : "app-accent-text"} style={gradient.style}>
+                  {greeting}
+                </span>
+              </h1>
+              <p class="mt-1 text-sm text-dimmed">A quick view across the apps and work that matter to you.</p>
+            </div>
+            <DashboardEditButton
+              apps={availableApps}
+              legalLinks={legalLinks}
+              settings={settings}
+              available={availableSummaries}
+              inaccessible={inaccessibleSummaries}
+            />
+          </header>
 
           <DashboardControls
             apps={availableApps}
@@ -263,16 +273,11 @@ export default ssr<AuthContext>(async (c) => {
           />
 
           {rendered.length === 0 ? (
-            <Placeholder surface="paper">
-              No widgets to show. Open <em>Edit dashboard</em> below to enable any you have access to.
+            <Placeholder surface="paper" variant="panel">
+              No widgets to show. Use <em>Edit dashboard</em> to enable any you have access to.
             </Placeholder>
           ) : (
-            // max-w-[68rem] caps the grid so column width stays ~254px at xl
-            // (4 × 254 + 3 × 24 ≈ 1088). On wider monitors the leftover space
-            // becomes side margin instead of stretching widgets — keeps the
-            // "Nextcloud-ish" calm density. Breakpoints lean conservative
-            // (md stays at 2 cols) so iPad-portrait widgets aren't cramped.
-            <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 max-w-[68rem] mx-auto w-full">
+            <div class="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {rendered.map((entry) => (
                 <Widget
                   title={entry.data.title}
@@ -285,14 +290,6 @@ export default ssr<AuthContext>(async (c) => {
               ))}
             </div>
           )}
-
-          <DashboardEditButton
-            apps={availableApps}
-            legalLinks={legalLinks}
-            settings={settings}
-            available={availableSummaries}
-            inaccessible={inaccessibleSummaries}
-          />
         </div>
       </div>
     </Layout>

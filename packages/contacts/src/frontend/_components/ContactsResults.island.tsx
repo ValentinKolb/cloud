@@ -235,7 +235,7 @@ export default function ContactsResults(props: Props) {
         </Show>
       </div>
 
-      <div class="min-h-0 flex-1 overflow-y-auto border-t border-[var(--ui-divider)]" data-scroll-preserve="contacts-main-list">
+      <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 sm:px-4" data-scroll-preserve="contacts-main-list">
         <ContactsList
           contacts={state().contacts}
           bookNames={props.bookNames}
@@ -250,13 +250,16 @@ export default function ContactsResults(props: Props) {
               : "Create the first contact from the action above."
           }
         />
+        <Show when={state().totalPages > 1}>
+          <div class="pt-3">
+            <Pagination
+              currentPage={state().page}
+              totalPages={state().totalPages}
+              baseUrl={buildContactsPaginationBaseHref(state().href)}
+            />
+          </div>
+        </Show>
       </div>
-
-      <Show when={state().totalPages > 1}>
-        <div class="shrink-0 border-t border-[var(--ui-divider)] px-3 py-2">
-          <Pagination currentPage={state().page} totalPages={state().totalPages} baseUrl={buildContactsPaginationBaseHref(state().href)} />
-        </div>
-      </Show>
     </div>
   );
 }

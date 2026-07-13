@@ -996,11 +996,13 @@ Only put `scrollbar-gutter: stable` on the element that actually owns page scrol
 
 Do not add gaps, margins, borders, radii, or shadows between `AppWorkspace.Sidebar`, `AppWorkspace.Main`, and `AppWorkspace.Detail`. They are internal regions of the unified frame. Sidebar and detail use the quiet surface role; main remains neutral.
 
-Detail panels have two hierarchy layers. Put the record identity, close action,
-and primary actions in a flat `detail-header` at the panel edge. Put the
-scrollable content groups below it in a `detail-stack`. Avoid wrapping the whole
-detail panel or its orientation header in `paper`; within the unified frame,
-section tone and spacing provide grouping without repeated outer shadows.
+Detail panels have two hierarchy layers. Put the record identity, compact
+context or status, close/overflow controls, and frequent quick actions in a
+flat `detail-header` hero at the panel edge. Put the scrollable content groups
+below it in a `detail-stack`. The hero is not a `paper`: do not give it an
+independent background, border, radius, shadow, section label, or bottom
+divider. Within the unified frame, spacing and the body section tone provide
+the transition from orientation to content.
 
 ```jsx
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
@@ -1018,7 +1020,12 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
   </AppWorkspace.Sidebar>
   <AppWorkspace.Main>{children}</AppWorkspace.Main>
   <AppWorkspace.Detail open={Boolean(selectedId())} width="md">
-    <header class="detail-header">{detailHeader}</header>
+    <header class="detail-header">
+      {detailIdentity}
+      <div class="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Item actions">
+        {frequentQuickActions}
+      </div>
+    </header>
     <div class="detail-stack">
       <section class="detail-section">{detailBody}</section>
     </div>
@@ -1541,11 +1548,15 @@ Navigation utilities are owned by `packages/cloud/src/styles/utilities-navigatio
 ### Detail panels (read view)
 
 Info-dense detail surfaces (right side of a list/detail layout, non-modal)
-use the `detail-*` utility family. The pattern is a **flat orientation header
-followed by a flow of per-section paper cards** on a page-bg canvas — never
-nested papers, never the old `paper`-around-`divide-y` stat-card pattern.
+use the `detail-*` utility family. The pattern is a **flat orientation hero with
+frequent quick actions, followed by a flow of per-section paper cards** on a
+page-bg canvas — never nested papers, never the old
+`paper`-around-`divide-y` stat-card pattern.
 
-Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.island.tsx`.
+Live references:
+
+- `packages/contacts/src/frontend/_components/ContactDetailPanel.island.tsx` — identity plus Email, Call, and Note.
+- `packages/spaces/src/frontend/[id]/_components/detail/ItemDetailPanel.tsx` — identity and status plus Mark complete and Edit.
 
 ```html
 <div class="flex h-full min-h-0 flex-col">
@@ -1559,6 +1570,12 @@ Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.i
         </div>
       </div>
       <button class="btn-simple btn-sm">…close icon…</button>
+    </div>
+
+    <div class="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Contact actions">
+      <a href="mailto:…" class="btn-secondary btn-sm">Email</a>
+      <a href="tel:…" class="btn-secondary btn-sm">Call</a>
+      <button type="button" class="btn-secondary btn-sm">Note</button>
     </div>
   </header>
 
@@ -1579,7 +1596,7 @@ Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.i
 
 | Class | Purpose |
 |---|---|
-| `detail-header` | Flat, non-scrolling orientation layer at the full panel edge. Owns compact panel padding; do not add `paper` or an independent radius. |
+| `detail-header` | Flat, non-scrolling orientation hero at the full panel edge. Owns identity, status/context, close/overflow controls, and frequent quick actions. Owns compact panel padding; do not add `paper`, background, border, independent radius, shadow, or bottom divider. |
 | `detail-stack` | Scrolling detail-panel body. Owns `flex h-full min-h-0 flex-1 flex-col gap-2 overflow-y-auto`; use it as the parent for section cards below `detail-header`. |
 | `detail-section` | Section card. Auto-applies `paper p-4`. The first content child sitting flush below the label gets `pt-0 mt-0` so the gap to the label is exactly the label's `mb-3`, regardless of which content type follows. |
 | `detail-section-compact` | Compact content section that intentionally needs `paper p-3`. It is not a substitute for `detail-header`. |
@@ -1595,6 +1612,13 @@ Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.i
   height). The header is flat; the body stack scrolls; content sections are cards.
 - The orientation header must not be an inset rounded card. That shape creates a
   conflicting corner where a straight main/detail boundary meets the card.
+- Do not put the identity hero into the first `detail-section`. The first paper
+  contains record information, not panel orientation.
+- Put only frequent record actions in the hero. Keep their row close to the
+  identity, use compact shared button styles, and move rare actions to the
+  overflow menu.
+- Begin `detail-stack` through normal section spacing. Never add a horizontal
+  border or rule between the hero and body.
 - Empty sections must not render (`<Show when={hasReach()}>`). Sparse records
   show fewer cards, never empty shells.
 - For record workflows, put frequent fields in an explicit inline quick editor

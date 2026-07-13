@@ -22,14 +22,8 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
     </AppWorkspace.SidebarItem>
   );
 
-  const sidebarContent = (options: { showSearch?: boolean; registerShortcut?: boolean } = {}) => (
+  const categoryNavigation = () => (
     <>
-      <AppWorkspace.SidebarSection title="Start">
-        <AppWorkspace.SidebarItem href="/tools" navigation="document" icon="ti ti-layout-grid" active={!props.activeToolId}>
-          Overview
-        </AppWorkspace.SidebarItem>
-        {options.showSearch ? <ToolSearchButton variant="sidebar" registerShortcut={options.registerShortcut} /> : null}
-      </AppWorkspace.SidebarSection>
       {categoryOrder.map((category) => {
         const items = tools.filter((tool) => tool.category === category);
         if (items.length === 0) return null;
@@ -45,7 +39,8 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
           title="Tools"
           subtitle="Utilities"
           icon="ti ti-tools"
-          iconStyle="background-color: var(--color-blue-500)"
+          iconStyle="background-color: color-mix(in srgb, var(--app-accent) 12%, var(--ui-surface)); color: var(--ui-app-accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 24%, transparent)"
+          showDesktop={false}
         />
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems scrollPreserveKey="tools-sidebar-mobile">
@@ -55,16 +50,34 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
             <ToolSearchButton variant="sidebar-mobile" />
             {tools.filter((tool) => tool.featured).map(renderItem)}
           </AppWorkspace.SidebarMobileItems>
-          <AppWorkspace.SidebarMobileBody scrollPreserveKey="tools-sidebar-mobile-body">{sidebarContent()}</AppWorkspace.SidebarMobileBody>
+          <AppWorkspace.SidebarMobileBody scrollPreserveKey="tools-sidebar-mobile-body">
+            {categoryNavigation()}
+          </AppWorkspace.SidebarMobileBody>
         </AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarDesktop>
           <AppWorkspace.SidebarBody scrollPreserveKey="tools-sidebar">
-            {sidebarContent({ showSearch: true, registerShortcut: true })}
+            <AppWorkspace.SidebarIconGrid columns={2}>
+              <AppWorkspace.SidebarIconAction
+                href="/tools"
+                navigation="document"
+                icon="ti ti-layout-grid"
+                label="Overview"
+                active={!props.activeToolId}
+              />
+              <ToolSearchButton variant="icon" registerShortcut />
+            </AppWorkspace.SidebarIconGrid>
+            <div class="mt-3">{categoryNavigation()}</div>
           </AppWorkspace.SidebarBody>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
       <AppWorkspace.Main
-        class={props.activeToolId === "image" || props.activeToolId === "webhooks" ? "overflow-hidden" : "p-4 overflow-y-auto"}
+        class={
+          props.activeToolId === "image" || props.activeToolId === "webhooks"
+            ? "tools-main overflow-hidden"
+            : props.activeToolId
+              ? "tools-main overflow-y-auto p-3 sm:p-4"
+              : "tools-main overflow-y-auto"
+        }
       >
         {props.children}
       </AppWorkspace.Main>

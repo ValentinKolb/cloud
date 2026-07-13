@@ -75,7 +75,7 @@ export default function ContactsList(props: Props) {
         />
       }
     >
-      <ul class="divide-y divide-[var(--ui-data-row-divider)]" aria-label="Contacts">
+      <ul class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1.5" aria-label="Contacts">
         <For each={props.contacts}>
           {(contact) => {
             const name = () => resolveContactName(contact);
@@ -90,8 +90,7 @@ export default function ContactsList(props: Props) {
               <li class="group/contact relative">
                 <a
                   href={buildContactDetailHref(props.detailBaseHref, contact.id, contact.bookId)}
-                  class="flex w-full min-w-0 items-center gap-3 border-l-2 border-l-transparent px-3 py-2.5 pr-20 text-left transition-colors hover:bg-[var(--ui-data-row-hover)] focus-ui sm:px-4 sm:pr-24"
-                  classList={{ "border-l-[var(--app-accent)] bg-[var(--ui-data-row-selected)]": isSelected() }}
+                  class="flex w-full min-w-0 items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 pr-20 text-left focus-ui sm:pr-24"
                   aria-label={`Open ${name()}`}
                   aria-current={isSelected() ? "true" : undefined}
                   onClick={(event) => {
@@ -101,7 +100,8 @@ export default function ContactsList(props: Props) {
                   }}
                 >
                   <span
-                    class="contact-avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                    class="contact-avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold [outline:2px_solid_transparent] outline-offset-2 transition-[outline-color]"
+                    classList={{ "[outline-color:var(--ui-app-accent-border)]": isSelected() }}
                     aria-hidden="true"
                   >
                     {resolveContactInitials(contact)}
@@ -109,7 +109,12 @@ export default function ContactsList(props: Props) {
 
                   <span class="min-w-0 flex-1">
                     <span class="flex min-w-0 items-center gap-2">
-                      <span class="truncate text-sm font-medium text-primary">{name()}</span>
+                      <span
+                        class="truncate text-sm font-medium transition-colors group-hover/contact:text-[var(--ui-app-accent-text)] group-focus-within/contact:text-[var(--ui-app-accent-text)]"
+                        classList={{ "app-accent-text": isSelected(), "text-primary": !isSelected() }}
+                      >
+                        {name()}
+                      </span>
                       <Show when={props.showBookNames && props.bookNames?.[contact.bookId]}>
                         <span class="hidden max-w-36 shrink-0 truncate rounded-full bg-[var(--ui-surface-muted)] px-1.5 py-0.5 text-[11px] text-dimmed md:inline-flex">
                           {props.bookNames?.[contact.bookId]}
@@ -151,7 +156,7 @@ export default function ContactsList(props: Props) {
                 </a>
 
                 <Show when={email() || phone()}>
-                  <span class="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 opacity-100 transition-opacity sm:right-4 sm:opacity-0 sm:group-hover/contact:opacity-100 sm:group-focus-within/contact:opacity-100">
+                  <span class="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 sm:right-4">
                     <Show when={email()}>
                       {(address) => (
                         <Tooltip content={`Email ${name()}`}>
