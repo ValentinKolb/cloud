@@ -131,6 +131,20 @@ describe("cloud CLI OAuth session handling", () => {
     expect(result.stdout).toMatch(/^cld 0\.0\.0-dev \(unknown\)\n$/);
   });
 
+  test("prints compact JSON errors in JSON Lines mode", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    const result = await runCli(configPath, ["--jsonl", "missing-module"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr.trim().split("\n")).toHaveLength(1);
+    expect(JSON.parse(result.stderr)).toEqual({
+      error: { message: 'Unknown module "missing-module". Run `cld help`.', exitCode: 1 },
+    });
+  });
+
   test("rejects incomplete update versions before contacting a release server", async () => {
     const dir = await createTempDir();
     const configPath = join(dir, "config.json");
@@ -150,6 +164,8 @@ describe("cloud CLI OAuth session handling", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("assistant");
+    expect(result.stdout).toContain("Chat with the Cloud Assistant");
     expect(result.stdout).toContain("grids");
     expect(result.stdout).toContain("Manage Grids bases");
     expect(result.stdout).toContain("mail");

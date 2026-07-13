@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import type { hc } from "hono/client";
 
-export type CloudCliOutputMode = "text" | "json";
+export type CloudCliOutputMode = "text" | "json" | "jsonl";
 
 export type CloudCliFlagValue = string | boolean | string[];
 
@@ -32,7 +32,13 @@ export type CloudCliContext = {
   fetch: (path: string, init?: RequestInit) => Promise<Response>;
   readJson: <T>(response: Response) => Promise<T>;
   print: (value?: string) => void;
+  /** Write a stdout chunk without adding a newline. */
+  write: (value: string) => void;
+  /** Print one informational or progress line to stderr. */
+  error: (value: string) => void;
   json: (value: unknown) => void;
+  /** Print one compact JSON value followed by a newline. */
+  jsonLine: (value: unknown) => void;
   table: <TRow extends Record<string, unknown>>(rows: TRow[], columns: CloudCliTableColumn<TRow>[]) => void;
 };
 

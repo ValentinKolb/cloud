@@ -16,6 +16,7 @@ import type {
 import accountCliModule from "@valentinkolb/cloud/cli/account";
 import adminCliModule from "@valentinkolb/cloud/cli/admin";
 import accountsCliModule from "@valentinkolb/cloud-app-accounts/cli";
+import assistantCliModule from "@valentinkolb/cloud-app-assistant/cli";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
 import gridsCliModule from "@valentinkolb/cloud-app-grids/cli";
 import ipaHostsCliModule from "@valentinkolb/cloud-app-ipa-hosts/cli";
@@ -82,7 +83,7 @@ type GlobalArgs = {
   tokenCommand?: string;
   fd0?: string;
   fd0Scope?: string;
-  output: "text" | "json";
+  output: "text" | "json" | "jsonl";
   rest: string[];
 };
 
@@ -95,7 +96,7 @@ const TOKEN_TIMEOUT_MS = 10_000;
 const OAUTH_REFRESH_SKEW_MS = 60_000;
 const PROFILE_LOCK_TIMEOUT_MS = 15_000;
 const PROFILE_LOCK_STALE_MS = 60_000;
-const BOOLEAN_FLAGS = new Set(["json"]);
+const BOOLEAN_FLAGS = new Set(["json", "jsonl"]);
 
 const cliVersion = typeof __CLD_VERSION__ === "string" ? __CLD_VERSION__ : "0.0.0-dev";
 const cliCommit = typeof __CLD_COMMIT__ === "string" ? __CLD_COMMIT__ : "unknown";
@@ -104,6 +105,7 @@ const modules: CloudCliModule[] = [
   accountCliModule,
   accountsCliModule,
   adminCliModule,
+  assistantCliModule,
   contactsCliModule,
   gridsCliModule,
   ipaHostsCliModule,
@@ -230,7 +232,7 @@ const parseGlobalArgs = (argv: string[]): GlobalArgs => {
     tokenCommand: takeStringFlag(parsed.flags, "token-command"),
     fd0: takeStringFlag(parsed.flags, "fd0"),
     fd0Scope: takeStringFlag(parsed.flags, "fd0-scope"),
-    output: takeBooleanFlag(parsed.flags, "json") ? "json" : "text",
+    output: takeBooleanFlag(parsed.flags, "jsonl") ? "jsonl" : takeBooleanFlag(parsed.flags, "json") ? "json" : "text",
     rest,
   };
 };
@@ -691,8 +693,17 @@ const createContext = (args: string[], flags: CloudCliFlags, options: ResolvedCl
     print: (value = "") => {
       console.log(value);
     },
+    write: (value) => {
+      process.stdout.write(value);
+    },
+    error: (value) => {
+      console.error(value);
+    },
     json: (value) => {
       console.log(JSON.stringify(value, null, 2));
+    },
+    jsonLine: (value) => {
+      console.log(JSON.stringify(value));
     },
     table: (rows, columns) => {
       const rendered = renderTable(rows, columns);
@@ -721,6 +732,7 @@ Global options:
   --fd0-scope <scope>     fd0 scope
   --token-command <cmd>   Read bearer token from command stdout
   --json                  Print JSON where supported
+  --jsonl                 Stream one JSON event per line where supported
 
 Modules:
 ${modules.map((module) => `  ${module.name.padEnd(12)} ${module.summary}`).join("\n")}
@@ -1377,13 +1389,17 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
     module.requiresCloud === false || helpRequest ? await resolveOfflineOptions(global) : await resolveOptions(global);
   const options: ResolvedCliOptions = {
     ...resolvedOptions,
-    output: takeBooleanFlag(parsed.flags, "json") ? "json" : resolvedOptions.output,
+    output: takeBooleanFlag(parsed.flags, "jsonl")
+      ? "jsonl"
+      : takeBooleanFlag(parsed.flags, "json")
+        ? "json"
+        : resolvedOptions.output,
   };
   const code = await module.run(createContext(parsed.args, parsed.flags, options));
   return code ?? 0;
 };
 
-const wantsJsonError = (argv: string[]): boolean => argv.includes("--json");
+const wantsJsonError = (argv: string[]): boolean => argv.includes("--json") || argv.includes("--jsonl");
 
 const errorPayload = (error: unknown, exitCode: number) => {
   const message = error instanceof Error ? error.message : String(error);
@@ -1402,7 +1418,10 @@ if (import.meta.main) {
     (code) => process.exit(code),
     (error) => {
       const exitCode = error instanceof CliError ? error.exitCode : 1;
-      if (wantsJsonError(Bun.argv.slice(2))) console.error(JSON.stringify(errorPayload(error, exitCode), null, 2));
+      if (wantsJsonError(Bun.argv.slice(2))) {
+        const payload = errorPayload(error, exitCode);
+        console.error(Bun.argv.includes("--jsonl") ? JSON.stringify(payload) : JSON.stringify(payload, null, 2));
+      }
       else console.error(error instanceof Error ? error.message : String(error));
       process.exit(exitCode);
     },
