@@ -802,46 +802,45 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
     WHERE status IN ('pending', 'failed')
   `.simple();
   await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_event_outbox_record_pending
+    ON grids.record_event_outbox(record_id, created_at, id)
+    WHERE status IN ('pending', 'failed')
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_record_event_outbox_delivered
     ON grids.record_event_outbox(delivered_at)
     WHERE status = 'delivered'
   `.simple();
   await sql`
-    DO $$
+    CREATE OR REPLACE FUNCTION grids.enqueue_record_event(p_table_id uuid, p_record_id uuid, p_payload jsonb)
+    RETURNS uuid
+    LANGUAGE plpgsql
+    VOLATILE
+    AS $$
+    DECLARE
+      outbox_id uuid := gen_random_uuid();
+      event_base_id uuid;
     BEGIN
-      IF to_regprocedure('grids.enqueue_record_event(uuid,uuid,jsonb)') IS NULL THEN
-        BEGIN
-          EXECUTE $function$
-            CREATE FUNCTION grids.enqueue_record_event(p_table_id uuid, p_record_id uuid, p_payload jsonb)
-            RETURNS uuid
-            LANGUAGE plpgsql
-            VOLATILE
-            AS $body$
-            DECLARE
-              outbox_id uuid := gen_random_uuid();
-              event_base_id uuid;
-            BEGIN
-              SELECT base_id INTO event_base_id FROM grids.tables WHERE id = p_table_id;
-              IF event_base_id IS NULL THEN
-                RAISE EXCEPTION 'record event table does not exist';
-              END IF;
-              INSERT INTO grids.record_event_outbox (id, base_id, table_id, record_id, payload)
-              VALUES (
-                outbox_id,
-                event_base_id,
-                p_table_id,
-                p_record_id,
-                p_payload || jsonb_build_object('baseId', event_base_id::text, 'tableId', p_table_id::text, 'recordId', p_record_id::text)
-              );
-              RETURN outbox_id;
-            END;
-            $body$
-          $function$;
-        EXCEPTION WHEN duplicate_function THEN
-          NULL;
-        END;
+      SELECT base_id INTO event_base_id FROM grids.tables WHERE id = p_table_id;
+      IF event_base_id IS NULL THEN
+        RAISE EXCEPTION 'record event table does not exist';
       END IF;
-    END $$
+      INSERT INTO grids.record_event_outbox (id, base_id, table_id, record_id, payload)
+      VALUES (
+        outbox_id,
+        event_base_id,
+        p_table_id,
+        p_record_id,
+        p_payload || jsonb_build_object(
+          'baseId', event_base_id::text,
+          'tableId', p_table_id::text,
+          'recordId', p_record_id::text,
+          'occurredAt', now()
+        )
+      );
+      RETURN outbox_id;
+    END;
+    $$
   `.simple();
   console.log("  ✓ grids.record_event_outbox");
 

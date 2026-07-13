@@ -2,27 +2,43 @@ import { logger, trace } from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import type { SqlClient } from "./audit";
-import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
+import { type GridsRecordEvent, GridsRecordEventSchema, publishRecordEvent } from "./record-events";
 
 const log = logger("grids:record-event-outbox");
 const RECONCILE_INTERVAL_MS = 15_000;
 const RECONCILE_BATCH_SIZE = 500;
+const RECONCILE_CLAIM_MS = 30_000;
 const MAX_DELIVERY_ATTEMPTS = 20;
 const DELIVERED_RETENTION_DAYS = 30;
 const SHUTDOWN_DRAIN_MS = 30_000;
 
 type OutboxRow = {
   id: string;
-  payload: GridsRecordEvent | string;
+  payload: unknown;
   status: "pending" | "failed" | "delivered" | "dead";
   attempts: number;
 };
 
-const parsePayload = (value: GridsRecordEvent | string): GridsRecordEvent =>
-  typeof value === "string" ? (JSON.parse(value) as GridsRecordEvent) : value;
+class InvalidRecordEventPayloadError extends Error {}
+
+const parsePayload = (value: unknown): GridsRecordEvent => {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new InvalidRecordEventPayloadError("Invalid record event payload: expected valid JSON");
+    }
+  }
+  const result = GridsRecordEventSchema.safeParse(parsed);
+  if (result.success) return result.data;
+  const issue = result.error.issues[0];
+  const path = issue?.path.length ? `${issue.path.join(".")}: ` : "";
+  throw new InvalidRecordEventPayloadError(`Invalid record event payload: ${path}${issue?.message ?? "schema mismatch"}`);
+};
 
 export const enqueueRecordEvent = async (client: SqlClient, event: Omit<GridsRecordEvent, "v" | "occurredAt">): Promise<string> => {
-  const payload: GridsRecordEvent = { v: 1, occurredAt: new Date().toISOString(), ...event };
+  const payload = { v: 1, ...event };
   const [row] = await client<Array<{ id: string }>>`
     SELECT grids.enqueue_record_event(${event.tableId}::uuid, ${event.recordId}::uuid, ${payload}::jsonb)::text AS id
   `;
@@ -44,7 +60,8 @@ export const dispatchRecordEventOutbox = async (
     if (!row || row.status === "delivered") return { status: "already-delivered" as const };
     if (row.status === "dead") return { status: "dead" as const };
     try {
-      await publish(parsePayload(row.payload));
+      const event = parsePayload(row.payload);
+      await publish(event);
       await tx`
         UPDATE grids.record_event_outbox
         SET status = 'delivered', delivered_at = now(), last_error = NULL
@@ -54,7 +71,7 @@ export const dispatchRecordEventOutbox = async (
     } catch (error) {
       const attempts = row.attempts + 1;
       const delaySeconds = Math.min(300, 2 ** Math.min(attempts, 8));
-      const status = attempts >= MAX_DELIVERY_ATTEMPTS ? "dead" : "failed";
+      const status = error instanceof InvalidRecordEventPayloadError || attempts >= MAX_DELIVERY_ATTEMPTS ? "dead" : "failed";
       await tx`
         UPDATE grids.record_event_outbox
         SET status = ${status},
@@ -88,11 +105,20 @@ const deliveryJob = job<{ outboxId: string }, { outboxId: string; status: string
       return { outboxId: ctx.input.outboxId, status: await dispatchRecordEventOutbox(ctx.input.outboxId) };
     } finally {
       activeDeliveries -= 1;
+      if (runtimeStarted) {
+        void runReconcile().catch((error) => {
+          log.warn("Record event outbox follow-up reconcile failed", {
+            outboxId: ctx.input.outboxId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
     }
   },
 });
 
 const submitRecordEventOutbox = async (outboxId: string): Promise<void> => {
+  if (!runtimeStarted) return;
   try {
     await deliveryJob.submit({ key: outboxId, input: { outboxId } });
   } catch (error) {
@@ -104,13 +130,45 @@ const submitRecordEventOutbox = async (outboxId: string): Promise<void> => {
 };
 
 let runtimeStarted = false;
-const pendingSubmissions = new Set<Promise<void>>();
 
 export const notifyRecordEventOutbox = (outboxId: string): void => {
   if (!runtimeStarted) return;
-  const submission = submitRecordEventOutbox(outboxId);
-  pendingSubmissions.add(submission);
-  void submission.finally(() => pendingSubmissions.delete(submission));
+  void runReconcile().catch((error) => {
+    log.warn("Record event outbox notification reconcile failed", {
+      outboxId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+};
+
+export const claimRecordEventOutboxBatch = async (limit = RECONCILE_BATCH_SIZE): Promise<string[]> => {
+  const cap = Math.min(Math.max(limit, 1), RECONCILE_BATCH_SIZE);
+  const rows = await sql.begin(
+    (tx) => tx<Array<{ id: string }>>`
+    WITH candidates AS MATERIALIZED (
+      SELECT candidate.id
+      FROM grids.record_event_outbox candidate
+      WHERE candidate.status IN ('pending', 'failed')
+        AND candidate.next_attempt_at <= now()
+        AND NOT EXISTS (
+          SELECT 1
+          FROM grids.record_event_outbox predecessor
+          WHERE predecessor.record_id = candidate.record_id
+            AND predecessor.status IN ('pending', 'failed')
+            AND (predecessor.created_at, predecessor.id) < (candidate.created_at, candidate.id)
+        )
+      ORDER BY candidate.next_attempt_at, candidate.created_at, candidate.id
+      LIMIT ${cap}
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE grids.record_event_outbox outbox
+    SET next_attempt_at = now() + (${RECONCILE_CLAIM_MS} * interval '1 millisecond')
+    FROM candidates
+    WHERE outbox.id = candidates.id
+    RETURNING outbox.id::text AS id
+  `,
+  );
+  return rows.map((row) => row.id);
 };
 
 const reconcileRecordEventOutbox = async (): Promise<number> => {
@@ -118,15 +176,9 @@ const reconcileRecordEventOutbox = async (): Promise<number> => {
     DELETE FROM grids.record_event_outbox
     WHERE status = 'delivered' AND delivered_at < now() - (${DELIVERED_RETENTION_DAYS} * interval '1 day')
   `;
-  const rows = await sql<Array<{ id: string }>>`
-    SELECT id::text AS id
-    FROM grids.record_event_outbox
-    WHERE status IN ('pending', 'failed') AND next_attempt_at <= now()
-    ORDER BY next_attempt_at, created_at
-    LIMIT ${RECONCILE_BATCH_SIZE}
-  `;
-  await Promise.all(rows.map((row) => submitRecordEventOutbox(row.id)));
-  return rows.length;
+  const ids = await claimRecordEventOutboxBatch();
+  await Promise.all(ids.map(submitRecordEventOutbox));
+  return ids.length;
 };
 
 export const recordEventOutboxStats = async (): Promise<{
@@ -155,18 +207,60 @@ export const recordEventOutboxStats = async (): Promise<{
 
 let reconcileTimer: ReturnType<typeof setInterval> | null = null;
 let activeReconcile: Promise<number> | null = null;
+let reconcileRequested = false;
+
+type DrainState = { activeDeliveries: number; activeReconciles: number };
+
+const currentDrainState = (): DrainState => ({
+  activeDeliveries,
+  activeReconciles: activeReconcile ? 1 : 0,
+});
+
+export const waitForRecordEventOutboxDrain = async (
+  readState: () => DrainState = currentDrainState,
+  timeoutMs = SHUTDOWN_DRAIN_MS,
+): Promise<{ drained: boolean; state: DrainState }> => {
+  const deadline = performance.now() + Math.max(timeoutMs, 0);
+  while (true) {
+    const state = readState();
+    if (state.activeDeliveries === 0 && state.activeReconciles === 0) {
+      return { drained: true, state };
+    }
+    const remainingMs = deadline - performance.now();
+    if (remainingMs <= 0) return { drained: false, state };
+    await new Promise((resolve) => setTimeout(resolve, Math.min(25, remainingMs)));
+  }
+};
 
 const runReconcile = (): Promise<number> => {
-  if (activeReconcile) return activeReconcile;
-  activeReconcile = reconcileRecordEventOutbox().finally(() => {
+  if (activeReconcile) {
+    reconcileRequested = true;
+    return activeReconcile;
+  }
+  activeReconcile = (async () => {
+    let claimed = 0;
+    do {
+      reconcileRequested = false;
+      claimed = await reconcileRecordEventOutbox();
+    } while (reconcileRequested && runtimeStarted);
+    return claimed;
+  })().finally(() => {
     activeReconcile = null;
+    if (reconcileRequested && runtimeStarted) {
+      reconcileRequested = false;
+      void runReconcile().catch((error) => {
+        log.warn("Record event outbox coalesced reconcile failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
   });
   return activeReconcile;
 };
 
 export const startRecordEventOutbox = async (): Promise<void> => {
   runtimeStarted = true;
-  await runReconcile();
+  await reconcileRecordEventOutbox();
   if (!reconcileTimer) {
     reconcileTimer = setInterval(() => {
       void runReconcile().catch((error) => {
@@ -180,11 +274,15 @@ export const stopRecordEventOutbox = async (): Promise<void> => {
   runtimeStarted = false;
   if (reconcileTimer) clearInterval(reconcileTimer);
   reconcileTimer = null;
-  if (activeReconcile) await Promise.allSettled([activeReconcile]);
-  await Promise.allSettled([...pendingSubmissions]);
+  const deadline = performance.now() + SHUTDOWN_DRAIN_MS;
+  const producerDrain = await waitForRecordEventOutboxDrain(() => ({ ...currentDrainState(), activeDeliveries: 0 }), SHUTDOWN_DRAIN_MS);
+  const stragglingProducers = activeReconcile ? [activeReconcile] : [];
   deliveryJob.stop();
-  const deadline = Date.now() + SHUTDOWN_DRAIN_MS;
-  while (activeDeliveries > 0 && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
+  if (!producerDrain.drained && stragglingProducers.length > 0) {
+    void Promise.allSettled(stragglingProducers).then(() => deliveryJob.stop());
+  }
+  const drain = await waitForRecordEventOutboxDrain(currentDrainState, Math.max(0, deadline - performance.now()));
+  if (!producerDrain.drained || !drain.drained) {
+    log.warn("Record event outbox did not drain before shutdown", currentDrainState());
   }
 };

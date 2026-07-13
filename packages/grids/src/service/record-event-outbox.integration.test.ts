@@ -1,8 +1,16 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import type { SqlClient } from "./audit";
-import { dispatchRecordEventOutbox, enqueueRecordEvent } from "./record-event-outbox";
+import {
+  claimRecordEventOutboxBatch,
+  dispatchRecordEventOutbox,
+  enqueueRecordEvent,
+  notifyRecordEventOutbox,
+  startRecordEventOutbox,
+  stopRecordEventOutbox,
+} from "./record-event-outbox";
 import type { GridsRecordEvent } from "./record-events";
 
 const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
@@ -178,6 +186,141 @@ describe("record event outbox integration", () => {
       expect(row).toEqual({ status: "dead", attempts: 20, last_error: "invalid event" });
       expect(await dispatchRecordEventOutbox(created.outboxId, async () => undefined)).toBe("dead");
     } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("rejects malformed payloads without publishing them", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const created = await sql.begin((tx) => insertRecordAndEvent(tx, fixture, "Malformed"));
+      await sql`
+        UPDATE grids.record_event_outbox
+        SET payload = jsonb_set(payload, '{v}', '2'::jsonb)
+        WHERE id = ${created.outboxId}::uuid
+      `;
+      let publishCalls = 0;
+      await expect(
+        dispatchRecordEventOutbox(created.outboxId, async () => {
+          publishCalls += 1;
+        }),
+      ).rejects.toThrow("Invalid record event payload");
+      const [row] = await sql<Array<{ status: string; attempts: number; last_error: string | null }>>`
+        SELECT status, attempts, last_error
+        FROM grids.record_event_outbox
+        WHERE id = ${created.outboxId}::uuid
+      `;
+      expect(publishCalls).toBe(0);
+      expect(row).toMatchObject({ status: "dead", attempts: 1 });
+      expect(row?.last_error).toContain("v");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("claims disjoint backlog batches across concurrent reconcilers", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const created = await Promise.all(
+        Array.from({ length: 6 }, (_, index) => insertRecordAndEvent(sql, fixture, `Backlog ${index + 1}`)),
+      );
+      const [first, second] = await Promise.all([claimRecordEventOutboxBatch(2), claimRecordEventOutboxBatch(2)]);
+      const third = await claimRecordEventOutboxBatch(2);
+      const claimed = [...first, ...second, ...third];
+
+      expect(first).toHaveLength(2);
+      expect(second).toHaveLength(2);
+      expect(third).toHaveLength(2);
+      expect(new Set(claimed).size).toBe(6);
+      expect(new Set(claimed)).toEqual(new Set(created.map((item) => item.outboxId)));
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("publishes record events in durable per-record order", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const first = await insertRecordAndEvent(sql, fixture, "Ordered");
+      const secondOutboxId = await enqueueRecordEvent(sql, {
+        type: "record.updated",
+        baseId: fixture.baseId,
+        tableId: fixture.tableId,
+        recordId: first.recordId,
+        version: 2,
+        changedFieldIds: [fixture.fieldId],
+        actorId: fixture.actorId,
+      });
+      const independent = await insertRecordAndEvent(sql, fixture, "Independent");
+
+      const firstClaim = await claimRecordEventOutboxBatch(10);
+      expect(new Set(firstClaim)).toEqual(new Set([first.outboxId, independent.outboxId]));
+      expect(firstClaim).not.toContain(secondOutboxId);
+
+      await dispatchRecordEventOutbox(first.outboxId, async () => undefined);
+      expect(await claimRecordEventOutboxBatch(10)).toContain(secondOutboxId);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("uses the PostgreSQL clock for persisted event timestamps", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const created = await insertRecordAndEvent(sql, fixture, "Clock");
+      const [row] = await sql<Array<{ occurred_at: string; created_at: Date }>>`
+        SELECT payload->>'occurredAt' AS occurred_at, created_at
+        FROM grids.record_event_outbox
+        WHERE id = ${created.outboxId}::uuid
+      `;
+
+      expect(new Date(row!.occurred_at).getTime()).toBe(row!.created_at.getTime());
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("drains same-record bursts without waiting for the reconcile interval", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      await startRecordEventOutbox();
+      const first = await insertRecordAndEvent(sql, fixture, "Burst");
+      const outboxIds = [first.outboxId];
+      for (let version = 2; version <= 4; version += 1) {
+        outboxIds.push(
+          await enqueueRecordEvent(sql, {
+            type: "record.updated",
+            baseId: fixture.baseId,
+            tableId: fixture.tableId,
+            recordId: first.recordId,
+            version,
+            changedFieldIds: [fixture.fieldId],
+            actorId: fixture.actorId,
+          }),
+        );
+      }
+      notifyRecordEventOutbox(first.outboxId);
+
+      const deadline = performance.now() + 5_000;
+      let delivered = 0;
+      while (delivered < outboxIds.length && performance.now() < deadline) {
+        const [row] = await sql<Array<{ count: number }>>`
+          SELECT count(*)::int AS count
+          FROM grids.record_event_outbox
+          WHERE id = ANY(${toPgUuidArray(outboxIds)}::uuid[])
+            AND status = 'delivered'
+        `;
+        delivered = row?.count ?? 0;
+        if (delivered < outboxIds.length) await Bun.sleep(25);
+      }
+      expect(delivered).toBe(outboxIds.length);
+    } finally {
+      await stopRecordEventOutbox();
       await cleanupFixture(fixture);
     }
   });

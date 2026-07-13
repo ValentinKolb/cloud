@@ -1,21 +1,26 @@
 import { topic } from "@valentinkolb/sync";
+import { z } from "zod";
 
 const TOPIC_PREFIX = "cloud:grids:events";
 const TOPIC_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const TOPIC_ID = "records";
 const RECLAIM_CONSUMER = `grids:record-events:${process.pid}:${Bun.randomUUIDv7()}`;
 
-export type GridsRecordEvent = {
-  v: 1;
-  type: "record.created" | "record.updated" | "record.deleted" | "record.restored";
-  baseId: string;
-  tableId: string;
-  recordId: string;
-  version: number | null;
-  changedFieldIds: string[];
-  actorId: string | null;
-  occurredAt: string;
-};
+export const GridsRecordEventSchema = z
+  .object({
+    v: z.literal(1),
+    type: z.enum(["record.created", "record.updated", "record.deleted", "record.restored"]),
+    baseId: z.string().uuid(),
+    tableId: z.string().uuid(),
+    recordId: z.string().uuid(),
+    version: z.number().int().positive().nullable(),
+    changedFieldIds: z.array(z.string().uuid()),
+    actorId: z.string().uuid().nullable(),
+    occurredAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+
+export type GridsRecordEvent = z.infer<typeof GridsRecordEventSchema>;
 
 const recordTopic = topic<GridsRecordEvent>({
   id: TOPIC_ID,

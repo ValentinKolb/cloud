@@ -192,7 +192,6 @@ export const createInTransaction = async (
       version: 1,
       changedFieldIds,
       actorId,
-      occurredAt: new Date().toISOString(),
     };
     if (hasRetryGeneratedId) await client`SAVEPOINT grids_generated_id_insert`;
     try {
@@ -368,7 +367,6 @@ export const update = async (
     version: existing.version + 1,
     changedFieldIds: Object.keys(diff),
     actorId,
-    occurredAt: new Date().toISOString(),
   };
 
   // ATOMIC: row UPDATE + relation link writes + audit in one transaction.
@@ -428,7 +426,6 @@ export const softDelete = async (tableId: string, recordId: string, actorId: str
     version: existing?.version ?? null,
     changedFieldIds: existing ? Object.keys(existing.data) : [],
     actorId,
-    occurredAt: new Date().toISOString(),
   };
   const outboxId = await sql.begin(async (tx) => {
     const [row] = await tx<Array<{ outbox_id: string }>>`
@@ -454,7 +451,6 @@ export const restore = async (tableId: string, recordId: string, actorId: string
     version: null,
     changedFieldIds: [],
     actorId,
-    occurredAt: new Date().toISOString(),
   };
   const restored = await sql
     .begin(async (tx): Promise<Result<string>> => {
