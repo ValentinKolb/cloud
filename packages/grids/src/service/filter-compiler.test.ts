@@ -163,6 +163,22 @@ describe("compileFilter — structural compilation", () => {
     if (!reversedNumber.ok) expect(reversedNumber.error).toMatch(/lower bound/);
   });
 
+  test("date filters reject impossible calendar dates", () => {
+    for (const value of ["2026-99-99", "2026-02-31", "2025-02-29"]) {
+      const result = compileFilter({ fieldId: "fld_date", op: "=", value }, fields);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/valid ISO date/);
+    }
+
+    const leapDay = compileFilter({ fieldId: "fld_date", op: "=", value: "2024-02-29" }, fields);
+    expect(leapDay.ok).toBe(true);
+
+    const timed = mkField("fld_time", "date", { includeTime: true });
+    const invalidInstant = compileFilter({ fieldId: "fld_time", op: "=", value: "2026-02-31T12:00:00Z" }, [...fields, timed]);
+    expect(invalidInstant.ok).toBe(false);
+    if (!invalidInstant.ok) expect(invalidInstant.error).toMatch(/valid timezone-aware/);
+  });
+
   test("select isAnyOf with array", () => {
     const r = compileFilter({ fieldId: "fld_status", op: "isAnyOf", value: ["open", "blocked"] }, fields);
     expect(r.ok).toBe(true);

@@ -4,7 +4,7 @@ import { topic } from "@valentinkolb/sync";
 const log = logger("grids:workflow-runtime-events");
 const TENANT_ID = "global";
 
-export type WorkflowRuntimeEvent = {
+type WorkflowRuntimeEvent = {
   workflowId: string;
 };
 

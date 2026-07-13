@@ -27,7 +27,7 @@ export const NOTIFICATIONS = {
 
 type GridsNotificationDefinitions = BoundNotificationMap<"grids", typeof NOTIFICATIONS>;
 
-export type WorkflowNotificationSendInput = {
+type WorkflowNotificationSendInput = {
   kind: "email" | "user";
   recipient: string;
   subject: string;
@@ -36,7 +36,7 @@ export type WorkflowNotificationSendInput = {
   sentBy?: string;
 };
 
-export type WorkflowNotificationSendResult = {
+type WorkflowNotificationSendResult = {
   id: string;
   status: "delivered" | "queued" | "failed";
   providerStatus: string;

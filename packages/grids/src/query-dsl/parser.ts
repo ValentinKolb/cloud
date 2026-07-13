@@ -564,19 +564,48 @@ const parseSortItem = (input: string, line: number, column: number): { item?: Ds
   return { item: { target: { kind: "alias", alias: target }, direction, ...nulls, span } };
 };
 
+const splitJoinEquality = (input: string): [left: string, right: string] | null => {
+  let quoted = false;
+  let equalityIndex = -1;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i]!;
+    if (quoted) {
+      if (c === `"` && input[i + 1] === `"`) {
+        i++;
+        continue;
+      }
+      if (c === `"`) quoted = false;
+      continue;
+    }
+    if (c === `"`) {
+      quoted = true;
+      continue;
+    }
+    if (c !== "=") continue;
+    if (equalityIndex !== -1) return null;
+    equalityIndex = i;
+  }
+  if (quoted || equalityIndex === -1) return null;
+  const left = input.slice(0, equalityIndex).trim();
+  const right = input.slice(equalityIndex + 1).trim();
+  return left && right ? [left, right] : null;
+};
+
 const parseJoin = (lineSource: string, line: number, column: number): { item?: DslJoin; diagnostic?: DslParseDiagnostic } => {
   const match = lineSource.match(
-    /^(?<mode>left\s+)?join\s+(?<source>[\s\S]+?)\s+as\s+(?<alias>[A-Za-z_][A-Za-z0-9_]*)\s+on\s+(?<left>[\s\S]+?)\s*=\s*(?<right>[\s\S]+)$/i,
+    /^(?<mode>left\s+)?join\s+(?<source>[\s\S]+?)\s+as\s+(?<alias>[A-Za-z_][A-Za-z0-9_]*)\s+on\s+(?<condition>[\s\S]+)$/i,
   );
   if (!match?.groups) return { diagnostic: error(line, `invalid join clause`) };
   const sourceRaw = match.groups.source;
   const alias = match.groups.alias;
-  const leftRaw = match.groups.left;
-  const rightRaw = match.groups.right;
-  if (!sourceRaw || !alias || !leftRaw || !rightRaw) return { diagnostic: error(line, "invalid join refs") };
+  const conditionRaw = match.groups.condition;
+  const equality = conditionRaw ? splitJoinEquality(conditionRaw) : null;
+  if (!sourceRaw || !alias || !conditionRaw || !equality) return { diagnostic: error(line, "invalid join refs") };
+  const [leftRaw, rightRaw] = equality;
+  const conditionColumn = column + lineSource.lastIndexOf(conditionRaw);
   const source = parseSource(sourceRaw, line, column + lineSource.indexOf(sourceRaw));
-  const left = parseRef(leftRaw, line, column + lineSource.indexOf(leftRaw));
-  const right = parseRef(rightRaw, line, column + lineSource.lastIndexOf(rightRaw));
+  const left = parseRef(leftRaw, line, conditionColumn + conditionRaw.indexOf(leftRaw));
+  const right = parseRef(rightRaw, line, conditionColumn + conditionRaw.lastIndexOf(rightRaw));
   const aliasError = validateAlias(alias, line);
   if (aliasError) return { diagnostic: aliasError };
   if (!source || !left || !right) {

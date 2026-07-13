@@ -62,6 +62,20 @@ const targetMatchesResourceBinding = <T extends AuthContext>(c: Context<T>, targ
   return boundBaseId === undefined || boundBaseId === target.baseId;
 };
 
+const loadCurrentGrants = (c: Context<AuthContext>, target: ResolveTarget): Promise<Grant[]> => {
+  const subject = currentPermissionSubject(c);
+  return gridsService.permission.loadGrants({
+    ...subject,
+    baseId: target.baseId,
+    tableId: "tableId" in target ? target.tableId : null,
+    viewId: "viewId" in target ? target.viewId : null,
+    formId: "formId" in target ? target.formId : null,
+    documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
+    dashboardId: "dashboardId" in target ? target.dashboardId : null,
+    workflowId: "workflowId" in target ? target.workflowId : null,
+  });
+};
+
 export const gateCredentialScope = async <T extends AuthContext>(
   c: Context<T>,
   required: PermissionLevel,
@@ -93,17 +107,7 @@ export const currentActorViewer = <T extends AuthContext>(c: Context<T>) => {
  */
 const effectivePermission = async (c: Context<AuthContext>, target: ResolveTarget): Promise<PermissionLevel> => {
   if (!targetMatchesResourceBinding(c, target)) return "none";
-  const subject = currentPermissionSubject(c);
-  const grants = await gridsService.permission.loadGrants({
-    ...subject,
-    baseId: target.baseId,
-    tableId: "tableId" in target ? target.tableId : null,
-    viewId: "viewId" in target ? target.viewId : null,
-    formId: "formId" in target ? target.formId : null,
-    documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
-    dashboardId: "dashboardId" in target ? target.dashboardId : null,
-    workflowId: "workflowId" in target ? target.workflowId : null,
-  });
+  const grants = await loadCurrentGrants(c, target);
   return minPermission(gridsService.permission.resolve(grants, target), credentialPermission(c));
 };
 
@@ -136,17 +140,7 @@ export const resolveWithGrants = async (
   target: ResolveTarget,
 ): Promise<{ level: PermissionLevel; grants: Grant[] }> => {
   if (!targetMatchesResourceBinding(c, target)) return { level: "none", grants: [] };
-  const subject = currentPermissionSubject(c);
-  const grants = await gridsService.permission.loadGrants({
-    ...subject,
-    baseId: target.baseId,
-    tableId: "tableId" in target ? target.tableId : null,
-    viewId: "viewId" in target ? target.viewId : null,
-    formId: "formId" in target ? target.formId : null,
-    documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
-    dashboardId: "dashboardId" in target ? target.dashboardId : null,
-    workflowId: "workflowId" in target ? target.workflowId : null,
-  });
+  const grants = await loadCurrentGrants(c, target);
   const level = minPermission(gridsService.permission.resolve(grants, target), credentialPermission(c));
   return { level, grants };
 };

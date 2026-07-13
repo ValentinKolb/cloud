@@ -75,6 +75,7 @@ export const listTrashedByBase = async (baseId: string): Promise<Field[]> => {
     SELECT f.*
     FROM grids.fields f
     JOIN grids.tables t ON t.id = f.table_id
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE t.base_id = ${baseId}::uuid
       AND t.deleted_at IS NULL
       AND f.deleted_at IS NOT NULL

@@ -1180,12 +1180,29 @@ const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
       AND run.status NOT IN ('queued', 'running')
   `.simple();
   await sql`
-    UPDATE grids.workflow_runs
-    SET status = 'failed',
-        error = 'Could not recover workflow run created before immutable execution snapshots were available',
-        finished_at = now()
-    WHERE (workflow_definition IS NULL OR workflow_catalog IS NULL)
-      AND status IN ('queued', 'running')
+    WITH failed_runs AS (
+      UPDATE grids.workflow_runs
+      SET status = 'failed',
+          error = 'Could not recover workflow run created before immutable execution snapshots were available',
+          finished_at = now()
+      WHERE (workflow_definition IS NULL OR workflow_catalog IS NULL)
+        AND status IN ('queued', 'running')
+      RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind
+    )
+    INSERT INTO grids.audit_log (base_id, user_id, action, diff)
+    SELECT base_id, actor_user_id, 'workflow.run.failed', jsonb_build_object(
+      'workflowRun', jsonb_build_object(
+        'old', NULL,
+        'new', jsonb_build_object(
+          'id', id,
+          'workflowId', workflow_id,
+          'serviceAccountId', service_account_id,
+          'triggerKind', trigger_kind,
+          'status', 'failed'
+        )
+      )
+    )
+    FROM failed_runs
   `.simple();
   await sql`
     UPDATE grids.workflow_runs
@@ -1200,12 +1217,29 @@ const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
   await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN workflow_definition SET NOT NULL`.simple();
   await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN workflow_catalog SET NOT NULL`.simple();
   await sql`
-    UPDATE grids.workflow_runs
-    SET status = 'failed',
-        error = 'Could not recover workflow run created before durable queue payloads were available',
-        finished_at = now()
-    WHERE status = 'queued'
-      AND (actor_group_ids IS NULL OR trigger_authorization IS NULL OR queue_attempts IS NULL)
+    WITH failed_runs AS (
+      UPDATE grids.workflow_runs
+      SET status = 'failed',
+          error = 'Could not recover workflow run created before durable queue payloads were available',
+          finished_at = now()
+      WHERE status = 'queued'
+        AND (actor_group_ids IS NULL OR trigger_authorization IS NULL OR queue_attempts IS NULL)
+      RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind
+    )
+    INSERT INTO grids.audit_log (base_id, user_id, action, diff)
+    SELECT base_id, actor_user_id, 'workflow.run.failed', jsonb_build_object(
+      'workflowRun', jsonb_build_object(
+        'old', NULL,
+        'new', jsonb_build_object(
+          'id', id,
+          'workflowId', workflow_id,
+          'serviceAccountId', service_account_id,
+          'triggerKind', trigger_kind,
+          'status', 'failed'
+        )
+      )
+    )
+    FROM failed_runs
   `.simple();
   await sql`
     UPDATE grids.workflow_runs

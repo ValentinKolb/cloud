@@ -1,6 +1,7 @@
 import type { FilterTree, RecordMetaQuery, RecordMetaSortKey, RecordMetaUserKey } from "../contracts";
 import type { Expr, Literal } from "../formula/types";
 import { normalizeRefKey, parseQualifiedIdentifierRef } from "../ref-syntax";
+import { validateFilterValue } from "../service/filter-compiler-validation";
 import { compileFormulaAstToSql } from "../service/formula-sql-compiler";
 import type { Field } from "../service/types";
 import { type DslResolverDiagnostic, diagnostic, isResolverDiagnostic as isDiagnostic, spanForExpr } from "./resolver-diagnostics";
@@ -248,6 +249,9 @@ const dateComparisonLeaf = (field: Field, op: string, value: Literal, span?: Dsl
                 ? "onOrAfter"
                 : null;
   if (!mapped) return unsupportedOp(field, op, span);
+  const includeTime = Boolean((field.config as { includeTime?: boolean }).includeTime);
+  const valueError = validateFilterValue(field.type, mapped, value, includeTime);
+  if (valueError) return diagnostic(`"${field.name}" ${valueError.replace(/^expected/, "expects")}`, span);
   return filterLeaf(field.id, mapped, value);
 };
 

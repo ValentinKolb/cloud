@@ -196,12 +196,13 @@ export const ensureFieldUniqueIndex = async (fieldId: string, type: string, tabl
   }
 };
 
-export const dropFieldUniqueIndex = async (fieldId: string): Promise<void> => {
+export const dropFieldUniqueIndex = async (fieldId: string, options: { throwOnError?: boolean } = {}): Promise<void> => {
   if (!isSafeFieldId(fieldId)) return;
   try {
     await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${fieldUniqueIndexName(fieldId)}`);
   } catch (e) {
     log.error("Failed to drop unique index", { fieldId, error: String(e) });
+    if (options.throwOnError) throw e;
   }
 };
 

@@ -43,6 +43,8 @@ export type DslResolvedSqlAggregation = {
   label?: string;
 };
 
+type HavingRef = { ref: GroupHavingRef; sqlType: FormulaSqlType };
+
 export const FORMULA_AGGREGATE_ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
 
 export const hasLabelRef = (labels: string[], ref: string): boolean => {
@@ -77,6 +79,40 @@ export const groupAggForDsl = (fn: DslAggregateItem["fn"]): GroupHavingRef["agg"
 
 export const duplicateAggregateOutputDiagnostic = (label: string, agg: string): DslResolverDiagnostic =>
   diagnostic(`duplicate aggregate output for "${label}" with "${agg}"`);
+
+export const compileHavingPredicate = (
+  having: NonNullable<DslQueryAst["having"]>,
+  refs: Map<string, HavingRef>,
+): DslFormulaHavingPredicate | DslResolverDiagnostic => {
+  const compiled = compileFormulaAstToSql(having.expression, {
+    fields: [],
+    resolveField: (ref) => {
+      const aggregate = refs.get(normalizeRefKey(ref));
+      if (!aggregate) return null;
+      const cast =
+        aggregate.sqlType === "numeric"
+          ? sql`NULL::numeric`
+          : aggregate.sqlType === "boolean"
+            ? sql`NULL::boolean`
+            : aggregate.sqlType === "date"
+              ? sql`NULL::date`
+              : aggregate.sqlType === "datetime"
+                ? sql`NULL::timestamptz`
+                : sql`NULL::text`;
+      return { sql: cast, type: aggregate.sqlType };
+    },
+  });
+  if (!compiled.ok) return diagnostic(`having formula: ${compiled.error}`, having.span);
+  if (compiled.expression.type !== "boolean") return diagnostic("having formula must return a boolean value", having.span);
+
+  return {
+    kind: "formula",
+    source: having.source,
+    expression: having.expression,
+    sqlType: compiled.expression.type,
+    aggregateRefs: [...refs.values()].map((item) => item.ref),
+  };
+};
 
 export const isComputedValueAggregateField = (field: Field): boolean =>
   field.type === "formula" || field.type === "lookup" || field.type === "rollup";
@@ -279,7 +315,7 @@ export const resolveHavingPredicate = (
   aggregations: DslAggregateItem[],
   scope: Scope,
 ): DslFormulaHavingPredicate | DslResolverDiagnostic => {
-  const refs = new Map<string, { ref: GroupHavingRef; sqlType: FormulaSqlType }>();
+  const refs = new Map<string, HavingRef>();
   for (const item of aggregations) {
     const groupAgg = groupAggForDsl(item.fn);
     if (isDiagnostic(groupAgg)) return groupAgg;
@@ -333,32 +369,5 @@ export const resolveHavingPredicate = (
     continue;
   }
 
-  const compiled = compileFormulaAstToSql(having.expression, {
-    fields: [],
-    resolveField: (ref) => {
-      const agg = refs.get(normalizeRefKey(ref));
-      if (!agg) return null;
-      const cast =
-        agg.sqlType === "numeric"
-          ? sql`NULL::numeric`
-          : agg.sqlType === "boolean"
-            ? sql`NULL::boolean`
-            : agg.sqlType === "date"
-              ? sql`NULL::date`
-              : agg.sqlType === "datetime"
-                ? sql`NULL::timestamptz`
-                : sql`NULL::text`;
-      return { sql: cast, type: agg.sqlType };
-    },
-  });
-  if (!compiled.ok) return diagnostic(`having formula: ${compiled.error}`, having.span);
-  if (compiled.expression.type !== "boolean") return diagnostic("having formula must return a boolean value", having.span);
-
-  return {
-    kind: "formula",
-    source: having.source,
-    expression: having.expression,
-    sqlType: compiled.expression.type,
-    aggregateRefs: [...refs.values()].map((item) => item.ref),
-  };
+  return compileHavingPredicate(having, refs);
 };

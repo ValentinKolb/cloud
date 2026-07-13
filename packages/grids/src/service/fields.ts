@@ -1,4 +1,4 @@
-import { isUniqueViolation, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { isUniqueViolation, logger, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { isKnownFieldType } from "../field-types";
@@ -14,6 +14,7 @@ import {
   isUniqueable,
 } from "./field-indexes";
 import { get, mapFieldRow } from "./field-read";
+import { cleanupPreparedUniqueIndex } from "./field-unique-index-lifecycle";
 import { materializeFieldDefault, validateDefaultValue, validateFieldConfig, validateLinkOrComputedConfig } from "./field-validation";
 import { emitTableMetadataEvent } from "./metadata-events";
 import { namedResourceConflict, writeNamedResource } from "./named-resource-conflict";
@@ -22,6 +23,8 @@ import { insertWithShortId } from "./short-id";
 import type { CreateFieldInput, Field, UpdateFieldInput } from "./types";
 
 type DbRow = Record<string, unknown>;
+
+const log = logger("grids:fields");
 
 type FieldUpdateState = {
   name: string;
@@ -36,6 +39,20 @@ type FieldUpdateState = {
   indexed: boolean;
   uniqueConstraint: boolean;
 };
+
+const fieldUpdateState = (field: Field): FieldUpdateState => ({
+  name: field.name,
+  description: field.description,
+  icon: field.icon ?? null,
+  config: field.config,
+  position: field.position,
+  required: field.required,
+  presentable: field.presentable,
+  hideInTable: field.hideInTable,
+  defaultValue: field.defaultValue,
+  indexed: field.indexed,
+  uniqueConstraint: field.uniqueConstraint,
+});
 
 const updatedNullableText = (value: string | null | undefined, current: string | null): string | null => {
   if (value === undefined) return current;
@@ -83,50 +100,90 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   // for primitives (`true`, `42`, `"hello"`) and keeps objects working.
   const defaultValueJsonb = defaultValue === undefined || defaultValue === null ? null : JSON.stringify(defaultValue);
   const uniqueConstraint = input.type === "id" ? true : (input.uniqueConstraint ?? false);
+  const fieldId = Bun.randomUUIDv7();
 
-  const inserted = await writeNamedResource(
-    () =>
-      insertWithShortId<DbRow>(async (shortId) => {
-        const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.fields (
-        short_id, table_id, name, description, icon, type, config, position, required,
-        presentable, hide_in_table, default_value, indexed, unique_constraint
-      )
-      VALUES (
-        ${shortId},
-        ${input.tableId}::uuid,
-        ${name},
-        -- bun.sql can't infer the type of a literal NULL; cast keeps the
-        -- INSERT working when the user creates a field without a description.
-        ${description}::text,
-        ${icon}::text,
-        ${input.type},
-        ${config}::jsonb,
-        COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL)),
-        ${input.required ?? false},
-        ${input.presentable ?? false},
-        ${input.hideInTable ?? false},
-        ${defaultValueJsonb}::jsonb,
-        ${input.indexed ?? false},
-        ${uniqueConstraint}
-      )
-      RETURNING *
-      `;
-        if (!r) throw new Error("insert returned no row");
-        return r;
-      }, "idx_grids_fields_short_id"),
-    "idx_grids_fields_live_name",
-    "field name must be unique within this table",
-  );
-  if (!inserted.ok) return inserted;
-  const field = mapFieldRow(inserted.data);
+  let uniqueIndexPrepared = false;
+  if (uniqueConstraint && isUniqueable(input.type)) {
+    try {
+      // Build correctness-critical enforcement before committing the field row.
+      await ensureFieldUniqueIndex(fieldId, input.type, input.tableId);
+    } catch (error) {
+      return fail(err.internal(`field unique-constraint index build failed: ${(error as Error).message}`));
+    }
+    uniqueIndexPrepared = true;
+  }
 
-  await logAudit({
-    tableId: input.tableId,
-    userId: actorId,
-    action: "created",
-    diff: { field: { old: null, new: { id: field.id, name: field.name, type: field.type } } },
-  });
+  let inserted: Result<Field>;
+  try {
+    inserted = await sql.begin(async (tx): Promise<Result<Field>> => {
+      const created = await writeNamedResource(
+        () =>
+          insertWithShortId<DbRow>(
+            (shortId) =>
+              tx.savepoint(async (sp) => {
+                const [r] = await sp<DbRow[]>`
+                  INSERT INTO grids.fields (
+                    id, short_id, table_id, name, description, icon, type, config, position, required,
+                    presentable, hide_in_table, default_value, indexed, unique_constraint
+                  )
+                  VALUES (
+                    ${fieldId}::uuid,
+                    ${shortId},
+                    ${input.tableId}::uuid,
+                    ${name},
+                    -- bun.sql can't infer the type of a literal NULL; cast keeps the
+                    -- INSERT working when the user creates a field without a description.
+                    ${description}::text,
+                    ${icon}::text,
+                    ${input.type},
+                    ${config}::jsonb,
+                    COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL)),
+                    ${input.required ?? false},
+                    ${input.presentable ?? false},
+                    ${input.hideInTable ?? false},
+                    ${defaultValueJsonb}::jsonb,
+                    ${input.indexed ?? false},
+                    ${uniqueConstraint}
+                  )
+                  RETURNING *
+                `;
+                if (!r) throw new Error("insert returned no row");
+                return r;
+              }),
+            "idx_grids_fields_short_id",
+          ),
+        "idx_grids_fields_live_name",
+        "field name must be unique within this table",
+      );
+      if (!created.ok) return created;
+      const field = mapFieldRow(created.data);
+
+      await logAudit(
+        {
+          tableId: input.tableId,
+          userId: actorId,
+          action: "created",
+          diff: { field: { old: null, new: { id: field.id, name: field.name, type: field.type } } },
+        },
+        tx,
+      );
+      return ok(field);
+    });
+  } catch (error) {
+    if (uniqueIndexPrepared) {
+      const cleanup = await cleanupPreparedUniqueIndex(fieldId);
+      if (!cleanup.ok) throw new AggregateError([error, cleanup.error], cleanup.error.message);
+    }
+    throw error;
+  }
+  if (!inserted.ok) {
+    if (uniqueIndexPrepared) {
+      const cleanup = await cleanupPreparedUniqueIndex(fieldId);
+      if (!cleanup.ok) return fail(cleanup.error);
+    }
+    return inserted;
+  }
+  const field = inserted.data;
 
   // CONCURRENTLY-built filterable index fires after the row commits.
   // Failures don't block create — they're logged so the user can
@@ -134,17 +191,6 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   // not correctness — fields work without them).
   if (field.indexed) {
     void ensureFieldIndex(field.id, field.type, field.tableId, field.config);
-  }
-  // Unique-constraint indexes ARE correctness-critical: if the build
-  // fails, the row claiming `unique_constraint = true` would lie about
-  // enforcement. Await + roll back the metadata flag on failure.
-  if (field.uniqueConstraint && isUniqueable(field.type)) {
-    try {
-      await ensureFieldUniqueIndex(field.id, field.type, field.tableId);
-    } catch (e) {
-      await sql`UPDATE grids.fields SET unique_constraint = FALSE WHERE id = ${field.id}::uuid`;
-      return fail(err.internal(`field created but unique-constraint index build failed: ${(e as Error).message}`));
-    }
   }
 
   await emitTableMetadataEvent(input.tableId, {
@@ -240,36 +286,76 @@ const logFieldUpdateDiff = async (
   client: SqlClient = sql,
 ): Promise<void> => {
   const diff: Record<string, { old: unknown; new: unknown }> = {};
+  const jsonEqual = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
   if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
+  if (next.description !== existing.description) diff.description = { old: existing.description, new: next.description };
+  if (next.icon !== existing.icon) diff.icon = { old: existing.icon, new: next.icon };
+  if (!jsonEqual(next.config, existing.config)) diff.config = { old: existing.config, new: next.config };
+  if (next.position !== existing.position) diff.position = { old: existing.position, new: next.position };
   if (next.required !== existing.required) diff.required = { old: existing.required, new: next.required };
+  if (next.presentable !== existing.presentable) diff.presentable = { old: existing.presentable, new: next.presentable };
+  if (next.hideInTable !== existing.hideInTable) diff.hideInTable = { old: existing.hideInTable, new: next.hideInTable };
+  if (!jsonEqual(next.defaultValue, existing.defaultValue)) {
+    diff.defaultValue = { old: existing.defaultValue, new: next.defaultValue };
+  }
+  if (next.indexed !== existing.indexed) diff.indexed = { old: existing.indexed, new: next.indexed };
+  if (next.uniqueConstraint !== existing.uniqueConstraint) {
+    diff.uniqueConstraint = { old: existing.uniqueConstraint, new: next.uniqueConstraint };
+  }
   if (Object.keys(diff).length > 0) {
     await logAudit({ tableId: existing.tableId, userId: actorId, action: "updated", diff }, client);
   }
 };
 
-const syncFieldIndexes = async (existing: Field, field: Field): Promise<Result<void>> => {
+const compensateUniqueConstraintDisable = async (existing: Field, field: Field, actorId: string | null): Promise<Field | null> => {
+  try {
+    const restored = await sql.begin(async (tx) => {
+      const restoredResult = await persistFieldUpdate(field.id, fieldUpdateState(existing), tx);
+      if (!restoredResult.ok) throw new Error(restoredResult.error.message);
+      await logFieldUpdateDiff(field, fieldUpdateState(existing), actorId, tx);
+      if (field.name !== existing.name) {
+        await rewriteFieldNameReferences({ tableId: field.tableId, oldName: field.name, newName: existing.name }, tx);
+      }
+      return restoredResult.data;
+    });
+    await emitTableMetadataEvent(field.tableId, {
+      type: "field.updated",
+      resource: { kind: "field", id: field.id, tableId: field.tableId },
+      actorId,
+    });
+    return restored;
+  } catch (error) {
+    log.error("Failed to compensate unique-constraint disable", { fieldId: field.id, error: String(error) });
+    return null;
+  }
+};
+
+const syncFieldIndexes = async (existing: Field, field: Field, actorId: string | null): Promise<Result<Field>> => {
+  // Unique-constraint enable is prepared before the row transaction. Only
+  // disabling remains here. Resolve it before best-effort performance-index
+  // work so compensation can restore the complete prior field state.
+  if (existing.uniqueConstraint !== field.uniqueConstraint) {
+    if (!field.uniqueConstraint) {
+      try {
+        await dropFieldUniqueIndex(field.id, { throwOnError: true });
+      } catch {
+        const compensated = await compensateUniqueConstraintDisable(existing, field, actorId);
+        return fail(
+          err.internal(
+            compensated
+              ? "unique-constraint index drop failed; the field change was rolled back"
+              : "unique-constraint index drop failed and field metadata could not be reconciled",
+          ),
+        );
+      }
+    }
+  }
   // Toggle indexed state outside the row commit. Both calls are idempotent.
   if (existing.indexed !== field.indexed) {
     if (field.indexed) void ensureFieldIndex(field.id, field.type, field.tableId, field.config);
     else void dropFieldIndex(field.id);
   }
-  // Unique-constraint enable: AWAIT the build and roll back the metadata
-  // flag if it fails. The pre-flight conflict check above already
-  // rejected the toggle when duplicates exist, but the CONCURRENTLY
-  // build can still fail on transient errors (locks, disk pressure).
-  if (existing.uniqueConstraint !== field.uniqueConstraint) {
-    if (field.uniqueConstraint) {
-      try {
-        await ensureFieldUniqueIndex(field.id, field.type, field.tableId);
-      } catch (e) {
-        await sql`UPDATE grids.fields SET unique_constraint = FALSE WHERE id = ${field.id}::uuid`;
-        return fail(err.internal(`unique-constraint index build failed: ${(e as Error).message}`));
-      }
-    } else {
-      void dropFieldUniqueIndex(field.id);
-    }
-  }
-  return ok();
+  return ok(field);
 };
 
 export const update = async (id: string, input: UpdateFieldInput, actorId: string | null): Promise<Result<Field>> => {
@@ -284,40 +370,65 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   const uniqueAllowed = await ensureUniqueToggleAllowed(id, existing, input);
   if (!uniqueAllowed.ok) return uniqueAllowed;
 
-  const txResult = await sql
-    .begin(async (tx): Promise<Result<Field>> => {
-      const fieldResult = await persistFieldUpdate(id, nextResult.data, tx);
-      if (!fieldResult.ok) throw fieldResult;
-      const field = fieldResult.data;
+  const uniqueIndexEnabled = !existing.uniqueConstraint && nextResult.data.uniqueConstraint;
+  if (uniqueIndexEnabled) {
+    try {
+      // Prepare correctness-critical enforcement before changing metadata.
+      await ensureFieldUniqueIndex(id, existing.type, existing.tableId);
+    } catch (error) {
+      return fail(err.internal(`unique-constraint index build failed: ${(error as Error).message}`));
+    }
+  }
 
-      await logFieldUpdateDiff(existing, nextResult.data, actorId, tx);
+  let txResult: Result<Field>;
+  try {
+    txResult = await sql
+      .begin(async (tx): Promise<Result<Field>> => {
+        const fieldResult = await persistFieldUpdate(id, nextResult.data, tx);
+        if (!fieldResult.ok) throw fieldResult;
+        const field = fieldResult.data;
 
-      if (existing.name !== field.name) {
-        await rewriteFieldNameReferences({ tableId: existing.tableId, oldName: existing.name, newName: field.name }, tx);
-      }
+        await logFieldUpdateDiff(existing, nextResult.data, actorId, tx);
 
-      return ok(field);
-    })
-    .catch((e: unknown) => {
-      if (typeof e === "object" && e !== null && "ok" in e && (e as { ok?: unknown }).ok === false) {
-        return e as Result<Field>;
-      }
-      const conflict = namedResourceConflict<Field>(e, "idx_grids_fields_live_name", "field name must be unique within this table");
-      if (conflict) return conflict;
-      return fail(err.internal(`field update failed: ${(e as Error).message}`));
-    });
-  if (!txResult.ok) return txResult;
+        if (existing.name !== field.name) {
+          await rewriteFieldNameReferences({ tableId: existing.tableId, oldName: existing.name, newName: field.name }, tx);
+        }
+
+        return ok(field);
+      })
+      .catch((e: unknown) => {
+        if (typeof e === "object" && e !== null && "ok" in e && (e as { ok?: unknown }).ok === false) {
+          return e as Result<Field>;
+        }
+        const conflict = namedResourceConflict<Field>(e, "idx_grids_fields_live_name", "field name must be unique within this table");
+        if (conflict) return conflict;
+        return fail(err.internal(`field update failed: ${(e as Error).message}`));
+      });
+  } catch (error) {
+    if (uniqueIndexEnabled) {
+      const cleanup = await cleanupPreparedUniqueIndex(id);
+      if (!cleanup.ok) throw new AggregateError([error, cleanup.error], cleanup.error.message);
+    }
+    throw error;
+  }
+  if (!txResult.ok) {
+    if (uniqueIndexEnabled) {
+      const cleanup = await cleanupPreparedUniqueIndex(id);
+      if (!cleanup.ok) return fail(cleanup.error);
+    }
+    return txResult;
+  }
   const field = txResult.data;
 
-  const indexResult = await syncFieldIndexes(existing, field);
-  if (!indexResult.ok) return indexResult;
+  const synchronizedField = await syncFieldIndexes(existing, field, actorId);
+  if (!synchronizedField.ok) return synchronizedField;
 
   await emitTableMetadataEvent(existing.tableId, {
     type: "field.updated",
-    resource: { kind: "field", id: field.id, tableId: existing.tableId },
+    resource: { kind: "field", id: synchronizedField.data.id, tableId: existing.tableId },
     actorId,
   });
-  return ok(field);
+  return synchronizedField;
 };
 
 /**
@@ -391,15 +502,27 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
       return fail(err.internal(`field restore failed while rebuilding its unique index: ${(error as Error).message}`));
     }
   }
-  let restored: Result<void>;
+  let restored: Result<Field>;
   try {
-    restored = await writeNamedResource(
-      async () => {
-        await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
-      },
-      "idx_grids_fields_live_name",
-      "field name must be unique within this table",
-    );
+    restored = await sql.begin(async (tx): Promise<Result<Field>> => {
+      const result = await writeNamedResource(
+        () =>
+          tx.savepoint(async (sp) => {
+            const [row] = await sp<DbRow[]>`
+              UPDATE grids.fields SET deleted_at = NULL, updated_at = now()
+              WHERE id = ${id}::uuid
+              RETURNING *
+            `;
+            if (!row) throw new Error("restore failed");
+            return mapFieldRow(row);
+          }),
+        "idx_grids_fields_live_name",
+        "field name must be unique within this table",
+      );
+      if (!result.ok) return result;
+      await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" }, tx);
+      return result;
+    });
   } catch (error) {
     if (restoreUniqueIndex) await dropFieldUniqueIndex(id);
     throw error;
@@ -408,7 +531,6 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
     if (restoreUniqueIndex) await dropFieldUniqueIndex(id);
     return restored;
   }
-  await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
   await emitTableMetadataEvent(existing.tableId, {
     type: "field.restored",
     resource: { kind: "field", id, tableId: existing.tableId },
@@ -422,28 +544,35 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
 export const softDelete = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(id);
   if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
-  await sql`UPDATE grids.fields SET deleted_at = now() WHERE id = ${id}::uuid`;
-  await logAudit({ tableId: existing.tableId, userId: actorId, action: "deleted" });
-  // Auto-cleanup: strip the soft-deleted field id from every form's
-  // config.fields[] in the same table. Views/forms see a stripped column
-  // immediately rather than rendering a stale reference.
-  await sql`
-    UPDATE grids.forms
-    SET config = jsonb_set(
-      config,
-      '{fields}',
-      COALESCE(
-        (
-          SELECT jsonb_agg(elem)
-          FROM jsonb_array_elements(config->'fields') AS elem
-          WHERE elem->>'fieldId' <> ${id}
-        ),
-        '[]'::jsonb
+  await sql.begin(async (tx) => {
+    const [deleted] = await tx<DbRow[]>`
+      UPDATE grids.fields SET deleted_at = now(), updated_at = now()
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING id
+    `;
+    if (!deleted) throw err.notFound("Field");
+    await logAudit({ tableId: existing.tableId, userId: actorId, action: "deleted" }, tx);
+    // Auto-cleanup: strip the soft-deleted field id from every form's
+    // config.fields[] in the same table. Views/forms see a stripped column
+    // immediately rather than rendering a stale reference.
+    await tx`
+      UPDATE grids.forms
+      SET config = jsonb_set(
+        config,
+        '{fields}',
+        COALESCE(
+          (
+            SELECT jsonb_agg(elem)
+            FROM jsonb_array_elements(config->'fields') AS elem
+            WHERE elem->>'fieldId' <> ${id}
+          ),
+          '[]'::jsonb
+        )
       )
-    )
-    WHERE table_id = ${existing.tableId}::uuid
-      AND config->'fields' @> jsonb_build_array(jsonb_build_object('fieldId', ${id}::text))
-  `;
+      WHERE table_id = ${existing.tableId}::uuid
+        AND config->'fields' @> jsonb_build_array(jsonb_build_object('fieldId', ${id}::text))
+    `;
+  });
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);
   if (existing.uniqueConstraint) await dropFieldUniqueIndex(id);

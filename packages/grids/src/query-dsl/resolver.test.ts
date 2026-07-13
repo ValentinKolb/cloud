@@ -574,6 +574,105 @@ sort missing desc`),
     expect(result.plan.query.limit).toBe(5);
   });
 
+  test("query plan enforces one case-insensitive namespace for derived output aliases", () => {
+    const context = ctx({
+      views: [
+        {
+          kind: "view",
+          id: "33333333-3333-4333-8333-333333333333",
+          shortId: "Summary",
+          name: "Monthly summary",
+          tableId: orders.id,
+          query: {
+            groupBy: [{ fieldId: orderedAtFieldId, granularity: "month" }],
+            aggregations: [{ fieldId: amountFieldId, agg: "sum", label: "revenue" }],
+          },
+        },
+      ],
+    });
+
+    const duplicate = resolveDslQueryToQueryPlan(
+      parseOk(`from view Summary\nselect revenue as value, "Ordered at (month)" as VALUE`),
+      context,
+    );
+    expect(duplicate.ok).toBe(false);
+    if (!duplicate.ok) expect(duplicate.diagnostics.map((item) => item.message)).toEqual(['duplicate select alias "VALUE"']);
+
+    const sourceCollision = resolveDslQueryToQueryPlan(parseOk(`from view Summary\nselect "Ordered at (month)" as revenue`), context);
+    expect(sourceCollision.ok).toBe(false);
+    if (!sourceCollision.ok)
+      expect(sourceCollision.diagnostics.map((item) => item.message)).toEqual(['select alias "revenue" conflicts with a derived column']);
+  });
+
+  test("query plan sorts derived and joined output aliases", () => {
+    const summaryContext = ctx({
+      views: [
+        {
+          kind: "view",
+          id: "33333333-3333-4333-8333-333333333333",
+          shortId: "Summary",
+          name: "Monthly summary",
+          tableId: orders.id,
+          query: {
+            groupBy: [{ fieldId: orderedAtFieldId, granularity: "month" }],
+            aggregations: [{ fieldId: amountFieldId, agg: "sum", label: "revenue" }],
+          },
+        },
+      ],
+    });
+    const derived = resolveDslQueryToQueryPlan(parseOk(`from view Summary\nselect revenue as total\nsort TOTAL desc`), summaryContext);
+    expect(derived.ok).toBe(true);
+    if (derived.ok) {
+      expect(derived.plan.derivedViewSource?.sort).toEqual([
+        expect.objectContaining({ column: expect.objectContaining({ key: `${amountFieldId}__sum`, label: "total" }), direction: "desc" }),
+      ]);
+    }
+
+    const joinedContext = ctx({
+      views: [
+        {
+          kind: "view",
+          id: "33333333-3333-4333-8333-333333333333",
+          shortId: "ByCust",
+          name: "Revenue by customer",
+          tableId: orders.id,
+          query: {
+            groupBy: [{ fieldId: customerLinkFieldId }],
+            aggregations: [{ fieldId: amountFieldId, agg: "sum", label: "revenue" }],
+          },
+        },
+      ],
+    });
+    const joined = resolveDslQueryToQueryPlan(
+      parseOk(`
+        from view ByCust
+        join table Custs as customer on customer_link = customer.id
+        select customer.name as customer_name
+        sort CUSTOMER_NAME asc
+      `),
+      joinedContext,
+    );
+    expect(joined.ok).toBe(true);
+    if (joined.ok) {
+      expect(joined.plan.derivedViewSource?.joinedSort).toEqual([
+        { kind: "joinedField", joinAlias: "customer", tableId: customers.id, fieldId: customerNameFieldId, direction: "asc" },
+      ]);
+    }
+
+    const duplicateAcrossOutputs = resolveDslQueryToQueryPlan(
+      parseOk(`
+        from view ByCust
+        join table Custs as customer on customer_link = customer.id
+        select revenue as value, customer.name as VALUE
+      `),
+      joinedContext,
+    );
+    expect(duplicateAcrossOutputs.ok).toBe(false);
+    if (!duplicateAcrossOutputs.ok) {
+      expect(duplicateAcrossOutputs.diagnostics.map((item) => item.message)).toEqual(['duplicate select alias "VALUE"']);
+    }
+  });
+
   test("query plan resolves aggregate-only saved views as one-row derived sources", () => {
     const result = resolveDslQueryToQueryPlan(
       parseOk(`

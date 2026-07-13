@@ -48,9 +48,19 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 const VALUELESS_OPS = new Set(["isEmpty", "isNotEmpty", "today", "thisWeek", "thisMonth"]);
 const NUMBER_TYPES = new Set(["number", "percent", "duration"]);
 
+const isValidIsoDate = (value: string): boolean => {
+  if (!ISO_DATE_REGEX.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day || month > 12) return false;
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1]!;
+};
+
 const isValidDateValue = (value: unknown, dateIncludeTime?: boolean): boolean => {
   if (typeof value !== "string") return false;
-  if (!dateIncludeTime) return ISO_DATE_REGEX.test(value);
+  if (!isValidIsoDate(value.slice(0, 10))) return false;
+  if (!dateIncludeTime) return value.length === 10;
   if (!INSTANT_REGEX.test(value)) return false;
   return !Number.isNaN(new Date(value).getTime());
 };
@@ -73,7 +83,7 @@ const validateDateValue = (op: string, value: unknown, dateIncludeTime?: boolean
   }
   if (op === "between") return validateDateBounds(value, dateIncludeTime);
   if (isValidDateValue(value, dateIncludeTime)) return null;
-  return dateIncludeTime ? "expected timezone-aware ISO date-time string" : "expected ISO date string";
+  return dateIncludeTime ? "expected a valid timezone-aware ISO date-time string" : "expected a valid ISO date string";
 };
 
 const validateNumberValue = (op: string, value: unknown): string | null => {

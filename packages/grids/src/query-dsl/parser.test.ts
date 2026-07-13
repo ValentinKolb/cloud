@@ -347,6 +347,32 @@ limit 2`);
     });
   });
 
+  test("parses join equality outside quoted identifiers on either side", () => {
+    const leftQuoted = parseGridsQueryDsl(`
+      from table orders as o
+      join table customers as customer on o."external=id" = customer.id
+    `);
+    expect(leftQuoted.ok).toBe(true);
+    if (leftQuoted.ok) {
+      expect(withoutSpans(leftQuoted.ast.joins[0]?.on)).toEqual({
+        left: { scope: "o", ref: "external=id" },
+        right: { scope: "customer", ref: "id" },
+      });
+    }
+
+    const rightQuoted = parseGridsQueryDsl(`
+      from table orders as o
+      join table customers as customer on o.customer_id = customer."external=id"
+    `);
+    expect(rightQuoted.ok).toBe(true);
+    if (rightQuoted.ok) {
+      expect(withoutSpans(rightQuoted.ast.joins[0]?.on)).toEqual({
+        left: { scope: "o", ref: "customer_id" },
+        right: { scope: "customer", ref: "external=id" },
+      });
+    }
+  });
+
   test("rejects unsafe or ambiguous join scopes", () => {
     const bothUnscoped = parseGridsQueryDsl(`
       join table customers as customer on customer_id = id

@@ -31,7 +31,7 @@ type WorkflowScheduleRuntimeDeps = {
   maxRetries: number;
 };
 
-export type ManagedWorkflowSchedule = {
+type ManagedWorkflowSchedule = {
   workflowId: string;
   revision: number;
 };

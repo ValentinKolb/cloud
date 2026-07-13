@@ -1,4 +1,3 @@
-import { sql } from "bun";
 import type { RecordQuery } from "../contracts";
 import type { Expr } from "../formula/types";
 import { normalizeRefKey } from "../ref-syntax";
@@ -18,6 +17,7 @@ import {
 import { type GroupHavingRef, isGroupable } from "../service/group-compiler";
 import type { Field } from "../service/types";
 import {
+  compileHavingPredicate,
   type DslFormulaAggregation,
   type DslFormulaHavingPredicate,
   duplicateAggregateOutputDiagnostic,
@@ -149,18 +149,46 @@ const createDerivedScopedFormulaFieldResolver = (
   return (ref) => scoped(ref) ?? derived(ref);
 };
 
+const hasDerivedColumnRef = (columns: DslDerivedViewColumn[], ref: string): boolean => {
+  const key = normalizeRefKey(ref);
+  return columns.some((column) => column.refs.some((candidate) => normalizeRefKey(candidate) === key));
+};
+
+type DslDerivedOutputAlias = { kind: "derived"; column: DslDerivedViewColumn } | { kind: "joined"; column: DslJoinedColumn };
+
+const derivedSelectAliasConflictDiagnostic = (
+  alias: string,
+  columns: DslDerivedViewColumn[],
+  scope: Scope,
+  outputAliases: Map<string, DslDerivedOutputAlias>,
+  span?: DslSourceSpan,
+): DslResolverDiagnostic | null => {
+  if (outputAliases.has(normalizeRefKey(alias)) || hasAnyOutputAlias(scope, alias)) {
+    return diagnostic(`duplicate select alias "${alias}"`, span);
+  }
+  if (hasDerivedColumnRef(columns, alias)) return diagnostic(`select alias "${alias}" conflicts with a derived column`, span);
+  return null;
+};
+
 const resolveDerivedSelect = (
   select: DslSelectItem[],
   columns: DslDerivedViewColumn[],
   scope: Scope,
-): { outputColumns: DslDerivedViewColumn[]; joinedColumns: DslJoinedColumn[] } | DslResolverDiagnostic => {
-  if (select.length === 0) return { outputColumns: columns, joinedColumns: [] };
+):
+  | { outputColumns: DslDerivedViewColumn[]; joinedColumns: DslJoinedColumn[]; outputAliases: Map<string, DslDerivedOutputAlias> }
+  | DslResolverDiagnostic => {
+  const outputAliases = new Map<string, DslDerivedOutputAlias>();
+  if (select.length === 0) return { outputColumns: columns, joinedColumns: [], outputAliases };
   const output: DslDerivedViewColumn[] = [];
   const joinedColumns: DslJoinedColumn[] = [];
   const seen = new Set<string>();
   for (const item of select) {
     if (item.kind !== "field")
       return diagnostic("derived view sources can select output columns and joined fields, not computed formulas yet", item.span);
+    if (item.alias) {
+      const aliasConflict = derivedSelectAliasConflictDiagnostic(item.alias, columns, scope, outputAliases, item.span);
+      if (aliasConflict) return aliasConflict;
+    }
     if (item.field.scope) {
       const join = joinScopeByAlias(scope, item.field.scope, item.field.span ?? item.span);
       if (isDiagnostic(join)) return join;
@@ -171,12 +199,14 @@ const resolveDerivedSelect = (
       const key = `${join.alias}.${field.id}`;
       if (seen.has(key)) return diagnostic(`duplicate joined field "${item.field.scope}.${item.field.ref}"`, item.field.span ?? item.span);
       seen.add(key);
-      joinedColumns.push({
+      const joinedColumn: DslJoinedColumn = {
         joinAlias: join.alias,
         tableId: join.tableId,
         fieldId: field.id,
         label: item.alias ?? `${join.alias}.${field.name}`,
-      });
+      };
+      joinedColumns.push(joinedColumn);
+      if (item.alias) outputAliases.set(normalizeRefKey(item.alias), { kind: "joined", column: joinedColumn });
       continue;
     }
     const column = derivedColumnByRef(columns, item.field.ref, item.field.span ?? item.span);
@@ -185,15 +215,18 @@ const resolveDerivedSelect = (
     if (seen.has(key)) return diagnostic(`duplicate derived column "${item.field.ref}"`, item.field.span ?? item.span);
     seen.add(column.key);
     seen.add(key);
-    output.push(item.alias ? { ...column, label: item.alias, refs: uniqueRefs([item.alias, ...column.refs]) } : column);
+    const outputColumn = item.alias ? { ...column, label: item.alias, refs: uniqueRefs([item.alias, ...column.refs]) } : column;
+    output.push(outputColumn);
+    if (item.alias) outputAliases.set(normalizeRefKey(item.alias), { kind: "derived", column: outputColumn });
   }
-  return { outputColumns: output, joinedColumns };
+  return { outputColumns: output, joinedColumns, outputAliases };
 };
 
 const resolveDerivedSort = (
   sort: DslSortItem[],
   columns: DslDerivedViewColumn[],
   scope: Scope,
+  outputAliases: Map<string, DslDerivedOutputAlias>,
 ):
   | { sort: DslResolvedDerivedViewSource["sort"]; joinedSort: NonNullable<DslResolvedDerivedViewSource["joinedSort"]> }
   | DslResolverDiagnostic => {
@@ -201,6 +234,26 @@ const resolveDerivedSort = (
   const joinedSort: NonNullable<DslResolvedDerivedViewSource["joinedSort"]> = [];
   for (const item of sort) {
     const ref = isAliasSortTarget(item.target) ? item.target.alias : item.target.ref;
+    const outputAlias = !isQualifiedSortTarget(item.target) || !item.target.scope ? outputAliases.get(normalizeRefKey(ref)) : undefined;
+    if (outputAlias?.kind === "derived") {
+      resolved.push({
+        column: outputAlias.column,
+        direction: item.direction,
+        ...(item.nullsFirst !== undefined ? { nullsFirst: item.nullsFirst } : {}),
+      });
+      continue;
+    }
+    if (outputAlias?.kind === "joined") {
+      joinedSort.push({
+        kind: "joinedField",
+        joinAlias: outputAlias.column.joinAlias,
+        tableId: outputAlias.column.tableId,
+        fieldId: outputAlias.column.fieldId,
+        direction: item.direction,
+        ...(item.nullsFirst !== undefined ? { nullsFirst: item.nullsFirst } : {}),
+      });
+      continue;
+    }
     if (isQualifiedSortTarget(item.target) && item.target.scope) {
       const join = joinScopeByAlias(scope, item.target.scope, item.target.span ?? item.span);
       if (isDiagnostic(join)) return join;
@@ -302,11 +355,6 @@ const isDerivedColumnAggregatable = (column: DslDerivedViewColumn | null, agg: D
   if (isStarField) return agg === "count";
   if (!column) return false;
   return isFormulaAggregatable(derivedColumnSqlType(column), agg);
-};
-
-const hasDerivedColumnRef = (columns: DslDerivedViewColumn[], ref: string): boolean => {
-  const key = normalizeRefKey(ref);
-  return columns.some((column) => column.refs.some((candidate) => normalizeRefKey(candidate) === key));
 };
 
 const derivedAggregateAliasConflictDiagnostic = (
@@ -505,34 +553,7 @@ const resolveDerivedHavingPredicate = (
     });
   }
 
-  const compiled = compileFormulaAstToSql(having.expression, {
-    fields: [],
-    resolveField: (ref) => {
-      const aggregate = refs.get(normalizeRefKey(ref));
-      if (!aggregate) return null;
-      const cast =
-        aggregate.sqlType === "numeric"
-          ? sql`NULL::numeric`
-          : aggregate.sqlType === "boolean"
-            ? sql`NULL::boolean`
-            : aggregate.sqlType === "date"
-              ? sql`NULL::date`
-              : aggregate.sqlType === "datetime"
-                ? sql`NULL::timestamptz`
-                : sql`NULL::text`;
-      return { sql: cast, type: aggregate.sqlType };
-    },
-  });
-  if (!compiled.ok) return diagnostic(`having formula: ${compiled.error}`, having.span);
-  if (compiled.expression.type !== "boolean") return diagnostic("having formula must return a boolean value", having.span);
-
-  return {
-    kind: "formula",
-    source: having.source,
-    expression: having.expression,
-    sqlType: compiled.expression.type,
-    aggregateRefs: [...refs.values()].map((item) => item.ref),
-  };
+  return compileHavingPredicate(having, refs);
 };
 
 const sameDerivedGroupColumn = (group: DslDerivedViewGroupBy, column: DslDerivedViewColumn): boolean =>
@@ -698,7 +719,7 @@ export const resolveDerivedViewSourcePlan = (
 
   const output = resolveDerivedSelect(ast.select, columns, scope);
   if (isDiagnostic(output)) return { ok: false, diagnostics: [output] };
-  const sort = resolveDerivedSort(ast.sort, columns, scope);
+  const sort = resolveDerivedSort(ast.sort, columns, scope, output.outputAliases);
   if (isDiagnostic(sort)) return { ok: false, diagnostics: [sort] };
   if (output.outputColumns.length === 0 && output.joinedColumns.length === 0) {
     return { ok: false, diagnostics: [diagnostic("derived view source has no output columns", ast.select[0]?.span)] };

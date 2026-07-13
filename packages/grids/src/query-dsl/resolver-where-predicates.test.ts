@@ -180,6 +180,12 @@ describe("GQL where predicates — first-class per field type", () => {
     expect(filterOf(`where ordered_at >= '2026-01-01'`)).toEqual({ fieldId: orderedAtFieldId, op: "onOrAfter", value: "2026-01-01" });
   });
 
+  test("rejects invalid calendar dates before SQL compilation", () => {
+    expect(errorOf(`where ordered_at = '2026-99-99'`)).toEqual(['"Ordered at" expects a valid ISO date string']);
+    expect(errorOf(`where ordered_at = '2026-02-31'`)).toEqual(['"Ordered at" expects a valid ISO date string']);
+    expect(filterOf(`where ordered_at = '2024-02-29'`)).toEqual({ fieldId: orderedAtFieldId, op: "=", value: "2024-02-29" });
+  });
+
   test("a bare boolean field means = true; != true means = false", () => {
     expect(filterOf(`where paid`)).toEqual({ fieldId: paidFieldId, op: "=", value: true });
     expect(filterOf(`where paid = false`)).toEqual({ fieldId: paidFieldId, op: "=", value: false });

@@ -41,7 +41,7 @@ describe("grids schema migration", () => {
           FROM information_schema.tables
           WHERE table_schema = 'grids'
         `;
-        expect(row?.tableCount).toBe(29);
+        expect(row?.tableCount).toBe(30);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -221,6 +221,14 @@ describe("grids schema migration", () => {
         expect(run?.status).toBe("failed");
         expect(run?.error).toBe("Could not recover workflow run created before immutable execution snapshots were available");
         expect(run?.definition).not.toEqual(editedDefinition);
+        const [audit] = await database<Array<{ action: string; runId: string }>>`
+          SELECT action, diff->'workflowRun'->'new'->>'id' AS "runId"
+          FROM grids.audit_log
+          WHERE base_id = ${baseId}::uuid
+            AND action = 'workflow.run.failed'
+            AND diff->'workflowRun'->'new'->>'id' = ${runId}
+        `;
+        expect(audit).toEqual({ action: "workflow.run.failed", runId });
 
         const rollingRunId = uuid();
         await database`
