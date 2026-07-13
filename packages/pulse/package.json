@@ -10,6 +10,7 @@
   },
   "scripts": {
     "test": "APP_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef bun test src",
+    "test:load": "bun src/service/high-cardinality-load.ts",
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
   },
   "dependencies": {

@@ -321,6 +321,35 @@ const eventAggregateExpression = (aggregation: NonNullable<EventQuery["aggregati
   }
 };
 
+const eventGroupExpression = (groupBy: string[]) => {
+  switch (groupBy.length) {
+    case 0:
+      return sql`'{}'::jsonb`;
+    case 1:
+      return sql`jsonb_build_object(${groupBy[0]}::text, event.dimensions -> ${groupBy[0]}::text)`;
+    case 2:
+      return sql`jsonb_build_object(
+        ${groupBy[0]}::text, event.dimensions -> ${groupBy[0]}::text,
+        ${groupBy[1]}::text, event.dimensions -> ${groupBy[1]}::text
+      )`;
+    case 3:
+      return sql`jsonb_build_object(
+        ${groupBy[0]}::text, event.dimensions -> ${groupBy[0]}::text,
+        ${groupBy[1]}::text, event.dimensions -> ${groupBy[1]}::text,
+        ${groupBy[2]}::text, event.dimensions -> ${groupBy[2]}::text
+      )`;
+    case 4:
+      return sql`jsonb_build_object(
+        ${groupBy[0]}::text, event.dimensions -> ${groupBy[0]}::text,
+        ${groupBy[1]}::text, event.dimensions -> ${groupBy[1]}::text,
+        ${groupBy[2]}::text, event.dimensions -> ${groupBy[2]}::text,
+        ${groupBy[3]}::text, event.dimensions -> ${groupBy[3]}::text
+      )`;
+    default:
+      throw new Error("Group by cannot exceed 4 dimension keys");
+  }
+};
+
 export const queryEventAggregateData = async (query: EventQuery): Promise<Result<MetricQueryPoint[]>> => {
   const aggregation = query.aggregation ?? "rows";
   if (aggregation === "rows") return fail(err.badInput("Event aggregation is required"));
@@ -339,10 +368,7 @@ export const queryEventAggregateData = async (query: EventQuery): Promise<Result
         event.value,
         event.actor_id,
         event.session_id,
-        COALESCE((
-          SELECT jsonb_object_agg(group_key, event.dimensions -> group_key)
-          FROM unnest(${sql.array(groupBy, "TEXT")}) AS group_key
-        ), '{}'::jsonb) AS group_data
+        ${eventGroupExpression(groupBy)} AS group_data
       FROM pulse.events event
       WHERE event.base_id = ${query.baseId}::uuid
         AND (${query.event ?? null}::text IS NULL OR event.kind = ${query.event ?? null})
