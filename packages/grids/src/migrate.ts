@@ -811,6 +811,29 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
     ON grids.record_event_outbox(delivered_at)
     WHERE status = 'delivered'
   `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.record_event_delivery_failures (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      consumer_group TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      payload TEXT,
+      error TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 1 CHECK (attempts > 0),
+      status TEXT NOT NULL DEFAULT 'retrying' CHECK (status IN ('retrying', 'dead')),
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      dead_at TIMESTAMPTZ,
+      UNIQUE (base_id, consumer_group, event_id),
+      CHECK ((status = 'dead') = (dead_at IS NOT NULL))
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_event_delivery_failures_dead
+    ON grids.record_event_delivery_failures(base_id, dead_at DESC)
+    WHERE status = 'dead'
+  `.simple();
   await sql`
     CREATE OR REPLACE FUNCTION grids.enqueue_record_event(p_table_id uuid, p_record_id uuid, p_payload jsonb)
     RETURNS uuid
@@ -842,7 +865,7 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
     END;
     $$
   `.simple();
-  console.log("  ✓ grids.record_event_outbox");
+  console.log("  ✓ grids.record_event_outbox + delivery failures");
 
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_bases_short_id

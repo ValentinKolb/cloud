@@ -76,7 +76,7 @@ test("record event dispatch preserves its prepared catalog snapshot", async () =
     },
     recordDispatchFailure: async () => undefined,
     recordEventReader: (() => undefined) as never,
-    reclaimRecordEventDeliveries: async () => [],
+    recordInvalidRecordEventDelivery: async () => ({ attempts: 1, dead: false }),
     latestMetadataEventCursor: async () => null,
     liveMetadataEvents: async function* () {},
     scheduleReconcile: () => undefined,
@@ -111,7 +111,7 @@ test("record event dispatch persists partial failures and keeps stable workflow 
       persistedFailures.push({ workflowId: failure.workflow.id, triggerKey: failure.triggerKey });
     },
     recordEventReader: (() => undefined) as never,
-    reclaimRecordEventDeliveries: async () => [],
+    recordInvalidRecordEventDelivery: async () => ({ attempts: 1, dead: false }),
     latestMetadataEventCursor: async () => null,
     liveMetadataEvents: async function* () {},
     scheduleReconcile: () => undefined,
@@ -153,7 +153,7 @@ test("record event dispatch isolates thrown workflow failures", async () => {
       persistedFailures.push(`${failure.workflow.id}:${failure.stage}`);
     },
     recordEventReader: (() => undefined) as never,
-    reclaimRecordEventDeliveries: async () => [],
+    recordInvalidRecordEventDelivery: async () => ({ attempts: 1, dead: false }),
     latestMetadataEventCursor: async () => null,
     liveMetadataEvents: async function* () {},
     scheduleReconcile: () => undefined,
@@ -206,11 +206,15 @@ test("record event reader reclaims a delivery when no durable dispatch state cou
             else signal.addEventListener("abort", () => resolve(null), { once: true });
           });
         },
+        reclaim: async () => {
+          reclaimCalls += 1;
+          return {
+            nextCursor: "0-0",
+            entries: reclaimCalls === 2 ? [{ kind: "delivery", delivery }] : [],
+          };
+        },
       }) as never,
-    reclaimRecordEventDeliveries: async () => {
-      reclaimCalls += 1;
-      return reclaimCalls === 2 ? [delivery] : [];
-    },
+    recordInvalidRecordEventDelivery: async () => ({ attempts: 1, dead: false }),
     latestMetadataEventCursor: async () => null,
     liveMetadataEvents: async function* ({ signal }) {
       await new Promise<void>((resolve) => {
@@ -266,8 +270,9 @@ test("record event reader treats a rejected acknowledgement as a delivery failur
             else signal.addEventListener("abort", () => resolve(null), { once: true });
           });
         },
+        reclaim: async () => ({ nextCursor: "0-0", entries: [] }),
       }) as never,
-    reclaimRecordEventDeliveries: async () => [],
+    recordInvalidRecordEventDelivery: async () => ({ attempts: 1, dead: false }),
     latestMetadataEventCursor: async () => null,
     liveMetadataEvents: async function* ({ signal }) {
       await new Promise<void>((resolve) => {
@@ -284,4 +289,271 @@ test("record event reader treats a rejected acknowledgement as a delivery failur
   await runtime.stopAll();
 
   expect(commitCalls).toBe(1);
+});
+
+test("record event reader dead-letters unknown event schemas after bounded recovery", async () => {
+  const invalidEvent = { ...event, v: 2 };
+  const cursors: string[] = [];
+  const warnings: string[] = [];
+  let attempts = 0;
+  let commitCalls = 0;
+  let recvCalls = 0;
+  const delivery = {
+    data: invalidEvent,
+    eventId: "100-0",
+    commit: async () => {
+      commitCalls += 1;
+      return true;
+    },
+  };
+  const runtime = createWorkflowTriggerReaderRuntime({
+    log: { warn: (message) => warnings.push(message) },
+    workflows: {
+      listRecordEventBaseIds: async () => [event.baseId],
+      listRecordEventEnabled: async () => [],
+      recordMatchesWorkflowFilter: async () => ({ ok: true, data: true }),
+    },
+    prepareRecordEvent: async () => preparedRecordEvent(workflow, { tables: [], fieldsByTable: {}, templates: [], emailTemplates: [] }),
+    queuePreparedRun: async () => ({ id: "66666666-6666-4666-8666-666666666666" }) as never,
+    recordDispatchFailure: async () => undefined,
+    recordEventReader: () =>
+      ({
+        reclaim: async ({ cursor }: { cursor: string }) => {
+          cursors.push(cursor);
+          return {
+            nextCursor: attempts < 4 ? `${attempts + 1}-0` : "0-0",
+            entries: [{ kind: "delivery", delivery }],
+          };
+        },
+        recv: ({ wait, signal }: { wait: boolean; signal: AbortSignal }) => {
+          recvCalls += 1;
+          if (!wait) return null;
+          return new Promise<null>((resolve) => {
+            if (signal.aborted) resolve(null);
+            else signal.addEventListener("abort", () => resolve(null), { once: true });
+          });
+        },
+      }) as never,
+    recordInvalidRecordEventDelivery: async () => {
+      attempts += 1;
+      return { attempts, dead: attempts >= 5 };
+    },
+    latestMetadataEventCursor: async () => null,
+    liveMetadataEvents: async function* ({ signal }) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+    scheduleReconcile: () => undefined,
+  });
+
+  await runtime.reconcile();
+  await waitFor(() => commitCalls === 1);
+  await runtime.stopAll();
+
+  expect(attempts).toBe(5);
+  expect(cursors).toEqual(["0-0", "1-0", "2-0", "3-0", "4-0"]);
+  expect(recvCalls).toBe(5);
+  expect(warnings).toContain("Workflow record event moved to dead letter");
+});
+
+test("record event reader rejects events from a different base", async () => {
+  const foreignEvent = { ...event, baseId: "77777777-7777-4777-8777-777777777777" };
+  const failures: Array<{ baseId: string; error: string }> = [];
+  let commitCalls = 0;
+  const runtime = createWorkflowTriggerReaderRuntime({
+    log: { warn: () => undefined },
+    workflows: {
+      listRecordEventBaseIds: async () => [event.baseId],
+      listRecordEventEnabled: async () => [],
+      recordMatchesWorkflowFilter: async () => ({ ok: true, data: true }),
+    },
+    prepareRecordEvent: async () => preparedRecordEvent(workflow, { tables: [], fieldsByTable: {}, templates: [], emailTemplates: [] }),
+    queuePreparedRun: async () => ({ id: "66666666-6666-4666-8666-666666666666" }) as never,
+    recordDispatchFailure: async () => undefined,
+    recordEventReader: () =>
+      ({
+        reclaim: async () => ({
+          nextCursor: "0-0",
+          entries: [
+            {
+              kind: "delivery",
+              delivery: {
+                data: foreignEvent,
+                eventId: "300-0",
+                commit: async () => {
+                  commitCalls += 1;
+                  return true;
+                },
+              },
+            },
+          ],
+        }),
+        recv: ({ signal }: { signal: AbortSignal }) =>
+          new Promise<null>((resolve) => {
+            if (signal.aborted) resolve(null);
+            else signal.addEventListener("abort", () => resolve(null), { once: true });
+          }),
+      }) as never,
+    recordInvalidRecordEventDelivery: async (input) => {
+      failures.push({ baseId: input.baseId, error: input.error });
+      return { attempts: 5, dead: true };
+    },
+    latestMetadataEventCursor: async () => null,
+    liveMetadataEvents: async function* ({ signal }) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+    scheduleReconcile: () => undefined,
+  });
+
+  await runtime.reconcile();
+  await waitFor(() => commitCalls === 1);
+  await runtime.stopAll();
+
+  expect(failures).toEqual([
+    {
+      baseId: event.baseId,
+      error: `baseId: expected ${event.baseId}, received ${foreignEvent.baseId}`,
+    },
+  ]);
+});
+
+test("record event recovery advances past an invalid transport envelope", async () => {
+  let reclaimCalls = 0;
+  let validCommitCalls = 0;
+  let recvCalls = 0;
+  const runtime = createWorkflowTriggerReaderRuntime({
+    log: { warn: () => undefined },
+    workflows: {
+      listRecordEventBaseIds: async () => [event.baseId],
+      listRecordEventEnabled: async () => [],
+      recordMatchesWorkflowFilter: async () => ({ ok: true, data: true }),
+    },
+    prepareRecordEvent: async () => preparedRecordEvent(workflow, { tables: [], fieldsByTable: {}, templates: [], emailTemplates: [] }),
+    queuePreparedRun: async () => ({ id: "66666666-6666-4666-8666-666666666666" }) as never,
+    recordDispatchFailure: async () => undefined,
+    recordEventReader: () =>
+      ({
+        reclaim: async () => {
+          reclaimCalls += 1;
+          if (reclaimCalls === 1) {
+            return {
+              nextCursor: "200-0",
+              entries: [
+                {
+                  kind: "invalid",
+                  eventId: "100-0",
+                  rawPayload: "{broken",
+                  error: "payload is not valid JSON",
+                  commit: async () => true,
+                },
+              ],
+            };
+          }
+          return {
+            nextCursor: "0-0",
+            entries: [
+              {
+                kind: "delivery",
+                delivery: {
+                  data: event,
+                  eventId: "200-0",
+                  commit: async () => {
+                    validCommitCalls += 1;
+                    return true;
+                  },
+                },
+              },
+            ],
+          };
+        },
+        recv: ({ wait, signal }: { wait: boolean; signal: AbortSignal }) => {
+          recvCalls += 1;
+          if (!wait) return null;
+          return new Promise<null>((resolve) => {
+            if (signal.aborted) resolve(null);
+            else signal.addEventListener("abort", () => resolve(null), { once: true });
+          });
+        },
+      }) as never,
+    recordInvalidRecordEventDelivery: async () => ({ attempts: 1, dead: false }),
+    latestMetadataEventCursor: async () => null,
+    liveMetadataEvents: async function* ({ signal }) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+    scheduleReconcile: () => undefined,
+  });
+
+  await runtime.reconcile();
+  await waitFor(() => validCommitCalls === 1);
+  await runtime.stopAll();
+
+  expect(reclaimCalls).toBe(2);
+  expect(recvCalls).toBe(2);
+});
+
+test("record event recovery interleaves fresh deliveries with nonterminal reclaim pages", async () => {
+  const sequence: string[] = [];
+  let reclaimCalls = 0;
+  let committed = false;
+  const runtime = createWorkflowTriggerReaderRuntime({
+    log: { warn: () => undefined },
+    workflows: {
+      listRecordEventBaseIds: async () => [event.baseId],
+      listRecordEventEnabled: async () => [],
+      recordMatchesWorkflowFilter: async () => ({ ok: true, data: true }),
+    },
+    prepareRecordEvent: async () => preparedRecordEvent(workflow, { tables: [], fieldsByTable: {}, templates: [], emailTemplates: [] }),
+    queuePreparedRun: async () => ({ id: "66666666-6666-4666-8666-666666666666" }) as never,
+    recordDispatchFailure: async () => undefined,
+    recordEventReader: () =>
+      ({
+        reclaim: async ({ cursor }: { cursor: string }) => {
+          reclaimCalls += 1;
+          sequence.push(`reclaim:${cursor}`);
+          return { nextCursor: reclaimCalls < 3 ? `${reclaimCalls}-0` : "0-0", entries: [] };
+        },
+        recv: ({ wait, signal }: { wait: boolean; signal: AbortSignal }) => {
+          sequence.push(`recv:${wait}`);
+          if (!wait && !committed) {
+            return {
+              data: event,
+              eventId: "400-0",
+              commit: async () => {
+                sequence.push("commit");
+                committed = true;
+                return true;
+              },
+            };
+          }
+          if (!wait) return null;
+          return new Promise<null>((resolve) => {
+            if (signal.aborted) resolve(null);
+            else signal.addEventListener("abort", () => resolve(null), { once: true });
+          });
+        },
+      }) as never,
+    recordInvalidRecordEventDelivery: async () => ({ attempts: 1, dead: false }),
+    latestMetadataEventCursor: async () => null,
+    liveMetadataEvents: async function* ({ signal }) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+    scheduleReconcile: () => undefined,
+  });
+
+  await runtime.reconcile();
+  await waitFor(() => sequence.includes("commit"));
+  await runtime.stopAll();
+
+  expect(sequence.slice(0, 3)).toEqual(["reclaim:0-0", "recv:false", "commit"]);
 });

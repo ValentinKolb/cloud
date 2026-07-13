@@ -1,7 +1,9 @@
 import type { logger } from "@valentinkolb/cloud/services";
+import { type TopicDelivery, type TopicInvalidDelivery, TopicPayloadError } from "@valentinkolb/sync";
 import type { WorkflowRun } from "../contracts";
 import type { latestMetadataEventCursor, liveMetadataEvents } from "./metadata-events";
-import type { GridsRecordEvent, reclaimRecordEventDeliveries, recordEventReader } from "./record-events";
+import type { RecordEventDeliveryFailure, recordInvalidRecordEventDelivery } from "./record-event-delivery-failures";
+import { type GridsRecordEvent, GridsRecordEventSchema, type recordEventReader } from "./record-events";
 import type { PreparedWorkflowTriggerRun, prepareRecordEvent } from "./workflow-runtime";
 import type * as workflowStore from "./workflows";
 
@@ -30,7 +32,7 @@ type WorkflowTriggerReaderRuntimeDeps = {
   workflows: Pick<typeof workflowStore, "listRecordEventBaseIds" | "listRecordEventEnabled" | "recordMatchesWorkflowFilter">;
   prepareRecordEvent: typeof prepareRecordEvent;
   recordEventReader: typeof recordEventReader;
-  reclaimRecordEventDeliveries: typeof reclaimRecordEventDeliveries;
+  recordInvalidRecordEventDelivery: typeof recordInvalidRecordEventDelivery;
   latestMetadataEventCursor: typeof latestMetadataEventCursor;
   liveMetadataEvents: typeof liveMetadataEvents;
   queuePreparedRun: (
@@ -159,35 +161,136 @@ export const createWorkflowTriggerReaderRuntime = (deps: WorkflowTriggerReaderRu
     if (!(await commit())) throw new Error("Workflow record event acknowledgement was not accepted");
   };
 
+  const invalidEventError = (issues: readonly { path: readonly PropertyKey[]; message: string }[]): string => {
+    const issue = issues[0];
+    const path = issue?.path.length ? `${issue.path.map(String).join(".")}: ` : "";
+    return `${path}${issue?.message ?? "record event schema mismatch"}`;
+  };
+
+  const serializeInvalidEvent = (data: unknown): string | null => {
+    try {
+      return JSON.stringify(data) ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const recordInvalidDelivery = async (input: {
+    baseId: string;
+    eventId: string;
+    payload: string | null;
+    error: string;
+    commit?: () => Promise<boolean>;
+  }): Promise<RecordEventDeliveryFailure> => {
+    const failure = await deps.recordInvalidRecordEventDelivery({
+      baseId: input.baseId,
+      consumerGroup: RECORD_EVENT_CONSUMER_GROUP,
+      eventId: input.eventId,
+      payload: input.payload,
+      error: input.error,
+    });
+    deps.log.warn(failure.dead ? "Workflow record event moved to dead letter" : "Workflow record event is invalid", {
+      baseId: input.baseId,
+      eventId: input.eventId,
+      attempts: failure.attempts,
+      dead: failure.dead,
+      error: input.error,
+    });
+    if (failure.dead && input.commit) await commitRecordEvent(input.commit);
+    return failure;
+  };
+
+  const processDelivery = async (baseId: string, delivery: TopicDelivery<GridsRecordEvent>): Promise<void> => {
+    const parsed = GridsRecordEventSchema.safeParse(delivery.data);
+    if (!parsed.success) {
+      await recordInvalidDelivery({
+        baseId,
+        eventId: delivery.eventId,
+        payload: serializeInvalidEvent(delivery.data),
+        error: invalidEventError(parsed.error.issues),
+        commit: delivery.commit,
+      });
+      return;
+    }
+    if (parsed.data.baseId !== baseId) {
+      await recordInvalidDelivery({
+        baseId,
+        eventId: delivery.eventId,
+        payload: serializeInvalidEvent(delivery.data),
+        error: `baseId: expected ${baseId}, received ${parsed.data.baseId}`,
+        commit: delivery.commit,
+      });
+      return;
+    }
+    await dispatchRecordEvent(parsed.data);
+    await commitRecordEvent(delivery.commit);
+  };
+
+  const processInvalidTransportDelivery = async (baseId: string, delivery: TopicInvalidDelivery): Promise<void> => {
+    await recordInvalidDelivery({
+      baseId,
+      eventId: delivery.eventId,
+      payload: delivery.rawPayload,
+      error: delivery.error,
+      commit: delivery.commit,
+    });
+  };
+
   const startRecordEventReader = (baseId: string, controller: AbortController): Promise<void> => {
     const reader = deps.recordEventReader(RECORD_EVENT_CONSUMER_GROUP);
+    if (!reader.reclaim) throw new Error("Installed @valentinkolb/sync does not support topic recovery");
+    let reclaimCursor = "0-0";
     return startReaderTask(async () => {
       while (!controller.signal.aborted) {
         try {
-          const reclaimed = await deps.reclaimRecordEventDeliveries(baseId, RECORD_EVENT_CONSUMER_GROUP);
-          for (const delivery of reclaimed) {
+          const reclaimed = await reader.reclaim({ tenantId: baseId, cursor: reclaimCursor });
+          reclaimCursor = reclaimed.nextCursor;
+          for (const entry of reclaimed.entries) {
             try {
-              await dispatchRecordEvent(delivery.data);
-              await commitRecordEvent(delivery.commit);
+              if (entry.kind === "invalid") await processInvalidTransportDelivery(baseId, entry);
+              else await processDelivery(baseId, entry.delivery);
             } catch (error) {
               deps.log.warn("Reclaimed workflow record event failed", {
                 baseId,
-                recordId: delivery.data.recordId,
+                eventId: entry.kind === "invalid" ? entry.eventId : entry.delivery.eventId,
                 error: error instanceof Error ? error.message : String(error),
               });
             }
+          }
+          if (reclaimCursor !== "0-0") {
+            const fresh = await reader.recv({
+              tenantId: baseId,
+              wait: false,
+              signal: controller.signal,
+              invalidPayload: "throw",
+            });
+            if (fresh) await processDelivery(baseId, fresh);
+            continue;
           }
           const delivery = await reader.recv({
             tenantId: baseId,
             wait: true,
             timeoutMs: 30_000,
             signal: controller.signal,
+            invalidPayload: "throw",
           });
           if (!delivery) continue;
-          await dispatchRecordEvent(delivery.data);
-          await commitRecordEvent(delivery.commit);
+          await processDelivery(baseId, delivery);
         } catch (error) {
           if (controller.signal.aborted || isAbortError(error)) return;
+          if (error instanceof TopicPayloadError) {
+            try {
+              await recordInvalidDelivery({
+                baseId,
+                eventId: error.eventId,
+                payload: error.rawPayload,
+                error: error.message,
+              });
+              continue;
+            } catch (persistError) {
+              error = persistError;
+            }
+          }
           deps.log.warn("Workflow record event reader failed", {
             baseId,
             error: error instanceof Error ? error.message : String(error),

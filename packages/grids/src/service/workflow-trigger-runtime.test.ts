@@ -311,6 +311,7 @@ const createTestRuntime = () =>
     recordEventReader: () => {
       recordEventReadersStarted += 1;
       return {
+        reclaim: async () => ({ nextCursor: "0-0", entries: [] }),
         recv: ({ signal }: { signal: AbortSignal }) =>
           new Promise<null>((resolve) => {
             if (signal.aborted) {

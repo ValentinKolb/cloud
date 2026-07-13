@@ -41,7 +41,7 @@ describe("grids schema migration", () => {
           FROM information_schema.tables
           WHERE table_schema = 'grids'
         `;
-        expect(row?.tableCount).toBe(28);
+        expect(row?.tableCount).toBe(29);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 

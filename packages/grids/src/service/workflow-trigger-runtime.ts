@@ -6,7 +6,8 @@ import { job, mutex, scheduler } from "@valentinkolb/sync";
 import type { Workflow, WorkflowRun, WorkflowTriggerKind } from "../contracts";
 import * as bases from "./bases";
 import { latestMetadataEventCursor, liveMetadataEvents } from "./metadata-events";
-import { type GridsRecordEvent, reclaimRecordEventDeliveries, recordEventReader } from "./record-events";
+import { recordInvalidRecordEventDelivery } from "./record-event-delivery-failures";
+import { type GridsRecordEvent, recordEventReader } from "./record-events";
 import {
   type ExecuteBulkSelectionWorkflowParams,
   type ExecuteScannerWorkflowParams,
@@ -123,7 +124,7 @@ type WorkflowTriggerRuntimeDeps = {
   settingsGet?: typeof settingsGet;
   normalizeTimeZone?: typeof normalizeTimeZone;
   recordEventReader?: typeof recordEventReader;
-  reclaimRecordEventDeliveries?: typeof reclaimRecordEventDeliveries;
+  recordInvalidRecordEventDelivery?: typeof recordInvalidRecordEventDelivery;
   latestMetadataEventCursor?: typeof latestMetadataEventCursor;
   liveMetadataEvents?: typeof liveMetadataEvents;
   latestWorkflowRuntimeEventCursor?: typeof latestWorkflowRuntimeEventCursor;
@@ -149,7 +150,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   const settingsGetImpl = deps.settingsGet ?? settingsGet;
   const normalizeTimeZoneImpl = deps.normalizeTimeZone ?? normalizeTimeZone;
   const recordEventReaderImpl = deps.recordEventReader ?? recordEventReader;
-  const reclaimRecordEventDeliveriesImpl = deps.reclaimRecordEventDeliveries ?? reclaimRecordEventDeliveries;
+  const recordInvalidRecordEventDeliveryImpl = deps.recordInvalidRecordEventDelivery ?? recordInvalidRecordEventDelivery;
   const latestMetadataEventCursorImpl = deps.latestMetadataEventCursor ?? latestMetadataEventCursor;
   const liveMetadataEventsImpl = deps.liveMetadataEvents ?? liveMetadataEvents;
   const latestWorkflowRuntimeEventCursorImpl = deps.latestWorkflowRuntimeEventCursor ?? latestWorkflowRuntimeEventCursor;
@@ -296,7 +297,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
     workflows,
     prepareRecordEvent: prepareRecordEventImpl,
     recordEventReader: recordEventReaderImpl,
-    reclaimRecordEventDeliveries: reclaimRecordEventDeliveriesImpl,
+    recordInvalidRecordEventDelivery: recordInvalidRecordEventDeliveryImpl,
     latestMetadataEventCursor: latestMetadataEventCursorImpl,
     liveMetadataEvents: liveMetadataEventsImpl,
     queuePreparedRun,
