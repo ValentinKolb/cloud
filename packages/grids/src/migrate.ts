@@ -813,6 +813,24 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
   `.simple();
 
   await sql`
+    CREATE TABLE IF NOT EXISTS grids.record_event_snapshots (
+      id UUID PRIMARY KEY REFERENCES grids.record_event_outbox(id) ON DELETE CASCADE,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
+      record_id UUID NOT NULL,
+      event_type TEXT NOT NULL CHECK (event_type IN ('record.created', 'record.updated', 'record.deleted', 'record.restored')),
+      record_version INT NOT NULL CHECK (record_version > 0),
+      data JSONB NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_event_snapshots_record
+    ON grids.record_event_snapshots(record_id, record_version, created_at DESC)
+  `.simple();
+
+  await sql`
     CREATE TABLE IF NOT EXISTS grids.record_event_delivery_failures (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
@@ -1269,21 +1287,54 @@ const migrateWorkflowDeliveries = async (sql: SQL): Promise<void> => {
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       workflow_id UUID REFERENCES grids.workflows(id) ON DELETE SET NULL,
       workflow_run_id UUID REFERENCES grids.workflow_runs(id) ON DELETE SET NULL,
+      workflow_step_run_id UUID,
       template_id UUID REFERENCES grids.email_templates(id) ON DELETE SET NULL,
       recipient_kind TEXT NOT NULL CHECK (recipient_kind IN ('email', 'user')),
+      recipient_value TEXT,
       recipient_summary TEXT NOT NULL,
+      idempotency_key TEXT,
       notification_id UUID,
       provider_status TEXT,
-      status TEXT NOT NULL CHECK (status IN ('sent', 'failed')),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'failed')),
       subject TEXT,
+      rendered_html TEXT,
       error TEXT,
       source_audit_id UUID,
       recipient_index INT CHECK (recipient_index IS NULL OR recipient_index > 0),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
   await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS source_audit_id UUID`.simple();
   await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS recipient_index INT`.simple();
+  await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS workflow_step_run_id UUID`.simple();
+  await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS recipient_value TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS idempotency_key TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS rendered_html TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`.simple();
+  await sql`
+    UPDATE grids.workflow_email_deliveries
+    SET recipient_value = NULL, rendered_html = NULL, updated_at = now()
+    WHERE status IN ('sent', 'failed')
+      AND (recipient_value IS NOT NULL OR rendered_html IS NOT NULL)
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'workflow_email_deliveries_status_check'
+          AND connamespace = 'grids'::regnamespace
+          AND pg_get_constraintdef(oid) LIKE '%pending%'
+      ) THEN
+        ALTER TABLE grids.workflow_email_deliveries
+          DROP CONSTRAINT IF EXISTS workflow_email_deliveries_status_check;
+        ALTER TABLE grids.workflow_email_deliveries
+          ADD CONSTRAINT workflow_email_deliveries_status_check CHECK (status IN ('pending', 'sent', 'failed'));
+      END IF;
+    END $$
+  `.simple();
   await sql`
     DO $$
     BEGIN
@@ -1322,6 +1373,16 @@ const migrateWorkflowDeliveries = async (sql: SQL): Promise<void> => {
     ON grids.workflow_email_deliveries(source_audit_id, recipient_index)
     WHERE source_audit_id IS NOT NULL AND recipient_index IS NOT NULL
   `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_email_deliveries_idempotency
+    ON grids.workflow_email_deliveries(idempotency_key)
+    WHERE idempotency_key IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_email_deliveries_step_recipient
+    ON grids.workflow_email_deliveries(workflow_step_run_id, recipient_index)
+    WHERE workflow_step_run_id IS NOT NULL AND recipient_index IS NOT NULL
+  `.simple();
   await backfillWorkflowEmailDeliveries(sql);
   console.log("  ✓ grids.workflow_email_deliveries");
 
@@ -1351,6 +1412,20 @@ const migrateWorkflowDeliveries = async (sql: SQL): Promise<void> => {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_step_runs_resume
     ON grids.workflow_step_runs(run_id, resume_key)
     WHERE resume_key IS NOT NULL
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'workflow_email_deliveries_step_run_fkey'
+          AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.workflow_email_deliveries
+          ADD CONSTRAINT workflow_email_deliveries_step_run_fkey
+          FOREIGN KEY (workflow_step_run_id) REFERENCES grids.workflow_step_runs(id) ON DELETE SET NULL;
+      END IF;
+    END $$
   `.simple();
   console.log("  ✓ grids.workflow_step_runs");
 };

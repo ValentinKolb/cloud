@@ -2,6 +2,8 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { WorkflowDefinition } from "../contracts";
 import { migrate } from "../migrate";
+import { GridsRecordEventSchema } from "./record-events";
+import { update as updateRecord } from "./records";
 import {
   executeBulkSelection,
   executePreparedRun,
@@ -26,6 +28,7 @@ import {
   listEmailDeliveriesPage,
   listRecordEventBaseIds,
   listRecordEventEnabled,
+  recordMatchesWorkflowFilter,
   update as updateWorkflow,
 } from "./workflows";
 
@@ -1213,10 +1216,9 @@ describe("workflow runtime integration", () => {
           send: async () => {
             sends += 1;
             return sends === 1
-              ? { id: firstNotificationId, status: "sent" as const }
-              : { id: failedNotificationId, status: "error" as const, error: "mailbox unavailable" };
+              ? { id: firstNotificationId, status: "delivered" as const, providerStatus: "delivered" }
+              : { id: failedNotificationId, status: "failed" as const, providerStatus: "error", error: "mailbox unavailable" };
           },
-          sendToUser: async () => ({ ok: false as const, error: "unexpected user recipient" }),
         },
       });
       expect(executed.ok).toBe(false);
@@ -1247,6 +1249,232 @@ describe("workflow runtime integration", () => {
       `;
       expect(auditRows.map((row) => row.action).sort()).toEqual(["workflow.email.failed", "workflow.email.sent"]);
       expect(new Set(auditRows.map((row) => row.delivery_id))).toEqual(new Set(page.items.map((delivery) => delivery.id)));
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("retries an interrupted email step through one durable intent", async () => {
+    const fixture = await insertFixture("write");
+    let releaseFirstSend!: () => void;
+    const firstSendReleased = new Promise<void>((resolve) => {
+      releaseFirstSend = resolve;
+    });
+    let firstSendStarted!: () => void;
+    const firstSendIsRunning = new Promise<void>((resolve) => {
+      firstSendStarted = resolve;
+    });
+    try {
+      const templateId = uuid();
+      await sql`
+        INSERT INTO grids.email_templates (id, short_id, base_id, name, subject, html)
+        VALUES (
+          ${templateId}::uuid, ${shortId("E")}, ${fixture.baseId}::uuid, 'Recovery delivery',
+          'Recovery notice', '<p>Recovery notice</p>'
+        )
+      `;
+      const definition: WorkflowDefinition = {
+        triggers: { form: {} },
+        steps: [{ sendEmail: { template: "Recovery delivery", to: [{ email: "recovery@example.test" }] } }],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Recovery email delivery", definition);
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: definition,
+        triggerKind: "form",
+        triggerInput: {},
+        resolvedInput: {},
+      });
+      const notificationId = uuid();
+      const attemptedKeys: string[] = [];
+      let sends = 0;
+      const sender = {
+        send: async (input: { idempotencyKey: string }) => {
+          sends += 1;
+          attemptedKeys.push(input.idempotencyKey);
+          if (sends === 1) {
+            firstSendStarted();
+            await firstSendReleased;
+          }
+          return { id: notificationId, status: "delivered" as const, providerStatus: "delivered" };
+        },
+      };
+
+      const staleExecution = executePreparedRun({ runId: run.id, queueAttempt: 0, leaseMs: 100, notificationSender: sender });
+      await firstSendIsRunning;
+      await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
+
+      const recovered = await executePreparedRun({ runId: run.id, queueAttempt: 0, notificationSender: sender });
+      expect(recovered.ok).toBe(true);
+      expect(sends).toBe(2);
+      expect(new Set(attemptedKeys).size).toBe(1);
+
+      releaseFirstSend();
+      const staleResult = await staleExecution;
+      expect(staleResult.ok).toBe(false);
+      if (staleResult.ok) throw new Error("Expected stale worker lease failure");
+      expect(staleResult.error.message).toContain("lease lost");
+
+      const deliveries = await sql<Array<{ status: string; notification_id: string; idempotency_key: string }>>`
+        SELECT status, notification_id::text AS notification_id, idempotency_key
+        FROM grids.workflow_email_deliveries
+        WHERE workflow_run_id = ${run.id}::uuid
+      `;
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0]).toMatchObject({ status: "sent", notification_id: notificationId, idempotency_key: attemptedKeys[0] });
+
+      const auditRows = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count
+        FROM grids.audit_log
+        WHERE base_id = ${fixture.baseId}::uuid
+          AND action = 'workflow.email.sent'
+          AND diff #>> '{workflowEmail,new,workflowRunId}' = ${run.id}
+      `;
+      expect(auditRows[0]?.count).toBe(1);
+    } finally {
+      releaseFirstSend?.();
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("recovers a thrown email send from the persisted intent without re-rendering", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const templateId = uuid();
+      await sql`
+        INSERT INTO grids.email_templates (id, short_id, base_id, name, subject, html)
+        VALUES (
+          ${templateId}::uuid, ${shortId("E")}, ${fixture.baseId}::uuid, 'Thrown delivery',
+          'Original subject', '<p>Original body</p>'
+        )
+      `;
+      const definition: WorkflowDefinition = {
+        triggers: { form: {} },
+        steps: [{ sendEmail: { template: "Thrown delivery", to: [{ email: "persisted@example.test" }] } }],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Thrown email delivery", definition);
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        workflowDefinition: definition,
+        triggerKind: "form",
+        triggerInput: {},
+        resolvedInput: {},
+      });
+
+      await expect(
+        executePreparedRun({
+          runId: run.id,
+          queueAttempt: 0,
+          leaseMs: 100,
+          notificationSender: {
+            send: async () => {
+              throw new Error("transport interrupted");
+            },
+          },
+        }),
+      ).rejects.toThrow("workflow email delivery was interrupted");
+
+      const [interrupted] = await sql<Array<{ run_status: string; delivery_status: string; subject: string; rendered_html: string }>>`
+        SELECT run.status AS run_status, delivery.status AS delivery_status, delivery.subject, delivery.rendered_html
+        FROM grids.workflow_runs run
+        JOIN grids.workflow_email_deliveries delivery ON delivery.workflow_run_id = run.id
+        WHERE run.id = ${run.id}::uuid
+      `;
+      expect(interrupted).toMatchObject({
+        run_status: "running",
+        delivery_status: "pending",
+        subject: "Original subject",
+        rendered_html: "<p>Original body</p>",
+      });
+
+      await sql`
+        UPDATE grids.email_templates
+        SET subject = 'Changed subject', html = '<p>Changed body</p>'
+        WHERE id = ${templateId}::uuid
+      `;
+      await sql`UPDATE grids.workflow_runs SET lease_expires_at = now() - interval '1 second' WHERE id = ${run.id}::uuid`;
+
+      const sent: Array<{ subject: string; html: string; idempotencyKey: string }> = [];
+      const notificationId = uuid();
+      const recovered = await executePreparedRun({
+        runId: run.id,
+        queueAttempt: 0,
+        notificationSender: {
+          send: async (input) => {
+            sent.push({ subject: input.subject, html: input.html, idempotencyKey: input.idempotencyKey });
+            return { id: notificationId, status: "delivered" as const, providerStatus: "delivered" };
+          },
+        },
+      });
+      expect(recovered.ok).toBe(true);
+      expect(sent).toEqual([
+        {
+          subject: "Original subject",
+          html: "<p>Original body</p>",
+          idempotencyKey: expect.stringContaining(`workflow:${run.id}:step:`),
+        },
+      ]);
+
+      const [delivery] = await sql<Array<{ status: string; recipient_value: string | null; rendered_html: string | null }>>`
+        SELECT status, recipient_value, rendered_html
+        FROM grids.workflow_email_deliveries
+        WHERE workflow_run_id = ${run.id}::uuid
+      `;
+      expect(delivery).toEqual({ status: "sent", recipient_value: null, rendered_html: null });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("evaluates record event filters against the captured version", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const definition: WorkflowDefinition = {
+        inputs: { item: { type: "record", table: "Items" } },
+        triggers: {
+          recordEvent: {
+            event: "updated",
+            input: "item",
+            filter: { fieldId: fixture.statusFieldId, op: "equals", value: "ready" },
+          },
+        },
+        steps: [{ setVariable: { name: "matched", value: true } }],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Filter captured update", definition);
+      const workflow = await getWorkflow(workflowId);
+      if (!workflow) throw new Error("Workflow fixture is missing");
+
+      const ready = await updateRecord(fixture.tableId, fixture.recordAId, { [fixture.statusFieldId]: "ready" }, null);
+      expect(ready.ok).toBe(true);
+      const done = await updateRecord(fixture.tableId, fixture.recordAId, { [fixture.statusFieldId]: "done" }, null);
+      expect(done.ok).toBe(true);
+
+      const [outbox] = await sql<Array<{ id: string; payload: unknown }>>`
+        SELECT id::text AS id, payload
+        FROM grids.record_event_outbox
+        WHERE record_id = ${fixture.recordAId}::uuid
+          AND payload ->> 'type' = 'record.updated'
+        ORDER BY created_at, id
+        LIMIT 1
+      `;
+      const event = GridsRecordEventSchema.parse(outbox?.payload);
+      const matched = await recordMatchesWorkflowFilter(workflow, event);
+      expect(matched).toEqual({ ok: true, data: true });
+
+      const [current] = await sql<Array<{ status: string | null }>>`
+        SELECT data ->> ${fixture.statusFieldId} AS status
+        FROM grids.records
+        WHERE id = ${fixture.recordAId}::uuid
+      `;
+      expect(current?.status).toBe("done");
+
+      await sql`DELETE FROM grids.record_event_snapshots WHERE id = ${outbox?.id}::uuid`;
+      const missing = await recordMatchesWorkflowFilter(workflow, event);
+      expect(missing.ok).toBe(false);
+      if (missing.ok) throw new Error("Expected missing snapshot failure");
+      expect(missing.error.message).toContain("snapshot is missing or inconsistent");
     } finally {
       await cleanupFixture(fixture);
     }

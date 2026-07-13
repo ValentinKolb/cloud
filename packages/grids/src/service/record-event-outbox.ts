@@ -46,6 +46,48 @@ export const enqueueRecordEvent = async (client: SqlClient, event: Omit<GridsRec
   return row.id;
 };
 
+export const captureRecordEventSnapshot = async (
+  client: SqlClient,
+  input: {
+    snapshotId: string;
+    tableId: string;
+    recordId: string;
+    eventType: GridsRecordEvent["type"];
+  },
+): Promise<void> => {
+  const rows = await client`
+    INSERT INTO grids.record_event_snapshots (
+      id, base_id, table_id, record_id, event_type, record_version, data, deleted_at
+    )
+    SELECT
+      ${input.snapshotId}::uuid,
+      table_ref.base_id,
+      record.table_id,
+      record.id,
+      ${input.eventType},
+      record.version,
+      record.data || COALESCE(relations.data, '{}'::jsonb),
+      record.deleted_at
+    FROM grids.records record
+    JOIN grids.tables table_ref ON table_ref.id = record.table_id
+    LEFT JOIN LATERAL (
+      SELECT jsonb_object_agg(grouped.field_id, grouped.record_ids) AS data
+      FROM (
+        SELECT
+          link.from_field_id::text AS field_id,
+          jsonb_agg(link.to_record_id::text ORDER BY link.position, link.to_record_id) AS record_ids
+        FROM grids.record_links link
+        WHERE link.from_record_id = record.id
+        GROUP BY link.from_field_id
+      ) grouped
+    ) relations ON TRUE
+    WHERE record.id = ${input.recordId}::uuid
+      AND record.table_id = ${input.tableId}::uuid
+    RETURNING id
+  `;
+  if (rows.length !== 1) throw new Error("record event snapshot source record is missing");
+};
+
 export const dispatchRecordEventOutbox = async (
   id: string,
   publish: (event: GridsRecordEvent) => Promise<void> = publishRecordEvent,

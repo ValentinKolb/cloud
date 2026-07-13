@@ -92,6 +92,28 @@ const responseRequest =
   };
 
 describe("workflow HTTP client", () => {
+  test("forwards the runtime idempotency key instead of a workflow-supplied value", async () => {
+    let headers: RequestOptions["headers"];
+    const result = await requestWorkflowHttp(
+      {
+        url: "https://api.example.com/hooks",
+        method: "POST",
+        headers: { "Idempotency-Key": "workflow-value" },
+        idempotencyKey: "workflow:run:step",
+      },
+      {
+        getSetting: settings(),
+        lookup: async () => [{ address: publicAddress, family: 4 }],
+        request: responseRequest("ok", (options) => {
+          headers = options.headers;
+        }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(headers).toMatchObject({ "idempotency-key": "workflow:run:step" });
+  });
+
   test("pins the validated DNS address for the socket lookup", async () => {
     let pinnedAddress: string | null = null;
     let pinnedServername: string | undefined;

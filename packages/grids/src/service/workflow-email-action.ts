@@ -1,11 +1,16 @@
-import type { notifications } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { Workflow, WorkflowValue } from "../contracts";
+import type { WorkflowNotificationSender } from "../notifications";
 import { logAudit } from "./audit";
 import { buildTemplateAppData, buildTemplateBusinessData } from "./documents";
 import * as emailTemplates from "./email-templates";
-import { recordWorkflowEmailDelivery } from "./workflow-email-deliveries";
+import {
+  finishWorkflowEmailDeliveryIntent,
+  getOrCreateWorkflowEmailDeliveryIntent,
+  getWorkflowEmailDeliveryIntent,
+  type WorkflowEmailDeliveryIntent,
+} from "./workflow-email-deliveries";
 import { resolveWorkflowEmailTemplateRef, type WorkflowCatalog } from "./workflows";
 
 type WorkflowEmailRecipient = { email: WorkflowValue } | { user: WorkflowValue };
@@ -17,15 +22,11 @@ export type WorkflowEmailAction = {
   saveAs?: string;
 };
 
-export type WorkflowNotificationSender = {
-  send: (params: Parameters<typeof notifications.send>[0]) => ReturnType<typeof notifications.send>;
-  sendToUser: typeof notifications.sendToUser;
-};
-
 type WorkflowEmailActionContext = {
   workflow: Workflow;
   catalog: WorkflowCatalog;
   runId: string | null;
+  stepRunId: string;
   actorUserId: string | null;
   serviceAccountId: string | null;
   notificationSender: WorkflowNotificationSender;
@@ -49,6 +50,13 @@ const auditMeta = (ctx: WorkflowEmailActionContext) => ({
   serviceAccountId: ctx.serviceAccountId,
 });
 
+export class WorkflowEmailDeliveryInterruptedError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "WorkflowEmailDeliveryInterruptedError";
+  }
+}
+
 const renderEmailData = async (ctx: WorkflowEmailActionContext, action: WorkflowEmailAction): Promise<Result<Record<string, unknown>>> => {
   const values: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries(action.data ?? {})) {
@@ -67,12 +75,12 @@ const renderEmailData = async (ctx: WorkflowEmailActionContext, action: Workflow
   });
 };
 
-export const executeWorkflowEmailAction = async (
+type RenderedWorkflowEmail = { templateId: string; subject: string; html: string };
+
+const renderWorkflowEmail = async (
   ctx: WorkflowEmailActionContext,
   action: WorkflowEmailAction,
-): Promise<Result<WorkflowValue>> => {
-  const workflowRunId = ctx.runId;
-  if (!workflowRunId) return fail(err.internal("sendEmail requires an active workflow run"));
+): Promise<Result<RenderedWorkflowEmail>> => {
   const templateRef = resolveWorkflowEmailTemplateRef(ctx.catalog, action.template);
   if (!templateRef) return fail(err.badInput(`unknown workflow email template "${action.template}"`));
   const template = await emailTemplates.get(templateRef.id);
@@ -82,96 +90,141 @@ export const executeWorkflowEmailAction = async (
   if (!data.ok) return data;
   const rendered = await emailTemplates.renderEmailTemplate(template, data.data);
   if (!rendered.ok) return rendered;
+  return ok({ templateId: template.id, subject: rendered.data.subject, html: rendered.data.html });
+};
 
+const intentRecipient = (intent: WorkflowEmailDeliveryIntent) => {
+  const recipient = intent.recipients[0];
+  if (!recipient) throw err.internal("workflow email delivery intent recipient is missing");
+  return recipient;
+};
+
+export const executeWorkflowEmailAction = async (
+  ctx: WorkflowEmailActionContext,
+  action: WorkflowEmailAction,
+): Promise<Result<WorkflowValue>> => {
+  const workflowRunId = ctx.runId;
+  if (!workflowRunId) return fail(err.internal("sendEmail requires an active workflow run"));
+  let renderedPromise: Promise<Result<RenderedWorkflowEmail>> | null = null;
+  const renderedEmail = () => (renderedPromise ??= renderWorkflowEmail(ctx, action));
   const sent: Array<{ deliveryId: string; id: string; kind: "email" | "user"; recipient: string; status: string }> = [];
-  for (const recipient of action.to) {
-    const kind = "email" in recipient ? "email" : "user";
-    const raw = "email" in recipient ? recipient.email : recipient.user;
-    const evaluated = await ctx.evaluate(raw);
-    if (!evaluated.ok) return evaluated;
-    if (typeof evaluated.data !== "string" || !evaluated.data.trim()) {
-      return fail(err.badInput(`sendEmail.${kind} recipient must resolve to text`));
-    }
-    const value = evaluated.data.trim();
-    if (kind === "email" && !EMAIL_RE.test(value)) return fail(err.badInput("sendEmail.email recipient must resolve to an email address"));
-    if (kind === "user" && !UUID_RE.test(value)) return fail(err.badInput("sendEmail.user recipient must resolve to a Cloud user id"));
-
-    let notificationId = "";
-    let status = "error";
-    let errorMessage: string | null = null;
-    if (kind === "email") {
-      const result = await ctx.notificationSender.send({
-        type: "email",
-        recipient: value,
-        subject: rendered.data.subject,
-        rawHtml: rendered.data.html,
-        sentBy: ctx.actorUserId ?? undefined,
-      });
-      notificationId = result.id;
-      status = result.status;
-      if (result.status === "error") errorMessage = result.error ?? "email delivery failed";
-    } else {
-      const result = await ctx.notificationSender.sendToUser({
-        userId: value,
-        subject: rendered.data.subject,
-        rawHtml: rendered.data.html,
-        sentBy: ctx.actorUserId ?? undefined,
-      });
-      if (result.ok) {
-        notificationId = result.id;
-        status = "sent";
-      } else {
-        errorMessage = result.error;
+  let outputTemplateId: string | null = null;
+  let outputSubject: string | null = null;
+  for (let recipientIndex = 0; recipientIndex < action.to.length; recipientIndex += 1) {
+    const index = recipientIndex + 1;
+    let intent = await getWorkflowEmailDeliveryIntent(ctx.stepRunId, index);
+    if (!intent) {
+      const recipient = action.to[recipientIndex]!;
+      const kind = "email" in recipient ? "email" : "user";
+      const raw = "email" in recipient ? recipient.email : recipient.user;
+      const evaluated = await ctx.evaluate(raw);
+      if (!evaluated.ok) return evaluated;
+      if (typeof evaluated.data !== "string" || !evaluated.data.trim()) {
+        return fail(err.badInput(`sendEmail.${kind} recipient must resolve to text`));
       }
+      const value = evaluated.data.trim();
+      if (kind === "email" && !EMAIL_RE.test(value))
+        return fail(err.badInput("sendEmail.email recipient must resolve to an email address"));
+      if (kind === "user" && !UUID_RE.test(value)) return fail(err.badInput("sendEmail.user recipient must resolve to a Cloud user id"));
+      const rendered = await renderedEmail();
+      if (!rendered.ok) return rendered;
+      intent = await getOrCreateWorkflowEmailDeliveryIntent({
+        baseId: ctx.workflow.baseId,
+        workflowId: ctx.workflow.id,
+        workflowRunId,
+        workflowStepRunId: ctx.stepRunId,
+        templateId: rendered.data.templateId,
+        recipientIndex: index,
+        recipientKind: kind,
+        recipientValue: value,
+        recipientSummary: recipientSummary(kind, value),
+        idempotencyKey: `workflow:${workflowRunId}:step:${ctx.stepRunId}:recipient:${index}`,
+        subject: rendered.data.subject,
+        renderedHtml: rendered.data.html,
+      });
     }
-
-    const summary = recipientSummary(kind, value);
+    const recipient = intentRecipient(intent);
+    const kind = recipient.kind;
+    const summary = recipient.recipient;
+    outputTemplateId ??= intent.templateId;
+    outputSubject ??= intent.subject;
+    if (intent.status !== "pending") {
+      const notificationId = intent.notificationId ?? "";
+      sent.push({
+        deliveryId: intent.id,
+        id: notificationId,
+        kind,
+        recipient: summary,
+        status: intent.providerStatus ?? intent.status,
+      });
+      if (intent.status === "failed") return fail(err.badInput(intent.error ?? "email delivery failed"));
+      continue;
+    }
+    if (!intent.recipientValue || !intent.subject || !intent.renderedHtml) {
+      throw err.internal("pending workflow email delivery intent is incomplete");
+    }
+    let result: Awaited<ReturnType<WorkflowNotificationSender["send"]>>;
+    try {
+      result = await ctx.notificationSender.send({
+        kind,
+        recipient: intent.recipientValue,
+        subject: intent.subject,
+        html: intent.renderedHtml,
+        idempotencyKey: intent.idempotencyKey,
+        ...(ctx.actorUserId ? { sentBy: ctx.actorUserId } : {}),
+      });
+    } catch (error) {
+      throw new WorkflowEmailDeliveryInterruptedError("workflow email delivery was interrupted", { cause: error });
+    }
+    const errorMessage = result.status === "failed" ? (result.error ?? "email delivery failed") : null;
     const delivery = await sql.begin(async (tx) => {
-      const stored = await recordWorkflowEmailDelivery(
+      const finished = await finishWorkflowEmailDeliveryIntent(
+        intent.id,
         {
-          baseId: ctx.workflow.baseId,
-          workflowId: ctx.workflow.id,
-          workflowRunId,
-          templateId: template.id,
-          recipientKind: kind,
-          recipientSummary: summary,
-          notificationId: notificationId || null,
-          providerStatus: status,
+          notificationId: result.id,
+          providerStatus: result.providerStatus,
           status: errorMessage ? "failed" : "sent",
-          subject: rendered.data.subject,
           error: errorMessage,
         },
         tx,
       );
-      const recipientAudit = { deliveryId: stored.id, kind, recipient: summary, notificationId, status };
-      await logAudit(
-        {
-          baseId: ctx.workflow.baseId,
-          userId: ctx.actorUserId,
-          action: errorMessage ? "workflow.email.failed" : "workflow.email.sent",
-          diff: {
-            workflowEmail: {
-              old: null,
-              new: errorMessage
-                ? { ...auditMeta(ctx), templateId: template.id, ...recipientAudit, error: errorMessage }
-                : {
-                    ...auditMeta(ctx),
-                    templateId: template.id,
-                    subject: rendered.data.subject,
-                    recipients: [recipientAudit],
-                  },
+      if (finished.transitioned) {
+        const recipientAudit = {
+          deliveryId: finished.delivery.id,
+          kind,
+          recipient: summary,
+          notificationId: result.id,
+          status: result.providerStatus,
+        };
+        await logAudit(
+          {
+            baseId: ctx.workflow.baseId,
+            userId: ctx.actorUserId,
+            action: errorMessage ? "workflow.email.failed" : result.status === "queued" ? "workflow.email.queued" : "workflow.email.sent",
+            diff: {
+              workflowEmail: {
+                old: null,
+                new: errorMessage
+                  ? { ...auditMeta(ctx), templateId: intent.templateId, ...recipientAudit, error: errorMessage }
+                  : {
+                      ...auditMeta(ctx),
+                      templateId: intent.templateId,
+                      subject: intent.subject,
+                      recipients: [recipientAudit],
+                    },
+              },
             },
           },
-        },
-        tx,
-      );
-      return stored;
+          tx,
+        );
+      }
+      return finished.delivery;
     });
-    sent.push({ deliveryId: delivery.id, id: notificationId, kind, recipient: summary, status });
+    sent.push({ deliveryId: delivery.id, id: result.id, kind, recipient: summary, status: result.providerStatus });
     if (errorMessage) return fail(err.badInput(errorMessage));
   }
-
-  const output: WorkflowValue = { templateId: template.id, subject: rendered.data.subject, recipients: sent };
+  if (!outputSubject || sent.length === 0) return fail(err.badInput("sendEmail requires at least one recipient"));
+  const output: WorkflowValue = { templateId: outputTemplateId, subject: outputSubject, recipients: sent };
   if (action.saveAs) ctx.saveVariable(action.saveAs, output);
   return ok(output);
 };

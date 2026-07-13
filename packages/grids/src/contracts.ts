@@ -1725,7 +1725,7 @@ const WorkflowEmailDeliverySchema = z.object({
       status: z.string().optional(),
     }),
   ),
-  status: z.enum(["sent", "failed"]),
+  status: z.enum(["pending", "sent", "failed"]),
   error: z.string().nullable(),
   createdAt: z.string().datetime(),
 });

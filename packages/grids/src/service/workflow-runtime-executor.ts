@@ -7,12 +7,13 @@ export type RuntimeStep = Record<string, unknown>;
 type RuntimeRecordList = { kind: "recordList"; tableId: string; recordIds: string[] };
 
 type WorkflowStepExecutor<Value> = {
-  executeAction: (item: RuntimeStep) => Promise<Result<Value | null> | null>;
+  executeAction: (item: RuntimeStep, stepRun: WorkflowStepRun) => Promise<Result<Value | null> | null>;
   evaluateCondition: (condition: unknown) => Promise<Result<boolean>>;
   evaluateReference: (reference: string) => Promise<Result<Value>>;
   evaluateValue: (value: WorkflowValue) => Promise<Result<Value>>;
   heartbeat: () => Promise<void>;
   isRecordList: (value: Value) => value is Value & RuntimeRecordList;
+  isRetryableSideEffectStep: (item: RuntimeStep) => boolean;
   isSideEffectStep: (item: RuntimeStep) => boolean;
   isWorkflowSucceed: (value: Value | null) => boolean;
   maxLoopItems: number;
@@ -131,7 +132,7 @@ export const executeWorkflowSteps = async <Value>(
     const kind = stepKind(step);
     await executor.heartbeat();
     const previousStepRun = await getStepRunByPath(runId, currentPath);
-    if (previousStepRun?.status === "running" && executor.isSideEffectStep(item)) {
+    if (previousStepRun?.status === "running" && executor.isSideEffectStep(item) && !executor.isRetryableSideEffectStep(item)) {
       return fail(err.conflict(`workflow step "${currentPath}" was interrupted during a side effect and cannot be retried safely`));
     }
     const stepRun = await createStepRun({ runId, executionGeneration, stepIndex: index, stepPath: currentPath, kind, input: { kind } });
@@ -145,7 +146,7 @@ export const executeWorkflowSteps = async <Value>(
     }
 
     const result =
-      (await executor.executeAction(item)) ??
+      (await executor.executeAction(item, stepRun)) ??
       (await executeControlFlow(executor, item, runId, executionGeneration, currentPath)) ??
       fail(err.badInput(`unsupported workflow step "${kind}"`));
 

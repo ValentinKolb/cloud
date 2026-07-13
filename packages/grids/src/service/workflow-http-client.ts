@@ -27,6 +27,7 @@ type WorkflowHttpRequestInput = {
   url: string;
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   headers?: Record<string, string>;
+  idempotencyKey?: string;
   body?: string;
   timeoutMs?: number;
 };
@@ -122,6 +123,7 @@ const requestHeaders = (input: WorkflowHttpRequestInput): Result<Record<string, 
     if (BLOCKED_REQUEST_HEADERS.has(name)) return fail(err.badInput(`httpRequest header "${rawName}" is not allowed`));
     headers[name] = value;
   }
+  if (input.idempotencyKey) headers["idempotency-key"] = input.idempotencyKey;
   if (input.body !== undefined) {
     const bodyBytes = Buffer.byteLength(input.body);
     if (bodyBytes > MAX_REQUEST_BYTES) return fail(err.badInput("httpRequest body is too large"));

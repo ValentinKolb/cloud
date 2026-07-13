@@ -1,4 +1,5 @@
 import { defineApp } from "@valentinkolb/cloud";
+import { NOTIFICATIONS } from "./notifications";
 
 export const app = defineApp({
   id: "grids",
@@ -16,6 +17,7 @@ export const app = defineApp({
   },
   basePath: "/app/grids",
   baseUrl: "http://app-grids:3000",
+  notifications: NOTIFICATIONS,
   adminHref: "/admin/grids",
   nav: {
     href: "/app/grids?recent=true",

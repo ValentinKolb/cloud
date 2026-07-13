@@ -279,17 +279,27 @@ export const recordMatchesWorkflowFilter = async (workflow: Workflow, event: Gri
   const fields = await listFields(tableId);
   const compiled = compileFilter(trigger.filter, fields, { timeZone: await workflowTimeZone() });
   if (!compiled.ok) return fail(err.badInput(`workflow recordEvent filter is invalid: ${compiled.error}`));
-  const clause = renderClause(compiled.clause);
-  const [row] = await sql<{ matched: boolean }[]>`
-    SELECT EXISTS(
-      SELECT 1
-      FROM grids.records r
-      WHERE r.id = ${event.recordId}::uuid
-        AND r.table_id = ${tableId}::uuid
-        AND ${event.type === "record.deleted" ? sql`TRUE` : sql`r.deleted_at IS NULL`}
-        AND ${clause}
-    ) AS matched
+  const clause = renderClause(compiled.clause, { recordAlias: "event_record", relationSource: "recordData" });
+  const [row] = await sql<{ snapshot_id: string | null; matched: boolean }[]>`
+    SELECT snapshot.id::text AS snapshot_id, COALESCE((${clause}), false) AS matched
+    FROM grids.record_event_outbox outbox
+    LEFT JOIN grids.record_event_snapshots snapshot
+      ON snapshot.id = outbox.id
+      AND snapshot.base_id = ${event.baseId}::uuid
+      AND snapshot.record_id = ${event.recordId}::uuid
+      AND snapshot.table_id = ${tableId}::uuid
+      AND snapshot.event_type = ${event.type}
+      AND (${event.version}::int IS NULL OR snapshot.record_version = ${event.version})
+    CROSS JOIN LATERAL (
+      SELECT snapshot.record_id AS id, snapshot.data AS data
+    ) event_record
+    WHERE outbox.base_id = ${event.baseId}::uuid
+      AND outbox.table_id = ${event.tableId}::uuid
+      AND outbox.record_id = ${event.recordId}::uuid
+      AND outbox.payload->>'type' = ${event.type}
+      AND outbox.payload->>'occurredAt' = ${event.occurredAt}
   `;
+  if (!row?.snapshot_id) return fail(err.badInput("record event snapshot is missing or inconsistent"));
   return ok(Boolean(row?.matched));
 };
 

@@ -56,6 +56,7 @@ export type AuditAction =
   | "workflow.document.generated"
   | "workflow.document_link.created"
   | "workflow.email.sent"
+  | "workflow.email.queued"
   | "workflow.email.failed"
   | "workflow.http.sent"
   | "workflow.http.failed"

@@ -189,4 +189,67 @@ describe("workflow email deliveries integration", () => {
       await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
     }
   });
+
+  postgresTest("reflects the current durable notification delivery state", async () => {
+    const fixture = await insertFixture();
+    const notificationId = uuid();
+    const definitionId = `grids.test.${uuid()}`;
+    try {
+      await sql`
+        INSERT INTO notifications.definitions (
+          id, app_id, kind, label, description, recipient_kind, required_channels
+        )
+        VALUES (${definitionId}, 'grids', ${definitionId}, 'Test', 'Test', 'email', ARRAY['email'])
+      `;
+      await sql`
+        INSERT INTO notifications.events (
+          id, definition_id, recipient_email, recipient_key, idempotency_key, title
+        )
+        VALUES (
+          ${notificationId}::uuid, ${definitionId}, 'queued@example.test', 'queued@example.test', ${uuid()}, 'Queued'
+        )
+      `;
+      await sql`
+        INSERT INTO notifications.deliveries (
+          event_id, channel, destination_key, destination_label, payload_encrypted, required, status
+        )
+        VALUES (${notificationId}::uuid, 'email', 'queued@example.test', 'queued@example.test', 'opaque', TRUE, 'pending')
+      `;
+      await recordWorkflowEmailDelivery({
+        baseId: fixture.baseId,
+        workflowId: fixture.workflowId,
+        workflowRunId: fixture.runId,
+        templateId: fixture.templateId,
+        recipientKind: "email",
+        recipientSummary: "qu***@example.test",
+        notificationId,
+        providerStatus: "queued",
+        status: "sent",
+        subject: "Queued notification",
+      });
+
+      const queued = await listEmailDeliveriesPage({
+        baseId: fixture.baseId,
+        workflowIds: [fixture.workflowId],
+        workflowId: fixture.workflowId,
+      });
+      expect(queued.items[0]).toMatchObject({ status: "pending" });
+
+      await sql`
+        UPDATE notifications.deliveries
+        SET status = 'failed', error_code = 'provider_rejected', error_message = 'Provider rejected message'
+        WHERE event_id = ${notificationId}::uuid
+      `;
+      const failed = await listEmailDeliveriesPage({
+        baseId: fixture.baseId,
+        workflowIds: [fixture.workflowId],
+        workflowId: fixture.workflowId,
+      });
+      expect(failed.items[0]).toMatchObject({ status: "failed", error: "Provider rejected message" });
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
+      await sql`DELETE FROM notifications.events WHERE id = ${notificationId}::uuid`;
+      await sql`DELETE FROM notifications.definitions WHERE id = ${definitionId}`;
+    }
+  });
 });

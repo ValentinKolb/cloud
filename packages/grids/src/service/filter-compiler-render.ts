@@ -11,7 +11,7 @@ type PredicateProjection = {
   dateOnly: any;
   bool: any;
 };
-type RenderOptions = { recordAlias?: string };
+type RenderOptions = { recordAlias?: string; relationSource?: "links" | "recordData" };
 
 const escapeLikePattern = (value: string): string => value.replace(/([\\%_])/g, "\\$1");
 const recordData = (recordAlias: string): any => sql`${sql.unsafe(recordAlias)}.data`;
@@ -212,7 +212,30 @@ const renderSelectPredicate = (predicate: PredicateClause, projection: Predicate
 };
 
 const renderRelationPredicate = (predicate: PredicateClause, options: RenderOptions = {}): any => {
-  const sourceRecordId = recordId(options.recordAlias ?? "r");
+  const recordAlias = options.recordAlias ?? "r";
+  if (options.relationSource === "recordData") {
+    const rawJson = sql`${recordData(recordAlias)}->${predicate.fieldId}`;
+    const values = sql`CASE WHEN jsonb_typeof(${rawJson}) = 'array' THEN ${rawJson} ELSE '[]'::jsonb END`;
+    const items = (predicate.value as string[]) ?? [];
+    const containsAny =
+      items.length === 0
+        ? sql`FALSE`
+        : items.map((item) => sql`${values} @> ${[item]}::jsonb`).reduce((acc, part) => sql`${acc} OR ${part}`);
+    switch (predicate.op) {
+      case "containsAny":
+        return sql`(${containsAny})`;
+      case "notContainsAny":
+        return sql`NOT (${containsAny})`;
+      case "isEmpty":
+        return sql`jsonb_array_length(${values}) = 0`;
+      case "isNotEmpty":
+        return sql`jsonb_array_length(${values}) > 0`;
+      default:
+        return sql`FALSE`;
+    }
+  }
+
+  const sourceRecordId = recordId(recordAlias);
   switch (predicate.op) {
     case "containsAny":
       return sql`EXISTS (

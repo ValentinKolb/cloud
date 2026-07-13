@@ -1,8 +1,8 @@
-import { notifications } from "@valentinkolb/cloud/services";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { app } from "../config";
 import type {
   DocumentRun,
   RecordQuery,
@@ -13,6 +13,7 @@ import type {
   WorkflowTriggerKind,
   WorkflowValue,
 } from "../contracts";
+import { createWorkflowNotificationSender, type WorkflowNotificationSender } from "../notifications";
 import {
   hasInvalidWorkflowMessageExpression,
   parseWorkflowValueString,
@@ -28,7 +29,7 @@ import type { GridsRecordEvent } from "./record-events";
 import { create as createRecord, get as getRecord, list as listRecords, update as updateRecord } from "./records";
 import { get as getTable } from "./tables";
 import type { GridRecord, Table } from "./types";
-import { executeWorkflowEmailAction, type WorkflowEmailAction, type WorkflowNotificationSender } from "./workflow-email-action";
+import { executeWorkflowEmailAction, type WorkflowEmailAction, WorkflowEmailDeliveryInterruptedError } from "./workflow-email-action";
 import { requestWorkflowHttp } from "./workflow-http-client";
 import { executeWorkflowSteps, type RuntimeStep } from "./workflow-runtime-executor";
 import {
@@ -147,6 +148,7 @@ const MAX_BULK_RECORDS = 10_000;
 const MAX_LOOP_ITEMS = MAX_BULK_RECORDS;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SCAN_CODE_PATH_RE = /(?:^|\/)scan(?:\?|$)/;
+const defaultWorkflowNotificationSender = createWorkflowNotificationSender(app.notifications);
 
 type RuntimeContext = {
   workflow: Workflow;
@@ -350,7 +352,7 @@ const createRuntimeContext = async (
     dateConfig: await workflowDateConfig(),
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
-    notificationSender: params.notificationSender ?? notifications,
+    notificationSender: params.notificationSender ?? defaultWorkflowNotificationSender,
   };
 };
 
@@ -680,6 +682,8 @@ const isSideEffectStep = (item: RuntimeStep): boolean =>
   "sendEmail" in item ||
   "httpRequest" in item;
 
+const isRetryableSideEffectStep = (item: RuntimeStep): boolean => "sendEmail" in item;
+
 const evaluateCondition = async (ctx: RuntimeContext, condition: RuntimeCondition): Promise<Result<boolean>> => {
   if (condition.equals) {
     const left = await evaluateValue(ctx, condition.equals[0]);
@@ -897,12 +901,13 @@ const executeCreateDocumentLink = async (ctx: RuntimeContext, action: RuntimeCre
   return ok(output);
 };
 
-const executeSendEmail = (ctx: RuntimeContext, action: WorkflowEmailAction): Promise<Result<WorkflowValue>> =>
+const executeSendEmail = (ctx: RuntimeContext, action: WorkflowEmailAction, stepRun: WorkflowStepRun): Promise<Result<WorkflowValue>> =>
   executeWorkflowEmailAction(
     {
       workflow: ctx.workflow,
       catalog: ctx.catalog,
       runId: ctx.runId,
+      stepRunId: stepRun.id,
       actorUserId: ctx.actorUserId,
       serviceAccountId: ctx.serviceAccountId,
       notificationSender: ctx.notificationSender,
@@ -913,15 +918,21 @@ const executeSendEmail = (ctx: RuntimeContext, action: WorkflowEmailAction): Pro
     action,
   );
 
-const executeHttpRequest = async (ctx: RuntimeContext, action: RuntimeHttpRequestAction): Promise<Result<RuntimeValue>> => {
+const executeHttpRequest = async (
+  ctx: RuntimeContext,
+  action: RuntimeHttpRequestAction,
+  stepRun: WorkflowStepRun,
+): Promise<Result<RuntimeValue>> => {
   const payload = action.json === undefined ? undefined : await evaluateValue(ctx, action.json);
   if (payload && !payload.ok) return payload;
   const started = Date.now();
   const host = new URL(action.url).host;
+  const idempotencyKey = `workflow:${ctx.runId}:step:${stepRun.id}`;
   const response = await requestWorkflowHttp({
     url: action.url,
     method: action.method,
     headers: action.headers,
+    idempotencyKey,
     body: payload ? JSON.stringify(valueToPlain(payload.data)) : undefined,
     timeoutMs: action.timeoutMs,
   });
@@ -983,13 +994,17 @@ const withVariableScope = async <T>(ctx: RuntimeContext, run: () => Promise<T>):
   }
 };
 
-const executeActionStep = async (ctx: RuntimeContext, item: RuntimeStep): Promise<Result<RuntimeValue | null> | null> => {
+const executeActionStep = async (
+  ctx: RuntimeContext,
+  item: RuntimeStep,
+  stepRun: WorkflowStepRun,
+): Promise<Result<RuntimeValue | null> | null> => {
   if ("updateRecord" in item) return executeUpdateRecord(ctx, item.updateRecord as RuntimeUpdateRecordAction);
   if ("createRecord" in item) return executeCreateRecord(ctx, item.createRecord as RuntimeCreateRecordAction);
   if ("generateDocument" in item) return executeGenerateDocument(ctx, item.generateDocument as RuntimeGenerateDocumentAction);
   if ("createDocumentLink" in item) return executeCreateDocumentLink(ctx, item.createDocumentLink as RuntimeCreateDocumentLinkAction);
-  if ("sendEmail" in item) return executeSendEmail(ctx, item.sendEmail as WorkflowEmailAction);
-  if ("httpRequest" in item) return executeHttpRequest(ctx, item.httpRequest as RuntimeHttpRequestAction);
+  if ("sendEmail" in item) return executeSendEmail(ctx, item.sendEmail as WorkflowEmailAction, stepRun);
+  if ("httpRequest" in item) return executeHttpRequest(ctx, item.httpRequest as RuntimeHttpRequestAction, stepRun);
   if ("setVariable" in item) {
     const action = item.setVariable as RuntimeSetVariableAction;
     const evaluated = await evaluateValue(ctx, action.value);
@@ -1011,12 +1026,13 @@ const executeSteps = (ctx: RuntimeContext, runId: string): Promise<Result<Runtim
   if (ctx.executionGeneration === null) return Promise.resolve(fail(err.internal("workflow run was not claimed")));
   return executeWorkflowSteps<RuntimeValue>(
     {
-      executeAction: (item) => executeActionStep(ctx, item),
+      executeAction: (item, stepRun) => executeActionStep(ctx, item, stepRun),
       evaluateCondition: (condition) => evaluateCondition(ctx, condition as RuntimeCondition),
       evaluateReference: (reference) => evaluateReference(ctx, reference),
       evaluateValue: (value) => evaluateValue(ctx, value),
       heartbeat: () => heartbeatWorkflow(ctx),
       isRecordList,
+      isRetryableSideEffectStep,
       isSideEffectStep,
       isWorkflowSucceed,
       maxLoopItems: MAX_LOOP_ITEMS,
@@ -1093,6 +1109,7 @@ const executeWorkflowRun = async (
     if (!finished) return fail(err.conflict("workflow run lease lost"));
     return result.ok ? ok(finished) : fail(result.error);
   } catch (error) {
+    if (error instanceof WorkflowEmailDeliveryInterruptedError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     const finished = await finishRun(started.id, ctx.executionGeneration, { status: "failed", error: message });
     if (!finished) return fail(err.conflict("workflow run lease lost"));
@@ -1199,7 +1216,7 @@ const scannerWorkflowContext = async (
     dateConfig: await workflowDateConfig(),
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
-    notificationSender: params.notificationSender ?? notifications,
+    notificationSender: params.notificationSender ?? defaultWorkflowNotificationSender,
   };
   return ok({ ...ctx, inputName: scanner.input, tableId: table.id });
 };
@@ -1265,7 +1282,7 @@ const bulkWorkflowContext = async (
     records: new Map(),
     readableTableIds: new Set(),
     dateConfig: await workflowDateConfig(),
-    notificationSender: params.notificationSender ?? notifications,
+    notificationSender: params.notificationSender ?? defaultWorkflowNotificationSender,
   };
   return ok({ ...ctx, inputName, tableId: table.id });
 };
@@ -1466,7 +1483,7 @@ export const prepareRecordEvent = async (params: ExecuteRecordEventWorkflowParam
     dateConfig: await workflowDateConfig(),
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
-    notificationSender: params.notificationSender ?? notifications,
+    notificationSender: params.notificationSender ?? defaultWorkflowNotificationSender,
   };
   const runPermission = await requireWorkflowRunPermission(ctx);
   if (!runPermission.ok) return runPermission;

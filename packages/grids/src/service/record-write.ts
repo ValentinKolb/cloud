@@ -5,7 +5,7 @@ import { logAudit, type SqlClient } from "./audit";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { requireTableAlive } from "./parent-checks";
-import { notifyRecordEventOutbox } from "./record-event-outbox";
+import { captureRecordEventSnapshot, notifyRecordEventOutbox } from "./record-event-outbox";
 import { buildPersistedUpdateData, buildRecordDiff, mapRecordRow, splitRelationsFromData } from "./record-persistence";
 import { get } from "./record-read";
 import { recordUniqueConflict } from "./record-unique-conflicts";
@@ -227,6 +227,13 @@ export const createInTransaction = async (
     await writeRecordLinks(id, fieldId, toIds, client);
   }
 
+  await captureRecordEventSnapshot(client, {
+    snapshotId: row.outbox_id as string,
+    tableId,
+    recordId: id,
+    eventType: "record.created",
+  });
+
   await logAudit(
     {
       tableId,
@@ -399,6 +406,13 @@ export const update = async (
         await writeRecordLinks(recordId, fieldId, toIds, tx);
       }
 
+      await captureRecordEventSnapshot(tx, {
+        snapshotId: r.outbox_id as string,
+        tableId,
+        recordId,
+        eventType: "record.updated",
+      });
+
       if (Object.keys(diff).length > 0) {
         await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff }, tx);
       }
@@ -420,26 +434,45 @@ export const update = async (
 
 export const softDelete = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(tableId, recordId);
+  if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   const eventPayload = {
     v: 1,
     type: "record.deleted",
-    version: existing?.version ?? null,
-    changedFieldIds: existing ? Object.keys(existing.data) : [],
+    version: existing.version,
+    changedFieldIds: Object.keys(existing.data),
     actorId,
   };
-  const outboxId = await sql.begin(async (tx) => {
-    const [row] = await tx<Array<{ outbox_id: string }>>`
-      UPDATE grids.records
-      SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
-      WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NULL
-      RETURNING grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
-    `;
-    if (!row) return null;
-    await logAudit({ tableId, recordId, userId: actorId, action: "deleted" }, tx);
-    return row.outbox_id;
-  });
-  if (!outboxId) return fail(err.notFound("Record"));
-  notifyRecordEventOutbox(outboxId);
+  const deleted = await sql
+    .begin(async (tx): Promise<Result<string>> => {
+      const [row] = await tx<Array<{ outbox_id: string }>>`
+        UPDATE grids.records
+        SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
+        WHERE id = ${recordId}::uuid
+          AND table_id = ${tableId}::uuid
+          AND deleted_at IS NULL
+          AND version = ${existing.version}
+        RETURNING grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
+      `;
+      if (!row) {
+        const conflict = new Error("VERSION_CONFLICT") as Error & { __versionConflict: true };
+        conflict.__versionConflict = true;
+        throw conflict;
+      }
+      await captureRecordEventSnapshot(tx, {
+        snapshotId: row.outbox_id,
+        tableId,
+        recordId,
+        eventType: "record.deleted",
+      });
+      await logAudit({ tableId, recordId, userId: actorId, action: "deleted" }, tx);
+      return ok(row.outbox_id);
+    })
+    .catch((error: unknown) => {
+      if ((error as { __versionConflict?: true })?.__versionConflict) return fail(recordVersionConflict());
+      throw error;
+    });
+  if (!deleted.ok) return deleted;
+  notifyRecordEventOutbox(deleted.data);
   return ok();
 };
 
@@ -463,6 +496,12 @@ export const restore = async (tableId: string, recordId: string, actorId: string
         RETURNING grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
       `;
       if (!row) return fail(err.notFound("Record"));
+      await captureRecordEventSnapshot(tx, {
+        snapshotId: row.outbox_id,
+        tableId,
+        recordId,
+        eventType: "record.restored",
+      });
       await logAudit({ tableId, recordId, userId: actorId, action: "restored" }, tx);
       return ok(row.outbox_id);
     })
