@@ -97,6 +97,7 @@ let snapshotListCalls = 0;
 let snapshotCreateCalls = 0;
 let snapshotCreateInput: unknown;
 let snapshotGetCalls = 0;
+let snapshotFilterInput: unknown;
 
 const snapshot = {
   id: snapshotId,
@@ -140,6 +141,10 @@ mock.module("../service", () => ({
       getSnapshot: async (id: string) => {
         snapshotGetCalls += 1;
         return id === snapshotId ? snapshot : null;
+      },
+      filterSnapshotRelatedRecords: async (input: unknown, canReadRelatedTable: unknown) => {
+        snapshotFilterInput = { input, canReadRelatedTable };
+        return input;
       },
       summarizeTemplate: (row: typeof template) => ({
         id: row.id,
@@ -199,6 +204,7 @@ describe("document template permission surfaces", () => {
     snapshotCreateCalls = 0;
     snapshotCreateInput = undefined;
     snapshotGetCalls = 0;
+    snapshotFilterInput = undefined;
   });
 
   test("lists readable document templates without table read access", async () => {
@@ -306,13 +312,24 @@ describe("document template permission surfaces", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ snapshot });
     expect(snapshotCreateCalls).toBe(1);
-    expect(snapshotCreateInput).toEqual({
+    const { canReadRelatedTable, ...snapshotParams } = snapshotCreateInput as {
+      baseId: string;
+      tableId: string;
+      recordId: string;
+      actorId: string;
+      dateConfig: { timeZone: string; locale: string; firstDayOfWeek: number };
+      canReadRelatedTable: (target: { baseId: string; tableId: string }) => Promise<boolean>;
+    };
+    expect(snapshotParams).toEqual({
       baseId,
       tableId,
       recordId,
       actorId: user.id,
       dateConfig: { timeZone: "UTC", locale: "en", firstDayOfWeek: 1 },
     });
+    expect(await canReadRelatedTable({ baseId, tableId })).toBe(true);
+    tableLevel = "none";
+    expect(await canReadRelatedTable({ baseId, tableId })).toBe(false);
   });
 
   test("requires table read access to open a standalone snapshot", async () => {
@@ -333,6 +350,14 @@ describe("document template permission surfaces", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(snapshot);
     expect(snapshotGetCalls).toBe(1);
+    const filterInput = snapshotFilterInput as {
+      input: typeof snapshot;
+      canReadRelatedTable: (target: { baseId: string; tableId: string }) => Promise<boolean>;
+    };
+    expect(filterInput.input).toBe(snapshot);
+    expect(await filterInput.canReadRelatedTable({ baseId, tableId })).toBe(true);
+    tableLevel = "none";
+    expect(await filterInput.canReadRelatedTable({ baseId, tableId })).toBe(false);
   });
 
   test("returns 404 for an unknown standalone snapshot", async () => {

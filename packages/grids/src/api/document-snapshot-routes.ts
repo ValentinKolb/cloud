@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { CreateRecordSnapshotResponseSchema, RecordSnapshotListResponseSchema, RecordSnapshotSchema } from "../contracts";
 import { gridsService } from "../service";
-import { uuidParam } from "./documents-api-shared";
+import { snapshotRelatedTableGuard, uuidParam } from "./documents-api-shared";
 import { currentActorUserId, gateAt } from "./permissions";
 
 export const createDocumentSnapshotRoutes = () =>
@@ -54,6 +54,7 @@ export const createDocumentSnapshotRoutes = () =>
           tableId,
           recordId,
           actorId: currentActorUserId(c),
+          canReadRelatedTable: snapshotRelatedTableGuard(c),
           dateConfig: await getDateConfig(c),
         });
         if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
@@ -78,6 +79,6 @@ export const createDocumentSnapshotRoutes = () =>
         if (!snapshot) return c.json({ message: "Record snapshot not found" }, 404);
         const gate = await gateAt(c, { baseId: snapshot.baseId, tableId: snapshot.tableId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return c.json(snapshot);
+        return c.json(await gridsService.document.filterSnapshotRelatedRecords(snapshot, snapshotRelatedTableGuard(c)));
       },
     );

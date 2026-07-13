@@ -98,6 +98,7 @@ describe("document audit integration", () => {
         tableId: fixture.tableId,
         recordId: fixture.recordId,
         actorId: fixture.actorId,
+        canReadRelatedTable: async () => true,
       });
       expect(snapshot.ok).toBe(true);
       if (!snapshot.ok) throw new Error(snapshot.error.message);
@@ -179,6 +180,7 @@ describe("document audit integration", () => {
         tableId: fixture.tableId,
         recordId: fixture.recordId,
         actorId: fixture.actorId,
+        canReadRelatedTable: async () => true,
       });
       if (!snapshot.ok) throw new Error(snapshot.error.message);
       const run = await createDocumentRun({

@@ -6,7 +6,7 @@ import { logAudit } from "./audit";
 import { type DocumentDbRow, mapDocumentRun } from "./document-mappers";
 import { buildDocumentRunRenderData, buildLiveRenderData, renderRunPdf } from "./document-rendering";
 import { normalizeDocumentTags, safePdfFilename } from "./document-run-values";
-import { createRecordSnapshot } from "./document-snapshots";
+import { createRecordSnapshot, type SnapshotRelatedTableGuard } from "./document-snapshots";
 import { get as getRecord } from "./records";
 import { insertWithShortId } from "./short-id";
 import type { Table } from "./types";
@@ -28,6 +28,7 @@ export const createRunForRecord = async (params: {
   table: Table;
   recordId: string;
   actorId: string | null;
+  canReadRelatedTable: SnapshotRelatedTableGuard;
   dateConfig?: DateContext;
   generatedAt?: Date;
   filename?: string | null;
@@ -55,6 +56,7 @@ export const createRunForRecord = async (params: {
     tableId: params.table.id,
     recordId: params.recordId,
     actorId: params.actorId,
+    canReadRelatedTable: params.canReadRelatedTable,
     dateConfig: params.dateConfig,
   });
   if (!snapshot.ok) return snapshot;

@@ -1,6 +1,6 @@
 import type { DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { lookupTargetMeta } from "../lookup-display";
+import { type LookupTargetMeta, lookupTargetMeta } from "../lookup-display";
 import {
   applyComputedProjections,
   buildComputedProjections,
@@ -24,12 +24,26 @@ export const projectionFragmentsFor = (projections: ComputedProjection[]): unkno
     ? projections.map((projection) => sql`, ${projection.fragment}`).reduce((acc, current) => sql`${acc}${current}`)
     : sql``;
 
-export const enrichFormulaLookups = async (
-  records: GridRecord[],
-  fields: Field[],
-  options: { dateConfig?: DateContext } = {},
-): Promise<void> => {
-  if (records.length === 0) return;
+type FormulaLookupSpec = {
+  lookupField: Field;
+  relationField: Field;
+  target: LookupTargetMeta;
+  targetTableId: string;
+};
+
+type FormulaLookupTargetPlan = {
+  fields: Field[];
+  projections: ComputedProjection[];
+  projectionFragments: unknown;
+  formulaFieldIds: Set<string>;
+};
+
+type FormulaLookupPlan = {
+  specs: FormulaLookupSpec[];
+  targets: Map<string, FormulaLookupTargetPlan>;
+};
+
+const prepareFormulaLookupPlan = async (fields: Field[], dateConfig?: DateContext): Promise<FormulaLookupPlan> => {
   const specs = fields
     .filter((field) => field.type === "lookup" && !field.deletedAt && lookupTargetMeta(field)?.type === "formula")
     .map((lookupField) => {
@@ -42,10 +56,33 @@ export const enrichFormulaLookups = async (
       return relationField && target && targetTableId ? { lookupField, relationField, target, targetTableId } : null;
     })
     .filter((spec): spec is NonNullable<typeof spec> => Boolean(spec));
-  if (specs.length === 0) return;
+
+  const targets = new Map<string, FormulaLookupTargetPlan>();
+  for (const { targetTableId } of specs) {
+    if (targets.has(targetTableId)) continue;
+    const targetFields = await listFields(targetTableId);
+    const targetComputed = await buildComputedProjections(targetFields);
+    const targetFormulaSql = buildFormulaSqlProjections(targetFields, { dateConfig });
+    const targetProjections = [...targetComputed, ...targetFormulaSql];
+    targets.set(targetTableId, {
+      fields: targetFields,
+      projections: targetProjections,
+      projectionFragments: projectionFragmentsFor(targetProjections),
+      formulaFieldIds: new Set(targetFormulaSql.map((projection) => projection.fieldId)),
+    });
+  }
+  return { specs, targets };
+};
+
+const enrichFormulaLookupsWithPlan = async (
+  records: GridRecord[],
+  plan: FormulaLookupPlan,
+  options: { dateConfig?: DateContext } = {},
+): Promise<void> => {
+  if (records.length === 0 || plan.specs.length === 0) return;
 
   const idsByTable = new Map<string, Set<string>>();
-  for (const spec of specs) {
+  for (const spec of plan.specs) {
     const ids = idsByTable.get(spec.targetTableId) ?? new Set<string>();
     for (const record of records) {
       for (const id of relationIdsFor(record.data[spec.relationField.id])) ids.add(id);
@@ -56,13 +93,10 @@ export const enrichFormulaLookups = async (
   const targetsByTable = new Map<string, Map<string, GridRecord>>();
   for (const [tableId, ids] of idsByTable) {
     if (ids.size === 0) continue;
-    const targetFields = await listFields(tableId);
-    const targetComputed = await buildComputedProjections(targetFields);
-    const targetFormulaSql = buildFormulaSqlProjections(targetFields, { dateConfig: options.dateConfig });
-    const targetProjections = [...targetComputed, ...targetFormulaSql];
-    const projectionFragments = projectionFragmentsFor(targetProjections);
+    const target = plan.targets.get(tableId);
+    if (!target) continue;
     const rows = await sql<DbRow[]>`
-      SELECT r.*${projectionFragments}
+      SELECT r.*${target.projectionFragments}
       FROM grids.records r
       ${liveRecordParentJoinSql("r", "rt", "rb")}
       WHERE r.table_id = ${tableId}::uuid
@@ -70,17 +104,17 @@ export const enrichFormulaLookups = async (
         AND r.deleted_at IS NULL
     `;
     const targetRecords = rows.map(mapRecordRow);
-    await hydrateRelationsFromLinks(targetRecords, targetFields);
+    await hydrateRelationsFromLinks(targetRecords, target.fields);
     const recordsById = new Map(targetRecords.map((record) => [record.id, record]));
-    applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, targetProjections);
-    enrichRecordsWithFormulas(targetRecords, targetFields, {
+    applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, target.projections);
+    enrichRecordsWithFormulas(targetRecords, target.fields, {
       dateConfig: options.dateConfig,
-      skipFormulaFieldIds: new Set(targetFormulaSql.map((projection) => projection.fieldId)),
+      skipFormulaFieldIds: target.formulaFieldIds,
     });
     targetsByTable.set(tableId, recordsById);
   }
 
-  for (const spec of specs) {
+  for (const spec of plan.specs) {
     const targetRecords = targetsByTable.get(spec.targetTableId);
     for (const record of records) {
       const firstId = relationIdsFor(record.data[spec.relationField.id])[0];
@@ -89,38 +123,74 @@ export const enrichFormulaLookups = async (
   }
 };
 
-export const get = async (
-  tableId: string,
-  recordId: string,
-  opts: { includeRelations?: boolean; viewer?: ExpansionViewer; dateConfig?: DateContext } = {},
-): Promise<GridRecord | null> => {
-  const fields = await listFields(tableId);
+export const enrichFormulaLookups = async (
+  records: GridRecord[],
+  fields: Field[],
+  options: { dateConfig?: DateContext } = {},
+): Promise<void> => {
+  if (records.length === 0) return;
+  const plan = await prepareFormulaLookupPlan(fields, options.dateConfig);
+  await enrichFormulaLookupsWithPlan(records, plan, options);
+};
+
+type RecordReadOptions = {
+  includeRelations?: boolean;
+  viewer?: ExpansionViewer;
+  dateConfig?: DateContext;
+  fields?: Field[];
+};
+
+export type RecordReader = {
+  fields: Field[];
+  get: (recordId: string) => Promise<GridRecord | null>;
+  getMany: (recordIds: string[]) => Promise<GridRecord[]>;
+};
+
+export const createReader = async (tableId: string, opts: RecordReadOptions = {}): Promise<RecordReader> => {
+  const fields = opts.fields ?? (await listFields(tableId));
   const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
   const computed = await buildComputedProjections(fields);
   const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: opts.dateConfig });
   const projections = [...computed, ...formulaSql];
   const projectionFragments = projectionFragmentsFor(projections);
+  const formulaFieldIds = new Set(formulaSql.map((projection) => projection.fieldId));
+  const formulaLookupPlan = await prepareFormulaLookupPlan(fieldsWithLookupMeta, opts.dateConfig);
 
-  const [row] = await sql<DbRow[]>`
-    SELECT r.*${projectionFragments}
-    FROM grids.records r
-    JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
-    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-    WHERE r.id = ${recordId}::uuid
-      AND r.table_id = ${tableId}::uuid
-      AND r.deleted_at IS NULL
-  `;
-  if (!row) return null;
-  const record = mapRecordRow(row);
-  await hydrateRelationsFromLinks([record], fields);
-  applyComputedProjections([row as Record<string, unknown>], new Map([[record.id, record]]), projections);
-  await enrichFormulaLookups([record], fieldsWithLookupMeta, { dateConfig: opts.dateConfig });
-  enrichRecordsWithFormulas([record], fieldsWithLookupMeta, {
-    dateConfig: opts.dateConfig,
-    skipFormulaFieldIds: new Set(formulaSql.map((projection) => projection.fieldId)),
-  });
-  if (opts.includeRelations) {
-    await attachRelationExpansion([record], fieldsWithLookupMeta, opts.viewer);
-  }
-  return record;
+  const getMany = async (recordIds: string[]): Promise<GridRecord[]> => {
+    if (recordIds.length === 0) return [];
+    const rows = await sql<DbRow[]>`
+      SELECT r.*${projectionFragments}
+      FROM grids.records r
+      JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+      WHERE r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
+        AND r.table_id = ${tableId}::uuid
+        AND r.deleted_at IS NULL
+    `;
+    const records = rows.map(mapRecordRow);
+    await hydrateRelationsFromLinks(records, fields);
+    const recordsById = new Map(records.map((record) => [record.id, record]));
+    applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, projections);
+    await enrichFormulaLookupsWithPlan(records, formulaLookupPlan, { dateConfig: opts.dateConfig });
+    enrichRecordsWithFormulas(records, fieldsWithLookupMeta, {
+      dateConfig: opts.dateConfig,
+      skipFormulaFieldIds: formulaFieldIds,
+    });
+    if (opts.includeRelations) {
+      await attachRelationExpansion(records, fieldsWithLookupMeta, opts.viewer);
+    }
+    return recordIds.flatMap((id) => {
+      const record = recordsById.get(id);
+      return record ? [record] : [];
+    });
+  };
+
+  return {
+    fields,
+    get: async (recordId) => (await getMany([recordId]))[0] ?? null,
+    getMany,
+  };
 };
+
+export const get = async (tableId: string, recordId: string, opts: RecordReadOptions = {}): Promise<GridRecord | null> =>
+  (await createReader(tableId, opts)).get(recordId);

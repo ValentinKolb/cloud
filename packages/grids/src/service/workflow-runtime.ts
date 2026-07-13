@@ -778,6 +778,7 @@ const executeGenerateDocument = async (ctx: RuntimeContext, action: RuntimeGener
     table: table as Table,
     recordId: recordValue.data.recordId,
     actorId: ctx.actorUserId,
+    canReadRelatedTable: async ({ tableId }) => (await requireTableReadPermission(ctx, tableId)).ok,
     dateConfig: ctx.dateConfig,
     filename: filename && typeof filename.data === "string" ? filename.data : null,
     tags,

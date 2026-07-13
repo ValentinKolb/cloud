@@ -14,6 +14,7 @@ import {
   loadTemplateAndTable,
   renderDraftDataResponse,
   renderDraftPdfResponse,
+  snapshotRelatedTableGuard,
   uuidParam,
 } from "./documents-api-shared";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
@@ -229,6 +230,7 @@ export const createDocumentRenderRoutes = () =>
           tableId: loaded.table.id,
           recordId: body.recordId,
           actorId: currentActorUserId(c),
+          canReadRelatedTable: snapshotRelatedTableGuard(c),
           dateConfig,
         });
         if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);

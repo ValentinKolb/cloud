@@ -89,6 +89,9 @@ export const gateTemplate = async (
   required: "read" | "write" | "admin",
 ) => gateAt(c, { baseId: loaded.table.baseId, tableId: loaded.table.id, documentTemplateId: loaded.template.id }, required);
 
+export const snapshotRelatedTableGuard = (c: Context<AuthContext>) => async (target: { baseId: string; tableId: string }) =>
+  (await gateAt(c, target, "read")).ok;
+
 export const gateRun = async (
   c: Context<AuthContext>,
   run: NonNullable<Awaited<ReturnType<typeof gridsService.document.getRun>>>,

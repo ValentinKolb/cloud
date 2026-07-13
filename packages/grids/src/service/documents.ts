@@ -46,7 +46,7 @@ export {
   renderWorkflowRunPdf,
   updateRunMetadata,
 } from "./document-runs";
-export { createRecordSnapshot, getSnapshot, listSnapshotsForRecord } from "./document-snapshots";
+export { createRecordSnapshot, filterSnapshotRelatedRecords, getSnapshot, listSnapshotsForRecord } from "./document-snapshots";
 export {
   createTemplate,
   getTemplate,

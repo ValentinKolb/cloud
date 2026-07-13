@@ -511,6 +511,7 @@ describe("document render routes", () => {
 
   test("generates in live-data, snapshot, run, PDF order with actor inputs and exact download headers", async () => {
     templateLevel = "write";
+    tableLevel = "none";
     const response = await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody));
 
     await expectPdf(response, `attachment; filename="Invoice July.pdf"; filename*=UTF-8''Invoice%20July.pdf`, {
@@ -519,7 +520,16 @@ describe("document render routes", () => {
       "x-grids-document-filename": "Invoice%20July.pdf",
     });
     expect(callOrder).toEqual(["live-data", "snapshot", "run", "run-pdf"]);
-    expect(snapshotInput).toEqual({ baseId, tableId, recordId, actorId: userId, dateConfig });
+    const { canReadRelatedTable, ...snapshotParams } = snapshotInput as {
+      baseId: string;
+      tableId: string;
+      recordId: string;
+      actorId: string;
+      dateConfig: typeof dateConfig;
+      canReadRelatedTable: (target: { baseId: string; tableId: string }) => Promise<boolean>;
+    };
+    expect(snapshotParams).toEqual({ baseId, tableId, recordId, actorId: userId, dateConfig });
+    expect(await canReadRelatedTable({ baseId, tableId })).toBe(false);
     expect(createRunInput).toEqual({
       template,
       snapshot,

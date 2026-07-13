@@ -2,7 +2,14 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { WorkflowDefinition } from "../contracts";
 import { migrate } from "../migrate";
-import { executeBulkSelection, executePreparedRun, executeRecordEvent, executeScanner, prepareBulkSelection } from "./workflow-runtime";
+import {
+  executeBulkSelection,
+  executePreparedRun,
+  executeRecordEvent,
+  executeScanner,
+  prepareBulkSelection,
+  prepareWorkflowTriggerRun,
+} from "./workflow-runtime";
 import {
   claimStaleQueuedRuns,
   createStepRun,
@@ -302,6 +309,157 @@ describe("workflow runtime integration", () => {
       expect(statuses[fixture.recordCId]).toBe("new");
     } finally {
       await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("document generation keeps its template root but omits relations denied to the persisted principal", async () => {
+    const fixture = await insertFixture("write");
+    const actorUserId = uuid();
+    const actorGroupId = uuid();
+    const serviceAccountId = uuid();
+    try {
+      const publicAccessId = fixture.accessIds.shift();
+      if (!publicAccessId) throw new Error("Missing public fixture access");
+      await sql`DELETE FROM grids.base_access WHERE access_id = ${publicAccessId}::uuid`;
+      await sql`DELETE FROM auth.access WHERE id = ${publicAccessId}::uuid`;
+
+      await sql`
+        INSERT INTO auth.users (id, uid, provider, profile, display_name, mail, given_name, sn)
+        VALUES (${actorUserId}::uuid, ${`snapshot-${actorUserId}`}, 'local', 'user', 'Snapshot Actor', 'snapshot@example.test', 'Snapshot', 'Actor')
+      `;
+      await sql`
+        INSERT INTO auth.groups (id, cn, provider, name, description)
+        VALUES (${actorGroupId}::uuid, ${`snapshot-${actorGroupId}`}, 'local', 'Snapshot actors', 'Snapshot workflow integration test')
+      `;
+      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${actorUserId}::uuid, ${actorGroupId}::uuid)`;
+      await sql`
+        INSERT INTO auth.service_accounts (id, name, kind, app_id, resource_type, resource_id)
+        VALUES (${serviceAccountId}::uuid, 'Snapshot workflow integration', 'resource_bound', 'grids', 'base', ${fixture.baseId})
+      `;
+
+      const relatedTableId = uuid();
+      const relationFieldId = uuid();
+      const relatedRecordId = uuid();
+      const templateId = uuid();
+      await sql`
+        INSERT INTO grids.tables (id, short_id, base_id, name, position)
+        VALUES (${relatedTableId}::uuid, ${shortId("T")}, ${fixture.baseId}::uuid, 'Restricted details', 1)
+      `;
+      await sql`
+        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
+        VALUES
+          (${relationFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Restricted details', 'relation', ${{ targetTableId: relatedTableId }}::jsonb, 3),
+          (${uuid()}::uuid, ${shortId("F")}, ${relatedTableId}::uuid, 'Secret', 'text', '{}'::jsonb, 0)
+      `;
+      await sql`
+        INSERT INTO grids.records (id, table_id, data)
+        VALUES (${relatedRecordId}::uuid, ${relatedTableId}::uuid, '{}'::jsonb)
+      `;
+      await sql`
+        INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id)
+        VALUES (${fixture.recordAId}::uuid, ${relationFieldId}::uuid, ${relatedRecordId}::uuid)
+      `;
+      const [rootDenyAccess] = await sql<{ id: string }[]>`
+        INSERT INTO auth.access (user_id, permission) VALUES (${actorUserId}::uuid, 'none') RETURNING id::text AS id
+      `;
+      const [relatedDenyAccess] = await sql<{ id: string }[]>`
+        INSERT INTO auth.access (service_account_id, permission)
+        VALUES (${serviceAccountId}::uuid, 'none')
+        RETURNING id::text AS id
+      `;
+      if (!rootDenyAccess || !relatedDenyAccess) throw new Error("Failed to create denied table access");
+      fixture.accessIds.push(rootDenyAccess.id, relatedDenyAccess.id);
+      await sql`
+        INSERT INTO grids.table_access (table_id, access_id)
+        VALUES
+          (${fixture.tableId}::uuid, ${rootDenyAccess.id}::uuid),
+          (${relatedTableId}::uuid, ${relatedDenyAccess.id}::uuid)
+      `;
+      await sql`
+        INSERT INTO grids.document_templates (
+          id, short_id, table_id, name, source, html, number_template, filename_template
+        )
+        VALUES (
+          ${templateId}::uuid,
+          ${shortId("D")},
+          ${fixture.tableId}::uuid,
+          'Runtime document',
+          ${`from table {${fixture.tableId}} limit 1`},
+          '<p>Runtime document</p>',
+          '{{ run.shortId }}',
+          '{{ document.number }}.pdf'
+        )
+      `;
+      const workflowId = await insertWorkflow(fixture.baseId, "Generate runtime document", {
+        inputs: { item: { type: "record", table: "Items" } },
+        triggers: { form: {} },
+        steps: [{ generateDocument: { template: "Runtime document", record: "inputs.item" } }],
+      });
+      const templateAccessId = await groupAccess(actorGroupId, "write");
+      const workflowAccessId = await groupAccess(actorGroupId, "write");
+      fixture.accessIds.push(templateAccessId, workflowAccessId);
+      await sql`
+        INSERT INTO grids.document_template_access (template_id, access_id)
+        VALUES (${templateId}::uuid, ${templateAccessId}::uuid)
+      `;
+      await sql`
+        INSERT INTO grids.workflow_access (workflow_id, access_id)
+        VALUES (${workflowId}::uuid, ${workflowAccessId}::uuid)
+      `;
+      const triggerInput = { item: fixture.recordAId };
+      const prepared = await prepareWorkflowTriggerRun({
+        workflowId,
+        triggerKind: "form",
+        actorUserId,
+        actorGroupIds: [actorGroupId],
+        serviceAccountId,
+        triggerInput,
+      });
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error(prepared.error.message);
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        triggerKind: prepared.data.triggerKind,
+        triggerInput: prepared.data.triggerInput,
+        resolvedInput: prepared.data.resolvedInput,
+        actorUserId: prepared.data.actorUserId,
+        actorGroupIds: prepared.data.actorGroupIds,
+        serviceAccountId: prepared.data.serviceAccountId,
+        authorization: prepared.data.authorization,
+      });
+      expect(run).toMatchObject({ actorUserId, actorGroupIds: [actorGroupId], serviceAccountId });
+
+      const executed = await executePreparedRun({
+        workflowId,
+        runId: run.id,
+        triggerKind: run.triggerKind,
+        triggerInput: run.triggerInput,
+        resolvedInput: run.resolvedInput,
+        actorUserId: run.actorUserId,
+        actorGroupIds: run.actorGroupIds,
+        serviceAccountId: run.serviceAccountId,
+        authorization: prepared.data.authorization,
+      });
+      expect(executed.ok).toBe(true);
+      if (!executed.ok) throw new Error(executed.error.message);
+
+      const [document] = await sql<{ graph: string }[]>`
+        SELECT snapshot.graph::text AS graph
+        FROM grids.document_runs document
+        JOIN grids.record_snapshots snapshot ON snapshot.id = document.snapshot_id
+        WHERE document.workflow_run_id = ${run.id}::uuid
+      `;
+      if (!document) throw new Error("Workflow did not create a document snapshot");
+      const graph = JSON.parse(document.graph) as { records: Record<string, unknown> };
+      expect(Object.keys(graph.records)).toEqual([`${fixture.tableId}:${fixture.recordAId}`]);
+      expect(graph.records[`${relatedTableId}:${relatedRecordId}`]).toBeUndefined();
+    } finally {
+      await cleanupFixture(fixture);
+      await sql`DELETE FROM auth.user_groups_v2 WHERE user_id = ${actorUserId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${actorUserId}::uuid`;
+      await sql`DELETE FROM auth.groups WHERE id = ${actorGroupId}::uuid`;
+      await sql`DELETE FROM auth.service_accounts WHERE id = ${serviceAccountId}::uuid`;
     }
   });
 
