@@ -42,6 +42,11 @@ type ConversationRow = {
   description: string | null;
   description_source: string | null;
   keywords: string[] | null;
+  pinned_at: Date | string | null;
+  archived_at: Date | string | null;
+  last_viewed_at: Date | string | null;
+  latest_turn_status?: AiTurnStatus | null;
+  latest_turn_completed_at?: Date | string | null;
   enrich_fail_count: number | null;
   created_by_user_id: string | null;
   created_at: Date | string;
@@ -163,6 +168,14 @@ const parseJsonValue = <T>(value: unknown): T => {
 
 const fieldSource = (value: string | null): AiConversation["titleSource"] => (value === "auto" || value === "user" ? value : "default");
 
+const conversationRunStatus = (status: AiTurnStatus | null | undefined): AiConversation["runStatus"] => {
+  if (status === "queued") return "queued";
+  if (status === "running") return "running";
+  if (status === "waiting_for_action") return "needs_attention";
+  if (status === "failed") return "failed";
+  return "idle";
+};
+
 const rowToConversation = (row: ConversationRow): AiConversation => ({
   id: row.id,
   appId: row.app_id,
@@ -172,6 +185,13 @@ const rowToConversation = (row: ConversationRow): AiConversation => ({
   description: row.description ?? "",
   descriptionSource: fieldSource(row.description_source),
   keywords: row.keywords ?? [],
+  pinnedAt: row.pinned_at ? iso(row.pinned_at) : null,
+  archivedAt: row.archived_at ? iso(row.archived_at) : null,
+  runStatus: conversationRunStatus(row.latest_turn_status),
+  unreadCompletion:
+    row.latest_turn_status === "completed" &&
+    Boolean(row.latest_turn_completed_at) &&
+    (!row.last_viewed_at || new Date(row.latest_turn_completed_at!).getTime() > new Date(row.last_viewed_at).getTime()),
   resource:
     row.resource_kind === "resource"
       ? {
@@ -334,6 +354,40 @@ const resourceFilter = (resource: AiConversationResource | undefined, fallbackAp
     type: columns.resourceType,
     id: columns.resourceId,
   };
+};
+
+const loadConversationSummary = async (input: {
+  conversationId: string;
+  appId?: string;
+  ownerUserId?: string;
+  resource?: AiConversationResource;
+  archived?: boolean;
+}): Promise<AiConversation | null> => {
+  const resource = input.appId ? resourceFilter(input.resource, input.appId) : null;
+  const rows = await sql<ConversationRow[]>`
+    SELECT
+      conversation.*,
+      latest.status AS latest_turn_status,
+      latest.completed_at AS latest_turn_completed_at
+    FROM ai.conversations conversation
+    LEFT JOIN LATERAL (
+      SELECT status, completed_at
+      FROM ai.turns
+      WHERE conversation_id = conversation.id
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    ) latest ON TRUE
+    WHERE conversation.id = ${input.conversationId}
+      AND (${input.appId ?? null}::text IS NULL OR conversation.app_id = ${input.appId ?? null})
+      AND (${input.ownerUserId ?? null}::uuid IS NULL OR conversation.created_by_user_id = ${input.ownerUserId ?? null})
+      AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
+      AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
+      AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
+      AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
+      AND (${Boolean(input.archived)}::boolean = (conversation.archived_at IS NOT NULL))
+    LIMIT 1
+  `;
+  return rows[0] ? rowToConversation(rows[0]) : null;
 };
 
 const firstText = (message: Message): string => {
@@ -506,22 +560,36 @@ export const aiConversationStore: AiConversationStore = {
   listConversations: async (input) => {
     const resource = resourceFilter(input.resource, input.appId);
     const pattern = searchPattern(input.search);
+    const archived = Boolean(input.archived);
+    const status = input.status ?? null;
     const limit = input.limit && input.limit > 0 ? Math.min(input.limit, 500) : 100;
     const rows = await sql<ConversationRow[]>`
-      SELECT *
-      FROM ai.conversations
-      WHERE app_id = ${input.appId}
-        AND created_by_user_id = ${input.ownerUserId}
-        AND archived_at IS NULL
-        AND (${resource?.kind ?? null}::text IS NULL OR resource_kind = ${resource?.kind ?? null})
-        AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
-        AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
-        AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
+      SELECT conversation.*, latest.status AS latest_turn_status, latest.completed_at AS latest_turn_completed_at
+      FROM ai.conversations conversation
+      LEFT JOIN LATERAL (
+        SELECT status, completed_at
+        FROM ai.turns
+        WHERE conversation_id = conversation.id
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      ) latest ON TRUE
+      WHERE conversation.app_id = ${input.appId}
+        AND conversation.created_by_user_id = ${input.ownerUserId}
+        AND (${archived}::boolean = (conversation.archived_at IS NOT NULL))
+        AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
+        AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
+        AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
+        AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
         AND (${pattern}::text IS NULL
-          OR LOWER(title) LIKE ${pattern}
-          OR LOWER(description) LIKE ${pattern}
-          OR LOWER(array_to_string(keywords, ' ')) LIKE ${pattern})
-      ORDER BY updated_at DESC, created_at DESC
+          OR LOWER(conversation.title) LIKE ${pattern}
+          OR LOWER(conversation.description) LIKE ${pattern}
+          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern})
+        AND (${status}::text IS NULL
+          OR (${status} = 'running' AND latest.status IN ('queued', 'running'))
+          OR (${status} = 'needs_attention' AND latest.status = 'waiting_for_action')
+          OR (${status} = 'failed' AND latest.status = 'failed')
+          OR (${status} = 'unread' AND latest.status = 'completed' AND latest.completed_at > COALESCE(conversation.last_viewed_at, '-infinity')))
+      ORDER BY conversation.pinned_at DESC NULLS LAST, conversation.updated_at DESC, conversation.created_at DESC
       LIMIT ${limit}
     `;
     return rows.map(rowToConversation);
@@ -530,39 +598,65 @@ export const aiConversationStore: AiConversationStore = {
   listConversationsPage: async (input): Promise<AiConversationPage> => {
     const resource = resourceFilter(input.resource, input.appId);
     const pattern = searchPattern(input.search);
+    const archived = Boolean(input.archived);
+    const status = input.status ?? null;
     const { page, perPage, offset } = sanitizePagination(input);
     const rows = await sql<ConversationRow[]>`
-      SELECT *
-      FROM ai.conversations
-      WHERE app_id = ${input.appId}
-        AND created_by_user_id = ${input.ownerUserId}
-        AND archived_at IS NULL
-        AND (${resource?.kind ?? null}::text IS NULL OR resource_kind = ${resource?.kind ?? null})
-        AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
-        AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
-        AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
+      SELECT conversation.*, latest.status AS latest_turn_status, latest.completed_at AS latest_turn_completed_at
+      FROM ai.conversations conversation
+      LEFT JOIN LATERAL (
+        SELECT status, completed_at
+        FROM ai.turns
+        WHERE conversation_id = conversation.id
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      ) latest ON TRUE
+      WHERE conversation.app_id = ${input.appId}
+        AND conversation.created_by_user_id = ${input.ownerUserId}
+        AND (${archived}::boolean = (conversation.archived_at IS NOT NULL))
+        AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
+        AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
+        AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
+        AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
         AND (${pattern}::text IS NULL
-          OR LOWER(title) LIKE ${pattern}
-          OR LOWER(description) LIKE ${pattern}
-          OR LOWER(array_to_string(keywords, ' ')) LIKE ${pattern})
-      ORDER BY updated_at DESC, created_at DESC
+          OR LOWER(conversation.title) LIKE ${pattern}
+          OR LOWER(conversation.description) LIKE ${pattern}
+          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern})
+        AND (${status}::text IS NULL
+          OR (${status} = 'running' AND latest.status IN ('queued', 'running'))
+          OR (${status} = 'needs_attention' AND latest.status = 'waiting_for_action')
+          OR (${status} = 'failed' AND latest.status = 'failed')
+          OR (${status} = 'unread' AND latest.status = 'completed' AND latest.completed_at > COALESCE(conversation.last_viewed_at, '-infinity')))
+      ORDER BY conversation.pinned_at DESC NULLS LAST, conversation.updated_at DESC, conversation.created_at DESC
       LIMIT ${perPage}
       OFFSET ${offset}
     `;
     const countRows = await sql<CountRow[]>`
       SELECT COUNT(*) AS total
-      FROM ai.conversations
-      WHERE app_id = ${input.appId}
-        AND created_by_user_id = ${input.ownerUserId}
-        AND archived_at IS NULL
-        AND (${resource?.kind ?? null}::text IS NULL OR resource_kind = ${resource?.kind ?? null})
-        AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
-        AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
-        AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
+      FROM ai.conversations conversation
+      LEFT JOIN LATERAL (
+        SELECT status, completed_at
+        FROM ai.turns
+        WHERE conversation_id = conversation.id
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      ) latest ON TRUE
+      WHERE conversation.app_id = ${input.appId}
+        AND conversation.created_by_user_id = ${input.ownerUserId}
+        AND (${archived}::boolean = (conversation.archived_at IS NOT NULL))
+        AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
+        AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
+        AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
+        AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
         AND (${pattern}::text IS NULL
-          OR LOWER(title) LIKE ${pattern}
-          OR LOWER(description) LIKE ${pattern}
-          OR LOWER(array_to_string(keywords, ' ')) LIKE ${pattern})
+          OR LOWER(conversation.title) LIKE ${pattern}
+          OR LOWER(conversation.description) LIKE ${pattern}
+          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern})
+        AND (${status}::text IS NULL
+          OR (${status} = 'running' AND latest.status IN ('queued', 'running'))
+          OR (${status} = 'needs_attention' AND latest.status = 'waiting_for_action')
+          OR (${status} = 'failed' AND latest.status = 'failed')
+          OR (${status} = 'unread' AND latest.status = 'completed' AND latest.completed_at > COALESCE(conversation.last_viewed_at, '-infinity')))
     `;
     const total = Number(countRows[0]?.total ?? 0);
     return {
@@ -575,48 +669,88 @@ export const aiConversationStore: AiConversationStore = {
   },
 
   getConversation: async (input) => {
-    const resource = input.appId ? resourceFilter(input.resource, input.appId) : null;
-    const rows = await sql<ConversationRow[]>`
-      SELECT *
-      FROM ai.conversations
-      WHERE id = ${input.conversationId}
-        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
-        AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
-        AND (${resource?.kind ?? null}::text IS NULL OR resource_kind = ${resource?.kind ?? null})
-        AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
-        AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
-        AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
-        AND archived_at IS NULL
-      LIMIT 1
-    `;
-    return rows[0] ? rowToConversation(rows[0]) : null;
+    return loadConversationSummary(input);
   },
 
   updateConversationMetadata: async (input) => {
     const title = input.title.trim() || "New chat";
     const icon = input.icon?.trim() || "ti ti-message";
     const description = input.description?.trim() ?? "";
-    const rows = await sql<ConversationRow[]>`
+    const pinned = input.pinned ?? null;
+    const rows = await sql<{ id: string }[]>`
       UPDATE ai.conversations
       SET title = ${title},
           title_source = CASE WHEN title IS DISTINCT FROM ${title} THEN 'user' ELSE title_source END,
           icon = ${icon},
           description = ${description},
           description_source = CASE WHEN description IS DISTINCT FROM ${description} THEN 'user' ELSE description_source END,
-          updated_at = now()
+          pinned_at = CASE
+            WHEN ${pinned}::boolean IS NULL THEN pinned_at
+            WHEN ${pinned} THEN COALESCE(pinned_at, now())
+            ELSE NULL
+          END,
+          updated_at = CASE
+            WHEN title IS DISTINCT FROM ${title} OR icon IS DISTINCT FROM ${icon} OR description IS DISTINCT FROM ${description} THEN now()
+            ELSE updated_at
+          END
       WHERE id = ${input.conversationId}
         AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
         AND archived_at IS NULL
-      RETURNING *
+      RETURNING id
     `;
-    return rows[0] ? rowToConversation(rows[0]) : null;
+    return rows[0] ? loadConversationSummary(input) : null;
+  },
+
+  setConversationPinned: async (input) => {
+    const rows = await sql<{ id: string }[]>`
+      UPDATE ai.conversations
+      SET pinned_at = CASE WHEN ${input.pinned} THEN COALESCE(pinned_at, now()) ELSE NULL END
+      WHERE id = ${input.conversationId}
+        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
+        AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
+        AND archived_at IS NULL
+      RETURNING id
+    `;
+    return rows[0] ? loadConversationSummary(input) : null;
   },
 
   archiveConversation: async (input) => {
     const rows = await sql<{ id: string }[]>`
       UPDATE ai.conversations
-      SET archived_at = now(), updated_at = now()
+      SET archived_at = now(), pinned_at = NULL
+      WHERE id = ${input.conversationId}
+        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
+        AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
+        AND archived_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ai.turns
+          WHERE conversation_id = ai.conversations.id
+            AND status IN ('queued', 'running', 'waiting_for_action')
+        )
+      RETURNING id
+    `;
+    return Boolean(rows[0]);
+  },
+
+  restoreConversation: async (input) => {
+    const rows = await sql<{ id: string }[]>`
+      UPDATE ai.conversations
+      SET archived_at = NULL
+      WHERE id = ${input.conversationId}
+        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
+        AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
+        AND archived_at IS NOT NULL
+      RETURNING id
+    `;
+    return rows[0] ? loadConversationSummary(input) : null;
+  },
+
+  markConversationViewed: async (input) => {
+    const rows = await sql<{ id: string }[]>`
+      UPDATE ai.conversations
+      SET last_viewed_at = now()
       WHERE id = ${input.conversationId}
         AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})

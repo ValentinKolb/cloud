@@ -245,7 +245,9 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
     if (revision !== timelineNavigationRevision || !anchor || !scrollParent) return;
     const parentRect = scrollParent.getBoundingClientRect();
     const top = scrollParent.scrollTop + anchor.getBoundingClientRect().top - parentRect.top - 16;
-    scrollParent.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    // A smooth scroll starts inside the bottom threshold and can re-enable
+    // auto-follow before it moves away. Timeline markers are deliberate jumps.
+    scrollParent.scrollTop = Math.max(0, top);
     setActiveTimelineSeqValue(entry.seq);
     setLoadingTimelineSeq(null);
   };
@@ -392,10 +394,14 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
 
   return (
     <AiMessageActionsProvider actions={props.actions}>
-      <div ref={contentRef} class="relative min-h-full px-2 py-4 sm:px-4" classList={{ invisible: hasContent() && !scrollReady() }}>
+      <div
+        ref={contentRef}
+        class="ai-message-list-container relative min-h-full px-2 py-4 sm:px-4"
+        classList={{ invisible: hasContent() && !scrollReady() }}
+      >
         <Show when={timelineEntries().length >= 5 && viewportHeight() > 0 && !loading()}>
-          <div class="pointer-events-none sticky top-0 z-20 hidden h-0 md:block">
-            <div class="absolute top-0" style={{ left: "max(0.5rem, calc(50% - 31rem))" }}>
+          <div class="ai-turn-navigator-shell pointer-events-none sticky top-0 z-20 h-0">
+            <div class="absolute top-0" style={{ right: "calc(50% + 30rem)" }}>
               <TurnNavigator
                 entries={timelineEntries()}
                 activeSeq={activeTimelineSeqValue()}

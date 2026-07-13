@@ -7,7 +7,7 @@ const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
 
 /** Parse an SSE byte stream into decoded data payloads. */
-async function* parseSse(response: Response, signal: AbortSignal): AsyncGenerator<AiStreamSseEvent> {
+export async function* parseAiSse(response: Response, signal: AbortSignal): AsyncGenerator<AiStreamSseEvent> {
   const reader = response.body?.getReader();
   if (!reader) return;
   const decoder = new TextDecoder();
@@ -58,7 +58,7 @@ export const subscribeAiStream = (input: {
         if (!response.ok || !response.body) throw new Error(`AI stream failed: ${response.status}`);
         input.onStatus?.("open");
         reconnectDelay = RECONNECT_BASE_MS;
-        for await (const event of parseSse(response, controller.signal)) {
+        for await (const event of parseAiSse(response, controller.signal)) {
           if (stopped) break;
           input.onEvent(event);
         }

@@ -73,6 +73,77 @@ describe("builtin skill seeding", () => {
 });
 
 describe("aiSkillStore integration", () => {
+  test("tree replacement is atomic, conflict-aware, additive by default, and explicitly prunable", async () => {
+    if (!(await canUseAiDatabase())) {
+      console.warn("Skipping AI skill tree DB test: tables are not available.");
+      return;
+    }
+    const adminId = await insertUser("tree-admin");
+    const skill = await aiSkillStore.create({ slug: uniqueSlug("tree"), ownerUserId: null, actorUserId: adminId });
+
+    try {
+      await aiSkillStore.writeFile({ skillId: skill.id, path: "/SKILL.md", bytes: bytes("# Tree skill\n"), actorUserId: adminId });
+      await aiSkillStore.writeFile({ skillId: skill.id, path: "/keep.txt", bytes: bytes("keep\n"), actorUserId: adminId });
+      await aiSkillStore.requestCodeReview({ skillId: skill.id, actorUserId: adminId });
+      await aiSkillStore.approveCode({ skillId: skill.id, approverUserId: adminId });
+
+      const before = (await aiSkillStore.readTree(skill.id))!;
+      const additive = await aiSkillStore.replaceTree({
+        skillId: skill.id,
+        expectedHash: before.contentHash,
+        prune: false,
+        actorUserId: adminId,
+        files: [{ path: "/references/new.md", bytes: bytes("new\n"), mediaType: "text/markdown" }],
+      });
+      expect(additive.ok).toBe(true);
+      if (!additive.ok) throw new Error("Expected additive tree replacement to succeed.");
+      expect(additive.snapshot.files.map((file) => file.path)).toEqual(["/SKILL.md", "/keep.txt", "/references/new.md"]);
+      expect((await aiSkillStore.get(skill.id))?.allowCode).toBe(false);
+
+      const stale = await aiSkillStore.replaceTree({
+        skillId: skill.id,
+        expectedHash: before.contentHash,
+        prune: true,
+        actorUserId: adminId,
+        files: [{ path: "/SKILL.md", bytes: bytes("# stale\n"), mediaType: "text/markdown" }],
+      });
+      expect(stale).toEqual({ ok: false, reason: "conflict", currentHash: additive.snapshot.contentHash });
+      expect((await aiSkillStore.readTree(skill.id))?.contentHash).toBe(additive.snapshot.contentHash);
+
+      await expect(
+        aiSkillStore.replaceTree({
+          skillId: skill.id,
+          expectedHash: additive.snapshot.contentHash,
+          prune: true,
+          actorUserId: adminId,
+          files: [{ path: "/not-a-skill.txt", bytes: bytes("invalid\n"), mediaType: "text/plain" }],
+        }),
+      ).rejects.toThrow("must contain /SKILL.md");
+      expect((await aiSkillStore.readTree(skill.id))?.contentHash).toBe(additive.snapshot.contentHash);
+
+      const pruned = await aiSkillStore.replaceTree({
+        skillId: skill.id,
+        expectedHash: additive.snapshot.contentHash,
+        prune: true,
+        actorUserId: adminId,
+        files: [
+          { path: "/SKILL.md", bytes: bytes("# Tree skill v2\n"), mediaType: "text/markdown" },
+          { path: "/only.txt", bytes: bytes("only\n"), mediaType: "text/plain" },
+        ],
+      });
+      expect(pruned.ok).toBe(true);
+      if (!pruned.ok) throw new Error("Expected pruned tree replacement to succeed.");
+      expect(pruned.snapshot.files.map((file) => file.path)).toEqual(["/SKILL.md", "/only.txt"]);
+
+      const { events } = await aiSkillStore.listEvents({ skillId: skill.id, limit: 200 });
+      expect(events.filter((event) => event.event === "code_revoked")).toHaveLength(1);
+      expect(events.filter((event) => event.meta?.operation === "replace_tree")).toHaveLength(2);
+    } finally {
+      await deleteSkill(skill.id);
+      await sql`DELETE FROM auth.users WHERE id = ${adminId}::uuid`;
+    }
+  });
+
   test("code approval binds to the content hash and revokes on change", async () => {
     if (!(await canUseAiDatabase())) {
       console.warn("Skipping AI skills DB test: tables are not available.");

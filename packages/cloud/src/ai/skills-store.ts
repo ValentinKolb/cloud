@@ -7,7 +7,8 @@ import {
   type Principal,
   resolveDisplayNames,
 } from "../server/services/access";
-import { escapeLikePattern, toPgUuidArray } from "../services/postgres";
+import { escapeLikePattern, toPgTextArray, toPgUuidArray } from "../services/postgres";
+import { normalizeAiFilePath } from "./files-store";
 
 export const AI_SKILL_FILE_MAX_BYTES = 2 * 1024 * 1024;
 export const AI_SKILL_TOTAL_MAX_BYTES = 20 * 1024 * 1024;
@@ -43,6 +44,19 @@ export type AiSkill = {
 };
 
 export type AiSkillFileStat = { path: string; size: number; mediaType: string; updatedAt: string };
+
+export type AiSkillTreeFile = { path: string; bytes: Uint8Array; mediaType: string };
+
+export type AiSkillTreeSnapshot = {
+  skillId: string;
+  contentHash: string;
+  files: Array<AiSkillFileStat & { bytes: Uint8Array }>;
+};
+
+export type AiSkillTreeReplaceResult =
+  | { ok: true; snapshot: AiSkillTreeSnapshot }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "conflict"; currentHash: string };
 
 export type AiSkillOrigin = "own" | "workspace" | "shared";
 
@@ -83,6 +97,17 @@ type SkillRow = {
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
 const isoOrNull = (value: Date | string | null): string | null => (value === null ? null : iso(value));
+const toJsonRecord = (value: unknown): Record<string, unknown> | null => {
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+};
 
 /** Extract `description:` from the SKILL.md YAML frontmatter (single line, optionally quoted). */
 export const parseAiSkillDescription = (skillMd: string): string => {
@@ -128,16 +153,21 @@ const recordEvent = async (input: {
  * the hash stale — allow_code is revoked automatically and re-review is
  * required. Hash = sha256 over sorted (path, bytes) pairs of the whole tree.
  */
-export const computeAiSkillContentHash = async (skillId: string): Promise<string> => {
-  const rows = await sql<{ path: string; bytes: Uint8Array }[]>`
-    SELECT path, bytes FROM ai.skill_files WHERE skill_id = ${skillId} ORDER BY path ASC
-  `;
+const hashAiSkillFiles = (rows: Array<{ path: string; bytes: Uint8Array }>): string => {
   const hasher = new Bun.CryptoHasher("sha256");
-  for (const row of rows) {
+  const sortedRows = [...rows].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  for (const row of sortedRows) {
     hasher.update(`\0${row.path}\0`);
     hasher.update(row.bytes);
   }
   return hasher.digest("hex");
+};
+
+export const computeAiSkillContentHash = async (skillId: string): Promise<string> => {
+  const rows = await sql<{ path: string; bytes: Uint8Array }[]>`
+    SELECT path, bytes FROM ai.skill_files WHERE skill_id = ${skillId} ORDER BY path ASC
+  `;
+  return hashAiSkillFiles(rows.map((row) => ({ path: row.path, bytes: new Uint8Array(row.bytes ?? []) })));
 };
 
 /** Revoke a stale code approval after any content change. */
@@ -220,6 +250,167 @@ export const aiSkillStore = {
       SELECT bytes, media_type FROM ai.skill_files WHERE skill_id = ${skillId} AND path = ${path}
     `;
     return rows[0] ? { bytes: new Uint8Array(rows[0].bytes ?? []), mediaType: rows[0].media_type } : null;
+  },
+
+  async readTree(skillId: string): Promise<AiSkillTreeSnapshot | null> {
+    return sql.begin(async (tx) => {
+      const skills = await tx<{ id: string }[]>`SELECT id FROM ai.skills WHERE id = ${skillId}`;
+      if (!skills[0]) return null;
+      const rows = await tx<{ path: string; bytes: Uint8Array; size: number; media_type: string; updated_at: Date | string }[]>`
+        SELECT path, bytes, size, media_type, updated_at
+        FROM ai.skill_files
+        WHERE skill_id = ${skillId}
+        ORDER BY path ASC
+      `;
+      const files = rows.map((row) => ({
+        path: row.path,
+        bytes: new Uint8Array(row.bytes ?? []),
+        size: Number(row.size),
+        mediaType: row.media_type,
+        updatedAt: iso(row.updated_at),
+      }));
+      return { skillId, contentHash: hashAiSkillFiles(files), files };
+    });
+  },
+
+  async replaceTree(input: {
+    skillId: string;
+    files: AiSkillTreeFile[];
+    expectedHash: string;
+    prune: boolean;
+    actorUserId: string;
+  }): Promise<AiSkillTreeReplaceResult> {
+    const incoming = new Map<string, AiSkillTreeFile>();
+    for (const file of input.files) {
+      const path = normalizeAiFilePath(file.path);
+      if (!path) throw new Error(`Invalid skill file path: ${file.path}`);
+      if (incoming.has(path)) throw new Error(`Duplicate skill file path: ${path}`);
+      if (file.bytes.byteLength > AI_SKILL_FILE_MAX_BYTES) {
+        throw new Error(`Skill file ${path} exceeds the ${Math.floor(AI_SKILL_FILE_MAX_BYTES / (1024 * 1024))} MB limit.`);
+      }
+      const mediaType = file.mediaType.trim();
+      if (!mediaType || mediaType.length > 120) throw new Error(`Invalid media type for ${path}.`);
+      incoming.set(path, { path, bytes: new Uint8Array(file.bytes), mediaType });
+    }
+
+    return sql.begin(async (tx): Promise<AiSkillTreeReplaceResult> => {
+      const skills = await tx<SkillRow[]>`SELECT * FROM ai.skills WHERE id = ${input.skillId} FOR UPDATE`;
+      const skill = skills[0];
+      if (!skill) return { ok: false, reason: "not_found" };
+
+      const currentRows = await tx<{
+        path: string;
+        bytes: Uint8Array;
+        size: number;
+        media_type: string;
+        updated_at: Date | string;
+      }[]>`
+        SELECT path, bytes, size, media_type, updated_at
+        FROM ai.skill_files
+        WHERE skill_id = ${input.skillId}
+        ORDER BY path ASC
+      `;
+      const currentFiles = currentRows.map((row) => ({
+        path: row.path,
+        bytes: new Uint8Array(row.bytes ?? []),
+        size: Number(row.size),
+        mediaType: row.media_type,
+        updatedAt: iso(row.updated_at),
+      }));
+      const currentHash = hashAiSkillFiles(currentFiles);
+      if (currentHash !== input.expectedHash) return { ok: false, reason: "conflict", currentHash };
+
+      const finalFiles = new Map<string, AiSkillTreeFile>();
+      if (!input.prune) {
+        for (const file of currentFiles) finalFiles.set(file.path, file);
+      }
+      for (const file of incoming.values()) finalFiles.set(file.path, file);
+      if (!finalFiles.has("/SKILL.md")) throw new Error("A skill tree must contain /SKILL.md.");
+
+      const finalSize = [...finalFiles.values()].reduce((total, file) => total + file.bytes.byteLength, 0);
+      if (finalSize > AI_SKILL_TOTAL_MAX_BYTES) {
+        throw new Error(`Skill exceeds the total size limit of ${Math.floor(AI_SKILL_TOTAL_MAX_BYTES / (1024 * 1024))} MB.`);
+      }
+      const sortedFinalFiles = [...finalFiles.values()].sort((a, b) => a.path.localeCompare(b.path));
+      const contentHash = hashAiSkillFiles(sortedFinalFiles);
+      if (contentHash === currentHash) {
+        return { ok: true, snapshot: { skillId: input.skillId, contentHash, files: currentFiles } };
+      }
+
+      for (const file of incoming.values()) {
+        await tx`
+          INSERT INTO ai.skill_files (skill_id, path, bytes, media_type, size, updated_at)
+          VALUES (${input.skillId}, ${file.path}, ${file.bytes}, ${file.mediaType}, ${file.bytes.byteLength}, now())
+          ON CONFLICT (skill_id, path) DO UPDATE SET
+            bytes = EXCLUDED.bytes, media_type = EXCLUDED.media_type, size = EXCLUDED.size, updated_at = now()
+        `;
+      }
+      let deletedCount = 0;
+      if (input.prune) {
+        const deleted = await tx<{ id: string }[]>`
+          DELETE FROM ai.skill_files
+          WHERE skill_id = ${input.skillId}
+            AND path <> ALL(${toPgTextArray([...finalFiles.keys()])}::text[])
+          RETURNING id
+        `;
+        deletedCount = deleted.length;
+      }
+
+      await tx`
+        UPDATE ai.skills
+        SET updated_at = now(),
+            allow_code = FALSE,
+            code_review_requested_at = CASE WHEN allow_code THEN NULL ELSE code_review_requested_at END
+        WHERE id = ${input.skillId}
+      `;
+      await tx`
+        INSERT INTO ai.skill_events (skill_id, skill_slug, actor_user_id, event, meta)
+        VALUES (
+          ${input.skillId}, ${skill.slug}, ${input.actorUserId}, 'updated',
+          ${JSON.stringify({
+            operation: "replace_tree",
+            prune: input.prune,
+            writtenFiles: incoming.size,
+            deletedFiles: deletedCount,
+            previousHash: currentHash,
+            contentHash,
+          })}::jsonb
+        )
+      `;
+      if (skill.allow_code) {
+        await tx`
+          INSERT INTO ai.skill_events (skill_id, skill_slug, actor_user_id, event, meta)
+          VALUES (${input.skillId}, ${skill.slug}, ${input.actorUserId}, 'code_revoked', ${JSON.stringify({ reason: "content_changed" })}::jsonb)
+        `;
+      }
+
+      const updatedRows = await tx<{
+        path: string;
+        bytes: Uint8Array;
+        size: number;
+        media_type: string;
+        updated_at: Date | string;
+      }[]>`
+        SELECT path, bytes, size, media_type, updated_at
+        FROM ai.skill_files
+        WHERE skill_id = ${input.skillId}
+        ORDER BY path ASC
+      `;
+      return {
+        ok: true,
+        snapshot: {
+          skillId: input.skillId,
+          contentHash,
+          files: updatedRows.map((row) => ({
+            path: row.path,
+            bytes: new Uint8Array(row.bytes ?? []),
+            size: Number(row.size),
+            mediaType: row.media_type,
+            updatedAt: iso(row.updated_at),
+          })),
+        },
+      };
+    });
   },
 
   async writeFile(input: {
@@ -523,7 +714,7 @@ export const aiSkillStore = {
       actorUserId: row.actor_user_id,
       actorDisplayName: row.actor_display_name,
       event: row.event,
-      meta: row.meta && typeof row.meta === "object" ? (row.meta as Record<string, unknown>) : null,
+      meta: toJsonRecord(row.meta),
       createdAt: iso(row.created_at),
     }));
     const last = events.at(-1);

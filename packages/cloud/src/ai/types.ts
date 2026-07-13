@@ -124,6 +124,8 @@ export type AiResourceDescriptor = {
 
 export type AiConversationFieldSource = "default" | "auto" | "user";
 export type AiConversationTitleSource = AiConversationFieldSource;
+export type AiConversationRunStatus = "idle" | "queued" | "running" | "needs_attention" | "failed";
+export type AiConversationStatusFilter = Exclude<AiConversationRunStatus, "idle" | "queued"> | "unread";
 
 export type AiConversation = {
   id: string;
@@ -138,6 +140,10 @@ export type AiConversation = {
   descriptionSource: AiConversationFieldSource;
   /** AI-generated keywords for search. */
   keywords: string[];
+  pinnedAt: string | null;
+  archivedAt: string | null;
+  runStatus: AiConversationRunStatus;
+  unreadCompletion: boolean;
   resource: AiConversationResource;
   createdByUserId: string | null;
   createdAt: string;
@@ -397,6 +403,8 @@ export type AiConversationStore = {
     ownerUserId: string;
     resource?: AiConversationResource;
     search?: string;
+    archived?: boolean;
+    status?: AiConversationStatusFilter;
     limit?: number;
   }): Promise<AiConversation[]>;
   listConversationsPage(input: {
@@ -404,6 +412,8 @@ export type AiConversationStore = {
     ownerUserId: string;
     resource?: AiConversationResource;
     search?: string;
+    archived?: boolean;
+    status?: AiConversationStatusFilter;
     page: number;
     perPage: number;
   }): Promise<AiConversationPage>;
@@ -420,8 +430,17 @@ export type AiConversationStore = {
     title: string;
     icon?: string;
     description?: string;
+    pinned?: boolean;
+  }): Promise<AiConversation | null>;
+  setConversationPinned(input: {
+    conversationId: string;
+    appId?: string;
+    ownerUserId?: string;
+    pinned: boolean;
   }): Promise<AiConversation | null>;
   archiveConversation(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<boolean>;
+  restoreConversation(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<AiConversation | null>;
+  markConversationViewed(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<boolean>;
   /**
    * Conversations whose content changed since the last enrichment (no active
    * turn, has messages, failure backoff elapsed). Oldest first. With

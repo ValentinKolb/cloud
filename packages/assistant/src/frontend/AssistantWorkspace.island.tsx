@@ -5,7 +5,7 @@ import type {
   AiSettingsError,
   AiStoredMessage,
 } from "@valentinkolb/cloud/ai";
-import { conversationFileSource, createAiChatController } from "@valentinkolb/cloud/ai/solid";
+import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import {
   AiComposer,
   type AiComposerAttachment,
@@ -14,14 +14,20 @@ import {
   type AiSlashCommand,
   aiLatestUsageSnapshot,
 } from "@valentinkolb/cloud/ai/ui";
-import { AppWorkspace, openFileBrowser, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { navigate, navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
+import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
 import { openAssistantConversationEditor } from "./AssistantConversationEditor";
 import AssistantSidebar from "./AssistantSidebar";
-import { assistantConversationHref, assistantConversationIdFromHref } from "./assistant-navigation";
+import {
+  assistantArtifactHref,
+  assistantArtifactPathFromHref,
+  assistantConversationHref,
+  assistantConversationIdFromHref,
+} from "./assistant-navigation";
 
 type Status = {
   ok: boolean;
@@ -46,6 +52,7 @@ type Props = {
   lastModelId: string;
   initialConversations: AiConversation[];
   initialConversationId: string | null;
+  initialArtifactPath: string | null;
   initialDetail: InitialDetail | null;
 };
 
@@ -60,6 +67,7 @@ export default function AssistantWorkspace(props: Props) {
     initialDetail: props.initialDetail,
     initialTimeline: props.initialDetail?.timeline,
     initialError: props.status.error?.message ?? null,
+    trackViewedState: true,
   });
 
   // Model selection is per chat: an explicit pick only applies to the chat it
@@ -92,6 +100,7 @@ export default function AssistantWorkspace(props: Props) {
   const [composerFocusToken, setComposerFocusToken] = createSignal(0);
   const [composerDrafts, setComposerDrafts] = createSignal<Record<string, string>>({});
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
+  const [filesDialogOpen, setFilesDialogOpen] = createSignal(false);
 
   const canUseComposer = createMemo(() => props.status.ok && props.status.enabled && props.models.length > 0);
   const usageSnapshot = createMemo(() => aiLatestUsageSnapshot(chat.messages()));
@@ -141,18 +150,50 @@ export default function AssistantWorkspace(props: Props) {
     await chat.openConversation(conversationId);
     if (chat.activeConversationId() === conversationId) focusComposer();
   };
+  const filesRefreshKey = createMemo(() => {
+    const toolStates =
+      chat
+        .activeTurn()
+        ?.blocks.filter((block) => block.kind === "tool")
+        .map((block) => `${block.id}:${block.status}`)
+        .join("|") ?? "";
+    return `${chat.activeConversationId() ?? ""}:${chat.vfsFileCount()}:${toolStates}`;
+  });
+  const openFiles = async (initialPath = "/") => {
+    const conversationId = chat.activeConversationId();
+    if (!conversationId || filesDialogOpen()) return;
+    setFilesDialogOpen(true);
+    try {
+      await openAssistantFilesDialog({ conversationId, initialPath, refreshKey: filesRefreshKey });
+    } finally {
+      setFilesDialogOpen(false);
+      void chat.refreshFiles();
+      const href = assistantArtifactHref(window.location.href, null);
+      const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (href !== current) navigate(href, { replace: true, scroll: "manual", viewTransition: false });
+      focusComposer();
+    }
+  };
 
   onMount(() => {
     const initialConversationId = chat.activeConversationId();
     if (initialConversationId) commitConversationUrl(initialConversationId, true);
+    if (props.initialArtifactPath) requestAnimationFrame(() => void openFiles(props.initialArtifactPath!));
 
     const handlePopState = () => {
       const conversationId = assistantConversationIdFromHref(window.location.href);
+      const artifactPath = assistantArtifactPathFromHref(window.location.href);
       if (!conversationId) {
         navigateTo(`${window.location.pathname}${window.location.search}${window.location.hash}`);
         return;
       }
-      if (conversationId !== chat.activeConversationId()) void chat.openConversation(conversationId);
+      if (conversationId !== chat.activeConversationId()) {
+        void chat.openConversation(conversationId).then(() => {
+          if (artifactPath && chat.activeConversationId() === conversationId) void openFiles(artifactPath);
+        });
+        return;
+      }
+      if (artifactPath) void openFiles(artifactPath);
     };
     window.addEventListener("popstate", handlePopState);
     onCleanup(() => window.removeEventListener("popstate", handlePopState));
@@ -249,29 +290,28 @@ export default function AssistantWorkspace(props: Props) {
         }
         const result = await openAssistantConversationEditor(conversation);
         if (result?.action === "save") updateConversation(result.conversation);
-        if (result?.action === "delete") deleteConversation(result.conversation);
+        if (result?.action === "archive") archiveConversation(result.conversation);
       },
     },
     {
-      name: "delete",
-      description: "Delete this chat",
-      icon: "ti ti-trash",
+      name: "archive",
+      description: "Archive this chat",
+      icon: "ti ti-archive",
       action: async () => {
         const conversation = requireIdleConversation();
         if (!conversation) return;
-        const confirmed = await prompts.confirm(`Delete "${conversation.title}"?`, {
-          title: "Delete chat",
-          icon: "ti ti-trash",
-          variant: "danger",
-          confirmText: "Delete",
+        const confirmed = await prompts.confirm(`Archive "${conversation.title}"?`, {
+          title: "Archive chat",
+          icon: "ti ti-archive",
+          confirmText: "Archive",
           cancelText: "Cancel",
         });
         if (!confirmed) return;
         try {
-          await assistantApi.deleteConversation(conversation.id);
-          deleteConversation(conversation);
+          await assistantApi.archiveConversation(conversation.id);
+          archiveConversation(conversation);
         } catch (error) {
-          chat.setError(error instanceof Error ? error.message : "Failed to delete chat");
+          chat.setError(error instanceof Error ? error.message : "Failed to archive chat");
         }
       },
     },
@@ -281,24 +321,24 @@ export default function AssistantWorkspace(props: Props) {
     chat.setConversations((prev) => prev.map((conversation) => (conversation.id === updated.id ? updated : conversation)));
   };
 
-  const deleteConversation = (deleted: AiConversation) => {
-    chat.setConversations((prev) => prev.filter((conversation) => conversation.id !== deleted.id));
+  const archiveConversation = (archived: AiConversation) => {
+    chat.setConversations((prev) => prev.filter((conversation) => conversation.id !== archived.id));
     setComposerDrafts((current) => {
       const next = { ...current };
-      delete next[deleted.id];
+      delete next[archived.id];
       return next;
     });
     setComposerAttachments((current) => {
       const next = { ...current };
-      delete next[deleted.id];
+      delete next[archived.id];
       return next;
     });
     setModelChoices((current) => {
       const next = { ...current };
-      delete next[deleted.id];
+      delete next[archived.id];
       return next;
     });
-    if (deleted.id === chat.activeConversationId()) navigateTo("/app/assistant");
+    if (archived.id === chat.activeConversationId()) navigateTo("/app/assistant");
   };
 
   return (
@@ -310,9 +350,9 @@ export default function AssistantWorkspace(props: Props) {
         creatingConversation={newConversation.loading}
         onNewConversation={() => void createAndFocusConversation()}
         onOpenConversation={(conversationId) => void openAndFocusConversation(conversationId)}
-        canDeleteConversation={(conversation) => conversation.id !== chat.activeConversationId() || !chat.activeTurn()}
+        canArchiveConversation={(conversation) => conversation.id !== chat.activeConversationId() || !chat.activeTurn()}
         onConversationUpdated={updateConversation}
-        onConversationDeleted={deleteConversation}
+        onConversationArchived={archiveConversation}
       />
 
       <AppWorkspace.Main>
@@ -354,6 +394,7 @@ export default function AssistantWorkspace(props: Props) {
               onRetrySteer: (block) => {
                 void chat.retrySteer(block);
               },
+              onOpenFile: (path) => void openFiles(path),
               fileUrl: chat.fileContentUrl,
             }}
             emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
@@ -416,16 +457,7 @@ export default function AssistantWorkspace(props: Props) {
                 contextModelLabel: () => usageModel()?.label,
                 files: {
                   count: chat.vfsFileCount,
-                  onOpen: () => {
-                    const conversationId = chat.activeConversationId();
-                    if (!conversationId) return;
-                    void openFileBrowser({
-                      source: conversationFileSource("/api/assistant", conversationId),
-                      title: "Chat files",
-                      subtitle: "Uploads (read-only) and the assistant's workspace files for this chat.",
-                      icon: "ti ti-paperclip",
-                    }).then(() => void chat.refreshFiles());
-                  },
+                  onOpen: () => void openFiles("/"),
                 },
               }}
               actions={{

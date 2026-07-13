@@ -23,6 +23,8 @@ export type AiMessageListActions = {
   onForkMessage?: ForkMessageHandler;
   onRetryMessage?: RetryMessageHandler;
   onRetrySteer?: RetrySteerHandler;
+  /** Open a conversation VFS file in the host application's artifact surface. */
+  onOpenFile?: (path: string) => void;
   /** Download URL for a conversation VFS file (present blocks, attachment chips). */
   fileUrl?: (path: string) => string | null;
 };

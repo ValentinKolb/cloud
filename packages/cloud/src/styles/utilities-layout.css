@@ -184,3 +184,17 @@
     @apply my-8 border-zinc-200 dark:border-zinc-800;
   }
 }
+
+.ai-message-list-container {
+  container: ai-message-list / inline-size;
+}
+
+.ai-turn-navigator-shell {
+  display: none;
+}
+
+@container ai-message-list (min-width: 68rem) {
+  .ai-turn-navigator-shell {
+    display: block;
+  }
+}

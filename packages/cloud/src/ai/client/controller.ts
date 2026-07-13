@@ -1,4 +1,4 @@
-import { type Accessor, createMemo, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { type AiAttachmentRef, aiAttachmentMarker } from "../attachments";
 import { type AiStreamSseEvent, type AiTurnBlock, type AiTurnSnapshot, steerMessageBlockId } from "../protocol";
@@ -60,6 +60,8 @@ export type CreateAiChatControllerOptions = {
   initialDetail?: AiConversationDetail | null;
   initialTimeline?: AiConversationTimelineEntry[];
   initialError?: string | null;
+  /** Persist owner read state for conversation-list unread indicators. */
+  trackViewedState?: boolean;
   frontendTools?: Record<string, AiFrontendToolHandler>;
 };
 
@@ -192,7 +194,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       if (detail.timeline) setTimeline(session.conversationId, detail.timeline);
     } else reduceEvent(session.conversationId, event);
     setRunStatusRaw(null);
-    void refreshConversations();
+    void markConversationViewed(session.conversationId).then(() => refreshConversations());
   };
 
   const applyEvent = (session: AiStreamSession, event: AiStreamSseEvent) => {
@@ -210,16 +212,20 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       return;
     }
 
+    const previousTurnStatus = state.activeTurn?.status ?? null;
     reduceEvent(conversationId, event);
+    const nextTurnStatus = state.activeTurn?.status ?? null;
     if (event.type === "state" && loadingConversationId() === conversationId) setLoadingConversationId(null);
     if (runStatusRaw() && runStatusRaw() !== "stopping") setRunStatusRaw(null);
 
     if (event.type === "turn_finished") {
       setRunStatusRaw(null);
-      void refreshConversations();
+      void markConversationViewed(conversationId).then(() => refreshConversations());
       void refreshTimeline(conversationId);
       // The turn may have created or deleted VFS files (bash, present).
       void refreshFiles();
+    } else if (event.type === "turn_started" || previousTurnStatus !== nextTurnStatus) {
+      void refreshConversations();
     }
     runFrontendTools();
   };
@@ -305,6 +311,29 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     }
   };
 
+  const markConversationViewed = async (conversationId: string): Promise<void> => {
+    if (!options.trackViewedState) return;
+    setConversations((current) =>
+      current.map((conversation) => (conversation.id === conversationId ? { ...conversation, unreadCompletion: false } : conversation)),
+    );
+    if (state.conversation?.id === conversationId) setState("conversation", "unreadCompletion", false);
+    try {
+      await request(`/conversations/${conversationId}/viewed`, { method: "POST" }, "Failed to mark conversation as viewed");
+    } catch {
+      void refreshConversations();
+    }
+  };
+
+  createEffect(() => {
+    const activeId = activeConversationId();
+    const hasBackgroundRun = conversations().some(
+      (conversation) => conversation.id !== activeId && (conversation.runStatus === "queued" || conversation.runStatus === "running"),
+    );
+    if (!hasBackgroundRun) return;
+    const timer = setInterval(() => void refreshConversations(), 5_000);
+    onCleanup(() => clearInterval(timer));
+  });
+
   const loadDetail = async (conversationId: string, shouldReportError: () => boolean): Promise<AiConversationDetail | null> => {
     try {
       return await request<AiConversationDetail>(`/conversations/${conversationId}`, { method: "GET" }, "Failed to open conversation");
@@ -339,8 +368,12 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   };
 
   const openConversation = async (conversationId: string) => {
-    if (activeConversationId() === conversationId && state.conversation?.id === conversationId) return;
+    if (activeConversationId() === conversationId && state.conversation?.id === conversationId) {
+      void markConversationViewed(conversationId);
+      return;
+    }
     const generation = ++conversationOpenGeneration;
+    void markConversationViewed(conversationId);
     setGlobalError(null);
     setRunStatusRaw(null);
 
@@ -358,12 +391,13 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       () => activeConversationId() === conversationId && generation === conversationOpenGeneration,
     );
     if (detail && activeConversationId() === conversationId && generation === conversationOpenGeneration) {
-      setConversations((current) => [detail.conversation, ...current.filter((item) => item.id !== conversationId)]);
+      const viewedDetail = { ...detail, conversation: { ...detail.conversation, unreadCompletion: false } };
+      setConversations((current) => [viewedDetail.conversation, ...current.filter((item) => item.id !== conversationId)]);
       // A cached view may hold history the fresh window doesn't — preserve it
       // (same rule as the SSE state snapshot) so the scrollback never shrinks.
       const windowOldest = detail.messages[0]?.seq;
       const preservedOlder = cached && windowOldest !== undefined ? cached.messages.filter((message) => message.seq < windowOldest) : [];
-      setProjection({ ...detailToProjection(detail), messages: [...preservedOlder, ...detail.messages] }, conversationId);
+      setProjection({ ...detailToProjection(viewedDetail), messages: [...preservedOlder, ...detail.messages] }, conversationId);
       if (preservedOlder.length === 0) setHasMore(conversationId, detail.hasMoreMessages ?? false);
       if (detail.timeline) setTimeline(conversationId, detail.timeline);
       runFrontendTools();
@@ -486,6 +520,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       setLoadingConversationId(null);
       setVfsFileCount(0);
       openStream(conversation.id);
+      void markConversationViewed(conversation.id);
       return conversation;
     } catch (createError) {
       if (generation === conversationOpenGeneration) {
@@ -595,6 +630,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       );
       cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
       void refreshTimeline(conversationId);
+      void refreshConversations();
       if (attachmentParts.length > 0) void refreshFiles();
       return true;
     } catch (sendError) {
@@ -712,6 +748,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       // Non-critical indicator — keep the previous count on transient errors.
     }
   };
+
+  onMount(() => void refreshFiles());
 
   const abort = (): Promise<boolean> => {
     const turn = state.activeTurn;
@@ -872,6 +910,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   if (options.initialConversationId) {
     if (options.initialDetail) setHasMore(options.initialConversationId, options.initialDetail.hasMoreMessages ?? false);
     openStream(options.initialConversationId);
+    void markConversationViewed(options.initialConversationId);
     runFrontendTools();
   }
 

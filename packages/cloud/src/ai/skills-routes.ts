@@ -54,6 +54,21 @@ const WriteSkillFileSchema = z.object({
   mediaType: z.string().max(120).optional(),
 });
 
+const ReplaceSkillTreeSchema = z.object({
+  expectedHash: z.string().regex(/^[a-f0-9]{64}$/, "Expected a SHA-256 content hash."),
+  prune: z.boolean().default(false),
+  files: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        content: z.string().max(3 * 1024 * 1024),
+        encoding: z.enum(["utf8", "base64"]).default("base64"),
+        mediaType: z.string().min(1).max(120).optional(),
+      }),
+    )
+    .max(1_000),
+});
+
 const UserStateSchema = z.object({ state: z.enum(["enabled", "disabled"]) });
 
 const PrincipalSchema = z.discriminatedUnion("type", [
@@ -94,6 +109,14 @@ const EventsQuerySchema = z.object({
 const isTextMediaType = (mediaType: string): boolean =>
   mediaType.startsWith("text/") ||
   ["application/json", "application/yaml", "application/xml", "image/svg+xml"].includes(mediaType);
+
+const decodeTreeFile = (content: string, encoding: "utf8" | "base64"): Uint8Array => {
+  if (encoding === "utf8") return new TextEncoder().encode(content);
+  if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) throw new Error("Invalid base64 skill file content.");
+  const bytes = Buffer.from(content, "base64");
+  if (bytes.toString("base64") !== content) throw new Error("Invalid base64 skill file content.");
+  return new Uint8Array(bytes);
+};
 
 const requestUser = (c: Context<AuthContext>): User | null => {
   const actor = c.get("actor");
@@ -157,6 +180,12 @@ export const createAiSkillsRoutes = () => {
         // them on the dedicated admin page, which lists via /admin/all).
         return respond(c, ok({ skills: visible.filter((skill) => skill.enabled) }));
       })
+      .get("/managed", async (c) => {
+        const user = requestUser(c);
+        if (!user) return respond(c, fail(err.forbidden("Skills require a user-backed actor")));
+        const visible = await aiSkillStore.visibleSkills({ userId: user.id, userGroups: user.memberofGroupIds });
+        return respond(c, ok({ skills: visible.filter((skill) => canManageSkill(skill, user)) }));
+      })
       .post("/", v("json", CreateSkillSchema), async (c) => {
         const user = requestUser(c);
         if (!user) return respond(c, fail(err.forbidden("Skills require a user-backed actor")));
@@ -214,6 +243,58 @@ export const createAiSkillsRoutes = () => {
       })
 
       // ── Files (SkillExplorer) ───────────────────────────────────────────
+      .get("/:skillId/tree", async (c) => {
+        const loaded = await loadSkill(c);
+        if (loaded instanceof Response) return loaded;
+        const snapshot = await aiSkillStore.readTree(loaded.skill.id);
+        if (!snapshot) return respond(c, fail(err.notFound("Skill")));
+        return respond(
+          c,
+          ok({
+            skill: loaded.skill,
+            contentHash: snapshot.contentHash,
+            files: snapshot.files.map((file) => ({
+              path: file.path,
+              size: file.size,
+              mediaType: file.mediaType,
+              updatedAt: file.updatedAt,
+              encoding: "base64" as const,
+              content: Buffer.from(file.bytes).toString("base64"),
+            })),
+          }),
+        );
+      })
+      .put("/:skillId/tree", v("json", ReplaceSkillTreeSchema), async (c) => {
+        const loaded = await loadSkill(c, { manage: true });
+        if (loaded instanceof Response) return loaded;
+        const input = c.req.valid("json");
+        try {
+          const result = await aiSkillStore.replaceTree({
+            skillId: loaded.skill.id,
+            expectedHash: input.expectedHash,
+            prune: input.prune,
+            actorUserId: loaded.user.id,
+            files: input.files.map((file) => ({
+              path: file.path,
+              bytes: decodeTreeFile(file.content, file.encoding),
+              mediaType: file.mediaType ?? guessAiMediaType(file.path),
+            })),
+          });
+          if (!result.ok) {
+            if (result.reason === "not_found") return respond(c, fail(err.notFound("Skill")));
+            return respond(c, fail(err.conflict("Skill tree changed. Refresh it before pushing again.")));
+          }
+          return respond(
+            c,
+            ok({
+              contentHash: result.snapshot.contentHash,
+              files: result.snapshot.files.map(({ bytes: _bytes, ...file }) => file),
+            }),
+          );
+        } catch (error) {
+          return respond(c, fail(err.badInput(error instanceof Error ? error.message : "Failed to replace skill tree")));
+        }
+      })
       .get("/:skillId/file", v("query", SkillFilePathQuerySchema), async (c) => {
         const loaded = await loadSkill(c);
         if (loaded instanceof Response) return loaded;

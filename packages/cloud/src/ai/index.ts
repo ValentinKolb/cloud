@@ -66,6 +66,7 @@ export {
   normalizeAiFilePath,
 } from "./files-store";
 export { type AiSkillsRoutes, createAiSkillsRoutes } from "./skills-routes";
+export { parseAiSse } from "./client/transport";
 export {
   AI_SKILL_FILE_MAX_BYTES,
   AI_SKILL_SLUG_RE,
@@ -75,6 +76,9 @@ export {
   type AiSkillEventKind,
   type AiSkillFileStat,
   type AiSkillOrigin,
+  type AiSkillTreeFile,
+  type AiSkillTreeReplaceResult,
+  type AiSkillTreeSnapshot,
   type AiSkillUserView,
   aiSkillStore,
   computeAiSkillContentHash,
@@ -179,6 +183,8 @@ export type {
   AiAccessResult,
   AiConversation,
   AiConversationResource,
+  AiConversationRunStatus,
+  AiConversationStatusFilter,
   AiConversationStore,
   AiConversationTimelineEntry,
   AiDataBoundary,

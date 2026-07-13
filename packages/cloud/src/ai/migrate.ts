@@ -32,6 +32,11 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS enrich_failed_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS enrich_fail_count INTEGER NOT NULL DEFAULT 0`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMPTZ NOT NULL DEFAULT now()`.simple();
+  await sql`ALTER TABLE ai.conversations ALTER COLUMN last_viewed_at SET DEFAULT now()`.simple();
+  await sql`UPDATE ai.conversations SET last_viewed_at = now() WHERE last_viewed_at IS NULL`.simple();
+  await sql`ALTER TABLE ai.conversations ALTER COLUMN last_viewed_at SET NOT NULL`.simple();
 
   // Semantics fix: 'auto' is reserved for enrichment-set titles (which always set
   // enriched_at in the same update). First-message snapshot titles are 'default'
@@ -89,6 +94,12 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_conversations_app_owner_updated
     ON ai.conversations(app_id, created_by_user_id, updated_at DESC)
+    WHERE archived_at IS NULL
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_conversations_app_owner_pinned
+    ON ai.conversations(app_id, created_by_user_id, pinned_at DESC, updated_at DESC)
     WHERE archived_at IS NULL
   `.simple();
 

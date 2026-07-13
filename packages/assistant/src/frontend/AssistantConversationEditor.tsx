@@ -1,29 +1,19 @@
 import type { AiConversation, AiEnrichmentRun, AiEnrichmentStatus } from "@valentinkolb/cloud/ai";
-import {
-  DataTable,
-  type DataTableColumn,
-  dialogCore,
-  IconInput,
-  PanelDialog,
-  panelDialogOptions,
-  prompts,
-  TextInput,
-  toast,
-} from "@valentinkolb/cloud/ui";
+import { CheckboxCard, DataTable, type DataTableColumn, IconInput, prompts, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 
-type EditConversationResult = { action: "save"; conversation: AiConversation } | { action: "delete"; conversation: AiConversation };
+type EditConversationResult = { action: "save"; conversation: AiConversation } | { action: "archive"; conversation: AiConversation };
 
 type EditConversationFormProps = {
   conversation: AiConversation;
-  deleteDisabled?: boolean;
-  deleteDisabledReason?: string;
+  archiveDisabled?: boolean;
+  archiveDisabledReason?: string;
   close: (result?: EditConversationResult) => void;
 };
 
-type EditConversationOptions = Pick<EditConversationFormProps, "deleteDisabled" | "deleteDisabledReason">;
+type EditConversationOptions = Pick<EditConversationFormProps, "archiveDisabled" | "archiveDisabledReason">;
 
 const DEFAULT_CHAT_ICON = "ti ti-message";
 
@@ -127,11 +117,7 @@ function SearchIndexSection(props: { conversationId: string }) {
   const busy = () => reindex.loading() || Boolean(queuedAt());
 
   return (
-    <PanelDialog.Section
-      title="Search index"
-      subtitle="Summary, keywords, and title are generated in the background so this chat is findable in search."
-      icon="ti ti-list-search"
-    >
+    <div class="flex flex-col gap-4">
       <div class="flex items-center justify-between gap-2">
         <p class={`min-w-0 truncate text-xs ${queuedAt() ? "text-primary" : "text-dimmed"}`}>
           <Show when={queuedAt()}>
@@ -170,7 +156,7 @@ function SearchIndexSection(props: { conversationId: string }) {
           }}
         />
       </Show>
-    </PanelDialog.Section>
+    </div>
   );
 }
 
@@ -178,6 +164,7 @@ function EditConversationForm(props: EditConversationFormProps) {
   const [title, setTitle] = createSignal(props.conversation.title);
   const [icon, setIcon] = createSignal(conversationIcon(props.conversation));
   const [description, setDescription] = createSignal(props.conversation.description);
+  const [pinned, setPinned] = createSignal(Boolean(props.conversation.pinnedAt));
 
   const save = mutation.create<AiConversation, void>({
     mutation: async () =>
@@ -185,6 +172,7 @@ function EditConversationForm(props: EditConversationFormProps) {
         title: title().trim(),
         icon: icon().trim() || DEFAULT_CHAT_ICON,
         description: description().trim(),
+        pinned: pinned(),
       }),
     onSuccess: (conversation) => {
       toast.success("Chat saved");
@@ -193,83 +181,101 @@ function EditConversationForm(props: EditConversationFormProps) {
     onError: (error) => prompts.error(error.message),
   });
 
-  const remove = mutation.create<boolean, void>({
+  const archive = mutation.create<boolean, void>({
     mutation: async () => {
-      if (props.deleteDisabled) return false;
-      const confirmed = await prompts.confirm(`Delete "${props.conversation.title}"?`, {
-        title: "Delete chat",
-        icon: "ti ti-trash",
-        variant: "danger",
-        confirmText: "Delete",
+      if (props.archiveDisabled) return false;
+      const confirmed = await prompts.confirm(`Archive "${props.conversation.title}"?`, {
+        title: "Archive chat",
+        icon: "ti ti-archive",
+        confirmText: "Archive",
         cancelText: "Cancel",
       });
       if (!confirmed) return false;
 
-      await assistantApi.deleteConversation(props.conversation.id);
+      await assistantApi.archiveConversation(props.conversation.id);
       return true;
     },
     onSuccess: (deleted) => {
       if (!deleted) return;
-      toast.success("Chat deleted");
-      props.close({ action: "delete", conversation: props.conversation });
+      toast.success("Chat archived");
+      props.close({ action: "archive", conversation: props.conversation });
     },
     onError: (error) => prompts.error(error.message),
   });
-  const busy = () => save.loading() || remove.loading();
+  const busy = () => save.loading() || archive.loading();
 
   return (
-    <PanelDialog>
-      <form
-        aria-busy={busy()}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save.mutate(undefined);
-        }}
-      >
-        <PanelDialog.Header title="Edit chat" icon="ti ti-settings" close={() => props.close()} closeDisabled={busy()} />
-        <PanelDialog.Body>
-          <IconInput label="Icon" value={icon} onChange={setIcon} required clearable={false} disabled={busy()} />
-          <TextInput label="Name" value={title} onInput={setTitle} required maxLength={120} disabled={busy()} />
-          <TextInput
-            label="Description"
-            value={description}
-            onInput={setDescription}
-            multiline
-            lines={3}
-            maxLength={500}
-            placeholder="Optional context for this chat..."
-            disabled={busy()}
-          />
+    <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+      <SettingsModal title="Chat settings" onClose={() => props.close()} closeLabel="Close chat settings">
+        <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, icon, description, and list placement.">
+          <form
+            class="flex flex-col gap-4"
+            aria-busy={busy()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save.mutate(undefined);
+            }}
+          >
+            <IconInput label="Icon" value={icon} onChange={setIcon} required clearable={false} disabled={busy()} />
+            <TextInput label="Name" value={title} onInput={setTitle} required maxLength={120} disabled={busy()} />
+            <TextInput
+              label="Description"
+              value={description}
+              onInput={setDescription}
+              multiline
+              lines={3}
+              maxLength={500}
+              placeholder="Optional context for this chat..."
+              disabled={busy()}
+            />
+            <CheckboxCard
+              label="Pin this chat"
+              description="Keep this chat at the top of your chat list."
+              icon="ti ti-pin"
+              value={pinned}
+              onChange={setPinned}
+              disabled={busy()}
+            />
+            <div class="flex justify-end pt-2">
+              <button type="submit" class="btn-primary btn-sm" disabled={busy() || !title().trim()}>
+                <i class={save.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
+                Save changes
+              </button>
+            </div>
+          </form>
+        </SettingsModal.Tab>
+
+        <SettingsModal.Tab
+          id="search"
+          title="Search"
+          icon="ti ti-list-search"
+          description="Review and refresh the generated summary and keywords used to find this chat."
+        >
           <SearchIndexSection conversationId={props.conversation.id} />
-        </PanelDialog.Body>
-        <PanelDialog.Footer>
-          <div class="flex min-w-0 flex-col items-start gap-1">
+        </SettingsModal.Tab>
+
+        <SettingsModal.Tab
+          id="archive"
+          title="Archive"
+          icon="ti ti-archive"
+          description="Remove this chat from your active lists. You can restore it later from All Chats."
+        >
+          <div class="flex max-w-xl flex-col items-start gap-3">
             <button
               type="button"
-              class="btn-danger btn-sm shrink-0"
-              disabled={busy() || props.deleteDisabled}
-              title={props.deleteDisabledReason}
-              onClick={() => remove.mutate(undefined)}
+              class="btn-secondary btn-sm shrink-0"
+              disabled={busy() || props.archiveDisabled}
+              title={props.archiveDisabledReason}
+              onClick={() => archive.mutate(undefined)}
             >
-              <i class={remove.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-              Delete
+              <i class={archive.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-archive"} />
+              Archive chat
             </button>
-            <Show when={props.deleteDisabledReason}>
-              {(reason) => <span class="max-w-40 text-[10px] leading-4 text-dimmed">{reason()}</span>}
-            </Show>
+            <Show when={props.archiveDisabledReason}>{(reason) => <p class="text-xs leading-5 text-dimmed">{reason()}</p>}</Show>
           </div>
-          <div class="flex items-center gap-2">
-            <button type="button" class="btn-secondary btn-sm" disabled={busy()} onClick={() => props.close()}>
-              Cancel
-            </button>
-            <button type="submit" class="btn-primary btn-sm" disabled={busy() || !title().trim()}>
-              <i class={save.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
-              Save
-            </button>
-          </div>
-        </PanelDialog.Footer>
-      </form>
-    </PanelDialog>
+        </SettingsModal.Tab>
+      </SettingsModal>
+    </div>
   );
 }
 
@@ -277,10 +283,11 @@ export const openAssistantConversationEditor = (
   conversation: AiConversation,
   options: EditConversationOptions = {},
 ): Promise<EditConversationResult | undefined> =>
-  dialogCore.open<EditConversationResult | undefined>(
+  prompts.dialog<EditConversationResult | undefined>(
     (close) => <EditConversationForm conversation={conversation} close={close} {...options} />,
     {
-      ...panelDialogOptions,
-      cancelBehavior: "ignore",
+      surface: "bare",
+      header: false,
+      size: "large",
     },
   );

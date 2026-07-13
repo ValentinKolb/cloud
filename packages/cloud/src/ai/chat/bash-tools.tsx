@@ -167,9 +167,23 @@ export function PresentToolBlock(props: { block: ToolBlock }) {
     >
       <div class="inline-flex min-h-7 max-w-full items-center gap-1.5 py-1 text-xs leading-none text-dimmed">
         <i class={`ti ${icon()} shrink-0 text-base leading-none`} aria-hidden="true" />
-        <span class="min-w-0 truncate font-medium text-secondary" title={file()!.path}>
-          {title() ?? name()}
-        </span>
+        <Show
+          when={actions.onOpenFile}
+          fallback={
+            <span class="min-w-0 truncate font-medium text-secondary" title={file()!.path}>
+              {title() ?? name()}
+            </span>
+          }
+        >
+          <button
+            type="button"
+            class="min-w-0 truncate font-medium text-secondary underline-offset-2 hover:text-primary hover:underline focus-ui"
+            title={`Open ${file()!.path}`}
+            onClick={() => actions.onOpenFile?.(file()!.path)}
+          >
+            {title() ?? name()}
+          </button>
+        </Show>
         <Show when={title()}>
           <span class="min-w-0 truncate">{name()}</span>
         </Show>

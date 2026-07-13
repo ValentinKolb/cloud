@@ -1,10 +1,15 @@
 import type { AiConversation } from "@valentinkolb/cloud/ai";
+import { prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { createSignal, For, Show } from "solid-js";
+import { mutation } from "@valentinkolb/stdlib/solid";
+import { assistantApi } from "../api/client";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
+import { ConversationStatusMeta } from "./conversation-status";
 
 type Props = {
   conversations: AiConversation[];
+  archived?: boolean;
 };
 
 const formatUpdatedAt = (value: string): string =>
@@ -18,6 +23,22 @@ const formatUpdatedAt = (value: string): string =>
 
 export default function AssistantAllChatsList(props: Props) {
   const [conversations, setConversations] = createSignal(props.conversations);
+  const [restoringId, setRestoringId] = createSignal<string | null>(null);
+  const restore = mutation.create<AiConversation, AiConversation>({
+    mutation: (conversation) => {
+      setRestoringId(conversation.id);
+      return assistantApi.restoreConversation(conversation.id);
+    },
+    onSuccess: (conversation) => {
+      setRestoringId(null);
+      setConversations((current) => current.filter((item) => item.id !== conversation.id));
+      refreshCurrentPath();
+    },
+    onError: (error) => {
+      setRestoringId(null);
+      void prompts.error(error.message);
+    },
+  });
 
   const openEditor = async (conversation: AiConversation) => {
     const result = await openAssistantConversationEditor(conversation);
@@ -34,12 +55,15 @@ export default function AssistantAllChatsList(props: Props) {
   };
 
   return (
-    <div class="paper overflow-hidden">
+    <div class="space-y-0.5">
       <For each={conversations()}>
         {(conversation) => (
-          <div class="group flex min-w-0 items-center gap-3 px-3 py-3 text-sm transition-colors hover:bg-zinc-50/85 focus-within:bg-zinc-50/85 dark:hover:bg-zinc-900/45 dark:focus-within:bg-zinc-900/45">
-            <a href={`/app/assistant?conversation=${conversation.id}`} class="flex min-w-0 flex-1 items-center gap-3">
-              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-900">
+          <div class="group flex min-w-0 items-center gap-3 rounded-md px-2 py-2.5 text-sm transition-colors hover:bg-[var(--ui-surface-subtle)] focus-within:bg-[var(--ui-surface-subtle)]">
+            <a
+              href={props.archived ? undefined : `/app/assistant?conversation=${conversation.id}`}
+              class={`flex min-w-0 flex-1 items-center gap-3 ${props.archived ? "cursor-default" : ""}`}
+            >
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--ui-surface-subtle)] text-dimmed">
                 <i class={`${conversationIcon(conversation)} text-base`} />
               </span>
               <span class="min-w-0 flex-1">
@@ -49,21 +73,25 @@ export default function AssistantAllChatsList(props: Props) {
                 </span>
               </span>
             </a>
+            <ConversationStatusMeta conversation={conversation} labels />
             <span class="hidden shrink-0 text-xs text-dimmed sm:block">{formatUpdatedAt(conversation.updatedAt)}</span>
             <button
               type="button"
               class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dimmed opacity-60 transition-colors hover:bg-zinc-100 hover:text-primary hover:opacity-100 group-focus-within:opacity-100 dark:hover:bg-zinc-800"
-              aria-label={`Edit ${conversation.title}`}
-              title="Edit chat"
-              onClick={() => void openEditor(conversation)}
+              aria-label={props.archived ? `Restore ${conversation.title}` : `Edit ${conversation.title}`}
+              title={props.archived ? "Restore chat" : "Edit chat"}
+              disabled={restore.loading()}
+              onClick={() => (props.archived ? void restore.mutate(conversation) : void openEditor(conversation))}
             >
-              <i class="ti ti-settings text-sm" />
+              <i
+                class={`ti ${props.archived ? (restoringId() === conversation.id ? "ti-loader-2 animate-spin" : "ti-restore") : "ti-settings"} text-sm`}
+              />
             </button>
           </div>
         )}
       </For>
       <Show when={conversations().length === 0}>
-        <div class="px-4 py-6 text-sm text-dimmed">No chats left on this page.</div>
+        <div class="px-2 py-6 text-sm text-dimmed">No chats left on this page.</div>
       </Show>
     </div>
   );

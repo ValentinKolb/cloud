@@ -38,8 +38,8 @@ export default function AssistantSidebarStandalone(props: Props) {
         setConversations((prev) => prev.map((conversation) => (conversation.id === updated.id ? updated : conversation)));
         refreshCurrentPage();
       }}
-      onConversationDeleted={(deleted) => {
-        setConversations((prev) => prev.filter((conversation) => conversation.id !== deleted.id));
+      onConversationArchived={(archived) => {
+        setConversations((prev) => prev.filter((conversation) => conversation.id !== archived.id));
         refreshCurrentPage();
       }}
     />

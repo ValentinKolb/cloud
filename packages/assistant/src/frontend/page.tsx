@@ -10,6 +10,7 @@ export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const url = new URL(c.req.raw.url);
   const requestedConversationId = url.searchParams.get("conversation") ?? undefined;
+  const initialArtifactPath = url.searchParams.get("artifact");
   const [status, models, conversations, prefs] = await Promise.all([
     toPublicAiSettingsState(),
     listAiModels({ kind: "selectable", requiredCapabilities: ["streaming"] }),
@@ -22,13 +23,26 @@ export default ssr<AuthContext>(async (c) => {
     conversations,
     loadConversation: (conversationId) => aiConversationStore.getConversation({ conversationId, appId: "assistant", ownerUserId: user.id }),
   });
-  const activeConversation = initial.activeConversation;
-  if (requestedConversationId && activeConversation?.id !== requestedConversationId) {
+  const resolvedActiveConversation = initial.activeConversation;
+  if (requestedConversationId && resolvedActiveConversation?.id !== requestedConversationId) {
     return c.redirect(
-      activeConversation ? `/app/assistant?conversation=${encodeURIComponent(activeConversation.id)}` : "/app/assistant",
+      resolvedActiveConversation ? `/app/assistant?conversation=${encodeURIComponent(resolvedActiveConversation.id)}` : "/app/assistant",
       302,
     );
   }
+  if (resolvedActiveConversation) {
+    await aiConversationStore.markConversationViewed({
+      conversationId: resolvedActiveConversation.id,
+      appId: "assistant",
+      ownerUserId: user.id,
+    });
+  }
+  const activeConversation = resolvedActiveConversation
+    ? { ...resolvedActiveConversation, unreadCompletion: false }
+    : null;
+  const initialConversations = initial.conversations.map((conversation) =>
+    conversation.id === activeConversation?.id ? { ...conversation, unreadCompletion: false } : conversation,
+  );
   const [initialDetail, initialTimeline] = activeConversation
     ? await Promise.all([
         loadAiStreamState(activeConversation),
@@ -43,8 +57,9 @@ export default ssr<AuthContext>(async (c) => {
         status={status}
         models={models}
         lastModelId={prefs.lastModelId}
-        initialConversations={initial.conversations}
+        initialConversations={initialConversations}
         initialConversationId={activeConversation?.id ?? null}
+        initialArtifactPath={initialArtifactPath}
         initialDetail={
           initialDetail
             ? {

@@ -1,4 +1,4 @@
-import type { AiConversation, AiEnrichmentRun, AiEnrichmentStatus, AiUserPrefs } from "@valentinkolb/cloud/ai";
+import type { AiConversation, AiConversationStatusFilter, AiEnrichmentRun, AiEnrichmentStatus, AiUserPrefs } from "@valentinkolb/cloud/ai";
 
 const BASE = "/api/assistant";
 
@@ -9,10 +9,18 @@ const readError = async (response: Response, fallback: string): Promise<string> 
 
 /** Minimal typed client for the conversation-management endpoints used by the sidebar/editor. */
 export const assistantApi = {
-  listConversations: async (input: { q?: string; limit?: number; signal?: AbortSignal }): Promise<AiConversation[]> => {
+  listConversations: async (input: {
+    q?: string;
+    limit?: number;
+    archived?: boolean;
+    status?: AiConversationStatusFilter;
+    signal?: AbortSignal;
+  }): Promise<AiConversation[]> => {
     const params = new URLSearchParams();
     if (input.q) params.set("q", input.q);
     if (input.limit) params.set("limit", String(input.limit));
+    if (input.archived) params.set("archived", "true");
+    if (input.status) params.set("status", input.status);
     const response = await fetch(`${BASE}/conversations?${params.toString()}`, { signal: input.signal });
     if (!response.ok) throw new Error(await readError(response, "Failed to search chats"));
     return (await response.json()) as AiConversation[];
@@ -30,7 +38,7 @@ export const assistantApi = {
 
   updateConversation: async (
     conversationId: string,
-    input: { title: string; icon?: string; description?: string },
+    input: { title: string; icon?: string; description?: string; pinned?: boolean },
   ): Promise<AiConversation> => {
     const response = await fetch(`${BASE}/conversations/${conversationId}`, {
       method: "PATCH",
@@ -63,9 +71,21 @@ export const assistantApi = {
     return (await response.json()) as AiUserPrefs;
   },
 
-  deleteConversation: async (conversationId: string): Promise<void> => {
-    const response = await fetch(`${BASE}/conversations/${conversationId}`, { method: "DELETE" });
-    if (!response.ok) throw new Error(await readError(response, "Failed to delete chat"));
+  setConversationPinned: async (conversationId: string, pinned: boolean): Promise<AiConversation> => {
+    const response = await fetch(`${BASE}/conversations/${conversationId}/pin`, { method: pinned ? "POST" : "DELETE" });
+    if (!response.ok) throw new Error(await readError(response, pinned ? "Failed to pin chat" : "Failed to unpin chat"));
+    return (await response.json()) as AiConversation;
+  },
+
+  archiveConversation: async (conversationId: string): Promise<void> => {
+    const response = await fetch(`${BASE}/conversations/${conversationId}/archive`, { method: "POST" });
+    if (!response.ok) throw new Error(await readError(response, "Failed to archive chat"));
+  },
+
+  restoreConversation: async (conversationId: string): Promise<AiConversation> => {
+    const response = await fetch(`${BASE}/conversations/${conversationId}/restore`, { method: "POST" });
+    if (!response.ok) throw new Error(await readError(response, "Failed to restore chat"));
+    return (await response.json()) as AiConversation;
   },
 
   getEnrichment: async (conversationId: string): Promise<{ status: AiEnrichmentStatus | null; runs: AiEnrichmentRun[] }> => {

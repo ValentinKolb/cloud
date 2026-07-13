@@ -6,7 +6,7 @@
  * Fixed-height IDE-style layout: both panes scroll, the shell never jumps.
  */
 import { createZip, downloadFileFromContent } from "@valentinkolb/stdlib/browser";
-import { createResource, createSignal, Show } from "solid-js";
+import { createEffect, createResource, createSignal, Show } from "solid-js";
 import { dialogCore } from "../dialog-core";
 import { prompts } from "../prompts";
 import Dropdown from "./Dropdown";
@@ -29,8 +29,14 @@ export type FileSource = {
 
 export type FileBrowserPanelProps = {
   source: FileSource;
+  /** Hide every mutating affordance while retaining file selection and downloads. */
+  readOnly?: boolean;
+  /** Refetch entries when this host-controlled value changes. */
+  refreshKey?: unknown;
   /** Preselect a file once entries are loaded. */
   initialPath?: string;
+  /** Mirrors file selection into route state when the host needs durable navigation. */
+  onSelectedPathChange?: (path: string | null) => void;
   /** Fixed shell height — the panes scroll inside it. */
   class?: string;
 };
@@ -48,14 +54,29 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
   const [pendingFolders, setPendingFolders] = createSignal<string[]>([]);
   let uploadInputRef: HTMLInputElement | undefined;
   let uploadDir = "/";
+  let previousRefreshKey = props.refreshKey;
+
+  createEffect(() => setSelectedPath(props.initialPath ?? null));
+  createEffect(() => props.onSelectedPathChange?.(selectedPath()));
+  createEffect(() => {
+    const refreshKey = props.refreshKey;
+    if (Object.is(refreshKey, previousRefreshKey)) return;
+    previousRefreshKey = refreshKey;
+    void refetch();
+  });
 
   const allEntries = (): FileTreeEntry[] => {
     const loaded = entries() ?? [];
     const real = new Set(loaded.map((entry) => entry.path));
-    return [...loaded, ...pendingFolders().filter((path) => !real.has(path)).map((path) => ({ path, kind: "folder" as const }))];
+    return [
+      ...loaded,
+      ...pendingFolders()
+        .filter((path) => !real.has(path))
+        .map((path) => ({ path, kind: "folder" as const })),
+    ];
   };
   const selectedEntry = () => allEntries().find((entry) => entry.path === selectedPath()) ?? null;
-  const pathWritable = (path: string) => Boolean(props.source.write) && !props.source.isReadOnly?.(path);
+  const pathWritable = (path: string) => !props.readOnly && Boolean(props.source.write) && !props.source.isReadOnly?.(path);
 
   const run = async (work: () => Promise<void>) => {
     try {
@@ -177,24 +198,30 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
     })();
 
   const treeActions = () => ({
-    ...(props.source.rename ? { rename: (path: string, next: string) => (pathWritable(path) ? renameFile(path, next) : undefined) } : {}),
-    ...(props.source.remove ? { remove: (path: string) => (pathWritable(path) ? removeFile(path) : undefined) } : {}),
-    ...(props.source.write ? { createFile: (dir: string) => (pathWritable(dir) ? createFile(dir) : undefined) } : {}),
-    ...(props.source.write ? { createFolder: (dir: string) => (pathWritable(dir) ? createFolder(dir) : undefined) } : {}),
-    ...(props.source.rename
+    ...(!props.readOnly && props.source.rename
+      ? { rename: (path: string, next: string) => (pathWritable(path) ? renameFile(path, next) : undefined) }
+      : {}),
+    ...(!props.readOnly && props.source.remove ? { remove: (path: string) => (pathWritable(path) ? removeFile(path) : undefined) } : {}),
+    ...(!props.readOnly && props.source.write ? { createFile: (dir: string) => (pathWritable(dir) ? createFile(dir) : undefined) } : {}),
+    ...(!props.readOnly && props.source.write
+      ? { createFolder: (dir: string) => (pathWritable(dir) ? createFolder(dir) : undefined) }
+      : {}),
+    ...(!props.readOnly && props.source.rename
       ? { move: (path: string, dir: string) => (pathWritable(path) && pathWritable(dir) ? moveEntry(path, dir) : undefined) }
       : {}),
     download: (path: string, isFolder: boolean) => downloadEntry(path, isFolder),
   });
 
   const addMenuItems = () => [
-    ...(props.source.write ? [{ icon: "ti ti-file-plus", label: "New file", action: () => createFile("/") }] : []),
-    ...(props.source.write ? [{ icon: "ti ti-folder-plus", label: "New folder", action: () => createFolder("/") }] : []),
-    ...(props.source.upload ? [{ icon: "ti ti-upload", label: "Upload files", action: () => pickUpload("/") }] : []),
+    ...(!props.readOnly && props.source.write ? [{ icon: "ti ti-file-plus", label: "New file", action: () => createFile("/") }] : []),
+    ...(!props.readOnly && props.source.write ? [{ icon: "ti ti-folder-plus", label: "New folder", action: () => createFolder("/") }] : []),
+    ...(!props.readOnly && props.source.upload ? [{ icon: "ti ti-upload", label: "Upload files", action: () => pickUpload("/") }] : []),
   ];
 
   return (
-    <div class={`grid min-h-0 grid-cols-[minmax(11rem,15rem)_1fr] gap-3 ${props.class ?? "h-[min(60vh,34rem)]"}`}>
+    <div
+      class={`grid min-h-0 grid-cols-1 grid-rows-[minmax(8rem,35%)_1fr] gap-3 sm:grid-cols-[minmax(11rem,15rem)_1fr] sm:grid-rows-1 ${props.class ?? "h-[min(60vh,34rem)]"}`}
+    >
       <div class="flex min-h-0 min-w-0 flex-col gap-1">
         <div class="flex items-center justify-between pl-1.5">
           <p class="text-[10px] font-medium uppercase tracking-wide text-dimmed">Files</p>

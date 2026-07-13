@@ -1,7 +1,7 @@
 import type { AiUserPrefs } from "@valentinkolb/cloud/ai";
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { prompts, SettingsModal, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, Match, Show, Switch as SolidSwitch } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 
 // Kept in sync with AI_USER_*_MAX_CHARS in @valentinkolb/cloud/ai/prefs — the
@@ -56,113 +56,112 @@ function SystemPromptDisclosure() {
   );
 }
 
-/**
- * One dialog for both personal AI settings, tabbed like the skill editor.
- * A single form state spans the tabs so switching never loses edits, and one
- * save button persists everything in one request.
- */
 function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab; close: () => void }) {
-  const [tab, setTab] = createSignal<AssistantPrefsTab>(props.initialTab);
   const [instructions, setInstructions] = createSignal(props.prefs.instructions);
   const [memory, setMemory] = createSignal(props.prefs.memory);
   const [memoryEnabled, setMemoryEnabled] = createSignal(props.prefs.memoryEnabled);
 
-  const dirty = () =>
-    instructions().trim() !== props.prefs.instructions.trim() ||
-    memory().trim() !== props.prefs.memory.trim() ||
-    memoryEnabled() !== props.prefs.memoryEnabled;
+  const instructionsDirty = () => instructions().trim() !== props.prefs.instructions.trim();
+  const memoryDirty = () => memory().trim() !== props.prefs.memory.trim() || memoryEnabled() !== props.prefs.memoryEnabled;
 
-  const save = mutation.create<AiUserPrefs, void>({
-    mutation: async () =>
-      assistantApi.updatePrefs({ instructions: instructions().trim(), memory: memory().trim(), memoryEnabled: memoryEnabled() }),
+  const saveInstructions = mutation.create<AiUserPrefs, void>({
+    mutation: async () => assistantApi.updatePrefs({ instructions: instructions().trim() }),
     onSuccess: () => {
-      toast.success("Preferences saved");
+      toast.success("Instructions saved");
       props.close();
     },
     onError: (error) => prompts.error(error.message),
   });
-  const busy = save.loading;
+
+  const saveMemory = mutation.create<AiUserPrefs, void>({
+    mutation: async () => assistantApi.updatePrefs({ memory: memory().trim(), memoryEnabled: memoryEnabled() }),
+    onSuccess: () => {
+      toast.success("Memory settings saved");
+      props.close();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  const busy = () => saveInstructions.loading() || saveMemory.loading();
 
   return (
-    <PanelDialog>
-      <form
-        aria-busy={busy()}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save.mutate(undefined);
-        }}
-      >
-        <PanelDialog.Header
-          title="Personalization"
-          subtitle="How the assistant addresses you, and what it remembers."
+    <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+      <SettingsModal title="Personalization" defaultTab={props.initialTab} onClose={props.close} closeLabel="Close personalization">
+        <SettingsModal.Tab
+          id="personalization"
+          title="Instructions"
           icon="ti ti-user-cog"
-          close={() => props.close()}
-          closeDisabled={busy()}
-        />
-        <PanelDialog.Body>
-          <PanelDialog.Tabs
-            ariaLabel="Preference sections"
-            options={[
-              { value: "personalization", label: "Instructions", icon: "ti ti-user-cog" },
-              { value: "memory", label: "Memory", icon: "ti ti-brain" },
-            ]}
-            value={tab}
-            onChange={setTab}
-          />
+          description="Choose how the assistant should answer and what it should focus on."
+        >
+          <form
+            class="flex flex-col gap-4"
+            aria-busy={busy()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveInstructions.mutate(undefined);
+            }}
+          >
+            <TextInput
+              label="Custom instructions"
+              description="Added to every new chat. Tell the assistant who you are, how to answer, and what to focus on."
+              value={instructions}
+              onInput={setInstructions}
+              markdown
+              lines={9}
+              maxLength={INSTRUCTIONS_MAX_CHARS}
+              placeholder={"I study computer science and prefer short, technical answers.\nAlways answer in German."}
+              disabled={busy()}
+            />
+            <SystemPromptDisclosure />
+            <div class="flex justify-end pt-2">
+              <button type="submit" class="btn-primary btn-sm" disabled={busy() || !instructionsDirty()}>
+                <i class={saveInstructions.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
+                Save instructions
+              </button>
+            </div>
+          </form>
+        </SettingsModal.Tab>
 
-          {/* Fixed-height content: switching tabs must never resize the dialog. */}
-          <div class="flex h-[min(55vh,26rem)] min-h-0 flex-col gap-3 overflow-y-auto">
-            <SolidSwitch>
-              <Match when={tab() === "personalization"}>
-                <TextInput
-                  label="Custom instructions"
-                  description="Added to every new chat. Tell the assistant who you are, how to answer, and what to focus on."
-                  value={instructions}
-                  onInput={setInstructions}
-                  markdown
-                  lines={9}
-                  maxLength={INSTRUCTIONS_MAX_CHARS}
-                  placeholder={"I study computer science and prefer short, technical answers.\nAlways answer in German."}
-                  disabled={busy()}
-                />
-                <SystemPromptDisclosure />
-              </Match>
-              <Match when={tab() === "memory"}>
-                <Switch
-                  label="Let the assistant remember things about you"
-                  value={memoryEnabled}
-                  onChange={setMemoryEnabled}
-                  disabled={busy()}
-                />
-                <TextInput
-                  label="Memories"
-                  description="One memory per line, stamped with the date it was saved. The assistant reads this list in every chat and can add or remove entries."
-                  value={memory}
-                  onInput={setMemory}
-                  markdown
-                  lines={9}
-                  maxLength={MEMORY_MAX_CHARS}
-                  placeholder={"Studies computer science at Uni Ulm.\nPrefers answers in German."}
-                  disabled={busy()}
-                />
-              </Match>
-            </SolidSwitch>
-          </div>
-        </PanelDialog.Body>
-        <PanelDialog.Footer>
-          <span />
-          <div class="flex items-center gap-2">
-            <button type="button" class="btn-secondary btn-sm" disabled={busy()} onClick={() => props.close()}>
-              Cancel
-            </button>
-            <button type="submit" class="btn-primary btn-sm" disabled={busy() || !dirty()}>
-              <i class={save.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
-              Save
-            </button>
-          </div>
-        </PanelDialog.Footer>
-      </form>
-    </PanelDialog>
+        <SettingsModal.Tab
+          id="memory"
+          title="Memory"
+          icon="ti ti-brain"
+          description="Control what the assistant carries into future conversations."
+        >
+          <form
+            class="flex flex-col gap-4"
+            aria-busy={busy()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveMemory.mutate(undefined);
+            }}
+          >
+            <Switch
+              label="Let the assistant remember things about you"
+              value={memoryEnabled}
+              onChange={setMemoryEnabled}
+              disabled={busy()}
+            />
+            <TextInput
+              label="Memories"
+              description="One memory per line, stamped with the date it was saved. The assistant reads this list in every chat and can add or remove entries."
+              value={memory}
+              onInput={setMemory}
+              markdown
+              lines={9}
+              maxLength={MEMORY_MAX_CHARS}
+              placeholder={"Studies computer science at Uni Ulm.\nPrefers answers in German."}
+              disabled={busy()}
+            />
+            <div class="flex justify-end pt-2">
+              <button type="submit" class="btn-primary btn-sm" disabled={busy() || !memoryDirty()}>
+                <i class={saveMemory.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
+                Save memory
+              </button>
+            </div>
+          </form>
+        </SettingsModal.Tab>
+      </SettingsModal>
+    </div>
   );
 }
 
@@ -174,9 +173,10 @@ export const openAssistantPrefsModal = async (initialTab: AssistantPrefsTab = "p
     await prompts.error(error instanceof Error ? error.message : "Failed to load AI preferences");
     return;
   }
-  await dialogCore.open<void>((close) => <PrefsDialog prefs={prefs} initialTab={initialTab} close={() => close()} />, {
-    ...panelDialogOptions,
-    cancelBehavior: "ignore",
+  await prompts.dialog<void>((close) => <PrefsDialog prefs={prefs} initialTab={initialTab} close={() => close()} />, {
+    surface: "bare",
+    header: false,
+    size: "large",
   });
 };
 

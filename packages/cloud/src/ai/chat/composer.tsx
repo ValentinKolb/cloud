@@ -1,6 +1,6 @@
 import type { Usage } from "@valentinkolb/nessi";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
-import { Dropdown, type DropdownItem, ProgressBar, toast } from "../../ui";
+import { Dropdown, type DropdownItem, ProgressBar, Tooltip, toast } from "../../ui";
 import type { AiPublicModelProfile, AiUserContentPart } from "../types";
 import {
   type AiComposerAttachment,
@@ -55,15 +55,68 @@ export function AiContextIndicator(props: { usage?: Usage | null; loopUsage?: Us
     if (!contextWindow) return null;
     return Math.max(0, contextWindow - total());
   };
+  const accessibleLabel = () => {
+    const usage = total() > 0 ? `${total().toLocaleString()} tokens used` : "Context usage unavailable";
+    const share = percent() === null ? "" : `, ${percent()}% of the context window`;
+    return `${usage}${share}`;
+  };
 
   return (
-    <div class="group relative inline-flex">
+    <Tooltip
+      placement="top"
+      content={
+        <div class="w-60 p-1">
+          <p class="font-medium">Last request context</p>
+          <Show when={percent() !== null}>
+            <div class="mt-2">
+              <ProgressBar value={percent()!} size="xs" tone={(percent() ?? 0) >= 85 ? "danger" : "primary"} label="Context window used" />
+            </div>
+          </Show>
+          <dl class="mt-2 space-y-1">
+            <Show when={props.modelLabel}>
+              <div class="flex justify-between gap-3">
+                <dt class="opacity-70">Model</dt>
+                <dd class="truncate">{props.modelLabel}</dd>
+              </div>
+            </Show>
+            <div class="flex justify-between gap-3">
+              <dt class="opacity-70">Input</dt>
+              <dd class="tabular-nums">{props.usage?.input?.toLocaleString() ?? "Unknown"}</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="opacity-70">Output</dt>
+              <dd class="tabular-nums">{props.usage?.output?.toLocaleString() ?? "Unknown"}</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="opacity-70">Request total</dt>
+              <dd class="tabular-nums">{total() > 0 ? total().toLocaleString() : "Unknown"}</dd>
+            </div>
+            <Show when={(props.loopUsage?.total ?? 0) > 0}>
+              <div class="flex justify-between gap-3">
+                <dt class="opacity-70">Loop total</dt>
+                <dd class="tabular-nums">{props.loopUsage!.total.toLocaleString()}</dd>
+              </div>
+            </Show>
+            <div class="flex justify-between gap-3">
+              <dt class="opacity-70">Window</dt>
+              <dd class="tabular-nums">{windowSize() ? windowSize()!.toLocaleString() : "Not configured"}</dd>
+            </div>
+            <Show when={remaining() !== null}>
+              <div class="flex justify-between gap-3">
+                <dt class="opacity-70">Remaining</dt>
+                <dd class="tabular-nums">{remaining()!.toLocaleString()}</dd>
+              </div>
+            </Show>
+          </dl>
+        </div>
+      }
+    >
       <button
         type="button"
         class={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs tabular-nums outline-none hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-cyan-300 dark:hover:bg-zinc-800 ${
           (percent() ?? 0) >= 85 ? "text-amber-600 dark:text-amber-300" : "text-dimmed"
         }`}
-        aria-describedby="ai-context-popover"
+        aria-label={accessibleLabel()}
       >
         <i class="ti ti-brain text-sm" aria-hidden="true" />
         <span>{label()}</span>
@@ -71,55 +124,7 @@ export function AiContextIndicator(props: { usage?: Usage | null; loopUsage?: Us
           <span class="opacity-75">({percent()}%)</span>
         </Show>
       </button>
-      <div
-        id="ai-context-popover"
-        role="tooltip"
-        class="pointer-events-none invisible absolute bottom-full right-0 z-30 mb-2 w-64 rounded-lg border border-zinc-200 bg-white p-3 text-xs text-secondary opacity-0 shadow-[var(--theme-shadow-float)] transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100 dark:border-zinc-800 dark:bg-zinc-900"
-      >
-        <p class="font-medium text-primary">Last request context</p>
-        <Show when={percent() !== null}>
-          <div class="mt-2">
-            <ProgressBar value={percent()!} size="xs" tone={(percent() ?? 0) >= 85 ? "danger" : "primary"} />
-          </div>
-        </Show>
-        <div class="mt-2 space-y-1">
-          <Show when={props.modelLabel}>
-            <p class="flex justify-between gap-3">
-              <span>Model</span>
-              <span class="truncate text-primary">{props.modelLabel}</span>
-            </p>
-          </Show>
-          <p class="flex justify-between gap-3">
-            <span>Input</span>
-            <span class="tabular-nums text-primary">{props.usage?.input?.toLocaleString() ?? "Unknown"}</span>
-          </p>
-          <p class="flex justify-between gap-3">
-            <span>Output</span>
-            <span class="tabular-nums text-primary">{props.usage?.output?.toLocaleString() ?? "Unknown"}</span>
-          </p>
-          <p class="flex justify-between gap-3">
-            <span>Request total</span>
-            <span class="tabular-nums text-primary">{total() > 0 ? total().toLocaleString() : "Unknown"}</span>
-          </p>
-          <Show when={(props.loopUsage?.total ?? 0) > 0}>
-            <p class="flex justify-between gap-3">
-              <span>Loop total</span>
-              <span class="tabular-nums text-primary">{props.loopUsage!.total.toLocaleString()}</span>
-            </p>
-          </Show>
-          <p class="flex justify-between gap-3">
-            <span>Window</span>
-            <span class="tabular-nums text-primary">{windowSize() ? windowSize()!.toLocaleString() : "Not configured"}</span>
-          </p>
-          <Show when={remaining() !== null}>
-            <p class="flex justify-between gap-3">
-              <span>Remaining</span>
-              <span class="tabular-nums text-primary">{remaining()!.toLocaleString()}</span>
-            </p>
-          </Show>
-        </div>
-      </div>
-    </div>
+    </Tooltip>
   );
 }
 

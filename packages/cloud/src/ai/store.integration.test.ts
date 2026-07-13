@@ -759,6 +759,82 @@ describe("AI conversation store integration", () => {
     }
   });
 
+  test("projects stable conversation organization and durable run attention state", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      const create = async (title: string) => {
+        const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId, title });
+        conversationIds.push(conversation.id);
+        return conversation;
+      };
+      const normal = await create("Normal");
+      const pinned = await create("Pinned");
+      const running = await create("Running");
+      const attention = await create("Attention");
+      const failed = await create("Failed");
+      const done = await create("Done");
+
+      const pinnedUpdatedAt = pinned.updatedAt;
+      const pinnedResult = await aiConversationStore.setConversationPinned({
+        conversationId: pinned.id,
+        appId: "ai-test",
+        ownerUserId: userId,
+        pinned: true,
+      });
+      expect(pinnedResult).toMatchObject({ pinnedAt: expect.any(String), updatedAt: pinnedUpdatedAt });
+      expect((await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId }))[0]?.id).toBe(pinned.id);
+
+      const insertTurn = async (conversationId: string, status: string, completed = false) => {
+        await sql`
+          INSERT INTO ai.turns (conversation_id, status, completed_at)
+          VALUES (${conversationId}::uuid, ${status}, ${completed ? new Date().toISOString() : null})
+        `;
+      };
+      await insertTurn(running.id, "running");
+      await insertTurn(attention.id, "waiting_for_action");
+      await insertTurn(failed.id, "failed", true);
+      await insertTurn(done.id, "completed", true);
+
+      const summaries = await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId });
+      expect(summaries.find((item) => item.id === running.id)?.runStatus).toBe("running");
+      expect(summaries.find((item) => item.id === attention.id)?.runStatus).toBe("needs_attention");
+      expect(summaries.find((item) => item.id === failed.id)?.runStatus).toBe("failed");
+      expect(summaries.find((item) => item.id === done.id)).toMatchObject({ runStatus: "idle", unreadCompletion: true });
+      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "running" })).toHaveLength(1);
+      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "needs_attention" })).toHaveLength(1);
+      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "failed" })).toHaveLength(1);
+      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "unread" })).toHaveLength(1);
+      expect(await aiConversationStore.archiveConversation({ conversationId: running.id, appId: "ai-test", ownerUserId: userId })).toBe(false);
+
+      expect(await aiConversationStore.markConversationViewed({ conversationId: done.id, appId: "ai-test", ownerUserId: userId })).toBe(true);
+      expect((await aiConversationStore.getConversation({ conversationId: done.id }))?.unreadCompletion).toBe(false);
+      await aiConversationStore.updateConversationMetadata({
+        conversationId: done.id,
+        appId: "ai-test",
+        ownerUserId: userId,
+        title: "Done renamed",
+        icon: done.icon,
+        description: done.description,
+      });
+      expect((await aiConversationStore.getConversation({ conversationId: done.id }))?.unreadCompletion).toBe(false);
+
+      expect(await aiConversationStore.archiveConversation({ conversationId: pinned.id, appId: "ai-test", ownerUserId: userId })).toBe(true);
+      expect(await aiConversationStore.getConversation({ conversationId: pinned.id })).toBeNull();
+      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, archived: true })).toHaveLength(1);
+      expect(await aiConversationStore.restoreConversation({ conversationId: pinned.id, appId: "ai-test", ownerUserId: userId })).toMatchObject({
+        id: pinned.id,
+        pinnedAt: null,
+        archivedAt: null,
+      });
+      expect(await aiConversationStore.getConversation({ conversationId: normal.id })).toMatchObject({ runStatus: "idle" });
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
   test("tool approval preferences remember and forget approvals", async () => {
     if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();

@@ -62,12 +62,15 @@ export type AiChatRoutesConfig = {
 const ConversationListQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
+  archived: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
+  status: z.enum(["running", "needs_attention", "failed", "unread"]).optional(),
 });
 
 const ConversationMetadataInputSchema = z.object({
   title: z.string().trim().min(1).max(120),
   icon: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().max(500).optional(),
+  pinned: z.boolean().optional(),
 });
 
 const MessagesPageQuerySchema = z.object({
@@ -190,6 +193,8 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             ownerUserId: ctx.ownerUserId,
             resource: ctx.resource,
             search: query.q,
+            archived: query.archived,
+            status: query.status,
             limit: query.limit,
           }),
         ),
@@ -253,16 +258,48 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         title: body.title,
         icon: body.icon,
         description: body.description,
+        pinned: body.pinned,
       });
       if (!updated) return notFound(c);
       return respond(c, ok(updated));
     })
-    .delete("/conversations/:conversationId", async (c) => {
+    .post("/conversations/:conversationId/pin", async (c) => {
       if (!config.allowConversationManagement) return notFound(c);
       const ctx = await config.resolveContext(c);
       if (ctx instanceof Response) return ctx;
       const conversation = await loadConversation(c, ctx);
       if (!conversation) return notFound(c);
+      const updated = await aiConversationStore.setConversationPinned({
+        conversationId: conversation.id,
+        appId: config.appId,
+        ownerUserId: ctx.ownerUserId,
+        pinned: true,
+      });
+      return updated ? respond(c, ok(updated)) : notFound(c);
+    })
+    .delete("/conversations/:conversationId/pin", async (c) => {
+      if (!config.allowConversationManagement) return notFound(c);
+      const ctx = await config.resolveContext(c);
+      if (ctx instanceof Response) return ctx;
+      const conversation = await loadConversation(c, ctx);
+      if (!conversation) return notFound(c);
+      const updated = await aiConversationStore.setConversationPinned({
+        conversationId: conversation.id,
+        appId: config.appId,
+        ownerUserId: ctx.ownerUserId,
+        pinned: false,
+      });
+      return updated ? respond(c, ok(updated)) : notFound(c);
+    })
+    .post("/conversations/:conversationId/archive", async (c) => {
+      if (!config.allowConversationManagement) return notFound(c);
+      const ctx = await config.resolveContext(c);
+      if (ctx instanceof Response) return ctx;
+      const conversation = await loadConversation(c, ctx);
+      if (!conversation) return notFound(c);
+      if (await aiConversationStore.getActiveTurn({ conversationId: conversation.id })) {
+        return respond(c, fail(err.conflict("Stop the current response before archiving this chat.")));
+      }
       const archived = await aiConversationStore.archiveConversation({
         conversationId: conversation.id,
         appId: config.appId,
@@ -270,6 +307,30 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
       });
       if (!archived) return notFound(c);
       return respond(c, ok({ ok: true }));
+    })
+    .post("/conversations/:conversationId/restore", async (c) => {
+      if (!config.allowConversationManagement) return notFound(c);
+      const ctx = await config.resolveContext(c);
+      if (ctx instanceof Response) return ctx;
+      const restored = await aiConversationStore.restoreConversation({
+        conversationId: c.req.param("conversationId"),
+        appId: config.appId,
+        ownerUserId: ctx.ownerUserId,
+      });
+      return restored ? respond(c, ok(restored)) : notFound(c);
+    })
+    .post("/conversations/:conversationId/viewed", async (c) => {
+      if (!config.allowConversationManagement) return notFound(c);
+      const ctx = await config.resolveContext(c);
+      if (ctx instanceof Response) return ctx;
+      const conversation = await loadConversation(c, ctx);
+      if (!conversation) return notFound(c);
+      const viewed = await aiConversationStore.markConversationViewed({
+        conversationId: conversation.id,
+        appId: config.appId,
+        ownerUserId: ctx.ownerUserId,
+      });
+      return viewed ? respond(c, ok({ ok: true })) : notFound(c);
     })
     .post("/conversations/:conversationId/turns", v("json", AiTurnInputSchema), async (c) => {
       const ctx = await config.resolveContext(c);
