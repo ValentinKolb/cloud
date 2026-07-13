@@ -5,6 +5,7 @@ import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { getUserBackedActor } from "../actor";
+import { CurrentWeatherSchema, WeatherDataSchema } from "../contracts";
 import { weatherSettingsRouter } from "./settings";
 import widgetRoutes from "./widgets";
 
@@ -20,39 +21,6 @@ const coordinateString = (min: number, max: number) =>
 const WeatherQuerySchema = z.object({
   lat: coordinateString(-90, 90).optional(),
   lon: coordinateString(-180, 180).optional(),
-});
-
-const CurrentWeatherSchema = z.object({
-  temperature: z.number(),
-  icon: z.string(),
-  cloudCover: z.number(),
-  windSpeed: z.number(),
-  humidity: z.number().nullable(),
-  precipitation: z.number(),
-  stationName: z.string(),
-  timestamp: z.string(),
-});
-
-const HourlyForecastSchema = z.object({
-  timestamp: z.string(),
-  temperature: z.number(),
-  icon: z.string(),
-  precipitation: z.number(),
-  windSpeed: z.number(),
-});
-
-const DailyForecastSchema = z.object({
-  date: z.string(),
-  icon: z.string(),
-  tempMin: z.number(),
-  tempMax: z.number(),
-  precipitation: z.number(),
-});
-
-const WeatherDataSchema = z.object({
-  current: CurrentWeatherSchema,
-  hourly: z.array(HourlyForecastSchema),
-  daily: z.array(DailyForecastSchema),
 });
 
 const ErrorResponseSchema = z.object({
@@ -199,6 +167,7 @@ const app = new Hono<AuthContext>()
     v("query", WeatherQuerySchema),
     async (c) => {
       const { lat, lon } = c.req.valid("query");
+      c.header("Cache-Control", "no-store");
 
       return respond(c, async () => {
         const data = await weatherService.forecast.get({ lat, lon });

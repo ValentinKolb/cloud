@@ -17,6 +17,9 @@ type Props = {
 };
 
 export default function LocationSidebar(props: Props) {
+  const activeLocation = props.locations.find((location) => location.id === props.activeId);
+  const activeWeather = activeLocation ? props.weatherMap.get(activeLocation.id) : null;
+
   const renderLocation = (loc: Location, mode: "desktop" | "mobile") => {
     const data = props.weatherMap.get(loc.id);
     const isActive = loc.id === props.activeId;
@@ -55,10 +58,9 @@ export default function LocationSidebar(props: Props) {
   return (
     <AppWorkspace.Sidebar>
       <AppWorkspace.SidebarHeader
-        title="Weather"
-        icon="ti ti-temperature-celsius"
-        iconStyle="background-color: var(--color-cyan-500)"
-        showDesktop={false}
+        title={activeLocation?.name ?? "Weather"}
+        icon={`ti ti-${activeWeather?.current ? weatherService.ui.getTablerIcon(activeWeather.current.icon) : "temperature-celsius"}`}
+        iconStyle="background-color: color-mix(in srgb, var(--app-accent) 10%, var(--ui-surface)); color: var(--ui-app-accent-text); box-shadow: inset 0 0 0 1px var(--ui-app-accent-border)"
       />
 
       <AppWorkspace.SidebarMobile>
@@ -71,14 +73,14 @@ export default function LocationSidebar(props: Props) {
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
-        <AppWorkspace.SidebarBody scrollPreserveKey="weather-locations">
-          <AppWorkspace.SidebarSection title="Actions">
-            <AddLocationButton variant="sidebar" />
-          </AppWorkspace.SidebarSection>
-          <AppWorkspace.SidebarSection title="Locations">
-            {props.locations.map((loc) => renderLocation(loc, "desktop"))}
-          </AppWorkspace.SidebarSection>
-        </AppWorkspace.SidebarBody>
+        <div class="flex min-h-0 flex-1 flex-col gap-3">
+          <AddLocationButton />
+          <AppWorkspace.SidebarBody scrollPreserveKey="weather-locations">
+            <AppWorkspace.SidebarSection title="Locations">
+              {props.locations.map((loc) => renderLocation(loc, "desktop"))}
+            </AppWorkspace.SidebarSection>
+          </AppWorkspace.SidebarBody>
+        </div>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
   );

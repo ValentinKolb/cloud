@@ -1,4 +1,5 @@
-import { type HourlyForecast as HourlyForecastType, weatherService } from "@valentinkolb/cloud/services";
+import { weatherUiService } from "@valentinkolb/cloud/services/weather/ui";
+import type { HourlyForecastPayload } from "../../contracts";
 
 const formatHour = (timestamp: string, isFirst: boolean): string => {
   if (isFirst) return "Now";
@@ -6,7 +7,7 @@ const formatHour = (timestamp: string, isFirst: boolean): string => {
 };
 
 type HourlyForecastProps = {
-  hourly: HourlyForecastType[];
+  hourly: HourlyForecastPayload[];
   /** Number of hours to show (default: all). */
   limit?: number;
   /** Size variant. */
@@ -67,11 +68,11 @@ export default function HourlyForecast({ hourly, limit, size = "md", showNow = t
           </span>
           <div class="flex items-center gap-1">
             <i
-              class={`ti ti-${weatherService.ui.getTablerIcon(h.icon)} ${s.icon} ${weatherService.ui.getTempColorClass(h.temperature)}`}
+              class={`ti ti-${weatherUiService.getTablerIcon(h.icon)} ${s.icon} ${weatherUiService.getTempColorClass(h.temperature)}`}
               aria-hidden="true"
             />
-            <span class={`${s.temp} font-medium ${weatherService.ui.getTempColorClass(h.temperature)}`}>
-              {weatherService.ui.formatTemp(h.temperature)}
+            <span class={`${s.temp} font-medium ${weatherUiService.getTempColorClass(h.temperature)}`}>
+              {weatherUiService.formatTemp(h.temperature)}
             </span>
           </div>
           {h.precipitationProbability != null && h.precipitationProbability > 0 ? (

@@ -1,4 +1,5 @@
-import { weatherService, type DailyForecast as DailyForecastType } from "@valentinkolb/cloud/services";
+import { weatherUiService } from "@valentinkolb/cloud/services/weather/ui";
+import type { DailyForecastPayload } from "../../contracts";
 
 const formatDay = (dateStr: string): string => {
   const date = new Date(dateStr);
@@ -13,7 +14,7 @@ const formatDay = (dateStr: string): string => {
 };
 
 type DailyForecastProps = {
-  daily: DailyForecastType[];
+  daily: DailyForecastPayload[];
   /** Size variant */
   size?: "sm" | "md" | "lg";
   /** Show temperature bar visualization (default: true) */
@@ -73,20 +74,18 @@ export default function DailyForecast({ daily, size = "md", showBar = true }: Da
         >
           <span class={`${s.day} truncate font-medium`}>{formatDay(d.date)}</span>
           <i
-            class={`ti ti-${weatherService.ui.getTablerIcon(d.icon)} ${
+            class={`ti ti-${weatherUiService.getTablerIcon(d.icon)} ${
               s.icon
-            } ${weatherService.ui.getAvgTempColorClass(d.tempMin, d.tempMax)}`}
+            } ${weatherUiService.getAvgTempColorClass(d.tempMin, d.tempMax)}`}
             aria-hidden="true"
           />
           <div class="flex min-w-0 items-center gap-2">
-            <span class={`${s.temp} w-8 shrink-0 text-right text-dimmed`}>{weatherService.ui.formatTemp(d.tempMin)}</span>
+            <span class={`${s.temp} w-8 shrink-0 text-right text-dimmed`}>{weatherUiService.formatTemp(d.tempMin)}</span>
             {showBar && (
               <div
                 class="h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800"
                 role="img"
-                aria-label={`Temperature range from ${weatherService.ui.formatTemp(
-                  d.tempMin,
-                )} to ${weatherService.ui.formatTemp(d.tempMax)}`}
+                aria-label={`Temperature range from ${weatherUiService.formatTemp(d.tempMin)} to ${weatherUiService.formatTemp(d.tempMax)}`}
               >
                 <div
                   class="h-full bg-linear-to-r from-blue-400 via-emerald-400 to-amber-400 rounded-full"
@@ -97,8 +96,8 @@ export default function DailyForecast({ daily, size = "md", showBar = true }: Da
                 />
               </div>
             )}
-            <span class={`${s.temp} w-8 shrink-0 font-medium ${weatherService.ui.getTempColorClass(d.tempMax)}`}>
-              {weatherService.ui.formatTemp(d.tempMax)}
+            <span class={`${s.temp} w-8 shrink-0 font-medium ${weatherUiService.getTempColorClass(d.tempMax)}`}>
+              {weatherUiService.formatTemp(d.tempMax)}
             </span>
           </div>
           <div class={`flex items-center justify-end gap-2 ${s.meta}`}>

@@ -11,9 +11,7 @@ export default function WeatherLayoutHelp() {
       order={100}
     >
       <DocPage>
-        <DocLead>
-          Weather tracks saved locations and shows current conditions, hourly forecast, daily forecast, and rain radar.
-        </DocLead>
+        <DocLead>Weather tracks saved locations and shows current conditions, hourly forecast, daily forecast, and rain radar.</DocLead>
 
         <DocSection title="Overview" eyebrow="Start here">
           <DocConceptGrid
@@ -31,7 +29,7 @@ export default function WeatherLayoutHelp() {
               {
                 title: "Display link",
                 icon: "ti-device-tv",
-                text: "Fullscreen opens a public display URL for monitor-style weather views.",
+                text: "Display opens a public monitor view that refreshes automatically.",
               },
               {
                 title: "Admin settings",
@@ -58,7 +56,7 @@ export default function WeatherLayoutHelp() {
               {
                 title: "Open a display",
                 icon: "ti-device-tv",
-                text: "Use Fullscreen to choose zoom, light or dark theme, and simple or detailed display.",
+                text: "Use Display to choose zoom, light or dark theme, and a simple or detailed view.",
               },
               {
                 title: "Remove a location",
@@ -70,8 +68,8 @@ export default function WeatherLayoutHelp() {
         </DocSection>
 
         <DocNote title="Data scope" variant="info">
-          Location search is limited to German cities in the current UI. Forecast data can be unavailable when the configured provider has no
-          data for the selected coordinates.
+          Location search is limited to German cities in the current UI. Forecast data can be unavailable when the configured provider has
+          no data for the selected coordinates.
         </DocNote>
       </DocPage>
     </Layout.Help>

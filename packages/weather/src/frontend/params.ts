@@ -4,7 +4,7 @@
 
 // ============ Query Parameter Names ============
 
-export const QueryParams = {
+const QueryParams = {
   LAT: "lat",
   LON: "lon",
   ZOOM: "zoom",
@@ -14,9 +14,9 @@ export const QueryParams = {
 
 // ============ URL Builders ============
 
-type DisplaySettings = {
-  zoom: number;
-  theme: string;
+export type DisplaySettings = {
+  zoom: 1 | 2 | 3;
+  theme: "light" | "dark";
   detail: boolean;
 };
 

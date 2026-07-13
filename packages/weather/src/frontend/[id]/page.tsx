@@ -7,8 +7,7 @@ import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
 import WeatherLayoutHelp from "../_components/help/WeatherLayoutHelp.island";
 import LocationSidebar from "../_components/LocationSidebar";
-import DeleteLocationButton from "../DeleteLocation.island";
-import DisplaySettingsButton from "../DisplaySettings.island";
+import LocationActions from "../LocationActions.island";
 
 type Location = {
   id: string;
@@ -42,9 +41,15 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
   const { current, hourly, daily } = data;
 
   return (
-    <article class="flex flex-col gap-[var(--ui-space-section)] p-[var(--ui-space-section)]" aria-label={`Weather for ${location.name}`}>
-      {/* Current - centered, no paper */}
-      <section class="flex flex-col items-center gap-2 py-4" aria-label="Current weather">
+    <article class="flex flex-col gap-2 p-[var(--ui-space-shell)]" aria-label={`Weather for ${location.name}`}>
+      <section class="relative flex flex-col items-center gap-3 py-5" aria-label="Current weather">
+        <div class="flex w-full justify-end sm:absolute sm:right-0 sm:top-0">
+          <LocationActions id={location.id} lat={location.lat} lon={location.lon} />
+        </div>
+        <header class="flex max-w-full flex-col items-center text-center" style={`view-transition-name: weather-location-${location.id}`}>
+          <h1 class="max-w-full truncate text-lg font-semibold text-primary app-accent-text">{location.name}</h1>
+          {location.state && <p class="mt-0.5 max-w-full truncate text-xs text-dimmed">{location.state}</p>}
+        </header>
         <div class="flex items-center gap-3">
           <i
             class={`ti ti-${weatherService.ui.getTablerIcon(
@@ -81,7 +86,6 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
         </dl>
       </section>
 
-      {/* Hourly Forecast */}
       {hourly.length > 0 && (
         <section class="paper p-4" aria-label="Hourly forecast">
           <h2 class="section-label mb-3">Hourly</h2>
@@ -89,59 +93,48 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
         </section>
       )}
 
-      {/* Weekly + Radar */}
-      <div class="grid grid-cols-1 gap-[var(--ui-space-section)] md:grid-cols-2">
-        {/* Left column: Weekly Forecast + Details */}
-        <div class="flex flex-col gap-3">
-          {/* Weekly Forecast */}
+      <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+        <div class="flex flex-col gap-2">
           {daily.length > 0 && (
             <section class="paper p-4" aria-label="7-day forecast">
-              <h2 class="section-label mb-3">7-Day Forecast</h2>
+              <h2 class="section-label mb-3">7-day forecast</h2>
               <DailyForecast daily={daily} />
             </section>
           )}
 
-          {/* Current Conditions Details */}
-          <section class="flex flex-col gap-3" aria-label="Current conditions">
-            <div class="paper p-4">
-              <h2 class="section-label mb-3">Current Conditions</h2>
-              <div class="grid grid-cols-2 gap-x-6 gap-y-4">
-                <CurrentConditionStat
-                  label="Pressure"
-                  value={current.pressure != null ? `${current.pressure} hPa` : "-"}
-                  icon="ti ti-gauge"
-                  tone="zinc"
-                />
-                <CurrentConditionStat
-                  label="Dew Point"
-                  value={current.dewPoint != null ? `${current.dewPoint}°` : "-"}
-                  icon="ti ti-droplet"
-                  tone="blue"
-                />
-                <CurrentConditionStat
-                  label="Visibility"
-                  value={current.visibility != null ? `${(current.visibility / 1000).toFixed(1)} km` : "-"}
-                  icon="ti ti-eye"
-                  tone="zinc"
-                />
-                <CurrentConditionStat
-                  label="Sunshine"
-                  value={current.sunshine != null ? `${current.sunshine} min` : "-"}
-                  icon="ti ti-sun"
-                  tone="amber"
-                />
-              </div>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <DisplaySettingsButton lat={location.lat} lon={location.lon} />
-              <DeleteLocationButton id={location.id} />
+          <section class="paper p-4" aria-label="Current conditions">
+            <h2 class="section-label mb-3">Current conditions</h2>
+            <div class="grid grid-cols-2 gap-x-6 gap-y-4">
+              <CurrentConditionStat
+                label="Pressure"
+                value={current.pressure != null ? `${current.pressure} hPa` : "-"}
+                icon="ti ti-gauge"
+                tone="zinc"
+              />
+              <CurrentConditionStat
+                label="Dew point"
+                value={current.dewPoint != null ? `${current.dewPoint}°` : "-"}
+                icon="ti ti-droplet"
+                tone="blue"
+              />
+              <CurrentConditionStat
+                label="Visibility"
+                value={current.visibility != null ? `${(current.visibility / 1000).toFixed(1)} km` : "-"}
+                icon="ti ti-eye"
+                tone="zinc"
+              />
+              <CurrentConditionStat
+                label="Sunshine"
+                value={current.sunshine != null ? `${current.sunshine} min` : "-"}
+                icon="ti ti-sun"
+                tone="amber"
+              />
             </div>
           </section>
         </div>
 
-        {/* Radar */}
         <section class="paper p-4" aria-label="Rain radar">
-          <h2 class="section-label mb-3">Rain Radar</h2>
+          <h2 class="section-label mb-3">Rain radar</h2>
           <RadarCard showLegend />
         </section>
       </div>
@@ -207,8 +200,11 @@ export default ssr<AuthContext>(async (c) => {
         <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 
         <AppWorkspace.Main>
-          {/* Scrollable content */}
-          <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`weather-main-${activeLocation.id}`}>
+          <div
+            class="min-h-0 flex-1 overflow-y-auto"
+            data-scroll-preserve={`weather-main-${activeLocation.id}`}
+            style="scrollbar-gutter: stable"
+          >
             {activeWeather ? (
               <WeatherDetail location={activeLocation} data={activeWeather} />
             ) : (
@@ -219,12 +215,7 @@ export default ssr<AuthContext>(async (c) => {
                 description="DWD currently provides forecast data only for locations in Germany."
                 icon="ti ti-cloud-off"
                 class="h-full"
-                action={
-                  <div class="flex flex-wrap items-center justify-center gap-2">
-                    <DisplaySettingsButton lat={activeLocation.lat} lon={activeLocation.lon} />
-                    <DeleteLocationButton id={activeLocation.id} />
-                  </div>
-                }
+                action={<LocationActions id={activeLocation.id} lat={activeLocation.lat} lon={activeLocation.lon} />}
               />
             )}
           </div>

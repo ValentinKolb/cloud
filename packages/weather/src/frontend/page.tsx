@@ -4,8 +4,8 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppOverview } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../config";
-import AddLocationButton from "./AddLocation.island";
 import WeatherLayoutHelp from "./_components/help/WeatherLayoutHelp.island";
+import AddLocationButton from "./AddLocation.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
@@ -31,8 +31,10 @@ export default ssr<AuthContext>(async (c) => {
           />
         </AppOverview.Main>
 
-        <AppOverview.Aside title="Add" description="Search German cities and save one as your first weather location.">
-          <AddLocationButton />
+        <AppOverview.Aside title="Create" description="Add your first saved forecast.">
+          <div class="grid grid-cols-1 gap-2">
+            <AddLocationButton variant="overview" />
+          </div>
         </AppOverview.Aside>
       </AppOverview>
     </Layout>

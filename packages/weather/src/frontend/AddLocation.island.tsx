@@ -1,6 +1,6 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { AppWorkspace, prompts, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 
 type GeoResult = {
@@ -33,11 +33,11 @@ const searchLocations = async ({ query, abortSignal }: { query: string; abortSig
   }));
 };
 
-const AddLocationButton = (props: { variant?: "button" | "sidebar" }) => {
+const AddLocationButton = (props: { variant?: "button" | "sidebar" | "overview" }) => {
   const addMutation = mutations.create({
     mutation: async () => {
       const selected = await prompts.search<GeoResult>(searchLocations, {
-        title: "Add Location",
+        title: "Add location",
         icon: "ti ti-map-pin",
         placeholder: "Search for a city in Germany...",
         minQueryLength: 2,
@@ -84,16 +84,29 @@ const AddLocationButton = (props: { variant?: "button" | "sidebar" }) => {
     );
   }
 
+  if (props.variant === "overview") {
+    return (
+      <button
+        type="button"
+        onClick={() => addMutation.mutate({})}
+        disabled={addMutation.loading()}
+        class="paper flex w-full items-start gap-3 p-4 text-left transition-all hover:paper-highlighted"
+      >
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--app-accent)_10%,var(--ui-surface))] text-[var(--ui-app-accent-text)]">
+          <i class={addMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-map-pin-plus"} aria-hidden="true" />
+        </span>
+        <span class="min-w-0">
+          <span class="block text-sm font-medium text-primary">Add location</span>
+          <span class="mt-0.5 block text-xs text-dimmed">Search German cities and save a forecast.</span>
+        </span>
+      </button>
+    );
+  }
+
   return (
-    <button type="button" onClick={() => addMutation.mutate({})} disabled={addMutation.loading()} class="btn-primary btn-sm w-full">
-      {addMutation.loading() ? (
-        <i class="ti ti-loader-2 animate-spin" />
-      ) : (
-        <>
-          <i class="ti ti-plus" />
-          Add Location
-        </>
-      )}
+    <button type="button" onClick={() => addMutation.mutate({})} disabled={addMutation.loading()} class="btn-secondary btn-sm w-full">
+      <i class={addMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} aria-hidden="true" />
+      Add location
     </button>
   );
 };
