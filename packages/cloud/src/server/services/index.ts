@@ -15,6 +15,7 @@ export {
   createAccess,
   deleteAccess,
   getAccess,
+  getEffectiveGroupIds,
   getEffectivePermission,
   hasPermission,
   listUsersWithAccess,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { create, get, listAssignableUsers, setAssignees, setTags, update } from "./items";
+import { canAccess, getPermission, list as listSpaces } from "./spaces";
 
 type Fixture = {
   spaceId: string;
@@ -64,7 +65,7 @@ const grantUser = async (spaceId: string, userId: string) => {
 const grantGroup = async (spaceId: string, groupId: string) => {
   const [access] = await sql<{ id: string }[]>`
     INSERT INTO auth.access (group_id, permission)
-    VALUES (${groupId}::uuid, 'read')
+    VALUES (${groupId}::uuid, 'admin')
     RETURNING id
   `;
   await sql`INSERT INTO spaces.space_access (space_id, access_id) VALUES (${spaceId}::uuid, ${access!.id}::uuid)`;
@@ -156,6 +157,29 @@ describe("Spaces assignable users", () => {
 
     const fixture = await createFixture();
     try {
+      const nestedSpaces = await listSpaces({ userId: fixture.userIds.nested, groups: [] });
+      const outsideSpaces = await listSpaces({
+        userId: fixture.userIds.outside,
+        groups: [fixture.groupIds.parent],
+      });
+      expect(nestedSpaces.map((space) => space.id)).toContain(fixture.spaceId);
+      expect(outsideSpaces.map((space) => space.id)).not.toContain(fixture.spaceId);
+      expect(
+        await canAccess({
+          spaceId: fixture.spaceId,
+          userId: fixture.userIds.nested,
+          userGroups: [],
+          requiredLevel: "admin",
+        }),
+      ).toBe(true);
+      expect(
+        await getPermission({
+          spaceId: fixture.spaceId,
+          userId: fixture.userIds.nested,
+          userGroups: [],
+        }),
+      ).toBe("admin");
+
       const users = await listAssignableUsers({ spaceId: fixture.spaceId, limit: 20 });
       const ids = users.map((user) => user.id);
 

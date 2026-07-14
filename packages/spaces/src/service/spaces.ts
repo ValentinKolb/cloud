@@ -1,4 +1,4 @@
-import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
+import { getEffectiveGroupIds, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { CreateSpace, MutationResult, Space, SpaceDetail, UpdateSpace } from "@/contracts";
@@ -133,9 +133,13 @@ export const getPermission = async (params: {
 /**
  * List all spaces accessible to a user via the permission system.
  */
-export const list = async (params: { userId: string | null; groups: string[] }): Promise<Space[]> => {
+export const list = async (params: {
+  userId: string | null;
+  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
+  groups?: string[];
+}): Promise<Space[]> => {
   const { userId } = params;
-  const groups = params.groups ?? [];
+  const groups = await getEffectiveGroupIds({ userId });
 
   const rows = await sql<DbSpace[]>`
     SELECT DISTINCT s.id, s.name, s.description, s.color, s.ical_token, s.created_at, s.updated_at

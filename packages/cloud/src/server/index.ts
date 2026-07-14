@@ -48,6 +48,7 @@ export {
   geo,
   geoService,
   getAccess,
+  getEffectiveGroupIds,
   getEffectivePermission,
   hasPermission,
   images,

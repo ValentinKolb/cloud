@@ -1,5 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { recursiveGroupIdsSubquery } from "../../services/accounts/group-sql";
 import { toPgUuidArray } from "../../services/postgres";
 
 export type AccessDb = typeof sql;
@@ -215,6 +216,13 @@ export const updateAccess = async (params: { id: string; permission: PermissionL
   return ok();
 };
 
+/** Resolve direct and nested group memberships from the authoritative database mirror. */
+export const getEffectiveGroupIds = async (params: { userId: string | null }, db: AccessDb = sql): Promise<string[]> => {
+  if (!params.userId) return [];
+  const rows = await db<{ group_id: string }[]>`${recursiveGroupIdsSubquery(params.userId)}`;
+  return rows.map((row) => row.group_id);
+};
+
 /**
  * Delete an access entry.
  */
@@ -254,18 +262,18 @@ export type ResourceAccessAdapter<TResourceId = string> = {
  * Get the effective permission level for a user on a resource.
  * Returns the highest permission from:
  * - Direct user access
- * - Group memberships
+ * - Direct and nested group memberships resolved from the database
  * - Public access
  */
 export const getEffectivePermission = async (params: {
   accessIds: string[];
   userId: string | null;
-  userGroups: string[];
+  /** @deprecated Membership is resolved from userId and this value is intentionally ignored. */
+  userGroups?: string[];
   serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
   const accessIds = params.accessIds ?? [];
   const userId = params.userId;
-  const userGroups = params.userGroups ?? [];
   const serviceAccountId = params.serviceAccountId ?? null;
 
   if (accessIds.length === 0) return "none";
@@ -277,7 +285,10 @@ export const getEffectivePermission = async (params: {
     WHERE id = ANY(${toPgUuidArray(accessIds)}::uuid[])
       AND (
         user_id = ${userId}::uuid
-        OR group_id = ANY(${toPgUuidArray(userGroups)}::uuid[])
+        OR (
+          ${userId}::uuid IS NOT NULL
+          AND group_id IN (${userId ? recursiveGroupIdsSubquery(userId) : sql`SELECT NULL::uuid WHERE FALSE`})
+        )
         OR service_account_id = ${serviceAccountId}::uuid
         OR (${userId}::uuid IS NOT NULL AND authenticated_only = true)
         OR (

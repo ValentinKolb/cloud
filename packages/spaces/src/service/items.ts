@@ -1,4 +1,4 @@
-import { type AccessUser, listUsersWithAccess } from "@valentinkolb/cloud/server";
+import { type AccessUser, getEffectiveGroupIds, listUsersWithAccess } from "@valentinkolb/cloud/server";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
@@ -400,11 +400,12 @@ export type DashboardItem = {
 
 export const dashboardSnapshot = async (params: {
   userId: string;
-  groups: string[];
+  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
+  groups?: string[];
   todoLimit: number;
   dateConfig?: DateContext;
 }): Promise<{ openTodoCount: number; urgentCount: number; events: DashboardItem[]; todos: DashboardItem[] }> => {
-  const groupsArr = toPgUuidArray(params.groups);
+  const groupsArr = toPgUuidArray(await getEffectiveGroupIds({ userId: params.userId }));
   const { todayStart, tomorrowStart } = deadlineWindow(params.dateConfig);
 
   // Open-todo aggregate (count + urgent-count) across all reachable spaces.
@@ -824,7 +825,8 @@ const expandedToCalendarItem = (event: ExpandedRecurringEvent & { calendarItem?:
 
 export const searchAcross = async (params: {
   userId: string | null;
-  groups: string[];
+  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
+  groups?: string[];
   query: string;
   kinds: ItemAcrossKind;
   status?: "open";
@@ -832,7 +834,7 @@ export const searchAcross = async (params: {
   limit: number;
 }): Promise<ItemAcrossResult[]> => {
   const { userId, query, kinds, limit } = params;
-  const groups = params.groups ?? [];
+  const groups = await getEffectiveGroupIds({ userId });
   const trimmed = query.trim();
   // Empty query is valid — used by tag-only searches like `#task` or `#event`.
   // Pattern becomes `%%` which ILIKE-matches every row; the title-match
@@ -1374,7 +1376,8 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
 
 type CalendarAccessParams = {
   userId: string | null;
-  groups: string[];
+  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
+  groups?: string[];
   serviceAccountId?: string | null;
   spaceId?: string | null;
 };
@@ -1391,7 +1394,7 @@ export const listCalendar = async (
   },
 ): Promise<CalendarItem[]> => {
   const { userId, from, to } = params;
-  const groups = params.groups ?? [];
+  const groups = await getEffectiveGroupIds({ userId });
   const serviceAccountId = params.serviceAccountId ?? null;
   const spaceFilter = params.spaceId ? sql`AND s.id = ${params.spaceId}::uuid` : sql``;
 
@@ -1493,12 +1496,13 @@ export type TaskItem = {
  */
 export const listMyTasks = async (params: {
   userId: string;
-  groups: string[];
+  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
+  groups?: string[];
   minPriority?: Priority;
   limit?: number;
 }): Promise<TaskItem[]> => {
   const { userId, minPriority, limit = 20 } = params;
-  const groups = params.groups ?? [];
+  const groups = await getEffectiveGroupIds({ userId });
 
   // Build priority filter
   let priorityCondition = sql``;
@@ -1580,7 +1584,7 @@ export const checkOverlap = async (
   },
 ): Promise<OverlapItem[]> => {
   const { userId, from, to, excludeItemId } = params;
-  const groups = params.groups ?? [];
+  const groups = await getEffectiveGroupIds({ userId });
   const serviceAccountId = params.serviceAccountId ?? null;
   const spaceFilter = params.spaceId ? sql`AND i.space_id = ${params.spaceId}::uuid` : sql``;
 

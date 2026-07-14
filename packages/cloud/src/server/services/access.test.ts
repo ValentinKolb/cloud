@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { createAccess, deleteAccess, getEffectivePermission, listUsersWithAccess } from "./access";
+import { createAccess, deleteAccess, getEffectiveGroupIds, getEffectivePermission, listUsersWithAccess } from "./access";
 
 type Fixture = {
   accessIds: string[];
+  groupAccessId: string;
   userIds: {
     direct: string;
     group: string;
@@ -90,6 +91,7 @@ const createFixture = async (): Promise<Fixture> => {
 
   return {
     accessIds: [directAccess!.id, groupAccess!.id, publicAccess!.id, authenticatedAccess!.id],
+    groupAccessId: groupAccess!.id,
     userIds: {
       direct: directUserId,
       group: groupUserId,
@@ -193,6 +195,44 @@ describe("listUsersWithAccess", () => {
       const deleteResult = await deleteAccess({ id: serviceAccountAccess.data.id });
       expect(deleteResult.ok).toBe(true);
       fixture.accessIds = fixture.accessIds.filter((id) => id !== serviceAccountAccess.data.id);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+});
+
+describe("effective access", () => {
+  test("resolves nested groups from the database and rejects caller-supplied group escalation", async () => {
+    if (!(await canUseDatabase())) {
+      console.warn("Skipping effective access DB test: auth tables are not available.");
+      return;
+    }
+
+    const fixture = await createFixture();
+    try {
+      const nestedGroups = await getEffectiveGroupIds({ userId: fixture.userIds.nested });
+      expect(nestedGroups).toContain(fixture.groupIds.child);
+      expect(nestedGroups).toContain(fixture.groupIds.parent);
+
+      const nestedPermission = await getEffectivePermission({
+        accessIds: [fixture.groupAccessId],
+        userId: fixture.userIds.nested,
+        userGroups: [],
+      });
+      expect(nestedPermission).toBe("write");
+
+      const directGroupPermission = await getEffectivePermission({
+        accessIds: [fixture.groupAccessId],
+        userId: fixture.userIds.group,
+      });
+      expect(directGroupPermission).toBe("write");
+
+      const spoofedPermission = await getEffectivePermission({
+        accessIds: [fixture.groupAccessId],
+        userId: fixture.userIds.outside,
+        userGroups: [fixture.groupIds.parent],
+      });
+      expect(spoofedPermission).toBe("none");
     } finally {
       await cleanupFixture(fixture);
     }
