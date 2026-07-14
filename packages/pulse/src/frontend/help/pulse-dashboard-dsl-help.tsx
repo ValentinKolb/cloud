@@ -160,8 +160,9 @@ const dashboardStatementRows: DashboardStatementRow[] = [
   },
   {
     statement: "warn|critical when value <op> <value>",
-    scope: "metric/state widget",
-    meaning: "Applies visual state only. Operators are >, >=, <, <=, =, and !=. Optional message text can explain the condition.",
+    scope: "metric widget",
+    meaning:
+      "Applies visual state to metric values only. Operators are >, >=, <, <=, =, and !=. Optional message text can explain the condition.",
     example: 'critical when value > 95 message "Capacity almost full"',
   },
   {
@@ -260,7 +261,7 @@ export const PulseDashboardDslHelpPage = () => (
         </DocNote>
         <DocNote title="Conditions are visual" variant="warning">
           Use <DocInlineCode>warn when value &gt; 80</DocInlineCode> or <DocInlineCode>critical when value = false</DocInlineCode> to mark
-          widgets visually. Alert delivery and webhooks are a separate future layer.
+          metric widgets visually. Alert delivery and webhooks are a separate future layer.
         </DocNote>
       </div>
     </DocSection>
