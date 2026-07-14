@@ -3,7 +3,7 @@ import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result, tryCatch, unwrap } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { CreateMailboxInput, Mailbox } from "../contracts";
-import { requireMailboxPermission } from "./access";
+import { getMailboxPermission, requireMailboxPermission } from "./access";
 import {
   actorRefFromRequest,
   auditActorFromRequest,
@@ -132,7 +132,7 @@ export const listMailboxes = async (
     if (!mailboxId || !isResourceBoundToMailbox(context, mailboxId)) return ok([]);
     const mailbox = await getMailbox(context, mailboxId);
     if (!mailbox.ok) return mailbox.error.code === "FORBIDDEN" || mailbox.error.code === "NOT_FOUND" ? ok([]) : mailbox;
-    const permission = capByCredentialScopes(context, "admin");
+    const permission = await getMailboxPermission(context, mailboxId);
     return permission === "none" ? ok([]) : ok([{ ...mailbox.data, permission }]);
   }
 
