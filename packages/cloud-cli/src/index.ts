@@ -15,6 +15,7 @@ import type {
 } from "@valentinkolb/cloud/cli";
 import accountCliModule from "@valentinkolb/cloud/cli/account";
 import adminCliModule from "@valentinkolb/cloud/cli/admin";
+import appsCliModule from "@valentinkolb/cloud/cli/apps";
 import accountsCliModule from "@valentinkolb/cloud-app-accounts/cli";
 import assistantCliModule from "@valentinkolb/cloud-app-assistant/cli";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
@@ -105,6 +106,7 @@ const modules: CloudCliModule[] = [
   accountCliModule,
   accountsCliModule,
   adminCliModule,
+  appsCliModule,
   assistantCliModule,
   contactsCliModule,
   gridsCliModule,

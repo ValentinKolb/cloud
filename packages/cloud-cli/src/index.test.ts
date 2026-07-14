@@ -9,6 +9,8 @@ type MockServerState = {
   revokeCalls: number;
   meCalls: number;
   failFirstMe?: boolean;
+  appsCalls?: number;
+  appsSearch?: string | null;
 };
 
 const tempDirs: string[] = [];
@@ -78,6 +80,22 @@ const startMockServer = (state: MockServerState) =>
           return Response.json({ message: "expired" }, { status: 401 });
         }
         return Response.json(testUser);
+      }
+
+      if (url.pathname === "/api/apps") {
+        state.appsCalls = (state.appsCalls ?? 0) + 1;
+        state.appsSearch = url.searchParams.get("search");
+        return Response.json({
+          items: [
+            {
+              id: "contacts",
+              name: "Contacts",
+              description: "Contact books and people.",
+              icon: "ti ti-address-book",
+              href: "/app/contacts",
+            },
+          ],
+        });
       }
 
       return Response.json({ message: "not found" }, { status: 404 });
@@ -182,6 +200,40 @@ describe("cloud CLI OAuth session handling", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("cld notebooks access grant");
     expect(result.stdout).toContain("--permission <value>");
+  });
+
+  test("lists apps visible to the current profile", async () => {
+    const state: MockServerState = { refreshCalls: 0, revokeCalls: 0, meCalls: 0 };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      await writeConfig(configPath, {
+        currentProfile: "default",
+        profiles: { default: { server: `http://127.0.0.1:${server.port}`, token: "cld_test" } },
+      });
+
+      const result = await runCli(configPath, ["apps", "list", "--search", "contacts", "--json"]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(state.appsCalls).toBe(1);
+      expect(state.appsSearch).toBe("contacts");
+      expect(JSON.parse(result.stdout)).toEqual({
+        items: [
+          {
+            id: "contacts",
+            name: "Contacts",
+            description: "Contact books and people.",
+            icon: "ti ti-address-book",
+            href: "/app/contacts",
+          },
+        ],
+      });
+    } finally {
+      server.stop(true);
+    }
   });
 
   test("login callback returns a browser-readable completion page", async () => {

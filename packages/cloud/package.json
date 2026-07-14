@@ -28,6 +28,7 @@
     "./cli": "./src/cli/index.ts",
     "./cli/access": "./src/cli/access.ts",
     "./cli/account": "./src/cli/account.ts",
+    "./cli/apps": "./src/cli/apps.ts",
     "./cli/admin": "./src/cli/admin.ts",
     "./shared": "./src/shared/index.ts",
     "./services": "./src/services/index.ts",

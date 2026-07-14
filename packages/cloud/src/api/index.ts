@@ -20,6 +20,7 @@ import accountsEntitiesRoutes from "./accounts-entities";
 import adminCoreSettingsRoutes from "./admin-core-settings";
 import adminLifecycleRoutes from "./admin-lifecycle";
 import { adminAnnouncementRoutes, announcementRoutes } from "./announcements";
+import { appDiscoveryRoutes } from "./apps";
 import { createAuthRoutes } from "./auth";
 import meRoutes from "./me";
 import { createSearchRoutes } from "./search";
@@ -40,6 +41,7 @@ const buildCoreApi = (options: CoreApiOptions) => {
     .route("/auth", createAuthRoutes(options.notifications))
     .route("/me", meRoutes)
     .route("/accounts", accountsEntitiesRoutes)
+    .route("/apps", appDiscoveryRoutes)
     .route("/announcements", announcementRoutes)
     .route("/admin/core/announcements", adminAnnouncementRoutes)
     .route("/admin/core/settings", adminCoreSettingsRoutes)
