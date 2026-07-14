@@ -22,6 +22,8 @@ export type ResourceScope = {
 
 export type AccessScope = UserScope | ResourceScope;
 
+export const PULSE_BASE_RESOURCE_TYPE = "pulse_base";
+
 const PERMISSION_RANK: Record<PermissionLevel, number> = { none: 0, read: 1, write: 2, admin: 3 };
 
 const isResourceScope = (scope: AccessScope): scope is ResourceScope => "subject" in scope;
@@ -43,12 +45,12 @@ const scopedPermission = (scope: AccessScope): PermissionLevel => {
 const isBoundToBase = (baseId: string, scope: AccessScope): boolean =>
   !isResourceScope(scope) ||
   (scope.serviceAccount.appId === "pulse" &&
-    scope.serviceAccount.resourceType === "pulse_base" &&
+    scope.serviceAccount.resourceType === PULSE_BASE_RESOURCE_TYPE &&
     scope.serviceAccount.resourceId === baseId);
 
 const boundBaseIdForScope = (scope: AccessScope): string | null => {
   if (!isResourceScope(scope)) return null;
-  return scope.serviceAccount.appId === "pulse" && scope.serviceAccount.resourceType === "pulse_base"
+  return scope.serviceAccount.appId === "pulse" && scope.serviceAccount.resourceType === PULSE_BASE_RESOURCE_TYPE
     ? scope.serviceAccount.resourceId
     : null;
 };
@@ -106,6 +108,7 @@ export const listBaseIdsVisibleTo = async (scope: AccessScope): Promise<string[]
     FROM pulse.base_access ba
     JOIN auth.access a ON a.id = ba.access_id
     WHERE ${principalMatch}
+      AND a.permission <> 'none'
       AND (${boundBaseId}::text IS NULL OR ba.base_id::text = ${boundBaseId})
   `;
   return rows.map((row) => row.id);

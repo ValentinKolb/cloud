@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { grantBaseAccess, listBaseAccess } from "./base-management";
-import { requireBaseAccess, type ResourceScope } from "./access-control";
+import { listBaseIdsVisibleTo, requireBaseAccess, type ResourceScope } from "./access-control";
 
 const canUseDatabase = async (): Promise<boolean> => {
   try {
@@ -76,6 +76,7 @@ describe("Pulse base access", () => {
 
     const suffix = crypto.randomUUID();
     const baseId = crypto.randomUUID();
+    const noneBaseId = crypto.randomUUID();
     const userId = await insertUser(suffix);
     const parentGroupId = await insertGroup(suffix, "parent");
     const childGroupId = await insertGroup(suffix, "child");
@@ -84,7 +85,10 @@ describe("Pulse base access", () => {
     const accessIds: string[] = [];
 
     try {
-      await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'Pulse access test')`;
+      await sql`
+        INSERT INTO pulse.bases (id, name)
+        VALUES (${baseId}::uuid, 'Pulse access test'), (${noneBaseId}::uuid, 'Pulse none access test')
+      `;
       await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${userId}::uuid, ${childGroupId}::uuid)`;
       await sql`
         INSERT INTO auth.group_groups_v2 (parent_group_id, child_group_id)
@@ -109,7 +113,17 @@ describe("Pulse base access", () => {
           (${baseId}::uuid, ${publicAccess!.id}::uuid)
       `;
 
+      const [noneAccess] = await sql<{ id: string }[]>`
+        INSERT INTO auth.access (user_id, permission) VALUES (${userId}::uuid, 'none') RETURNING id
+      `;
+      accessIds.push(noneAccess!.id);
+      await sql`
+        INSERT INTO pulse.base_access (base_id, access_id)
+        VALUES (${noneBaseId}::uuid, ${noneAccess!.id}::uuid)
+      `;
+
       expect((await requireBaseAccess(baseId, { id: userId }, "write")).ok).toBe(true);
+      expect(await listBaseIdsVisibleTo({ id: userId })).not.toContain(noneBaseId);
 
       const readableBaseAccount = resourceScope({
         serviceAccountId: baseServiceAccountId,
@@ -154,7 +168,7 @@ describe("Pulse base access", () => {
         )).toBe(true);
       }
     } finally {
-      await sql`DELETE FROM pulse.bases WHERE id = ${baseId}::uuid`;
+      await sql`DELETE FROM pulse.bases WHERE id IN (${baseId}::uuid, ${noneBaseId}::uuid)`;
       await sql`DELETE FROM auth.access WHERE id = ANY(${toPgUuidArray(accessIds)}::uuid[])`;
       await sql`DELETE FROM auth.group_groups_v2 WHERE parent_group_id = ${parentGroupId}::uuid OR child_group_id = ${childGroupId}::uuid`;
       await sql`DELETE FROM auth.user_groups_v2 WHERE user_id = ${userId}::uuid`;

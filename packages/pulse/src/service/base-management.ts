@@ -11,7 +11,14 @@ import {
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { PulseBase } from "../contracts";
-import { listBaseIdsVisibleTo, requireBaseAccess, userIdForScope, type AccessScope, type UserScope } from "./access-control";
+import {
+  listBaseIdsVisibleTo,
+  PULSE_BASE_RESOURCE_TYPE,
+  requireBaseAccess,
+  userIdForScope,
+  type AccessScope,
+  type UserScope,
+} from "./access-control";
 import { submitBaseDataClearJob, submitBaseDeletionJob } from "./base-lifecycle";
 import { PULSE_APP_ID, PULSE_SOURCE_RESOURCE_TYPE } from "./source-management";
 import { iso, isoNullable } from "./telemetry-values";
@@ -96,6 +103,25 @@ const mapAccessRow = (row: AccessRow): AccessEntry => ({
   permission: row.permission,
   createdAt: iso(row.created_at),
 });
+
+const deleteBoundServiceAccounts = async (baseId: string, db: typeof sql = sql): Promise<void> => {
+  await db`
+    DELETE FROM auth.service_accounts
+    WHERE kind = 'resource_bound'
+      AND app_id = ${PULSE_APP_ID}
+      AND (
+        (resource_type = ${PULSE_BASE_RESOURCE_TYPE} AND resource_id = ${baseId})
+        OR (
+          resource_type = ${PULSE_SOURCE_RESOURCE_TYPE}
+          AND resource_id IN (
+            SELECT id::text
+            FROM pulse.sources
+            WHERE base_id = ${baseId}::uuid
+          )
+        )
+      )
+  `;
+};
 
 export const listBases = async (user: AccessScope): Promise<Result<PulseBase[]>> => {
   const baseIds = await listBaseIdsVisibleTo(user);
@@ -339,6 +365,7 @@ export const deleteBase = async (params: { baseId: string; user: AccessScope }):
   if (!access.ok) return fail(access.error);
 
   if (existing.deletion_started_at) {
+    await deleteBoundServiceAccounts(params.baseId);
     await submitBaseDeletionJob(params.baseId);
     return ok();
   }
@@ -357,17 +384,7 @@ export const deleteBase = async (params: { baseId: string; user: AccessScope }):
       SET enabled = FALSE, updated_at = now()
       WHERE base_id = ${params.baseId}::uuid
     `;
-    await tx`
-      DELETE FROM auth.service_accounts
-      WHERE kind = 'resource_bound'
-        AND app_id = ${PULSE_APP_ID}
-        AND resource_type = ${PULSE_SOURCE_RESOURCE_TYPE}
-        AND resource_id IN (
-          SELECT id::text
-          FROM pulse.sources
-          WHERE base_id = ${params.baseId}::uuid
-        )
-    `;
+    await deleteBoundServiceAccounts(params.baseId, tx);
     await tx`
       INSERT INTO pulse.base_deletions (base_id, requested_by, status, phase, updated_at)
       VALUES (${params.baseId}::uuid, ${userIdForScope(params.user)}::uuid, 'queued', 'queued', now())
