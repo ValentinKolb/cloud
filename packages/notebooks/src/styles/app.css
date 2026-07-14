@@ -869,3 +869,18 @@
 .md-script-ui-html {
   font-size: 0.875rem;
 }
+
+/* Keep the version list stacked on small screens and reserve a stable
+   desktop column without relying on app-local responsive Tailwind tokens. */
+.notebooks-version-history-list {
+  width: 100%;
+  max-height: 12rem;
+  flex-shrink: 0;
+}
+
+@media (min-width: 64rem) {
+  .notebooks-version-history-list {
+    width: 14rem;
+    max-height: none;
+  }
+}

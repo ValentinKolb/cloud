@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, Placeholder, prompts, SegmentedControl, SelectInput } from "@valentinkolb/cloud/ui";
+import { MarkdownView, Placeholder, prompts, SelectInput } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import dayjs from "dayjs";
@@ -146,7 +146,6 @@ export default function VersionHistory(props: Props) {
     setSelectedVersionId(versionId);
     setSelectedVersionData(null);
     setComparisonVersionId(CURRENT_ID);
-    setPreviewMode("content");
     void computeDiff(versionId, CURRENT_ID);
   };
 
@@ -249,12 +248,6 @@ export default function VersionHistory(props: Props) {
 
   const diffSummary = createMemo(() => summarizeDiff(diffRows()));
 
-  const selectedVersionLabel = createMemo(() => {
-    const selectedId = selectedVersionId();
-    const version = versions().find((entry) => entry.id === selectedId);
-    return version ? formatDate(version.createdAt) : null;
-  });
-
   const selectedContentHtml = createMemo(() => markdown.renderSync(selectedVersionData()?.contentMd ?? ""));
 
   return (
@@ -273,6 +266,26 @@ export default function VersionHistory(props: Props) {
 
         <Show when={selectedVersionId()}>
           <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1" role="group" aria-label="Version preview">
+              <button
+                type="button"
+                class={`btn-input btn-input-sm ${previewMode() === "content" ? "btn-input-active" : ""}`}
+                aria-pressed={previewMode() === "content"}
+                onClick={() => setPreviewMode("content")}
+              >
+                <i class="ti ti-file-text" />
+                Content
+              </button>
+              <button
+                type="button"
+                class={`btn-input btn-input-sm ${previewMode() === "changes" ? "btn-input-active" : ""}`}
+                aria-pressed={previewMode() === "changes"}
+                onClick={() => setPreviewMode("changes")}
+              >
+                <i class="ti ti-git-compare" />
+                Changes
+              </button>
+            </div>
             <Show when={props.isLocked}>
               <span class="text-xs text-dimmed flex items-center gap-1">
                 <i class="ti ti-lock text-xs" />
@@ -283,7 +296,7 @@ export default function VersionHistory(props: Props) {
               type="button"
               onClick={handleRestoreAsNew}
               disabled={isWorking() || previewLoading() || !getRestoreSnapshot()}
-              class="btn-secondary btn-sm"
+              class="btn-input btn-input-sm"
               title="Creates a new note. The current note stays unchanged."
             >
               {restoreAsNewMut.loading() ? (
@@ -317,7 +330,7 @@ export default function VersionHistory(props: Props) {
       <Show when={!loading() && versions().length > 0}>
         <div class="flex-1 min-h-0 app-cols">
           {/* Left: version list */}
-          <div class="max-h-48 w-full shrink-0 overflow-y-auto scrollbar lg:max-h-none lg:w-56">
+          <div class="notebooks-version-history-list overflow-y-auto scrollbar">
             <div class="flex flex-col gap-0.5 p-2">
               <p class="px-2.5 pb-1 text-[10px] font-semibold uppercase text-dimmed">Saved versions</p>
               <For each={versions()}>
@@ -356,51 +369,32 @@ export default function VersionHistory(props: Props) {
 
           {/* Right: saved content and optional comparison */}
           <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-            <Show when={selectedVersionId()}>
-              <div class="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
-                <div class="w-56">
-                  <SegmentedControl<PreviewMode>
-                    options={[
-                      { value: "content", label: "Content", icon: "ti ti-file-text" },
-                      { value: "changes", label: "Changes", icon: "ti ti-git-compare" },
-                    ]}
-                    value={previewMode}
-                    onChange={setPreviewMode}
-                    ariaLabel="Version preview"
+            <Show when={selectedVersionId() && previewMode() === "changes" && comparisonLabel()}>
+              <div class="flex shrink-0 flex-wrap items-end gap-3 px-3 pb-2">
+                <div class="min-w-0 flex-1">
+                  <p class="text-[10px] font-semibold uppercase text-dimmed">Comparing</p>
+                  <p class="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
+                    <span class="truncate font-medium text-primary">{comparisonLabel()!.from}</span>
+                    <i class="ti ti-arrow-right shrink-0 text-dimmed" />
+                    <span class="truncate font-medium text-primary">{comparisonLabel()!.to}</span>
+                  </p>
+                </div>
+                <Show when={!previewLoading() && diffSummary().hasChanges}>
+                  <div class="flex items-center gap-2 pb-2 font-mono text-[11px] tabular-nums">
+                    <span class="text-green-700 dark:text-green-300">+{diffSummary().added}</span>
+                    <span class="text-red-700 dark:text-red-300">-{diffSummary().removed}</span>
+                  </div>
+                </Show>
+                <div class="w-full sm:w-52">
+                  <SelectInput
+                    label="Compare with"
+                    icon="ti ti-git-compare"
+                    value={comparisonVersionId}
+                    onChange={changeComparison}
+                    options={comparisonOptions()}
                   />
                 </div>
-                <Show when={previewMode() === "content" && selectedVersionLabel()}>
-                  <span class="text-xs text-dimmed">Saved {selectedVersionLabel()}</span>
-                </Show>
               </div>
-
-              <Show when={previewMode() === "changes" && comparisonLabel()}>
-                <div class="flex shrink-0 flex-wrap items-end gap-3 px-3 pb-2">
-                  <div class="min-w-0 flex-1">
-                    <p class="text-[10px] font-semibold uppercase text-dimmed">Comparing</p>
-                    <p class="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
-                      <span class="truncate font-medium text-primary">{comparisonLabel()!.from}</span>
-                      <i class="ti ti-arrow-right shrink-0 text-dimmed" />
-                      <span class="truncate font-medium text-primary">{comparisonLabel()!.to}</span>
-                    </p>
-                  </div>
-                  <Show when={!previewLoading() && diffSummary().hasChanges}>
-                    <div class="flex items-center gap-2 pb-2 font-mono text-[11px] tabular-nums">
-                      <span class="text-green-700 dark:text-green-300">+{diffSummary().added}</span>
-                      <span class="text-red-700 dark:text-red-300">-{diffSummary().removed}</span>
-                    </div>
-                  </Show>
-                  <div class="w-full sm:w-52">
-                    <SelectInput
-                      label="Compare with"
-                      icon="ti ti-git-compare"
-                      value={comparisonVersionId}
-                      onChange={changeComparison}
-                      options={comparisonOptions()}
-                    />
-                  </div>
-                </div>
-              </Show>
             </Show>
 
             <div class="flex-1 min-h-0 overflow-auto scrollbar">
