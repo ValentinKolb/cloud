@@ -1,36 +1,34 @@
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { Lightbox, type LightboxImage, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { dates, fileIcons, text } from "@valentinkolb/stdlib";
+import { dnd, mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import type { FileBaseInfo, FileInfo } from "@/contracts";
-import { mutation as mutations, dnd } from "@valentinkolb/stdlib/solid";
-import { Lightbox, Placeholder, prompts, toast, type LightboxImage } from "@valentinkolb/cloud/ui";
-import { dates, fileIcons } from "@valentinkolb/stdlib";
-import { text } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
+import type { FileBaseInfo, FileInfo } from "@/contracts";
 import {
-  DETAIL_FILE_SELECT_EVENT,
-  FILE_LIGHTBOX_EVENT,
-  FILE_SELECTION_EVENT,
-  FileContext,
-  type DetailFileSelectPayload,
-  type FileContextValue,
-  type FileLightboxPayload,
-  type SelectionKey,
   buildItemPath,
   buildSelectionKey,
   clearSelection,
   consumeHighlightedFiles,
+  DETAIL_FILE_SELECT_EVENT,
+  type DetailFileSelectPayload,
+  FILE_LIGHTBOX_EVENT,
+  FILE_SELECTION_EVENT,
+  FileContext,
+  type FileContextValue,
+  type FileLightboxPayload,
   fileApiUrl,
   fileAppUrlForPath,
   getDetailFileFromUrl,
   parseSelectionKey,
+  type SelectionKey,
   setDetailFileInUrl,
   setHighlightedFiles,
   setSelectedInUrl,
 } from "./context";
-import { type FileListColumn, type FileSettings, DEFAULT_FILE_SETTINGS, getGridSizePixels } from "./FileSettings.island";
 import { createFileActionMutations, openFileItem } from "./FileActions";
-import { navigateTo } from "@valentinkolb/ssr/nav";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { DEFAULT_FILE_SETTINGS, type FileListColumn, type FileSettings, getGridSizePixels } from "./FileSettings.island";
 
 type FileListProps = {
   items: FileInfo[];
@@ -357,7 +355,7 @@ export default function FileList(props: FileListProps) {
           fallback={
             <div class="paper overflow-x-auto">
               <div class="grid" style={{ "grid-template-columns": rowTemplate() }}>
-                <div class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-100 px-3 py-2 text-xs font-medium text-dimmed dark:border-zinc-800">
+                <div class="data-table-header data-table-divider col-span-full grid grid-cols-subgrid items-center gap-4 border-b px-3 py-2 text-xs font-medium text-dimmed">
                   <div>Name</div>
                   <For each={listColumns()}>
                     {(column) => (
@@ -367,7 +365,7 @@ export default function FileList(props: FileListProps) {
                 </div>
 
                 <Show when={props.parentPath !== null}>
-                  <div class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-50 px-3 py-0 text-sm transition-colors hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-900/40">
+                  <div class="data-table-row-divider data-table-row-hover col-span-full grid grid-cols-subgrid items-center gap-4 border-b px-3 py-0 text-sm transition-colors">
                     <button
                       type="button"
                       ref={(element) => {
@@ -380,7 +378,7 @@ export default function FileList(props: FileListProps) {
                       class="flex min-w-0 items-center gap-3 py-2 text-left"
                       onClick={() => navigateToFolder(props.parentPath!)}
                     >
-                      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-500 dark:bg-zinc-800">
+                      <div class="flex h-10 w-10 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-dimmed">
                         <i class="ti ti-folder-up text-base" />
                       </div>
                       <div class="min-w-0 truncate text-secondary">..</div>
@@ -449,7 +447,7 @@ export default function FileList(props: FileListProps) {
                     meta: { targetPath: props.parentPath!, label: ".." },
                   }));
                 }}
-                class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/45"
+                class="group flex min-w-0 flex-col items-center gap-2 rounded-[var(--ui-radius-control)] p-2 text-left transition-colors hover:bg-[var(--ui-hover)]"
                 onClick={() => navigateToFolder(props.parentPath!)}
               >
                 <div class="relative flex w-full justify-center">
@@ -505,7 +503,7 @@ export default function FileList(props: FileListProps) {
         <Show when={marqueeRect()}>
           {(rect) => (
             <div
-              class="pointer-events-none absolute rounded-md border border-blue-500/70 bg-blue-500/12"
+              class="pointer-events-none absolute rounded-[var(--ui-radius-control)] border border-[var(--ui-focus)] bg-[color-mix(in_srgb,var(--ui-focus)_12%,transparent)]"
               style={{
                 left: `${rect().left}px`,
                 top: `${rect().top}px`,
@@ -617,11 +615,11 @@ function GridTile(props: {
         }
       }}
       data-file-item
-      class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 transition-colors"
+      class="group flex min-w-0 flex-col items-center gap-2 rounded-[var(--ui-radius-control)] p-2 transition-colors"
       classList={{
-        "bg-blue-100 dark:bg-blue-900/35": props.isDetailSelected,
-        "bg-blue-50 dark:bg-blue-950/25": props.isHighlighted && !props.isDetailSelected,
-        "hover:bg-zinc-100 dark:hover:bg-zinc-800/45": !props.isHighlighted && !props.isDetailSelected,
+        "bg-[var(--ui-selected)] [box-shadow:inset_0_0_0_1px_var(--ui-app-accent-border)]": props.isDetailSelected,
+        "bg-[var(--ui-hover)]": props.isHighlighted && !props.isDetailSelected,
+        "hover:bg-[var(--ui-hover)]": !props.isHighlighted && !props.isDetailSelected,
       }}
       onClick={(event) => {
         if (isPointerOnInteractiveTarget(event.target)) return;
@@ -721,11 +719,11 @@ function FileRow(props: {
         }
       }}
       data-file-item
-      class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-50 px-3 py-0 text-sm transition-colors last:border-b-0 dark:border-zinc-800/60"
+      class="data-table-row-divider col-span-full grid grid-cols-subgrid items-center gap-4 border-b px-3 py-0 text-sm transition-colors last:border-b-0"
       classList={{
-        "bg-blue-100 dark:bg-blue-900/35": props.isDetailSelected,
-        "bg-blue-50 dark:bg-blue-950/20": props.isHighlighted && !props.isDetailSelected,
-        "hover:bg-zinc-50 dark:hover:bg-zinc-900/40": !props.isHighlighted && !props.isDetailSelected,
+        "data-table-row-selected [box-shadow:inset_3px_0_0_var(--ui-app-accent-border)]": props.isDetailSelected,
+        "bg-[var(--ui-hover)]": props.isHighlighted && !props.isDetailSelected,
+        "data-table-row-hover": !props.isHighlighted && !props.isDetailSelected,
       }}
       onClick={(event) => {
         if (isPointerOnInteractiveTarget(event.target)) return;
@@ -760,7 +758,7 @@ function FileRow(props: {
         <div
           data-dnd-preview
           data-dnd-count={props.isSelected && props.selectedCount > 1 ? String(props.selectedCount) : undefined}
-          class="relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl text-zinc-500"
+          class="relative flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--ui-radius-control)] text-zinc-500"
           style={{ width: `${previewSize()}px`, height: `${previewSize()}px` }}
         >
           <FilePreview item={props.item} itemPath={props.itemPath} ctx={props.ctx} size={previewSize()} mode="list" />

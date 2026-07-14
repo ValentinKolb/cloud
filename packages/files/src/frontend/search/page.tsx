@@ -177,16 +177,16 @@ export default ssr<AuthContext>(async (c) => {
         <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 
         {/* Main content */}
-        <AppWorkspace.Main class="p-[var(--ui-space-section)]">
+        <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
           <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="files-search-results">
-            <div class="flex flex-col gap-[var(--ui-space-section)]">
+            <div class="flex flex-col gap-2">
               {/* Search form */}
-              <form action="/app/files/search" method="get" class="flex flex-col gap-[var(--ui-space-section)]">
+              <form action="/app/files/search" method="get" class="paper flex flex-col gap-2 p-3">
                 {/* Pattern input */}
                 <div class="group relative flex">
                   <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
                     <i class="ti ti-search group-focus-within:hidden" />
-                    <i class="ti ti-pencil hidden text-blue-500 group-focus-within:block" />
+                    <i class="ti ti-pencil hidden app-accent-text group-focus-within:block" />
                   </div>
                   <input
                     type="text"
@@ -222,20 +222,17 @@ export default ssr<AuthContext>(async (c) => {
                       </span>
                       <i class="ti ti-chevron-down text-dimmed text-[10px]" />
                     </summary>
-                    <div class="absolute top-full left-0 mt-1 z-10 paper p-1 w-48">
+                    <div class="dropdown-menu-surface absolute left-0 top-full z-10 mt-1 w-48 p-1">
                       {basesInfo.map((base) => {
                         const key = `${base.type}:${base.id}`;
                         const isSelected = selectedBaseIds.has(key);
                         return (
-                          <a
-                            href={toggleBaseUrl(base)}
-                            class="flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                          >
+                          <a href={toggleBaseUrl(base)} class="menu-item justify-between">
                             <span class="flex items-center gap-2 truncate">
                               <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"} text-dimmed`} />
                               {base.type === "home" ? base.name.replace("Home (", "").replace(")", "") : base.name}
                             </span>
-                            {isSelected && <i class="ti ti-check text-blue-500 text-xs" />}
+                            {isSelected && <i class="ti ti-check app-accent-text text-xs" />}
                           </a>
                         );
                       })}
@@ -260,7 +257,7 @@ export default ssr<AuthContext>(async (c) => {
               {!hasSearch && (
                 <div class="flex flex-wrap gap-1.5">
                   {SEARCH_SHORTCUTS.map((shortcut) => (
-                    <a href={buildSearchUrl({ pattern: shortcut.pattern })} class="btn-simple btn-sm">
+                    <a href={buildSearchUrl({ pattern: shortcut.pattern })} class="btn-secondary btn-sm">
                       <i class={`ti ${shortcut.icon}`} />
                       {shortcut.label}
                     </a>

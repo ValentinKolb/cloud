@@ -1,7 +1,7 @@
-import { createMemo, createSignal, Show } from "solid-js";
 import { Dropdown, SegmentedControl, Switch } from "@valentinkolb/cloud/ui";
-import { cookies } from "@valentinkolb/stdlib/browser";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { cookies } from "@valentinkolb/stdlib/browser";
+import { createMemo, createSignal, Show } from "solid-js";
 
 /** Cookie name for file settings */
 const COOKIE_NAME = "settings-app-files";
@@ -165,7 +165,7 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
                   trigger={
                     <span class="btn-input btn-sm w-full justify-between text-left">
                       <span class="inline-flex min-w-0 items-center gap-2 truncate">
-                        <i class="ti ti-columns-3 text-sm text-blue-500" />
+                        <i class="ti ti-columns-3 app-accent-text text-sm" />
                         <span class="truncate text-xs">{selectedColumnsLabel()}</span>
                       </span>
                       <i class="ti ti-chevron-down text-[10px] text-dimmed" />

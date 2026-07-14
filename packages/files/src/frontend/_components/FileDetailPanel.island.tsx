@@ -1,6 +1,6 @@
+import { Placeholder } from "@valentinkolb/cloud/ui";
 import { dates, fileIcons, text } from "@valentinkolb/stdlib";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { Placeholder } from "@valentinkolb/cloud/ui";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
 import { DETAIL_FILE_SELECT_EVENT, type DetailFileSelectPayload, fileApiUrl, setDetailFileInUrl } from "./context";
 import { type buildFileMenuElements, canOpenFileInline, createFileActionMutations, type FileActionContext } from "./FileActions";
@@ -163,12 +163,16 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
       {(currentFile) => (
         <div class="detail-stack" data-scroll-preserve={detailScrollPreserveKey()}>
           <section class="detail-section" style="view-transition-name: files-detail-panel">
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0 flex-1 flex flex-col items-center gap-3">
+            <div class="relative">
+              <div class="min-w-0 w-full flex flex-col items-center gap-3">
                 {category() === "image" && !isDirectory() ? (
-                  <img src={`${contentUrl()}&inline=true`} alt={currentFile().name} class="max-h-36 max-w-full rounded-xl object-contain" />
+                  <img
+                    src={`${contentUrl()}&inline=true`}
+                    alt={currentFile().name}
+                    class="max-h-36 max-w-full rounded-[var(--ui-radius-surface)] object-contain"
+                  />
                 ) : (
-                  <div class="flex h-18 w-18 items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800">
+                  <div class="app-accent-text flex h-18 w-18 items-center justify-center rounded-[var(--ui-radius-surface)] bg-[var(--ui-selected)]">
                     <i class={`ti ${icon()} text-3xl`} />
                   </div>
                 )}
@@ -184,7 +188,7 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
               <button
                 type="button"
                 onClick={handleClose}
-                class="btn-simple btn-sm shrink-0 text-dimmed hover:text-primary"
+                class="btn-simple btn-sm absolute right-0 top-0 z-10 text-dimmed hover:text-primary"
                 aria-label="Close file detail panel"
               >
                 <i class="ti ti-x" />

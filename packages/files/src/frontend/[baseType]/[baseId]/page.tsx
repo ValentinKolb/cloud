@@ -250,7 +250,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
         />
 
         {/* Main content */}
-        <AppWorkspace.Main class="gap-[var(--ui-space-section)] p-[var(--ui-space-section)]">
+        <AppWorkspace.Main class="gap-2 p-[var(--ui-space-shell)]">
           <FileToolbar
             baseType={baseType}
             baseId={baseId}

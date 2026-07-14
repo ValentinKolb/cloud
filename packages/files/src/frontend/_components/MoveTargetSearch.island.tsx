@@ -1,9 +1,10 @@
-import { createSignal, Show, For, createMemo, onCleanup, onMount } from "solid-js";
-import { timed as timing, mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { apiClient } from "@/api/client";
 import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
-import { parseSelectionKey, type SelectionKey } from "./context";
+import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { FileBaseInfo } from "@/contracts";
+import { parseSelectionKey, type SelectionKey } from "./context";
+
 type MoveTargetSearchProps = {
   sourceBaseType: FileBaseInfo["type"];
   sourceBaseId: string;
@@ -175,17 +176,17 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
       <Show
         when={!props.isMultiBaseCopy}
         fallback={
-          <div class="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-secondary dark:border-zinc-800 dark:bg-zinc-900/50">
-            <div class="flex items-center gap-2">
-              <i class="ti ti-copy text-blue-500" />
-              <span>Files from multiple locations will be copied into the selected destination.</span>
-            </div>
+          <div class="flex items-center gap-3 text-sm text-secondary">
+            <span class="app-accent-text flex size-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-selected)]">
+              <i class="ti ti-copy" />
+            </span>
+            <span>Files from multiple locations will be copied into the selected destination.</span>
           </div>
         }
       >
-        <div class="grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-secondary dark:border-zinc-800 dark:bg-zinc-900/50">
-          <div class="flex items-center gap-3">
-            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-blue-500 shadow-sm dark:bg-zinc-950">
+        <div class="grid gap-2 text-sm text-secondary sm:grid-cols-2">
+          <div class="flex items-start gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3">
+            <div class="app-accent-text flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-selected)]">
               <i class="ti ti-arrow-move-right" />
             </div>
             <div>
@@ -193,8 +194,8 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
               <div class="text-xs text-dimmed">Items stay in the same base and are moved into the chosen folder.</div>
             </div>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-blue-500 shadow-sm dark:bg-zinc-950">
+          <div class="flex items-start gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3">
+            <div class="app-accent-text flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-selected)]">
               <i class="ti ti-copy" />
             </div>
             <div>
@@ -215,7 +216,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
                 <button
                   type="button"
                   onClick={() => handleBaseChange(base)}
-                  class={`btn-input btn-sm ${isSelected() ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : ""}`}
+                  class={`btn-input btn-sm ${isSelected() ? "bg-[var(--ui-selected)] app-accent-text [box-shadow:inset_0_0_0_1px_var(--ui-app-accent-border)]" : ""}`}
                 >
                   <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"}`} /> {base.name}
                   <Show when={isCurrent}>
@@ -229,7 +230,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
       </div>
       <div class="group relative flex">
         <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
-          <i class="ti ti-search group-focus-within:hidden" /> <i class="ti ti-pencil hidden text-blue-500 group-focus-within:block" />
+          <i class="ti ti-search group-focus-within:hidden" /> <i class="ti ti-pencil hidden app-accent-text group-focus-within:block" />
         </div>
         <input
           type="text"
@@ -241,7 +242,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
         />
       </div>
       <div class="paper overflow-hidden">
-        <div class="flex items-center justify-between border-b border-zinc-100 px-4 py-3 text-xs text-dimmed dark:border-zinc-800">
+        <div class="data-table-header data-table-divider flex items-center justify-between border-b px-4 py-3 text-xs text-dimmed">
           <span>Folders</span>
           <span>{directories().length} results</span>
         </div>
@@ -257,11 +258,11 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
             </Placeholder>
           </Show>
           <Show when={!searchMutation.loading() && directories().length > 0}>
-            <div class="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
+            <div class="flex flex-col gap-0.5 p-1">
               <For each={directories()}>
                 {(dir) => (
-                  <div class="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/40">
-                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-dimmed dark:bg-zinc-800">
+                  <div class="flex items-center gap-4 rounded-[var(--ui-radius-control)] px-3 py-2 transition-colors hover:bg-[var(--ui-hover)]">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-dimmed">
                       <i class="ti ti-folder text-base" />
                     </div>
                     <div class="min-w-0 flex-1">

@@ -1,28 +1,25 @@
-import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
+import { Dropdown, ProgressBar, prompts, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { Dropdown, ProgressBar } from "@valentinkolb/cloud/ui";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { createUploadManager, type FileUploadState } from "./upload";
-import { toast } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import type { FileBaseInfo } from "@/contracts";
 import {
   buildItemPath,
   buildSelectionKey,
-  navigateWithParam,
-  type SelectionKey,
   clearSelection,
-  setSelectedInUrl,
-  setHighlightedFiles,
-  parseSelectionKey,
-  getFilenameFromKey,
+  FILE_SELECTION_EVENT,
   fileApiUrl,
   fileAppUrlForPath,
-  FILE_SELECTION_EVENT,
+  getFilenameFromKey,
+  navigateWithParam,
+  parseSelectionKey,
+  type SelectionKey,
+  setHighlightedFiles,
+  setSelectedInUrl,
 } from "./context";
 import MoveTargetSearch from "./MoveTargetSearch.island";
-import type { FileBaseInfo } from "@/contracts";
+import { createUploadManager, type FileUploadState } from "./upload";
 
 type FileToolbarProps = {
   baseType: FileBaseInfo["type"];
@@ -252,12 +249,13 @@ export default function FileToolbar({
         <Dropdown
           trigger={
             <span
-              class="btn-input btn-sm"
+              class="btn-secondary btn-sm"
               classList={{
                 "opacity-50 pointer-events-none": isLoading() || uploadManager.state.isUploading,
               }}
             >
               <i class={`ti text-sm ${uploadManager.state.isUploading ? "ti-loader-2 animate-spin" : "ti-plus"}`} />
+              <span>New</span>
               <i class="ti ti-chevron-down text-[10px]" />
             </span>
           }
@@ -295,7 +293,7 @@ export default function FileToolbar({
         <Show when={selectionCount() > 0}>
           <Dropdown
             trigger={
-              <span class="btn-input btn-sm">
+              <span class="btn-secondary btn-sm">
                 <i class="ti ti-checks text-sm" />
                 <span class="text-[10px]">{selectionCount()}</span>
                 <i class="ti ti-chevron-down text-[10px]" />
@@ -370,20 +368,21 @@ export default function FileToolbar({
           </Show>
         </form>
 
-        <div class="input ml-auto inline-flex min-h-[calc((var(--theme-input-py)*2)+1.25rem)] items-center gap-2 px-2 py-0 text-xs text-dimmed">
+        <div class="ml-auto inline-flex min-h-[var(--ui-control-sm)] items-center gap-3 px-1 text-xs text-dimmed">
           <Show when={folderCount > 0}>
             <span class="inline-flex items-center gap-1" title={`${folderCount} folder${folderCount !== 1 ? "s" : ""}`}>
               <i class="ti ti-folder text-[11px]" />
-              <span>{folderCount}</span>
+              <span>
+                {folderCount} folder{folderCount !== 1 ? "s" : ""}
+              </span>
             </span>
-          </Show>
-          <Show when={folderCount > 0 && fileCount > 0}>
-            <span class="text-zinc-300 dark:text-zinc-600">/</span>
           </Show>
           <Show when={fileCount > 0}>
             <span class="inline-flex items-center gap-1" title={`${fileCount} file${fileCount !== 1 ? "s" : ""} (${totalSize})`}>
               <i class="ti ti-file text-[11px]" />
-              <span>{fileCount}</span>
+              <span>
+                {fileCount} file{fileCount !== 1 ? "s" : ""}
+              </span>
             </span>
           </Show>
           <Show when={folderCount === 0 && fileCount === 0}>
@@ -397,8 +396,8 @@ export default function FileToolbar({
 
       {/* Upload progress */}
       <Show when={uploadManager.state.files.length > 0}>
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between mb-2">
+        <div class="paper flex flex-col gap-2 p-3">
+          <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-dimmed">
               {uploadManager.state.isUploading
                 ? `Uploading ${completedFiles()}/${totalFiles()} files...`
@@ -464,7 +463,7 @@ function UploadProgressItem(props: FileUploadState) {
         </div>
       }
     >
-      <div class="flex flex-col gap-0.5 text-xs py-1 border-l-2 border-red-500 pl-2">
+      <div class="flex flex-col gap-0.5 rounded-[var(--ui-radius-control)] bg-red-500/10 px-2 py-1 text-xs">
         <div class="flex items-center gap-2">
           <i class={`ti ${statusIcon()}`} />
           <span class="text-red-500 font-medium truncate" title={props.filename}>

@@ -1,12 +1,12 @@
-import { useContext } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type { DropdownItem } from "@valentinkolb/cloud/ui";
 import { Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
-import type { DropdownItem } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { useContext } from "solid-js";
 import { apiClient } from "@/api/client";
-import MoveTargetSearch from "./MoveTargetSearch.island";
-import { FileContext, fileAppUrlForPath, fileApiUrl, requestFileLightboxOpen, setDetailFileInUrl, setHighlightedFiles } from "./context";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
+import { FileContext, fileApiUrl, fileAppUrlForPath, requestFileLightboxOpen, setDetailFileInUrl, setHighlightedFiles } from "./context";
+import MoveTargetSearch from "./MoveTargetSearch.island";
 
 export type FileActionContext = {
   baseType: FileBaseInfo["type"];
@@ -366,7 +366,7 @@ export default function FileActions(props: FileActionsProps) {
   return (
     <Dropdown
       trigger={
-        <span class="inline-flex h-8 w-8 items-center justify-center text-dimmed transition-colors hover:text-blue-500" data-dnd-ignore>
+        <span class="inline-flex h-8 w-8 items-center justify-center text-dimmed transition-colors hover:app-accent-text" data-dnd-ignore>
           <i class="ti ti-dots" />
         </span>
       }

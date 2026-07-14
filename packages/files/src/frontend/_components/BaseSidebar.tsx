@@ -29,6 +29,7 @@ export default function BaseSidebar(props: BaseSidebarProps) {
   const currentBase = props.bases.find((base) => isActive(base, props.currentBaseType, props.currentBaseId));
   const currentBaseLabel = currentBase ? (currentBase.type === "home" ? getHomeLabel(currentBase.name) : currentBase.name) : null;
   const sidebarTitle = isSearch ? "Search" : (currentBaseLabel ?? "Files");
+  const sidebarIcon = isSearch ? "ti ti-search" : currentBase?.type === "home" ? "ti ti-home" : "ti ti-users-group";
   const sidebarSubtitle = isSearch
     ? "Files"
     : currentBase?.type === "home"
@@ -52,8 +53,8 @@ export default function BaseSidebar(props: BaseSidebarProps) {
       <AppWorkspace.SidebarHeader
         title={sidebarTitle}
         subtitle={sidebarSubtitle}
-        icon="ti ti-folders"
-        iconStyle="background-color: var(--color-blue-500)"
+        icon={sidebarIcon}
+        iconStyle="background-color: color-mix(in srgb, var(--app-accent) 10%, var(--ui-surface)); color: var(--ui-app-accent-text); box-shadow: inset 0 0 0 1px var(--ui-app-accent-border)"
       />
 
       <AppWorkspace.SidebarMobile>
@@ -77,7 +78,7 @@ export default function BaseSidebar(props: BaseSidebarProps) {
 
       <AppWorkspace.SidebarDesktop>
         <div class="flex flex-col gap-3">
-          <AppWorkspace.SidebarSection title="Actions">
+          <AppWorkspace.SidebarSection>
             <AppWorkspace.SidebarItem href="/app/files/search" navigation="document" icon="ti ti-search" active={isSearch}>
               Search
             </AppWorkspace.SidebarItem>
