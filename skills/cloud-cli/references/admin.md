@@ -1,5 +1,9 @@
 # Administration CLI
 
+## What Administration is
+
+Administration is the operational view of a Cloud instance: gateway state, registered apps, routes, observability, storage diagnostics, notifications, announcements, webhooks, and metrics.
+
 Use `cld admin` when operating a Cloud instance as an administrator. Commands inspect the selected remote Cloud instance and use the permissions of the signed-in administrator.
 
 ## Start with health and diagnostics

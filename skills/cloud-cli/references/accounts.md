@@ -1,5 +1,9 @@
 # Accounts CLI
 
+## What Accounts is
+
+Accounts is the shared identity and access app for Cloud users, groups, account requests, service accounts, notification batches, and audit history.
+
 Use `cld accounts` for account and group administration. The commands available to the signed-in user depend on their Cloud roles; group managers can use the group operations they are allowed to manage.
 
 ## Users

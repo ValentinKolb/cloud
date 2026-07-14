@@ -1,5 +1,9 @@
 # Contacts CLI
 
+## What Contacts is
+
+Contacts manages manual address books with structured contact records, tags, notes, hierarchy links, and book-level access.
+
 Use `cld contacts` for contact books and their contacts, tags, notes, exports, imports, and access grants. It requires a signed-in Cloud profile.
 
 ## Select a contact book

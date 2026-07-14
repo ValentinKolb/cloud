@@ -1,5 +1,9 @@
 # OAuth CLI
 
+## What OAuth is
+
+OAuth lets external applications use Cloud as an OAuth 2.0 and OpenID Connect provider through registered clients, redirect URLs, scopes, and access rules.
+
 Use `cld oauth clients` to manage OAuth clients for the selected Cloud instance. OAuth client configuration controls which applications may redirect users and which access they can request.
 
 ## Inspect clients first

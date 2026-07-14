@@ -1,5 +1,9 @@
 # Account CLI
 
+## What Account is
+
+Account is the signed-in person's self-service area for profile data, personal credentials, SSH keys, and account extension.
+
 Use `cld account` to work with the account of the signed-in user. It does not manage other users.
 
 ## Inspect and update the profile

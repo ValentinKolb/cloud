@@ -1,5 +1,9 @@
 # Spaces CLI
 
+## What Spaces is
+
+Spaces is a shared-work app for tasks, events, lists, assignees, comments, and lightweight planning in one work area.
+
 Use `cld spaces` to organize work in spaces, manage items, add comments, and inspect calendar conflicts. It requires access to the selected space.
 
 ## Select a space

@@ -1,17 +1,19 @@
 ---
 name: cloud-cli
-description: Use the Cloud CLI (`cld`) to work with a user's Cloud content from a terminal. Use this skill whenever an agent needs to use installed Cloud app commands, sign in or select a Cloud profile, choose safe CLI input/output, or complete Assistant, Contacts, Mail, Notebooks, Pulse, or Tools workflows for the user.
+description: Use the Cloud CLI (`cld`) to work with a user's Cloud content from a terminal. Use this skill whenever an agent needs to use installed Cloud app commands, sign in or select a Cloud profile, choose safe CLI input/output, inspect Cloud API documentation, or complete Assistant, Contacts, Mail, Notebooks, Pulse, Spaces, or Tools workflows for the user.
 ---
 
 # Cloud CLI
+
+Cloud is a remote workspace platform, or Cloud OS, made of focused apps for work and daily operations. Each Cloud instance can publish a different set of apps to each user.
 
 Use `cld` to work with the user's Cloud content from a terminal. It handles sign-in, the selected Cloud instance, command discovery, and structured output.
 
 ## Start
 
-1. Run `cld help` to discover installed app modules.
-2. On a new machine, sign in with `cld login --server <Cloud URL>`. Inspect or switch profiles with `cld profile list` and `cld profile use <name>`.
-3. Read module help before an unfamiliar operation: `cld <app> help` or `cld <app> <command> --help`.
+1. On a new machine, sign in with `cld login --server <Cloud URL>`. Inspect or switch profiles with `cld profile list` and `cld profile use <name>`.
+2. Run `cld apps list --json` before choosing an app command. It shows the live Cloud apps available to the current user; use `--search <text>` to narrow the list.
+3. Run `cld help` to discover installed CLI modules, then `cld <app> help` or `cld <app> <command> --help` for an unfamiliar operation.
 4. Use the default profile unless the task names another instance; pass `--profile <name>` only when needed.
 
 ## Agent workflow
@@ -27,6 +29,7 @@ Use `cld` to work with the user's Cloud content from a terminal. It handles sign
 Read the app reference for the current task. Follow specialized links inside it only when that operation needs the deeper API; do not preload every linked reference.
 
 - Read [Account](references/account.md) to manage the signed-in user's profile, personal API keys, SSH keys, and account extension.
+- Read [API Docs](references/api-docs.md) to discover and inspect the live HTTP APIs published by Cloud apps.
 - Read [Assistant](references/assistant.md) for one-shot streaming chat, chat history, approvals, files, preferences, and Cloud skill push/pull.
 - Read [Contacts](references/contacts.md) for contact books, contacts, tags, notes, exports, and access grants.
 - Read [Mail](references/mail.md) to configure mailboxes, connect IMAP/SMTP providers, search and operate messages, send mail, and run provider smoke tests.

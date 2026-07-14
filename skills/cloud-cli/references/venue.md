@@ -1,5 +1,9 @@
 # Venue CLI
 
+## What Venue is
+
+Venue manages staffed places with public opening status, shift signup, public page content, and visitor feedback.
+
 Use `cld venue` to operate venues that the signed-in user can access. Select the venue first when several commands belong to the same venue.
 
 ## Select and inspect a venue

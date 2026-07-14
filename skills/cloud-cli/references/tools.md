@@ -1,5 +1,9 @@
 # Tools CLI
 
+## What Tools is
+
+Tools is a collection of small generators, encoders, security utilities, media tools, and network tests for everyday work.
+
 Use `cld tools` for local utilities. Most commands run without a Cloud server or profile. They are appropriate for everyday terminal tasks and local transformations.
 
 ## Discover and format output

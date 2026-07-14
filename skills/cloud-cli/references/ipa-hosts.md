@@ -1,5 +1,9 @@
 # IPA Hosts CLI
 
+## What IPA Hosts is
+
+IPA Hosts mirrors FreeIPA hosts and hostgroups so administrators can inspect them, manage selected host data, and schedule synchronization with FreeIPA.
+
 Use `cld ipa-hosts` to manage FreeIPA hosts, hostgroups, and the Cloud-managed host synchronization schedule.
 
 ## Inspect hosts and hostgroups
