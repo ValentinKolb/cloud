@@ -35,8 +35,12 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - SSR pages repeat permission checks instead of assuming API routes protect server-side service calls.
 - Security-relevant mutations put authorization checks in the service layer and record allowed/denied/failed outcomes through the central audit service.
 - Permission-aware APIs and services use `c.get("actor")` and `c.get("accessSubject")`, not only `c.get("user")`, so user-bound keys, resource API keys, and OAuth service tokens follow the same access path.
+- Authorization passes `AccessSubject` to `buildAccessPrincipalCondition()` or `getEffectivePermission()`; it never trusts `User.memberofGroupIds`, request group ids, or app-local membership snapshots. Nested memberships must behave exactly like direct memberships.
+- Resource-bound service accounts are restricted to their exact app/resource binding, and credential scopes cap rather than grant permission. Collection/search endpoints fail closed or query only the bound resource. User-delegated service accounts act only as the delegated user.
+- Personal catalogs, profile data, roles, ownership changes, and other user-owned operations require a real or delegated user; resource-bound service accounts do not receive a synthetic user.
 - Resource API keys and OAuth service clients are granted through the app's normal resource access adapter. `PermissionEditor` may include existing service-account principals but does not create or reveal credentials.
 - Resource API key smoke covers create, copy-once token display, one authorized Bearer request, revoke, and rejected Bearer reuse. If OAuth client credentials are supported for that resource, smoke the same endpoint with an OAuth access token.
+- Resource authorization tests cover nested-group parity, ignored spoofed group metadata, public/authenticated entries, exact service-account binding, scope caps, and denial of personal operations for resource-bound accounts.
 - Global Search providers stay user-backed. They may assume a user context from the platform search dispatcher and must not add resource-bound service-account search behavior.
 
 ## Data and lifecycle

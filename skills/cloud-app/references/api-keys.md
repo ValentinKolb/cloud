@@ -10,6 +10,12 @@ Use this reference when an app resource needs API keys for automation or integra
 - OAuth `client_credentials` tokens for resource-bound service accounts use the same principal/access model as resource API keys. The difference is credential issuance: OAuth tokens are short-lived JWTs issued by the OAuth app, while API keys are long-lived `cld_<prefix>_<secret>` credentials stored hashed in core.
 - Core tables remain platform-owned: `auth.service_accounts`, `auth.service_account_credentials`, and `auth.access`.
 - Apps create only their own resource/access junction tables and never migrate core auth tables.
+- A resource-bound service account may match its explicit service-account
+  grant plus `authenticated` and `public` grants. The app must still validate
+  the account's exact `appId`, `resourceType`, and `resourceId` before loading
+  data, and cap the resolved permission by the credential scopes.
+- A user-delegated service account acts only as the delegated user. Never merge
+  the service account's own grants into that user's effective permission.
 
 ## Backend flow
 
@@ -49,6 +55,10 @@ resource-bound service account and grant it access through the same adapter.
 The OAuth app owns OAuth client records, audiences, JWKS, and token issuance.
 Apps should not verify JWTs themselves; Core auth middleware resolves OAuth
 Bearer tokens into `actor` and `accessSubject`.
+
+Always pass `accessSubject` to the app's normal permission resolver. Do not pass
+`User.memberofGroupIds` or caller-provided group ids: direct and nested group
+membership is resolved authoritatively by the shared access helpers.
 
 ## Frontend flow
 

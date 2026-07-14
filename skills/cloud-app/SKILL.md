@@ -38,6 +38,12 @@ Global Search is user-backed only. It may work with browser sessions and
 user-bound API keys/service accounts, but resource-bound service accounts must
 not be given Global Search or app search provider behavior.
 
+Shared-resource authorization uses the request `AccessSubject` and the helpers
+documented in `references/backend.md`. Never authorize from
+`User.memberofGroupIds`: nested memberships are resolved authoritatively by
+Core. Resource-bound service accounts additionally require an exact resource
+binding and a credential-scope cap; personal features remain user-backed.
+
 The goal is Cloud pattern fidelity, not generic UI quality. If an app page looks structurally different from its closest reference app, treat that as a bug until the difference is justified by the domain or by an explicit user request.
 
 ## What Belongs In An App — And What Does NOT

@@ -166,6 +166,12 @@ const rows = await sql<DbRow[]>`
 `;
 ```
 
+Do not use an app-local recursive query for authorization. Resource access must
+use `buildAccessPrincipalCondition()` or `getEffectivePermission()` so nested
+membership is resolved from the authoritative auth tables with the same
+semantics in every app. In particular, never authorize from
+`User.memberofGroupIds`; that field is projection metadata, not an access input.
+
 ### Postgres Helper Utilities
 
 From `@valentinkolb/cloud/services`:
@@ -294,6 +300,30 @@ Use this overview:
 
 Role middleware is still useful for page-level gates. Resource APIs should
 also perform explicit service-layer permission checks using `accessSubject`.
+
+### Canonical resource authorization
+
+Pass `c.get("accessSubject")` unchanged to services that list, load, or mutate
+shared resources. The canonical helpers implement these principal rules:
+
+- an anonymous request matches `public` entries;
+- a user subject matches direct user entries, direct and recursively nested
+  group entries, `authenticated` entries, and `public` entries;
+- a resource-bound service-account subject matches its explicit service-account
+  entries, `authenticated` entries, and `public` entries;
+- a user-delegated service account acts only as its delegated user. Do not union
+  grants from the service account and the user.
+
+The app must additionally verify a resource-bound service account's exact
+`appId`, `resourceType`, and `resourceId` before loading the resource. Its
+credential scopes are a hard upper bound on the permission resolved from
+`auth.access`; scopes never grant access themselves. Collection and search
+endpoints must fail closed or restrict the query to that exact resource.
+
+Keep personal data and user-owned operations user-backed. Roles, profile data,
+personal catalogs, personal search, and ownership changes must require a real
+or delegated user instead of inventing a user for a resource-bound service
+account.
 
 ### Lifecycle Hook
 
@@ -513,8 +543,9 @@ If your app needs fine-grained permissions, use the platform's principal-based a
 ```typescript
 import {
   createAccess, getAccess, updateAccess, deleteAccess,
-  getEffectivePermission, hasPermission, listUsersWithAccess,
-  type ResourceAccessAdapter, type Principal, type PermissionLevel,
+  buildAccessPrincipalCondition, getEffectivePermission, hasPermission,
+  listUsersWithAccess, type AccessSubject, type ResourceAccessAdapter,
+  type Principal, type PermissionLevel,
 } from "@valentinkolb/cloud/server";
 ```
 
@@ -547,17 +578,12 @@ const itemAccess: ResourceAccessAdapter = {
 // Load access entry IDs for the resource
 const entries = await itemAccess.list(itemId);
 const accessIds = entries.map((e) => e.id);
-const actor = c.get("actor");
 const accessSubject = c.get("accessSubject");
-const delegatedUser = actor.kind === "service_account" ? actor.delegatedUser : null;
-const user = actor.kind === "user" ? actor.user : delegatedUser;
 
 // Resolve effective permission for this request subject
 const permission = await getEffectivePermission({
   accessIds,
-  userId: accessSubject.type === "user" ? accessSubject.userId : null,
-  userGroups: user?.memberofGroupIds ?? [],
-  serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+  subject: accessSubject,
 });
 
 if (!hasPermission(permission, "write")) {
@@ -616,7 +642,10 @@ checking OAuth scopes as an additional limit.
 
 ### Permission Levels
 
-`'none'` < `'read'` < `'write'` < `'admin'` — `getEffectivePermission()` returns the highest level across all matching principals (direct user, group memberships, service-account grants, authenticated-only entries, and public entries).
+`'none'` < `'read'` < `'write'` < `'admin'` — `getEffectivePermission()` returns
+the highest level across all principals matching the supplied `AccessSubject`.
+For resource-bound service accounts, the app then takes the lower of this
+permission and the credential-scope permission.
 
 ### Concrete Users With Access
 
@@ -904,18 +933,13 @@ const checkAccess = async (
   resourceId: string,
   required: PermissionLevel = "read",
 ) => {
-  const actor = c.get("actor");
   const accessSubject = c.get("accessSubject");
-  const delegatedUser = actor.kind === "service_account" ? actor.delegatedUser : null;
-  const user = actor.kind === "user" ? actor.user : delegatedUser;
   const entries = await myService.access.list(resourceId);
   const accessIds = entries.map((e) => e.id);
 
   const permission = await getEffectivePermission({
     accessIds,
-    userId: accessSubject.type === "user" ? accessSubject.userId : null,
-    userGroups: user?.memberofGroupIds ?? [],
-    serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+    subject: accessSubject,
   });
 
   if (!hasPermission(permission, required)) {
