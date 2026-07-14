@@ -1,5 +1,5 @@
 import type { MutationResult, PaginationParams } from "@valentinkolb/cloud/contracts";
-import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import * as Y from "yjs";
 import {
@@ -12,6 +12,7 @@ import {
   summarizeNoteEditBlocks,
 } from "../lib/note-edit";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
+import { buildNotebookPrincipalCondition } from "./access";
 import { reindexNoteRefsSafe } from "./note-refs";
 import { noteCreated, noteDeleted, noteUpdated } from "./workspace-events";
 import { createYjsTopic, NODE_ID, parseStreamCursor, replayYjsTopicToCursor, toBase64 } from "./yjs-sync";
@@ -271,8 +272,8 @@ export type RecentNote = {
   notebookName: string;
 };
 
-export const recentForUser = async (params: { userId: string; groups: string[]; limit: number }): Promise<RecentNote[]> => {
-  const groupsArr = toPgUuidArray(params.groups);
+export const recentForUser = async (params: { userId: string; limit: number }): Promise<RecentNote[]> => {
+  const principalMatch = buildNotebookPrincipalCondition({ userId: params.userId });
   const rows = await sql<
     {
       id: string;
@@ -295,12 +296,7 @@ export const recentForUser = async (params: { userId: string; groups: string[]; 
       FROM notebooks.notebook_access na
       JOIN auth.access a ON a.id = na.access_id
       WHERE na.notebook_id = nt.notebook_id
-        AND (
-          a.user_id = ${params.userId}::uuid
-          OR a.group_id = ANY(${groupsArr}::uuid[])
-          OR a.authenticated_only = true
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-        )
+        AND ${principalMatch}
     )
     ORDER BY nt.updated_at DESC
     LIMIT ${params.limit}
@@ -506,11 +502,18 @@ export const getWithContent = async (params: { id: string }): Promise<NoteWithCo
 export const resolveShortIdsToNotebookShortIds = async (params: {
   shortIds: string[];
   userId: string | null;
-  userGroups: string[];
+  serviceAccountId?: string | null;
+  boundNotebookId?: string | null;
   bypassAccess?: boolean;
 }): Promise<Map<string, { notebookShortId: string; noteShortId: string }>> => {
   if (params.shortIds.length === 0) return new Map();
+  if (params.serviceAccountId && !params.boundNotebookId) return new Map();
   const arr = toPgTextArray(params.shortIds);
+  const principalMatch = buildNotebookPrincipalCondition({
+    userId: params.userId,
+    serviceAccountId: params.serviceAccountId,
+  });
+  const boundNotebookId = params.boundNotebookId ?? null;
   const rows = params.bypassAccess
     ? await sql<{ note_short_id: string; notebook_short_id: string }[]>`
       SELECT n.short_id AS note_short_id, nb.short_id AS notebook_short_id
@@ -528,12 +531,8 @@ export const resolveShortIdsToNotebookShortIds = async (params: {
           FROM notebooks.notebook_access na
           JOIN auth.access a ON a.id = na.access_id
           WHERE na.notebook_id = n.notebook_id
-            AND (
-              a.user_id = ${params.userId}::uuid
-              OR a.group_id = ANY(${toPgUuidArray(params.userGroups)}::uuid[])
-              OR (${params.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-            )
+            AND ${principalMatch}
+            AND (${boundNotebookId}::text IS NULL OR n.notebook_id::text = ${boundNotebookId})
         )
     `;
   const map = new Map<string, { notebookShortId: string; noteShortId: string }>();

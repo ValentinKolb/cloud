@@ -65,7 +65,6 @@ type LoadSelectedNoteParams = {
   noteIdOrShortId: string;
   canWrite: boolean;
   userId: string;
-  userGroups: string[];
   bypassAccess: boolean;
 };
 
@@ -99,7 +98,6 @@ export const loadSelectedNoteRouteState = async (params: LoadSelectedNoteParams)
     notebooksService.note.backlinks.list({
       noteId: note.id,
       userId: params.userId,
-      userGroups: params.userGroups,
       bypassAccess: params.bypassAccess,
     }),
   ]);

@@ -20,14 +20,8 @@ const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/recent", as
   // Anonymous dashboard probes should silently skip this widget.
   if (!user) return c.body(null, 204);
 
-  // Defensive: `memberofGroupIds` is typed `string[]` but the runtime sometimes
-  // hands us a Postgres array literal ("{}") that wasn't unwrapped by the
-  // driver. Normalize before passing into the SQL layer.
-  const groups = Array.isArray(user.memberofGroupIds) ? user.memberofGroupIds : [];
-
   const notes = await notebooksService.note.recentForUser({
     userId: user.id,
-    groups,
     limit: RECENT_LIMIT,
   });
 

@@ -32,7 +32,6 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
   const permission = await notebooksService.notebook.permission.get({
     notebookId,
     userId: user.id,
-    userGroups: user.memberofGroupIds,
   });
   if (permission === "none") return { kind: "access_denied" as const };
 
@@ -69,7 +68,6 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
     isVersionsMode,
     canWrite,
     userId: user.id,
-    userGroups: user.memberofGroupIds,
     bypassAccess: hasRole(user, "admin"),
   });
 
@@ -167,7 +165,6 @@ async function loadSelectedNote(params: {
   isVersionsMode: boolean;
   canWrite: boolean;
   userId: string;
-  userGroups: string[];
   bypassAccess: boolean;
 }): Promise<{
   note: SelectedNote | null;
@@ -207,7 +204,6 @@ async function loadSelectedNote(params: {
     noteIdOrShortId: params.selectedNoteId,
     canWrite: params.canWrite,
     userId: params.userId,
-    userGroups: params.userGroups,
     bypassAccess: params.bypassAccess,
   });
   if (!routeState) return { note: null, routeState: null, tocItems: [], namedBlocks: [] };

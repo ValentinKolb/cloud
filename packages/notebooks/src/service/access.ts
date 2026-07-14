@@ -1,5 +1,7 @@
 import {
   type AccessEntry,
+  type AccessSubject,
+  buildAccessPrincipalCondition,
   createAccess,
   deleteAccess,
   getEffectivePermission,
@@ -36,6 +38,26 @@ export const NOTEBOOK_RESOURCE_TYPE = "notebook";
 
 export type NotebookApiKey = ServiceAccountCredential & {
   permission: PermissionLevel;
+};
+
+export const buildNotebookPrincipalCondition = (params: {
+  userId?: string | null;
+  serviceAccountId?: string | null;
+}) => {
+  const subject: AccessSubject | null = params.userId
+    ? { type: "user", userId: params.userId }
+    : params.serviceAccountId
+      ? { type: "service_account", serviceAccountId: params.serviceAccountId }
+      : null;
+  return buildAccessPrincipalCondition({
+    subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
 };
 
 const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {
@@ -291,7 +313,6 @@ export const getNotebookAccessGuard = async (params: {
 export const getNotebookPermission = async (params: {
   notebookId: string;
   userId?: string | null;
-  userGroups?: string[];
   serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
   const { notebookId } = params;
@@ -305,9 +326,11 @@ export const getNotebookPermission = async (params: {
 
   return getEffectivePermission({
     accessIds,
-    userId: params.userId ?? null,
-    userGroups: params.userGroups ?? [],
-    serviceAccountId: params.serviceAccountId ?? null,
+    subject: params.userId
+      ? { type: "user", userId: params.userId }
+      : params.serviceAccountId
+        ? { type: "service_account", serviceAccountId: params.serviceAccountId }
+        : null,
   });
 };
 

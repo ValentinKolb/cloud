@@ -34,14 +34,16 @@ export const notebooksService = {
   notebook: {
     list: async (config: {
       userId: string | null;
-      groups: string[];
+      serviceAccountId?: string | null;
+      boundNotebookId?: string | null;
       pagination?: PageParams;
       filter?: { query?: string };
     }): Promise<Paginated<notebooks.Notebook>> => {
       const pageInfo = pageFromPagination(config.pagination);
       const result = await notebooks.list({
         userId: config.userId,
-        groups: config.groups,
+        serviceAccountId: config.serviceAccountId,
+        boundNotebookId: config.boundNotebookId,
         query: config.filter?.query,
         pagination: pageInfo ? { limit: pageInfo.perPage, offset: pageInfo.offset } : undefined,
       });

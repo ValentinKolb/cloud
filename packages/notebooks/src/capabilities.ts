@@ -38,7 +38,6 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
     includeNotebooks
       ? notebooksService.notebook.list({
           userId: user.id,
-          groups: user.memberofGroupIds,
           pagination: { page: 1, perPage: input.limit },
           filter: { query: input.query },
         })
@@ -46,7 +45,6 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
     includeNotes
       ? notebooksService.note.searchAcross({
           userId: user.id,
-          groups: user.memberofGroupIds,
           filters: { query: input.query },
           pagination: { page: 1, perPage: input.limit, offset: 0 },
         })

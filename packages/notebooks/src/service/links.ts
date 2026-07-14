@@ -1,5 +1,6 @@
-import { logger, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { buildNotebookPrincipalCondition } from "./access";
 
 const log = logger("notebooks:links");
 
@@ -203,10 +204,14 @@ type BacklinkRow = {
 export const listBacklinks = async (params: {
   noteId: string;
   userId: string | null;
-  userGroups: string[];
+  serviceAccountId?: string | null;
+  boundNotebookId?: string | null;
   bypassAccess?: boolean;
 }): Promise<Backlink[]> => {
-  const { noteId, userId, userGroups, bypassAccess = false } = params;
+  const { noteId, userId, bypassAccess = false } = params;
+  if (params.serviceAccountId && !params.boundNotebookId) return [];
+  const principalMatch = buildNotebookPrincipalCondition({ userId, serviceAccountId: params.serviceAccountId });
+  const boundNotebookId = params.boundNotebookId ?? null;
 
   const rows = bypassAccess
     ? await sql<BacklinkRow[]>`
@@ -242,12 +247,8 @@ export const listBacklinks = async (params: {
             FROM notebooks.notebook_access na
             JOIN auth.access a ON a.id = na.access_id
             WHERE na.notebook_id = src.notebook_id
-              AND (
-                a.user_id = ${userId}::uuid
-                OR a.group_id = ANY(${toPgUuidArray(userGroups)}::uuid[])
-                OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-                OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-              )
+              AND ${principalMatch}
+              AND (${boundNotebookId}::text IS NULL OR src.notebook_id::text = ${boundNotebookId})
           )
         ORDER BY src.updated_at DESC
       `;

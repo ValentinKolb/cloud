@@ -1,9 +1,15 @@
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
-import { serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
-import { getNotebookPermission, grantNotebookAccess, NOTEBOOK_RESOURCE_TYPE, NOTEBOOKS_APP_ID } from "./access";
+import {
+  buildNotebookPrincipalCondition,
+  getNotebookPermission,
+  grantNotebookAccess,
+  NOTEBOOK_RESOURCE_TYPE,
+  NOTEBOOKS_APP_ID,
+} from "./access";
 import helloMd from "./hello.md" with { type: "text" };
 import * as notes from "./notes";
 import { invalidated, notebookUpdated } from "./workspace-events";
@@ -113,7 +119,6 @@ const noteExistsInNotebook = async (noteId: string, notebookId: string): Promise
 export const canAccess = async (params: {
   notebookId: string;
   userId?: string | null;
-  userGroups?: string[];
   serviceAccountId?: string | null;
   requiredLevel?: PermissionLevel;
 }): Promise<boolean> => {
@@ -121,7 +126,6 @@ export const canAccess = async (params: {
   const permission = await getNotebookPermission({
     notebookId,
     userId: params.userId ?? null,
-    userGroups: params.userGroups ?? [],
     serviceAccountId: params.serviceAccountId ?? null,
   });
   return hasPermission(permission, requiredLevel);
@@ -133,7 +137,6 @@ export const canAccess = async (params: {
 export const getPermission = async (params: {
   notebookId: string;
   userId?: string | null;
-  userGroups?: string[];
   serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
   return getNotebookPermission(params);
@@ -144,12 +147,15 @@ export const getPermission = async (params: {
  */
 export const list = async (params: {
   userId: string | null;
-  groups: string[];
+  serviceAccountId?: string | null;
+  boundNotebookId?: string | null;
   query?: string;
   pagination?: { limit: number; offset: number };
 }): Promise<{ items: Notebook[]; total: number }> => {
   const { userId } = params;
-  const groups = params.groups ?? [];
+  if (params.serviceAccountId && !params.boundNotebookId) return { items: [], total: 0 };
+  const principalMatch = buildNotebookPrincipalCondition({ userId, serviceAccountId: params.serviceAccountId });
+  const boundNotebookId = params.boundNotebookId ?? null;
   const query = params.query?.trim().toLowerCase();
   const pattern = query && query.length > 0 ? `%${query}%` : null;
 
@@ -175,13 +181,9 @@ export const list = async (params: {
             FROM notebooks.notebook_access na
             JOIN auth.access a ON a.id = na.access_id
             WHERE na.notebook_id = n.id
-              AND (
-                a.user_id = ${userId}::uuid
-                OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-                OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-                OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-              )
+              AND ${principalMatch}
           )
+            AND (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
             AND (
               ${pattern}::text IS NULL
               OR LOWER(n.name) LIKE ${pattern}
@@ -209,13 +211,9 @@ export const list = async (params: {
             FROM notebooks.notebook_access na
             JOIN auth.access a ON a.id = na.access_id
             WHERE na.notebook_id = n.id
-              AND (
-                a.user_id = ${userId}::uuid
-                OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-                OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-                OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-              )
+              AND ${principalMatch}
           )
+            AND (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
             AND (
               ${pattern}::text IS NULL
               OR LOWER(n.name) LIKE ${pattern}
@@ -234,13 +232,9 @@ export const list = async (params: {
       FROM notebooks.notebook_access na
       JOIN auth.access a ON a.id = na.access_id
       WHERE na.notebook_id = n.id
-        AND (
-          a.user_id = ${userId}::uuid
-          OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-          OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-        )
+        AND ${principalMatch}
     )
+      AND (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
       AND (
         ${pattern}::text IS NULL
         OR LOWER(n.name) LIKE ${pattern}

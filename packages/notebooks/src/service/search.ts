@@ -1,6 +1,7 @@
 import type { PaginationParams } from "@valentinkolb/cloud/contracts";
-import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { buildNotebookPrincipalCondition } from "./access";
 import type { Note } from "./notes";
 
 export type SearchFilters = {
@@ -230,14 +231,22 @@ export const searchInNotebook = async (params: {
 
 export const searchAcross = async (params: {
   userId: string | null;
-  groups: string[];
+  serviceAccountId?: string | null;
+  boundNotebookId?: string | null;
   notebookId?: string;
   filters: SearchFilters;
   pagination: PaginationParams;
 }): Promise<{ hits: SearchHit[]; total: number }> => {
+  if (params.serviceAccountId && !params.boundNotebookId) return { hits: [], total: 0 };
+  if (params.boundNotebookId && params.notebookId && params.boundNotebookId !== params.notebookId) {
+    return { hits: [], total: 0 };
+  }
   const filters = normalizeFilters(params.filters);
-  const groups = params.groups ?? [];
-  const notebookId = params.notebookId ?? null;
+  const principalMatch = buildNotebookPrincipalCondition({
+    userId: params.userId,
+    serviceAccountId: params.serviceAccountId,
+  });
+  const notebookId = params.notebookId ?? params.boundNotebookId ?? null;
   const { offset, perPage } = params.pagination;
   const backend = await getSearchBackend();
 
@@ -251,12 +260,7 @@ export const searchAcross = async (params: {
         FROM notebooks.notebook_access na
         JOIN auth.access a ON a.id = na.access_id
         WHERE na.notebook_id = nb.id
-          AND (
-            a.user_id = ${params.userId}::uuid
-            OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-            OR (${params.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-          )
+          AND ${principalMatch}
       )
       AND (${filters.query} = '' OR n.search_document @@ websearch_to_tsquery('simple', ${filters.query}))
       AND (${filters.createdAfter}::timestamptz IS NULL OR n.created_at >= ${filters.createdAfter}::timestamptz)
@@ -286,11 +290,7 @@ export const searchAcross = async (params: {
         WHERE (${notebookId}::uuid IS NULL OR nb.id = ${notebookId}::uuid)
           AND EXISTS (
             SELECT 1 FROM notebooks.notebook_access na JOIN auth.access a ON a.id = na.access_id
-            WHERE na.notebook_id = nb.id AND (
-              a.user_id = ${params.userId}::uuid OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-              OR (${params.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-            )
+            WHERE na.notebook_id = nb.id AND ${principalMatch}
           )
           AND n.search_document @@ websearch_to_tsquery('simple', ${filters.query})
           AND (${filters.createdAfter}::timestamptz IS NULL OR n.created_at >= ${filters.createdAfter}::timestamptz)
@@ -322,11 +322,7 @@ export const searchAcross = async (params: {
         WHERE (${notebookId}::uuid IS NULL OR nb.id = ${notebookId}::uuid)
           AND EXISTS (
             SELECT 1 FROM notebooks.notebook_access na JOIN auth.access a ON a.id = na.access_id
-            WHERE na.notebook_id = nb.id AND (
-              a.user_id = ${params.userId}::uuid OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-              OR (${params.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-            )
+            WHERE na.notebook_id = nb.id AND ${principalMatch}
           )
           AND (${filters.query} = '' OR n.search_document @@ websearch_to_tsquery('simple', ${filters.query}))
           AND (${filters.createdAfter}::timestamptz IS NULL OR n.created_at >= ${filters.createdAfter}::timestamptz)

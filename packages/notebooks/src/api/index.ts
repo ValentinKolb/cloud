@@ -456,11 +456,27 @@ const getNotebookAccessSubject = (c: Context<AuthContext>) => {
   return {
     user,
     userId: accessSubject.type === "user" ? accessSubject.userId : null,
-    userGroups: user?.memberofGroupIds ?? [],
     serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
     serviceAccount,
     serviceAccountScopes: actor.kind === "service_account" ? actor.scopes : [],
   };
+};
+
+const getCollectionNotebookBinding = (
+  subject: ReturnType<typeof getNotebookAccessSubject>,
+): Result<string | null> => {
+  if (!subject.serviceAccountId) return ok(null);
+  if (
+    subject.serviceAccount?.kind !== "resource_bound" ||
+    subject.serviceAccount.appId !== NOTEBOOKS_APP_ID ||
+    subject.serviceAccount.resourceType !== NOTEBOOK_RESOURCE_TYPE ||
+    !subject.serviceAccount.resourceId ||
+    !z.uuid().safeParse(subject.serviceAccount.resourceId).success ||
+    !hasPermission(permissionFromScopes(subject.serviceAccountScopes), "read")
+  ) {
+    return fail(err.forbidden("Access denied"));
+  }
+  return ok(subject.serviceAccount.resourceId);
 };
 
 /**
@@ -505,7 +521,6 @@ const checkNotebookAccess = async (c: Context<AuthContext>, idOrShortId: string,
   let permission = await notebooksService.notebook.permission.get({
     notebookId: notebook.id,
     userId: subject.userId,
-    userGroups: subject.userGroups,
     serviceAccountId: subject.serviceAccountId,
   });
 
@@ -605,14 +620,15 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ListNotebooksQuerySchema),
     async (c) => {
-      const userResult = requireUserBackedActor(c);
-      if (!userResult.ok) return respond(c, userResult);
-      const user = userResult.data;
+      const subject = getNotebookAccessSubject(c);
+      const binding = getCollectionNotebookBinding(subject);
+      if (!binding.ok) return respond(c, binding);
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
       const result = await notebooksService.notebook.list({
-        userId: user.id,
-        groups: user.memberofGroupIds,
+        userId: subject.userId,
+        serviceAccountId: subject.serviceAccountId,
+        boundNotebookId: binding.data,
         pagination,
         filter: { query: query.q },
       });
@@ -665,12 +681,13 @@ const app = new Hono<AuthContext>()
     }),
     v("query", GlobalNoteSearchQuerySchema),
     async (c) => {
-      const userResult = requireUserBackedActor(c);
-      if (!userResult.ok) return respond(c, userResult);
+      const subject = getNotebookAccessSubject(c);
+      const binding = getCollectionNotebookBinding(subject);
+      if (!binding.ok) return respond(c, binding);
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
-      let notebookId: string | undefined;
+      let notebookId: string | undefined = binding.data ?? undefined;
       if (query.notebook) {
         const checked = await checkNotebookAccess(c, query.notebook);
         if (checked.error) return checked.error;
@@ -678,8 +695,9 @@ const app = new Hono<AuthContext>()
       }
 
       const result = await notebooksService.note.searchAcross({
-        userId: userResult.data.id,
-        groups: userResult.data.memberofGroupIds,
+        userId: subject.userId,
+        serviceAccountId: subject.serviceAccountId,
+        boundNotebookId: binding.data,
         notebookId,
         filters: parseSearchFilters(query),
         pagination,
@@ -837,7 +855,6 @@ const app = new Hono<AuthContext>()
         origin: new URL(c.req.url).origin,
         canWrite: permission === "write" || permission === "admin",
         userId: user.id,
-        userGroups: user.memberofGroupIds,
         bypassAccess: hasRole(user, "admin"),
       });
 
@@ -1514,14 +1531,15 @@ const app = new Hono<AuthContext>()
       if (!noteCheck.ok) return respond(c, noteCheck);
       noteId = noteCheck.data.id;
 
-      const userResult = requireUserBackedActor(c);
-      if (!userResult.ok) return respond(c, userResult);
-      const user = userResult.data;
+      const subject = getNotebookAccessSubject(c);
+      const binding = getCollectionNotebookBinding(subject);
+      if (!binding.ok) return respond(c, binding);
       const items = await notebooksService.note.backlinks.list({
         noteId,
-        userId: user.id,
-        userGroups: user.memberofGroupIds,
-        bypassAccess: hasRole(user, "admin"),
+        userId: subject.userId,
+        serviceAccountId: subject.serviceAccountId,
+        boundNotebookId: binding.data,
+        bypassAccess: Boolean(subject.user && hasRole(subject.user, "admin")),
       });
 
       return respond(c, ok({ data: items }));

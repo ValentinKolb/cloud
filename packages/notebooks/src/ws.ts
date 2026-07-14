@@ -466,7 +466,6 @@ const evaluateAccess = async (
   const permission = await notebooksService.notebook.permission.get({
     notebookId: note.notebookId,
     userId: user.id,
-    userGroups: user.memberofGroupIds,
   });
 
   if (permission === "none") {
@@ -522,7 +521,6 @@ const evaluateNotebookAccess = async (
   const permission = await notebooksService.notebook.permission.get({
     notebookId: notebook.id,
     userId: user.id,
-    userGroups: user.memberofGroupIds,
   });
 
   if (permission === "none") {
