@@ -17,6 +17,7 @@ import accountCliModule from "@valentinkolb/cloud/cli/account";
 import adminCliModule from "@valentinkolb/cloud/cli/admin";
 import appsCliModule from "@valentinkolb/cloud/cli/apps";
 import accountsCliModule from "@valentinkolb/cloud-app-accounts/cli";
+import apiDocsCliModule from "@valentinkolb/cloud-app-api-docs/cli";
 import assistantCliModule from "@valentinkolb/cloud-app-assistant/cli";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
 import gridsCliModule from "@valentinkolb/cloud-app-grids/cli";
@@ -106,6 +107,7 @@ const modules: CloudCliModule[] = [
   accountCliModule,
   accountsCliModule,
   adminCliModule,
+  apiDocsCliModule,
   appsCliModule,
   assistantCliModule,
   contactsCliModule,
@@ -695,9 +697,10 @@ const createContext = (args: string[], flags: CloudCliFlags, options: ResolvedCl
     print: (value = "") => {
       console.log(value);
     },
-    write: (value) => {
-      process.stdout.write(value);
-    },
+    write: (value) =>
+      new Promise<void>((resolve, reject) => {
+        process.stdout.write(value, (error) => (error ? reject(error) : resolve()));
+      }),
     error: (value) => {
       console.error(value);
     },

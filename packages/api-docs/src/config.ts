@@ -7,7 +7,7 @@ import { defineApp } from "@valentinkolb/cloud";
  * renders them together into one navigable doc index.
  *
  * Public on purpose: API references are documentation, not data.
- * the `/api/<id>/openapi.json` endpoints they point at are public too.
+ * The `/api/<id>/openapi.json` endpoints they point at are public too.
  * Lives in the rail's "more" dropdown so it stays one click away
  * without taking primary-nav real estate.
  */
@@ -24,7 +24,7 @@ export const app = defineApp({
     match: "/app/api-docs",
     section: "more",
   },
-  routes: ["/app/api-docs", "/public/api-docs"],
+  routes: ["/api/api-docs", "/app/api-docs", "/public/api-docs"],
 });
 
 export const { ssr, plugin } = app;

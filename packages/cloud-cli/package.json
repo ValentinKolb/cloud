@@ -15,6 +15,7 @@
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/cloud-app-accounts": "workspace:*",
+    "@valentinkolb/cloud-app-api-docs": "workspace:*",
     "@valentinkolb/cloud-app-assistant": "workspace:*",
     "@valentinkolb/cloud-app-contacts": "workspace:*",
     "@valentinkolb/cloud-app-ipa-hosts": "workspace:*",

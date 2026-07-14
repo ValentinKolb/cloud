@@ -1,7 +1,7 @@
 import { Scalar } from "@scalar/hono-api-reference";
 import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
 import { Hono } from "hono";
-import { buildScalarSources } from "./sources";
+import { buildScalarSources } from "../sources";
 
 /**
  * Page router for the API Docs aggregator. Mounted at `/app/api-docs`.
