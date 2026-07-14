@@ -360,7 +360,7 @@ const app = new Hono<AuthContext>()
               .finally(() => {
                 checkingAccess = false;
               });
-          }, 25_000);
+          }, 8_000);
           try {
             for await (const event of liveSpaceEvents({ spaceId, after: startCursor, signal: streamAbort.signal })) {
               if (closed || streamAbort.signal.aborted) break;
