@@ -26,6 +26,16 @@ const insertUser = async (name: string) => {
   return row!.id;
 };
 
+const insertGroup = async (name: string) => {
+  const suffix = crypto.randomUUID();
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO auth.groups (cn, provider, name, description)
+    VALUES (${`ai-skills-${name}-${suffix}`}, 'local', ${`Skills ${name}`}, 'AI skills visibility test group')
+    RETURNING id
+  `;
+  return row!.id;
+};
+
 const bytes = (text: string) => new TextEncoder().encode(text);
 const uniqueSlug = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -198,7 +208,7 @@ describe("aiSkillStore integration", () => {
 
     try {
       // The other user sees the workspace skill but NOT the private skill.
-      let otherView = await aiSkillStore.visibleSkills({ userId: otherId, userGroups: [] });
+      let otherView = await aiSkillStore.visibleSkills({ userId: otherId });
       expect(otherView.some((entry) => entry.id === workspaceSkill.id)).toBe(true);
       expect(otherView.some((entry) => entry.id === ownSkill.id)).toBe(false);
 
@@ -209,20 +219,20 @@ describe("aiSkillStore integration", () => {
         permission: "read",
         actorUserId: ownerId,
       });
-      otherView = await aiSkillStore.visibleSkills({ userId: otherId, userGroups: [] });
+      otherView = await aiSkillStore.visibleSkills({ userId: otherId });
       const shared = otherView.find((entry) => entry.id === ownSkill.id);
       expect(shared?.origin).toBe("shared");
       expect(shared?.userState).toBe("disabled");
 
       // Not active until the user consents.
-      let active = await aiSkillStore.activeSkills({ userId: otherId, userGroups: [] });
+      let active = await aiSkillStore.activeSkills({ userId: otherId });
       expect(active.some((entry) => entry.id === ownSkill.id)).toBe(false);
       await aiSkillStore.setUserState({ userId: otherId, skillId: ownSkill.id, state: "enabled" });
-      active = await aiSkillStore.activeSkills({ userId: otherId, userGroups: [] });
+      active = await aiSkillStore.activeSkills({ userId: otherId });
       expect(active.some((entry) => entry.id === ownSkill.id)).toBe(true);
 
       // The owner sees their skill as own + enabled by default.
-      const ownerView = await aiSkillStore.visibleSkills({ userId: ownerId, userGroups: [] });
+      const ownerView = await aiSkillStore.visibleSkills({ userId: ownerId });
       const own = ownerView.find((entry) => entry.id === ownSkill.id);
       expect(own?.origin).toBe("own");
       expect(own?.userState).toBe("enabled");
@@ -231,6 +241,42 @@ describe("aiSkillStore integration", () => {
       await deleteSkill(workspaceSkill.id);
       await sql`DELETE FROM auth.users WHERE id = ${ownerId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${otherId}::uuid`;
+    }
+  });
+
+  test("visibility resolves nested group grants from the authoritative membership graph", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const ownerId = await insertUser("nested-owner");
+    const memberId = await insertUser("nested-member");
+    const parentGroupId = await insertGroup("parent");
+    const childGroupId = await insertGroup("child");
+    const skill = await aiSkillStore.create({ slug: uniqueSlug("nested"), ownerUserId: ownerId, actorUserId: ownerId });
+    let accessId: string | null = null;
+
+    try {
+      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${memberId}::uuid, ${childGroupId}::uuid)`;
+      await sql`
+        INSERT INTO auth.group_groups_v2 (parent_group_id, child_group_id)
+        VALUES (${parentGroupId}::uuid, ${childGroupId}::uuid)
+      `;
+      const access = await aiSkillStore.grantAccess({
+        skillId: skill.id,
+        principal: { type: "group", groupId: parentGroupId },
+        permission: "read",
+        actorUserId: ownerId,
+      });
+      accessId = access?.id ?? null;
+
+      const visible = await aiSkillStore.visibleSkills({ userId: memberId });
+      expect(visible.find((entry) => entry.id === skill.id)).toMatchObject({ origin: "shared", userState: "disabled" });
+    } finally {
+      if (accessId) await aiSkillStore.revokeAccess({ skillId: skill.id, accessId, actorUserId: ownerId });
+      await deleteSkill(skill.id);
+      await sql`DELETE FROM auth.group_groups_v2 WHERE parent_group_id = ${parentGroupId}::uuid OR child_group_id = ${parentGroupId}::uuid`;
+      await sql`DELETE FROM auth.group_groups_v2 WHERE parent_group_id = ${childGroupId}::uuid OR child_group_id = ${childGroupId}::uuid`;
+      await sql`DELETE FROM auth.user_groups_v2 WHERE group_id IN (${parentGroupId}::uuid, ${childGroupId}::uuid)`;
+      await sql`DELETE FROM auth.groups WHERE id IN (${parentGroupId}::uuid, ${childGroupId}::uuid)`;
+      await sql`DELETE FROM auth.users WHERE id IN (${ownerId}::uuid, ${memberId}::uuid)`;
     }
   });
 
@@ -250,12 +296,12 @@ describe("aiSkillStore integration", () => {
       await aiSkillStore.setUserState({ userId: otherId, skillId: skill.id, state: "enabled" });
 
       await aiSkillStore.update({ skillId: skill.id, enabled: false, actorUserId: ownerId });
-      const active = await aiSkillStore.activeSkills({ userId: otherId, userGroups: [] });
+      const active = await aiSkillStore.activeSkills({ userId: otherId });
       expect(active.some((candidate) => candidate.id === skill.id)).toBe(false);
 
       await aiSkillStore.update({ skillId: skill.id, enabled: true, actorUserId: ownerId });
       await aiSkillStore.revokeAccess({ skillId: skill.id, accessId: entry!.id, actorUserId: ownerId });
-      const visible = await aiSkillStore.visibleSkills({ userId: otherId, userGroups: [] });
+      const visible = await aiSkillStore.visibleSkills({ userId: otherId });
       expect(visible.some((candidate) => candidate.id === skill.id)).toBe(false);
     } finally {
       await deleteSkill(skill.id);

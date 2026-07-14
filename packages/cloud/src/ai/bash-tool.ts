@@ -69,7 +69,7 @@ export const buildAiSkillsMountFromSkills = async (skills: AiSkillUserView[]): P
   return new SkillsFs(files);
 };
 
-export const buildAiSkillsMount = async (input: { userId: string; userGroups: string[] }): Promise<SkillsFs> =>
+export const buildAiSkillsMount = async (input: { userId: string }): Promise<SkillsFs> =>
   buildAiSkillsMountFromSkills(await aiSkillStore.activeSkills(input));
 
 const renderSkillsReadme = (skills: AiSkillUserView[]): string => {
@@ -90,7 +90,6 @@ const renderSkillsReadme = (skills: AiSkillUserView[]): string => {
 /** One-line skill index for the system prompt (progressive disclosure: details live in SKILL.md). */
 export const listActiveAiSkillHints = async (input: {
   userId: string;
-  userGroups: string[];
 }): Promise<{ slug: string; description: string }[]> => {
   const skills = await aiSkillStore.activeSkills(input);
   return skills.map((skill) => ({ slug: skill.slug, description: skill.description }));
@@ -177,7 +176,7 @@ export const createCloudAiBashTool = () =>
     if (ctx.actor.kind !== "user") throw new Error("The bash tool is only available to signed-in users.");
     const user = ctx.actor.user;
 
-    const activeSkills = await aiSkillStore.activeSkills({ userId: user.id, userGroups: user.memberofGroupIds });
+    const activeSkills = await aiSkillStore.activeSkills({ userId: user.id });
     const skills = await buildAiSkillsMountFromSkills(activeSkills);
     const fs = buildAiBashFs({ conversationId: ctx.conversationId, skills });
 

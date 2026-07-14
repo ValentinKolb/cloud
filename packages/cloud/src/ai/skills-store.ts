@@ -1,13 +1,14 @@
 import { sql } from "bun";
 import {
   type AccessEntry,
+  buildAccessPrincipalCondition,
   createAccess,
   deleteAccess,
   type PermissionLevel,
   type Principal,
   resolveDisplayNames,
 } from "../server/services/access";
-import { escapeLikePattern, toPgTextArray, toPgUuidArray } from "../services/postgres";
+import { escapeLikePattern, toPgTextArray } from "../services/postgres";
 import { normalizeAiFilePath } from "./files-store";
 
 export const AI_SKILL_FILE_MAX_BYTES = 2 * 1024 * 1024;
@@ -484,7 +485,17 @@ export const aiSkillStore = {
    * Default activation encodes the consent rule: own + workspace = enabled,
    * foreign shares = disabled until the user explicitly enables them.
    */
-  async visibleSkills(input: { userId: string; userGroups: string[] }): Promise<AiSkillUserView[]> {
+  async visibleSkills(input: { userId: string }): Promise<AiSkillUserView[]> {
+    const principalMatch = buildAccessPrincipalCondition({
+      subject: { type: "user", userId: input.userId },
+      columns: {
+        userId: sql`a.user_id`,
+        groupId: sql`a.group_id`,
+        serviceAccountId: sql`a.service_account_id`,
+        authenticatedOnly: sql`a.authenticated_only`,
+      },
+    });
+
     const rows = await sql<(SkillRow & { user_state: string | null })[]>`
       SELECT s.*, st.state AS user_state, convert_from(skill_md_file.bytes, 'UTF8') AS skill_md
       FROM ai.skills s
@@ -497,11 +508,8 @@ export const aiSkillStore = {
           FROM ai.skill_access sa
           JOIN auth.access a ON a.id = sa.access_id
           WHERE sa.skill_id = s.id
-            AND (
-              a.user_id = ${input.userId}::uuid
-              OR a.group_id = ANY(${toPgUuidArray(input.userGroups)}::uuid[])
-              OR a.authenticated_only = TRUE
-            )
+            AND a.permission <> 'none'
+            AND ${principalMatch}
         )
       ORDER BY s.slug ASC
     `;
@@ -515,7 +523,7 @@ export const aiSkillStore = {
   },
 
   /** Skills that actually enter the user's catalog and /skills mount. */
-  async activeSkills(input: { userId: string; userGroups: string[] }): Promise<AiSkillUserView[]> {
+  async activeSkills(input: { userId: string }): Promise<AiSkillUserView[]> {
     const visible = await this.visibleSkills(input);
     return visible.filter((skill) => skill.enabled && skill.userState === "enabled");
   },

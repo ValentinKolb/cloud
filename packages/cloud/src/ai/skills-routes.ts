@@ -129,7 +129,7 @@ const canManageSkill = (skill: AiSkill, user: User): boolean =>
 
 const isSkillVisibleTo = async (skill: AiSkill, user: User): Promise<boolean> => {
   if (skill.ownerUserId === user.id || skill.ownerUserId === null) return true;
-  const visible = await aiSkillStore.visibleSkills({ userId: user.id, userGroups: user.memberofGroupIds });
+  const visible = await aiSkillStore.visibleSkills({ userId: user.id });
   return visible.some((entry) => entry.id === skill.id);
 };
 
@@ -175,7 +175,7 @@ export const createAiSkillsRoutes = () => {
       .get("/", async (c) => {
         const user = requestUser(c);
         if (!user) return respond(c, fail(err.forbidden("Skills require a user-backed actor")));
-        const visible = await aiSkillStore.visibleSkills({ userId: user.id, userGroups: user.memberofGroupIds });
+        const visible = await aiSkillStore.visibleSkills({ userId: user.id });
         // Admin-disabled skills leave the user catalog entirely (admins manage
         // them on the dedicated admin page, which lists via /admin/all).
         return respond(c, ok({ skills: visible.filter((skill) => skill.enabled) }));
@@ -183,7 +183,7 @@ export const createAiSkillsRoutes = () => {
       .get("/managed", async (c) => {
         const user = requestUser(c);
         if (!user) return respond(c, fail(err.forbidden("Skills require a user-backed actor")));
-        const visible = await aiSkillStore.visibleSkills({ userId: user.id, userGroups: user.memberofGroupIds });
+        const visible = await aiSkillStore.visibleSkills({ userId: user.id });
         return respond(c, ok({ skills: visible.filter((skill) => canManageSkill(skill, user)) }));
       })
       .post("/", v("json", CreateSkillSchema), async (c) => {
@@ -216,7 +216,7 @@ export const createAiSkillsRoutes = () => {
         if (loaded instanceof Response) return loaded;
         const [files, views] = await Promise.all([
           aiSkillStore.listFiles(loaded.skill.id),
-          aiSkillStore.visibleSkills({ userId: loaded.user.id, userGroups: loaded.user.memberofGroupIds }),
+          aiSkillStore.visibleSkills({ userId: loaded.user.id }),
         ]);
         const view = views.find((entry) => entry.id === loaded.skill.id);
         return respond(

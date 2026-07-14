@@ -379,7 +379,7 @@ export class AiTurnExecutor {
     // Skill index for the system prompt — only active (enabled + consented) skills of the user.
     let skillHints: { slug: string; description: string }[] = [];
     if (user && config.toolSource?.kind === "default") {
-      skillHints = await listActiveAiSkillHints({ userId: user.id, userGroups: user.memberofGroupIds }).catch(() => []);
+      skillHints = await listActiveAiSkillHints({ userId: user.id }).catch(() => []);
     }
 
     const prepared = prepareAiTools({ tools: activeTools, actor: material.actor, conversationId });

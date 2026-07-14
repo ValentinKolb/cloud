@@ -106,7 +106,7 @@ describe("bash tool end-to-end", () => {
       await aiSkillStore.setUserState({ userId, skillId: skill.id, state: "disabled" });
       const withoutSkill = await runBash({ command: `ls /skills` }, ctx);
       expect(withoutSkill.stdout).not.toContain(skill.slug);
-      const hints = await listActiveAiSkillHints({ userId, userGroups: [] });
+      const hints = await listActiveAiSkillHints({ userId });
       expect(hints.some((hint) => hint.slug === skill.slug)).toBe(false);
 
       // present hands a produced file to the user.
@@ -136,11 +136,11 @@ describe("bash tool end-to-end", () => {
       await aiSkillStore.writeFile({ skillId: skill.id, path: "/SKILL.md", bytes: bytes("# Code skill\n"), actorUserId: adminId });
       await aiSkillStore.writeFile({ skillId: skill.id, path: "/scripts/gen.js", bytes: bytes("console.log(42)\n"), actorUserId: adminId });
 
-      let mount = await buildAiSkillsMount({ userId: adminId, userGroups: [] });
+      let mount = await buildAiSkillsMount({ userId: adminId });
       await expect(mount.stat(`/${skill.slug}/scripts/gen.js`)).rejects.toThrow();
 
       await aiSkillStore.approveCode({ skillId: skill.id, approverUserId: adminId });
-      mount = await buildAiSkillsMount({ userId: adminId, userGroups: [] });
+      mount = await buildAiSkillsMount({ userId: adminId });
       expect((await mount.stat(`/${skill.slug}/scripts/gen.js`)).isFile).toBe(true);
     } finally {
       await sql`DELETE FROM ai.skill_events WHERE skill_id = ${skill.id}::uuid`;
