@@ -141,7 +141,8 @@ export default ssr<AuthContext>(async (c) => {
                 <code class="font-mono">X-Forwarded-Email</code> <span class="opacity-70">— Email address</span>
               </div>
               <div>
-                <code class="font-mono">X-Forwarded-Groups</code> <span class="opacity-70">— Comma-separated group list</span>
+                <code class="font-mono">X-Forwarded-Groups</code>{" "}
+                <span class="opacity-70">— Comma-separated direct and nested group list</span>
               </div>
             </div>
           </section>

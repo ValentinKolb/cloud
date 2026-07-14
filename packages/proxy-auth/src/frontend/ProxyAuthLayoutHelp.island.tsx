@@ -37,7 +37,7 @@ export default function ProxyAuthLayoutHelp() {
               {
                 title: "Forwarded headers",
                 icon: "ti-arrow-forward-up",
-                text: "On success, the endpoint returns user, email, and group headers for the upstream service.",
+                text: "On success, the endpoint returns user, email, and effective direct or nested group headers for the upstream service.",
               },
             ]}
           />

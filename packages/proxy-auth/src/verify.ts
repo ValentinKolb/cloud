@@ -1,4 +1,4 @@
-import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, getEffectiveGroups } from "@valentinkolb/cloud/server";
 import { authFlows } from "@valentinkolb/cloud/services";
 import { type Context, Hono } from "hono";
 import { proxyAuthService } from "./service";
@@ -56,9 +56,11 @@ const app = new Hono<AuthContext>().get("/verify/:clientId", auth.requireRole("*
     return c.redirect(loginUrl, 302);
   }
 
-  // Check if user is member of any allowed group
-  const userGroups = new Set(user.memberofGroupIds);
-  const hasAccess = client.allowedGroups.some((g) => userGroups.has(g.id));
+  // Use the authoritative recursive membership graph for both the gate and
+  // forwarded claims so nested memberships cannot disagree with each other.
+  const effectiveGroups = await getEffectiveGroups({ userId: user.id });
+  const effectiveGroupIds = new Set(effectiveGroups.map((group) => group.id));
+  const hasAccess = client.allowedGroups.some((group) => effectiveGroupIds.has(group.id));
 
   if (!hasAccess) {
     return c.text("Access denied: you are not a member of an authorized group.", 403);
@@ -67,7 +69,7 @@ const app = new Hono<AuthContext>().get("/verify/:clientId", auth.requireRole("*
   // Authenticated + authorized → 200 with user info headers
   c.header("X-Forwarded-User", user.uid);
   c.header("X-Forwarded-Email", user.mail ?? "");
-  c.header("X-Forwarded-Groups", user.memberofGroup.join(","));
+  c.header("X-Forwarded-Groups", effectiveGroups.map((group) => group.name).join(","));
   return c.text("OK", 200);
 });
 
