@@ -112,11 +112,7 @@ const getVenueAccessSubject = (c: Context<AuthContext>, venueId?: string) => {
 
   return ok({
     user,
-    userId: accessSubject.type === "user" ? accessSubject.userId : null,
-    userGroups: Array.isArray(user?.memberofGroupIds)
-      ? user.memberofGroupIds.filter((groupId): groupId is string => typeof groupId === "string")
-      : [],
-    serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+    subject: accessSubject,
     serviceAccountResourceId:
       actor.kind === "service_account" && actor.serviceAccount.kind === "resource_bound" ? actor.serviceAccount.resourceId : null,
     serviceAccountScopes: actor.kind === "service_account" && actor.serviceAccount.kind === "resource_bound" ? actor.scopes : [],

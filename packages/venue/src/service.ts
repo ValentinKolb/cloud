@@ -1,5 +1,7 @@
 import {
   type AccessEntry,
+  type AccessSubject,
+  buildAccessPrincipalCondition,
   createAccess,
   deleteAccess,
   err,
@@ -13,7 +15,7 @@ import {
   resolveDisplayNames,
   updateAccess,
 } from "@valentinkolb/cloud/server";
-import { logger, serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
 import { dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { z } from "zod";
@@ -141,13 +143,10 @@ type DbFeedbackEntry = {
 
 type UserLike = {
   id: string;
-  memberofGroupIds?: unknown;
 };
 
 type VenueAccessSubject = {
-  userId: string | null;
-  userGroups: string[];
-  serviceAccountId?: string | null;
+  subject: AccessSubject;
   serviceAccountResourceId?: string | null;
   serviceAccountScopes?: string[];
 };
@@ -161,7 +160,7 @@ class TemplateError extends Error {
   }
 }
 
-const userGroupIds = (user: UserLike): string[] => (Array.isArray(user.memberofGroupIds) ? user.memberofGroupIds : []);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const PERMISSION_RANK: Record<PermissionLevel, number> = {
   none: 0,
@@ -180,12 +179,10 @@ const permissionFromScopes = (scopes: string[] | undefined): PermissionLevel => 
 const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
 
 const toAccessSubject = (subject: UserLike | VenueAccessSubject): VenueAccessSubject =>
-  "userId" in subject
+  "subject" in subject
     ? subject
     : {
-        userId: subject.id,
-        userGroups: userGroupIds(subject),
-        serviceAccountId: null,
+        subject: { type: "user", userId: subject.id },
         serviceAccountResourceId: null,
         serviceAccountScopes: [],
       };
@@ -392,14 +389,21 @@ const createOwnerAccessInTx = async (tx: SqlClient, userId: string): Promise<Res
 
 const getPermission = async (venueId: string, subjectInput: UserLike | VenueAccessSubject): Promise<PermissionLevel> => {
   const subject = toAccessSubject(subjectInput);
+  if (
+    subject.subject.type === "service_account" &&
+    (!UUID_PATTERN.test(subject.serviceAccountResourceId ?? "") || subject.serviceAccountResourceId !== venueId)
+  ) {
+    return "none";
+  }
+
   const entries = await listAccess(venueId);
   const permission = await getEffectivePermission({
     accessIds: entries.map((entry) => entry.id),
-    userId: subject.userId,
-    userGroups: subject.userGroups,
-    serviceAccountId: subject.serviceAccountId,
+    subject: subject.subject,
   });
-  return subject.serviceAccountId ? minPermission(permission, permissionFromScopes(subject.serviceAccountScopes)) : permission;
+  return subject.subject.type === "service_account"
+    ? minPermission(permission, permissionFromScopes(subject.serviceAccountScopes))
+    : permission;
 };
 
 const requirePermission = async (
@@ -414,24 +418,21 @@ const requirePermission = async (
 
 const listVenues = async (subjectInput: UserLike | VenueAccessSubject): Promise<Venue[]> => {
   const subject = toAccessSubject(subjectInput);
-  if (subject.serviceAccountId) {
-    const rows = await sql<DbVenue[]>`
-      SELECT DISTINCT v.*
-      FROM venue.venues v
-      JOIN venue.venue_access va ON va.venue_id = v.id
-      JOIN auth.access a ON a.id = va.access_id
-      WHERE a.permission <> 'none'
-        AND a.service_account_id = ${subject.serviceAccountId}::uuid
-        AND (${subject.serviceAccountResourceId ?? null}::uuid IS NULL OR v.id = ${subject.serviceAccountResourceId}::uuid)
-      ORDER BY v.name
-    `;
-
-    const venues: Venue[] = [];
-    for (const row of rows) {
-      venues.push(mapVenue(row, await getPermission(row.id, subject)));
-    }
-    return venues.filter((venue) => venue.permission && venue.permission !== "none");
+  if (subject.subject.type === "service_account" && !UUID_PATTERN.test(subject.serviceAccountResourceId ?? "")) {
+    return [];
   }
+
+  const principalMatch = buildAccessPrincipalCondition({
+    subject: subject.subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+  const bindingMatch =
+    subject.subject.type === "service_account" ? sql`v.id = ${subject.serviceAccountResourceId}::uuid` : sql`true`;
 
   const rows = await sql<DbVenue[]>`
     SELECT DISTINCT v.*
@@ -440,11 +441,8 @@ const listVenues = async (subjectInput: UserLike | VenueAccessSubject): Promise<
     JOIN auth.access a ON a.id = va.access_id
     WHERE
       a.permission <> 'none'
-      AND (
-        a.user_id = ${subject.userId}::uuid
-        OR a.authenticated_only = true
-        OR a.group_id = ANY(${toPgUuidArray(subject.userGroups)}::uuid[])
-      )
+      AND ${principalMatch}
+      AND ${bindingMatch}
     ORDER BY v.name
   `;
 
@@ -452,7 +450,7 @@ const listVenues = async (subjectInput: UserLike | VenueAccessSubject): Promise<
   for (const row of rows) {
     venues.push(mapVenue(row, await getPermission(row.id, subject)));
   }
-  return venues;
+  return venues.filter((venue) => venue.permission && venue.permission !== "none");
 };
 
 const getVenue = async (id: string, subject?: UserLike | VenueAccessSubject): Promise<Venue | null> => {
