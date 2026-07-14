@@ -93,7 +93,10 @@ const createContext = (
       return value;
     },
     print: (value = "") => lines.push(value),
+    write: (value) => lines.push(value),
+    error: (value) => lines.push(value),
     json: (value) => jsonValues.push(value),
+    jsonLine: (value) => jsonValues.push(value),
     table: (rows) => tables.push(rows),
   };
   return { ctx, calls, defaults, lines, jsonValues, tables };
