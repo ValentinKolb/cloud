@@ -57,17 +57,11 @@ export default ssr<AuthContext>(async (c) => {
         pendingRequests={summary?.openRequests ?? 0}
         scrollPreserveKey="accounts-dashboard"
       >
-        <div class="flex flex-col gap-5">
+        <div class="flex flex-col gap-4">
           {/* Identity */}
-          <section class="paper">
-            <div class="flex items-center gap-4 p-5">
-              <Avatar
-                username={user.displayName || user.uid}
-                userId={user.id}
-                avatarHash={user.avatarHash}
-                size="md"
-                class="h-11 w-11"
-              />
+          <section class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] p-5">
+            <div class="flex items-center gap-4">
+              <Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="md" class="h-11 w-11" />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <h1 class="text-sm font-semibold text-primary">{user.displayName || user.uid}</h1>
@@ -82,7 +76,7 @@ export default ssr<AuthContext>(async (c) => {
                 <span class="hidden sm:inline">Profile</span>
               </a>
             </div>
-            <div class="border-t border-zinc-200/60 dark:border-zinc-700/40 px-5 py-3 flex flex-wrap gap-x-6 gap-y-1.5">
+            <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2">
               {(
                 [
                   ["Access", getAccountTypeLabel(user)],
@@ -131,13 +125,12 @@ export default ssr<AuthContext>(async (c) => {
           {/* Admin */}
           {isAdmin && summary ? (
             <>
-              <div class="flex items-center gap-3 pt-2">
-                <div class="h-px flex-1 bg-zinc-200/70 dark:bg-zinc-700/50" />
-                <span class="text-[10px] uppercase tracking-[0.2em] text-dimmed select-none">Admin</span>
-                <div class="h-px flex-1 bg-zinc-200/70 dark:bg-zinc-700/50" />
+              <div class="pt-2">
+                <h2 class="text-sm font-semibold text-primary">Administration</h2>
+                <p class="mt-1 text-xs text-dimmed">Account health, lifecycle operations, and recent access changes.</p>
               </div>
 
-              <div class="paper px-4 py-3">
+              <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] px-4 py-3">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="min-w-0">
                     <p class="text-xs font-medium text-primary">Administrative account actions are recorded in the audit log.</p>
@@ -152,64 +145,59 @@ export default ssr<AuthContext>(async (c) => {
                 </div>
               </div>
 
-              {/* Hero stats: Run Health (left, list of progress rows) + 2x2 stat grid (right).
-                    See skills/cloud-app/references/frontend.md § Stats — Hero pattern.
-                    The hero side carries `lg:border-r` so the divider line
-                    between the two halves visually continues the StatCell
-                    hairlines on the right. At narrow viewports the layout
-                    stacks and the border is suppressed (no orphaned line). */}
-              <div class="paper overflow-hidden">
-                <div class="grid grid-cols-1 lg:grid-cols-[1.2fr_1.8fr]">
-                  {/* Run Health — hero side */}
-                  <div class="px-5 py-5 flex flex-col gap-3 lg:border-r border-zinc-100 dark:border-zinc-800">
-                    <div class="flex items-center justify-between gap-3">
-                      <span class="text-[10px] uppercase tracking-wider text-dimmed">Run health</span>
-                      <span
-                        class={`tag ${
-                          summary.lastSync
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                        }`}
-                      >
-                        <i class={`ti ${summary.lastSync ? "ti-check" : "ti-alert-circle"}`} />
-                        {summary.lastSync ? `Synced ${dates.formatDateTimeRelative(summary.lastSync.createdAt)}` : "No sync yet"}
-                      </span>
-                    </div>
-                    <div class="flex flex-col gap-2 flex-1 justify-center">
-                      {healthRows.map(([label, runs, failedRuns]) => {
-                        const rate = runs > 0 ? Math.round(((runs - failedRuns) / runs) * 100) : 100;
-                        const hasFails = failedRuns > 0;
-                        return (
-                          <div class="flex items-center gap-3">
-                            <span class="text-xs text-secondary w-28 shrink-0 truncate">{label}</span>
-                            <ProgressBar value={rate} size="xs" tone={hasFails ? "danger" : "primary"} class="flex-1 min-w-0" />
-                            <span
-                              class={`text-[11px] tabular-nums shrink-0 ${hasFails ? "text-red-600 dark:text-red-400 font-medium" : "text-dimmed"}`}
-                            >
-                              {rate}%
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <span class="text-[10px] text-dimmed">Based on last {summary.runHealthWindow} runs</span>
+              {/* Run health and account metrics share one visual tier without decorative divider lines. */}
+              <div class="grid grid-cols-1 gap-2 lg:grid-cols-[1.2fr_1.8fr]">
+                {/* Run Health — hero side */}
+                <div class="flex flex-col gap-3 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] px-5 py-5">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-[10px] uppercase tracking-wider text-dimmed">Run health</span>
+                    <span
+                      class={`tag ${
+                        summary.lastSync
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                      }`}
+                    >
+                      <i class={`ti ${summary.lastSync ? "ti-check" : "ti-alert-circle"}`} />
+                      {summary.lastSync ? `Synced ${dates.formatDateTimeRelative(summary.lastSync.createdAt)}` : "No sync yet"}
+                    </span>
                   </div>
-                  {/* Stat cells — 2x2 grid. Inline (not StatGrid) because we're
-                        already inside the hero's paper frame; using StatGrid here
-                        would nest a second paper container. The hairline body
-                        (`gap-px bg-zinc`) is the same pattern StatGrid emits. */}
-                  <div class="grid grid-cols-2 gap-px bg-zinc-100 dark:bg-zinc-800">
+                  <div class="flex flex-col gap-2 flex-1 justify-center">
+                    {healthRows.map(([label, runs, failedRuns]) => {
+                      const rate = runs > 0 ? Math.round(((runs - failedRuns) / runs) * 100) : 100;
+                      const hasFails = failedRuns > 0;
+                      return (
+                        <div class="flex items-center gap-3">
+                          <span class="text-xs text-secondary w-28 shrink-0 truncate">{label}</span>
+                          <ProgressBar value={rate} size="xs" tone={hasFails ? "danger" : "primary"} class="flex-1 min-w-0" />
+                          <span
+                            class={`text-[11px] tabular-nums shrink-0 ${hasFails ? "text-red-600 dark:text-red-400 font-medium" : "text-dimmed"}`}
+                          >
+                            {rate}%
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <span class="text-[10px] text-dimmed">Based on last {summary.runHealthWindow} runs</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="overflow-hidden rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)]">
                     <StatCell
                       label="Accounts"
                       value={totalAccounts}
                       sub={`${summary.ipaAccountsTotal} IPA · ${summary.localAccountsTotal} local`}
                       accent={{ tone: "blue", icon: "ti ti-users" }}
                     />
+                  </div>
+                  <div class="overflow-hidden rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)]">
                     <StatCell
                       label="Groups"
                       value={summary.groupsTotal}
                       sub={`${summary.ipaGroupsTotal} IPA · ${summary.localGroupsTotal} local`}
                     />
+                  </div>
+                  <div class="overflow-hidden rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)]">
                     <StatCell
                       label="Requests"
                       value={summary.openRequests}
@@ -226,6 +214,8 @@ export default ssr<AuthContext>(async (c) => {
                           : undefined
                       }
                     />
+                  </div>
+                  <div class="overflow-hidden rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)]">
                     <StatCell
                       label="Expiring 30d"
                       value={expiringTotal}

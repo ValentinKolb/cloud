@@ -88,6 +88,7 @@ export default ssr<AuthContext>(async (c) => {
   const perPage = 100;
   const search = c.req.query("search") ?? "";
   const indirect = c.req.query("indirect") === "true";
+  const showServiceAccounts = c.req.query("service_accounts") === "true";
 
   const buildDetailHref = createGroupDetailHrefBuilder({ listState, defaultScope });
 
@@ -95,10 +96,12 @@ export default ssr<AuthContext>(async (c) => {
     tab: "members",
     search: search || null,
     indirect: indirect ? "true" : null,
+    service_accounts: showServiceAccounts ? "true" : null,
   });
   const managersPageBaseUrl = buildGroupDetailPageBaseUrl(buildDetailHref, groupId, {
     tab: "managers",
     search: search || null,
+    service_accounts: showServiceAccounts ? "true" : null,
   });
   const memberOfPageBaseUrl = buildGroupDetailPageBaseUrl(buildDetailHref, groupId, {
     tab: "member-of",
@@ -106,7 +109,16 @@ export default ssr<AuthContext>(async (c) => {
   });
   const toggleIndirectUrl = buildDetailHref(groupId, {
     tab: "members",
+    search: search || null,
     indirect: indirect ? null : "true",
+    service_accounts: showServiceAccounts ? "true" : null,
+    page: null,
+  });
+  const toggleServiceAccountsUrl = buildDetailHref(groupId, {
+    tab,
+    search: search || null,
+    indirect: tab === "members" && indirect ? "true" : null,
+    service_accounts: showServiceAccounts ? null : "true",
     page: null,
   });
 
@@ -142,6 +154,7 @@ export default ssr<AuthContext>(async (c) => {
         search: search || undefined,
         memberOfGroupId: groupId,
         recursive: indirect,
+        kinds: showServiceAccounts ? ["user", "group", "service_account"] : ["user", "group"],
       }),
       accountsService.group.member.list({
         id: groupId,
@@ -159,6 +172,7 @@ export default ssr<AuthContext>(async (c) => {
         pagination: { page, perPage },
         search: search || undefined,
         managerOfGroupId: groupId,
+        kinds: showServiceAccounts ? ["user", "group", "service_account"] : ["user", "group"],
       }),
       accountsService.group.manager.list({
         id: groupId,
@@ -248,10 +262,10 @@ export default ssr<AuthContext>(async (c) => {
             </a>
           </div>
 
-          <div class="flex flex-wrap items-start justify-between gap-3" style="view-transition-name: accounts-group-title">
+          <div class="flex flex-wrap items-start justify-between gap-3 py-2" style="view-transition-name: accounts-group-title">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
-                <h1 class="text-base font-semibold text-primary">{group.name}</h1>
+                <h1 class="text-xl font-semibold tracking-tight text-primary">{group.name}</h1>
                 {providerBadge && (
                   <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>{providerBadge.label}</span>
                 )}
@@ -296,6 +310,7 @@ export default ssr<AuthContext>(async (c) => {
                     search: null,
                     page: null,
                     indirect: null,
+                    service_accounts: null,
                   })}
                   class={`btn-input btn-input-sm ${tab === entryTab ? "btn-input-active" : ""}`}
                   role="tab"
@@ -324,6 +339,8 @@ export default ssr<AuthContext>(async (c) => {
               groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
               pageBaseUrl={membersPageBaseUrl}
               toggleIndirectUrl={toggleIndirectUrl}
+              serviceAccountsToggleUrl={toggleServiceAccountsUrl}
+              showServiceAccounts={showServiceAccounts}
             />
           )}
 
@@ -339,6 +356,8 @@ export default ssr<AuthContext>(async (c) => {
               isAdmin={isAdmin}
               groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
               pageBaseUrl={managersPageBaseUrl}
+              serviceAccountsToggleUrl={toggleServiceAccountsUrl}
+              showServiceAccounts={showServiceAccounts}
             />
           )}
 

@@ -6,6 +6,10 @@ type Props = {
   indirectToggleUrl?: string;
   /** Whether indirect mode is currently active */
   indirect?: boolean;
+  /** URL to toggle service-account memberships (omit to hide the button) */
+  serviceAccountsToggleUrl?: string;
+  /** Whether service-account memberships are currently visible */
+  showServiceAccounts?: boolean;
   /** Slot for action buttons (e.g. AddMember) */
   actions?: JSX.Element;
 };
@@ -28,6 +32,17 @@ export default function TabToolbar(props: Props) {
         >
           <i class="ti ti-hierarchy text-sm" />
           {props.indirect ? "All members" : "Direct only"}
+        </a>
+      )}
+      {props.serviceAccountsToggleUrl && (
+        <a
+          href={props.serviceAccountsToggleUrl}
+          class={`btn-input btn-input-sm shrink-0 self-stretch ${props.showServiceAccounts ? "btn-input-active" : ""}`}
+          title={props.showServiceAccounts ? "Hide service account memberships" : "Show service account memberships"}
+          aria-pressed={props.showServiceAccounts}
+        >
+          <i class="ti ti-user-key text-sm" />
+          Service accounts
         </a>
       )}
       {props.actions}

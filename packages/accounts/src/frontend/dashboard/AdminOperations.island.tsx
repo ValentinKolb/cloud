@@ -1,10 +1,10 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
 // Platform lifecycle backfill endpoints are owned by cloud-lib (not by an app),
 // so the typed client is a cloud-lib export and is identical regardless of
 // which container loads it.
 import { coreClient } from "@valentinkolb/cloud/clients/core";
+import { prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 
 type JobKind = "ipa-backfill" | "local-user-backfill" | "guest-backfill";
 type OperationKey = "ipa-backfill" | "local-user-backfill" | "local-guest-backfill";
@@ -111,49 +111,45 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
   };
 
   return (
-    <div class="paper p-2">
-      <div class="flex flex-col gap-2">
-        {OPERATIONS.filter((operation) => props.freeIpaEnabled || operation.key !== "ipa-backfill").map(
-          (operation) => {
-            const isLoading = () => runMutation.loading() && activeOperationKey === operation.key;
-            return (
-              <section class="flex flex-col gap-3 rounded-lg bg-zinc-50/80 px-4 py-4 md:flex-row md:items-center md:gap-4 dark:bg-zinc-900/65">
-                <div class="flex min-w-0 flex-1 items-start gap-3">
-                  <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-zinc-600 shadow-sm shadow-zinc-950/[0.04] dark:bg-zinc-950/75 dark:text-zinc-300 dark:shadow-none">
-                    <i class={isLoading() ? "ti ti-loader-2 animate-spin text-sm" : `${operation.icon} text-sm`} />
-                  </div>
-                  <div class="min-w-0">
-                    <h3 class="text-sm font-medium text-primary">{operation.label}</h3>
-                    <p class="text-xs text-dimmed">{operation.description}</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  class="btn-secondary btn-sm w-full justify-center md:w-auto md:min-w-48"
-                  onClick={() => void handleRun(operation)}
-                  disabled={runMutation.loading()}
-                >
-                  {isLoading() ? operation.loadingText : operation.label}
-                </button>
-              </section>
-            );
-          },
-        )}
-        <section class="flex flex-col gap-3 rounded-lg bg-zinc-50/80 px-4 py-4 md:flex-row md:items-center md:gap-4 dark:bg-zinc-900/65">
-          <div class="flex min-w-0 flex-1 items-start gap-3">
-            <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-zinc-600 shadow-sm shadow-zinc-950/[0.04] dark:bg-zinc-950/75 dark:text-zinc-300 dark:shadow-none">
-              <i class="ti ti-calendar-time text-sm" />
+    <div class="flex flex-col gap-2">
+      {OPERATIONS.filter((operation) => props.freeIpaEnabled || operation.key !== "ipa-backfill").map((operation) => {
+        const isLoading = () => runMutation.loading() && activeOperationKey === operation.key;
+        return (
+          <section class="flex flex-col gap-3 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] px-4 py-4 md:flex-row md:items-center md:gap-4">
+            <div class="flex min-w-0 flex-1 items-start gap-3">
+              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] text-dimmed">
+                <i class={isLoading() ? "ti ti-loader-2 animate-spin text-sm" : `${operation.icon} text-sm`} />
+              </div>
+              <div class="min-w-0">
+                <h3 class="text-sm font-medium text-primary">{operation.label}</h3>
+                <p class="text-xs text-dimmed">{operation.description}</p>
+              </div>
             </div>
-            <div class="min-w-0">
-              <h3 class="text-sm font-medium text-primary">Scheduled jobs</h3>
-              <p class="text-xs text-dimmed">Inspect and run account lifecycle schedules from observability.</p>
-            </div>
+            <button
+              type="button"
+              class="btn-secondary btn-sm w-full justify-center md:w-auto md:min-w-48"
+              onClick={() => void handleRun(operation)}
+              disabled={runMutation.loading()}
+            >
+              {isLoading() ? operation.loadingText : operation.label}
+            </button>
+          </section>
+        );
+      })}
+      <section class="flex flex-col gap-3 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] px-4 py-4 md:flex-row md:items-center md:gap-4">
+        <div class="flex min-w-0 flex-1 items-start gap-3">
+          <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] text-dimmed">
+            <i class="ti ti-calendar-time text-sm" />
           </div>
-          <a href={SCHEDULED_JOBS_HREF} class="btn-secondary btn-sm w-full justify-center md:w-auto md:min-w-48">
-            Open Scheduled Jobs
-          </a>
-        </section>
-      </div>
+          <div class="min-w-0">
+            <h3 class="text-sm font-medium text-primary">Scheduled jobs</h3>
+            <p class="text-xs text-dimmed">Inspect and run account lifecycle schedules from observability.</p>
+          </div>
+        </div>
+        <a href={SCHEDULED_JOBS_HREF} class="btn-secondary btn-sm w-full justify-center md:w-auto md:min-w-48">
+          Open Scheduled Jobs
+        </a>
+      </section>
     </div>
   );
 }

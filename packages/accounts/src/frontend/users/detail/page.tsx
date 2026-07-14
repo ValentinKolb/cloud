@@ -262,12 +262,12 @@ export default ssr<AuthContext>(async (c) => {
             </a>
           </div>
 
-          <div class="flex flex-wrap items-start justify-between gap-3" style="view-transition-name: accounts-user-title">
+          <div class="flex flex-wrap items-start justify-between gap-3 py-2" style="view-transition-name: accounts-user-title">
             <div class="flex min-w-0 flex-1 items-start gap-3">
               <Avatar username={displayTitle} userId={user.id} avatarHash={user.avatarHash} size="md" />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <h1 class="text-base font-semibold text-primary">{displayTitle}</h1>
+                  <h1 class="text-xl font-semibold tracking-tight text-primary">{displayTitle}</h1>
                   <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${primaryBadge.className}`}>{primaryBadge.label}</span>
                   <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${managementBadge.className}`}>{managementBadge.label}</span>
                   {supplementalRoles.map((role) => (
@@ -296,7 +296,7 @@ export default ssr<AuthContext>(async (c) => {
           <AccountsFactGrid facts={facts} columns={3} viewTransitionName="accounts-user-facts" />
 
           {isIpaUser && (ipa?.sshFingerprints.length ?? 0) > 0 && (
-            <div class="paper overflow-hidden" style="view-transition-name: accounts-user-ssh">
+            <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)]" style="view-transition-name: accounts-user-ssh">
               <details class="group">
                 <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs text-dimmed">
                   <span class="flex items-center gap-2">
@@ -305,7 +305,7 @@ export default ssr<AuthContext>(async (c) => {
                   </span>
                   <i class="ti ti-chevron-right text-xs transition-transform group-open:rotate-90" />
                 </summary>
-                <div class="border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+                <div class="px-3 pb-3">
                   <div class="flex flex-col gap-1">
                     {ipa?.sshFingerprints.map((fp) => (
                       <code class="rounded bg-zinc-100 px-2 py-1 text-[11px] font-mono text-secondary dark:bg-zinc-800">{fp}</code>
@@ -375,7 +375,7 @@ export default ssr<AuthContext>(async (c) => {
               <div class="flex flex-wrap items-center gap-2">
                 <a
                   href={toggleUrl}
-                  class={`btn-input btn-input-sm ${recursive ? "!bg-violet-100 dark:!bg-violet-900/50 !text-violet-700 dark:!text-violet-300" : ""}`}
+                  class={`btn-input btn-input-sm ${recursive ? "btn-input-active" : ""}`}
                   title={recursive ? "Show direct memberships only" : "Show all memberships including inherited ones"}
                 >
                   <i class="ti ti-git-branch" />

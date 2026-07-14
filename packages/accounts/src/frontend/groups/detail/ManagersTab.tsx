@@ -16,6 +16,8 @@ type ManagersTabProps = {
   isAdmin: boolean;
   groupHref: (groupId: string) => string;
   pageBaseUrl: string;
+  serviceAccountsToggleUrl: string;
+  showServiceAccounts: boolean;
 };
 
 export default function ManagersTab(props: ManagersTabProps) {
@@ -56,6 +58,8 @@ export default function ManagersTab(props: ManagersTabProps) {
   return (
     <div class="flex flex-col gap-2" style="view-transition-name: accounts-group-managers">
       <TabToolbar
+        serviceAccountsToggleUrl={props.serviceAccountsToggleUrl}
+        showServiceAccounts={props.showServiceAccounts}
         actions={
           props.canManage ? (
             <AddMember
@@ -95,7 +99,12 @@ export default function ManagersTab(props: ManagersTabProps) {
                   const label = `${user.displayName || user.mail || user.uid} (${user.uid})`;
                   const content = (
                     <>
-                      <Avatar username={user.displayName || user.mail || user.uid} userId={user.id} avatarHash={user.avatarHash} size="xs" />
+                      <Avatar
+                        username={user.displayName || user.mail || user.uid}
+                        userId={user.id}
+                        avatarHash={user.avatarHash}
+                        size="xs"
+                      />
                       <span class="truncate font-medium">{label}</span>
                     </>
                   );
@@ -135,7 +144,50 @@ export default function ManagersTab(props: ManagersTabProps) {
                 return "";
               }
 
-              if (item.kind === "service_account") return "";
+              if (item.kind === "service_account") {
+                const serviceAccount = item.serviceAccount;
+                const kindLabel = serviceAccount.kind === "user_delegated" ? "User-bound" : "Resource-bound";
+                const href = props.isAdmin ? `/app/accounts/service-accounts?search=${encodeURIComponent(serviceAccount.name)}` : undefined;
+                if (col.id === "type") return <span class="text-dimmed">Service account</span>;
+                if (col.id === "name") {
+                  const content = (
+                    <>
+                      <span class="flex size-6 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                        <i class="ti ti-user-key text-sm" aria-hidden="true" />
+                      </span>
+                      <span class="truncate font-medium">{serviceAccount.name}</span>
+                    </>
+                  );
+                  return href ? (
+                    <a href={href} class="flex min-h-8 min-w-0 items-center gap-2 text-primary hover:underline">
+                      {content}
+                    </a>
+                  ) : (
+                    <span class="flex min-h-8 min-w-0 items-center gap-2 text-primary">{content}</span>
+                  );
+                }
+                if (col.id === "detail") {
+                  const content = (
+                    <span class="block truncate" title={serviceAccount.appId || "No app ID"}>
+                      {serviceAccount.appId || <span class="italic">No app ID</span>}
+                    </span>
+                  );
+                  return href ? (
+                    <a href={href} class="block truncate text-dimmed" tabindex={-1}>
+                      {content}
+                    </a>
+                  ) : (
+                    <span class="text-dimmed">{content}</span>
+                  );
+                }
+                if (col.id === "access")
+                  return (
+                    <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+                      {kindLabel}
+                    </span>
+                  );
+                return null;
+              }
 
               const group = item.group;
               const providerBadge = getProviderBadge(group.provider);

@@ -4,7 +4,7 @@ import { dates } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { CreateUserResponseSchema, ErrorResponseSchema, type CreateUserResponse } from "@/contracts";
+import { type CreateUserResponse, CreateUserResponseSchema, ErrorResponseSchema } from "@/contracts";
 
 type PrefillData = {
   requestId: string;
@@ -251,7 +251,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
       </Show>
 
       <Show when={props.provider === "local" && profile() === "user"}>
-        <div class="rounded-2xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+        <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] px-4 py-3">
           <Checkbox
             label="Grant admin access"
             description="Only local full accounts can be admins. FreeIPA admin access is managed through FreeIPA groups."
@@ -301,11 +301,11 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
         />
       </div>
 
-      <div class="rounded-2xl bg-zinc-50/80 px-4 py-3 text-xs text-dimmed dark:bg-zinc-900/60">
+      <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] px-4 py-3 text-xs text-dimmed">
         The username and UID are generated automatically from the provided name and email data.
       </div>
 
-      <div class="rounded-2xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+      <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] px-4 py-3">
         <Checkbox
           label="Send welcome email automatically"
           description={

@@ -33,9 +33,10 @@ describe("group detail URL helpers", () => {
         tab: "members",
         search: "eva",
         indirect: "true",
+        service_accounts: "true",
       }),
     ).toBe(
-      "/app/accounts/groups/group-1?list_search=ops&list_page=2&list_provider=ipa&list_scope=managed&tab=members&search=eva&indirect=true&page=",
+      "/app/accounts/groups/group-1?list_search=ops&list_page=2&list_provider=ipa&list_scope=managed&tab=members&search=eva&indirect=true&service_accounts=true&page=",
     );
   });
 

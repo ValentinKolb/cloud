@@ -102,9 +102,9 @@ export default ssr<AuthContext>(async (c) => {
                   const href = buildGroupDetailUrl(group.id, listState, { defaultScope });
                   if (col.id === "group") {
                     return (
-                      <a href={href} class="flex items-center gap-2 truncate font-medium text-primary hover:underline">
-                        <i class={`ti shrink-0 text-sm ${isManaged ? "ti-user-edit text-blue-500" : "ti-users-group text-dimmed"}`} />
-                        <span class="truncate">{group.name}</span>
+                      <a href={href} class="group flex items-center gap-2 truncate font-medium text-primary">
+                        <i class={`ti shrink-0 text-sm ${isManaged ? "ti-user-edit app-accent-text" : "ti-users-group text-dimmed"}`} />
+                        <span class="truncate transition-colors group-hover:app-accent-text">{group.name}</span>
                       </a>
                     );
                   }
@@ -130,9 +130,7 @@ export default ssr<AuthContext>(async (c) => {
                       <a href={href} class="block" tabindex={-1}>
                         <div class="flex flex-wrap gap-1">
                           {isManaged ? (
-                            <span class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                              Managed
-                            </span>
+                            <span class="tag bg-[color-mix(in_srgb,var(--app-accent)_10%,var(--ui-surface))] app-accent-text">Managed</span>
                           ) : null}
                           {group.gidnumber ? (
                             <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
