@@ -58,7 +58,6 @@ export const TYPE_OPTIONS = [
   // Tier 3
   { value: "json", label: "JSON" },
   { value: "file", label: "File" },
-  // Phase 4 / 5
   { value: "relation", label: "Relation (link to another table)" },
   { value: "lookup", label: "Lookup (project a field through a relation)" },
   { value: "rollup", label: "Rollup (aggregate over a relation)" },
@@ -959,11 +958,8 @@ function FormulaConstraints(props: {
 // =============================================================================
 
 /**
- * Thin wrapper around the platform NumberInput that keeps the legacy
- * string-based call signature used throughout this file. Each call
- * site computes its config string-side; we translate to/from number
- * here so the constraint forms keep their existing per-field
- * validation logic without rewriting.
+ * Adapts the string values used by field configuration to the platform
+ * NumberInput's numeric value without duplicating conversion at each call site.
  */
 function NumberField(props: {
   label: string;

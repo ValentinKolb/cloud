@@ -1,5 +1,35 @@
 import { describe, expect, test } from "bun:test";
-import { moveItemByInsertionIndex } from "./dashboard-reorder";
+import { adjacentInsertionIndex, adjacentRowCellTarget, moveItemByInsertionIndex } from "./dashboard-reorder";
+
+describe("adjacentInsertionIndex", () => {
+  test("maps keyboard directions to pointer-compatible insertion indexes", () => {
+    expect(adjacentInsertionIndex(2, -1, 4)).toBe(1);
+    expect(adjacentInsertionIndex(1, 1, 4)).toBe(3);
+  });
+
+  test("rejects moves beyond either boundary", () => {
+    expect(adjacentInsertionIndex(0, -1, 4)).toBeNull();
+    expect(adjacentInsertionIndex(3, 1, 4)).toBeNull();
+    expect(adjacentInsertionIndex(-1, 1, 4)).toBeNull();
+  });
+});
+
+describe("adjacentRowCellTarget", () => {
+  test("preserves the widget column where the adjacent row has space", () => {
+    expect(adjacentRowCellTarget([3, 4], 0, 2, 1)).toEqual({ rowIdx: 1, cellIdx: 2 });
+  });
+
+  test("appends when the adjacent row is shorter", () => {
+    expect(adjacentRowCellTarget([4, 1], 0, 3, 1)).toEqual({ rowIdx: 1, cellIdx: 1 });
+    expect(adjacentRowCellTarget([1, 4], 1, 3, -1)).toEqual({ rowIdx: 0, cellIdx: 1 });
+  });
+
+  test("rejects missing, full, and invalid targets", () => {
+    expect(adjacentRowCellTarget([2], 0, 0, -1)).toBeNull();
+    expect(adjacentRowCellTarget([2, 12], 0, 0, 1)).toBeNull();
+    expect(adjacentRowCellTarget([2, 1], 0, 2, 1)).toBeNull();
+  });
+});
 
 describe("moveItemByInsertionIndex", () => {
   test("moves an item right into the last position", () => {

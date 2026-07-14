@@ -10,12 +10,9 @@ type RuntimeView = View & { query: RecordQuery };
  * through to the view's stored value. When no view is active, URL state
  * is the whole story.
  *
- * Why we need this: a clean URL like `/app/grids/<base>?table=<t>&view=<v>`
- * carries no filter/sort/group/agg, but the view promises to render its
- * stored query. Before this helper, the SSR list path used only
- * `parsedFilter` / `parsedSort`, so opening a saved view via a clean URL
- * silently rendered unfiltered records (chunk 8 critical). Now SSR and
- * the client island both flow through this merge.
+ * A clean path-based view URL carries no filter/sort/group/aggregation
+ * overrides, so both SSR and browser-history restoration must inherit
+ * the stored view query through this helper.
  *
  * Saved-view-only state:
  * - `limit` comes exclusively from the view. `columns` normally comes
@@ -34,8 +31,8 @@ type EffectiveQuery = RecordQuery & {
 
 const isNonEmpty = <T>(v: T[] | undefined): v is T[] => Array.isArray(v) && v.length > 0;
 
-export const resolveEffectiveQuery = (state: RecordsState, view: RuntimeView | null): EffectiveQuery => {
-  if (!view) {
+export const resolveEffectiveQueryFromStored = (state: RecordsState, viewQuery: RecordQuery | null): EffectiveQuery => {
+  if (!viewQuery) {
     const q = state.search.q.trim();
     return {
       ...state.query,
@@ -52,21 +49,21 @@ export const resolveEffectiveQuery = (state: RecordsState, view: RuntimeView | n
   // edit the view itself; ad-hoc URL toolbar edits are non-destructive
   // overrides.)
   const merged: RecordQuery = {
-    filter: state.query.filter ?? view.query.filter,
-    recordMeta: state.query.recordMeta ?? view.query.recordMeta,
+    filter: state.query.filter ?? viewQuery.filter,
+    recordMeta: state.query.recordMeta ?? viewQuery.recordMeta,
     search: state.search.override
       ? state.search.q.trim()
         ? { q: state.search.q.trim(), fieldIds: state.search.fieldIds }
         : undefined
-      : view.query.search,
-    sort: isNonEmpty(state.query.sort) ? state.query.sort : view.query.sort,
-    groupBy: isNonEmpty(state.query.groupBy) ? state.query.groupBy : view.query.groupBy,
-    groupSort: isNonEmpty(state.query.groupSort) ? state.query.groupSort : view.query.groupSort,
-    aggregations: isNonEmpty(state.query.aggregations) ? state.query.aggregations : view.query.aggregations,
-    includeDeleted: state.query.includeDeleted ?? view.query.includeDeleted,
-    deletedOnly: state.query.deletedOnly ?? view.query.deletedOnly,
-    columns: isNonEmpty(state.query.columns) ? state.query.columns : view.query.columns,
-    limit: view.query.limit,
+      : viewQuery.search,
+    sort: isNonEmpty(state.query.sort) ? state.query.sort : viewQuery.sort,
+    groupBy: isNonEmpty(state.query.groupBy) ? state.query.groupBy : viewQuery.groupBy,
+    groupSort: isNonEmpty(state.query.groupSort) ? state.query.groupSort : viewQuery.groupSort,
+    aggregations: isNonEmpty(state.query.aggregations) ? state.query.aggregations : viewQuery.aggregations,
+    includeDeleted: state.query.includeDeleted ?? viewQuery.includeDeleted,
+    deletedOnly: state.query.deletedOnly ?? viewQuery.deletedOnly,
+    columns: isNonEmpty(state.query.columns) ? state.query.columns : viewQuery.columns,
+    limit: viewQuery.limit,
   };
 
   // "view-customized" if the URL carried any explicit query field that
@@ -85,3 +82,6 @@ export const resolveEffectiveQuery = (state: RecordsState, view: RuntimeView | n
 
   return { ...merged, source: customized ? "view-customized" : "view" };
 };
+
+export const resolveEffectiveQuery = (state: RecordsState, view: RuntimeView | null): EffectiveQuery =>
+  resolveEffectiveQueryFromStored(state, view?.query ?? null);

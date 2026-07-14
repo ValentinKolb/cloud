@@ -397,6 +397,23 @@ const expectVisibleText = async (page: Page, text: string, label = text) => {
   ok(label);
 };
 
+const expectFocusedLabel = async (page: Page, label: string) => {
+  await page
+    .waitForFunction((expected) => document.activeElement?.getAttribute("aria-label") === expected, label, { timeout: TIMEOUT })
+    .catch(async () => {
+      const state = await page.evaluate(() => ({
+        active: document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? null,
+        controls: Array.from(document.querySelectorAll<HTMLElement>("[data-dashboard-control]"))
+          .filter((element) => element.getAttribute("aria-label")?.includes("Total amount"))
+          .map((element) => ({
+            label: element.getAttribute("aria-label"),
+            disabled: element instanceof HTMLButtonElement && element.disabled,
+          })),
+      }));
+      fail(`expected focus on ${label}: ${JSON.stringify(state)}`);
+    });
+};
+
 const expectVisibleTextPattern = async (page: Page, pattern: RegExp, label: string) => {
   await page.waitForFunction(
     (source) => {
@@ -597,7 +614,7 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
     waitUntil: "domcontentloaded",
   });
   await expectVisibleText(pageB, "Task title", "dashboard form submit fields render");
-  await pageB.waitForTimeout(500);
+  await pageB.locator('[data-grids-dashboard-form-ready="true"]').waitFor({ state: "attached", timeout: TIMEOUT });
   const dashboardTitleInput = pageB.getByLabel(/task title/i).first();
   const inlineDashboardTitle = `Inline dashboard ${suffix}`;
   await dashboardTitleInput.fill(inlineDashboardTitle);
@@ -611,7 +628,18 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
   );
   await pageB.getByRole("button", { name: /send task/i }).click();
   const submitted = await submitResponse;
-  if (!submitted.ok()) fail(`dashboard form submit failed with ${submitted.status()}: ${(await submitted.text()).slice(0, 400)}`);
+  if (!submitted.ok()) {
+    const formInputs = await pageB.getByLabel(/task title/i).evaluateAll((elements) =>
+      elements.map((element) => ({
+        tag: element.tagName,
+        value: element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : null,
+        disabled: element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.disabled : null,
+      })),
+    );
+    fail(
+      `dashboard form submit failed with ${submitted.status()}: ${(await submitted.text()).slice(0, 400)}; request=${submitted.request().postData()}; inputs=${JSON.stringify(formInputs)}`,
+    );
+  }
   const dashboardRefreshAfterSubmit = await pageB
     .waitForResponse((response) => response.url().includes("/api/grids/workspace/route") && response.ok(), { timeout: TIMEOUT })
     .catch(() => null);
@@ -637,8 +665,13 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await expectVisibleText(page, "Tasks", "table route renders");
   await expectVisibleText(page, "Review invoices", "record row renders");
   await expectVisibleText(page, "Open", "select badge renders");
-  await page.waitForTimeout(500);
-  await page.locator("button", { hasText: "Filter" }).first().click();
+  const filterButton = page.locator("button", { hasText: "Filter" }).first();
+  const filterDeadline = Date.now() + TIMEOUT;
+  do {
+    await filterButton.click();
+    if (await page.getByText("where", { exact: true }).first().isVisible()) break;
+    await page.waitForTimeout(250);
+  } while (Date.now() < filterDeadline);
   await expectVisibleText(page, "where", "filter toolbar opens a draft row");
   await page.getByRole("button", { name: "Query" }).click();
   await page.getByLabel("GQL query").waitFor({ state: "visible", timeout: TIMEOUT });
@@ -730,6 +763,45 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await expectVisibleText(page, "Dashboard notes", "markdown widget renders");
   await expectVisibleText(page, "Open tasks table", "link widget renders");
   await expectVisibleText(page, "Task intake", "form widget renders");
+
+  await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}?edit=true`, {
+    waitUntil: "domcontentloaded",
+  });
+  const moveTotalRight = page.getByRole("button", { name: "Move Total amount in row 1, position 1 right" });
+  const moveTotalLeft = page.getByRole("button", { name: "Move Total amount in row 1, position 2 left" });
+  const waitForDashboardSave = () =>
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        new URL(response.url()).pathname.endsWith(`/api/grids/dashboards/${fixture.dashboard.id}`),
+      { timeout: TIMEOUT },
+    );
+  const moveRightSaved = waitForDashboardSave();
+  const dashboardHydrationDeadline = Date.now() + TIMEOUT;
+  let movedRight = false;
+  do {
+    await moveTotalRight.click();
+    await page.waitForTimeout(100);
+    if ((await moveTotalLeft.count()) > 0 && (await moveTotalLeft.isEnabled())) {
+      movedRight = true;
+      break;
+    }
+  } while (Date.now() < dashboardHydrationDeadline);
+  if (!movedRight) fail("dashboard move-right control did not hydrate");
+  if (!(await moveRightSaved).ok()) fail("dashboard move-right save failed");
+  await expectFocusedLabel(page, "Move Total amount in row 1, position 2 left");
+  const moveLeftSaved = waitForDashboardSave();
+  await moveTotalLeft.click();
+  if (!(await moveLeftSaved).ok()) fail("dashboard move-left save failed");
+  await expectFocusedLabel(page, "Move Total amount in row 1, position 1 right");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const persistedMoveRight = page.getByRole("button", { name: "Move Total amount in row 1, position 1 right" });
+  const persistedMoveLeft = page.getByRole("button", { name: "Move Total amount in row 1, position 1 left" });
+  await persistedMoveRight.waitFor({ state: "visible", timeout: TIMEOUT });
+  if (!(await persistedMoveRight.isEnabled()) || (await persistedMoveLeft.isEnabled())) {
+    fail("dashboard keyboard moves were not persisted in request order");
+  }
+  ok("dashboard keyboard moves retain focus and persist in request order");
 
   const exportResult = await page.evaluate(
     async ({ tableId, titleFieldId }) => {

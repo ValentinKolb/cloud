@@ -1,8 +1,9 @@
 import type { DateContext } from "@valentinkolb/stdlib";
 import { type DndBuildIntentContext, dnd } from "@valentinkolb/stdlib/solid";
-import { For, onCleanup, Show } from "solid-js";
+import { createMemo, For, onCleanup, Show } from "solid-js";
 import type { Dashboard, DashboardRow, Widget } from "../../../service";
 import ChartWidget from "./ChartWidget";
+import { adjacentInsertionIndex, adjacentRowCellTarget, type ReorderDirection } from "./dashboard-reorder";
 import FormCell from "./FormCell";
 import LinkWidget from "./LinkWidget";
 import MarkdownWidget from "./MarkdownWidget";
@@ -44,6 +45,27 @@ const ROW_MIN_HEIGHT_PX = {
 
 const DASHBOARD_CELL_MAX_HEIGHT = "min(70vh, 820px)";
 const EDIT_ICON_CLASS = "icon-btn text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200";
+
+const runDashboardControlAction = (controlKey: string, action: () => void) => {
+  action();
+  if (typeof document === "undefined") return;
+  const groupPrefix = controlKey.slice(0, controlKey.lastIndexOf(":") + 1);
+  const focusControl = () => {
+    const active = document.activeElement as HTMLElement | null;
+    if (active && active !== document.body && !active.dataset.dashboardControl?.startsWith(groupPrefix)) return;
+    const controls = Array.from(document.querySelectorAll<HTMLElement>("[data-dashboard-control]"));
+    const enabled = (element: HTMLElement | undefined) =>
+      element && (!(element instanceof HTMLButtonElement) || !element.disabled) ? element : undefined;
+    const exact = enabled(controls.find((element) => element.dataset.dashboardControl === controlKey));
+    const control = exact ?? enabled(controls.find((element) => element.dataset.dashboardControl?.startsWith(groupPrefix)));
+    control?.focus();
+  };
+  queueMicrotask(() => {
+    focusControl();
+    requestAnimationFrame(focusControl);
+    setTimeout(focusControl, 250);
+  });
+};
 
 type RowDragMeta = { rowIdx: number };
 type RowDropMeta = { insertionIdx: number };
@@ -110,6 +132,7 @@ const buildCellIntent = (ctx: DndBuildIntentContext<CellDragMeta, CellDropMeta, 
  * Empty dashboard: friendly empty-state instead of blank space.
  */
 export default function DashboardLayout(props: Props) {
+  const rowCellCounts = createMemo(() => props.dashboard.config.rows.map((row) => row.cells.length));
   const rowDnd = dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>({
     buildIntent: buildRowIntent,
     isSameIntent: sameRowIntent,
@@ -165,10 +188,11 @@ export default function DashboardLayout(props: Props) {
         <For each={props.dashboard.config.rows}>
           {(row, rowIdx) => (
             <>
-              <RowRenderer
+              <DashboardRowGrid
                 row={row}
                 rowIdx={rowIdx()}
                 rowCount={props.dashboard.config.rows.length}
+                rowCellCounts={rowCellCounts()}
                 dashboardId={props.dashboard.id}
                 widgetData={props.widgetData}
                 baseShortId={props.baseShortId}
@@ -197,42 +221,11 @@ export default function DashboardLayout(props: Props) {
   );
 }
 
-/** Per-row dispatcher. Kept small so row placement and cell rendering
- *  stay separate. */
-function RowRenderer(props: {
-  row: DashboardRow;
-  rowIdx: number;
-  rowCount: number;
-  dashboardId: string;
-  widgetData: Record<string, WidgetData>;
-  baseShortId: string;
-  onWidgetRecordsChanged?: () => void;
-  edit?: Props["edit"];
-  rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>>;
-  cellDnd: ReturnType<typeof dnd.create<CellDragMeta, CellDropMeta, CellDropIntent>>;
-  dateConfig?: DateContext;
-}) {
-  return (
-    <DashboardRowGrid
-      row={props.row}
-      rowIdx={props.rowIdx}
-      rowCount={props.rowCount}
-      dashboardId={props.dashboardId}
-      widgetData={props.widgetData}
-      baseShortId={props.baseShortId}
-      onWidgetRecordsChanged={props.onWidgetRecordsChanged}
-      edit={props.edit}
-      rowDnd={props.rowDnd}
-      cellDnd={props.cellDnd}
-      dateConfig={props.dateConfig}
-    />
-  );
-}
-
 function DashboardRowGrid(props: {
   row: DashboardRow;
   rowIdx: number;
   rowCount: number;
+  rowCellCounts: readonly number[];
   dashboardId: string;
   widgetData: Record<string, WidgetData>;
   baseShortId: string;
@@ -255,7 +248,14 @@ function DashboardRowGrid(props: {
       style={props.edit && props.row.cells.length === 0 ? emptyRowMinHeightStyle(props.row) : undefined}
     >
       <Show when={props.edit}>
-        <RowEditRail row={props.row} rowIdx={props.rowIdx} edit={props.edit} rowDnd={props.rowDnd} />
+        <RowEditRail
+          dashboardId={props.dashboardId}
+          row={props.row}
+          rowIdx={props.rowIdx}
+          rowCount={props.rowCount}
+          edit={props.edit}
+          rowDnd={props.rowDnd}
+        />
       </Show>
       <div
         ref={(element) => {
@@ -295,7 +295,15 @@ function DashboardRowGrid(props: {
                 }`}
                 style={cellFlexStyle(widgetSpan(cell, props.row.cells.length), ROW_MIN_HEIGHT_PX[props.row.height])}
               >
-                <EditCellControls rowIdx={props.rowIdx} cellIdx={cellIdx()} edit={props.edit} />
+                <EditCellControls
+                  dashboardId={props.dashboardId}
+                  cellId={cell.id}
+                  rowIdx={props.rowIdx}
+                  cellIdx={cellIdx()}
+                  rowCellCounts={props.rowCellCounts}
+                  label={`${cell.title?.trim() || "widget"} in row ${props.rowIdx + 1}, position ${cellIdx() + 1}`}
+                  edit={props.edit}
+                />
                 <CellRenderer
                   widget={cell}
                   data={props.widgetData[cell.id]}
@@ -329,7 +337,7 @@ function DashboardRowGrid(props: {
               }`}
               onClick={() => edit().onAddCell(props.rowIdx)}
               title="Add widget to row"
-              aria-label="Add widget to row"
+              aria-label={`Add widget to row ${props.rowIdx + 1}`}
             >
               <i class="ti ti-plus" />
             </button>
@@ -375,11 +383,21 @@ function AddRowRail(props: {
 }
 
 function RowEditRail(props: {
+  dashboardId: string;
   row: DashboardRow;
   rowIdx: number;
+  rowCount: number;
   edit?: Props["edit"];
   rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>>;
 }) {
+  const controlKey = (direction: ReorderDirection) => `${props.dashboardId}:row:${props.row.id}:move:${direction}`;
+  const move = (direction: ReorderDirection) => {
+    const insertionIdx = adjacentInsertionIndex(props.rowIdx, direction, props.rowCount);
+    if (insertionIdx !== null) {
+      runDashboardControlAction(controlKey(direction), () => props.edit?.onMoveRow(props.rowIdx, insertionIdx));
+    }
+  };
+
   return (
     <div
       ref={(element) => {
@@ -394,10 +412,38 @@ function RowEditRail(props: {
       }}
       class="absolute left-0 top-0 z-20 flex w-9 flex-col items-center justify-start gap-1 pt-2"
     >
-      <button type="button" class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`} data-dashboard-row-drag title="Drag row">
+      <span class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`} data-dashboard-row-drag title="Drag row" aria-hidden="true">
         <i class="ti ti-grip-vertical" />
+      </span>
+      <button
+        type="button"
+        class={EDIT_ICON_CLASS}
+        data-dashboard-control={controlKey(-1)}
+        onClick={() => move(-1)}
+        disabled={props.rowIdx === 0}
+        title="Move row up"
+        aria-label={`Move row ${props.rowIdx + 1} up`}
+      >
+        <i class="ti ti-arrow-up" />
       </button>
-      <button type="button" class={EDIT_ICON_CLASS} onClick={() => props.edit?.onEditRow(props.rowIdx)} title="Row settings">
+      <button
+        type="button"
+        class={EDIT_ICON_CLASS}
+        data-dashboard-control={controlKey(1)}
+        onClick={() => move(1)}
+        disabled={props.rowIdx === props.rowCount - 1}
+        title="Move row down"
+        aria-label={`Move row ${props.rowIdx + 1} down`}
+      >
+        <i class="ti ti-arrow-down" />
+      </button>
+      <button
+        type="button"
+        class={EDIT_ICON_CLASS}
+        onClick={() => props.edit?.onEditRow(props.rowIdx)}
+        title="Row settings"
+        aria-label={`Settings for row ${props.rowIdx + 1}`}
+      >
         <i class="ti ti-settings" />
       </button>
     </div>
@@ -410,20 +456,98 @@ function DropIndicator() {
   );
 }
 
-function EditCellControls(props: { rowIdx: number; cellIdx: number; edit?: Props["edit"] }) {
+function EditCellControls(props: {
+  dashboardId: string;
+  cellId: string;
+  rowIdx: number;
+  cellIdx: number;
+  rowCellCounts: readonly number[];
+  label: string;
+  edit?: Props["edit"];
+}) {
+  const controlKey = (direction: "left" | "right" | "up" | "down") => `${props.dashboardId}:cell:${props.cellId}:move:${direction}`;
+  const moveWithinRow = (direction: ReorderDirection) => {
+    const insertionIdx = adjacentInsertionIndex(props.cellIdx, direction, props.rowCellCounts[props.rowIdx] ?? 0);
+    if (insertionIdx !== null) {
+      runDashboardControlAction(controlKey(direction < 0 ? "left" : "right"), () =>
+        props.edit?.onMoveCell(props.rowIdx, props.cellIdx, props.rowIdx, insertionIdx),
+      );
+    }
+  };
+  const moveToRow = (direction: ReorderDirection) => {
+    const target = adjacentRowCellTarget(props.rowCellCounts, props.rowIdx, props.cellIdx, direction);
+    if (target) {
+      runDashboardControlAction(controlKey(direction < 0 ? "up" : "down"), () =>
+        props.edit?.onMoveCell(props.rowIdx, props.cellIdx, target.rowIdx, target.cellIdx),
+      );
+    }
+  };
+  const canMoveToRow = (direction: ReorderDirection) =>
+    adjacentRowCellTarget(props.rowCellCounts, props.rowIdx, props.cellIdx, direction) !== null;
+
   return (
     <Show when={props.edit}>
       {(edit) => (
         <div class="grids-edit-control-surface absolute right-2 top-2 z-20 flex items-center gap-0 rounded-lg bg-white p-1 dark:bg-zinc-950">
-          <button
-            type="button"
+          <span
             class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`}
             data-dashboard-cell-drag
             title="Drag widget"
+            aria-hidden="true"
           >
             <i class="ti ti-grip-vertical" />
+          </span>
+          <button
+            type="button"
+            class={EDIT_ICON_CLASS}
+            data-dashboard-control={controlKey("left")}
+            onClick={() => moveWithinRow(-1)}
+            disabled={props.cellIdx === 0}
+            title="Move widget left"
+            aria-label={`Move ${props.label} left`}
+          >
+            <i class="ti ti-arrow-left" />
           </button>
-          <button type="button" class={EDIT_ICON_CLASS} onClick={() => edit().onEditCell(props.rowIdx, props.cellIdx)}>
+          <button
+            type="button"
+            class={EDIT_ICON_CLASS}
+            data-dashboard-control={controlKey("right")}
+            onClick={() => moveWithinRow(1)}
+            disabled={props.cellIdx === (props.rowCellCounts[props.rowIdx] ?? 0) - 1}
+            title="Move widget right"
+            aria-label={`Move ${props.label} right`}
+          >
+            <i class="ti ti-arrow-right" />
+          </button>
+          <button
+            type="button"
+            class={EDIT_ICON_CLASS}
+            data-dashboard-control={controlKey("up")}
+            onClick={() => moveToRow(-1)}
+            disabled={!canMoveToRow(-1)}
+            title="Move widget up"
+            aria-label={`Move ${props.label} up`}
+          >
+            <i class="ti ti-arrow-up" />
+          </button>
+          <button
+            type="button"
+            class={EDIT_ICON_CLASS}
+            data-dashboard-control={controlKey("down")}
+            onClick={() => moveToRow(1)}
+            disabled={!canMoveToRow(1)}
+            title="Move widget down"
+            aria-label={`Move ${props.label} down`}
+          >
+            <i class="ti ti-arrow-down" />
+          </button>
+          <button
+            type="button"
+            class={EDIT_ICON_CLASS}
+            onClick={() => edit().onEditCell(props.rowIdx, props.cellIdx)}
+            title="Widget settings"
+            aria-label={`Settings for ${props.label}`}
+          >
             <i class="ti ti-settings" />
           </button>
         </div>

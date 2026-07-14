@@ -15,8 +15,8 @@ export type FieldDependent = {
    * If true, mutating the field requires the user to remove this dep first.
    * If false, the field-mutation path can auto-cleanup the reference.
    *
-   * Today: views and forms auto-cleanup. Formulas/lookups/rollups/relation
-   * displays block (Phase 4/5 introduces them — kept here for forward-compat).
+   * Views and forms are cleaned automatically. Formula, lookup, rollup, and
+   * relation-display dependencies must be removed before the field changes.
    */
   blocking: boolean;
 };
@@ -63,16 +63,11 @@ export const findFieldRefContexts = (config: Record<string, unknown>, fieldId: s
  * to either auto-cleanup non-blocking refs or surface a "remove dependent
  * first" error to the user.
  *
- * Cross-table awareness: a field can be referenced by lookup/rollup
- * fields on a DIFFERENT table (via a relation that points at the source
- * table) — those count as blocking deps too. Previously the scan was
- * limited to fields on the same table, so deleting a target-table field
- * referenced by another table's rollup silently left stale config
- * (chunk 4 important).
+ * A lookup or rollup on another table can reference the field through a
+ * relation, so the dependency scan covers the whole base.
  *
- * Formula references are extracted via the formula parser, not a regex,
- * so both `{uuid}` and `#slug` syntaxes resolve correctly (chunk 6
- * important — slug is the canonical persisted form per locked decision).
+ * Formula references are extracted through the formula parser so both
+ * UUID and named references follow the language's actual syntax.
  */
 export const getFieldDependents = async (fieldId: string): Promise<FieldDependent[]> => {
   const dependents: FieldDependent[] = [];
@@ -136,10 +131,9 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
     }
   }
 
-  // ── computed / link field configs across the WHOLE base ──────
-  // Lookup/rollup on table B can reference fields on table A through
-  // a relation that points at A. Without scanning the whole base we'd
-  // miss these (chunk 4 important).
+  // ── computed / link field configs across the whole base ──────
+  // A lookup or rollup can reach this field through a relation from
+  // another table, so same-table scanning is insufficient.
   // Both `grids.fields` and `grids.tables` carry an `id` column, so
   // every projection has to be qualified — without aliases Postgres
   // raises 42702 "column reference 'id' is ambiguous". Aliasing both

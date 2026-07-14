@@ -306,8 +306,8 @@ export type FormatSpec = z.infer<typeof FormatSpecSchema>;
  * fieldId with optional format. The previous `kind: "field"` /
  * `kind: "join"` discriminator was speculative: only `field` was ever
  * implemented and `join` was silently skipped by the renderer.
- * Cross-table data is served by lookup/rollup field types instead
- * (which become real SQL JOINs in Slice 4).
+ * Cross-table data is served by lookup/rollup field types, which compile
+ * their relation traversal to SQL joins.
  */
 export const FieldColumnSpecSchema = z.object({
   fieldId: z.string().uuid(),

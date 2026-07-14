@@ -190,6 +190,28 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(lastRecordListParams?.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
   });
 
+  test("hydrates grouped aggregate sort into the client records state", async () => {
+    const groupedView = {
+      ...savedView,
+      source: `from table {${table.id}}\ngroup by {${statusField.id}}\naggregate count(*) as rows\nsort {${statusField.id}} asc, rows desc`,
+    };
+    catalogViewsByTable = { [table.id]: [groupedView] };
+    lookupTable = table;
+    lookupView = groupedView;
+
+    const state = await loadGridsWorkspaceState({
+      user,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${groupedView.shortId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: groupedView.shortId,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok" || state.route.kind !== "records") return;
+    expect(state.route.initialState.query.groupSort).toEqual([{ fieldId: "*", agg: "count", direction: "desc" }]);
+  });
+
   test("loads an explicitly readable view even when the parent table is hidden from the catalog", async () => {
     catalogTables = [];
     catalogTableLevels = {};

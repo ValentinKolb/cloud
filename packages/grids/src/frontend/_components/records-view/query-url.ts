@@ -219,7 +219,7 @@ export type UrlPathContext = {
   viewShortId: string | null;
 };
 
-const recordsPath = (path: UrlPathContext): string =>
+export const recordsPath = (path: UrlPathContext): string =>
   path.viewShortId
     ? `/app/grids/${path.baseShortId}/table/${path.tableShortId}/view/${path.viewShortId}`
     : `/app/grids/${path.baseShortId}/table/${path.tableShortId}`;

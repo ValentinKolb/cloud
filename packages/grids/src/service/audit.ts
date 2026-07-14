@@ -72,10 +72,8 @@ type AuditEntryWithUser = AuditEntry & {
  * Used by the record detail panel's History tab — the join keeps the
  * UI from having to fetch users separately.
  *
- * Scoped to (tableId, recordId): a guessed recordId from another table
- * never resolves here. Without the table_id filter, a user with read
- * on table A could request /records/<tableA>/<recordFromTableB>/audit
- * and read table B's audit history (chunk 7 critical leak).
+ * The `(tableId, recordId)` scope is a security boundary: permission on
+ * one table must never expose a guessed record ID from another table.
  */
 export const listByRecord = async (tableId: string, recordId: string, limit = 50): Promise<AuditEntryWithUser[]> => {
   const cap = Math.min(Math.max(limit, 1), 200);

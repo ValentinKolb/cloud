@@ -1,14 +1,10 @@
 /**
- * Typed wrapper around POST /api/grids/tables/:tableId/query — the
- * unified records-area endpoint from Slice 5. Returns whichever of
+ * Typed wrapper around POST /api/grids/tables/:tableId/query. Returns whichever of
  * { items, aggregates, buckets, nextCursor, explode } the RecordQuery
- * asked for; consumers (RecordsView's createResource) react via Solid's
- * loading-state machinery.
+ * requested.
  *
  * Threads an AbortSignal through so rapid query changes cancel
- * in-flight network calls instead of letting them race. createResource
- * already deduplicates UI commits by cancelling the *promise* — this
- * cancels the *fetch* on top of that, saving server work.
+ * in-flight network calls instead of leaving obsolete work on the server.
  */
 
 import { apiClient } from "../../../api/client";

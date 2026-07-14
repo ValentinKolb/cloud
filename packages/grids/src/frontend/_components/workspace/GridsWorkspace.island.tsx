@@ -15,6 +15,7 @@ import RememberGridsPath from "../sidebar/RememberGridsPath";
 import { WorkflowRunDetailPanel } from "../workflows/WorkflowRunDetailPanel";
 import WorkflowsPage from "../workflows/WorkflowsPage";
 import { useWorkspaceLiveUpdates } from "./workspace-live-updates";
+import { shouldReloadWorkspaceForPopState } from "./workspace-route-ownership";
 import type {
   GridsWorkspaceState,
   WorkspaceDashboardRoute,
@@ -78,6 +79,7 @@ export default function GridsWorkspace(props: Props) {
   const [state, setState] = createSignal(props.initialState);
   const [settingsDialogOpen, setSettingsDialogOpen] = createSignal(false);
   let routeRequest = 0;
+  let renderedWorkspacePathname: string | null = null;
 
   const loadWorkspaceState = async (href: string) => {
     const res = await apiClient.workspace.route.$get({ query: { href } });
@@ -93,6 +95,7 @@ export default function GridsWorkspace(props: Props) {
     const next = await loadWorkspaceState(href);
     if (requestId !== routeRequest) return false;
     setState(next);
+    renderedWorkspacePathname = new URL(href, "http://grids.local").pathname;
     layout.update({ breadcrumbs: next.title, title: next.title.at(-1)?.title });
     restoreScrollPreserve(scrollSnapshot);
     return true;
@@ -159,12 +162,14 @@ export default function GridsWorkspace(props: Props) {
   };
 
   onMount(() => {
+    renderedWorkspacePathname = window.location.pathname;
     const onPopState = () => {
       const url = new URL(window.location.href);
       if (!canHandleUrl(url)) {
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }
+      if (!shouldReloadWorkspaceForPopState(state().route.kind, renderedWorkspacePathname, url)) return;
       void applyWorkspaceHref(`${url.pathname}${url.search}`).catch(() => window.location.assign(`${url.pathname}${url.search}`));
     };
     window.addEventListener("popstate", onPopState);

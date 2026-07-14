@@ -12,14 +12,8 @@
  *   - string starting with `{`, `[`, or `"` → JSON document text, parse.
  *   - any other string → already-parsed scalar, return as-is.
  *
- * Note: we deliberately do NOT parse bare-literal strings like "42",
- * "true", "null", etc. The previous version's `looksLikeJson` matched
- * those and called JSON.parse, which would corrupt a JSONB string
- * scalar that happens to be the text of a number/boolean/null
- * (chunk 3 review). All current call sites pass document-shaped values
- * (object / array / null), so the narrower trigger is safe and
- * eliminates a quiet type-coercion footgun for any future caller that
- * holds a JSONB string column.
+ * Bare literal strings such as "42", "true", and "null" stay strings.
+ * Parsing them would silently change the type of valid JSONB scalar text.
  *
  * Never throws. The fallback is only used for genuinely invalid input
  * that LOOKED like JSON but failed to parse.

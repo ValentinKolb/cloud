@@ -2,9 +2,6 @@ import { z } from "zod";
 import { FormatSpecSchema } from "../contracts";
 import { type ComputedFieldKind, fail, type LinkFieldType, ok } from "./types";
 
-// ─────────────────────────────────────────────────────────────────
-// Phase 4 — relation / lookup / rollup field types
-// ─────────────────────────────────────────────────────────────────
 // Relations accept user-submitted target record ids, but storage happens
 // through `grids.record_links`. Lookup + rollup are read-only projections.
 
@@ -15,7 +12,7 @@ const RelationConfigSchema = z.object({
    *  so a user can add the field first and pick the target table from the
    *  per-field config editor afterwards — matches lookup/rollup. */
   targetTableId: z.string().uuid().optional(),
-  /** Cardinality. Phase 4 always stores arrays; "single" caps to 1. */
+  /** Storage uses arrays for both cardinalities; "single" caps the array to one id. */
   cardinality: z.enum(["single", "multiple"]).optional(),
 });
 

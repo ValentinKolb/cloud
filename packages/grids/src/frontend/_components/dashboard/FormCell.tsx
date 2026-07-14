@@ -1,5 +1,5 @@
 import type { DateContext } from "@valentinkolb/stdlib";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, FormWidget } from "../../../service";
 import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "../forms/form-fields";
@@ -96,6 +96,9 @@ function FormBody(props: {
   const [inlineCreates, setInlineCreates] = createSignal<InlineCreateState>({});
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [clientReady, setClientReady] = createSignal(false);
+
+  onMount(() => setClientReady(true));
 
   const setValue = (fieldId: string, v: unknown) => setValues((current) => ({ ...current, [fieldId]: v }));
   const setInlineDrafts = (fieldId: string, drafts: InlineCreateState[string]) =>
@@ -137,7 +140,7 @@ function FormBody(props: {
       <header class="shrink-0 px-3 py-2">
         <span class="text-xs font-semibold text-primary truncate">{titleOf()}</span>
       </header>
-      <form class="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+      <form class="flex min-h-0 flex-1 flex-col" data-grids-dashboard-form-ready={clientReady()} onSubmit={handleSubmit}>
         <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-3 pb-3">
           <Show when={props.form.config.description}>
             <p class="text-xs text-dimmed">{props.form.config.description}</p>

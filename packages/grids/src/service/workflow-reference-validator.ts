@@ -3,38 +3,47 @@ import { getWorkflowCatalogRef, type WorkflowCatalog, workflowRefDiagnostic } fr
 import { validateWorkflowSteps } from "./workflow-reference-step-validator";
 import { validateSchedule } from "./workflow-validators";
 
-export const validateWorkflowReferences = (definition: WorkflowDefinition, catalog: WorkflowCatalog): string[] => {
-  const diagnostics: string[] = [];
+const appendRefDiagnostic = (diagnostics: string[], diagnostic: string | null, kind: "field" | "table"): void => {
+  if (diagnostic) diagnostics.push(diagnostic.replace("reference", kind));
+};
+
+const validateInputTables = (definition: WorkflowDefinition, catalog: WorkflowCatalog, diagnostics: string[]): void => {
   for (const [name, input] of Object.entries(definition.inputs ?? {})) {
     if ((input.type === "record" || input.type === "recordList") && input.table) {
-      const diagnostic = workflowRefDiagnostic(catalog.tables, input.table, `inputs.${name}.table`);
-      if (diagnostic) diagnostics.push(diagnostic.replace("reference", "table"));
+      appendRefDiagnostic(diagnostics, workflowRefDiagnostic(catalog.tables, input.table, `inputs.${name}.table`), "table");
     }
   }
+};
+
+const validateScannerTrigger = (definition: WorkflowDefinition, catalog: WorkflowCatalog, diagnostics: string[]): void => {
   const scanner = definition.triggers.scanner;
-  if (scanner?.resolve?.by === "field") {
-    const input = definition.inputs?.[scanner.input];
-    const table = input?.table ? getWorkflowCatalogRef(catalog.tables, input.table) : null;
-    const fields = table ? catalog.fieldsByTable.get(table.id) : undefined;
-    if (!scanner.resolve.field) {
-      diagnostics.push("triggers.scanner.resolve.field: unknown field");
-    } else if (!fields) {
-      diagnostics.push("triggers.scanner.resolve.field: unknown table");
-    } else {
-      const diagnostic = workflowRefDiagnostic(fields, scanner.resolve.field, "triggers.scanner.resolve.field");
-      if (diagnostic) diagnostics.push(diagnostic.replace("reference", "field"));
-    }
+  if (scanner?.resolve?.by !== "field") return;
+
+  const input = definition.inputs?.[scanner.input];
+  const table = input?.table ? getWorkflowCatalogRef(catalog.tables, input.table) : null;
+  const fields = table ? catalog.fieldsByTable.get(table.id) : undefined;
+  if (!scanner.resolve.field) {
+    diagnostics.push("triggers.scanner.resolve.field: unknown field");
+  } else if (!fields) {
+    diagnostics.push("triggers.scanner.resolve.field: unknown table");
+  } else {
+    appendRefDiagnostic(diagnostics, workflowRefDiagnostic(fields, scanner.resolve.field, "triggers.scanner.resolve.field"), "field");
   }
+};
+
+const validateScheduleTrigger = (definition: WorkflowDefinition, diagnostics: string[]): void => {
   const schedule = definition.triggers.schedule;
-  if (schedule) {
-    const validation = validateSchedule({ kind: "schedule", cron: schedule.cron, timezone: schedule.timezone });
-    if (!validation.ok) diagnostics.push(`triggers.schedule: ${validation.error.message}`);
-  }
+  if (!schedule) return;
+  const validation = validateSchedule({ kind: "schedule", cron: schedule.cron, timezone: schedule.timezone });
+  if (!validation.ok) diagnostics.push(`triggers.schedule: ${validation.error.message}`);
+};
+
+const validateRecordEventTrigger = (definition: WorkflowDefinition, catalog: WorkflowCatalog, diagnostics: string[]): void => {
   const recordEvent = definition.triggers.recordEvent;
+  if (!recordEvent) return;
   const recordEventTable = recordEvent?.table;
   if (recordEventTable) {
-    const diagnostic = workflowRefDiagnostic(catalog.tables, recordEventTable, "triggers.recordEvent.table");
-    if (diagnostic) diagnostics.push(diagnostic.replace("reference", "table"));
+    appendRefDiagnostic(diagnostics, workflowRefDiagnostic(catalog.tables, recordEventTable, "triggers.recordEvent.table"), "table");
   }
   if (recordEvent?.filter && !recordEventTable && !recordEvent.input) {
     diagnostics.push("triggers.recordEvent.filter: filters require either table or input");
@@ -51,6 +60,14 @@ export const validateWorkflowReferences = (definition: WorkflowDefinition, catal
       }
     }
   }
+};
+
+export const validateWorkflowReferences = (definition: WorkflowDefinition, catalog: WorkflowCatalog): string[] => {
+  const diagnostics: string[] = [];
+  validateInputTables(definition, catalog, diagnostics);
+  validateScannerTrigger(definition, catalog, diagnostics);
+  validateScheduleTrigger(definition, diagnostics);
+  validateRecordEventTrigger(definition, catalog, diagnostics);
   validateWorkflowSteps(definition, catalog, diagnostics);
   return diagnostics;
 };

@@ -13,9 +13,8 @@ import { FieldInput, type UserInputEntry } from "../forms/form-fields";
  * slot. We need one record-write surface where every editable grids
  * field type, including relations, renders inline. The dialog plumbing
  * (DialogHeader, validation, submit) lives here; the actual field
- * rendering delegates to {@link FieldInput} so create / form-submit /
- * field-designer-default all show the same widget per type
- * (post-cleanup #7).
+ * rendering delegates to {@link FieldInput} so record creation, form
+ * submission, and field defaults use the same widget for each type.
  *
  * Required-field check is client-side (block submit + show error per
  * field), but the SERVER also enforces required + per-type validation

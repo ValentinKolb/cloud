@@ -47,11 +47,9 @@ export const validateDefaultValue = (type: string, config: Record<string, unknow
 /**
  * DB-context validation for relation / lookup / rollup configs. Only
  * the field service knows the source field's table + base, so this
- * lives here rather than in the per-handler configSchema (which is
- * shape-only). Closes chunk 5 critical "Relation configs can point
- * across base boundaries" — a base-admin who knew another base's
- * table UUID could wire a relation at it and exfiltrate data through
- * lookup/labels.
+ * lives here rather than in the shape-only per-handler config schema.
+ * Target resolution is scoped to the source base so a known table UUID
+ * cannot create a cross-base relation or computed-field data leak.
  *
  * Same-base only: target table must share the source field's base.
  * Cross-table consistency: lookup/rollup relationFieldId must be a

@@ -115,8 +115,7 @@ const isFilterable = (type: string): boolean => opsForType(type).length > 0;
 
 /**
  * Filter fields available for the filter UI. Excludes deleted fields and
- * types we don't support filtering on (created_at/updated_at could be
- * filtered but they're stored as record columns — Phase 2 keeps the UI
- * scoped to data fields only).
+ * types the field-filter UI does not support. Record metadata has its own
+ * query controls because those values are stored on records, not fields.
  */
 export const filterableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && isFilterable(f.type));

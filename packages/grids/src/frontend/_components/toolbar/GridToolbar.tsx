@@ -162,10 +162,8 @@ export default function GridToolbar(props: Props) {
     if (blank) setSortRows([...sortRows(), blank]);
   };
   // ---- Save as view ------------------------------------------------------
-  // Reads SIGNAL state, not URL state — so unapplied changes get
-  // captured too ("save what you see"). Once saved, the view is FROZEN:
-  // the view settings modal only allows rename / share / delete. To change the
-  // query, the user clears + re-saves from the toolbar.
+  // Reads signal state rather than URL state so unapplied changes are
+  // captured when the user saves the current view.
   const saveViewMut = mutations.create<View, { name: string; shared: boolean }>({
     mutation: async (input) => {
       const f = validFilter();

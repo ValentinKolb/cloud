@@ -35,10 +35,8 @@ const mapRow = (row: DbRow): View => {
 };
 
 /**
- * Look up a view by (tableId, slug). Used at the SSR-route boundary
- * to resolve the `?view=<slug>` URL param to a UUID. Returns null for
- * soft-deleted views AND for views whose parent table or base is
- * trashed (live-parent invariant).
+ * Look up a view by `(tableId, slug)` at the path-based SSR boundary.
+ * Soft-deleted views and views below a trashed table or base are not live.
  */
 export const getByShortId = async (tableId: string, shortId: string): Promise<View | null> => {
   const [row] = await sql<DbRow[]>`

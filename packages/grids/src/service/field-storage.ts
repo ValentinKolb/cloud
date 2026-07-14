@@ -6,12 +6,8 @@ import type { Field } from "./types";
  * field type live in JSONB / record_links, and what shape do compilers
  * project it as?"
  *
- * Before this module, every compiler (filter/sort/group/aggregate/
- * computed/search/field-indexes) re-spelled the SQL projection rules.
- * They drifted in small but expensive ways: numeric fields, computed
- * projections, filters, and indexes each carried their own idea of
- * how JSONB values should be projected. This module keeps that contract
- * in one place.
+ * Filter, sort, group, aggregate, computed, search, and index compilers
+ * share this contract so a field has one SQL projection and capability set.
  *
  * The contract here is small on purpose:
  *  - `project(field, alias)` returns the typed SQL projection used in

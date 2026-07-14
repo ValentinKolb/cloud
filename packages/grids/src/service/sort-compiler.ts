@@ -19,10 +19,9 @@ type CompiledSort = {
   fieldIds: string[];
   /**
    * SQL SELECT-list extras: the sort projections aliased as `__sort_<i>`
-   * so the cursor encoder reads the SAME value the ORDER BY used.
-   * Without this, cursor encoding read `record.data[fieldId]` (the raw
-   * JSONB value) and corrupt rows produced cursors that page 2 then
-   * tried to cast as numeric/date and crashed (chunk 3 critical).
+   * so the cursor encoder reads the same typed value used by ORDER BY.
+   * Reading raw JSONB here would make the next page cast a different
+   * value than the one that established the cursor boundary.
    *
    * Empty fragment when no sort columns are configured.
    */
@@ -247,11 +246,9 @@ const cursorEncoder =
  * comparison (see `orderGt` for per-column semantics). Always appends `id`
  * as a final tiebreaker so the order is total even when sort keys collide.
  *
- * v3 (Slice 7): mixed asc/desc directions are now supported. The
- * per-column `orderGt` operators already handle direction individually;
- * the only remaining concern was the `id` tiebreaker, which now uses
- * the FIRST column's direction (any consistent choice gives a total
- * order; first-column matches the user's primary intent visually).
+ * Mixed asc/desc directions are handled per column. The `id` tiebreaker
+ * follows the first column's direction so pagination preserves the primary
+ * visual ordering while remaining total.
  */
 export const compileSort = (
   specs: SortSpec[],

@@ -197,6 +197,7 @@ const buildRecordsRoute = async (params: {
         recordMeta: initial.effectiveRecordMeta ?? undefined,
         sort: initial.effectiveSort,
         groupBy: initial.effectiveGroupBy,
+        groupSort: initial.effectiveGroupSort,
         aggregations: initial.effectiveAggregations,
         columns: initial.effective.columns,
         includeDeleted: initial.effectiveIncludeDeleted,

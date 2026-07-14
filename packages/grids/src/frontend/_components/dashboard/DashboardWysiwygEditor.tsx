@@ -179,6 +179,8 @@ const withDashboardScrollPreserved = (update: () => void, scrollTop = captureDas
 export default function DashboardWysiwygEditor(props: Props) {
   const [config, setConfig] = createSignal<DashboardConfig>(props.initialDashboard.config);
   const [widgetData, setWidgetData] = createSignal<Record<string, WidgetData>>(props.widgetData);
+  let confirmedConfig = props.initialDashboard.config;
+  let saveQueue: Promise<void> = Promise.resolve();
   let saveToken = 0;
   let pendingScrollTop: number | null | undefined;
 
@@ -190,7 +192,7 @@ export default function DashboardWysiwygEditor(props: Props) {
   const saveConfigMut = mutations.create<
     Dashboard,
     DashboardConfig,
-    { previous: DashboardConfig; widgetsToResolve: Widget[]; token: number; scrollTop: number | null }
+    { widgetsToResolve: Widget[]; token: number; scrollTop: number | null }
   >({
     onBefore: (next) => {
       const previous = config();
@@ -198,15 +200,25 @@ export default function DashboardWysiwygEditor(props: Props) {
       const scrollTop = pendingScrollTop ?? captureDashboardScrollTop();
       pendingScrollTop = undefined;
       withDashboardScrollPreserved(() => setConfig(next), scrollTop);
-      return { previous, widgetsToResolve: changedServerWidgets(previous, next, widgetData()), token, scrollTop };
+      return { widgetsToResolve: changedServerWidgets(previous, next, widgetData()), token, scrollTop };
     },
-    mutation: async (next) => {
-      const res = await apiClient.dashboards[":dashboardId"].$patch({
-        param: { dashboardId: props.initialDashboard.id },
-        json: { config: next },
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save dashboard"));
-      return res.json();
+    mutation: (next) => {
+      const save = async () => {
+        const res = await apiClient.dashboards[":dashboardId"].$patch({
+          param: { dashboardId: props.initialDashboard.id },
+          json: { config: next },
+        });
+        if (!res.ok) throw new Error(await errorMessage(res, "Failed to save dashboard"));
+        const dashboard = await res.json();
+        confirmedConfig = dashboard.config;
+        return dashboard;
+      };
+      const pending = saveQueue.then(save);
+      saveQueue = pending.then(
+        () => undefined,
+        () => undefined,
+      );
+      return pending;
     },
     onSuccess: (dashboard, ctx) => {
       if (ctx?.token !== saveToken) return;
@@ -215,7 +227,7 @@ export default function DashboardWysiwygEditor(props: Props) {
     },
     onError: (e, ctx) => {
       if (ctx?.token !== saveToken) return;
-      if (ctx?.previous) withDashboardScrollPreserved(() => setConfig(ctx.previous), ctx.scrollTop);
+      withDashboardScrollPreserved(() => setConfig(confirmedConfig), ctx.scrollTop);
       prompts.error(e.message);
     },
   });
