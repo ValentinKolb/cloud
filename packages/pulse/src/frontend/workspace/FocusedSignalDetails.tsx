@@ -8,6 +8,8 @@ type SourceProps = {
   sourceNameById: () => Map<string, string>;
   dateContext: PulseDateContext;
   openSource: (sourceId: string | null | undefined) => void;
+  openQuery: () => void;
+  close: () => void;
 };
 
 const SourceInlineLink = (props: SourceProps) => {
@@ -25,10 +27,29 @@ const SourceInlineLink = (props: SourceProps) => {
   );
 };
 
+const DetailClose = (props: SourceProps) => (
+  <button type="button" class="icon-btn" aria-label="Close details" onClick={props.close}>
+    <i class="ti ti-x" />
+  </button>
+);
+
+const DetailQuickActions = (props: SourceProps) => (
+  <>
+    <button type="button" class="btn-secondary btn-sm" onClick={props.openQuery}>
+      <i class="ti ti-code" /> Open query
+    </button>
+    {props.sourceId ? (
+      <button type="button" class="btn-secondary btn-sm" onClick={() => props.openSource(props.sourceId)}>
+        <i class="ti ti-database-share" /> Source
+      </button>
+    ) : null}
+  </>
+);
+
 export const FocusedMetricSeriesDetail = (
   props: SourceProps & { item: PulseMetricSeries; metricName: string; metricUnit: string | null },
 ) => (
-  <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+  <div class="flex h-full min-h-0 flex-col overflow-hidden">
     <DetailHero
       eyebrow="Metric variant"
       title={signalSubject(props.item)}
@@ -38,6 +59,8 @@ export const FocusedMetricSeriesDetail = (
           {props.metricName} · {props.sourceNameById().get(props.item.sourceId ?? "") ?? "No source"}
         </>
       }
+      actions={<DetailClose {...props} />}
+      quickActions={<DetailQuickActions {...props} />}
     />
     <div class="detail-stack">
       <section class="detail-section">
@@ -84,7 +107,7 @@ export const FocusedMetricSeriesDetail = (
 );
 
 export const FocusedStateDetail = (props: SourceProps & { state: PulseCurrentState }) => (
-  <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+  <div class="flex h-full min-h-0 flex-col overflow-hidden">
     <DetailHero
       eyebrow="State variant"
       title={signalSubject(props.state)}
@@ -94,6 +117,8 @@ export const FocusedStateDetail = (props: SourceProps & { state: PulseCurrentSta
           {props.state.key} · {props.sourceNameById().get(props.state.sourceId ?? "") ?? "No source"}
         </>
       }
+      actions={<DetailClose {...props} />}
+      quickActions={<DetailQuickActions {...props} />}
     />
     <div class="detail-stack">
       <section class="detail-section">
@@ -129,7 +154,7 @@ export const FocusedStateDetail = (props: SourceProps & { state: PulseCurrentSta
 );
 
 export const FocusedEventDetail = (props: SourceProps & { event: PulseRecordedEvent }) => (
-  <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+  <div class="flex h-full min-h-0 flex-col overflow-hidden">
     <DetailHero
       eyebrow="Event row"
       title={signalSubject(props.event)}
@@ -139,6 +164,8 @@ export const FocusedEventDetail = (props: SourceProps & { event: PulseRecordedEv
           {props.event.kind} · {props.sourceNameById().get(props.event.sourceId ?? "") ?? "No source"}
         </>
       }
+      actions={<DetailClose {...props} />}
+      quickActions={<DetailQuickActions {...props} />}
     />
     <div class="detail-stack">
       <section class="detail-section">

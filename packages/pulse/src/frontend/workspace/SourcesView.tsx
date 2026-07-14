@@ -1,13 +1,4 @@
-import {
-  DataTable,
-  Panes,
-  Placeholder,
-  TextInput,
-  type DataTableColumn,
-  type PanesValue,
-  type ResourceApiKey,
-  type ResourceApiKeysProps,
-} from "@valentinkolb/cloud/ui";
+import { DataTable, TextInput, type DataTableColumn, type ResourceApiKey, type ResourceApiKeysProps } from "@valentinkolb/cloud/ui";
 import { Show, type Accessor, type JSX } from "solid-js";
 import type { PulseSource, PulseSourceScrape } from "../../contracts";
 import { compactDateWithDelta, formatIngestCounts, sourceKindIcon, sourceStatus, type PulseDateContext } from "./helpers";
@@ -88,13 +79,11 @@ const renderSourceTargetCell = (source: PulseSource): JSX.Element => {
   return <span class="text-xs text-secondary">Internal app telemetry</span>;
 };
 
-export default function SourcesView(props: {
+export type SourcesViewProps = {
   search: Accessor<string>;
   setSearch: (value: string) => void;
   selectedBaseId: Accessor<string>;
   loading: Accessor<boolean>;
-  panesValue: Accessor<PanesValue>;
-  setPanesValue: (value: PanesValue) => void;
   sources: Accessor<PulseSource[]>;
   selectedSourceId: Accessor<string>;
   selectedSource: Accessor<PulseSource | null>;
@@ -117,7 +106,9 @@ export default function SourcesView(props: {
     input: Parameters<ResourceApiKeysProps["createKey"]>[0],
   ) => ReturnType<ResourceApiKeysProps["createKey"]>;
   revokeApiKey: (source: PulseSource, credentialId: string) => ReturnType<ResourceApiKeysProps["revokeKey"]>;
-}) {
+};
+
+export default function SourcesView(props: SourcesViewProps) {
   const renderSourceCell = (
     source: PulseSource,
     col: DataTableColumn<PulseSource>,
@@ -135,6 +126,46 @@ export default function SourcesView(props: {
     return render(source[col.id as keyof PulseSource]);
   };
 
+  return (
+    <section class="flex min-h-0 flex-1 flex-col gap-2">
+      <div class="flex shrink-0 flex-wrap items-center gap-2">
+        <div class="min-w-64 flex-1">
+          <TextInput
+            type="search"
+            icon="ti ti-search"
+            value={props.search}
+            onInput={props.setSearch}
+            placeholder="Search sources..."
+            clearable
+          />
+        </div>
+        <button
+          type="button"
+          class="btn-input btn-input-sm"
+          disabled={!props.selectedBaseId() || props.loading()}
+          onClick={() => void props.addSource()}
+        >
+          <i class="ti ti-plus" /> Source
+        </button>
+      </div>
+      <DataTable
+        rows={props.sources()}
+        columns={sourceColumns}
+        getRowId={(source) => source.id}
+        selectedRowId={props.selectedSourceId() || null}
+        onRowClick={props.selectSource}
+        density="compact"
+        fillHeight
+        class="min-h-[32rem] flex-1 overflow-auto"
+        empty="No sources yet."
+        scrollPreserveKey="pulse-sources-table"
+        renderCell={({ row: source, col, render }) => renderSourceCell(source, col, render)}
+      />
+    </section>
+  );
+}
+
+export function SourcesDetailPanel(props: SourcesViewProps) {
   const renderSourceScrapeCell = (scrape: PulseSourceScrape, col: DataTableColumn<PulseSourceScrape>): JSX.Element => {
     if (col.id === "status") {
       return (
@@ -164,20 +195,8 @@ export default function SourcesView(props: {
     return null;
   };
 
-  const renderSelectedSourceDetail = () => (
-    <Show
-      when={props.selectedSource()}
-      keyed
-      fallback={
-        <Placeholder
-          title="Select a source"
-          description="Choose a source to inspect its status and configuration."
-          icon="ti ti-database-share"
-          variant="panel"
-          class="h-full"
-        />
-      }
-    >
+  return (
+    <Show when={props.selectedSource()} keyed>
       {(source) => (
         <SourceDetailView
           source={source}
@@ -201,62 +220,5 @@ export default function SourcesView(props: {
         />
       )}
     </Show>
-  );
-
-  return (
-    <section class="flex min-h-0 flex-1 flex-col gap-3 pb-2">
-      <div class="flex shrink-0 flex-wrap items-center gap-2">
-        <div class="min-w-64 flex-1">
-          <TextInput
-            type="search"
-            icon="ti ti-search"
-            value={props.search}
-            onInput={props.setSearch}
-            placeholder="Search sources..."
-            clearable
-          />
-        </div>
-        <button
-          type="button"
-          class="btn-input btn-input-sm"
-          disabled={!props.selectedBaseId() || props.loading()}
-          onClick={() => void props.addSource()}
-        >
-          <i class="ti ti-plus" /> Source
-        </button>
-      </div>
-      <section class="h-[min(72vh,54rem)] min-h-[32rem] shrink-0 overflow-hidden">
-        <Panes.Root
-          value={props.panesValue()}
-          onChange={props.setPanesValue}
-          class="h-full min-h-0"
-          allowMove={false}
-          allowReorder={false}
-          allowHorizontalSplit={false}
-          allowVerticalSplit={false}
-        >
-          <Panes.Element id="list" title="Sources" icon="ti-database-share">
-            <div class="flex h-full min-h-0 flex-col overflow-hidden">
-              <DataTable
-                rows={props.sources()}
-                columns={sourceColumns}
-                getRowId={(source) => source.id}
-                selectedRowId={props.selectedSourceId() || null}
-                onRowClick={props.selectSource}
-                density="compact"
-                fillHeight
-                class="min-h-0 flex-1 overflow-auto"
-                empty="No sources yet."
-                scrollPreserveKey="pulse-sources-table"
-                renderCell={({ row: source, col, render }) => renderSourceCell(source, col, render)}
-              />
-            </div>
-          </Panes.Element>
-          <Panes.Element id="detail" title="Detail" icon="ti-info-circle">
-            <div class="h-full min-h-0 overflow-auto">{renderSelectedSourceDetail()}</div>
-          </Panes.Element>
-        </Panes.Root>
-      </section>
-    </section>
   );
 }

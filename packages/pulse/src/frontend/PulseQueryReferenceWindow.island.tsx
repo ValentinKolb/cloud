@@ -1,7 +1,14 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { navigate } from "@valentinkolb/ssr/nav";
 import { createSignal, For } from "solid-js";
-import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent, PulseSignalField, PulseSource } from "../contracts";
+import type {
+  PulseCurrentState,
+  PulseMetricSeries,
+  PulseMetricSummary,
+  PulseRecordedEvent,
+  PulseSignalField,
+  PulseSource,
+} from "../contracts";
 import { PulseDashboardDslHelpPage, PulseQueryDslHelpPage, PulseReferenceOverviewPage } from "./help/pulse-help-content";
 import { PulseQueryReferenceInventory } from "./PulseQueryReferenceInventory";
 import { defaultReferenceTab, isAvailableReferenceTab, type ReferenceTab, referenceTabs } from "./query-reference-tabs";
@@ -79,8 +86,8 @@ export default function PulseQueryReferenceWindow(props: Props) {
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
 
-      <AppWorkspace.Main class="overflow-y-auto">
-        <div class="mx-auto flex w-full max-w-7xl flex-col gap-5 p-1 pb-8">
+      <AppWorkspace.Main class="overflow-y-auto p-[var(--ui-space-shell)]">
+        <div class="mx-auto flex w-full max-w-7xl flex-col gap-5">
           {activeTab() === "overview"
             ? renderOverview()
             : activeTab() === "query"

@@ -16,7 +16,6 @@ import type {
   PulseSource,
   PulseSourceScrape,
 } from "../../contracts";
-import { createListDetailPanesValue } from "./list-detail-panes";
 import { readQueryHistory } from "./query-history";
 import { readActivityQueryState, readResourceQueryState } from "./routes";
 import type { ExplorerResultView, PulseWorkspaceProps, WorkspaceView } from "./types";
@@ -63,7 +62,6 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
   const [activeView] = createSignal<WorkspaceView>(initialRouteState.view);
   const [selectedMetric, setSelectedMetric] = createSignal(props.initialMetrics?.[0]?.name ?? "");
   const [selectedSourceId, setSelectedSourceId] = createSignal(initialRouteState.sourceId);
-  const [sourcePanesValue, setSourcePanesValue] = createSignal(createListDetailPanesValue());
   const [selectedQuerySourceId, setSelectedQuerySourceId] = createSignal("");
   const [activitySearch, setActivitySearch] = createSignal(initialActivityQuery.q);
   const [metricTypeFilter, setMetricTypeFilter] = createSignal<"" | MetricType>(initialActivityQuery.type);
@@ -77,7 +75,6 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
   const [selectedFocusedSeriesId, setSelectedFocusedSeriesId] = createSignal("");
   const [selectedFocusedStateId, setSelectedFocusedStateId] = createSignal("");
   const [selectedFocusedEventId, setSelectedFocusedEventId] = createSignal("");
-  const [focusedPanesValue, setFocusedPanesValue] = createSignal(createListDetailPanesValue());
   const [selectedSeriesId, setSelectedSeriesId] = createSignal("");
   const [selectedVisual, setSelectedVisual] = createSignal<PanelVisual>("line");
   const [selectedAggregation, setSelectedAggregation] = createSignal<Aggregation>("avg");
@@ -144,7 +141,6 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     focusedHasMore,
     focusedLoadingMore,
     focusedMetricSeries,
-    focusedPanesValue,
     focusedSearch,
     focusedSignalId,
     focusedStates,
@@ -207,7 +203,6 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     setFocusedHasMore,
     setFocusedLoadingMore,
     setFocusedMetricSeries,
-    setFocusedPanesValue,
     setFocusedSearch,
     setFocusedStates,
     setInventory,
@@ -246,13 +241,11 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     setSelectedVisual,
     setSeries,
     setSourceApiKeys,
-    setSourcePanesValue,
     setSourceScrapes,
     setSources,
     setSettingsDialogOpen,
     settingsDialogOpen,
     sourceApiKeys,
-    sourcePanesValue,
     sourceScrapes,
     sourceSearch,
     sources,

@@ -69,15 +69,9 @@ export const createWorkspaceDerivedModel = (props: PulseWorkspaceProps, state: W
   const selectedSourceScrapes = createMemo(() => (selectedSourceId() ? (sourceScrapes()[selectedSourceId()] ?? []) : []));
   const selectedSourceApiKeys = createMemo(() => (selectedSourceId() ? (sourceApiKeys()[selectedSourceId()] ?? []) : []));
   const focusedMetric = createMemo(() => metrics().find((metric) => metric.name === focusedSignalId()) ?? null);
-  const selectedFocusedSeries = createMemo(
-    () => focusedMetricSeries().find((item) => item.id === selectedFocusedSeriesId()) ?? focusedMetricSeries()[0] ?? null,
-  );
-  const selectedFocusedState = createMemo(
-    () => focusedStates().find((item) => stateRowId(item) === selectedFocusedStateId()) ?? focusedStates()[0] ?? null,
-  );
-  const selectedFocusedEvent = createMemo(
-    () => focusedEvents().find((event) => event.id === selectedFocusedEventId()) ?? focusedEvents()[0] ?? null,
-  );
+  const selectedFocusedSeries = createMemo(() => focusedMetricSeries().find((item) => item.id === selectedFocusedSeriesId()) ?? null);
+  const selectedFocusedState = createMemo(() => focusedStates().find((item) => stateRowId(item) === selectedFocusedStateId()) ?? null);
+  const selectedFocusedEvent = createMemo(() => focusedEvents().find((event) => event.id === selectedFocusedEventId()) ?? null);
   const selectedSeries = createMemo(() => series().find((item) => item.id === selectedSeriesId()) ?? null);
   const sourceNameById = createMemo(() => new Map(sources().map((source) => [source.id, source.name])));
   const metricByName = createMemo(() => new Map(metrics().map((metric) => [metric.name, metric])));

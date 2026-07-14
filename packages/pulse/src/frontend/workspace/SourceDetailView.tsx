@@ -86,37 +86,34 @@ export default function SourceDetailView(props: Props) {
           </>
         }
         actions={
+          <Tooltip content="Close details">
+            <button type="button" class="icon-btn" aria-label="Close source details" onClick={props.close}>
+              <i class="ti ti-x" />
+            </button>
+          </Tooltip>
+        }
+        quickActions={
           <>
-            <Tooltip content="Edit source">
+            <button type="button" class="btn-secondary btn-sm" onClick={() => void props.editSource(props.source)}>
+              <i class="ti ti-pencil" /> Edit
+            </button>
+            <button type="button" class="btn-secondary btn-sm" onClick={() => void props.toggleSource(props.source)}>
+              <i class={`ti ${props.source.enabled ? "ti-player-pause" : "ti-player-play"}`} />
+              {props.source.enabled ? "Pause" : "Resume"}
+            </button>
+            <button type="button" class="btn-secondary btn-sm" onClick={() => props.openSourceResources(props.source)}>
+              <i class="ti ti-cube" /> Resources
+            </button>
+            <Show when={props.source.kind === "metrics"}>
               <button
                 type="button"
-                class="btn-simple btn-sm text-dimmed hover:text-primary"
-                aria-label="Edit source"
-                onClick={() => void props.editSource(props.source)}
+                class="btn-secondary btn-sm"
+                disabled={props.loading || !props.source.enabled}
+                onClick={() => void props.scrape(props.source)}
               >
-                <i class="ti ti-pencil" />
+                <i class="ti ti-refresh" /> Scrape
               </button>
-            </Tooltip>
-            <Tooltip content={props.source.enabled ? "Pause source" : "Resume source"}>
-              <button
-                type="button"
-                class="btn-simple btn-sm text-dimmed hover:text-primary"
-                aria-label={props.source.enabled ? "Pause source" : "Resume source"}
-                onClick={() => void props.toggleSource(props.source)}
-              >
-                <i class={`ti ${props.source.enabled ? "ti-player-pause" : "ti-player-play"}`} />
-              </button>
-            </Tooltip>
-            <Tooltip content="Close detail">
-              <button
-                type="button"
-                class="btn-simple btn-sm text-dimmed hover:text-primary"
-                aria-label="Close detail"
-                onClick={props.close}
-              >
-                <i class="ti ti-x" />
-              </button>
-            </Tooltip>
+            </Show>
           </>
         }
       />
@@ -220,16 +217,6 @@ export default function SourceDetailView(props: Props) {
       </div>
 
       <div class="flex flex-wrap items-center gap-2 p-3">
-        <Show when={props.source.kind === "metrics"}>
-          <button
-            type="button"
-            class="btn-input btn-input-sm"
-            disabled={props.loading || !props.source.enabled}
-            onClick={() => void props.scrape(props.source)}
-          >
-            <i class="ti ti-refresh" /> Scrape
-          </button>
-        </Show>
         <Show when={props.source.kind === "http_ingest"}>
           <span class="text-xs text-dimmed">Use a source API key as Bearer token.</span>
         </Show>

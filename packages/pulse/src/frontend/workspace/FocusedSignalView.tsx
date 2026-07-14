@@ -1,15 +1,14 @@
-import { DataTable, Panes, Placeholder, TextInput, type DataTableColumn, type PanesValue } from "@valentinkolb/cloud/ui";
+import { DataTable, TextInput, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { createMemo, Show, type Accessor, type JSX, type Setter } from "solid-js";
 import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent } from "../../contracts";
 import { FocusedEventDetail, FocusedMetricSeriesDetail, FocusedStateDetail } from "./FocusedSignalDetails";
-import DetailHero from "./DetailHero";
 import { plural, stateRowId, type PulseDateContext } from "./helpers";
 import type { WorkspaceView } from "./types";
 
 type CellRenderer<Row> = (row: Row, col: DataTableColumn<Row>, render: (value: unknown) => JSX.Element) => JSX.Element;
 type FocusedSignalKind = "metric" | "state" | "event";
 
-type FocusedSignalViewProps = {
+export type FocusedSignalViewProps = {
   view: Accessor<WorkspaceView>;
   signalId: Accessor<string>;
   focusedMetric: Accessor<PulseMetricSummary | null>;
@@ -18,8 +17,6 @@ type FocusedSignalViewProps = {
   events: Accessor<PulseRecordedEvent[]>;
   hasMore: Accessor<boolean>;
   loadingMore: Accessor<boolean>;
-  panesValue: Accessor<PanesValue>;
-  setPanesValue: Setter<PanesValue>;
   search: Accessor<string>;
   setSearch: Setter<string>;
   selectedSeries: Accessor<PulseMetricSeries | null>;
@@ -39,6 +36,7 @@ type FocusedSignalViewProps = {
   sourceNameById: () => Map<string, string>;
   dateContext: Accessor<PulseDateContext>;
   openSource: (sourceId: string | null | undefined) => void;
+  closeDetail: () => void;
 };
 
 const focusedSignalKind = (view: WorkspaceView): FocusedSignalKind => {
@@ -50,7 +48,6 @@ const focusedSignalKind = (view: WorkspaceView): FocusedSignalKind => {
 const focusedSignalTitle = (kind: FocusedSignalKind) => (kind === "metric" ? "Metric" : kind === "state" ? "State" : "Event");
 const focusedSignalIcon = (kind: FocusedSignalKind) =>
   kind === "metric" ? "ti-stack-3" : kind === "state" ? "ti-toggle-right" : "ti-bolt";
-const focusedSignalRowsTitle = (kind: FocusedSignalKind) => (kind === "event" ? "Events" : "Variants");
 const focusedSearchPlaceholder = (kind: FocusedSignalKind) =>
   kind === "metric" ? "Search variants..." : kind === "state" ? "Search state variants..." : "Search events...";
 const focusedRowsLabel = (kind: FocusedSignalKind, props: FocusedSignalViewProps) =>
@@ -66,22 +63,24 @@ const focusedSubtitle = (kind: FocusedSignalKind, props: FocusedSignalViewProps,
 };
 
 const FocusedSignalHeader = (props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; rowsLabel: Accessor<string> }) => (
-  <DetailHero
-    eyebrow={focusedSignalTitle(props.kind())}
-    title={props.signalId()}
-    icon={`ti ${focusedSignalIcon(props.kind())}`}
-    description={focusedSubtitle(props.kind(), props, props.rowsLabel())}
-    actions={
-      <>
-        <button type="button" class="btn-input btn-input-sm" onClick={() => void props.loadRows()}>
-          <i class={`ti ${props.loadingMore() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
-        </button>
-        <button type="button" class="btn-input btn-input-sm" onClick={props.onOpenQuery}>
-          <i class="ti ti-code" /> Open query
-        </button>
-      </>
-    }
-  />
+  <header class="flex shrink-0 flex-wrap items-center gap-3">
+    <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 app-accent-text dark:bg-zinc-900">
+      <i class={`ti ${focusedSignalIcon(props.kind())} text-base`} />
+    </span>
+    <div class="min-w-0 flex-1">
+      <p class="text-label text-[11px]">{focusedSignalTitle(props.kind())}</p>
+      <h1 class="mt-0.5 truncate text-lg font-semibold leading-6 text-primary">{props.signalId()}</h1>
+      <p class="mt-0.5 truncate text-xs text-dimmed">{focusedSubtitle(props.kind(), props, props.rowsLabel())}</p>
+    </div>
+    <div class="flex shrink-0 items-center gap-2">
+      <button type="button" class="btn-input btn-input-sm" onClick={() => void props.loadRows()}>
+        <i class={`ti ${props.loadingMore() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
+      </button>
+      <button type="button" class="btn-input btn-input-sm" onClick={props.onOpenQuery}>
+        <i class="ti ti-code" /> Open query
+      </button>
+    </div>
+  </header>
 );
 
 const FocusedSignalSearch = (props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; rowsLabel: Accessor<string> }) => (
@@ -177,11 +176,7 @@ const FocusedSignalTable = (
 );
 
 const FocusedMetricDetailPane = (props: FocusedSignalViewProps) => (
-  <Show
-    when={props.selectedSeries()}
-    keyed
-    fallback={<Placeholder title="Select a metric variant" icon="ti ti-chart-dots" variant="panel" class="h-full" />}
-  >
+  <Show when={props.selectedSeries()} keyed>
     {(item) => (
       <FocusedMetricSeriesDetail
         item={item}
@@ -191,17 +186,15 @@ const FocusedMetricDetailPane = (props: FocusedSignalViewProps) => (
         dateContext={props.dateContext()}
         metricUnit={props.focusedMetric()?.unit ?? null}
         openSource={props.openSource}
+        openQuery={props.onOpenQuery}
+        close={props.closeDetail}
       />
     )}
   </Show>
 );
 
 const FocusedStateDetailPane = (props: FocusedSignalViewProps) => (
-  <Show
-    when={props.selectedState()}
-    keyed
-    fallback={<Placeholder title="Select a state variant" icon="ti ti-toggle-right" variant="panel" class="h-full" />}
-  >
+  <Show when={props.selectedState()} keyed>
     {(state) => (
       <FocusedStateDetail
         state={state}
@@ -209,17 +202,15 @@ const FocusedStateDetailPane = (props: FocusedSignalViewProps) => (
         sourceNameById={props.sourceNameById}
         dateContext={props.dateContext()}
         openSource={props.openSource}
+        openQuery={props.onOpenQuery}
+        close={props.closeDetail}
       />
     )}
   </Show>
 );
 
 const FocusedEventDetailPane = (props: FocusedSignalViewProps) => (
-  <Show
-    when={props.selectedEvent()}
-    keyed
-    fallback={<Placeholder title="Select an event" icon="ti ti-bolt" variant="panel" class="h-full" />}
-  >
+  <Show when={props.selectedEvent()} keyed>
     {(event) => (
       <FocusedEventDetail
         event={event}
@@ -227,46 +218,35 @@ const FocusedEventDetailPane = (props: FocusedSignalViewProps) => (
         sourceNameById={props.sourceNameById}
         dateContext={props.dateContext()}
         openSource={props.openSource}
+        openQuery={props.onOpenQuery}
+        close={props.closeDetail}
       />
     )}
   </Show>
 );
 
-const FocusedSignalDetailPane = (props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind> }) => (
-  <div class="h-full min-h-0 overflow-auto">
-    <Show when={props.kind() === "metric"}>
-      <FocusedMetricDetailPane {...props} />
-    </Show>
-    <Show when={props.kind() === "state"}>
-      <FocusedStateDetailPane {...props} />
-    </Show>
-    <Show when={props.kind() === "event"}>
-      <FocusedEventDetailPane {...props} />
-    </Show>
-  </div>
-);
+export function FocusedSignalDetail(props: FocusedSignalViewProps) {
+  const kind = createMemo(() => focusedSignalKind(props.view()));
+  return (
+    <div class="h-full min-h-0 overflow-hidden">
+      <Show when={kind() === "metric"}>
+        <FocusedMetricDetailPane {...props} />
+      </Show>
+      <Show when={kind() === "state"}>
+        <FocusedStateDetailPane {...props} />
+      </Show>
+      <Show when={kind() === "event"}>
+        <FocusedEventDetailPane {...props} />
+      </Show>
+    </div>
+  );
+}
 
-const FocusedSignalPanes = (
+const FocusedSignalRows = (
   props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; selectedStateRowId: Accessor<string | null> },
 ) => (
   <section class="h-[min(68vh,54rem)] min-h-[32rem] shrink-0 overflow-hidden">
-    <Panes.Root
-      value={props.panesValue()}
-      onChange={props.setPanesValue}
-      class="h-full min-h-0"
-      allowMove={false}
-      allowReorder={false}
-      allowHorizontalSplit={false}
-      allowVerticalSplit={false}
-    >
-      <Panes.Element id="list" title={focusedSignalRowsTitle(props.kind())} icon={focusedSignalIcon(props.kind())}>
-        <FocusedSignalTable {...props} kind={props.kind} selectedStateRowId={props.selectedStateRowId} />
-      </Panes.Element>
-
-      <Panes.Element id="detail" title="Detail" icon="ti-info-circle">
-        <FocusedSignalDetailPane {...props} kind={props.kind} />
-      </Panes.Element>
-    </Panes.Root>
+    <FocusedSignalTable {...props} kind={props.kind} selectedStateRowId={props.selectedStateRowId} />
   </section>
 );
 
@@ -279,10 +259,10 @@ export default function FocusedSignalView(props: FocusedSignalViewProps) {
   });
 
   return (
-    <section class="flex min-h-0 flex-1 flex-col gap-3 pb-2">
+    <section class="flex min-h-0 flex-1 flex-col gap-2">
       <FocusedSignalHeader {...props} kind={kind} rowsLabel={rowsLabel} />
       <FocusedSignalSearch {...props} kind={kind} rowsLabel={rowsLabel} />
-      <FocusedSignalPanes {...props} kind={kind} selectedStateRowId={selectedStateRowId} />
+      <FocusedSignalRows {...props} kind={kind} selectedStateRowId={selectedStateRowId} />
     </section>
   );
 }

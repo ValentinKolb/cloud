@@ -12,7 +12,7 @@ import {
   fetchDashboardMetricWidgetPoints,
   fetchDashboardStatesWidgetRows,
 } from "./workspace/dashboard-runtime";
-import FocusedSignalView from "./workspace/FocusedSignalView";
+import FocusedSignalView, { FocusedSignalDetail } from "./workspace/FocusedSignalView";
 import {
   dashboardEventsWidgets,
   dashboardMetricWidgets,
@@ -38,10 +38,10 @@ import QueryExplorerEditorPane from "./workspace/QueryExplorerEditorPane";
 import QueryExplorerResultPane from "./workspace/QueryExplorerResultPane";
 import { createQueryController } from "./workspace/query-controller";
 import ResourceBrowserView from "./workspace/ResourceBrowserView";
-import ResourceDetailView from "./workspace/ResourceDetailView";
+import ResourceDetailView, { createResourceDetailSelection, ResourceSignalDetail } from "./workspace/ResourceDetailView";
 import { signalCatalogKindForView } from "./workspace/SignalCatalogChrome";
 import SignalCatalogView from "./workspace/SignalCatalogView";
-import SourcesView from "./workspace/SourcesView";
+import SourcesView, { SourcesDetailPanel } from "./workspace/SourcesView";
 import { createSignalTableCellRenderers } from "./workspace/signal-table-cells";
 import { createSourceController } from "./workspace/source-controller";
 import {
@@ -92,7 +92,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     focusedHasMore,
     focusedLoadingMore,
     focusedMetricSeries,
-    focusedPanesValue,
     focusedSearch,
     focusedSignalId,
     focusedStates,
@@ -146,7 +145,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setFocusedHasMore,
     setFocusedLoadingMore,
     setFocusedMetricSeries,
-    setFocusedPanesValue,
     setFocusedSearch,
     setFocusedStates,
     setInventory,
@@ -185,12 +183,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setSelectedVisual,
     setSeries,
     setSourceApiKeys,
-    setSourcePanesValue,
     setSourceScrapes,
     setSources,
     setSettingsDialogOpen,
     settingsDialogOpen,
-    sourcePanesValue,
     sourceSearch,
     sources,
     setSourceSearch,
@@ -241,6 +237,11 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     visibleQuerySourceSuggestions,
     visibleSelectedResource,
   } = createWorkspaceDerivedModel(props, state);
+  const resourceDetailSelection = createResourceDetailSelection({
+    metrics: selectedResourceMetrics,
+    states: selectedResourceStates,
+    events: selectedResourceEvents,
+  });
   const {
     loadActivity: loadActivityData,
     loadBase: loadBaseData,
@@ -767,6 +768,30 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         metrics={selectedResourceMetrics()}
         states={selectedResourceStates()}
         events={selectedResourceEvents()}
+        selection={resourceDetailSelection}
+        dateContext={pulseDateContext()}
+        sourceNameById={sourceNameById}
+        openSource={openSourceFromDetail}
+        openMetricQuery={openMetricQuery}
+        openMetricVariants={openMetricDetailView}
+        openStateQuery={openStateQuery}
+        openStateVariants={openStateDetailView}
+        openEventQuery={openEventQuery}
+        openEventVariants={openEventDetailView}
+      />
+    );
+  };
+
+  const renderResourceSignalDetail = () => {
+    const resource = selectedResource();
+    if (!resource) return null;
+    return (
+      <ResourceSignalDetail
+        resource={resource}
+        metrics={selectedResourceMetrics()}
+        states={selectedResourceStates()}
+        events={selectedResourceEvents()}
+        selection={resourceDetailSelection}
         dateContext={pulseDateContext()}
         sourceNameById={sourceNameById}
         openSource={openSourceFromDetail}
@@ -786,8 +811,37 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       setSearch={setSourceSearch}
       selectedBaseId={selectedBaseId}
       loading={loading}
-      panesValue={sourcePanesValue}
-      setPanesValue={setSourcePanesValue}
+      sources={filteredSources}
+      selectedSourceId={selectedSourceId}
+      selectedSource={selectedSource}
+      selectedSourceScrapes={selectedSourceScrapes}
+      selectedSourceApiKeys={selectedSourceApiKeys}
+      origin={origin}
+      dateContext={pulseDateContext}
+      publishedCounts={sourcePublishedCounts}
+      copySetupText={copySetupText}
+      addSource={addSource}
+      selectSource={selectSource}
+      closeSource={() => {
+        setSelectedSourceId("");
+        navigateWorkspace({ view: "sources" });
+      }}
+      openSourceResources={openSourceResources}
+      editSource={editSource}
+      toggleSource={toggleSource}
+      scrape={scrape}
+      removeSource={removeSource}
+      createApiKey={createSourceApiKey}
+      revokeApiKey={revokeSourceApiKey}
+    />
+  );
+
+  const renderSourcesDetail = () => (
+    <SourcesDetailPanel
+      search={sourceSearch}
+      setSearch={setSourceSearch}
+      selectedBaseId={selectedBaseId}
+      loading={loading}
       sources={filteredSources}
       selectedSourceId={selectedSourceId}
       selectedSource={selectedSource}
@@ -829,6 +883,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     openQueryExplorer();
   };
 
+  const closeFocusedSignalDetail = () => {
+    if (activeView() === "metric-detail") setSelectedFocusedSeriesId("");
+    if (activeView() === "state-detail") setSelectedFocusedStateId("");
+    if (activeView() === "event-detail") setSelectedFocusedEventId("");
+  };
+
   const renderFocusedSignalView = () => (
     <FocusedSignalView
       view={activeView}
@@ -839,8 +899,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       events={focusedEvents}
       hasMore={focusedHasMore}
       loadingMore={focusedLoadingMore}
-      panesValue={focusedPanesValue}
-      setPanesValue={setFocusedPanesValue}
       search={focusedSearch}
       setSearch={setFocusedSearch}
       selectedSeries={selectedFocusedSeries}
@@ -860,6 +918,40 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       sourceNameById={sourceNameById}
       dateContext={pulseDateContext}
       openSource={openSourceFromDetail}
+      closeDetail={closeFocusedSignalDetail}
+    />
+  );
+
+  const renderFocusedSignalDetail = () => (
+    <FocusedSignalDetail
+      view={activeView}
+      signalId={focusedSignalId}
+      focusedMetric={focusedMetric}
+      metricSeries={focusedMetricSeries}
+      states={focusedStates}
+      events={focusedEvents}
+      hasMore={focusedHasMore}
+      loadingMore={focusedLoadingMore}
+      search={focusedSearch}
+      setSearch={setFocusedSearch}
+      selectedSeries={selectedFocusedSeries}
+      selectedState={selectedFocusedState}
+      selectedEvent={selectedFocusedEvent}
+      setSelectedSeriesId={setSelectedFocusedSeriesId}
+      setSelectedStateId={setSelectedFocusedStateId}
+      setSelectedEventId={setSelectedFocusedEventId}
+      metricSeriesColumns={metricSeriesColumns}
+      stateColumns={stateColumns}
+      eventColumns={eventColumns}
+      renderMetricSeriesCell={renderMetricSeriesCell}
+      renderStateCell={renderStateCell}
+      renderEventCell={renderEventCell}
+      loadRows={loadFocusedRows}
+      onOpenQuery={openFocusedSignalQuery}
+      sourceNameById={sourceNameById}
+      dateContext={pulseDateContext}
+      openSource={openSourceFromDetail}
+      closeDetail={closeFocusedSignalDetail}
     />
   );
 
@@ -997,6 +1089,24 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     toast.success(label);
   };
 
+  const workspaceDetailOpen = () => {
+    if (activeView() === "sources") return selectedSource() !== null;
+    if (activeView() === "resource-detail") return resourceDetailSelection.open();
+    if (activeView() === "metric-detail") return selectedFocusedSeries() !== null;
+    if (activeView() === "state-detail") return selectedFocusedState() !== null;
+    if (activeView() === "event-detail") return selectedFocusedEvent() !== null;
+    return false;
+  };
+
+  const renderWorkspaceDetail = () => {
+    if (activeView() === "sources") return renderSourcesDetail();
+    if (activeView() === "resource-detail") return renderResourceSignalDetail();
+    if (activeView() === "metric-detail" || activeView() === "state-detail" || activeView() === "event-detail") {
+      return renderFocusedSignalDetail();
+    }
+    return null;
+  };
+
   return (
     <AppWorkspace class={`cloud-ui-soft ${activeView() === "explorer" ? "min-h-0" : "min-h-[760px]"}`}>
       <PulseLayoutHelp />
@@ -1022,7 +1132,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         openActivityMetrics={openActivityMetrics}
       />
 
-      <AppWorkspace.Main class={activeView() === "explorer" ? "gap-3 overflow-hidden" : "gap-3 overflow-y-auto"}>
+      <AppWorkspace.Main
+        class={`p-[var(--ui-space-shell)] ${activeView() === "explorer" ? "gap-2 overflow-hidden" : "gap-2 overflow-y-auto"}`}
+      >
         {activeView() === "dashboard"
           ? renderDashboardView()
           : activeView() === "dashboard-edit"
@@ -1039,6 +1151,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                       ? renderMetricExplorerView()
                       : renderSignalCatalogView()}
       </AppWorkspace.Main>
+
+      <AppWorkspace.Detail id="pulse-detail-panel" open={workspaceDetailOpen()} width="lg" viewTransitionName="pulse-detail-panel-shell">
+        {renderWorkspaceDetail()}
+      </AppWorkspace.Detail>
     </AppWorkspace>
   );
 }
