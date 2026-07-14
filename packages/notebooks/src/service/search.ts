@@ -1,7 +1,7 @@
 import type { PaginationParams } from "@valentinkolb/cloud/contracts";
 import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { buildNotebookPrincipalCondition } from "./access";
+import { buildNotebookVisibleAccessCondition } from "./access";
 import type { Note } from "./notes";
 
 export type SearchFilters = {
@@ -242,7 +242,7 @@ export const searchAcross = async (params: {
     return { hits: [], total: 0 };
   }
   const filters = normalizeFilters(params.filters);
-  const principalMatch = buildNotebookPrincipalCondition({
+  const principalMatch = buildNotebookVisibleAccessCondition({
     userId: params.userId,
     serviceAccountId: params.serviceAccountId,
   });

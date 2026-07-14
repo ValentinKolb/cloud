@@ -12,7 +12,7 @@ import {
   summarizeNoteEditBlocks,
 } from "../lib/note-edit";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
-import { buildNotebookPrincipalCondition } from "./access";
+import { buildNotebookVisibleAccessCondition } from "./access";
 import { reindexNoteRefsSafe } from "./note-refs";
 import { noteCreated, noteDeleted, noteUpdated } from "./workspace-events";
 import { createYjsTopic, NODE_ID, parseStreamCursor, replayYjsTopicToCursor, toBase64 } from "./yjs-sync";
@@ -273,7 +273,7 @@ export type RecentNote = {
 };
 
 export const recentForUser = async (params: { userId: string; limit: number }): Promise<RecentNote[]> => {
-  const principalMatch = buildNotebookPrincipalCondition({ userId: params.userId });
+  const principalMatch = buildNotebookVisibleAccessCondition({ userId: params.userId });
   const rows = await sql<
     {
       id: string;
@@ -509,7 +509,7 @@ export const resolveShortIdsToNotebookShortIds = async (params: {
   if (params.shortIds.length === 0) return new Map();
   if (params.serviceAccountId && !params.boundNotebookId) return new Map();
   const arr = toPgTextArray(params.shortIds);
-  const principalMatch = buildNotebookPrincipalCondition({
+  const principalMatch = buildNotebookVisibleAccessCondition({
     userId: params.userId,
     serviceAccountId: params.serviceAccountId,
   });

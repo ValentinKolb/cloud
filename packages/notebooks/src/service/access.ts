@@ -40,7 +40,7 @@ export type NotebookApiKey = ServiceAccountCredential & {
   permission: PermissionLevel;
 };
 
-export const buildNotebookPrincipalCondition = (params: {
+export const buildNotebookVisibleAccessCondition = (params: {
   userId?: string | null;
   serviceAccountId?: string | null;
 }) => {
@@ -49,7 +49,7 @@ export const buildNotebookPrincipalCondition = (params: {
     : params.serviceAccountId
       ? { type: "service_account", serviceAccountId: params.serviceAccountId }
       : null;
-  return buildAccessPrincipalCondition({
+  const principalMatch = buildAccessPrincipalCondition({
     subject,
     columns: {
       userId: sql`a.user_id`,
@@ -58,6 +58,7 @@ export const buildNotebookPrincipalCondition = (params: {
       authenticatedOnly: sql`a.authenticated_only`,
     },
   });
+  return sql`${principalMatch} AND a.permission <> 'none'`;
 };
 
 const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {

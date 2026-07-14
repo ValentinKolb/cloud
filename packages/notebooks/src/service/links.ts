@@ -1,6 +1,6 @@
 import { logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { buildNotebookPrincipalCondition } from "./access";
+import { buildNotebookVisibleAccessCondition } from "./access";
 
 const log = logger("notebooks:links");
 
@@ -210,7 +210,7 @@ export const listBacklinks = async (params: {
 }): Promise<Backlink[]> => {
   const { noteId, userId, bypassAccess = false } = params;
   if (params.serviceAccountId && !params.boundNotebookId) return [];
-  const principalMatch = buildNotebookPrincipalCondition({ userId, serviceAccountId: params.serviceAccountId });
+  const principalMatch = buildNotebookVisibleAccessCondition({ userId, serviceAccountId: params.serviceAccountId });
   const boundNotebookId = params.boundNotebookId ?? null;
 
   const rows = bypassAccess

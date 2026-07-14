@@ -4,7 +4,7 @@ import { serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
 import {
-  buildNotebookPrincipalCondition,
+  buildNotebookVisibleAccessCondition,
   getNotebookPermission,
   grantNotebookAccess,
   NOTEBOOK_RESOURCE_TYPE,
@@ -154,7 +154,7 @@ export const list = async (params: {
 }): Promise<{ items: Notebook[]; total: number }> => {
   const { userId } = params;
   if (params.serviceAccountId && !params.boundNotebookId) return { items: [], total: 0 };
-  const principalMatch = buildNotebookPrincipalCondition({ userId, serviceAccountId: params.serviceAccountId });
+  const principalMatch = buildNotebookVisibleAccessCondition({ userId, serviceAccountId: params.serviceAccountId });
   const boundNotebookId = params.boundNotebookId ?? null;
   const query = params.query?.trim().toLowerCase();
   const pattern = query && query.length > 0 ? `%${query}%` : null;
