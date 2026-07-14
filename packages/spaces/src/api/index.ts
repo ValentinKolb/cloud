@@ -1,5 +1,6 @@
 import { ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
 import {
+  type AccessSubject,
   type AuthContext,
   auth,
   getDateConfig,
@@ -54,7 +55,7 @@ import {
 import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
 import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
 import { spacesService } from "../service";
-import { SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
+import { isSpaceResourceId, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
 import { latestSpaceEventCursor, liveSpaceEvents } from "../service/events";
 
 // ==========================
@@ -133,29 +134,25 @@ const getSpaceAccessSubject = (c: Context<AuthContext>) => {
   const serviceAccount = actor.kind === "service_account" ? actor.serviceAccount : null;
   return {
     user,
-    userId: accessSubject.type === "user" ? accessSubject.userId : null,
-    userGroups: user?.memberofGroupIds ?? [],
-    serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+    subject: accessSubject,
     serviceAccount,
     serviceAccountScopes: actor.kind === "service_account" ? actor.scopes : [],
   };
 };
 
-type CalendarAccess = {
-  userId: string | null;
-  groups: string[];
-  serviceAccountId: string | null;
-  spaceId: string | null;
+type ScopedSpaceAccess = {
+  subject: AccessSubject;
+  boundSpaceId: string | null;
 };
 
-const getCalendarAccess = (c: Context<AuthContext>): Result<CalendarAccess> => {
+const getScopedSpaceAccess = (c: Context<AuthContext>): Result<ScopedSpaceAccess> => {
   const subject = getSpaceAccessSubject(c);
 
   if (subject.serviceAccount?.kind === "resource_bound") {
     if (
       subject.serviceAccount.appId !== SPACES_APP_ID ||
       subject.serviceAccount.resourceType !== SPACE_RESOURCE_TYPE ||
-      !subject.serviceAccount.resourceId
+      !isSpaceResourceId(subject.serviceAccount.resourceId)
     ) {
       return fail(err.forbidden("Access denied"));
     }
@@ -165,20 +162,16 @@ const getCalendarAccess = (c: Context<AuthContext>): Result<CalendarAccess> => {
     }
 
     return ok({
-      userId: null,
-      groups: [],
-      serviceAccountId: subject.serviceAccountId,
-      spaceId: subject.serviceAccount.resourceId,
+      subject: subject.subject,
+      boundSpaceId: subject.serviceAccount.resourceId,
     });
   }
 
-  if (!subject.userId) return fail(err.forbidden("Access denied"));
+  if (subject.subject.type !== "user") return fail(err.forbidden("Access denied"));
 
   return ok({
-    userId: subject.userId,
-    groups: subject.userGroups,
-    serviceAccountId: null,
-    spaceId: null,
+    subject: subject.subject,
+    boundSpaceId: null,
   });
 };
 
@@ -216,9 +209,7 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
 
   let permission = await spacesService.space.permission.get({
     spaceId,
-    userId: subject.userId,
-    userGroups: subject.userGroups,
-    serviceAccountId: subject.serviceAccountId,
+    subject: subject.subject,
   });
 
   if (subject.serviceAccount?.kind === "resource_bound") {
@@ -386,19 +377,18 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Spaces"],
       summary: "List spaces",
-      description: "List all spaces accessible to the current user.",
+      description: "List all spaces accessible to the current actor.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(SpaceListSchema, "List of spaces"),
       },
     }),
     async (c) => {
-      const userResult = requireUserBackedActor(c);
-      if (!userResult.ok) return respond(c, userResult);
-      const user = userResult.data;
+      const access = getScopedSpaceAccess(c);
+      if (!access.ok) return respond(c, access);
       const result = await spacesService.space.list({
-        userId: user.id,
-        groups: user.memberofGroupIds,
+        subject: access.data.subject,
+        boundSpaceId: access.data.boundSpaceId,
       });
       return respond(c, ok(result.items));
     },
@@ -1417,7 +1407,7 @@ const calendarApp = new Hono<AuthContext>()
     }),
     v("query", CalendarQuerySchema),
     async (c) => {
-      const access = getCalendarAccess(c);
+      const access = getScopedSpaceAccess(c);
       if (!access.ok) return respond(c, access);
       const { from, to } = c.req.valid("query");
 
@@ -1444,7 +1434,7 @@ const calendarApp = new Hono<AuthContext>()
     }),
     v("query", OverlapQuerySchema),
     async (c) => {
-      const access = getCalendarAccess(c);
+      const access = getScopedSpaceAccess(c);
       if (!access.ok) return respond(c, access);
       const { from, to, excludeItemId } = c.req.valid("query");
 

@@ -1,3 +1,4 @@
+import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import type { AccessEntry, Space, SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
 import * as access from "./access";
@@ -34,14 +35,14 @@ const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => 
 export const spacesService = {
   space: {
     list: async (config: {
-      userId: string | null;
-      groups: string[];
+      subject: AccessSubject;
+      boundSpaceId?: string | null;
       pagination?: PageParams;
       filter?: { query?: string };
     }): Promise<Paginated<Space>> => {
       const items = await spaces.list({
-        userId: config.userId,
-        groups: config.groups,
+        subject: config.subject,
+        boundSpaceId: config.boundSpaceId,
       });
 
       const query = config.filter?.query?.trim().toLowerCase();

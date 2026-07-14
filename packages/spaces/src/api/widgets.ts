@@ -54,11 +54,9 @@ const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/today", asy
   // 403 = unauthenticated; signed-in users always have access (data may be empty → 204).
   if (!user) return c.body(null, 403);
 
-  const groups = Array.isArray(user.memberofGroupIds) ? user.memberofGroupIds : [];
   const dateConfig = getDateConfig(c);
   const snap = await spacesService.item.dashboardSnapshot({
     userId: user.id,
-    groups,
     todoLimit: 5,
     dateConfig,
   });

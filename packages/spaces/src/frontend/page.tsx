@@ -16,8 +16,7 @@ export default ssr<AuthContext>(async (c) => {
   const initialQuery = url.searchParams.get("q")?.trim() ?? "";
 
   const spacesPage = await spacesService.space.list({
-    userId: user.id,
-    groups: user.memberofGroupIds,
+    subject: { type: "user", userId: user.id },
   });
   const userSpaces = spacesPage.items;
 

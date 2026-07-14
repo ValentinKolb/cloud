@@ -10,7 +10,6 @@ import type { SpacesWorkspaceState } from "./workspace-types";
 
 type AuthUser = {
   id: string;
-  memberofGroupIds: string[];
 };
 
 type WorkspaceRequest = {
@@ -73,15 +72,13 @@ const resolveRouteState = (params: WorkspaceRequest): RouteState => {
 const resolvePermissions = async (params: { spaceId: string; user: AuthUser }) => {
   const hasAccess = await spacesService.space.permission.canAccess({
     spaceId: params.spaceId,
-    userId: params.user.id,
-    userGroups: params.user.memberofGroupIds,
+    subject: { type: "user", userId: params.user.id },
   });
   if (!hasAccess) return null;
 
   const userPermission = await spacesService.space.permission.get({
     spaceId: params.spaceId,
-    userId: params.user.id,
-    userGroups: params.user.memberofGroupIds,
+    subject: { type: "user", userId: params.user.id },
   });
 
   return {
@@ -255,8 +252,7 @@ const loadCalendarState = async (params: {
 
   const { from, to } = resolveCalendarRange({ calendarView, calendarDate, dateConfig: params.dateConfig });
   const accessibleItems = await spacesService.item.calendar.list({
-    userId: params.user.id,
-    groups: params.user.memberofGroupIds,
+    subject: { type: "user", userId: params.user.id },
     from: from.toISOString(),
     to: to.toISOString(),
     dateConfig: params.dateConfig,

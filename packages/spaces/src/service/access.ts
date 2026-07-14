@@ -1,5 +1,7 @@
 import {
   type AccessEntry,
+  type AccessSubject,
+  buildAccessPrincipalCondition,
   createAccess,
   deleteAccess,
   getEffectivePermission,
@@ -29,6 +31,9 @@ type DbSpaceAccess = {
 
 export const SPACES_APP_ID = "spaces";
 export const SPACE_RESOURCE_TYPE = "space";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const isSpaceResourceId = (value: string | null | undefined): value is string => Boolean(value && UUID_PATTERN.test(value));
 
 export type SpaceApiKey = ServiceAccountCredential & {
   permission: PermissionLevel;
@@ -53,6 +58,18 @@ const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel 
 export const resolveSpaceApiKeyPermission = (accessPermission: PermissionLevel, credentialScopes: string[]): PermissionLevel => {
   return minPermission(accessPermission, permissionFromScopes(credentialScopes));
 };
+
+/** Canonical principal predicate for joined `auth.access a` rows. */
+export const buildSpacePrincipalCondition = (subject: AccessSubject) =>
+  buildAccessPrincipalCondition({
+    subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
 
 /**
  * List all access entries for a space with resolved display names.
@@ -196,9 +213,7 @@ export const getSpaceAccessGuard = async (params: {
  */
 export const getSpacePermission = async (params: {
   spaceId: string;
-  userId?: string | null;
-  userGroups?: string[];
-  serviceAccountId?: string | null;
+  subject: AccessSubject;
 }): Promise<PermissionLevel> => {
   const { spaceId } = params;
 
@@ -212,9 +227,7 @@ export const getSpacePermission = async (params: {
 
   return getEffectivePermission({
     accessIds,
-    userId: params.userId ?? null,
-    userGroups: params.userGroups ?? [],
-    serviceAccountId: params.serviceAccountId ?? null,
+    subject: params.subject,
   });
 };
 

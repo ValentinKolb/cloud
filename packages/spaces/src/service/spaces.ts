@@ -1,8 +1,15 @@
-import { getEffectiveGroupIds, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
-import { serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { type AccessSubject, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
+import { serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { CreateSpace, MutationResult, Space, SpaceDetail, UpdateSpace } from "@/contracts";
-import { getSpacePermission, grantSpaceAccess, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "./access";
+import {
+  buildSpacePrincipalCondition,
+  getSpacePermission,
+  grantSpaceAccess,
+  isSpaceResourceId,
+  SPACE_RESOURCE_TYPE,
+  SPACES_APP_ID,
+} from "./access";
 import { rank } from "./rank";
 
 // ==========================
@@ -91,18 +98,14 @@ const STARTER_COLUMNS: Record<NonNullable<CreateSpace["starter"]>, typeof DEFAUL
  */
 export const canAccess = async (params: {
   spaceId: string;
-  userId?: string | null;
-  userGroups?: string[];
-  serviceAccountId?: string | null;
+  subject: AccessSubject;
   requiredLevel?: PermissionLevel;
 }): Promise<boolean> => {
   const { spaceId, requiredLevel = "read" } = params;
 
   const permission = await getSpacePermission({
     spaceId,
-    userId: params.userId ?? null,
-    userGroups: params.userGroups ?? [],
-    serviceAccountId: params.serviceAccountId ?? null,
+    subject: params.subject,
   });
 
   if (permission !== "none") {
@@ -117,9 +120,7 @@ export const canAccess = async (params: {
  */
 export const getPermission = async (params: {
   spaceId: string;
-  userId?: string | null;
-  userGroups?: string[];
-  serviceAccountId?: string | null;
+  subject: AccessSubject;
 }): Promise<PermissionLevel> => {
   const permission = await getSpacePermission(params);
 
@@ -131,26 +132,24 @@ export const getPermission = async (params: {
 };
 
 /**
- * List all spaces accessible to a user via the permission system.
+ * List all spaces accessible to an actor via the permission system.
  */
 export const list = async (params: {
-  userId: string | null;
-  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
-  groups?: string[];
+  subject: AccessSubject;
+  boundSpaceId?: string | null;
 }): Promise<Space[]> => {
-  const { userId } = params;
-  const groups = await getEffectiveGroupIds({ userId });
+  if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) return [];
+  const principalMatch = buildSpacePrincipalCondition(params.subject);
+  const bindingMatch = params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
 
   const rows = await sql<DbSpace[]>`
     SELECT DISTINCT s.id, s.name, s.description, s.color, s.ical_token, s.created_at, s.updated_at
     FROM spaces.spaces s
     LEFT JOIN spaces.space_access sa ON s.id = sa.space_id
     LEFT JOIN auth.access a ON sa.access_id = a.id
-    WHERE
-      a.user_id = ${userId}::uuid
-      OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-      OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-      OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
+    WHERE a.permission <> 'none'
+      AND ${principalMatch}
+      AND ${bindingMatch}
     ORDER BY s.name
   `;
   return rows.map(mapToSpace);

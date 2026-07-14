@@ -157,26 +157,23 @@ describe("Spaces assignable users", () => {
 
     const fixture = await createFixture();
     try {
-      const nestedSpaces = await listSpaces({ userId: fixture.userIds.nested, groups: [] });
+      const nestedSpaces = await listSpaces({ subject: { type: "user", userId: fixture.userIds.nested } });
       const outsideSpaces = await listSpaces({
-        userId: fixture.userIds.outside,
-        groups: [fixture.groupIds.parent],
+        subject: { type: "user", userId: fixture.userIds.outside },
       });
       expect(nestedSpaces.map((space) => space.id)).toContain(fixture.spaceId);
       expect(outsideSpaces.map((space) => space.id)).not.toContain(fixture.spaceId);
       expect(
         await canAccess({
           spaceId: fixture.spaceId,
-          userId: fixture.userIds.nested,
-          userGroups: [],
+          subject: { type: "user", userId: fixture.userIds.nested },
           requiredLevel: "admin",
         }),
       ).toBe(true);
       expect(
         await getPermission({
           spaceId: fixture.spaceId,
-          userId: fixture.userIds.nested,
-          userGroups: [],
+          subject: { type: "user", userId: fixture.userIds.nested },
         }),
       ).toBe("admin");
 

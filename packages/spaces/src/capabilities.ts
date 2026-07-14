@@ -44,16 +44,14 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
   const [spacesPage, itemHits] = await Promise.all([
     includeSpaces
       ? spacesService.space.list({
-          userId: user.id,
-          groups: user.memberofGroupIds,
+          subject: { type: "user", userId: user.id },
           pagination: { page: 1, perPage: input.limit },
           filter: { query: input.query },
         })
       : Promise.resolve({ items: [], page: 1, perPage: 0, total: 0, hasNext: false }),
     includeTasks || includeEvents
       ? spacesService.item.searchAcross({
-          userId: user.id,
-          groups: user.memberofGroupIds,
+          subject: { type: "user", userId: user.id },
           query: input.query,
           kinds,
           status: tags.has("todo") ? "open" : undefined,

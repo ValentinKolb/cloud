@@ -1,4 +1,4 @@
-import { type AccessUser, getEffectiveGroupIds, listUsersWithAccess } from "@valentinkolb/cloud/server";
+import { type AccessSubject, type AccessUser, listUsersWithAccess } from "@valentinkolb/cloud/server";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
@@ -17,6 +17,7 @@ import type {
   SpaceTag,
   UpdateItem,
 } from "@/contracts";
+import { buildSpacePrincipalCondition, isSpaceResourceId } from "./access";
 import { publishSpaceEvent } from "./events";
 import { rank } from "./rank";
 import { type ExpandedRecurringEvent, expandRecurringEvents, type RecurringEvent, type RecurringOverride } from "./recurrence";
@@ -400,12 +401,10 @@ export type DashboardItem = {
 
 export const dashboardSnapshot = async (params: {
   userId: string;
-  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
-  groups?: string[];
   todoLimit: number;
   dateConfig?: DateContext;
 }): Promise<{ openTodoCount: number; urgentCount: number; events: DashboardItem[]; todos: DashboardItem[] }> => {
-  const groupsArr = toPgUuidArray(await getEffectiveGroupIds({ userId: params.userId }));
+  const principalMatch = buildSpacePrincipalCondition({ type: "user", userId: params.userId });
   const { todayStart, tomorrowStart } = deadlineWindow(params.dateConfig);
 
   // Open-todo aggregate (count + urgent-count) across all reachable spaces.
@@ -420,12 +419,8 @@ export const dashboardSnapshot = async (params: {
       SELECT 1 FROM spaces.space_access sa
       JOIN auth.access a ON a.id = sa.access_id
       WHERE sa.space_id = i.space_id
-        AND (
-          a.user_id = ${params.userId}::uuid
-          OR a.group_id = ANY(${groupsArr}::uuid[])
-          OR a.authenticated_only = true
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-        )
+        AND a.permission <> 'none'
+        AND ${principalMatch}
     )
   `;
 
@@ -458,12 +453,8 @@ export const dashboardSnapshot = async (params: {
         SELECT 1 FROM spaces.space_access sa
         JOIN auth.access a ON a.id = sa.access_id
         WHERE sa.space_id = i.space_id
-          AND (
-            a.user_id = ${params.userId}::uuid
-            OR a.group_id = ANY(${groupsArr}::uuid[])
-            OR a.authenticated_only = true
-            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-          )
+          AND a.permission <> 'none'
+          AND ${principalMatch}
       )
     ORDER BY COALESCE(i.starts_at, i.deadline) ASC
     LIMIT 5
@@ -484,12 +475,8 @@ export const dashboardSnapshot = async (params: {
         SELECT 1 FROM spaces.space_access sa
         JOIN auth.access a ON a.id = sa.access_id
         WHERE sa.space_id = i.space_id
-          AND (
-            a.user_id = ${params.userId}::uuid
-            OR a.group_id = ANY(${groupsArr}::uuid[])
-            OR a.authenticated_only = true
-            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-          )
+          AND a.permission <> 'none'
+          AND ${principalMatch}
       )
     ORDER BY i.deadline ASC NULLS LAST, i.created_at ASC
     LIMIT ${params.todoLimit}
@@ -824,17 +811,19 @@ const expandedToCalendarItem = (event: ExpandedRecurringEvent & { calendarItem?:
 };
 
 export const searchAcross = async (params: {
-  userId: string | null;
-  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
-  groups?: string[];
+  subject: AccessSubject;
+  boundSpaceId?: string | null;
   query: string;
   kinds: ItemAcrossKind;
   status?: "open";
   priority?: Priority[];
   limit: number;
 }): Promise<ItemAcrossResult[]> => {
-  const { userId, query, kinds, limit } = params;
-  const groups = await getEffectiveGroupIds({ userId });
+  const { query, kinds, limit } = params;
+  if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) return [];
+  const principalMatch = buildSpacePrincipalCondition(params.subject);
+  const bindingMatch =
+    params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
   const trimmed = query.trim();
   // Empty query is valid — used by tag-only searches like `#task` or `#event`.
   // Pattern becomes `%%` which ILIKE-matches every row; the title-match
@@ -873,12 +862,9 @@ export const searchAcross = async (params: {
       FROM spaces.space_access sa
       JOIN auth.access a ON a.id = sa.access_id
       WHERE sa.space_id = s.id
-        AND (
-          a.user_id = ${userId}::uuid
-          OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-          OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-        )
+        AND a.permission <> 'none'
+        AND ${principalMatch}
+        AND ${bindingMatch}
     )
       AND ${kindCondition}
       AND ${statusCondition}
@@ -1375,16 +1361,13 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
 };
 
 type CalendarAccessParams = {
-  userId: string | null;
-  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
-  groups?: string[];
-  serviceAccountId?: string | null;
-  spaceId?: string | null;
+  subject: AccessSubject;
+  boundSpaceId?: string | null;
 };
 
 /**
  * List calendar items across all spaces reachable by the actor.
- * Resource-bound service accounts pass `spaceId` to stay scoped to their bound space.
+ * Resource-bound service accounts pass `boundSpaceId` to stay scoped to their bound space.
  */
 export const listCalendar = async (
   params: CalendarAccessParams & {
@@ -1393,10 +1376,11 @@ export const listCalendar = async (
     dateConfig?: DateContext;
   },
 ): Promise<CalendarItem[]> => {
-  const { userId, from, to } = params;
-  const groups = await getEffectiveGroupIds({ userId });
-  const serviceAccountId = params.serviceAccountId ?? null;
-  const spaceFilter = params.spaceId ? sql`AND s.id = ${params.spaceId}::uuid` : sql``;
+  const { from, to } = params;
+  if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) return [];
+  const principalMatch = buildSpacePrincipalCondition(params.subject);
+  const bindingMatch =
+    params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
 
   // Use subquery to get accessible space IDs first, then query items
   const rows = await sql<DbCalendarItem[]>`
@@ -1405,20 +1389,9 @@ export const listCalendar = async (
       FROM spaces.spaces s
       JOIN spaces.space_access sa ON s.id = sa.space_id
       JOIN auth.access a ON sa.access_id = a.id
-      WHERE (
-        a.user_id = ${userId}::uuid
-        OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-        OR a.service_account_id = ${serviceAccountId}::uuid
-        OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-        OR (
-          ${serviceAccountId}::uuid IS NULL
-          AND a.user_id IS NULL
-          AND a.group_id IS NULL
-          AND a.service_account_id IS NULL
-          AND a.authenticated_only = false
-        )
-      )
-      ${spaceFilter}
+      WHERE a.permission <> 'none'
+        AND ${principalMatch}
+        AND ${bindingMatch}
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
            i.title, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline, i.priority,
@@ -1496,13 +1469,11 @@ export type TaskItem = {
  */
 export const listMyTasks = async (params: {
   userId: string;
-  /** @deprecated Access groups are resolved from userId; caller-provided IDs are not trusted. */
-  groups?: string[];
   minPriority?: Priority;
   limit?: number;
 }): Promise<TaskItem[]> => {
   const { userId, minPriority, limit = 20 } = params;
-  const groups = await getEffectiveGroupIds({ userId });
+  const principalMatch = buildSpacePrincipalCondition({ type: "user", userId });
 
   // Build priority filter
   let priorityCondition = sql``;
@@ -1532,10 +1503,8 @@ export const listMyTasks = async (params: {
       FROM spaces.spaces s
       JOIN spaces.space_access sa ON s.id = sa.space_id
       JOIN auth.access a ON sa.access_id = a.id
-      WHERE a.user_id = ${userId}::uuid
-         OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-         OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-         OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
+      WHERE a.permission <> 'none'
+        AND ${principalMatch}
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
            i.title, i.deadline, i.priority
@@ -1583,10 +1552,11 @@ export const checkOverlap = async (
     excludeItemId?: string;
   },
 ): Promise<OverlapItem[]> => {
-  const { userId, from, to, excludeItemId } = params;
-  const groups = await getEffectiveGroupIds({ userId });
-  const serviceAccountId = params.serviceAccountId ?? null;
-  const spaceFilter = params.spaceId ? sql`AND i.space_id = ${params.spaceId}::uuid` : sql``;
+  const { from, to, excludeItemId } = params;
+  if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) return [];
+  const principalMatch = buildSpacePrincipalCondition(params.subject);
+  const bindingMatch =
+    params.subject.type === "service_account" ? sql`i.space_id = ${params.boundSpaceId}::uuid` : sql`true`;
 
   const rows = await sql<DbOverlapItem[]>`
     SELECT i.id AS item_id, i.space_id, s.name AS space_name, i.title, i.starts_at, i.ends_at
@@ -1597,25 +1567,14 @@ export const checkOverlap = async (
       AND i.starts_at < ${to}::timestamptz
       AND i.ends_at > ${from}::timestamptz
       AND (${excludeItemId ?? null}::uuid IS NULL OR i.id <> ${excludeItemId ?? null}::uuid)
-      ${spaceFilter}
+      AND ${bindingMatch}
       AND EXISTS (
         SELECT 1
         FROM spaces.space_access sa
         JOIN auth.access a ON a.id = sa.access_id
         WHERE sa.space_id = i.space_id
-          AND (
-            a.user_id = ${userId}::uuid
-            OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-            OR a.service_account_id = ${serviceAccountId}::uuid
-            OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-            OR (
-              ${serviceAccountId}::uuid IS NULL
-              AND a.user_id IS NULL
-              AND a.group_id IS NULL
-              AND a.service_account_id IS NULL
-              AND a.authenticated_only = false
-            )
-          )
+          AND a.permission <> 'none'
+          AND ${principalMatch}
       )
     ORDER BY i.starts_at ASC
   `;
