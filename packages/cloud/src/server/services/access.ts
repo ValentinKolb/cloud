@@ -340,18 +340,24 @@ export const getEffectivePermission = async (params: {
         : params.serviceAccountId
           ? { type: "service_account" as const, serviceAccountId: params.serviceAccountId }
           : null;
+  const legacyServiceAccountId = !("subject" in params) && !params.userId ? (params.serviceAccountId ?? null) : null;
 
   if (accessIds.length === 0) return "none";
 
-  const principalMatch = buildAccessPrincipalCondition({
-    subject,
-    columns: {
-      userId: sql`a.user_id`,
-      groupId: sql`a.group_id`,
-      serviceAccountId: sql`a.service_account_id`,
-      authenticatedOnly: sql`a.authenticated_only`,
-    },
-  });
+  // Legacy callers did not provide resource binding or scope context. Keep
+  // their service-account lookup direct-only so the new authenticated/public
+  // semantics require an explicit AccessSubject migration.
+  const principalMatch = legacyServiceAccountId
+    ? sql`a.service_account_id = ${legacyServiceAccountId}::uuid`
+    : buildAccessPrincipalCondition({
+        subject,
+        columns: {
+          userId: sql`a.user_id`,
+          groupId: sql`a.group_id`,
+          serviceAccountId: sql`a.service_account_id`,
+          authenticatedOnly: sql`a.authenticated_only`,
+        },
+      });
 
   const rows = await sql<{ permission: PermissionLevel }[]>`
     SELECT a.permission

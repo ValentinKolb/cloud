@@ -207,6 +207,29 @@ describe("listUsersWithAccess", () => {
       });
       expect(serviceAccountPermission).toBe("write");
 
+      expect(
+        await getEffectivePermission({
+          accessIds: [fixture.publicAccessId, fixture.authenticatedAccessId],
+          serviceAccountId: fixture.serviceAccountId,
+        }),
+      ).toBe("none");
+      expect(
+        await getEffectivePermission({
+          accessIds: [serviceAccountAccess.data.id],
+          serviceAccountId: fixture.serviceAccountId,
+        }),
+      ).toBe("write");
+
+      const delegatedPermission = await getEffectivePermission({
+        accessIds: [serviceAccountAccess.data.id],
+        subject: {
+          type: "user",
+          userId: fixture.userIds.outside,
+          delegatedByServiceAccountId: fixture.serviceAccountId,
+        },
+      });
+      expect(delegatedPermission).toBe("none");
+
       const serviceAccountUsers = await listUsersWithAccess({ accessIds: [serviceAccountAccess.data.id], limit: 20 });
       expect(serviceAccountUsers).toEqual([]);
 
