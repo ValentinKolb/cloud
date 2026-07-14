@@ -1,4 +1,4 @@
-import { createSignal, For } from "solid-js";
+import { createEffect, createSignal, For } from "solid-js";
 import { Slider } from "@valentinkolb/cloud/ui";
 import { ToolCodeBlock } from "./ToolOutput";
 export default function UuidGenerator() {
@@ -12,7 +12,10 @@ export default function UuidGenerator() {
       result.push(crypto.randomUUID());
     }
     setUuids(result);
+    setCopiedIdx(null);
+    setCopiedAll(false);
   };
+  createEffect(generate);
   const copyOne = async (uuid: string, idx: number) => {
     await navigator.clipboard.writeText(uuid);
     setCopiedIdx(idx);
@@ -36,9 +39,6 @@ export default function UuidGenerator() {
           step={1}
           showValue
         />
-        <button class="btn-primary btn-sm self-start" onClick={generate}>
-          <i class="ti ti-refresh" /> Generate
-        </button>
       </div>
       {uuids().length > 0 && (
         <div class="paper p-4 flex flex-col gap-2">

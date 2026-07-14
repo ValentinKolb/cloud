@@ -6,8 +6,9 @@ import {
   type SpotlightButtonVariant,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { fuzzy } from "@valentinkolb/stdlib";
 import { onCleanup, onMount } from "solid-js";
-import { categories, categoryOrder, tools, type ToolDef } from "./tools/registry";
+import { categories, categoryOrder, tools, toolSearchText, type ToolDef } from "./tools/registry";
 
 type Props = {
   variant?: SpotlightButtonVariant;
@@ -22,9 +23,6 @@ const orderedTools = [...tools].sort((a, b) => {
   return categoryDiff === 0 ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) : categoryDiff;
 });
 
-const toolText = (tool: ToolDef) =>
-  [tool.name, tool.description, tool.id, tool.category, categories[tool.category].label].join(" ").toLowerCase();
-
 const toolHref = (tool: ToolDef) => `/tools/${tool.id}`;
 
 export default function ToolSearchButton(props: Props) {
@@ -37,7 +35,7 @@ export default function ToolSearchButton(props: Props) {
       noResultsText: "No tools found.",
       resolve: ({ query }) => {
         const needle = query.trim().toLowerCase();
-        const matches = needle ? orderedTools.filter((tool) => toolText(tool).includes(needle)) : orderedTools;
+        const matches = needle ? fuzzy.filter(needle, orderedTools, { key: toolSearchText }).map((hit) => hit.item) : orderedTools;
 
         return matches.map((tool) => ({
           value: tool,

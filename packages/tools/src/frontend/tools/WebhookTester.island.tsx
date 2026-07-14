@@ -480,7 +480,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
 
-      <AppWorkspace.Main>
+      <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
         <div class="flex min-h-0 flex-1 flex-col gap-2">
           <div class="flex items-center justify-between gap-3" style="view-transition-name: tools-webhook-title">
             <div class="min-w-0">

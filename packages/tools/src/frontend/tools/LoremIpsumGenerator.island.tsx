@@ -185,16 +185,16 @@ export default function LoremIpsumGenerator() {
 
   return (
     <div class="flex flex-col gap-4">
+      <SegmentedControl
+        options={[
+          { value: "paragraphs" as Mode, label: "Paragraphs" },
+          { value: "sentences" as Mode, label: "Sentences" },
+          { value: "words" as Mode, label: "Words" },
+        ]}
+        value={mode}
+        onChange={setMode}
+      />
       <div class="paper p-4 flex flex-col gap-3">
-        <SegmentedControl
-          options={[
-            { value: "paragraphs" as Mode, label: "Paragraphs" },
-            { value: "sentences" as Mode, label: "Sentences" },
-            { value: "words" as Mode, label: "Words" },
-          ]}
-          value={mode}
-          onChange={setMode}
-        />
         <Slider
           label="Count"
           description={`Number of ${mode()} to generate`}
