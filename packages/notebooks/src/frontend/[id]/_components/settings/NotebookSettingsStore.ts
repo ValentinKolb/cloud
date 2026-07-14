@@ -17,6 +17,7 @@ export type NotebookSettings = {
 type AllNotebookSettings = {
   lastNotebookId: string | null;
   sidebarMode: NotebookSettings["sidebarMode"];
+  detailPanelOpen: boolean;
   notebooks: Record<string, Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">>>;
 };
 
@@ -29,6 +30,7 @@ const DEFAULT_SETTINGS: NotebookSettings = {
 const DEFAULT_ALL: AllNotebookSettings = {
   lastNotebookId: null,
   sidebarMode: "simple",
+  detailPanelOpen: false,
   notebooks: {},
 };
 
@@ -39,6 +41,22 @@ const writeCookie = (data: AllNotebookSettings) => cookies.writeJsonCookie(COOKI
 const readCookie = (): AllNotebookSettings => cookies.readJsonCookie(COOKIE_NAME, DEFAULT_ALL);
 
 const isSidebarMode = (value: unknown): value is NotebookSettings["sidebarMode"] => value === "simple" || value === "navigator";
+
+const parseCookieHeader = (cookieHeader: string | undefined): AllNotebookSettings => {
+  if (!cookieHeader) return DEFAULT_ALL;
+  try {
+    const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
+    if (!match) return DEFAULT_ALL;
+    const parsed = JSON.parse(decodeURIComponent(match[1]!)) as Partial<AllNotebookSettings>;
+    return {
+      ...DEFAULT_ALL,
+      ...parsed,
+      notebooks: parsed.notebooks ?? {},
+    };
+  } catch {
+    return DEFAULT_ALL;
+  }
+};
 
 const compactNotebookSettings = (settings: Partial<NotebookSettings>): Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">> => {
   const compact: Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">> = {};
@@ -67,18 +85,18 @@ export const readSettings = (notebookId: string): NotebookSettings => {
 export const writeSettings = (notebookId: string, patch: Partial<NotebookSettings>) => {
   const hasCookieBackedPatch = "lastNoteId" in patch || "richMode" in patch || "sidebarMode" in patch;
   if (!hasCookieBackedPatch) return;
-  const persistentPatch = compactNotebookSettings(patch);
-
   const all = readCookie();
+  const current = readSettings(notebookId);
+  const next = { ...current, ...patch };
+  const notebookSettings = compactNotebookSettings(next);
+  const notebooks = { ...all.notebooks };
+  if (Object.keys(notebookSettings).length > 0) notebooks[notebookId] = notebookSettings;
+  else delete notebooks[notebookId];
+
   writeCookie({
-    lastNotebookId: all.lastNotebookId,
-    sidebarMode: patch.sidebarMode ?? (isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode),
-    notebooks: {
-      [notebookId]: compactNotebookSettings({
-        ...(all.notebooks[notebookId] ?? {}),
-        ...persistentPatch,
-      }),
-    },
+    ...all,
+    sidebarMode: next.sidebarMode,
+    notebooks,
   });
 };
 
@@ -88,16 +106,18 @@ export const writeSettings = (notebookId: string, patch: Partial<NotebookSetting
 export const setLastNotebookId = (id: string) => {
   const all = readCookie();
   writeCookie({
+    ...all,
     lastNotebookId: id,
-    sidebarMode: isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode,
-    notebooks: {},
   });
 };
 
-/** Detail-panel open/closed is ephemeral UI state. Keep it out of
- *  reload-persistent storage so SSR reloads remain driven by resource URLs,
- *  not cosmetic panel state. */
-export const setDetailPanelOpen = (_open: boolean) => {};
+/** Persists the global detail-panel preference for SSR-stable reloads. */
+export const setDetailPanelOpen = (open: boolean) => {
+  writeCookie({
+    ...readCookie(),
+    detailPanelOpen: open,
+  });
+};
 
 // --- Server-side ---
 
@@ -105,47 +125,23 @@ export const setDetailPanelOpen = (_open: boolean) => {};
  * Parses notebook settings from a raw cookie header for SSR rendering.
  */
 export const parseSettings = (cookieHeader: string | undefined, notebookId: string): NotebookSettings => {
-  if (!cookieHeader) return DEFAULT_SETTINGS;
-  try {
-    const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
-    if (match) {
-      const all: AllNotebookSettings = {
-        ...DEFAULT_ALL,
-        ...JSON.parse(decodeURIComponent(match[1]!)),
-      };
-      return {
-        ...DEFAULT_SETTINGS,
-        ...(all.notebooks[notebookId] ?? {}),
-        sidebarMode: isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode,
-      };
-    }
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_SETTINGS;
+  const all = parseCookieHeader(cookieHeader);
+  return {
+    ...DEFAULT_SETTINGS,
+    ...(all.notebooks[notebookId] ?? {}),
+    sidebarMode: isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode,
+  };
 };
 
 /**
  * Parses the global detail-panel open state from a raw cookie header for SSR.
  * Defaults to false — first-time users see the panel closed.
  */
-export const parseDetailPanelOpen = (_cookieHeader: string | undefined): boolean => {
-  return false;
-};
+export const parseDetailPanelOpen = (cookieHeader: string | undefined): boolean => parseCookieHeader(cookieHeader).detailPanelOpen === true;
 
 /**
  * Parses only the last notebook id from a raw cookie header for SSR redirects.
  */
 export const parseLastNotebookId = (cookieHeader: string | undefined): string | null => {
-  if (!cookieHeader) return null;
-  try {
-    const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
-    if (match) {
-      const all: AllNotebookSettings = JSON.parse(decodeURIComponent(match[1]!));
-      return all.lastNotebookId ?? null;
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
+  return parseCookieHeader(cookieHeader).lastNotebookId;
 };
