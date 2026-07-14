@@ -1,13 +1,7 @@
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { type Accessor, type JSX } from "solid-js";
 import type { PulseMetricSummary } from "../../contracts";
-import {
-  compactDateWithDelta,
-  formatSignalValue,
-  formatValue,
-  plural,
-  type PulseDateContext,
-} from "./helpers";
+import { compactDateWithDelta, formatSignalValue, formatValue, plural, type PulseDateContext } from "./helpers";
 import { SignalCatalogTabs, SignalCatalogToolbar, type SignalCatalogKind, type SignalCatalogTab } from "./SignalCatalogChrome";
 import type { ActivityEventGroup, ActivityStateGroup } from "./types";
 
@@ -41,7 +35,7 @@ type SignalCatalogViewProps = {
 const SignalInfoButton = (props: { label: string; onClick: () => void }) => (
   <button
     type="button"
-    class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-950 dark:hover:text-blue-300"
+    class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:bg-zinc-100 hover:app-accent-text dark:hover:bg-zinc-900"
     title={props.label}
     onClick={(event) => {
       event.stopPropagation();
@@ -78,7 +72,7 @@ export default function SignalCatalogView(props: SignalCatalogViewProps) {
     return (
       <button
         type="button"
-        class="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-secondary transition hover:text-blue-600 dark:hover:text-blue-300"
+        class="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-secondary transition hover:app-accent-text"
         onClick={(event) => {
           event.stopPropagation();
           props.openSource(sourceId);
@@ -100,7 +94,8 @@ export default function SignalCatalogView(props: SignalCatalogViewProps) {
       return renderSignalNameCell("Open event", group.kind, () => props.openEventDetail(group.kind));
     }
     if (col.id === "source") return renderSourceLink(group.sourceId);
-    if (col.id === "value") return <span class="text-xs text-secondary">{group.latest.value === null ? "-" : formatValue(group.latest.value)}</span>;
+    if (col.id === "value")
+      return <span class="text-xs text-secondary">{group.latest.value === null ? "-" : formatValue(group.latest.value)}</span>;
     if (col.id === "count") return <span class="text-xs text-secondary">{group.rows.length}</span>;
     if (col.id === "time") return <span class="text-xs text-secondary">{compactDateWithDelta(group.latest.ts, props.dateContext())}</span>;
     return render(group[col.id as keyof ActivityEventGroup]);

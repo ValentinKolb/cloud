@@ -1,7 +1,8 @@
-import { DataTable, Panes, TextInput, type DataTableColumn, type PanesValue } from "@valentinkolb/cloud/ui";
+import { DataTable, Panes, Placeholder, TextInput, type DataTableColumn, type PanesValue } from "@valentinkolb/cloud/ui";
 import { createMemo, Show, type Accessor, type JSX, type Setter } from "solid-js";
 import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent } from "../../contracts";
 import { FocusedEventDetail, FocusedMetricSeriesDetail, FocusedStateDetail } from "./FocusedSignalDetails";
+import DetailHero from "./DetailHero";
 import { plural, stateRowId, type PulseDateContext } from "./helpers";
 import type { WorkspaceView } from "./types";
 
@@ -47,35 +48,40 @@ const focusedSignalKind = (view: WorkspaceView): FocusedSignalKind => {
 };
 
 const focusedSignalTitle = (kind: FocusedSignalKind) => (kind === "metric" ? "Metric" : kind === "state" ? "State" : "Event");
-const focusedSignalIcon = (kind: FocusedSignalKind) => (kind === "metric" ? "ti-stack-3" : kind === "state" ? "ti-toggle-right" : "ti-bolt");
+const focusedSignalIcon = (kind: FocusedSignalKind) =>
+  kind === "metric" ? "ti-stack-3" : kind === "state" ? "ti-toggle-right" : "ti-bolt";
 const focusedSignalRowsTitle = (kind: FocusedSignalKind) => (kind === "event" ? "Events" : "Variants");
 const focusedSearchPlaceholder = (kind: FocusedSignalKind) =>
   kind === "metric" ? "Search variants..." : kind === "state" ? "Search state variants..." : "Search events...";
 const focusedRowsLabel = (kind: FocusedSignalKind, props: FocusedSignalViewProps) =>
-  kind === "metric" ? plural(props.metricSeries().length, "variant") : kind === "state" ? plural(props.states().length, "variant") : plural(props.events().length, "event");
+  kind === "metric"
+    ? plural(props.metricSeries().length, "variant")
+    : kind === "state"
+      ? plural(props.states().length, "variant")
+      : plural(props.events().length, "event");
 const focusedSubtitle = (kind: FocusedSignalKind, props: FocusedSignalViewProps, rowsLabel: string) => {
-  if (kind === "metric") return `${props.focusedMetric()?.type ?? "metric"}${props.focusedMetric()?.unit ? ` · ${props.focusedMetric()?.unit}` : ""} · ${rowsLabel}`;
+  if (kind === "metric")
+    return `${props.focusedMetric()?.type ?? "metric"}${props.focusedMetric()?.unit ? ` · ${props.focusedMetric()?.unit}` : ""} · ${rowsLabel}`;
   return `${kind} · ${rowsLabel}`;
 };
 
 const FocusedSignalHeader = (props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; rowsLabel: Accessor<string> }) => (
-  <div class="paper shrink-0 p-4">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <div class="min-w-0">
-        <p class="text-label text-xs">{focusedSignalTitle(props.kind())}</p>
-        <h2 class="mt-1 truncate text-xl font-semibold text-primary">{props.signalId()}</h2>
-        <p class="mt-1 text-sm text-dimmed">{focusedSubtitle(props.kind(), props, props.rowsLabel())}</p>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
+  <DetailHero
+    eyebrow={focusedSignalTitle(props.kind())}
+    title={props.signalId()}
+    icon={`ti ${focusedSignalIcon(props.kind())}`}
+    description={focusedSubtitle(props.kind(), props, props.rowsLabel())}
+    actions={
+      <>
         <button type="button" class="btn-input btn-input-sm" onClick={() => void props.loadRows()}>
           <i class={`ti ${props.loadingMore() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
         </button>
         <button type="button" class="btn-input btn-input-sm" onClick={props.onOpenQuery}>
           <i class="ti ti-code" /> Open query
         </button>
-      </div>
-    </div>
-  </div>
+      </>
+    }
+  />
 );
 
 const FocusedSignalSearch = (props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; rowsLabel: Accessor<string> }) => (
@@ -154,8 +160,10 @@ const FocusedEventTable = (props: FocusedSignalViewProps) => (
   />
 );
 
-const FocusedSignalTable = (props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; selectedStateRowId: Accessor<string | null> }) => (
-  <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+const FocusedSignalTable = (
+  props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; selectedStateRowId: Accessor<string | null> },
+) => (
+  <div class="flex h-full min-h-0 flex-col overflow-hidden">
     <Show when={props.kind() === "metric"}>
       <FocusedMetricTable {...props} />
     </Show>
@@ -169,7 +177,11 @@ const FocusedSignalTable = (props: FocusedSignalViewProps & { kind: Accessor<Foc
 );
 
 const FocusedMetricDetailPane = (props: FocusedSignalViewProps) => (
-  <Show when={props.selectedSeries()} keyed fallback={<div class="paper h-full p-4 text-sm text-dimmed">Select a metric variant.</div>}>
+  <Show
+    when={props.selectedSeries()}
+    keyed
+    fallback={<Placeholder title="Select a metric variant" icon="ti ti-chart-dots" variant="panel" class="h-full" />}
+  >
     {(item) => (
       <FocusedMetricSeriesDetail
         item={item}
@@ -185,7 +197,11 @@ const FocusedMetricDetailPane = (props: FocusedSignalViewProps) => (
 );
 
 const FocusedStateDetailPane = (props: FocusedSignalViewProps) => (
-  <Show when={props.selectedState()} keyed fallback={<div class="paper h-full p-4 text-sm text-dimmed">Select a state variant.</div>}>
+  <Show
+    when={props.selectedState()}
+    keyed
+    fallback={<Placeholder title="Select a state variant" icon="ti ti-toggle-right" variant="panel" class="h-full" />}
+  >
     {(state) => (
       <FocusedStateDetail
         state={state}
@@ -199,7 +215,11 @@ const FocusedStateDetailPane = (props: FocusedSignalViewProps) => (
 );
 
 const FocusedEventDetailPane = (props: FocusedSignalViewProps) => (
-  <Show when={props.selectedEvent()} keyed fallback={<div class="paper h-full p-4 text-sm text-dimmed">Select an event.</div>}>
+  <Show
+    when={props.selectedEvent()}
+    keyed
+    fallback={<Placeholder title="Select an event" icon="ti ti-bolt" variant="panel" class="h-full" />}
+  >
     {(event) => (
       <FocusedEventDetail
         event={event}
@@ -226,7 +246,9 @@ const FocusedSignalDetailPane = (props: FocusedSignalViewProps & { kind: Accesso
   </div>
 );
 
-const FocusedSignalPanes = (props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; selectedStateRowId: Accessor<string | null> }) => (
+const FocusedSignalPanes = (
+  props: FocusedSignalViewProps & { kind: Accessor<FocusedSignalKind>; selectedStateRowId: Accessor<string | null> },
+) => (
   <section class="h-[min(68vh,54rem)] min-h-[32rem] shrink-0 overflow-hidden">
     <Panes.Root
       value={props.panesValue()}

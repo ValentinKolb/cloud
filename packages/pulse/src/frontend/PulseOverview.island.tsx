@@ -105,10 +105,15 @@ export default function PulseOverview(props: Props) {
           <Show
             when={props.bases.length > 0}
             fallback={
-              <AppOverview.EmptyState title="No Pulse bases yet" icon="ti ti-activity-heartbeat" class="min-h-72">
-                <p class="max-w-sm text-xs text-dimmed">
-                  Start with infrastructure monitoring, then add custom app and business telemetry later.
-                </p>
+              <AppOverview.EmptyState
+                title="No Pulse bases yet"
+                description="Create a base to collect, explore, and visualize related telemetry."
+                icon="ti ti-activity-heartbeat"
+                class="min-h-72"
+              >
+                <button type="button" class="btn-secondary btn-sm" disabled={creating()} onClick={() => void createBase()}>
+                  <i class="ti ti-plus" /> Create a base
+                </button>
               </AppOverview.EmptyState>
             }
           >
@@ -124,13 +129,13 @@ export default function PulseOverview(props: Props) {
                       class="paper group flex items-center gap-4 p-4 no-underline transition-all hover:paper-highlighted"
                     >
                       <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
-                        <i class="ti ti-activity-heartbeat text-lg text-blue-600 dark:text-blue-400" />
+                        <i class="ti ti-activity-heartbeat app-accent-text text-lg" />
                       </div>
                       <div class="min-w-0 flex-1">
                         <span class="block truncate text-sm font-semibold text-primary">{base.name}</span>
                         <p class="truncate text-xs text-dimmed">{base.description || `${base.rawRetentionDays} day raw retention`}</p>
                       </div>
-                      <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+                      <i class="ti ti-chevron-right text-dimmed transition-colors group-hover:app-accent-text" />
                     </a>
                   )}
                 </For>
@@ -147,8 +152,8 @@ export default function PulseOverview(props: Props) {
               disabled={creating()}
               onClick={() => void createBase()}
             >
-              <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-blue-100 dark:bg-blue-900/50">
-                <i class="ti ti-plus text-lg text-blue-600 dark:text-blue-400" />
+              <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-900">
+                <i class="ti ti-plus app-accent-text text-lg" />
               </span>
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-semibold text-primary">New base</span>
@@ -156,7 +161,7 @@ export default function PulseOverview(props: Props) {
                   Create a telemetry base for metrics, states, events, and dashboards.
                 </span>
               </span>
-              <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+              <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-colors group-hover:app-accent-text" />
             </button>
 
             <Show when={props.capabilities && !props.capabilities.timescaleEnabled}>

@@ -1,6 +1,14 @@
-import { DataTable, ResourceApiKeys, type DataTableColumn, type ResourceApiKey, type ResourceApiKeysProps } from "@valentinkolb/cloud/ui";
+import {
+  DataTable,
+  ResourceApiKeys,
+  Tooltip,
+  type DataTableColumn,
+  type ResourceApiKey,
+  type ResourceApiKeysProps,
+} from "@valentinkolb/cloud/ui";
 import { Show, type JSX } from "solid-js";
 import type { PulseSource, PulseSourceScrape } from "../../contracts";
+import DetailHero from "./DetailHero";
 import { compactDateWithDelta, type PulseDateContext } from "./helpers";
 
 type Props = {
@@ -66,51 +74,58 @@ export default function SourceDetailView(props: Props) {
 
   return (
     <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <section class="detail-section-compact">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <h2 class="truncate text-base font-semibold leading-5 text-primary">{props.source.name}</h2>
-            <p class="mt-1 truncate text-xs text-dimmed">
-              {props.source.kind}
-              {props.source.enabled ? " · enabled" : " · paused"}
-              {props.source.bearerTokenConfigured ? " · bearer auth" : ""}
-            </p>
-          </div>
-          <div class="flex shrink-0 items-center gap-1">
-            <span
-              class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400"
-              title="Source"
-            >
-              <i class="ti ti-database-share text-sm" />
-            </span>
-            <button
-              type="button"
-              class="btn-simple btn-sm text-dimmed hover:text-primary"
-              title="Edit source"
-              onClick={() => void props.editSource(props.source)}
-            >
-              <i class="ti ti-pencil" />
-            </button>
-            <button
-              type="button"
-              class="btn-simple btn-sm text-dimmed hover:text-primary"
-              title={props.source.enabled ? "Pause source" : "Resume source"}
-              onClick={() => void props.toggleSource(props.source)}
-            >
-              <i class={`ti ${props.source.enabled ? "ti-player-pause" : "ti-player-play"}`} />
-            </button>
-            <button type="button" class="btn-simple btn-sm text-dimmed hover:text-primary" title="Close detail" onClick={props.close}>
-              <i class="ti ti-x" />
-            </button>
-          </div>
-        </div>
-      </section>
+      <DetailHero
+        eyebrow="Source"
+        title={props.source.name}
+        icon="ti ti-database-share"
+        description={
+          <>
+            {props.source.kind}
+            {props.source.enabled ? " · enabled" : " · paused"}
+            {props.source.bearerTokenConfigured ? " · bearer auth" : ""}
+          </>
+        }
+        actions={
+          <>
+            <Tooltip content="Edit source">
+              <button
+                type="button"
+                class="btn-simple btn-sm text-dimmed hover:text-primary"
+                aria-label="Edit source"
+                onClick={() => void props.editSource(props.source)}
+              >
+                <i class="ti ti-pencil" />
+              </button>
+            </Tooltip>
+            <Tooltip content={props.source.enabled ? "Pause source" : "Resume source"}>
+              <button
+                type="button"
+                class="btn-simple btn-sm text-dimmed hover:text-primary"
+                aria-label={props.source.enabled ? "Pause source" : "Resume source"}
+                onClick={() => void props.toggleSource(props.source)}
+              >
+                <i class={`ti ${props.source.enabled ? "ti-player-pause" : "ti-player-play"}`} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Close detail">
+              <button
+                type="button"
+                class="btn-simple btn-sm text-dimmed hover:text-primary"
+                aria-label="Close detail"
+                onClick={props.close}
+              >
+                <i class="ti ti-x" />
+              </button>
+            </Tooltip>
+          </>
+        }
+      />
 
       <div class="detail-stack">
         <section class="detail-section">
           <h3 class="detail-section-label">Status</h3>
           <div class="detail-row">
-            <i class="ti ti-clock detail-row-icon text-blue-500" />
+            <i class="ti ti-clock detail-row-icon app-accent-text" />
             <span class="detail-row-label">Last seen</span>
             <span>{props.source.lastSeenAt ? compactDateWithDelta(props.source.lastSeenAt, props.dateContext) : "Waiting"}</span>
           </div>
@@ -134,8 +149,12 @@ export default function SourceDetailView(props: Props) {
 
         <section class="detail-section">
           <h3 class="detail-section-label">Published</h3>
-          <button type="button" class="detail-row w-full text-left transition hover:text-blue-600 dark:hover:text-blue-300" onClick={() => props.openSourceResources(props.source)}>
-            <i class="ti ti-cube detail-row-icon text-blue-500" />
+          <button
+            type="button"
+            class="detail-row w-full text-left transition hover:app-accent-text"
+            onClick={() => props.openSourceResources(props.source)}
+          >
+            <i class="ti ti-cube detail-row-icon app-accent-text" />
             <span class="detail-row-label">Resources</span>
             <span>{props.published.resources.toLocaleString()}</span>
           </button>
@@ -157,7 +176,7 @@ export default function SourceDetailView(props: Props) {
         </section>
 
         <Show when={props.source.kind === "metrics"}>
-          <section class="detail-section overflow-hidden !p-0">
+          <section class="overflow-hidden">
             <DataTable
               rows={props.scrapes}
               columns={props.scrapeColumns}
@@ -178,7 +197,7 @@ export default function SourceDetailView(props: Props) {
         </section>
 
         <Show when={props.source.kind === "http_ingest"}>
-          <section class="detail-section">
+          <section>
             <ResourceApiKeys
               title="API keys"
               description="Create a labeled key for each importer, server, or job that pushes data into this source."
@@ -214,7 +233,12 @@ export default function SourceDetailView(props: Props) {
         <Show when={props.source.kind === "http_ingest"}>
           <span class="text-xs text-dimmed">Use a source API key as Bearer token.</span>
         </Show>
-        <button type="button" class="btn-danger btn-sm ml-auto" disabled={props.loading} onClick={() => void props.removeSource(props.source)}>
+        <button
+          type="button"
+          class="btn-danger btn-sm ml-auto"
+          disabled={props.loading}
+          onClick={() => void props.removeSource(props.source)}
+        >
           <i class="ti ti-trash" /> Remove
         </button>
       </div>

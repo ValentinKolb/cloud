@@ -201,7 +201,10 @@ export function PublicDashboardSections(props: Props) {
   };
 
   const renderMarkdownWidget = (widget: PulsePublicDashboardMarkdownWidget) =>
-    renderWidgetFrame(widget, <MarkdownView html={markdown.render(sanitizePublicDashboardMarkdown(widget.markdown))} smallHeadings class="text-sm" />);
+    renderWidgetFrame(
+      widget,
+      <MarkdownView html={markdown.render(sanitizePublicDashboardMarkdown(widget.markdown))} smallHeadings class="text-sm" />,
+    );
 
   const renderEventsWidget = (widget: PulsePublicDashboardEventsWidget) =>
     renderWidgetFrame(
@@ -294,7 +297,7 @@ export function PublicDashboardSections(props: Props) {
         </Show>
       </div>
       <For each={section.rows}>{(row) => renderDashboardRow(row)}</For>
-      <For each={section.sections}>{(child) => <div class="border-l border-border/70 pl-4">{renderDashboardSection(child)}</div>}</For>
+      <For each={section.sections}>{(child) => <div class="pl-3">{renderDashboardSection(child)}</div>}</For>
     </section>
   );
 

@@ -69,6 +69,7 @@ const QueryEditorInput = (
     completions={props.completions()}
     highlight={pulseQueryHighlight}
     restoreExpansionOnBackspace={false}
+    variant="paper"
     lines={7}
     spellcheck={false}
     placeholder="metric orders.created increase every 1h since 7d where channel=web"
@@ -119,7 +120,12 @@ const SuggestionToggle = (
 const SuggestedRefinementsHeader = (
   props: Pick<
     QueryExplorerEditorPaneProps,
-    "matchingSeriesCount" | "matchingSourcesCount" | "filterSuggestionCount" | "suggestionOverflow" | "suggestionsExpanded" | "setSuggestionsExpanded"
+    | "matchingSeriesCount"
+    | "matchingSourcesCount"
+    | "filterSuggestionCount"
+    | "suggestionOverflow"
+    | "suggestionsExpanded"
+    | "setSuggestionsExpanded"
   >,
 ) => (
   <div class="flex flex-wrap items-start justify-between gap-3">
@@ -143,7 +149,9 @@ const SuggestedRefinementsHeader = (
   </div>
 );
 
-const SuggestionSearch = (props: Pick<QueryExplorerEditorPaneProps, "suggestionsExpanded" | "suggestionSearch" | "setSuggestionSearch">) => (
+const SuggestionSearch = (
+  props: Pick<QueryExplorerEditorPaneProps, "suggestionsExpanded" | "suggestionSearch" | "setSuggestionSearch">,
+) => (
   <Show when={props.suggestionsExpanded()}>
     <div class="mt-3 max-w-xl">
       <TextInput
@@ -158,7 +166,9 @@ const SuggestionSearch = (props: Pick<QueryExplorerEditorPaneProps, "suggestions
   </Show>
 );
 
-const SourceSuggestionRow = (props: Pick<QueryExplorerEditorPaneProps, "compiledMetricQuery" | "visibleSourceSuggestions" | "onApplySourceFilter">) => (
+const SourceSuggestionRow = (
+  props: Pick<QueryExplorerEditorPaneProps, "compiledMetricQuery" | "visibleSourceSuggestions" | "onApplySourceFilter">,
+) => (
   <Show when={!props.compiledMetricQuery()?.sourceId && props.visibleSourceSuggestions().length > 0}>
     <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-start gap-2">
       <div class="pt-1 text-xs font-medium text-dimmed">Sources</div>
@@ -177,7 +187,10 @@ const SourceSuggestionRow = (props: Pick<QueryExplorerEditorPaneProps, "compiled
   </Show>
 );
 
-const LabelSuggestionRow = (props: { group: QueryLabelSuggestion; onApplyDimensionFilter: QueryExplorerEditorPaneProps["onApplyDimensionFilter"] }) => (
+const LabelSuggestionRow = (props: {
+  group: QueryLabelSuggestion;
+  onApplyDimensionFilter: QueryExplorerEditorPaneProps["onApplyDimensionFilter"];
+}) => (
   <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-start gap-2">
     <div class="truncate pt-1 text-xs font-medium text-dimmed" title={`${props.group.key} · ${plural(props.group.count, "variant")}`}>
       {props.group.key}
@@ -207,7 +220,13 @@ const LabelSuggestionRow = (props: { group: QueryLabelSuggestion; onApplyDimensi
 const SuggestedRefinementRows = (
   props: Pick<
     QueryExplorerEditorPaneProps,
-    "compiledMetricQuery" | "visibleSourceSuggestions" | "onApplySourceFilter" | "visibleLabelSuggestions" | "onApplyDimensionFilter" | "suggestionsExpanded" | "suggestionMatches"
+    | "compiledMetricQuery"
+    | "visibleSourceSuggestions"
+    | "onApplySourceFilter"
+    | "visibleLabelSuggestions"
+    | "onApplyDimensionFilter"
+    | "suggestionsExpanded"
+    | "suggestionMatches"
   >,
 ) => (
   <div class="mt-3 space-y-2">
@@ -219,7 +238,9 @@ const SuggestedRefinementRows = (
     <For each={props.visibleLabelSuggestions()}>
       {(group) => <LabelSuggestionRow group={group} onApplyDimensionFilter={props.onApplyDimensionFilter} />}
     </For>
-    <Show when={props.suggestionsExpanded() && props.suggestionMatches().sources.length === 0 && props.suggestionMatches().labels.length === 0}>
+    <Show
+      when={props.suggestionsExpanded() && props.suggestionMatches().sources.length === 0 && props.suggestionMatches().labels.length === 0}
+    >
       <p class="text-xs text-dimmed">No suggested filters match this search.</p>
     </Show>
   </div>
@@ -245,8 +266,10 @@ const EmptyMetricMatch = (props: Pick<QueryExplorerEditorPaneProps, "compiledMet
   </Show>
 );
 
-const QueryExplorerActions = (props: Pick<QueryExplorerEditorPaneProps, "canRun" | "running" | "onRun" | "canOpenReference" | "onOpenReference">) => (
-  <div class="flex shrink-0 flex-wrap items-center gap-2 bg-surface px-3 py-3">
+const QueryExplorerActions = (
+  props: Pick<QueryExplorerEditorPaneProps, "canRun" | "running" | "onRun" | "canOpenReference" | "onOpenReference">,
+) => (
+  <div class="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
     <button type="button" class="btn-input btn-input-sm" disabled={!props.canRun() || props.running()} onClick={props.onRun}>
       <i class={`ti ${props.running() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
     </button>
@@ -258,7 +281,7 @@ const QueryExplorerActions = (props: Pick<QueryExplorerEditorPaneProps, "canRun"
 
 export default function QueryExplorerEditorPane(props: QueryExplorerEditorPaneProps) {
   return (
-    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+    <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="min-h-0 flex-1 overflow-auto p-3">
         <QueryEditorInput {...props} />
         <QueryDiagnostics diagnostics={props.diagnostics} running={props.running} />

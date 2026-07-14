@@ -1,5 +1,6 @@
-import { AppWorkspace, DockWorkspace, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Panes, toast, type PanesValue } from "@valentinkolb/cloud/ui";
 import { clipboard } from "@valentinkolb/stdlib/browser";
+import { createSignal } from "solid-js";
 import type { MetricType, PulseDashboard, PulseDashboardConfig, PulseResourceSummary, PulseSource } from "../contracts";
 import PulseLayoutHelp from "./PulseLayoutHelp";
 import { createBaseController } from "./workspace/base-controller";
@@ -23,6 +24,13 @@ import {
 } from "./workspace/helpers";
 import { navigatePulseWorkspace, replacePulseWorkspaceUrl } from "./workspace/navigation";
 import { installNearRealtimeController } from "./workspace/near-realtime-controller";
+import {
+  createQueryExplorerPanesValue,
+  initialPulsePanesValue,
+  persistPulsePanesValue,
+  QUERY_EXPLORER_ELEMENT_IDS,
+  QUERY_EXPLORER_PANES_KEY,
+} from "./workspace/panes-state";
 import PulseSidebar from "./workspace/PulseSidebar";
 import { QueryHistoryPane, SavedQueriesPane } from "./workspace/QueryExplorerAuxPanes";
 import QueryExplorerBrowsePane from "./workspace/QueryExplorerBrowsePane";
@@ -52,6 +60,13 @@ import { createPulseWorkspaceState } from "./workspace/workspace-state";
 
 export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const state = createPulseWorkspaceState(props);
+  const [explorerPanesValue, setExplorerPanesValue] = createSignal(
+    initialPulsePanesValue(props.initialExplorerPanesValue, createQueryExplorerPanesValue(), QUERY_EXPLORER_ELEMENT_IDS),
+  );
+  const updateExplorerPanesValue = (value: PanesValue) => {
+    setExplorerPanesValue(value);
+    persistPulsePanesValue(QUERY_EXPLORER_PANES_KEY, value);
+  };
   const {
     activeView,
     activityMetrics,
@@ -668,7 +683,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         dashboardPreviewConfig={dashboardEditPreviewConfig}
         dashboardDslDiagnostics={dashboardDslDiagnostics}
         dashboardDslSaving={dashboardDslSaving}
-        initialDockState={props.initialDashboardEditorDockState}
+        initialPanesValue={props.initialDashboardEditorPanesValue}
         sources={sources}
         inventory={inventory}
         metrics={metrics}
@@ -926,20 +941,17 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const renderMetricExplorerView = () => (
     <section class="flex min-h-0 flex-1 overflow-hidden pb-2">
-      <DockWorkspace
-        storageKey="pulse.query-explorer"
-        initialState={props.initialExplorerDockState}
-        defaultResultSize={42}
-        class="h-full min-h-0"
-      >
-        <DockWorkspace.Result hideHeader>{renderExplorerResultPane()}</DockWorkspace.Result>
-        <DockWorkspace.Pane id="editor" title="Query" icon="ti ti-code" section="editor">
+      <Panes.Root value={explorerPanesValue()} onChange={updateExplorerPanesValue} class="h-full min-h-0 w-full">
+        <Panes.Element id="result" title="Result" icon="ti ti-chart-line">
+          {renderExplorerResultPane()}
+        </Panes.Element>
+        <Panes.Element id="editor" title="Query" icon="ti ti-code">
           {renderQueryEditorPane()}
-        </DockWorkspace.Pane>
-        <DockWorkspace.Pane id="browse" title="Browse" icon="ti ti-list-search" section="context">
+        </Panes.Element>
+        <Panes.Element id="browse" title="Browse" icon="ti ti-list-search">
           {renderBrowseExplorerPane()}
-        </DockWorkspace.Pane>
-        <DockWorkspace.Pane id="saved" title="Saved" icon="ti ti-device-floppy" section="context">
+        </Panes.Element>
+        <Panes.Element id="saved" title="Saved" icon="ti ti-device-floppy">
           <SavedQueriesPane
             queries={savedQueries}
             currentQuery={currentExplorerQuery}
@@ -948,11 +960,11 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
             onSaveCurrent={saveCurrentQuery}
             onRemove={removeSavedQuery}
           />
-        </DockWorkspace.Pane>
-        <DockWorkspace.Pane id="history" title="History" icon="ti ti-history" section="context">
+        </Panes.Element>
+        <Panes.Element id="history" title="History" icon="ti ti-history">
           <QueryHistoryPane history={queryHistory} dateContext={pulseDateContext} onSelect={setQueryText} />
-        </DockWorkspace.Pane>
-      </DockWorkspace>
+        </Panes.Element>
+      </Panes.Root>
     </section>
   );
 
@@ -998,8 +1010,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         eventCount={eventGroups().length}
         stateCount={stateGroups().length}
         metricCount={metrics().length}
-        rawRetentionDays={selectedBase()?.rawRetentionDays ?? 30}
-        timescaleEnabled={Boolean(props.initialCapabilities?.timescaleEnabled)}
         settingsDisabled={!selectedBase() || loading()}
         openSettings={openSettingsDialog}
         createDashboard={createDashboard}

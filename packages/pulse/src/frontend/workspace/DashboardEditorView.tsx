@@ -1,5 +1,5 @@
-import { AutocompleteEditor, DockWorkspace, type DockWorkspaceState } from "@valentinkolb/cloud/ui";
-import { createMemo, For, Show, type Accessor, type Setter } from "solid-js";
+import { AutocompleteEditor, Panes, type PanesValue } from "@valentinkolb/cloud/ui";
+import { createMemo, createSignal, For, Show, type Accessor, type Setter } from "solid-js";
 import type {
   PulseDashboard,
   PulseDashboardConfig,
@@ -10,13 +10,15 @@ import type {
   PulseSource,
 } from "../../contracts";
 import { pulseDashboardDslHighlight } from "../query-authoring";
-import {
-  dashboardToDsl,
-  openQueryReferenceWindow,
-  quoteDashboardDslString,
-  quoteQueryPart,
-} from "./helpers";
+import { dashboardToDsl, openQueryReferenceWindow, quoteDashboardDslString, quoteQueryPart } from "./helpers";
 import { DashboardContent, type DashboardRenderContext } from "./DashboardView";
+import {
+  createDashboardEditorPanesValue,
+  DASHBOARD_EDITOR_ELEMENT_IDS,
+  DASHBOARD_EDITOR_PANES_KEY,
+  initialPulsePanesValue,
+  persistPulsePanesValue,
+} from "./panes-state";
 
 type ReferenceItem = {
   label: string;
@@ -32,7 +34,7 @@ type DashboardEditorViewProps = {
   dashboardPreviewConfig: Accessor<PulseDashboardConfig | null>;
   dashboardDslDiagnostics: Accessor<PulseDashboardDslCompileResult | null>;
   dashboardDslSaving: Accessor<boolean>;
-  initialDockState?: DockWorkspaceState | null;
+  initialPanesValue?: PanesValue | null;
   sources: Accessor<PulseSource[]>;
   inventory: Accessor<PulseInventory>;
   metrics: Accessor<PulseMetricSummary[]>;
@@ -106,6 +108,14 @@ const ReferenceList = (props: {
 );
 
 export default function DashboardEditorView(props: DashboardEditorViewProps) {
+  const [panesValue, setPanesValue] = createSignal(
+    initialPulsePanesValue(props.initialPanesValue, createDashboardEditorPanesValue(), DASHBOARD_EDITOR_ELEMENT_IDS),
+  );
+  const updatePanesValue = (value: PanesValue) => {
+    setPanesValue(value);
+    persistPulsePanesValue(DASHBOARD_EDITOR_PANES_KEY, value);
+  };
+
   const appendDashboardDslSnippet = (snippet: string) => {
     props.setDashboardDslText((current) => {
       const dashboard = props.selectedDashboard();
@@ -217,11 +227,12 @@ export default function DashboardEditorView(props: DashboardEditorViewProps) {
   );
 
   const renderEditorPane = () => (
-    <div class="paper h-full overflow-hidden p-0">
+    <div class="h-full overflow-hidden">
       <AutocompleteEditor
         value={props.dashboardDslText}
         onInput={(value) => props.setDashboardDslText(value)}
         highlight={pulseDashboardDslHighlight}
+        variant="paper"
         fill
         lines={18}
         spellcheck={false}
@@ -278,7 +289,7 @@ export default function DashboardEditorView(props: DashboardEditorViewProps) {
   );
 
   const renderDiagnosticsPane = () => (
-    <div class="paper h-full overflow-auto p-3">
+    <div class="h-full overflow-auto p-3">
       <Show
         when={props.dashboardDslDiagnostics()}
         fallback={
@@ -368,22 +379,22 @@ export default function DashboardEditorView(props: DashboardEditorViewProps) {
       </div>
 
       <div class="min-h-0 flex-1 overflow-hidden">
-        <DockWorkspace storageKey="pulse.dashboard-editor" initialState={props.initialDockState} defaultResultSize={48} class="h-full">
-          <DockWorkspace.Result title="Preview" icon="ti ti-eye">
+        <Panes.Root value={panesValue()} onChange={updatePanesValue} class="h-full">
+          <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
             <div class="h-full overflow-auto bg-zinc-50 p-3 dark:bg-zinc-950">
               <DashboardContent config={props.dashboardPreviewConfig} context={props.renderContext} />
             </div>
-          </DockWorkspace.Result>
-          <DockWorkspace.Pane id="editor" title="DSL" icon="ti ti-code" section="editor">
+          </Panes.Element>
+          <Panes.Element id="editor" title="DSL" icon="ti ti-code">
             {renderEditorPane()}
-          </DockWorkspace.Pane>
-          <DockWorkspace.Pane id="inventory" title="Inventory" icon="ti ti-database-search" section="context">
+          </Panes.Element>
+          <Panes.Element id="inventory" title="Inventory" icon="ti ti-database-search">
             {renderInventoryPane()}
-          </DockWorkspace.Pane>
-          <DockWorkspace.Pane id="diagnostics" title="Diagnostics" icon="ti ti-alert-circle" section="context">
+          </Panes.Element>
+          <Panes.Element id="diagnostics" title="Diagnostics" icon="ti ti-alert-circle">
             {renderDiagnosticsPane()}
-          </DockWorkspace.Pane>
-        </DockWorkspace>
+          </Panes.Element>
+        </Panes.Root>
       </div>
     </section>
   );

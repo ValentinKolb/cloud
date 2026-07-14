@@ -3,7 +3,11 @@ import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import type { PulseDashboardSnapshot } from "../contracts";
 import { jsonFetch } from "./http";
 import { PublicDashboardSections } from "./PublicDashboardSections";
-import { publicDashboardRefreshDelayMs, resolvePublicDashboardRefreshSeconds, type PublicDashboardDisplayHeight } from "./public-dashboard-runtime";
+import {
+  publicDashboardRefreshDelayMs,
+  resolvePublicDashboardRefreshSeconds,
+  type PublicDashboardDisplayHeight,
+} from "./public-dashboard-runtime";
 import { defaultPulseDateContext } from "./workspace/helpers";
 
 type Props = {
@@ -19,7 +23,9 @@ export default function PublicPulseDashboard(props: Props) {
   const refreshIntervalSeconds = () => resolvePublicDashboardRefreshSeconds(snapshot().dashboard.config.refreshIntervalSeconds);
 
   const reload = async (signal?: AbortSignal) => {
-    setSnapshot(await jsonFetch<PulseDashboardSnapshot>(`/api/pulse/public-dashboard/${props.token}`, { signal }, "Could not refresh dashboard"));
+    setSnapshot(
+      await jsonFetch<PulseDashboardSnapshot>(`/api/pulse/public-dashboard/${props.token}`, { signal }, "Could not refresh dashboard"),
+    );
   };
 
   const renderRefreshProgress = () => (
@@ -33,10 +39,7 @@ export default function PublicPulseDashboard(props: Props) {
       }
     >
       {(seconds) => (
-        <span
-          class="inline-flex h-8 w-8 items-center justify-center text-blue-600 dark:text-blue-300"
-          title={`Refreshes every ${seconds()}s`}
-        >
+        <span class="inline-flex h-8 w-8 items-center justify-center app-accent-text" title={`Refreshes every ${seconds()}s`}>
           <svg class="-rotate-90" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
             <circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="3" />
             <circle
@@ -126,7 +129,10 @@ export default function PublicPulseDashboard(props: Props) {
           {renderRefreshProgress()}
         </header>
 
-        <Show when={snapshot().dashboard.config.layout?.sections.length} fallback={<p class="paper p-8 text-center text-sm text-dimmed">This dashboard has no widgets.</p>}>
+        <Show
+          when={snapshot().dashboard.config.layout?.sections.length}
+          fallback={<p class="paper p-8 text-center text-sm text-dimmed">This dashboard has no widgets.</p>}
+        >
           <section class={`space-y-6 ${props.displayHeight === "full" ? "min-h-0 flex-1 overflow-hidden" : ""}`}>
             <PublicDashboardSections snapshot={snapshot()} dateContext={dateContext()} />
           </section>

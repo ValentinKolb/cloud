@@ -77,12 +77,6 @@ export const compileDashboardDsl = (input: string, compileQuery: CompileQuery): 
   const layout = compileDashboardLayout(context, controls);
 
   if (context.diagnostics.length) return { ok: false, diagnostics: context.diagnostics };
-  if (layout.sections.length === 0) {
-    return {
-      ok: false,
-      diagnostics: [{ severity: "error", message: "Dashboard must contain at least one section or widget", line: 1, column: 1 }],
-    };
-  }
   return { ok: true, data: { layout, dsl: input.trim() }, diagnostics: [] };
 };
 

@@ -81,6 +81,14 @@ describe("Pulse dashboard DSL", () => {
     expect(markdown?.kind).toBe("markdown");
   });
 
+  test("compiles an empty dashboard for the DSL-first creation flow", () => {
+    const result = compileDashboardDsl('dashboard "Operations" {\n}', metricQuery);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.layout).not.toBeNull();
+    expect(result.data.layout?.sections).toEqual([]);
+  });
+
   test("compiles controls and visual conditions", () => {
     const result = compileDashboardDsl(
       `dashboard "Controlled" {

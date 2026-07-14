@@ -15,7 +15,7 @@ export type SignalCatalogTab = {
 const signalCatalogTabClass = (active: boolean) =>
   `inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${
     active
-      ? "bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200"
+      ? "bg-zinc-100 app-accent-text dark:bg-zinc-900"
       : "bg-zinc-100/70 text-secondary hover:bg-zinc-100 hover:text-primary dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
   }`;
 
@@ -27,7 +27,12 @@ export function SignalCatalogTabs(props: { kind: SignalCatalogKind; tabs: Signal
     <div class="flex shrink-0 flex-wrap items-center gap-2">
       <For each={props.tabs}>
         {(tab) => (
-          <button type="button" class={signalCatalogTabClass(tab.kind === props.kind)} aria-current={tab.kind === props.kind ? "page" : undefined} onClick={tab.open}>
+          <button
+            type="button"
+            class={signalCatalogTabClass(tab.kind === props.kind)}
+            aria-current={tab.kind === props.kind ? "page" : undefined}
+            onClick={tab.open}
+          >
             <i class={tab.icon} />
             <span>{tab.label}</span>
             <span class="text-dimmed">{tab.count}</span>

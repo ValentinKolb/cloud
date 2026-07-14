@@ -57,14 +57,14 @@ export default function QueryExplorerBrowsePane(props: {
   onApplySourceFilter: (sourceId: string) => void;
   onApplyDimensionFilter: (key: string, value: string) => void;
 }) {
-  const scopeTagClass = "chip border-0 bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200";
-  const clearScopeButtonClass = "ml-1 inline-flex text-blue-500 transition hover:text-blue-700 dark:text-blue-300";
+  const scopeTagClass = "chip border-0 bg-zinc-100 app-accent-text dark:bg-zinc-900";
+  const clearScopeButtonClass = "ml-1 inline-flex text-dimmed transition hover:app-accent-text";
   const rowClass = "group block w-full rounded px-2 py-2 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900";
   const actionClass =
-    "inline-flex h-7 items-center gap-1 rounded-full bg-zinc-100 px-2.5 text-[11px] font-medium text-secondary transition hover:bg-blue-100 hover:text-blue-700 dark:bg-zinc-900 dark:hover:bg-blue-950 dark:hover:text-blue-200";
+    "inline-flex h-7 items-center gap-1 rounded-full bg-zinc-100 px-2.5 text-[11px] font-medium text-secondary transition hover:app-accent-text dark:bg-zinc-900";
 
   return (
-    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+    <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="shrink-0 space-y-2 p-3">
         <TextInput
           type="search"
@@ -108,7 +108,7 @@ export default function QueryExplorerBrowsePane(props: {
           <section class="rounded bg-zinc-50/80 p-2 dark:bg-zinc-900/45">
             <div class="mb-1 flex items-center justify-between gap-2 px-1">
               <h3 class="text-label text-xs">Sources</h3>
-              <span class="text-[11px] text-dimmed">{plural(props.sources().length, "shown")}</span>
+              <span class="text-[11px] text-dimmed">{props.sources().length} shown</span>
             </div>
             <Show when={props.sources().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching sources.</p>}>
               <For each={props.sources()}>
@@ -133,7 +133,7 @@ export default function QueryExplorerBrowsePane(props: {
           <section class="rounded bg-zinc-50/80 p-2 dark:bg-zinc-900/45">
             <div class="mb-1 flex items-center justify-between gap-2 px-1">
               <h3 class="text-label text-xs">Resources</h3>
-              <span class="text-[11px] text-dimmed">{plural(props.entities().length, "shown")}</span>
+              <span class="text-[11px] text-dimmed">{props.entities().length} shown</span>
             </div>
             <Show when={props.entities().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching resources yet.</p>}>
               <For each={props.entities()}>
@@ -158,7 +158,8 @@ export default function QueryExplorerBrowsePane(props: {
           <div class="mb-1 flex items-center justify-between gap-2 px-1">
             <h3 class="text-label text-xs">Signals</h3>
             <span class="text-[11px] text-dimmed">
-              {plural(props.metrics().length, "metric")} · {plural(props.events().length, "event")} · {plural(props.states().length, "state")}
+              {plural(props.metrics().length, "metric")} · {plural(props.events().length, "event")} ·{" "}
+              {plural(props.states().length, "state")}
             </span>
           </div>
           <div class="grid gap-2 xl:grid-cols-3">

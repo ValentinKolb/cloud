@@ -172,7 +172,8 @@ const MetricWidgetChart = (props: { widget: PulseDashboardMetricWidget; context:
 };
 
 const MetricWidgetCard = (props: { widget: PulseDashboardMetricWidget; context: DashboardRenderContext; description?: string | null }) => {
-  const condition = () => matchDashboardCondition(props.widget.conditions, props.context.metricWidgetPoints()[props.widget.id]?.at(-1)?.value ?? null);
+  const condition = () =>
+    matchDashboardCondition(props.widget.conditions, props.context.metricWidgetPoints()[props.widget.id]?.at(-1)?.value ?? null);
   const level = () => condition()?.level ?? null;
   return (
     <article
@@ -216,7 +217,9 @@ const MarkdownWidget = (props: { widget: PulseDashboardMarkdownWidget }) => (
     <Show when={props.widget.title || props.widget.description}>
       <div class="mb-3">
         <Show when={props.widget.title}>{(title) => <p class="text-sm font-semibold text-primary">{title()}</p>}</Show>
-        <Show when={props.widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
+        <Show when={props.widget.description}>
+          {(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}
+        </Show>
       </div>
     </Show>
     <MarkdownView html={markdown.render(props.widget.markdown)} smallHeadings class="text-sm" />
@@ -244,7 +247,9 @@ const DashboardWidget = (props: { widget: PulseDashboardWidget; cellCount: numbe
 
 const DashboardRow = (props: { row: PulseDashboardRow; context: DashboardRenderContext }) => (
   <div class="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-12">
-    <For each={props.row.cells}>{(widget) => <DashboardWidget widget={widget} cellCount={props.row.cells.length} context={props.context} />}</For>
+    <For each={props.row.cells}>
+      {(widget) => <DashboardWidget widget={widget} cellCount={props.row.cells.length} context={props.context} />}
+    </For>
   </div>
 );
 
@@ -252,7 +257,9 @@ const CardWidget = (props: { widget: PulseDashboardCardWidget; context: Dashboar
   <article class="paper h-full p-4">
     <div class="mb-3">
       <p class="text-sm font-semibold text-primary">{props.widget.title}</p>
-      <Show when={props.widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
+      <Show when={props.widget.description}>
+        {(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}
+      </Show>
     </div>
     <div class="space-y-3">
       <For each={props.widget.rows}>{(row) => <DashboardRow row={row} context={props.context} />}</For>
@@ -264,7 +271,9 @@ const EventsWidget = (props: { widget: PulseDashboardEventsWidget; context: Dash
   <article class="paper h-full p-4">
     <div class="mb-3">
       <p class="text-sm font-semibold text-primary">{props.widget.title}</p>
-      <Show when={props.widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
+      <Show when={props.widget.description}>
+        {(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}
+      </Show>
     </div>
     <DataTable
       rows={props.context.dashboardEvents()[props.widget.id] ?? []}
@@ -289,7 +298,9 @@ const StatesWidget = (props: { widget: PulseDashboardStatesWidget; context: Dash
     <article class="paper h-full p-4">
       <div class="mb-3">
         <p class="text-sm font-semibold text-primary">{props.widget.title}</p>
-        <Show when={props.widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
+        <Show when={props.widget.description}>
+          {(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}
+        </Show>
       </div>
       <Show
         when={props.widget.visual === "stat"}
@@ -332,7 +343,7 @@ const DashboardSection = (props: { section: PulseDashboardSection; context: Dash
     <For each={props.section.rows}>{(row) => <DashboardRow row={row} context={props.context} />}</For>
     <For each={props.section.sections}>
       {(child) => (
-        <div class="border-l border-border/70 pl-4">
+        <div class="pl-3">
           <DashboardSection section={child} context={props.context} />
         </div>
       )}
@@ -340,11 +351,7 @@ const DashboardSection = (props: { section: PulseDashboardSection; context: Dash
   </section>
 );
 
-const DashboardControls = (props: {
-  dashboard: PulseDashboard;
-  config: PulseDashboardConfig;
-  context: DashboardRenderContext;
-}) => (
+const DashboardControls = (props: { dashboard: PulseDashboard; config: PulseDashboardConfig; context: DashboardRenderContext }) => (
   <Show when={props.config.layout?.controls}>
     {(controls) => (
       <div class="flex flex-wrap items-end justify-end gap-2">
@@ -446,7 +453,9 @@ export const DashboardContent = (props: {
 export default function DashboardView(props: { dashboard: Accessor<PulseDashboard | null>; context: DashboardRenderContext }) {
   return (
     <section class="flex min-h-0 flex-1 flex-col">
-      <Show when={props.dashboard()}>{(dashboard) => <DashboardHeader dashboard={dashboard()} config={dashboard().config} context={props.context} />}</Show>
+      <Show when={props.dashboard()}>
+        {(dashboard) => <DashboardHeader dashboard={dashboard()} config={dashboard().config} context={props.context} />}
+      </Show>
       <DashboardContent config={() => props.dashboard()?.config ?? null} context={props.context} />
     </section>
   );

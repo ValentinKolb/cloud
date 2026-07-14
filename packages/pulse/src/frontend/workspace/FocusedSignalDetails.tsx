@@ -1,5 +1,6 @@
 import { StructuredDataPreview } from "@valentinkolb/cloud/ui";
 import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from "../../contracts";
+import DetailHero from "./DetailHero";
 import { compactDateWithDelta, formatMetricValue, formatSignalValue, formatValue, signalSubject, type PulseDateContext } from "./helpers";
 
 type SourceProps = {
@@ -14,7 +15,7 @@ const SourceInlineLink = (props: SourceProps) => {
   return (
     <button
       type="button"
-      class="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-secondary transition hover:text-blue-600 dark:hover:text-blue-300"
+      class="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-secondary transition hover:app-accent-text"
       onClick={() => props.openSource(props.sourceId)}
       title="Open source"
     >
@@ -24,27 +25,32 @@ const SourceInlineLink = (props: SourceProps) => {
   );
 };
 
-export const FocusedMetricSeriesDetail = (props: SourceProps & { item: PulseMetricSeries; metricName: string; metricUnit: string | null }) => (
+export const FocusedMetricSeriesDetail = (
+  props: SourceProps & { item: PulseMetricSeries; metricName: string; metricUnit: string | null },
+) => (
   <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-    <section class="detail-section-compact">
-      <div class="min-w-0">
-        <p class="text-label text-xs">Metric variant</p>
-        <h2 class="mt-1 truncate text-base font-semibold leading-5 text-primary">{signalSubject(props.item)}</h2>
-        <p class="mt-1 text-xs text-dimmed">
+    <DetailHero
+      eyebrow="Metric variant"
+      title={signalSubject(props.item)}
+      icon="ti ti-chart-dots"
+      description={
+        <>
           {props.metricName} · {props.sourceNameById().get(props.item.sourceId ?? "") ?? "No source"}
-        </p>
-      </div>
-    </section>
+        </>
+      }
+    />
     <div class="detail-stack">
       <section class="detail-section">
         <h3 class="detail-section-label">Variant</h3>
         <div class="detail-row">
-          <i class="ti ti-number detail-row-icon text-blue-500" />
+          <i class="ti ti-number detail-row-icon app-accent-text" />
           <span class="detail-row-label">Current</span>
-          <span class="truncate">{props.item.latestValue === null ? "-" : formatMetricValue(props.item.latestValue, props.metricUnit)}</span>
+          <span class="truncate">
+            {props.item.latestValue === null ? "-" : formatMetricValue(props.item.latestValue, props.metricUnit)}
+          </span>
         </div>
         <div class="detail-row">
-          <i class="ti ti-chart-dots detail-row-icon text-blue-500" />
+          <i class="ti ti-chart-dots detail-row-icon app-accent-text" />
           <span class="detail-row-label">Metric</span>
           <span class="truncate">{props.metricName}</span>
         </div>
@@ -61,9 +67,13 @@ export const FocusedMetricSeriesDetail = (props: SourceProps & { item: PulseMetr
           </span>
         </div>
         <div class="detail-row">
-          <i class="ti ti-clock detail-row-icon text-blue-500" />
+          <i class="ti ti-clock detail-row-icon app-accent-text" />
           <span class="detail-row-label">Last seen</span>
-          <span>{(props.item.latestSampleAt ?? props.item.lastSeenAt) ? compactDateWithDelta((props.item.latestSampleAt ?? props.item.lastSeenAt)!, props.dateContext) : "-"}</span>
+          <span>
+            {(props.item.latestSampleAt ?? props.item.lastSeenAt)
+              ? compactDateWithDelta((props.item.latestSampleAt ?? props.item.lastSeenAt)!, props.dateContext)
+              : "-"}
+          </span>
         </div>
       </section>
       <section class="detail-section">
@@ -75,20 +85,21 @@ export const FocusedMetricSeriesDetail = (props: SourceProps & { item: PulseMetr
 
 export const FocusedStateDetail = (props: SourceProps & { state: PulseCurrentState }) => (
   <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-    <section class="detail-section-compact">
-      <div class="min-w-0">
-        <p class="text-label text-xs">State variant</p>
-        <h2 class="mt-1 truncate text-base font-semibold leading-5 text-primary">{signalSubject(props.state)}</h2>
-        <p class="mt-1 text-xs text-dimmed">
+    <DetailHero
+      eyebrow="State variant"
+      title={signalSubject(props.state)}
+      icon="ti ti-toggle-right"
+      description={
+        <>
           {props.state.key} · {props.sourceNameById().get(props.state.sourceId ?? "") ?? "No source"}
-        </p>
-      </div>
-    </section>
+        </>
+      }
+    />
     <div class="detail-stack">
       <section class="detail-section">
         <h3 class="detail-section-label">Current value</h3>
         <div class="detail-row">
-          <i class="ti ti-toggle-right detail-row-icon text-blue-500" />
+          <i class="ti ti-toggle-right detail-row-icon app-accent-text" />
           <span class="detail-row-label">Value</span>
           <span class="truncate">{formatSignalValue(props.state.value)}</span>
         </div>
@@ -105,7 +116,7 @@ export const FocusedStateDetail = (props: SourceProps & { state: PulseCurrentSta
           </span>
         </div>
         <div class="detail-row">
-          <i class="ti ti-clock detail-row-icon text-blue-500" />
+          <i class="ti ti-clock detail-row-icon app-accent-text" />
           <span class="detail-row-label">Updated</span>
           <span>{compactDateWithDelta(props.state.updatedAt, props.dateContext)}</span>
         </div>
@@ -119,25 +130,26 @@ export const FocusedStateDetail = (props: SourceProps & { state: PulseCurrentSta
 
 export const FocusedEventDetail = (props: SourceProps & { event: PulseRecordedEvent }) => (
   <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-    <section class="detail-section-compact">
-      <div class="min-w-0">
-        <p class="text-label text-xs">Event row</p>
-        <h2 class="mt-1 truncate text-base font-semibold leading-5 text-primary">{signalSubject(props.event)}</h2>
-        <p class="mt-1 text-xs text-dimmed">
+    <DetailHero
+      eyebrow="Event row"
+      title={signalSubject(props.event)}
+      icon="ti ti-bolt"
+      description={
+        <>
           {props.event.kind} · {props.sourceNameById().get(props.event.sourceId ?? "") ?? "No source"}
-        </p>
-      </div>
-    </section>
+        </>
+      }
+    />
     <div class="detail-stack">
       <section class="detail-section">
         <h3 class="detail-section-label">Event</h3>
         <div class="detail-row">
-          <i class="ti ti-bolt detail-row-icon text-blue-500" />
+          <i class="ti ti-bolt detail-row-icon app-accent-text" />
           <span class="detail-row-label">Kind</span>
           <span class="truncate">{props.event.kind}</span>
         </div>
         <div class="detail-row">
-          <i class="ti ti-number detail-row-icon text-blue-500" />
+          <i class="ti ti-number detail-row-icon app-accent-text" />
           <span class="detail-row-label">Value</span>
           <span>{props.event.value === null ? "-" : formatValue(props.event.value)}</span>
         </div>
@@ -154,7 +166,7 @@ export const FocusedEventDetail = (props: SourceProps & { event: PulseRecordedEv
           </span>
         </div>
         <div class="detail-row">
-          <i class="ti ti-clock detail-row-icon text-blue-500" />
+          <i class="ti ti-clock detail-row-icon app-accent-text" />
           <span class="detail-row-label">Time</span>
           <span>{compactDateWithDelta(props.event.ts, props.dateContext)}</span>
         </div>

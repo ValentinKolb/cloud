@@ -47,7 +47,7 @@ const ScopeChipRow = (props: {
     <div class="flex flex-wrap gap-2">
       <button
         type="button"
-        class={`chip cursor-pointer border-0 ${!props.selected ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200" : ""}`}
+        class={`chip cursor-pointer border-0 ${!props.selected ? "bg-zinc-100 app-accent-text dark:bg-zinc-900" : ""}`}
         onClick={() => props.onSelect("")}
       >
         <i class="ti ti-asterisk" />
@@ -57,7 +57,7 @@ const ScopeChipRow = (props: {
         {(item) => (
           <button
             type="button"
-            class={`chip max-w-full cursor-pointer border-0 ${props.selected === item.id ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200" : ""}`}
+            class={`chip max-w-full cursor-pointer border-0 ${props.selected === item.id ? "bg-zinc-100 app-accent-text dark:bg-zinc-900" : ""}`}
             title={`${item.hint} · ${item.count}`}
             onClick={() => props.onSelect(item.id)}
           >
@@ -177,8 +177,20 @@ export function PulseQueryReferenceInventory(props: Props) {
     <>
       <PulseInventoryReferenceIntro />
       <section class="paper flex flex-col gap-4 p-4">
-        <ScopeChipRow label="Sources" allLabel="All sources" selected={selectedSourceId()} items={sourceChips()} onSelect={setSelectedSourceId} />
-        <ScopeChipRow label="Entities" allLabel="All entities" selected={selectedEntityId()} items={entityChips()} onSelect={setSelectedEntityId} />
+        <ScopeChipRow
+          label="Sources"
+          allLabel="All sources"
+          selected={selectedSourceId()}
+          items={sourceChips()}
+          onSelect={setSelectedSourceId}
+        />
+        <ScopeChipRow
+          label="Entities"
+          allLabel="All entities"
+          selected={selectedEntityId()}
+          items={entityChips()}
+          onSelect={setSelectedEntityId}
+        />
       </section>
 
       <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -258,7 +270,9 @@ export function PulseQueryReferenceInventory(props: Props) {
             <h2 class="flex items-center gap-2 text-sm font-semibold text-secondary">
               <i class="ti ti-list-details" /> Fields <span class="text-dimmed">{fieldRows().length}</span>
             </h2>
-            <p class="mt-1 text-xs text-dimmed">Dimensions are query filters and groups. Attributes retain high-cardinality event context.</p>
+            <p class="mt-1 text-xs text-dimmed">
+              Dimensions are query filters and groups. Attributes retain high-cardinality event context.
+            </p>
           </div>
           <div class="w-full sm:w-72">
             <TextInput value={fieldQuery} onInput={setFieldQuery} icon="ti ti-search" placeholder="Search fields..." clearable />

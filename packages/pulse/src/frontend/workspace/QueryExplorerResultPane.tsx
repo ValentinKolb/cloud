@@ -99,7 +99,12 @@ function QueryExplorerChart(props: {
   }
   if (props.visual() === "bar") {
     return (
-      <Chart kind="bar" class="h-full min-h-0 text-dimmed" data={pointsToBars(data(), props.dateContext())} showValues={data().length <= 16} />
+      <Chart
+        kind="bar"
+        class="h-full min-h-0 text-dimmed"
+        data={pointsToBars(data(), props.dateContext())}
+        showValues={data().length <= 16}
+      />
     );
   }
   if (props.visual() === "histogram") {
@@ -210,13 +215,14 @@ const renderDataResult = (props: QueryExplorerResultPaneProps, compiled: PulseEx
 
 const renderQueryExplorerResult = (props: QueryExplorerResultPaneProps): JSX.Element => {
   const compiled = props.compiled();
-  if (props.resultView() === "compiled") return <StructuredDataPreview data={compiled ?? {}} empty="Run a query to see the compiled shape." />;
+  if (props.resultView() === "compiled")
+    return <StructuredDataPreview data={compiled ?? {}} empty="Run a query to see the compiled shape." />;
   return renderDataResult(props, compiled);
 };
 
 export default function QueryExplorerResultPane(props: QueryExplorerResultPaneProps) {
   return (
-    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+    <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
         <div class="min-w-40">
           <SelectInput
@@ -225,7 +231,10 @@ export default function QueryExplorerResultPane(props: QueryExplorerResultPanePr
             onChange={(value) =>
               props.setResultView(
                 props.compiled()?.kind !== "metric" &&
-                  !(props.compiled()?.kind === "events" && isEventAggregateQuery(props.compiled() as Extract<PulseExplorerQuery, { kind: "events" }>)) &&
+                  !(
+                    props.compiled()?.kind === "events" &&
+                    isEventAggregateQuery(props.compiled() as Extract<PulseExplorerQuery, { kind: "events" }>)
+                  ) &&
                   value === "chart"
                   ? "table"
                   : (value as ExplorerResultView),
@@ -254,7 +263,8 @@ export default function QueryExplorerResultPane(props: QueryExplorerResultPanePr
           <i class="ti ti-copy" /> Copy widget
         </button>
         <span class="ml-auto text-xs text-dimmed">
-          {props.compiled()?.kind === "events" && !isEventAggregateQuery(props.compiled() as Extract<PulseExplorerQuery, { kind: "events" }>)
+          {props.compiled()?.kind === "events" &&
+          !isEventAggregateQuery(props.compiled() as Extract<PulseExplorerQuery, { kind: "events" }>)
             ? `${props.events().length} events`
             : props.compiled()?.kind === "states"
               ? `${props.states().length} states`

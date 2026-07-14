@@ -1,7 +1,6 @@
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { get as getSetting } from "@valentinkolb/cloud/services";
-import { readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
 import type {
   MetricQuery,
@@ -31,7 +30,13 @@ import {
   FOCUSED_PAGE_SIZE,
   quoteQueryPart,
 } from "../workspace/helpers";
-import { readActivityQueryState, readDashboardControlQueryState, readWorkspacePathState, type WorkspaceRouteState } from "../workspace/routes";
+import { DASHBOARD_EDITOR_PANES_KEY, QUERY_EXPLORER_PANES_KEY, readPulsePanesStateCookie } from "../workspace/panes-state";
+import {
+  readActivityQueryState,
+  readDashboardControlQueryState,
+  readWorkspacePathState,
+  type WorkspaceRouteState,
+} from "../workspace/routes";
 import type { PulseWorkspaceProps } from "../workspace/types";
 
 type PulseUser = Parameters<typeof pulseService.base.list>[0];
@@ -72,7 +77,12 @@ type ResourceInitialData = {
 };
 
 const dashboardControlValues = (config: PulseDashboardConfig, values: DashboardControlValues): DashboardControlValues =>
-  Object.fromEntries((config.layout?.controls ?? []).map((control: PulseDashboardControl) => [control.variable, values[control.variable] ?? control.defaultValue]));
+  Object.fromEntries(
+    (config.layout?.controls ?? []).map((control: PulseDashboardControl) => [
+      control.variable,
+      values[control.variable] ?? control.defaultValue,
+    ]),
+  );
 
 const resolveDashboardQueryText = (text: string, config: PulseDashboardConfig, values: DashboardControlValues): string => {
   const controls = dashboardControlValues(config, values);
@@ -81,7 +91,12 @@ const resolveDashboardQueryText = (text: string, config: PulseDashboardConfig, v
   );
 };
 
-const metricWidgetQuery = (baseId: string, dashboard: PulseDashboard, widget: PulseDashboardMetricWidget, controlValues: DashboardControlValues): MetricQuery => {
+const metricWidgetQuery = (
+  baseId: string,
+  dashboard: PulseDashboard,
+  widget: PulseDashboardMetricWidget,
+  controlValues: DashboardControlValues,
+): MetricQuery => {
   if (widget.queryText) {
     const compiled = compilePulseQueryText(baseId, resolveDashboardQueryText(widget.queryText, dashboard.config, controlValues));
     if (compiled.ok && compiled.data.kind === "metric") return compiled.data;
@@ -100,12 +115,15 @@ const metricWidgetQuery = (baseId: string, dashboard: PulseDashboard, widget: Pu
   };
 };
 
-const widgetQueryText = (widget: PulseDashboardEventsWidget | PulseDashboardStatesWidget, dashboard: PulseDashboard, controlValues: DashboardControlValues): string =>
-  resolveDashboardQueryText(widget.queryText, dashboard.config, controlValues);
+const widgetQueryText = (
+  widget: PulseDashboardEventsWidget | PulseDashboardStatesWidget,
+  dashboard: PulseDashboard,
+  controlValues: DashboardControlValues,
+): string => resolveDashboardQueryText(widget.queryText, dashboard.config, controlValues);
 
 const emptyInventory = (): PulseInventory => ({ resources: [], metrics: [], events: [], states: [], fields: [] });
 
-const dataOr = <T,>(result: { ok: boolean; data?: T }, fallback: T): T => (result.ok ? (result.data as T) : fallback);
+const dataOr = <T>(result: { ok: boolean; data?: T }, fallback: T): T => (result.ok ? (result.data as T) : fallback);
 
 const activityQueryInput = (query: { q: string; type: MetricType | "" }) => ({
   q: query.q || undefined,
@@ -154,7 +172,11 @@ const loadSelectedSourceData = async (baseId: string, user: PulseUser, selectedS
   };
 };
 
-const loadSelectedSourceApiKeys = async (baseId: string, user: PulseUser, selectedSource: PulseSource): Promise<ResourceApiKey[] | null> => {
+const loadSelectedSourceApiKeys = async (
+  baseId: string,
+  user: PulseUser,
+  selectedSource: PulseSource,
+): Promise<ResourceApiKey[] | null> => {
   if (selectedSource.kind !== "http_ingest") return null;
   const result = await pulseService.source.apiKeys.list({ baseId, sourceId: selectedSource.id, user });
   return result.ok ? result.data : null;
@@ -169,9 +191,14 @@ const emptyFocusedSignalData = (): FocusedSignalData => ({
 
 const hasMoreFocusedRows = (rows: unknown[]): boolean => rows.length > FOCUSED_PAGE_SIZE;
 
-const visibleFocusedRows = <T,>(rows: T[]): T[] => rows.slice(0, FOCUSED_PAGE_SIZE);
+const visibleFocusedRows = <T>(rows: T[]): T[] => rows.slice(0, FOCUSED_PAGE_SIZE);
 
-const loadFocusedMetricSeries = async (baseId: string, user: PulseUser, metric: string, q: string | undefined): Promise<FocusedSignalData> => {
+const loadFocusedMetricSeries = async (
+  baseId: string,
+  user: PulseUser,
+  metric: string,
+  q: string | undefined,
+): Promise<FocusedSignalData> => {
   const result = await pulseService.query.series(baseId, user, { metric, q, limit: FOCUSED_PAGE_SIZE + 1 });
   if (!result.ok) return emptyFocusedSignalData();
   return {
@@ -355,8 +382,8 @@ export async function loadPulseWorkspacePageData<T extends AuthContext>(c: Pulse
       initialRouteState: routeState,
       initialActivityQuery: activityQuery,
       initialDashboardControlValues: dashboardControlValues,
-      initialExplorerDockState: readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.query-explorer"),
-      initialDashboardEditorDockState: readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.dashboard-editor"),
+      initialExplorerPanesValue: readPulsePanesStateCookie(c.req.header("Cookie"), QUERY_EXPLORER_PANES_KEY),
+      initialDashboardEditorPanesValue: readPulsePanesStateCookie(c.req.header("Cookie"), DASHBOARD_EDITOR_PANES_KEY),
       initialDateConfig: getDateConfig(c),
       initialNow: new Date().toISOString(),
       initialOrigin: publicOrigin(appUrl, url.origin),
@@ -374,17 +401,25 @@ async function loadPulseWorkspaceInitialData(params: {
   searchParams: URLSearchParams;
 }): Promise<Partial<PulseWorkspaceProps>> {
   const activityQuery = activityQueryInput(params.activityQuery);
-  const [sourcesResult, metricsResult, resourceData, activityMetricsResult, dashboardsResult, savedQueriesResult, eventsResult, statesResult] =
-    await Promise.all([
-      pulseService.source.list(params.baseId, params.user),
-      pulseService.query.metrics(params.baseId, params.user, {}),
-      loadResourceInitialData(params.baseId, params.user, params.routeState, params.searchParams),
-      pulseService.query.metrics(params.baseId, params.user, activityQuery),
-      pulseService.dashboard.list(params.baseId, params.user),
-      pulseService.savedQuery.list(params.baseId, params.user),
-      pulseService.query.recentEvents(params.baseId, params.user, { q: activityQuery.q }),
-      pulseService.query.currentStates(params.baseId, params.user, { q: activityQuery.q }),
-    ]);
+  const [
+    sourcesResult,
+    metricsResult,
+    resourceData,
+    activityMetricsResult,
+    dashboardsResult,
+    savedQueriesResult,
+    eventsResult,
+    statesResult,
+  ] = await Promise.all([
+    pulseService.source.list(params.baseId, params.user),
+    pulseService.query.metrics(params.baseId, params.user, {}),
+    loadResourceInitialData(params.baseId, params.user, params.routeState, params.searchParams),
+    pulseService.query.metrics(params.baseId, params.user, activityQuery),
+    pulseService.dashboard.list(params.baseId, params.user),
+    pulseService.savedQuery.list(params.baseId, params.user),
+    pulseService.query.recentEvents(params.baseId, params.user, { q: activityQuery.q }),
+    pulseService.query.currentStates(params.baseId, params.user, { q: activityQuery.q }),
+  ]);
   const sources = dataOr(sourcesResult, []);
   const dashboards = dataOr(dashboardsResult, []);
   const dashboard = selectedDashboard(dashboards, params.routeState.dashboardId);

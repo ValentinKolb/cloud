@@ -1,5 +1,5 @@
 import { DataTable, FilterChip, TextInput, type DataTableColumn, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import type { PulseInventory, PulseResourceSummary } from "../../contracts";
 import { compactDateWithDelta, dimensionsSummary, plural, type PulseDateContext } from "./helpers";
 
@@ -106,7 +106,11 @@ export default function ResourceBrowserView(props: Props) {
       );
     }
     if (col.id === "lastSeen")
-      return <span class="text-xs text-secondary">{resource.lastSeenAt ? compactDateWithDelta(resource.lastSeenAt, props.dateContext) : "-"}</span>;
+      return (
+        <span class="text-xs text-secondary">
+          {resource.lastSeenAt ? compactDateWithDelta(resource.lastSeenAt, props.dateContext) : "-"}
+        </span>
+      );
     return resource[col.id as keyof PulseResourceSummary] as string;
   };
 
@@ -143,51 +147,38 @@ export default function ResourceBrowserView(props: Props) {
         />
       </div>
 
-      <div class="paper shrink-0 px-3 py-2">
-        <div class="flex flex-wrap items-center gap-2 text-xs text-secondary">
-          <span class="chip border-0">
-            <i class="ti ti-cube" />
-            {plural(props.filteredResources().length, "resource")}
-            <Show when={props.filteredResources().length !== props.inventory().resources.length}>
-              <span class="text-dimmed">of {props.inventory().resources.length.toLocaleString()}</span>
-            </Show>
-          </span>
-          <span class="chip border-0">
+      <div class="flex shrink-0 flex-wrap items-center gap-2 px-1 text-xs text-dimmed">
+        <span>
+          {plural(props.filteredResources().length, "resource")}
+          <Show when={props.filteredResources().length !== props.inventory().resources.length}>
+            {` of ${props.inventory().resources.length.toLocaleString()}`}
+          </Show>
+          {` across ${plural(sourceCount(), "source")}`}
+        </span>
+        <Show when={props.sourceFilter()}>
+          <button
+            type="button"
+            class="chip border-0 bg-zinc-100 app-accent-text dark:bg-zinc-900"
+            onClick={() => props.setSourceFilter([])}
+          >
             <i class="ti ti-database-share" />
-            {plural(sourceCount(), "source")}
-          </span>
-          <Show when={props.sourceFilter()}>
-            <button type="button" class="chip border-0 bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200" onClick={() => props.setSourceFilter([])}>
-              <i class="ti ti-database-share" />
-              {selectedSourceLabel()}
-              <i class="ti ti-x text-[10px]" />
-            </button>
-          </Show>
-          <Show when={props.typeFilter()}>
-            <button type="button" class="chip border-0 bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200" onClick={() => props.setTypeFilter([])}>
-              <i class={resourceIcon(props.typeFilter())} />
-              {selectedTypeLabel()}
-              <i class="ti ti-x text-[10px]" />
-            </button>
-          </Show>
-          <Show when={hasFilters()}>
-            <button type="button" class="chip border-0 text-dimmed transition hover:text-primary" onClick={props.clearFilters}>
-              <i class="ti ti-filter-off" />
-              Clear filters
-            </button>
-          </Show>
-          <For each={typeCounts().slice(0, 8)}>
-            {([type, count]) => (
-              <span class="chip border-0">
-                <i class={resourceIcon(type)} />
-                {type} · {count}
-              </span>
-            )}
-          </For>
-          <Show when={typeCounts().length > 8}>
-            <span class="text-xs text-dimmed">+{typeCounts().length - 8} types</span>
-          </Show>
-        </div>
+            {selectedSourceLabel()}
+            <i class="ti ti-x text-[10px]" />
+          </button>
+        </Show>
+        <Show when={props.typeFilter()}>
+          <button type="button" class="chip border-0 bg-zinc-100 app-accent-text dark:bg-zinc-900" onClick={() => props.setTypeFilter([])}>
+            <i class={resourceIcon(props.typeFilter())} />
+            {selectedTypeLabel()}
+            <i class="ti ti-x text-[10px]" />
+          </button>
+        </Show>
+        <Show when={hasFilters()}>
+          <button type="button" class="chip border-0 text-dimmed transition hover:text-primary" onClick={props.clearFilters}>
+            <i class="ti ti-filter-off" />
+            Clear filters
+          </button>
+        </Show>
       </div>
 
       <DataTable

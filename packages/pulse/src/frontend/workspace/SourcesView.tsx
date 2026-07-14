@@ -1,6 +1,7 @@
 import {
   DataTable,
   Panes,
+  Placeholder,
   TextInput,
   type DataTableColumn,
   type PanesValue,
@@ -37,7 +38,6 @@ const sourceScrapeColumns: DataTableColumn<PulseSourceScrape>[] = [
 ];
 
 const renderSourceTitleCell = (source: PulseSource): JSX.Element => {
-  const status = sourceStatus(source);
   return (
     <div class="flex min-w-0 items-center gap-2">
       <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
@@ -45,11 +45,7 @@ const renderSourceTitleCell = (source: PulseSource): JSX.Element => {
       </span>
       <div class="min-w-0">
         <p class="truncate text-sm font-medium text-primary">{source.name}</p>
-        <p class={`mt-0.5 flex items-center gap-1 truncate text-xs ${status.text}`}>
-          <span class={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} />
-          {status.label}
-          <span class="text-dimmed">· {source.kind}</span>
-        </p>
+        <p class="mt-0.5 truncate text-xs text-dimmed">{source.kind}</p>
       </div>
     </div>
   );
@@ -69,7 +65,10 @@ const renderSourceSignalsCell = (counts: PublishedCounts): JSX.Element => {
   const total = counts.metricVariants + counts.states + counts.events;
   return (
     <span class="text-xs text-secondary">
-      {total.toLocaleString()} <span class="text-dimmed">({counts.metricVariants}m/{counts.states}s/{counts.events}e)</span>
+      {total.toLocaleString()}{" "}
+      <span class="text-dimmed">
+        ({counts.metricVariants}m/{counts.states}s/{counts.events}e)
+      </span>
     </span>
   );
 };
@@ -113,7 +112,10 @@ export default function SourcesView(props: {
   toggleSource: (source: PulseSource) => void | Promise<void>;
   scrape: (source: PulseSource) => void | Promise<void>;
   removeSource: (source: PulseSource) => void | Promise<void>;
-  createApiKey: (source: PulseSource, input: Parameters<ResourceApiKeysProps["createKey"]>[0]) => ReturnType<ResourceApiKeysProps["createKey"]>;
+  createApiKey: (
+    source: PulseSource,
+    input: Parameters<ResourceApiKeysProps["createKey"]>[0],
+  ) => ReturnType<ResourceApiKeysProps["createKey"]>;
   revokeApiKey: (source: PulseSource, credentialId: string) => ReturnType<ResourceApiKeysProps["revokeKey"]>;
 }) {
   const renderSourceCell = (
@@ -148,7 +150,8 @@ export default function SourcesView(props: {
         </span>
       );
     }
-    if (col.id === "finished") return <span class="text-xs text-secondary">{compactDateWithDelta(scrape.finishedAt, props.dateContext())}</span>;
+    if (col.id === "finished")
+      return <span class="text-xs text-secondary">{compactDateWithDelta(scrape.finishedAt, props.dateContext())}</span>;
     if (col.id === "samples") return <span class="text-xs text-secondary">{formatIngestCounts(scrape)}</span>;
     if (col.id === "duration") return <span class="text-xs text-secondary">{scrape.durationMs}ms</span>;
     if (col.id === "error") {
@@ -162,7 +165,19 @@ export default function SourcesView(props: {
   };
 
   const renderSelectedSourceDetail = () => (
-    <Show when={props.selectedSource()} keyed fallback={<div class="paper h-full p-4 text-sm text-dimmed">Select a source.</div>}>
+    <Show
+      when={props.selectedSource()}
+      keyed
+      fallback={
+        <Placeholder
+          title="Select a source"
+          description="Choose a source to inspect its status and configuration."
+          icon="ti ti-database-share"
+          variant="panel"
+          class="h-full"
+        />
+      }
+    >
       {(source) => (
         <SourceDetailView
           source={source}
@@ -192,9 +207,21 @@ export default function SourcesView(props: {
     <section class="flex min-h-0 flex-1 flex-col gap-3 pb-2">
       <div class="flex shrink-0 flex-wrap items-center gap-2">
         <div class="min-w-64 flex-1">
-          <TextInput type="search" icon="ti ti-search" value={props.search} onInput={props.setSearch} placeholder="Search sources..." clearable />
+          <TextInput
+            type="search"
+            icon="ti ti-search"
+            value={props.search}
+            onInput={props.setSearch}
+            placeholder="Search sources..."
+            clearable
+          />
         </div>
-        <button type="button" class="btn-input btn-input-sm" disabled={!props.selectedBaseId() || props.loading()} onClick={() => void props.addSource()}>
+        <button
+          type="button"
+          class="btn-input btn-input-sm"
+          disabled={!props.selectedBaseId() || props.loading()}
+          onClick={() => void props.addSource()}
+        >
           <i class="ti ti-plus" /> Source
         </button>
       </div>
@@ -209,7 +236,7 @@ export default function SourcesView(props: {
           allowVerticalSplit={false}
         >
           <Panes.Element id="list" title="Sources" icon="ti-database-share">
-            <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+            <div class="flex h-full min-h-0 flex-col overflow-hidden">
               <DataTable
                 rows={props.sources()}
                 columns={sourceColumns}

@@ -37,7 +37,7 @@ export const createSignalTableCellRenderers = (options: SignalTableCellRendererO
     return (
       <button
         type="button"
-        class="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-secondary transition hover:text-blue-600 dark:hover:text-blue-300"
+        class="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-secondary transition hover:app-accent-text"
         onClick={(event) => {
           event.stopPropagation();
           options.openSource(sourceId);
@@ -56,9 +56,7 @@ export const createSignalTableCellRenderers = (options: SignalTableCellRendererO
       return (
         <div class="min-w-0">
           <p class="truncate text-xs font-medium text-secondary">{signalSubject(event)}</p>
-          <Show when={summary}>
-            {(text) => <p class="mt-0.5 truncate text-[11px] text-dimmed">{text()}</p>}
-          </Show>
+          <Show when={summary}>{(text) => <p class="mt-0.5 truncate text-[11px] text-dimmed">{text()}</p>}</Show>
         </div>
       );
     }
@@ -89,9 +87,7 @@ export const createSignalTableCellRenderers = (options: SignalTableCellRendererO
       return (
         <div class="min-w-0">
           <p class="truncate text-xs font-medium text-secondary">{signalSubject(state)}</p>
-          <Show when={summary}>
-            {(text) => <p class="mt-0.5 truncate text-[11px] text-dimmed">{text()}</p>}
-          </Show>
+          <Show when={summary}>{(text) => <p class="mt-0.5 truncate text-[11px] text-dimmed">{text()}</p>}</Show>
         </div>
       );
     }
@@ -104,7 +100,8 @@ export const createSignalTableCellRenderers = (options: SignalTableCellRendererO
         </span>
       );
     }
-    if (col.id === "updated") return <span class="text-xs text-secondary">{compactDateWithDelta(state.updatedAt, options.dateContext())}</span>;
+    if (col.id === "updated")
+      return <span class="text-xs text-secondary">{compactDateWithDelta(state.updatedAt, options.dateContext())}</span>;
     return render(state[col.id as keyof PulseCurrentState]);
   };
 
@@ -115,9 +112,7 @@ export const createSignalTableCellRenderers = (options: SignalTableCellRendererO
     if (col.id === "current") {
       const unit = options.metricUnit();
       return (
-        <span class="text-xs font-medium text-primary">
-          {item.latestValue === null ? "-" : formatMetricValue(item.latestValue, unit)}
-        </span>
+        <span class="text-xs font-medium text-primary">{item.latestValue === null ? "-" : formatMetricValue(item.latestValue, unit)}</span>
       );
     }
     if (col.id === "source") return renderSourceLink(item.sourceId);
@@ -130,7 +125,9 @@ export const createSignalTableCellRenderers = (options: SignalTableCellRendererO
       );
     }
     if (col.id === "lastSeen")
-      return <span class="text-xs text-secondary">{item.lastSeenAt ? compactDateWithDelta(item.lastSeenAt, options.dateContext()) : "-"}</span>;
+      return (
+        <span class="text-xs text-secondary">{item.lastSeenAt ? compactDateWithDelta(item.lastSeenAt, options.dateContext()) : "-"}</span>
+      );
     return render(item[col.id as keyof PulseMetricSeries]);
   };
 

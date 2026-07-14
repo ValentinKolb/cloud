@@ -1,5 +1,5 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/contracts";
-import type { DockWorkspaceState, ResourceApiKey } from "@valentinkolb/cloud/ui";
+import type { PanesValue, ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type {
   MetricQueryPoint,
@@ -97,8 +97,8 @@ export type PulseWorkspaceProps = {
   initialMetricWidgetPoints?: Record<string, MetricQueryPoint[]>;
   initialDashboardEvents?: Record<string, PulseRecordedEvent[]>;
   initialDashboardStates?: Record<string, PulseCurrentState[]>;
-  initialExplorerDockState?: DockWorkspaceState | null;
-  initialDashboardEditorDockState?: DockWorkspaceState | null;
+  initialExplorerPanesValue?: PanesValue | null;
+  initialDashboardEditorPanesValue?: PanesValue | null;
   initialDateConfig?: DateContext;
   initialNow?: string;
   initialOrigin?: string;

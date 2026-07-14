@@ -13,8 +13,6 @@ type Props = {
   eventCount: number;
   stateCount: number;
   metricCount: number;
-  rawRetentionDays: number;
-  timescaleEnabled: boolean;
   settingsDisabled: boolean;
   openSettings: () => void | Promise<void>;
   createDashboard: () => unknown;
@@ -45,7 +43,12 @@ const SidebarSections = (props: Props) => (
       >
         Resources
       </AppWorkspace.SidebarItem>
-      <AppWorkspace.SidebarItem icon="ti ti-database" active={props.activeView === "sources"} onClick={props.openSources} meta={props.sourceCount}>
+      <AppWorkspace.SidebarItem
+        icon="ti ti-database"
+        active={props.activeView === "sources"}
+        onClick={props.openSources}
+        meta={props.sourceCount}
+      >
         Sources
       </AppWorkspace.SidebarItem>
       <AppWorkspace.SidebarItem icon="ti ti-terminal-2" active={props.activeView === "explorer"} onClick={props.openQueryExplorer}>
@@ -111,16 +114,6 @@ export default function PulseSidebar(props: Props) {
       </AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarDesktop>
         <SidebarSections {...props} />
-
-        <AppWorkspace.SidebarFooter>
-          <div class="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-secondary dark:bg-zinc-900">
-            <div class="flex items-center gap-2">
-              <span class={`inline-flex h-2.5 w-2.5 rounded-full ${props.timescaleEnabled ? "bg-emerald-500" : "bg-amber-500"}`} />
-              <span>{props.timescaleEnabled ? "TimescaleDB enabled" : "Dev fallback"}</span>
-            </div>
-            <p class="mt-1">Raw data: {props.rawRetentionDays} days</p>
-          </div>
-        </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
   );

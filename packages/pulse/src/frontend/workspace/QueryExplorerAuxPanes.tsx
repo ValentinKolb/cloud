@@ -12,12 +12,12 @@ export function SavedQueriesPane(props: {
   onRemove: (query: PulseSavedQuery) => void | Promise<void>;
 }) {
   return (
-    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+    <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
         <span class="text-label text-xs">Saved queries</span>
         <button
           type="button"
-          class="text-xs font-medium text-secondary transition hover:text-blue-600"
+          class="text-xs font-medium text-secondary transition hover:app-accent-text"
           disabled={!props.currentQuery() || props.loading()}
           onClick={() => void props.onSaveCurrent()}
         >
@@ -56,7 +56,7 @@ export function QueryHistoryPane(props: {
   onSelect: (query: string) => void;
 }) {
   return (
-    <div class="paper h-full min-h-0 overflow-auto p-2">
+    <div class="h-full min-h-0 overflow-auto p-2">
       <Show when={props.history().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No runs yet.</p>}>
         <For each={props.history()}>
           {(item) => (
