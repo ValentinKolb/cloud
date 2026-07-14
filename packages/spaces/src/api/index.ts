@@ -325,35 +325,63 @@ const app = new Hono<AuthContext>()
 
       const encoder = new TextEncoder();
       let keepalive: ReturnType<typeof setInterval> | undefined;
+      let checkingAccess = false;
+      let closed = false;
       const streamAbort = new AbortController();
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
           const send = (event: string, data: unknown, id?: string) => {
+            if (closed) return;
             controller.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
           };
-          const requestedCursor = c.req.query("after") || null;
-          const startCursor = requestedCursor ?? (await latestSpaceEventCursor(spaceId)) ?? "0-0";
-          send("ready", { spaceId, cursor: startCursor }, startCursor);
-          keepalive = setInterval(() => send("ping", { at: new Date().toISOString() }), 25_000);
-          try {
-            for await (const event of liveSpaceEvents({ spaceId, after: startCursor, signal: streamAbort.signal })) {
-              if (streamAbort.signal.aborted) break;
-              send(event.data.type, event.data, event.cursor);
-            }
-          } catch (streamError) {
-            if (!streamAbort.signal.aborted) {
-              send("error", { message: streamError instanceof Error ? streamError.message : "Space event stream failed" });
-            }
-          } finally {
+          const close = () => {
+            if (closed) return;
+            closed = true;
+            streamAbort.abort();
             if (keepalive) clearInterval(keepalive);
             try {
               controller.close();
             } catch {
-              // Client disconnects are normal for long-lived event streams.
+              // Client disconnects race with server-side access revocation.
             }
+          };
+          const requestedCursor = c.req.query("after") || null;
+          const startCursor = requestedCursor ?? (await latestSpaceEventCursor(spaceId)) ?? "0-0";
+          send("ready", { spaceId, cursor: startCursor }, startCursor);
+          keepalive = setInterval(() => {
+            if (checkingAccess || closed) return;
+            checkingAccess = true;
+            void checkSpaceAccess(c, spaceId)
+              .then(({ error: accessError }) => {
+                if (accessError) close();
+                else send("ping", { at: new Date().toISOString() });
+              })
+              .catch(() => close())
+              .finally(() => {
+                checkingAccess = false;
+              });
+          }, 25_000);
+          try {
+            for await (const event of liveSpaceEvents({ spaceId, after: startCursor, signal: streamAbort.signal })) {
+              if (closed || streamAbort.signal.aborted) break;
+              const { error: accessError } = await checkSpaceAccess(c, spaceId);
+              if (accessError) {
+                close();
+                break;
+              }
+              send(event.data.type, event.data, event.cursor);
+            }
+          } catch (streamError) {
+            if (!closed && !streamAbort.signal.aborted) {
+              send("error", { message: streamError instanceof Error ? streamError.message : "Space event stream failed" });
+            }
+          } finally {
+            if (keepalive) clearInterval(keepalive);
+            close();
           }
         },
         cancel() {
+          closed = true;
           streamAbort.abort();
           if (keepalive) clearInterval(keepalive);
         },
