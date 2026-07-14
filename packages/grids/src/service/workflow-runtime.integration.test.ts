@@ -634,9 +634,11 @@ describe("workflow runtime integration", () => {
       const executed = await executePreparedRun({
         runId: run.id,
         queueAttempt: 0,
+        documentPdfRenderer: async () =>
+          ({ ok: true, data: { pdf: new Uint8Array([37, 80, 68, 70]), contentType: "application/pdf" } }) as const,
       });
-      expect(executed.ok).toBe(true);
       if (!executed.ok) throw new Error(executed.error.message);
+      expect(executed.ok).toBe(true);
 
       const [document] = await sql<{ graph: string }[]>`
         SELECT snapshot.graph::text AS graph

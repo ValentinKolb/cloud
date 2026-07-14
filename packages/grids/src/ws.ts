@@ -113,6 +113,12 @@ const stopAccessRefresh = (ctx: WsContext) => {
   ctx.accessRefreshTimeout = null;
 };
 
+export const isWorkspaceAccessRefreshCurrent = (
+  ctx: Pick<WsContext, "phase" | "sessionToken" | "subscription">,
+  subscription: Subscription,
+  sessionToken: string,
+): boolean => ctx.phase === "subscribed" && ctx.subscription === subscription && ctx.sessionToken === sessionToken;
+
 const closeCodeForError = (code: string): number => {
   if (code === "internal_error") return 1011;
   if (code === "backpressure") return 1013;
@@ -342,22 +348,24 @@ const startAccessRefresh = (ctx: WsContext) => {
 
   ctx.accessRefreshTimeout = setTimeout(async () => {
     if (ctx.phase !== "subscribed" || !ctx.subscription || !ctx.sessionToken) return;
+    const subscription = ctx.subscription;
+    const sessionToken = ctx.sessionToken;
     try {
-      const subscription = ctx.subscription;
       const access =
         subscription.kind === "records"
           ? subscription.dashboardId
-            ? await evaluateDashboardRecordAccess(subscription.dashboardId, subscription.tableId, ctx.sessionToken)
-            : await evaluateTableAccess(subscription.tableId, ctx.sessionToken)
+            ? await evaluateDashboardRecordAccess(subscription.dashboardId, subscription.tableId, sessionToken)
+            : await evaluateTableAccess(subscription.tableId, sessionToken)
           : subscription.kind === "metadata"
-            ? await evaluateBaseAccess(subscription.baseId, ctx.sessionToken)
+            ? await evaluateBaseAccess(subscription.baseId, sessionToken)
             : await evaluateWorkflowAccess(
                 subscription.workflowId,
-                ctx.sessionToken,
+                sessionToken,
                 subscription.dashboardId && subscription.dashboardWidgetId
                   ? { id: subscription.dashboardId, widgetId: subscription.dashboardWidgetId }
                   : undefined,
               );
+      if (!isWorkspaceAccessRefreshCurrent(ctx, subscription, sessionToken)) return;
       if (!access.ok) {
         stopStream(ctx);
         send(
@@ -381,16 +389,12 @@ const startAccessRefresh = (ctx: WsContext) => {
       ctx.user = access.user;
       startAccessRefresh(ctx);
     } catch (error) {
+      if (!isWorkspaceAccessRefreshCurrent(ctx, subscription, sessionToken)) return;
       log.error("Workspace stream access refresh failed", {
-        subscription: ctx.subscription,
+        subscription,
         error: error instanceof Error ? error.message : String(error),
       });
-      closeWithError(
-        ctx,
-        "internal_error",
-        "Access refresh failed",
-        ctx.subscription?.kind === "records" ? ctx.subscription.tableId : undefined,
-      );
+      closeWithError(ctx, "internal_error", "Access refresh failed", subscription.kind === "records" ? subscription.tableId : undefined);
     }
   }, ACCESS_REFRESH_INTERVAL_MS);
 };

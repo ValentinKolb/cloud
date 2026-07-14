@@ -375,8 +375,8 @@ type CreateFormInput = {
 };
 
 const generatePublicToken = (): string => {
-  // A short, URL-safe token. 22 base32-like chars ≈ 110 bits of entropy.
-  return [...crypto.getRandomValues(new Uint8Array(15))].map((b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]!).join("");
+  // 128 random bits encoded as 22 URL-safe base64url characters.
+  return Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64url");
 };
 
 export const create = async (input: CreateFormInput, actorId: string | null): Promise<Result<Form>> => {
@@ -433,25 +433,25 @@ export const update = async (id: string, input: UpdateFormInput, actorId: string
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
 
-  const next = {
-    name: name ?? existing.name,
-    config: input.config !== undefined ? input.config : existing.config,
-    publicToken:
-      input.isPublic === true && !existing.publicToken ? generatePublicToken() : input.isPublic === false ? null : existing.publicToken,
-    isActive: input.isActive ?? existing.isActive,
-    position: input.position ?? existing.position,
-  };
-  const configValid = await validateFormConfig(existing.tableId, next.config);
-  if (!configValid.ok) return configValid;
-  next.config = configValid.data;
+  let config: FormConfig | undefined;
+  if (input.config !== undefined) {
+    const configValid = await validateFormConfig(existing.tableId, input.config);
+    if (!configValid.ok) return configValid;
+    config = configValid.data;
+  }
+  const newPublicToken = input.isPublic === true ? generatePublicToken() : null;
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.forms
-    SET name = ${next.name},
-        config = ${next.config}::jsonb,
-        public_token = ${next.publicToken},
-        is_active = ${next.isActive},
-        position = ${next.position},
+    SET name = CASE WHEN ${name !== undefined} THEN ${name ?? ""} ELSE name END,
+        config = CASE WHEN ${config !== undefined} THEN ${config ?? { fields: [] }}::jsonb ELSE config END,
+        public_token = CASE
+          WHEN ${input.isPublic === true} THEN COALESCE(public_token, ${newPublicToken})
+          WHEN ${input.isPublic === false} THEN NULL
+          ELSE public_token
+        END,
+        is_active = CASE WHEN ${input.isActive !== undefined} THEN ${input.isActive ?? false} ELSE is_active END,
+        position = CASE WHEN ${input.position !== undefined} THEN ${input.position ?? 0} ELSE position END,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
     RETURNING ${COLS}

@@ -1,5 +1,5 @@
 import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { sql } from "bun";
+import { type SQL, sql } from "bun";
 import type { RecordSnapshot, RecordSnapshotSummary } from "../contracts";
 import { logAudit } from "./audit";
 import { type DocumentDbRow, mapRecordSnapshot, mapRecordSnapshotSummary } from "./document-mappers";
@@ -177,45 +177,64 @@ const buildRecordSnapshotGraph = async (
   return ok({ root, graph: { rootId, records } });
 };
 
-export const createRecordSnapshot = async (params: {
+type CreateRecordSnapshotParams = {
   baseId: string;
   tableId: string;
   recordId: string;
   actorId: string | null;
   canReadRelatedTable: SnapshotRelatedTableGuard;
   dateConfig?: DateContext;
-}): Promise<Result<RecordSnapshot>> => {
+};
+
+export const createRecordSnapshotDraft = async (params: CreateRecordSnapshotParams): Promise<Result<RecordSnapshot>> => {
   const graph = await buildRecordSnapshotGraph(params.tableId, params.recordId, {
     baseId: params.baseId,
     canReadRelatedTable: params.canReadRelatedTable,
     dateConfig: params.dateConfig,
   });
   if (!graph.ok) return graph;
+  return ok({
+    id: Bun.randomUUIDv7(),
+    baseId: params.baseId,
+    tableId: params.tableId,
+    recordId: params.recordId,
+    root: graph.data.root,
+    graph: graph.data.graph,
+    createdBy: params.actorId,
+    createdAt: new Date().toISOString(),
+  });
+};
 
-  return sql.begin(async (tx) => {
-    const [row] = await tx<DocumentDbRow[]>`
-      INSERT INTO grids.record_snapshots (base_id, table_id, record_id, root, graph, created_by)
-      VALUES (${params.baseId}::uuid, ${params.tableId}::uuid, ${params.recordId}::uuid, ${graph.data.root}::jsonb, ${graph.data.graph}::jsonb, ${params.actorId}::uuid)
+export const persistRecordSnapshot = async (snapshot: RecordSnapshot, executor: SQL): Promise<Result<RecordSnapshot>> => {
+  const [row] = await executor<DocumentDbRow[]>`
+      INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph, created_by, created_at)
+      VALUES (${snapshot.id}::uuid, ${snapshot.baseId}::uuid, ${snapshot.tableId}::uuid, ${snapshot.recordId}::uuid, ${snapshot.root}::jsonb, ${snapshot.graph}::jsonb, ${snapshot.createdBy}::uuid, ${snapshot.createdAt})
       RETURNING *
     `;
-    if (!row) return fail(err.internal("Could not create record snapshot"));
-    const snapshot = mapRecordSnapshot(row);
-    await logAudit(
-      {
-        baseId: params.baseId,
-        tableId: params.tableId,
-        recordId: params.recordId,
-        userId: params.actorId,
-        action: "record_snapshot.created",
-        diff: {
-          snapshotId: { old: null, new: snapshot.id },
-          recordVersion: { old: null, new: graph.data.root.version },
-        },
+  if (!row) return fail(err.internal("Could not create record snapshot"));
+  const persisted = mapRecordSnapshot(row);
+  const rootVersion = typeof snapshot.root.version === "number" ? snapshot.root.version : null;
+  await logAudit(
+    {
+      baseId: snapshot.baseId,
+      tableId: snapshot.tableId,
+      recordId: snapshot.recordId,
+      userId: snapshot.createdBy,
+      action: "record_snapshot.created",
+      diff: {
+        snapshotId: { old: null, new: snapshot.id },
+        recordVersion: { old: null, new: rootVersion },
       },
-      tx,
-    );
-    return ok(snapshot);
-  });
+    },
+    executor,
+  );
+  return ok(persisted);
+};
+
+export const createRecordSnapshot = async (params: CreateRecordSnapshotParams): Promise<Result<RecordSnapshot>> => {
+  const draft = await createRecordSnapshotDraft(params);
+  if (!draft.ok) return draft;
+  return sql.begin((tx) => persistRecordSnapshot(draft.data, tx));
 };
 
 export const getSnapshot = async (snapshotId: string): Promise<RecordSnapshot | null> => {
@@ -223,9 +242,7 @@ export const getSnapshot = async (snapshotId: string): Promise<RecordSnapshot | 
   return row ? mapRecordSnapshot(row) : null;
 };
 
-const snapshotGraphParts = (
-  snapshot: RecordSnapshot,
-): { rootId: string; records: Record<string, unknown>; source: Record<string, unknown> } => {
+const snapshotGraphParts = (snapshot: RecordSnapshot): { rootId: string; records: Record<string, unknown> } => {
   const source =
     snapshot.graph && typeof snapshot.graph === "object" && !Array.isArray(snapshot.graph)
       ? (snapshot.graph as Record<string, unknown>)
@@ -235,14 +252,14 @@ const snapshotGraphParts = (
     source.records && typeof source.records === "object" && !Array.isArray(source.records)
       ? (source.records as Record<string, unknown>)
       : {};
-  return { rootId, records, source };
+  return { rootId, records };
 };
 
 export const filterSnapshotRelatedRecords = async (
   snapshot: RecordSnapshot,
   canReadRelatedTable: SnapshotRelatedTableGuard,
 ): Promise<RecordSnapshot> => {
-  const { rootId, records, source } = snapshotGraphParts(snapshot);
+  const { rootId, records } = snapshotGraphParts(snapshot);
   const filteredRecords: Record<string, unknown> = { [rootId]: snapshot.root };
   const readableTables = new Map<string, boolean>();
 
@@ -262,7 +279,7 @@ export const filterSnapshotRelatedRecords = async (
     if (readable) filteredRecords[key] = value;
   }
 
-  return { ...snapshot, graph: { ...source, rootId, records: filteredRecords } };
+  return { ...snapshot, graph: { rootId, records: filteredRecords } };
 };
 
 export const listSnapshotsForRecord = async (tableId: string, recordId: string): Promise<RecordSnapshotSummary[]> => {

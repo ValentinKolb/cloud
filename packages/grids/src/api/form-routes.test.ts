@@ -75,6 +75,27 @@ describe("authenticated form routes", () => {
     expect(await response.json()).toEqual({ message: "Table not found" });
   });
 
+  test("rejects an invalid table id before calling the service", async () => {
+    let calls = 0;
+    const app = createAuthenticatedFormRoutes({
+      service: {
+        ...service,
+        table: {
+          get: async () => {
+            calls += 1;
+            return null;
+          },
+        },
+      } as never,
+    });
+
+    const response = await app.request("/by-table/not-a-uuid");
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Invalid table id" });
+    expect(calls).toBe(0);
+  });
+
   test("denies list access without table read", async () => {
     const app = createAuthenticatedFormRoutes({
       service: service as never,

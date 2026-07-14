@@ -1,3 +1,4 @@
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { CreateDocumentTemplateInput, DocumentTemplate, UpdateDocumentTemplateInput } from "../contracts";
@@ -200,6 +201,44 @@ export const updateTemplate = async (
     RETURNING *
   `;
   return row ? ok(mapDocumentTemplate(row)) : fail(err.notFound("Document template"));
+};
+
+export const reorderTemplates = async (tableId: string, templateIds: string[], actorId: string | null): Promise<Result<void>> => {
+  const table = await getTable(tableId);
+  if (!table) return fail(err.notFound("Table"));
+  if (new Set(templateIds).size !== templateIds.length) return fail(err.badInput("template ids must be unique"));
+
+  return sql.begin(async (tx) => {
+    const existing = await tx<{ id: string }[]>`
+      SELECT id::text AS id
+      FROM grids.document_templates
+      WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
+      FOR UPDATE
+    `;
+    const requested = new Set(templateIds);
+    if (existing.length !== templateIds.length || existing.some((template) => !requested.has(template.id))) {
+      return fail(err.conflict("document templates changed; reload and retry the reorder"));
+    }
+
+    const positions = `{${templateIds.map((_, index) => index).join(",")}}`;
+    await tx`
+      UPDATE grids.document_templates AS template
+      SET position = ordered.position, updated_by = ${actorId}::uuid, updated_at = now()
+      FROM unnest(${toPgUuidArray(templateIds)}::uuid[], ${positions}::int[]) AS ordered(id, position)
+      WHERE template.id = ordered.id AND template.table_id = ${tableId}::uuid AND template.deleted_at IS NULL
+    `;
+    await logAudit(
+      {
+        baseId: table.baseId,
+        tableId,
+        userId: actorId,
+        action: "updated",
+        diff: { documentTemplateOrder: { old: null, new: templateIds } },
+      },
+      tx,
+    );
+    return ok();
+  });
 };
 
 export const removeTemplate = async (templateId: string, actorId: string | null): Promise<Result<void>> => {

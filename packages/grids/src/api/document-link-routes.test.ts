@@ -10,6 +10,7 @@ const linkId = "44444444-4444-4444-8444-444444444444";
 const userId = "55555555-5555-4555-8555-555555555555";
 const otherUserId = "66666666-6666-4666-8666-666666666666";
 const recordId = "77777777-7777-4777-8777-777777777777";
+const templateId = "88888888-8888-4888-8888-888888888888";
 
 const user: User = {
   id: userId,
@@ -31,7 +32,8 @@ const user: User = {
   ipa: null,
 };
 
-const run = { id: runId, templateId: null, baseId, tableId };
+type RunFixture = { id: string; templateId: string | null; baseId: string; tableId: string };
+const run: RunFixture = { id: runId, templateId: null, baseId, tableId };
 const link = {
   id: linkId,
   documentRunId: runId,
@@ -59,6 +61,8 @@ let currentLink: typeof link | null = link;
 let createInput: unknown;
 let revokeInput: unknown;
 let publicUrlToken: string | null;
+let permissionLoadInput: unknown;
+let permissionTarget: unknown;
 
 mock.module("../service", () => ({
   gridsService: {
@@ -80,8 +84,14 @@ mock.module("../service", () => ({
       },
     },
     permission: {
-      loadGrants: async () => [],
-      resolve: () => permissionLevel,
+      loadGrants: async (input: unknown) => {
+        permissionLoadInput = input;
+        return [];
+      },
+      resolve: (_grants: unknown, target: unknown) => {
+        permissionTarget = target;
+        return permissionLevel;
+      },
       hasAtLeast: (actual: PermissionLevel, expected: PermissionLevel) => {
         const rank = { none: 0, read: 1, write: 2, admin: 3 };
         return rank[actual] >= rank[expected];
@@ -115,6 +125,8 @@ describe("document link routes", () => {
     createInput = undefined;
     revokeInput = undefined;
     publicUrlToken = null;
+    permissionLoadInput = undefined;
+    permissionTarget = undefined;
   });
 
   for (const method of ["GET", "POST"] as const) {
@@ -139,6 +151,17 @@ describe("document link routes", () => {
       expect(await response.json()).toEqual({ message: "Document run not found" });
     });
   }
+
+  test("keeps template-scoped permission for a run whose template no longer loads", async () => {
+    currentRun = { ...run, templateId };
+    permissionLevel = "read";
+
+    const response = await app().request(documentsPath(`/runs/${runId}/links`));
+
+    expect(response.status).toBe(403);
+    expect(permissionLoadInput).toMatchObject({ baseId, tableId, documentTemplateId: templateId });
+    expect(permissionTarget).toEqual({ baseId, tableId, documentTemplateId: templateId });
+  });
 
   for (const method of ["GET", "POST"] as const) {
     test(`${method} run links requires effective write permission`, async () => {

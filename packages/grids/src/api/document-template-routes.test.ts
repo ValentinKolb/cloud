@@ -98,6 +98,7 @@ let templateGetInputs: string[] = [];
 let listInputs: string[] = [];
 let createInput: unknown;
 let updateInput: unknown;
+let reorderInput: unknown;
 let removeInput: unknown;
 let lookupInput: unknown;
 
@@ -126,6 +127,10 @@ mock.module("../service", () => ({
       updateTemplate: async (id: string, input: unknown, actorId: string | null) => {
         updateInput = { templateId: id, input, actorId };
         return { ok: true, data: { ...template, ...(input as object) } };
+      },
+      reorderTemplates: async (id: string, templateIds: string[], actorId: string | null) => {
+        reorderInput = { tableId: id, templateIds, actorId };
+        return { ok: true, data: undefined };
       },
       removeTemplate: async (id: string, actorId: string | null) => {
         removeInput = { templateId: id, actorId };
@@ -197,6 +202,7 @@ describe("document template routes", () => {
     listInputs = [];
     createInput = undefined;
     updateInput = undefined;
+    reorderInput = undefined;
     removeInput = undefined;
     lookupInput = undefined;
   });
@@ -209,6 +215,7 @@ describe("document template routes", () => {
       ["get", "/documents/templates/by-table/{tableId}", "List document templates for a table", ["200", "403"]],
       ["get", "/documents/templates/by-table/{tableId}/full", "List full document templates for table admins", ["200", "403"]],
       ["post", "/documents/templates/by-table/{tableId}", "Create a document template", ["201", "403"]],
+      ["patch", "/documents/templates/by-table/{tableId}/reorder", "Reorder document templates", ["204", "403", "409"]],
       ["get", "/documents/templates/{templateId}", "Get a document template", ["200", "403"]],
       ["patch", "/documents/templates/{templateId}", "Update a document template", ["200", "403"]],
       ["delete", "/documents/templates/{templateId}", "Delete a document template", ["204", "403"]],
@@ -224,6 +231,7 @@ describe("document template routes", () => {
     ["GET", `/templates/by-table/${tableId}`, undefined],
     ["GET", `/templates/by-table/${tableId}/full`, undefined],
     ["POST", `/templates/by-table/${tableId}`, createBody],
+    ["PATCH", `/templates/by-table/${tableId}/reorder`, { templateIds: [disabledTemplateId, templateId] }],
     ["GET", `/templates/${templateId}`, undefined],
     ["PATCH", `/templates/${templateId}`, updateBody],
     ["DELETE", `/templates/${templateId}`, undefined],
@@ -244,6 +252,7 @@ describe("document template routes", () => {
     ["GET", `/templates/by-table/${tableId}`, undefined],
     ["GET", `/templates/by-table/${tableId}/full`, undefined],
     ["POST", `/templates/by-table/${tableId}`, createBody],
+    ["PATCH", `/templates/by-table/${tableId}/reorder`, { templateIds: [disabledTemplateId, templateId] }],
   ] as const) {
     test(`${method} ${suffix} returns the exact table 404 contract`, async () => {
       currentTable = null;
@@ -353,6 +362,20 @@ describe("document template routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ...template, name: " Updated invoice ", position: 2 });
     expect(updateInput).toEqual({ templateId, input: updateBody, actorId: userId });
+  });
+
+  test("reorders all templates atomically with base admin access", async () => {
+    const body = { templateIds: [disabledTemplateId, templateId] };
+    baseLevel = "write";
+    await expectForbidden(await app().request(path(`/templates/by-table/${tableId}/reorder`), jsonRequest("PATCH", body)));
+    expect(reorderInput).toBeUndefined();
+
+    baseLevel = "admin";
+    const response = await app().request(path(`/templates/by-table/${tableId}/reorder`), jsonRequest("PATCH", body));
+
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe("");
+    expect(reorderInput).toEqual({ tableId, templateIds: body.templateIds, actorId: userId });
   });
 
   test("deletes a template with template admin access and forwards the audit actor", async () => {

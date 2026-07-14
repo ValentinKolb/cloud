@@ -750,6 +750,13 @@ export type DocumentTemplate = z.infer<typeof DocumentTemplateSchema>;
 
 export const DocumentTemplateListSchema = z.array(DocumentTemplateSchema);
 
+export const ReorderDocumentTemplatesSchema = z.object({
+  templateIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .refine((ids) => new Set(ids).size === ids.length, "template ids must be unique"),
+});
+
 const DocumentTemplateSummarySchema = DocumentTemplateSchema.pick({
   id: true,
   shortId: true,

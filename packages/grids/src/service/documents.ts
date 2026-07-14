@@ -39,14 +39,22 @@ export {
   renderRunPdf,
   rowsWithColumnLabels,
 } from "./document-rendering";
+export type { DocumentPdfRenderer } from "./document-runs";
 export {
   createDocumentRun,
+  createRenderedDocumentRun,
   createRunForRecord,
   getDocumentRun,
   renderWorkflowRunPdf,
   updateRunMetadata,
 } from "./document-runs";
-export { createRecordSnapshot, filterSnapshotRelatedRecords, getSnapshot, listSnapshotsForRecord } from "./document-snapshots";
+export {
+  createRecordSnapshot,
+  createRecordSnapshotDraft,
+  filterSnapshotRelatedRecords,
+  getSnapshot,
+  listSnapshotsForRecord,
+} from "./document-snapshots";
 export {
   createTemplate,
   getTemplate,
@@ -54,6 +62,7 @@ export {
   getTemplateByShortId,
   listTemplatesForTable,
   removeTemplate,
+  reorderTemplates,
   updateTemplate,
   validateTemplateWrite,
 } from "./document-templates";

@@ -129,12 +129,12 @@ function DocumentTemplateEditorDialog(props: {
   const [lastSuccessfulPreviewSignature, setLastSuccessfulPreviewSignature] = createSignal<string | null>(null);
   const [gqlDiagnostics, setGqlDiagnostics] = createSignal<Array<{ message: string; line?: number; column?: number }>>([]);
   const [gqlDiagnosticError, setGqlDiagnosticError] = createSignal<string | null>(null);
-  const [templateAccessEntries] = createResource(
+  const [templateAccessEntries, { refetch: refetchTemplateAccessEntries }] = createResource(
     () => template?.id ?? "",
     async (templateId) => {
       if (!templateId) return [] as AccessEntry[];
       const res = await apiClient.access["by-document-template"][":templateId"].$get({ param: { templateId } });
-      if (!res.ok) return [] as AccessEntry[];
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not load document template access."));
       return res.json();
     },
   );
@@ -470,8 +470,13 @@ function DocumentTemplateEditorDialog(props: {
             source={source}
             previewRecordId={previewRecordId}
             previewPdf={previewPdf}
-            accessEntries={() => templateAccessEntries() ?? []}
+            accessEntries={templateAccessEntries}
             accessLoading={() => templateAccessEntries.loading}
+            accessError={() => {
+              const error = templateAccessEntries.error;
+              return error instanceof Error ? error.message : error ? "Could not load document template access." : null;
+            }}
+            retryAccess={() => void refetchTemplateAccessEntries()}
           />
         </div>
       </PanelDialog.Body>

@@ -3,8 +3,12 @@ import type { Context } from "hono";
 import { z } from "zod";
 import type { DocumentTemplateDraftPreviewSchema } from "../contracts";
 import { gridsService } from "../service";
+import { decodeDocumentRunCursor } from "../service/document-run-values";
 import { pdfResponse } from "./download-response";
 import { gateAt } from "./permissions";
+import { isUuid } from "./route-params";
+
+export { uuidParam } from "./route-params";
 
 export const errorResponse = (c: Context<AuthContext>, message: string, status: number) =>
   c.json({ message }, status === 400 ? 400 : status === 403 ? 403 : status === 404 ? 404 : 500);
@@ -34,7 +38,11 @@ export const DocumentRunListQuerySchema = z.object({
   q: z.string().optional().default(""),
   limit: z.coerce.number().int().min(1).max(500).optional().default(200),
   offset: z.coerce.number().int().min(0).optional().default(0),
-  cursor: z.string().optional().default(""),
+  cursor: z
+    .string()
+    .optional()
+    .default("")
+    .refine((cursor) => !cursor || decodeDocumentRunCursor(cursor) !== null, "Invalid document cursor"),
   tags: z
     .string()
     .optional()
@@ -65,15 +73,6 @@ export const DocumentTemplateSummaryQuerySchema = z.object({
   min: z.enum(["read", "write", "admin"]).optional().default("read"),
 });
 
-const UuidStringSchema = z.string().uuid();
-
-const isUuid = (value: string) => UuidStringSchema.safeParse(value).success;
-
-export const uuidParam = (c: Context<AuthContext>, name: string): string | null => {
-  const value = c.req.param(name);
-  return value && isUuid(value) ? value : null;
-};
-
 export const loadTemplateAndTable = async (templateId: string) => {
   if (!isUuid(templateId)) return null;
   const template = await gridsService.document.getTemplate(templateId);
@@ -96,10 +95,14 @@ export const gateRun = async (
   c: Context<AuthContext>,
   run: NonNullable<Awaited<ReturnType<typeof gridsService.document.getRun>>>,
   required: "read" | "write",
-) => {
-  const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
-  return template ? gateTemplate(c, template, required) : gateAt(c, { baseId: run.baseId, tableId: run.tableId }, required);
-};
+) =>
+  gateAt(
+    c,
+    run.templateId
+      ? { baseId: run.baseId, tableId: run.tableId, documentTemplateId: run.templateId }
+      : { baseId: run.baseId, tableId: run.tableId },
+    required,
+  );
 
 export const gateEnabledTemplateWrite = async (
   c: Context<AuthContext>,

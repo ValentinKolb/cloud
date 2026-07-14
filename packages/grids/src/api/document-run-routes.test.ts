@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { Buffer } from "node:buffer";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
@@ -12,6 +13,7 @@ const recordId = "55555555-5555-4555-8555-555555555555";
 const runId = "66666666-6666-4666-8666-666666666666";
 const snapshotId = "77777777-7777-4777-8777-777777777777";
 const userId = "88888888-8888-4888-8888-888888888888";
+const validCursor = Buffer.from(JSON.stringify({ generatedAt: "2026-07-11T08:00:00.000Z", id: runId }), "utf8").toString("base64url");
 
 const user: User = {
   id: userId,
@@ -244,7 +246,7 @@ describe("document run routes", () => {
 
     test("forwards pagination and maps summaries", async () => {
       const response = await app().request(
-        path(`/runs/by-template/${templateId}?q=invoice&tags=finance%2Cpaid&limit=2&offset=1&cursor=list-cursor`),
+        path(`/runs/by-template/${templateId}?q=invoice&tags=finance%2Cpaid&limit=2&offset=1&cursor=${validCursor}`),
       );
 
       expect(response.status).toBe(200);
@@ -254,7 +256,7 @@ describe("document run routes", () => {
         tags: ["finance", "paid"],
         limit: 2,
         offset: 1,
-        cursor: "list-cursor",
+        cursor: validCursor,
       });
       expect(await response.json()).toEqual({
         items: [summarizeRun(run)],
@@ -265,6 +267,13 @@ describe("document run routes", () => {
         nextOffset: 3,
         nextCursor: "next-list-cursor",
       });
+    });
+
+    test("rejects an invalid cursor before querying document runs", async () => {
+      const response = await app().request(path(`/runs/by-template/${templateId}?cursor=not-a-cursor`));
+
+      expect(response.status).toBe(400);
+      expect(listTemplateInput).toBeUndefined();
     });
 
     test("forwards stable list defaults", async () => {
@@ -299,7 +308,7 @@ describe("document run routes", () => {
     test("keeps the specific route ahead of the record route and forwards browse query", async () => {
       const response = await app().request(
         path(
-          `/runs/by-template/${templateId}/browse?q=invoice&tags=finance%2Cpaid&limit=2&cursor=browse-cursor&path=2026%2F07&mode=folders`,
+          `/runs/by-template/${templateId}/browse?q=invoice&tags=finance%2Cpaid&limit=2&cursor=${validCursor}&path=2026%2F07&mode=folders`,
         ),
         { headers: { cookie: "cloud.timezone=Europe%2FBerlin" } },
       );
@@ -310,7 +319,7 @@ describe("document run routes", () => {
         q: "invoice",
         tags: ["finance", "paid"],
         limit: 2,
-        cursor: "browse-cursor",
+        cursor: validCursor,
         path: ["2026", "07"],
         mode: "folders",
         timeZone: "Europe/Berlin",
@@ -401,6 +410,15 @@ describe("document run routes", () => {
       expect(updateInput).toBeUndefined();
     });
 
+    test("keeps template permissions after the source template is deleted", async () => {
+      currentTemplate = null;
+      templateLevel = "read";
+      tableLevel = "write";
+
+      await expectForbidden(await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] })));
+      expect(updateInput).toBeUndefined();
+    });
+
     test("updates metadata and returns the mapped summary", async () => {
       templateLevel = "write";
       const response = await app().request(path(`/runs/${runId}`), patchJson({ filename: " Updated.pdf ", tags: ["paid"] }));
@@ -434,6 +452,15 @@ describe("document run routes", () => {
 
     test("requires template read permission", async () => {
       templateLevel = "none";
+      await expectForbidden(await app().request(path(`/runs/${runId}/download`)));
+      expect(renderedRun).toBeUndefined();
+    });
+
+    test("keeps template permissions after the source template is deleted", async () => {
+      currentTemplate = null;
+      templateLevel = "none";
+      tableLevel = "read";
+
       await expectForbidden(await app().request(path(`/runs/${runId}/download`)));
       expect(renderedRun).toBeUndefined();
     });

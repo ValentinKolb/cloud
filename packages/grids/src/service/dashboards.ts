@@ -10,23 +10,9 @@ import { insertWithShortId } from "./short-id";
 
 type DbRow = Record<string, unknown>;
 
-// =============================================================================
-// Dashboards — per-base composition surface (P0: stat-card + embedded-view
-// widgets; chart widgets ship in P1).
-//
-// Data model mirrors views: id+slug, soft-delete, ownerUserId for shared-vs-
-// personal, per-resource access junction (grids.dashboard_access). The big
-// shape difference is the parent: dashboards belong to a base, not a table,
-// because they aggregate across multiple tables of the base.
-//
-// Permission model:
-//   - Shared dashboard (ownerUserId=null) is visible to anyone with
-//     base-read by default; dashboard_access can narrow that.
-//   - Personal dashboard (ownerUserId=X) is visible to X plus anyone
-//     explicitly granted via dashboard_access.
-//   - Edit-rights flow from base-write (for shared) or owner (for personal),
-//     not from a per-dashboard ACL — ACLs are read-only.
-//
+// Dashboards are per-base composition surfaces that may aggregate multiple
+// tables. Read visibility combines base, owner, and dashboard ACL context;
+// mutation routes require base-admin at the API boundary.
 // The save-time validator parses config through DashboardConfigSchema; a
 // stored blob that doesn't validate (schema drift, manual SQL edit) is
 // surfaced as `config = { rows: [] }` rather than crashing the listing,
@@ -458,9 +444,7 @@ export const update = async (id: string, input: UpdateDashboardServiceInput, act
     return fail(err.badInput("name cannot be empty"));
   }
 
-  const ownerUserId = input.shared === undefined ? existing.ownerUserId : input.shared ? null : actorId;
-
-  let nextConfig: DashboardConfig = existing.config;
+  let config: DashboardConfig | undefined;
   if (input.config !== undefined) {
     const configParsed = DashboardConfigSchema.safeParse(input.config);
     if (!configParsed.success) {
@@ -468,25 +452,20 @@ export const update = async (id: string, input: UpdateDashboardServiceInput, act
     }
     const configValid = await validateDashboardConfig(existing.baseId, configParsed.data);
     if (!configValid.ok) return configValid;
-    nextConfig = configParsed.data;
+    config = configParsed.data;
   }
 
-  const next = {
-    name: name ?? existing.name,
-    description: input.description !== undefined ? input.description?.trim() || null : existing.description,
-    icon: input.icon !== undefined ? input.icon : existing.icon,
-    config: nextConfig,
-    position: input.position ?? existing.position,
-  };
+  const description = input.description?.trim() || null;
+  const ownerUserId = input.shared ? null : actorId;
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.dashboards
-    SET name = ${next.name},
-        description = ${next.description}::text,
-        icon = ${next.icon},
-        config = ${next.config}::jsonb,
-        position = ${next.position},
-        owner_user_id = ${ownerUserId}::uuid,
+    SET name = CASE WHEN ${name !== undefined} THEN ${name ?? ""} ELSE name END,
+        description = CASE WHEN ${input.description !== undefined} THEN ${description}::text ELSE description END,
+        icon = CASE WHEN ${input.icon !== undefined} THEN ${input.icon ?? null} ELSE icon END,
+        config = CASE WHEN ${config !== undefined} THEN ${config ?? { rows: [] }}::jsonb ELSE config END,
+        position = CASE WHEN ${input.position !== undefined} THEN ${input.position ?? 0} ELSE position END,
+        owner_user_id = CASE WHEN ${input.shared !== undefined} THEN ${ownerUserId}::uuid ELSE owner_user_id END,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
     RETURNING id, short_id, base_id, name, description, icon, config, owner_user_id, position, deleted_at, created_at, updated_at

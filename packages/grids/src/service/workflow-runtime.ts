@@ -23,7 +23,7 @@ import {
 import { logAudit } from "./audit";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
 import { get as getDashboard } from "./dashboards";
-import { createDocumentLink, createRunForRecord, getTemplate, publicDocumentLinkUrl } from "./documents";
+import { createDocumentLink, createRunForRecord, type DocumentPdfRenderer, getTemplate, publicDocumentLinkUrl } from "./documents";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import type { GridsRecordEvent } from "./record-events";
 import { create as createRecord, get as getRecord, list as listRecords, update as updateRecord } from "./records";
@@ -100,6 +100,7 @@ export type ExecuteWorkflowParams = {
   leaseMs?: number;
   heartbeat?: () => Promise<void>;
   notificationSender?: WorkflowNotificationSender;
+  documentPdfRenderer?: DocumentPdfRenderer;
 };
 
 type WorkflowTriggerAuthorization = StoredWorkflowAuthorization;
@@ -110,6 +111,7 @@ type ExecutePreparedWorkflowRunParams = {
   leaseMs?: number;
   heartbeat?: () => Promise<void>;
   notificationSender?: WorkflowNotificationSender;
+  documentPdfRenderer?: DocumentPdfRenderer;
 };
 
 export type ExecuteScannerWorkflowParams = Omit<ExecuteWorkflowParams, "triggerKind" | "triggerInput" | "resolvedInput"> & {
@@ -167,6 +169,7 @@ type RuntimeContext = {
   leaseMs?: number;
   heartbeat?: () => Promise<void>;
   notificationSender: WorkflowNotificationSender;
+  documentPdfRenderer?: DocumentPdfRenderer;
 };
 
 const normalizeScannedText = (value: string): string => {
@@ -353,6 +356,7 @@ const createRuntimeContext = async (
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
     notificationSender: params.notificationSender ?? defaultWorkflowNotificationSender,
+    documentPdfRenderer: params.documentPdfRenderer,
   };
 };
 
@@ -825,6 +829,7 @@ const executeGenerateDocument = async (ctx: RuntimeContext, action: RuntimeGener
     filename: filename && typeof filename.data === "string" ? filename.data : null,
     tags,
     workflowRunId: ctx.runId,
+    renderPdf: ctx.documentPdfRenderer,
   });
   if (!run.ok) return run;
   if (action.saveAs) ctx.variables.set(action.saveAs, run.data);
@@ -1182,6 +1187,7 @@ export const executePreparedRun = async (params: ExecutePreparedWorkflowRunParam
       leaseMs: params.leaseMs,
       heartbeat: params.heartbeat,
       notificationSender: params.notificationSender,
+      documentPdfRenderer: params.documentPdfRenderer,
     },
     run,
   );
@@ -1217,6 +1223,7 @@ const scannerWorkflowContext = async (
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
     notificationSender: params.notificationSender ?? defaultWorkflowNotificationSender,
+    documentPdfRenderer: params.documentPdfRenderer,
   };
   return ok({ ...ctx, inputName: scanner.input, tableId: table.id });
 };
@@ -1283,6 +1290,7 @@ const bulkWorkflowContext = async (
     readableTableIds: new Set(),
     dateConfig: await workflowDateConfig(),
     notificationSender: params.notificationSender ?? defaultWorkflowNotificationSender,
+    documentPdfRenderer: params.documentPdfRenderer,
   };
   return ok({ ...ctx, inputName, tableId: table.id });
 };
@@ -1484,6 +1492,7 @@ export const prepareRecordEvent = async (params: ExecuteRecordEventWorkflowParam
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
     notificationSender: params.notificationSender ?? defaultWorkflowNotificationSender,
+    documentPdfRenderer: params.documentPdfRenderer,
   };
   const runPermission = await requireWorkflowRunPermission(ctx);
   if (!runPermission.ok) return runPermission;

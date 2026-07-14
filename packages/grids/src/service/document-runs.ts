@@ -6,12 +6,14 @@ import { logAudit } from "./audit";
 import { type DocumentDbRow, mapDocumentRun } from "./document-mappers";
 import { buildDocumentRunRenderData, buildLiveRenderData, renderRunPdf } from "./document-rendering";
 import { normalizeDocumentTags, safePdfFilename } from "./document-run-values";
-import { createRecordSnapshot, type SnapshotRelatedTableGuard } from "./document-snapshots";
+import { createRecordSnapshotDraft, persistRecordSnapshot, type SnapshotRelatedTableGuard } from "./document-snapshots";
 import { get as getRecord } from "./records";
 import { insertWithShortId } from "./short-id";
 import type { Table } from "./types";
 
 const WORKFLOW_RUN_DOWNLOAD_MAX_DOCUMENTS = 1_000;
+
+export type DocumentPdfRenderer = (run: DocumentRun) => Promise<Result<RenderHtmlToPdfResult>>;
 
 const isServiceError = (error: unknown): error is ServiceError =>
   typeof error === "object" &&
@@ -34,6 +36,7 @@ export const createRunForRecord = async (params: {
   filename?: string | null;
   tags?: string[];
   workflowRunId?: string | null;
+  renderPdf?: DocumentPdfRenderer;
 }): Promise<Result<DocumentRun>> => {
   if (!params.template.enabled) return fail(err.badInput("Document template is disabled"));
   if (params.template.tableId !== params.table.id) return fail(err.badInput("Document template does not belong to the table"));
@@ -51,7 +54,7 @@ export const createRunForRecord = async (params: {
   });
   if (!rendered.ok) return rendered;
 
-  const snapshot = await createRecordSnapshot({
+  const snapshot = await createRecordSnapshotDraft({
     baseId: params.table.baseId,
     tableId: params.table.id,
     recordId: params.recordId,
@@ -61,7 +64,7 @@ export const createRunForRecord = async (params: {
   });
   if (!snapshot.ok) return snapshot;
 
-  return createDocumentRun({
+  const created = await createRenderedDocumentRun({
     template: params.template,
     snapshot: snapshot.data,
     renderData: { ...rendered.data.data, snapshot: snapshot.data },
@@ -71,10 +74,13 @@ export const createRunForRecord = async (params: {
     filename: params.filename,
     tags: params.tags,
     workflowRunId: params.workflowRunId,
+    persistSnapshot: true,
+    renderPdf: params.renderPdf,
   });
+  return created.ok ? ok(created.data.run) : created;
 };
 
-export const createDocumentRun = async (params: {
+type CreateDocumentRunParams = {
   template: DocumentTemplate;
   snapshot: RecordSnapshot;
   renderData: Record<string, unknown>;
@@ -84,7 +90,14 @@ export const createDocumentRun = async (params: {
   filename?: string | null;
   tags?: string[];
   workflowRunId?: string | null;
-}): Promise<Result<DocumentRun>> => {
+  persistSnapshot?: boolean;
+  renderPdf?: DocumentPdfRenderer;
+};
+
+const createDocumentRunInternal = async (
+  params: CreateDocumentRunParams,
+  renderBeforePersist: boolean,
+): Promise<Result<{ run: DocumentRun; pdf: RenderHtmlToPdfResult | null }>> => {
   const runId = Bun.randomUUIDv7();
   const generatedAt = params.generatedAt ?? new Date();
   const templateSnapshot = {
@@ -101,7 +114,7 @@ export const createDocumentRun = async (params: {
     filenameTemplate: params.template.filenameTemplate,
   };
   try {
-    const row = await insertWithShortId<DocumentDbRow>(async (shortId) => {
+    const created = await insertWithShortId<{ row: DocumentDbRow; pdf: RenderHtmlToPdfResult | null }>(async (shortId) => {
       const built = await buildDocumentRunRenderData({
         template: params.template,
         renderData: params.renderData,
@@ -113,7 +126,30 @@ export const createDocumentRun = async (params: {
         tags: params.tags,
       });
       if (!built.ok) throw built.error;
+      const candidate: DocumentRun = {
+        id: runId,
+        shortId,
+        templateId: params.template.id,
+        workflowRunId: params.workflowRunId ?? null,
+        snapshotId: params.snapshot.id,
+        baseId: params.snapshot.baseId,
+        tableId: params.snapshot.tableId,
+        recordId: params.snapshot.recordId,
+        documentNumber: built.data.documentNumber,
+        filename: built.data.filename,
+        tags: built.data.tags,
+        templateSnapshot,
+        renderData: built.data.data,
+        generatedBy: params.actorId,
+        generatedAt: generatedAt.toISOString(),
+      };
+      const pdf = renderBeforePersist ? await (params.renderPdf ?? renderRunPdf)(candidate) : null;
+      if (pdf && !pdf.ok) throw pdf.error;
       return sql.begin(async (tx) => {
+        if (params.persistSnapshot) {
+          const persistedSnapshot = await persistRecordSnapshot(params.snapshot, tx);
+          if (!persistedSnapshot.ok) throw persistedSnapshot.error;
+        }
         const [inserted] = await tx<DocumentDbRow[]>`
           INSERT INTO grids.document_runs (
             id, short_id, template_id, workflow_run_id, snapshot_id, base_id, table_id, record_id,
@@ -160,10 +196,10 @@ export const createDocumentRun = async (params: {
             tx,
           );
         }
-        return inserted;
+        return { row: inserted, pdf: pdf?.data ?? null };
       });
     }, "idx_grids_document_runs_short_id");
-    return ok(mapDocumentRun(row));
+    return ok({ run: mapDocumentRun(created.row), pdf: created.pdf });
   } catch (error) {
     if (isUniqueViolation(error, "idx_grids_document_runs_number")) {
       return fail({
@@ -175,6 +211,20 @@ export const createDocumentRun = async (params: {
     if (isServiceError(error)) return fail(error);
     throw error;
   }
+};
+
+export const createDocumentRun = async (params: CreateDocumentRunParams): Promise<Result<DocumentRun>> => {
+  const created = await createDocumentRunInternal(params, false);
+  return created.ok ? ok(created.data.run) : created;
+};
+
+export const createRenderedDocumentRun = async (
+  params: CreateDocumentRunParams,
+): Promise<Result<{ run: DocumentRun; pdf: RenderHtmlToPdfResult }>> => {
+  const created = await createDocumentRunInternal(params, true);
+  if (!created.ok) return created;
+  if (!created.data.pdf) return fail(err.internal("Document PDF was not rendered"));
+  return ok({ run: created.data.run, pdf: created.data.pdf });
 };
 
 export const getDocumentRun = async (runId: string): Promise<DocumentRun | null> => {

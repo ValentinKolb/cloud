@@ -357,7 +357,7 @@ const resolveFormLink = async (widget: LinkWidget, base: LinkDataBase, viewer: V
   if (!form) return { kind: "error", reason: "form not found" };
   const [table, formFields] = await Promise.all([tables.get(form.tableId), fields.listByTable(form.tableId)]);
   if (!table) return { kind: "error", reason: "form's parent table not found" };
-  const canSubmit = viewer.isAdmin ? true : await resolveSubmitPermission(viewer, table.baseId, form.tableId, form.id);
+  const canSubmit = form.isActive && (viewer.isAdmin ? true : await resolveSubmitPermission(viewer, table.baseId, form.tableId, form.id));
   if (!canSubmit) return blockedLinkData(base, "No submit access for this form");
   return {
     ...base,
@@ -876,7 +876,7 @@ const resolveForm = async (widget: Extract<Widget, { kind: "form" }>, viewer: Vi
   // automatically pass). Resolved SSR-side so the renderer can swap
   // to a dimmed placeholder when the viewer lacks access, with zero
   // extra client-side network calls.
-  const canSubmit = viewer.isAdmin ? true : await resolveSubmitPermission(viewer, table.baseId, form.tableId, form.id);
+  const canSubmit = form.isActive && (viewer.isAdmin ? true : await resolveSubmitPermission(viewer, table.baseId, form.tableId, form.id));
 
   return { kind: "form", form: forms.toRenderableForm(form), fields: renderableFormFields(form, formFields), canSubmit };
 };

@@ -14,6 +14,7 @@ import {
   UpdateFormSchema,
 } from "./form-api-shared";
 import { currentActorUserId, gateAt } from "./permissions";
+import { uuidParam } from "./route-params";
 
 type AuthenticatedFormRoutesDeps = SubmitFormDeps & {
   service?: typeof gridsService;
@@ -35,7 +36,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         responses: { 200: jsonResponse(FormListSchema, "Forms") },
       }),
       async (context) => {
-        const tableId = context.req.param("tableId")!;
+        const tableId = uuidParam(context, "tableId");
+        if (!tableId) return context.json({ message: "Invalid table id" }, 400);
         const table = await service.table.get(tableId);
         if (!table) return context.json({ message: "Table not found" }, 404);
         const gate = await gateAtTarget(context, { baseId: table.baseId, tableId }, "read");
@@ -51,7 +53,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         responses: { 200: jsonResponse(FormSchema, "Default form") },
       }),
       async (context) => {
-        const tableId = context.req.param("tableId")!;
+        const tableId = uuidParam(context, "tableId");
+        if (!tableId) return context.json({ message: "Invalid table id" }, 400);
         const table = await service.table.get(tableId);
         if (!table) return context.json({ message: "Table not found" }, 404);
         const gate = await gateAtTarget(context, { baseId: table.baseId, tableId }, "read");
@@ -73,7 +76,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
       }),
       v("json", FormSubmitSchema),
       async (context) => {
-        const formId = context.req.param("formId")!;
+        const formId = uuidParam(context, "formId");
+        if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId);
         if (!form || !form.isActive) return context.json({ message: "Form not found" }, 404);
         const table = await service.table.get(form.tableId);
@@ -94,7 +98,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         },
       }),
       async (context) => {
-        const formId = context.req.param("formId")!;
+        const formId = uuidParam(context, "formId");
+        if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId);
         if (!form) return context.json({ message: "Form not found" }, 404);
         const table = await service.table.get(form.tableId);
@@ -120,7 +125,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
       }),
       v("json", CreateFormSchema),
       async (context) => {
-        const tableId = context.req.param("tableId")!;
+        const tableId = uuidParam(context, "tableId");
+        if (!tableId) return context.json({ message: "Invalid table id" }, 400);
         const table = await service.table.get(tableId);
         if (!table) return context.json({ message: "Table not found" }, 404);
         const gate = await gateAtTarget(context, { baseId: table.baseId }, "admin");
@@ -137,7 +143,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
       }),
       v("json", UpdateFormSchema),
       async (context) => {
-        const formId = context.req.param("formId")!;
+        const formId = uuidParam(context, "formId");
+        if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId);
         if (!form) return context.json({ message: "Form not found" }, 404);
         const table = await service.table.get(form.tableId);
@@ -155,7 +162,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         responses: { 204: { description: "Deleted" } },
       }),
       async (context) => {
-        const formId = context.req.param("formId")!;
+        const formId = uuidParam(context, "formId");
+        if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId);
         if (!form) return context.json({ message: "Form not found" }, 404);
         const table = await service.table.get(form.tableId);
@@ -178,7 +186,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         },
       }),
       async (context) => {
-        const formId = context.req.param("formId")!;
+        const formId = uuidParam(context, "formId");
+        if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId, { includeDeleted: true });
         if (!form) return context.json({ message: "Form not found" }, 404);
         const table = await service.table.get(form.tableId);

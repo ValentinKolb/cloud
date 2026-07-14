@@ -1,6 +1,7 @@
 import { renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import {
   CheckboxCard,
+  confirmDiscardIfDirty,
   createTemplateEditorPanesValue,
   dialogCore,
   PanelDialog,
@@ -20,6 +21,7 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { EmailTemplate } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
+import { workflowEmailTemplateDraft, workflowEmailTemplateDraftDirty } from "./workflow-email-template-draft";
 
 const EMAIL_TEMPLATE_VARIABLES: TemplateVariable[] = [
   { name: "data", kind: "object" },
@@ -127,15 +129,24 @@ const renderEmailTemplatePreview = (template: string, sampleData: Record<string,
 };
 
 function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; onSaved: () => void; onClose: () => void }) {
-  const [name, setName] = createSignal(props.template?.name ?? "");
-  const [description, setDescription] = createSignal(props.template?.description ?? "");
-  const [subject, setSubject] = createSignal(props.template?.subject ?? DEFAULT_EMAIL_SUBJECT);
-  const [html, setHtml] = createSignal(props.template?.html ?? DEFAULT_EMAIL_HTML);
-  const [enabled, setEnabled] = createSignal(props.template?.enabled ?? true);
+  const cleanDraft = workflowEmailTemplateDraft(props.template, DEFAULT_EMAIL_SUBJECT, DEFAULT_EMAIL_HTML);
+  const [name, setName] = createSignal(cleanDraft.name);
+  const [description, setDescription] = createSignal(cleanDraft.description);
+  const [subject, setSubject] = createSignal(cleanDraft.subject);
+  const [html, setHtml] = createSignal(cleanDraft.html);
+  const [enabled, setEnabled] = createSignal(cleanDraft.enabled);
   const [panes, setPanes] = createSignal(createTemplateEditorPanesValue());
   const [sampleData, setSampleData] = createSignal<Record<string, string>>(createEmailTemplateSampleData());
   const renderedPreview = createMemo(() => renderEmailTemplatePreview(html(), sampleData()));
   const setSampleValue = (name: string, value: string) => setSampleData((current) => ({ ...current, [name]: value }));
+  const dirty = () =>
+    workflowEmailTemplateDraftDirty(
+      { name: name(), description: description(), subject: subject(), html: html(), enabled: enabled() },
+      cleanDraft,
+    );
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.onClose();
+  };
 
   const saveMut = mutations.create<EmailTemplate, void>({
     mutation: async (_, { abortSignal }) => {
@@ -177,7 +188,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
         title={props.template ? `Email template — ${props.template.name}` : "New email template"}
         subtitle="Reusable Liquid email for workflow sendEmail steps."
         icon="ti ti-mail"
-        close={props.onClose}
+        close={() => void closeIfClean()}
       />
       <PanelDialog.Body scrollPreserveKey={`grids-email-template-editor-${props.template?.id ?? "new"}`}>
         <div class="flex min-h-[42rem] flex-1 flex-col gap-2">
@@ -232,7 +243,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
       <PanelDialog.Footer>
         <div />
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={props.onClose}>
+          <button type="button" class="btn-input btn-sm" onClick={() => void closeIfClean()}>
             Cancel
           </button>
           <button type="button" class="btn-primary btn-sm" disabled={!canSave()} onClick={() => saveMut.mutate()}>
@@ -302,7 +313,7 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
           onClose={close}
         />
       ),
-      panelDialogWorkspaceOptions,
+      { ...panelDialogWorkspaceOptions, cancelBehavior: "ignore" },
     );
   };
 

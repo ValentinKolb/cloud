@@ -24,6 +24,7 @@ import type { Table } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { EmailTemplateManager } from "./WorkflowEmailTemplates";
+import { requestWorkflowRunInput } from "./WorkflowRunInputDialog";
 import type { WorkflowScannerState } from "./WorkflowScannerSurface.island";
 import {
   formatWorkflowRunDate as formatDate,
@@ -31,6 +32,7 @@ import {
   workflowRunStatusClass as statusClass,
   triggerLabels,
 } from "./workflow-display";
+import { activeWorkflowTriggers, directWorkflowRunTriggers } from "./workflow-trigger-actions";
 
 const WorkflowScannerSurface = lazy(() => import("./WorkflowScannerSurface.island"));
 
@@ -113,18 +115,15 @@ const formatMetricDuration = (ms: number | null): string => {
 const formatPercent = (value: number): string => `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 
 const triggerSummary = (workflow: Workflow): string => {
-  const triggers = Object.keys(workflow.compiled.triggers) as WorkflowTriggerKind[];
+  const triggers = activeWorkflowTriggers(workflow.compiled);
   if (triggers.length === 0) return "No trigger";
   return triggers.map((trigger) => triggerLabels[trigger] ?? trigger).join(", ");
 };
 
-const workflowTriggers = (workflow: Workflow): WorkflowTriggerKind[] => Object.keys(workflow.compiled.triggers) as WorkflowTriggerKind[];
+const workflowTriggers = (workflow: Workflow): WorkflowTriggerKind[] => activeWorkflowTriggers(workflow.compiled);
 
 const workflowSearch = (workflow: Workflow): string =>
   [workflow.name, workflow.description ?? "", workflow.source, triggerSummary(workflow)].join(" ").toLowerCase();
-
-const directRunTriggers = (workflow: Workflow): WorkflowTriggerKind[] =>
-  (["form", "api", "dashboardButton", "schedule"] as WorkflowTriggerKind[]).filter((trigger) => workflow.compiled.triggers[trigger]);
 
 const emptyStats = (): WorkflowRunStats => ({
   window: "24h",
@@ -503,7 +502,7 @@ export default function WorkflowsPage(props: Props) {
           onClose={close}
         />
       ),
-      panelDialogWorkspaceOptions,
+      { ...panelDialogWorkspaceOptions, cancelBehavior: "ignore" },
     );
   };
 
@@ -560,8 +559,8 @@ export default function WorkflowsPage(props: Props) {
     );
   };
 
-  const runMut = mutations.create<WorkflowRun | null, WorkflowTriggerKind>({
-    mutation: async (triggerKind, { abortSignal }) => {
+  const runMut = mutations.create<WorkflowRun | null, { triggerKind: WorkflowTriggerKind; input: Record<string, unknown> }>({
+    mutation: async ({ triggerKind, input }, { abortSignal }) => {
       const workflow = props.activeWorkflow;
       if (!workflow) throw new Error("Choose a workflow first.");
       if (triggerKind === "schedule") {
@@ -579,7 +578,7 @@ export default function WorkflowsPage(props: Props) {
           : triggerKind === "dashboardButton"
             ? apiClient.workflows[":workflowId"].run["dashboard-button"]
             : apiClient.workflows[":workflowId"].run.form;
-      const res = await endpoint.$post({ param: { workflowId: workflow.id }, json: { input: {} } }, { init: { signal: abortSignal } });
+      const res = await endpoint.$post({ param: { workflowId: workflow.id }, json: { input } }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not run workflow."));
       return res.json();
     },
@@ -596,7 +595,15 @@ export default function WorkflowsPage(props: Props) {
     const workflow = activeWorkflow();
     return workflow && props.canRunActiveWorkflow && workflow.compiled.triggers.scanner ? workflow : null;
   };
-  const runTriggers = () => (activeWorkflow() && props.canRunActiveWorkflow ? directRunTriggers(activeWorkflow()!) : []);
+  const runTriggers = () => (activeWorkflow() && props.canRunActiveWorkflow ? directWorkflowRunTriggers(activeWorkflow()!.compiled) : []);
+  const runWorkflow = async (triggerKind: WorkflowTriggerKind) => {
+    const workflow = activeWorkflow();
+    if (!workflow) return;
+    const input =
+      triggerKind === "form" || triggerKind === "api" ? await requestWorkflowRunInput({ workflow, triggerKind, tables: props.tables }) : {};
+    if (input === undefined) return;
+    runMut.mutate({ triggerKind, input });
+  };
 
   return (
     <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable" data-scroll-preserve="grids-workflows-main">
@@ -614,7 +621,7 @@ export default function WorkflowsPage(props: Props) {
               <Show when={activeWorkflow() && runTriggers().length > 0}>
                 <For each={runTriggers()}>
                   {(trigger) => (
-                    <button type="button" class="btn-primary btn-sm" disabled={runMut.loading()} onClick={() => runMut.mutate(trigger)}>
+                    <button type="button" class="btn-primary btn-sm" disabled={runMut.loading()} onClick={() => void runWorkflow(trigger)}>
                       <i class={runMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} /> Run{" "}
                       {triggerLabels[trigger] ?? trigger}
                     </button>

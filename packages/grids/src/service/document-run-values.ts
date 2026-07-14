@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { z } from "zod";
 import type { DocumentRun } from "../contracts";
 
 const FILENAME_MAX_CHARS = 255;
@@ -20,7 +21,12 @@ export const safePdfFilename = (value: string, fallback: string): string => {
   return `${withExtension.slice(0, FILENAME_MAX_CHARS - 4).replace(/\.+$/, "")}.pdf`;
 };
 
-type DocumentRunCursor = { generatedAt: string; id: string };
+const DocumentRunCursorSchema = z.object({
+  generatedAt: z.string().datetime(),
+  id: z.string().uuid(),
+});
+
+type DocumentRunCursor = z.infer<typeof DocumentRunCursorSchema>;
 
 const encodeCursorPart = (value: string): string =>
   Buffer.from(value, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -39,9 +45,8 @@ export const encodeDocumentRunCursor = (run: Pick<DocumentRun, "generatedAt" | "
 export const decodeDocumentRunCursor = (cursor: string | null | undefined): DocumentRunCursor | null => {
   if (!cursor) return null;
   try {
-    const parsed = JSON.parse(decodeCursorPart(cursor)) as Partial<DocumentRunCursor>;
-    if (typeof parsed.generatedAt !== "string" || typeof parsed.id !== "string") return null;
-    return { generatedAt: parsed.generatedAt, id: parsed.id };
+    const parsed = DocumentRunCursorSchema.safeParse(JSON.parse(decodeCursorPart(cursor)));
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }

@@ -19,6 +19,7 @@ import { resolveWidgetData } from "../service/dashboard-widget-data";
 import { hasAtLeast, hasGrantsForResource } from "../service/permission-resolver";
 import { getWorkflowRun, getWorkflowRunScope, listStepRuns } from "../service/workflows";
 import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, resolveWithGrants } from "./permissions";
+import { uuidParam } from "./route-params";
 
 const DashboardWorkflowScannerRunSchema = z.object({
   code: z.string().trim().min(1).max(500),
@@ -116,7 +117,8 @@ export const createDashboardsApi = (
         responses: { 200: jsonResponse(DashboardListSchema, "Dashboards") },
       }),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = uuidParam(c, "baseId");
+        if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         const base = await gridsService.base.get(baseId);
         if (!base) return c.json({ message: "Base not found" }, 404);
         const gate = await gateAt(c, { baseId }, "read");
@@ -141,7 +143,8 @@ export const createDashboardsApi = (
       }),
       v("json", CreateDashboardSchema),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = uuidParam(c, "baseId");
+        if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         const base = await gridsService.base.get(baseId);
         if (!base) return c.json({ message: "Base not found" }, 404);
         const body = c.req.valid("json");
@@ -184,7 +187,8 @@ export const createDashboardsApi = (
         },
       }),
       async (c) => {
-        const dashboardId = c.req.param("dashboardId")!;
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
         const dashboard = await getDashboard(dashboardId);
         if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
 
@@ -208,7 +212,8 @@ export const createDashboardsApi = (
       }),
       v("json", WidgetSchema),
       async (c) => {
-        const dashboardId = c.req.param("dashboardId")!;
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
         const dashboard = await getDashboard(dashboardId);
         if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
 
@@ -238,7 +243,8 @@ export const createDashboardsApi = (
         },
       }),
       async (c) => {
-        const dashboardId = c.req.param("dashboardId")!;
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
         const widgetId = c.req.param("widgetId")!;
         const dashboard = await getDashboard(dashboardId);
         if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
@@ -285,7 +291,8 @@ export const createDashboardsApi = (
       }),
       v("json", DashboardWorkflowScannerRunSchema),
       async (c) => {
-        const dashboardId = c.req.param("dashboardId")!;
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
         const widgetId = c.req.param("widgetId")!;
         const dashboard = await getDashboard(dashboardId);
         if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
@@ -325,9 +332,11 @@ export const createDashboardsApi = (
         },
       }),
       async (c) => {
-        const dashboardId = c.req.param("dashboardId")!;
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
         const widgetId = c.req.param("widgetId")!;
-        const runId = c.req.param("runId")!;
+        const runId = uuidParam(c, "runId");
+        if (!runId) return c.json({ message: "Invalid workflow run id" }, 400);
         const dashboard = await getDashboard(dashboardId);
         if (!dashboard || !(await canReadDashboard(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
         const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
@@ -361,7 +370,8 @@ export const createDashboardsApi = (
       }),
       v("json", UpdateDashboardSchema),
       async (c) => {
-        const dashboardId = c.req.param("dashboardId")!;
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
         const dashboard = await getDashboard(dashboardId);
         if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
         const body = c.req.valid("json");
@@ -389,7 +399,8 @@ export const createDashboardsApi = (
         },
       }),
       async (c) => {
-        const dashboardId = c.req.param("dashboardId")!;
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
         const dashboard = await getDashboard(dashboardId);
         if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
         // Same rule as PATCH: dashboard write = base-admin.
@@ -412,7 +423,8 @@ export const createDashboardsApi = (
         },
       }),
       async (c) => {
-        const dashboardId = c.req.param("dashboardId")!;
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
         const dashboard = await getDashboard(dashboardId, { includeDeleted: true });
         if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
         // Restore is a write — base-admin only, regardless of ownership.

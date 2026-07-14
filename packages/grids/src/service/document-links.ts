@@ -80,40 +80,45 @@ export const createDocumentLink = async (params: {
   const token = generateDocumentLinkToken();
   const expiresAt = documentLinkExpiresAt(params.input.expiresIn);
   const comment = normalizeDocumentLinkComment(params.input.comment);
-  const [row] = await sql<DocumentDbRow[]>`
-    INSERT INTO grids.document_links (
-      document_run_id, base_id, table_id, record_id, token_hash, comment, created_by, expires_at
-    )
-    VALUES (
-      ${params.run.id}::uuid,
-      ${params.run.baseId}::uuid,
-      ${params.run.tableId}::uuid,
-      ${params.run.recordId}::uuid,
-      ${hashDocumentLinkToken(token)},
-      ${comment},
-      ${params.actorId}::uuid,
-      ${expiresAt}
-    )
-    RETURNING *
-  `;
-  if (!row) return fail(err.internal("Could not create document link"));
-  const link = mapDocumentLink(row);
-  await logAudit({
-    baseId: params.run.baseId,
-    tableId: params.run.tableId,
-    recordId: params.run.recordId,
-    userId: params.actorId,
-    action: "document_link.created",
-    ip: params.ip,
-    userAgent: params.userAgent,
-    diff: {
-      documentRunId: { old: null, new: params.run.id },
-      documentLinkId: { old: null, new: link.id },
-      expiresAt: { old: null, new: link.expiresAt },
-      comment: { old: null, new: link.comment },
-    },
+  return sql.begin(async (tx) => {
+    const [row] = await tx<DocumentDbRow[]>`
+      INSERT INTO grids.document_links (
+        document_run_id, base_id, table_id, record_id, token_hash, comment, created_by, expires_at
+      )
+      VALUES (
+        ${params.run.id}::uuid,
+        ${params.run.baseId}::uuid,
+        ${params.run.tableId}::uuid,
+        ${params.run.recordId}::uuid,
+        ${hashDocumentLinkToken(token)},
+        ${comment},
+        ${params.actorId}::uuid,
+        ${expiresAt}
+      )
+      RETURNING *
+    `;
+    if (!row) return fail(err.internal("Could not create document link"));
+    const link = mapDocumentLink(row);
+    await logAudit(
+      {
+        baseId: params.run.baseId,
+        tableId: params.run.tableId,
+        recordId: params.run.recordId,
+        userId: params.actorId,
+        action: "document_link.created",
+        ip: params.ip,
+        userAgent: params.userAgent,
+        diff: {
+          documentRunId: { old: null, new: params.run.id },
+          documentLinkId: { old: null, new: link.id },
+          expiresAt: { old: null, new: link.expiresAt },
+          comment: { old: null, new: link.comment },
+        },
+      },
+      tx,
+    );
+    return ok({ link, token });
   });
-  return ok({ link, token });
 };
 
 export const revokeDocumentLink = async (params: {
@@ -122,32 +127,39 @@ export const revokeDocumentLink = async (params: {
   ip?: string | null;
   userAgent?: string | null;
 }): Promise<Result<DocumentLink>> => {
-  const [row] = await sql<DocumentDbRow[]>`
-    UPDATE grids.document_links
-    SET revoked_at = now(), revoked_by = ${params.actorId}::uuid
-    WHERE id = ${params.linkId}::uuid AND revoked_at IS NULL
-    RETURNING *
-  `;
-  if (!row) {
-    const existing = await getDocumentLink(params.linkId);
-    return existing ? ok(existing) : fail(err.notFound("Document link"));
-  }
-  const link = mapDocumentLink(row);
-  await logAudit({
-    baseId: link.baseId,
-    tableId: link.tableId,
-    recordId: link.recordId,
-    userId: params.actorId,
-    action: "document_link.revoked",
-    ip: params.ip,
-    userAgent: params.userAgent,
-    diff: {
-      documentRunId: { old: link.documentRunId, new: link.documentRunId },
-      documentLinkId: { old: link.id, new: link.id },
-      revokedAt: { old: null, new: link.revokedAt },
-    },
+  return sql.begin(async (tx) => {
+    const [row] = await tx<DocumentDbRow[]>`
+      UPDATE grids.document_links
+      SET revoked_at = now(), revoked_by = ${params.actorId}::uuid
+      WHERE id = ${params.linkId}::uuid AND revoked_at IS NULL
+      RETURNING *
+    `;
+    if (!row) {
+      const [existing] = await tx<DocumentDbRow[]>`
+        SELECT * FROM grids.document_links WHERE id = ${params.linkId}::uuid
+      `;
+      return existing ? ok(mapDocumentLink(existing)) : fail(err.notFound("Document link"));
+    }
+    const link = mapDocumentLink(row);
+    await logAudit(
+      {
+        baseId: link.baseId,
+        tableId: link.tableId,
+        recordId: link.recordId,
+        userId: params.actorId,
+        action: "document_link.revoked",
+        ip: params.ip,
+        userAgent: params.userAgent,
+        diff: {
+          documentRunId: { old: link.documentRunId, new: link.documentRunId },
+          documentLinkId: { old: link.id, new: link.id },
+          revokedAt: { old: null, new: link.revokedAt },
+        },
+      },
+      tx,
+    );
+    return ok(link);
   });
-  return ok(link);
 };
 
 export const resolveDocumentLinkDownload = async (token: string): Promise<Result<{ link: DocumentLink; run: DocumentRun }>> => {
@@ -174,30 +186,35 @@ export const recordDocumentLinkAccess = async (
   linkId: string,
   audit: { ip?: string | null; userAgent?: string | null } = {},
 ): Promise<Result<DocumentLink>> => {
-  const [row] = await sql<DocumentDbRow[]>`
-    UPDATE grids.document_links
-    SET access_count = access_count + 1, last_accessed_at = now()
-    WHERE id = ${linkId}::uuid
-      AND revoked_at IS NULL
-      AND expires_at > now()
-    RETURNING *
-  `;
-  if (!row) return fail(err.notFound("Document link"));
-  const link = mapDocumentLink(row);
+  return sql.begin(async (tx) => {
+    const [row] = await tx<DocumentDbRow[]>`
+      UPDATE grids.document_links
+      SET access_count = access_count + 1, last_accessed_at = now()
+      WHERE id = ${linkId}::uuid
+        AND revoked_at IS NULL
+        AND expires_at > now()
+      RETURNING *
+    `;
+    if (!row) return fail(err.notFound("Document link"));
+    const link = mapDocumentLink(row);
 
-  await logAudit({
-    baseId: link.baseId,
-    tableId: link.tableId,
-    recordId: link.recordId,
-    userId: null,
-    action: "document_link.accessed",
-    ip: audit.ip,
-    userAgent: audit.userAgent,
-    diff: {
-      documentRunId: { old: link.documentRunId, new: link.documentRunId },
-      documentLinkId: { old: link.id, new: link.id },
-      accessCount: { old: link.accessCount - 1, new: link.accessCount },
-    },
+    await logAudit(
+      {
+        baseId: link.baseId,
+        tableId: link.tableId,
+        recordId: link.recordId,
+        userId: null,
+        action: "document_link.accessed",
+        ip: audit.ip,
+        userAgent: audit.userAgent,
+        diff: {
+          documentRunId: { old: link.documentRunId, new: link.documentRunId },
+          documentLinkId: { old: link.id, new: link.id },
+          accessCount: { old: link.accessCount - 1, new: link.accessCount },
+        },
+      },
+      tx,
+    );
+    return ok(link);
   });
-  return ok(link);
 };

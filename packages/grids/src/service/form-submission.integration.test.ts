@@ -165,4 +165,36 @@ describe("form submission integration", () => {
       await cleanup(item);
     }
   });
+
+  postgresTest("rejects duplicate inline draft ids before creating records or events", async () => {
+    const item = fixture();
+    try {
+      await insertFixture(item);
+      const result = await submitForm({
+        form: formFor(item),
+        actorId: null,
+        dateConfig: { timeZone: "UTC" },
+        submission: {
+          data: { [item.sourceNameFieldId]: "ORDER-3", [item.relationFieldId]: ["tmp_contact"] },
+          inlineCreates: {
+            [item.relationFieldId]: [
+              { tempId: "tmp_contact", data: { [item.targetNameFieldId]: "Ada" } },
+              { tempId: "tmp_contact", data: { [item.targetNameFieldId]: "Grace" } },
+            ],
+          },
+        },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toBe('Field "Contact" contains a duplicate inline draft id');
+
+      const [{ records, events } = { records: 0, events: 0 }] = await sql<Array<{ records: number; events: number }>>`
+        SELECT
+          (SELECT count(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id WHERE t.base_id = ${item.baseId}::uuid) AS records,
+          (SELECT count(*)::int FROM grids.record_event_outbox WHERE base_id = ${item.baseId}::uuid) AS events
+      `;
+      expect({ records, events }).toEqual({ records: 0, events: 0 });
+    } finally {
+      await cleanup(item);
+    }
+  });
 });

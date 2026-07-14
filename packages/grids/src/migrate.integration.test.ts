@@ -30,10 +30,10 @@ const withIsolatedDatabase = async (run: (database: SQL) => Promise<void>) => {
 
 describe("grids schema migration", () => {
   postgresTest(
-    "creates an empty Grids schema and remains idempotent",
+    "serializes concurrent setup and remains idempotent",
     async () => {
       await withIsolatedDatabase(async (database) => {
-        await migrate(database);
+        await Promise.all([migrate(database), migrate(database)]);
         await migrate(database);
 
         const [row] = await database<Array<{ tableCount: number }>>`

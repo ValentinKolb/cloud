@@ -1,6 +1,8 @@
 import { sql as defaultSql, type SQL } from "bun";
 import { backfillWorkflowEmailDeliveries } from "./workflow-email-delivery-backfill";
 
+const MIGRATION_LOCK_NAME = "grids:migrate";
+
 /**
  * Schema for the Grids app: bases → tables → fields, records, views, forms,
  * document templates, dashboards, workflows, and generated artifacts.
@@ -1496,18 +1498,29 @@ const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
 };
 
 export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
-  await migrateSchema(sql);
-  await migrateSafeCastHelpers(sql);
-  await migrateCoreRecords(sql);
-  await migrateViews(sql);
-  await migrateDocumentTemplates(sql);
-  await migrateDocumentArtifacts(sql);
-  await cleanupAlphaSchema(sql);
-  await migrateFormsAndEvents(sql);
-  await migrateDashboards(sql);
-  await migrateWorkflowCatalog(sql);
-  await migrateWorkflowRuns(sql);
-  await migrateWorkflowDeliveries(sql);
-  await migrateRecordScanCodes(sql);
-  console.log("  ✓ grids schema ready");
+  const connection = await sql.reserve();
+  let locked = false;
+  try {
+    await connection`SELECT pg_advisory_lock(hashtextextended(${MIGRATION_LOCK_NAME}, 0))`;
+    locked = true;
+    await migrateSchema(connection);
+    await migrateSafeCastHelpers(connection);
+    await migrateCoreRecords(connection);
+    await migrateViews(connection);
+    await migrateDocumentTemplates(connection);
+    await migrateDocumentArtifacts(connection);
+    await cleanupAlphaSchema(connection);
+    await migrateFormsAndEvents(connection);
+    await migrateDashboards(connection);
+    await migrateWorkflowCatalog(connection);
+    await migrateWorkflowRuns(connection);
+    await migrateWorkflowDeliveries(connection);
+    await migrateRecordScanCodes(connection);
+    console.log("  ✓ grids schema ready");
+  } finally {
+    if (locked) {
+      await connection`SELECT pg_advisory_unlock(hashtextextended(${MIGRATION_LOCK_NAME}, 0))`.catch(() => undefined);
+    }
+    connection.release();
+  }
 };

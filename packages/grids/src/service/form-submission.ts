@@ -63,6 +63,16 @@ export const submitForm = async (params: {
       : entry.value;
   }
 
+  for (const [relationFieldId, drafts] of Object.entries(params.submission.inlineCreates)) {
+    const tempIds = new Set<string>();
+    for (const draft of drafts) {
+      if (tempIds.has(draft.tempId)) {
+        return fail(err.badInput(`Field "${fieldName(relationFieldId)}" contains a duplicate inline draft id`));
+      }
+      tempIds.add(draft.tempId);
+    }
+  }
+
   const outboxIds: string[] = [];
   try {
     const recordId = await sql.begin(async (tx) => {

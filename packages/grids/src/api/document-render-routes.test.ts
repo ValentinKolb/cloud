@@ -111,8 +111,9 @@ let previewPdfResult:
   | { ok: true; pdf: { pdf: Uint8Array } }
   | { ok: false; error: { message: string; phase: "html" | "pdf"; code: string; status: 400 | 500 | 502 } };
 let snapshotResult: { ok: true; data: typeof snapshot } | { ok: false; error: { message: string; status: 400 | 500 } };
-let runResult: { ok: true; data: typeof run } | { ok: false; error: { message: string; status: 400 | 500 } };
-let runPdfResult: { ok: true; data: { pdf: Uint8Array } } | { ok: false; error: { message: string; status: 400 | 500 | 502 } };
+let runResult:
+  | { ok: true; data: { run: typeof run; pdf: { pdf: Uint8Array } } }
+  | { ok: false; error: { message: string; status: 400 | 500 | 502 } };
 let permissionChecks: PermissionLevel[] = [];
 let liveInputs: unknown[] = [];
 let metadataInputs: unknown[] = [];
@@ -120,7 +121,6 @@ let htmlInputs: unknown[][] = [];
 let previewPdfInputs: unknown[][] = [];
 let snapshotInput: unknown;
 let createRunInput: unknown;
-let runPdfInput: unknown;
 let callOrder: string[] = [];
 
 mock.module("../service", () => ({
@@ -155,20 +155,15 @@ mock.module("../service", () => ({
         previewPdfInputs.push(input);
         return previewPdfResult;
       },
-      createRecordSnapshot: async (input: unknown) => {
+      createRecordSnapshotDraft: async (input: unknown) => {
         callOrder.push("snapshot");
         snapshotInput = input;
         return snapshotResult;
       },
-      createRun: async (input: unknown) => {
+      createRenderedRun: async (input: unknown) => {
         callOrder.push("run");
         createRunInput = input;
         return runResult;
-      },
-      renderRunPdf: async (input: unknown) => {
-        callOrder.push("run-pdf");
-        runPdfInput = input;
-        return runPdfResult;
       },
     },
     permission: {
@@ -322,8 +317,7 @@ describe("document render routes", () => {
     htmlResult = { ok: true, data: "<p>Rendered invoice</p>" };
     previewPdfResult = { ok: true, pdf: { pdf: pdfBytes } };
     snapshotResult = { ok: true, data: snapshot };
-    runResult = { ok: true, data: run };
-    runPdfResult = { ok: true, data: { pdf: pdfBytes } };
+    runResult = { ok: true, data: { run, pdf: { pdf: pdfBytes } } };
     permissionChecks = [];
     liveInputs = [];
     metadataInputs = [];
@@ -331,7 +325,6 @@ describe("document render routes", () => {
     previewPdfInputs = [];
     snapshotInput = undefined;
     createRunInput = undefined;
-    runPdfInput = undefined;
     callOrder = [];
   });
 
@@ -509,7 +502,7 @@ describe("document render routes", () => {
     expect(callOrder).toEqual([]);
   });
 
-  test("generates in live-data, snapshot, run, PDF order with actor inputs and exact download headers", async () => {
+  test("persists only an already-rendered run with actor inputs and exact download headers", async () => {
     templateLevel = "write";
     tableLevel = "none";
     const response = await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody));
@@ -519,7 +512,7 @@ describe("document render routes", () => {
       "x-grids-document-number": run.documentNumber,
       "x-grids-document-filename": "Invoice%20July.pdf",
     });
-    expect(callOrder).toEqual(["live-data", "snapshot", "run", "run-pdf"]);
+    expect(callOrder).toEqual(["live-data", "snapshot", "run"]);
     const { canReadRelatedTable, ...snapshotParams } = snapshotInput as {
       baseId: string;
       tableId: string;
@@ -539,8 +532,8 @@ describe("document render routes", () => {
       dateConfig,
       filename: "Custom invoice.pdf",
       tags: ["finance", "july"],
+      persistSnapshot: true,
     });
-    expect(runPdfInput).toBe(run);
   });
 
   for (const [suffix, body, failureStatus, expectedStatus, expectedBody] of [
@@ -644,14 +637,14 @@ describe("document render routes", () => {
   }
 
   for (const status of [400, 502, 500] as const) {
-    test(`generate preserves run PDF status ${status} and stops`, async () => {
-      runPdfResult = { ok: false, error: { message: "Stored PDF render failed", status } };
+    test(`generate rejects an unrenderable run with status ${status}`, async () => {
+      runResult = { ok: false, error: { message: "Stored PDF render failed", status } };
 
       const response = await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody));
 
       expect(response.status).toBe(status);
       expect(await response.json()).toEqual({ message: "Stored PDF render failed" });
-      expect(callOrder).toEqual(["live-data", "snapshot", "run", "run-pdf"]);
+      expect(callOrder).toEqual(["live-data", "snapshot", "run"]);
     });
   }
 });

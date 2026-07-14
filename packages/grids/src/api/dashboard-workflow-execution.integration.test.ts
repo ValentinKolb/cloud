@@ -198,6 +198,13 @@ beforeAll(async () => {
 });
 
 describe("dashboard-scoped workflow execution", () => {
+  test("rejects an invalid dashboard id before querying PostgreSQL", async () => {
+    const response = await apiFor(testUser(uuid())).request("/api/dashboards/not-a-uuid");
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Invalid dashboard id" });
+  });
+
   postgresTest("keeps personal dashboard workflow streams owner-or-explicit-grant scoped", async () => {
     const userId = await existingAuthUserId();
     const ownerId = uuid();

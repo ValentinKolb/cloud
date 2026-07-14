@@ -1,4 +1,4 @@
-import { AutocompleteEditor, CheckboxCard, PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, CheckboxCard, confirmDiscardIfDirty, PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -7,7 +7,7 @@ import { type DslQueryPreviewDiagnostic, WORKFLOW_REVISION_HEADER, type Workflow
 import type { Table } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { buildBackendWorkflowCompletions } from "./workflow-autocomplete";
-import { type WorkflowEditorDraft, workflowEditorDraft } from "./workflow-editor-draft";
+import { type WorkflowEditorDraft, workflowEditorDraft, workflowEditorDraftDirty } from "./workflow-editor-draft";
 
 type WorkflowEditorProps = {
   baseId: string;
@@ -94,6 +94,7 @@ function DiagnosticsPanel(props: { diagnostics: DslQueryPreviewDiagnostic[]; val
 
 export function WorkflowEditor(props: WorkflowEditorProps) {
   const initialDraft = workflowEditorDraft(props.workflow, defaultSource(props.tables[0]));
+  let cleanDraft = initialDraft;
   const [name, setName] = createSignal(initialDraft.name);
   const [persistedName, setPersistedName] = createSignal(initialDraft.name);
   const [description, setDescription] = createSignal(initialDraft.description);
@@ -104,6 +105,17 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   const [validating, setValidating] = createSignal(false);
   let validationTimer: ReturnType<typeof setTimeout> | undefined;
   let validationAbort: AbortController | undefined;
+
+  const currentDraft = (): WorkflowEditorDraft => ({
+    name: name(),
+    description: description(),
+    enabled: enabled(),
+    source: source(),
+    revision: revision(),
+  });
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(() => workflowEditorDraftDirty(currentDraft(), cleanDraft))) props.onClose();
+  };
 
   const fetchAutocomplete = async (request: { source: string; caret: number }, signal: AbortSignal) => {
     const response = await apiClient.workflows["by-base"][":baseId"].autocomplete.$post(
@@ -153,6 +165,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   });
 
   const replaceDraft = (draft: WorkflowEditorDraft) => {
+    cleanDraft = draft;
     setName(draft.name);
     setPersistedName(draft.name);
     setDescription(draft.description);
@@ -256,7 +269,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
         title={props.workflow ? `Manage workflow — ${persistedName()}` : "New workflow"}
         subtitle="Metadata, status, and executable YAML."
         icon="ti ti-route"
-        close={props.onClose}
+        close={() => void closeIfClean()}
       />
       <PanelDialog.Body scrollPreserveKey={`grids-workflow-editor-${props.workflow?.id ?? "new"}`}>
         <div class="flex min-h-[34rem] flex-1 flex-col gap-2">
@@ -312,7 +325,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
           </Show>
         </div>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={props.onClose}>
+          <button type="button" class="btn-input btn-sm" onClick={() => void closeIfClean()}>
             Cancel
           </button>
           <button type="button" class="btn-primary btn-sm" disabled={!canSave()} onClick={() => saveMut.mutate()}>

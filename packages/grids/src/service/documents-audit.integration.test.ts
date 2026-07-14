@@ -2,7 +2,14 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { logAudit } from "./audit";
-import { createDocumentRun, createRecordSnapshot, getTemplate, updateRunMetadata } from "./documents";
+import {
+  createDocumentRun,
+  createRecordSnapshot,
+  createRecordSnapshotDraft,
+  createRenderedDocumentRun,
+  getTemplate,
+  updateRunMetadata,
+} from "./documents";
 
 const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
 
@@ -102,6 +109,7 @@ describe("document audit integration", () => {
       });
       expect(snapshot.ok).toBe(true);
       if (!snapshot.ok) throw new Error(snapshot.error.message);
+      expect(Object.keys(snapshot.data.graph).sort()).toEqual(["records", "rootId"]);
 
       const run = await createDocumentRun({
         template,
@@ -143,6 +151,43 @@ describe("document audit integration", () => {
       const metadataAudit = rows.find((row) => row.action === "document.metadata.updated");
       expect(metadataAudit?.diff.filename).toEqual({ old: run.data.filename, new: "invoice-final.pdf" });
       expect(metadataAudit?.diff.tags).toEqual({ old: ["draft"], new: ["final", "paid"] });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("does not persist a document run when its stored PDF cannot render", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const template = await getTemplate(fixture.templateId);
+      if (!template) throw new Error("Fixture template missing");
+      const snapshot = await createRecordSnapshotDraft({
+        baseId: fixture.baseId,
+        tableId: fixture.tableId,
+        recordId: fixture.recordId,
+        actorId: fixture.actorId,
+        canReadRelatedTable: async () => true,
+      });
+      if (!snapshot.ok) throw new Error(snapshot.error.message);
+
+      const result = await createRenderedDocumentRun({
+        template: { ...template, html: "{% if %}" },
+        snapshot: snapshot.data,
+        renderData: { record: snapshot.data.root, snapshot: snapshot.data },
+        actorId: fixture.actorId,
+        persistSnapshot: true,
+      });
+
+      expect(result.ok).toBe(false);
+      const [{ count } = { count: 0 }] = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM grids.document_runs WHERE base_id = ${fixture.baseId}::uuid
+      `;
+      expect(count).toBe(0);
+      const [{ count: snapshotCount } = { count: 0 }] = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM grids.record_snapshots WHERE base_id = ${fixture.baseId}::uuid
+      `;
+      expect(snapshotCount).toBe(0);
     } finally {
       await cleanupFixture(fixture);
     }

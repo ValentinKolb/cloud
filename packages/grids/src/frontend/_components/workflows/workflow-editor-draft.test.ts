@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Workflow } from "../../../contracts";
-import { workflowEditorDraft } from "./workflow-editor-draft";
+import { workflowEditorDraft, workflowEditorDraftDirty } from "./workflow-editor-draft";
 
 const workflow = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -38,5 +38,12 @@ describe("workflow editor draft", () => {
       source: "fallback",
       revision: 1,
     });
+  });
+
+  test("detects editable changes but ignores revision-only refreshes", () => {
+    const clean = workflowEditorDraft(workflow, "fallback");
+
+    expect(workflowEditorDraftDirty({ ...clean, revision: clean.revision + 1 }, clean)).toBe(false);
+    expect(workflowEditorDraftDirty({ ...clean, source: `${clean.source}\n` }, clean)).toBe(true);
   });
 });

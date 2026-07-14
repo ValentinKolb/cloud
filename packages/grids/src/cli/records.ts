@@ -27,6 +27,71 @@ import {
 } from "./runtime";
 import { printRecordShape, recordShapeForFields } from "./schema-support";
 
+type RecordListBodyFlags = {
+  source?: string;
+  cursor?: string;
+  limit?: number;
+  q?: string;
+  includeDeleted?: boolean;
+  deletedOnly?: boolean;
+};
+
+export const composeRecordListBody = (query: Record<string, unknown>, flags: RecordListBodyFlags): Record<string, unknown> => {
+  if (flags.source) {
+    return { source: flags.source, query: Object.keys(query).length > 0 ? query : undefined, cursor: flags.cursor };
+  }
+  return {
+    query: applyDefined(
+      { ...query },
+      {
+        limit: flags.limit ?? (query.limit === undefined ? 100 : undefined),
+        search: flags.q ? { q: flags.q } : undefined,
+        includeDeleted: flags.includeDeleted ? true : undefined,
+        deletedOnly: flags.deletedOnly ? true : undefined,
+      },
+    ),
+    cursor: flags.cursor,
+  };
+};
+
+type RecordExportBodyFlags = {
+  format?: "csv" | "json";
+  delimiter?: string;
+  markdown?: "raw" | "html";
+  limit?: number;
+  q?: string;
+  includeDeleted?: boolean;
+  deletedOnly?: boolean;
+};
+
+const exportDelimiter = (value: string | undefined): string | undefined =>
+  value === "comma" ? "," : value === "semicolon" ? ";" : value === "tab" ? "\t" : value === "pipe" ? "|" : value;
+
+export const composeRecordExportBody = (suppliedBody: Record<string, unknown>, flags: RecordExportBodyFlags): Record<string, unknown> => {
+  const body = { ...suppliedBody };
+  const delimiter = exportDelimiter(flags.delimiter);
+  const existingCsv = body.csv && typeof body.csv === "object" && !Array.isArray(body.csv) ? (body.csv as Record<string, unknown>) : {};
+  applyDefined(body, {
+    format: flags.format ?? (body.format === undefined ? "csv" : undefined),
+    markdown: flags.markdown,
+    csv: delimiter ? { ...existingCsv, delimiter } : undefined,
+  });
+  if (flags.q || flags.limit || flags.includeDeleted || flags.deletedOnly) {
+    const existingQuery =
+      body.query && typeof body.query === "object" && !Array.isArray(body.query) ? (body.query as Record<string, unknown>) : {};
+    body.query = applyDefined(
+      { ...existingQuery },
+      {
+        limit: flags.limit,
+        search: flags.q ? { q: flags.q } : undefined,
+        includeDeleted: flags.includeDeleted ? true : undefined,
+        deletedOnly: flags.deletedOnly ? true : undefined,
+      },
+    );
+  }
+  return body;
+};
+
 export const recordCommands = [
   command("records shape", {
     summary: "Show the JSON payload shape for records in a table",
@@ -51,7 +116,7 @@ export const recordCommands = [
       source: flag.string({ description: "GQL source for the table query" }),
       queryBody: flag.input({ name: "query-body", fileName: "query-body-file", valueLabel: "json" }),
       cursor: flag.string({ description: "Pagination cursor" }),
-      limit: flag.int({ min: 1, max: 10_000, default: 100, description: "Row limit" }),
+      limit: flag.int({ min: 1, max: 10_000, description: "Row limit (default: 100)" }),
       includeDeleted: flag.boolean({ name: "include-deleted", description: "Include deleted records" }),
       deletedOnly: flag.boolean({ name: "deleted-only", description: "Only deleted records" }),
     },
@@ -59,17 +124,7 @@ export const recordCommands = [
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const query = (await readJsonInput<Record<string, unknown>>(flags.queryBody, "record query JSON", false)) ?? {};
-      const body = flags.source
-        ? { source: flags.source, query: Object.keys(query).length > 0 ? query : undefined, cursor: flags.cursor }
-        : {
-            query: applyDefined(query, {
-              limit: flags.limit,
-              search: flags.q ? { q: flags.q } : undefined,
-              includeDeleted: flags.includeDeleted ? true : undefined,
-              deletedOnly: flags.deletedOnly ? true : undefined,
-            }),
-            cursor: flags.cursor,
-          };
+      const body = composeRecordListBody(query, flags);
       const payload = await readApi<TableQueryResult>(ctx, `/tables/${encodeURIComponent(table.id)}/query`, jsonRequest("POST", body));
       const items = payload.items ?? [];
       printJsonOrTable(ctx, payload, recordRows(items), [
@@ -171,7 +226,7 @@ export const recordCommands = [
       ...baseFlag,
       ...tableFlag,
       body: JSON_BODY_INPUT,
-      format: flag.enum(["csv", "json"] as const, { default: "csv", description: "Export format" }),
+      format: flag.enum(["csv", "json"] as const, { description: "Export format (default: csv)" }),
       delimiter: flag.string({ description: "CSV delimiter: comma, semicolon, tab, pipe, or the literal delimiter" }),
       markdown: flag.enum(["raw", "html"] as const, { description: "Markdown export mode for long text fields" }),
       q: flag.string({ aliases: ["query"], description: "Free-text record search" }),
@@ -188,30 +243,10 @@ export const recordCommands = [
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const body = (await readJsonInput<Record<string, unknown>>(flags.body, "record export JSON", false)) ?? {};
-      const delimiter =
-        flags.delimiter === "comma"
-          ? ","
-          : flags.delimiter === "semicolon"
-            ? ";"
-            : flags.delimiter === "tab"
-              ? "\t"
-              : flags.delimiter === "pipe"
-                ? "|"
-                : flags.delimiter;
-      applyDefined(body, {
-        format: flags.format,
-        markdown: flags.markdown,
-        csv: delimiter ? { delimiter } : undefined,
-      });
-      if (flags.q || flags.limit || flags.includeDeleted || flags.deletedOnly) {
-        body.query = applyDefined((body.query as Record<string, unknown> | undefined) ?? {}, {
-          limit: flags.limit,
-          search: flags.q ? { q: flags.q } : undefined,
-          includeDeleted: flags.includeDeleted ? true : undefined,
-          deletedOnly: flags.deletedOnly ? true : undefined,
-        });
-      }
+      const body = composeRecordExportBody(
+        (await readJsonInput<Record<string, unknown>>(flags.body, "record export JSON", false)) ?? {},
+        flags,
+      );
       await writeApiFile(ctx, `/records/by-table/${encodeURIComponent(table.id)}/export`, jsonRequest("POST", body), flags.out);
     },
   }),

@@ -12,6 +12,7 @@ import { gridsService } from "../service";
 import {
   DocumentRunBrowseQuerySchema,
   DocumentRunListQuerySchema,
+  gateRun,
   gateTemplate,
   loadTemplateAndTable,
   uuidParam,
@@ -159,10 +160,7 @@ export const createDocumentRunRoutes = () =>
         if (!runId) return c.json({ message: "Document run not found" }, 404);
         const run = await gridsService.document.getRun(runId);
         if (!run) return c.json({ message: "Document run not found" }, 404);
-        const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
-        const gate = template
-          ? await gateTemplate(c, template, "write")
-          : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "write");
+        const gate = await gateRun(c, run, "write");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const updated = await gridsService.document.updateRunMetadata(run.id, c.req.valid("json"), currentActorUserId(c));
         if (!updated.ok) return c.json({ message: updated.error.message }, updated.error.status);
@@ -185,10 +183,7 @@ export const createDocumentRunRoutes = () =>
         if (!runId) return c.json({ message: "Document run not found" }, 404);
         const run = await gridsService.document.getRun(runId);
         if (!run) return c.json({ message: "Document run not found" }, 404);
-        const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
-        const gate = template
-          ? await gateTemplate(c, template, "read")
-          : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "read");
+        const gate = await gateRun(c, run, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const pdf = await gridsService.document.renderRunPdf(run);
         if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);

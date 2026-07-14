@@ -31,8 +31,10 @@ type Props = {
   source: Accessor<string>;
   previewRecordId: Accessor<string>;
   previewPdf: () => Promise<Response>;
-  accessEntries: Accessor<AccessEntry[]>;
+  accessEntries: Accessor<AccessEntry[] | undefined>;
   accessLoading: Accessor<boolean>;
+  accessError: Accessor<string | null>;
+  retryAccess: () => void;
 };
 
 const createPanesValue = (): PanesValue => ({
@@ -163,15 +165,29 @@ export function DocumentTemplateEditorPanes(props: Props) {
           >
             {(savedTemplate) => (
               <Show when={!props.accessLoading()} fallback={<div class="p-3 text-sm text-dimmed">Loading access…</div>}>
-                <ScopedPermissionEditor
-                  scope={{ type: "documentTemplate", id: savedTemplate().id }}
-                  initialEntries={props.accessEntries()}
-                  allowedLevels={[
-                    { level: "read", label: "Read", icon: "ti ti-eye" },
-                    { level: "write", label: "Write", icon: "ti ti-pencil" },
-                    { level: "admin", label: "Admin", icon: "ti ti-shield" },
-                  ]}
-                />
+                <Show
+                  when={!props.accessError() && props.accessEntries()}
+                  fallback={
+                    <div class="info-block-danger flex items-center justify-between gap-3 text-sm">
+                      <span>{props.accessError() ?? "Could not load document template access."}</span>
+                      <button type="button" class="btn-input btn-sm" onClick={props.retryAccess}>
+                        <i class="ti ti-refresh" /> Retry
+                      </button>
+                    </div>
+                  }
+                >
+                  {(entries) => (
+                    <ScopedPermissionEditor
+                      scope={{ type: "documentTemplate", id: savedTemplate().id }}
+                      initialEntries={entries()}
+                      allowedLevels={[
+                        { level: "read", label: "Read", icon: "ti ti-eye" },
+                        { level: "write", label: "Write", icon: "ti ti-pencil" },
+                        { level: "admin", label: "Admin", icon: "ti ti-shield" },
+                      ]}
+                    />
+                  )}
+                </Show>
               </Show>
             )}
           </Show>

@@ -15,3 +15,9 @@ export const workflowEditorDraft = (workflow: Workflow | undefined, fallbackSour
   source: workflow?.source ?? fallbackSource,
   revision: workflow?.revision ?? 1,
 });
+
+export const workflowEditorDraftDirty = (current: WorkflowEditorDraft, clean: WorkflowEditorDraft): boolean =>
+  current.name !== clean.name ||
+  current.description !== clean.description ||
+  current.enabled !== clean.enabled ||
+  current.source !== clean.source;

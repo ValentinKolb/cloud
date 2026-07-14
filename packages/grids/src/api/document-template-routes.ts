@@ -8,6 +8,7 @@ import {
   DocumentTemplateSchema,
   DocumentTemplateSummaryListSchema,
   RelationLookupResponseSchema,
+  ReorderDocumentTemplatesSchema,
   UpdateDocumentTemplateSchema,
 } from "../contracts";
 import { gridsService } from "../service";
@@ -93,6 +94,31 @@ export const createDocumentTemplateRoutes = () =>
         const gate = await gateAt(c, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         return respond(c, () => gridsService.document.createTemplate(tableId, c.req.valid("json"), currentActorUserId(c)), 201);
+      },
+    )
+
+    .patch(
+      "/templates/by-table/:tableId/reorder",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Reorder document templates",
+        responses: {
+          204: { description: "Document templates reordered" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          409: jsonResponse(ErrorResponseSchema, "Template list changed"),
+        },
+      }),
+      v("json", ReorderDocumentTemplatesSchema),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        if (!tableId) return c.json({ message: "Table not found" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const result = await gridsService.document.reorderTemplates(tableId, c.req.valid("json").templateIds, currentActorUserId(c));
+        if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+        return c.body(null, 204);
       },
     )
 

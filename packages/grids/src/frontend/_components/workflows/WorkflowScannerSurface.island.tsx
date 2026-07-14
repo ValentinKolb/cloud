@@ -6,6 +6,7 @@ import { errorMessage } from "../utils/api-helpers";
 import { createScannerEngine, type ScannerDetection, type ScannerEngine } from "./scanner-engine";
 import { createWorkflowRunEventBuffer } from "./workflow-run-event-buffer";
 import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
+import { acquireScannerStream, stopScannerStream } from "./workflow-scanner-camera";
 
 export type WorkflowScannerState = {
   baseShortId: string;
@@ -363,7 +364,7 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const stopCamera = () => {
-    stream?.getTracks().forEach((track) => track.stop());
+    if (stream) stopScannerStream(stream);
     stream = null;
     if (video) video.srcObject = null;
     setCameraRunning(false);
@@ -373,13 +374,19 @@ export default function WorkflowScannerSurface(props: Props) {
     setCameraError(null);
     try {
       engine ??= createScannerEngine();
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
-      if (!video) return;
+      const acquired = await acquireScannerStream(navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices), () => disposed);
+      if (!acquired) return;
+      if (!video) {
+        stopScannerStream(acquired);
+        return;
+      }
+      stream = acquired;
       video.srcObject = stream;
       await video.play();
+      if (disposed) {
+        stopCamera();
+        return;
+      }
       updateVideoBox();
       setCameraRunning(true);
       void tick();

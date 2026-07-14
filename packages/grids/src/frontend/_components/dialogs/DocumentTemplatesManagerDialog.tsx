@@ -1,5 +1,5 @@
 import { dialogCore, PanelDialog, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
-import { createResource, For, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentTemplate } from "../../../contracts";
 import { DOCUMENT_TEMPLATE_STARTERS, type DocumentTemplateStarter } from "../../../document-template-starters";
@@ -21,6 +21,7 @@ export const openDocumentTemplatesDialog = (args: { baseId: string; tableId: str
   );
 
 function DocumentTemplatesManager(props: { baseId: string; tableId: string; tableName: string }) {
+  const [reordering, setReordering] = createSignal(false);
   const [templates, { refetch }] = createResource(
     () => props.tableId,
     async (tableId) => {
@@ -86,17 +87,24 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
     const index = ordered.findIndex((item) => item.id === template.id);
     const swap = ordered[index + direction];
     if (!swap) return;
-    await Promise.all([
-      apiClient.documents.templates[":templateId"].$patch({
-        param: { templateId: template.id },
-        json: { position: swap.position },
-      }),
-      apiClient.documents.templates[":templateId"].$patch({
-        param: { templateId: swap.id },
-        json: { position: template.position },
-      }),
-    ]);
-    await refetch();
+    const next = [...ordered];
+    [next[index], next[index + direction]] = [next[index + direction]!, next[index]!];
+    setReordering(true);
+    try {
+      const res = await apiClient.documents.templates["by-table"][":tableId"].reorder.$patch({
+        param: { tableId: props.tableId },
+        json: { templateIds: next.map((item) => item.id) },
+      });
+      if (!res.ok) {
+        await prompts.error(await errorMessage(res, "Failed to reorder document templates"));
+        return;
+      }
+      await refetch();
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to reorder document templates");
+    } finally {
+      setReordering(false);
+    }
   };
 
   const openEditor = (template?: DocumentTemplate, starter?: DocumentTemplateStarter) => {
@@ -155,7 +163,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
               type="button"
               class="btn-simple btn-sm"
               title="Move up"
-              disabled={index() === 0}
+              disabled={reordering() || index() === 0}
               onClick={() => void moveTemplate(template, -1)}
             >
               <i class="ti ti-arrow-up" />
@@ -164,7 +172,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
               type="button"
               class="btn-simple btn-sm"
               title="Move down"
-              disabled={index() === (templates()?.length ?? 0) - 1}
+              disabled={reordering() || index() === (templates()?.length ?? 0) - 1}
               onClick={() => void moveTemplate(template, 1)}
             >
               <i class="ti ti-arrow-down" />

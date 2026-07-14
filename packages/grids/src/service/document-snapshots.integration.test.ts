@@ -122,8 +122,15 @@ describe("record snapshot relation access", () => {
         canReadRelatedTable: async () => true,
       });
       if (!completeSnapshot.ok) throw new Error(completeSnapshot.error.message);
-      const filtered = await filterSnapshotRelatedRecords(completeSnapshot.data, async (target) => target.tableId === readableTableId);
+      const filtered = await filterSnapshotRelatedRecords(
+        {
+          ...completeSnapshot.data,
+          graph: { ...completeSnapshot.data.graph, documentData: { secret: "must not escape" } },
+        },
+        async (target) => target.tableId === readableTableId,
+      );
       const filteredGraph = filtered.graph as { records: Record<string, unknown> };
+      expect(Object.keys(filtered.graph).sort()).toEqual(["records", "rootId"]);
       expect(Object.keys(filteredGraph.records).sort()).toEqual(
         [`${rootTableId}:${rootRecordId}`, `${readableTableId}:${readableRecordId}`].sort(),
       );

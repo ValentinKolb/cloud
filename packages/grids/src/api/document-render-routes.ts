@@ -225,7 +225,7 @@ export const createDocumentRenderRoutes = () =>
           dateConfig,
         });
         if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
-        const snapshot = await gridsService.document.createRecordSnapshot({
+        const snapshot = await gridsService.document.createRecordSnapshotDraft({
           baseId: loaded.table.baseId,
           tableId: loaded.table.id,
           recordId: body.recordId,
@@ -234,7 +234,7 @@ export const createDocumentRenderRoutes = () =>
           dateConfig,
         });
         if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
-        const run = await gridsService.document.createRun({
+        const created = await gridsService.document.createRenderedRun({
           template: loaded.template,
           snapshot: snapshot.data,
           renderData: { ...rendered.data, snapshot: snapshot.data },
@@ -243,14 +243,13 @@ export const createDocumentRenderRoutes = () =>
           dateConfig,
           filename: body.filename,
           tags: body.tags,
+          persistSnapshot: true,
         });
-        if (!run.ok) return c.json({ message: run.error.message }, run.error.status);
-        const pdf = await gridsService.document.renderRunPdf(run.data);
-        if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
-        return pdfResponse(pdf.data.pdf, run.data.filename, {
-          "X-Grids-Document-Run-Id": run.data.id,
-          "X-Grids-Document-Number": run.data.documentNumber,
-          "X-Grids-Document-Filename": encodeHeaderValue(run.data.filename),
+        if (!created.ok) return c.json({ message: created.error.message }, created.error.status);
+        return pdfResponse(created.data.pdf.pdf, created.data.run.filename, {
+          "X-Grids-Document-Run-Id": created.data.run.id,
+          "X-Grids-Document-Number": created.data.run.documentNumber,
+          "X-Grids-Document-Filename": encodeHeaderValue(created.data.run.filename),
         });
       },
     );
