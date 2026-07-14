@@ -32,8 +32,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const hasReadAccess = await contactsService.book.permission.canAccess({
     bookId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    subject: { type: "user", userId: user.id },
     requiredLevel: "read",
   });
 
@@ -51,8 +50,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const permission = await contactsService.book.permission.get({
     bookId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    subject: { type: "user", userId: user.id },
   });
 
   if (permission !== "admin") {
@@ -60,7 +58,7 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const [booksResult, accessEntriesResult, apiKeys, bookTags] = await Promise.all([
-    contactsService.book.list({ userId: user.id, groups: user.memberofGroupIds }),
+    contactsService.book.list({ subject: { type: "user", userId: user.id }, includeSystem: true }),
     contactsService.book.access.list({ bookId }),
     contactsService.book.access.apiKeys.list({ bookId }),
     contactsService.tag.list({ bookId }),
@@ -70,7 +68,7 @@ export default ssr<AuthContext>(async (c) => {
   const permissionEntries = await Promise.all(
     manualBooks.map(async (entry) => ({
       book: entry,
-      permission: await contactsService.book.permission.get({ bookId: entry.id, userId: user.id, userGroups: user.memberofGroupIds }),
+      permission: await contactsService.book.permission.get({ bookId: entry.id, subject: { type: "user", userId: user.id } }),
     })),
   );
   const adminBookIds = permissionEntries.filter((entry) => entry.permission === "admin").map((entry) => entry.book.id);

@@ -1,5 +1,6 @@
 import {
   type AccessEntry,
+  type AccessSubject,
   createAccess,
   deleteAccess,
   getEffectivePermission,
@@ -380,9 +381,7 @@ export const getBookAccessGuard = async (config: {
  */
 export const getBookPermission = async (config: {
   bookId: string;
-  userId: string | null;
-  userGroups: string[];
-  serviceAccountId?: string | null;
+  subject: AccessSubject;
 }): Promise<PermissionLevel> => {
   if (!isUuid(config.bookId)) return "none";
 
@@ -397,9 +396,7 @@ export const getBookPermission = async (config: {
 
   return getEffectivePermission({
     accessIds,
-    userId: config.userId,
-    userGroups: config.userGroups,
-    serviceAccountId: config.serviceAccountId ?? null,
+    subject: config.subject,
   });
 };
 
@@ -408,16 +405,12 @@ export const getBookPermission = async (config: {
  */
 export const canAccessBook = async (config: {
   bookId: string;
-  userId: string | null;
-  userGroups: string[];
-  serviceAccountId?: string | null;
+  subject: AccessSubject;
   requiredLevel?: PermissionLevel;
 }): Promise<boolean> => {
   const permission = await getBookPermission({
     bookId: config.bookId,
-    userId: config.userId,
-    userGroups: config.userGroups,
-    serviceAccountId: config.serviceAccountId ?? null,
+    subject: config.subject,
   });
 
   return hasPermission(permission, config.requiredLevel ?? "read");

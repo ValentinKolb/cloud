@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { type PermissionLevel, paginate, paginateItems } from "@valentinkolb/cloud/server";
+import { type AccessSubject, type PermissionLevel, paginate, paginateItems } from "@valentinkolb/cloud/server";
 import type { PageParams, Paginated } from "@valentinkolb/stdlib";
 import * as apiKeys from "./api-keys";
 import * as books from "./books";
@@ -30,17 +30,18 @@ import type {
 export const contactsService = {
   book: {
     list: async (config: {
-      userId: string;
-      groups: string[];
+      subject: AccessSubject;
+      boundBookId?: string | null;
+      includeSystem?: boolean;
       pagination?: PageParams;
       filter?: { query?: string };
     }): Promise<Paginated<ContactBook>> => {
       const manualBooks = await books.list({
-        userId: config.userId,
-        groups: config.groups,
+        subject: config.subject,
+        boundBookId: config.boundBookId,
       });
 
-      const allBooks = [getSystemBook(), ...manualBooks];
+      const allBooks = config.includeSystem && config.subject.type === "user" ? [getSystemBook(), ...manualBooks] : manualBooks;
       const query = config.filter?.query?.trim().toLowerCase();
       const filtered =
         query && query.length > 0
@@ -80,23 +81,19 @@ export const contactsService = {
     permission: {
       get: async (config: {
         bookId: string;
-        userId: string | null;
-        userGroups: string[];
-        serviceAccountId?: string | null;
+        subject: AccessSubject;
       }): Promise<PermissionLevel> => {
-        if (isSystemBookId(config.bookId)) return "read";
+        if (isSystemBookId(config.bookId)) return config.subject.type === "user" ? "read" : "none";
         return books.getPermission(config);
       },
       canAccess: async (config: {
         bookId: string;
-        userId: string | null;
-        userGroups: string[];
-        serviceAccountId?: string | null;
+        subject: AccessSubject;
         requiredLevel?: PermissionLevel;
       }): Promise<boolean> => {
         if (isSystemBookId(config.bookId)) {
           const requiredLevel = config.requiredLevel ?? "read";
-          return requiredLevel === "read";
+          return config.subject.type === "user" && requiredLevel === "read";
         }
         return books.canAccess(config);
       },
@@ -137,7 +134,12 @@ export const contactsService = {
     update: (config: { bookId: string; id: string; data: UpdateContactInput }) => contacts.update(config),
     move: (config: { sourceBookId: string; targetBookId: string; id: string }) => contacts.move(config),
     remove: (config: { bookId: string; id: string }) => contacts.remove(config),
-    search: (config: { userId: string; groups: string[]; pagination?: PageParams; filter?: { query?: string; includeSystem?: boolean } }) =>
+    search: (config: {
+      subject: AccessSubject;
+      boundBookId?: string | null;
+      pagination?: PageParams;
+      filter?: { query?: string; includeSystem?: boolean };
+    }) =>
       contacts.search(config),
     notes: {
       list: (config: { bookId: string; contactId: string }) => notes.list(config),

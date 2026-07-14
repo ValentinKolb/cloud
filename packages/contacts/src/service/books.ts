@@ -1,4 +1,4 @@
-import type { PermissionLevel } from "@valentinkolb/cloud/server";
+import { buildAccessPrincipalCondition, type AccessSubject, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
@@ -16,7 +16,7 @@ import {
   removeBookAccess,
   updateBookAccessPermission,
 } from "./access";
-import { isUuid, toPgUuidArray } from "./shared";
+import { isUuid } from "./shared";
 import type { ContactBook, ContactBookAdminListItem, CreateBookInput, UpdateBookInput } from "./types";
 
 type DbBook = {
@@ -51,9 +51,23 @@ const mapAdminBook = (row: DbAdminBook): ContactBookAdminListItem => ({
 });
 
 /**
- * Lists manual books that are readable by the provided user/group principals.
+ * Lists manual books readable by one authoritative access subject.
+ * Resource service accounts fail closed unless their exact book binding is supplied.
  */
-export const list = async (config: { userId: string | null; groups: string[] }): Promise<ContactBook[]> => {
+export const list = async (config: { subject: AccessSubject; boundBookId?: string | null }): Promise<ContactBook[]> => {
+  if (config.subject.type === "service_account" && !isUuid(config.boundBookId ?? "")) return [];
+
+  const principalMatch = buildAccessPrincipalCondition({
+    subject: config.subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+  const bindingMatch = config.subject.type === "service_account" ? sql`b.id = ${config.boundBookId}::uuid` : sql`true`;
+
   const rows = await sql<DbBook[]>`
     SELECT DISTINCT b.id, b.name, b.description, b.created_at, b.updated_at
     FROM contacts.books b
@@ -61,12 +75,8 @@ export const list = async (config: { userId: string | null; groups: string[] }):
     JOIN auth.access a ON a.id = ba.access_id
     WHERE
       a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
-      AND (
-        a.user_id = ${config.userId}::uuid
-        OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
-        OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-      )
+      AND ${principalMatch}
+      AND ${bindingMatch}
     ORDER BY b.name ASC
   `;
 
@@ -262,15 +272,11 @@ export const remove = async (config: { id: string }): Promise<Result<void>> => {
  */
 export const getPermission = async (config: {
   bookId: string;
-  userId: string | null;
-  userGroups: string[];
-  serviceAccountId?: string | null;
+  subject: AccessSubject;
 }): Promise<PermissionLevel> =>
   getBookPermission({
     bookId: config.bookId,
-    userId: config.userId,
-    userGroups: config.userGroups,
-    serviceAccountId: config.serviceAccountId ?? null,
+    subject: config.subject,
   });
 
 /**
@@ -278,16 +284,12 @@ export const getPermission = async (config: {
  */
 export const canAccess = async (config: {
   bookId: string;
-  userId: string | null;
-  userGroups: string[];
-  serviceAccountId?: string | null;
+  subject: AccessSubject;
   requiredLevel?: PermissionLevel;
 }): Promise<boolean> =>
   canAccessBook({
     bookId: config.bookId,
-    userId: config.userId,
-    userGroups: config.userGroups,
-    serviceAccountId: config.serviceAccountId ?? null,
+    subject: config.subject,
     requiredLevel: config.requiredLevel,
   });
 

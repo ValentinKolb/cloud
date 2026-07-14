@@ -20,12 +20,11 @@ export default ssr<AuthContext>(async (c) => {
   const selectedBookIdFromUrl = c.req.query("contactBook") ?? null;
   const [booksResult, contactsResult] = await Promise.all([
     contactsService.book.list({
-      userId: user.id,
-      groups: user.memberofGroupIds,
+      subject: { type: "user", userId: user.id },
+      includeSystem: true,
     }),
     contactsService.contact.search({
-      userId: user.id,
-      groups: user.memberofGroupIds,
+      subject: { type: "user", userId: user.id },
       pagination: { page, perPage },
       filter: { query: search.trim() || undefined, includeSystem: false },
     }),

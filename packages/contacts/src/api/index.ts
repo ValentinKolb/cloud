@@ -29,6 +29,7 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { contactsService } from "../service";
 import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID } from "../service/access";
+import { isUuid } from "../service/shared";
 import * as vcard from "../service/vcard";
 import { isSafeWebsiteUrl } from "../shared";
 
@@ -398,12 +399,38 @@ const getBookAccessSubject = (c: Context<AuthContext>) => {
   const serviceAccount = actor.kind === "service_account" ? actor.serviceAccount : null;
   return {
     user,
-    userId: accessSubject.type === "user" ? accessSubject.userId : null,
-    userGroups: user?.memberofGroupIds ?? [],
+    subject: accessSubject,
     serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
     serviceAccount,
     serviceAccountScopes: actor.kind === "service_account" ? actor.scopes : [],
   };
+};
+
+/**
+ * Restricts collection endpoints to the exact resource bound to an API key.
+ * Detail endpoints enforce the same invariant in `requireBookAccess`.
+ */
+const requireReadableCollectionBinding = async (c: Context<AuthContext>, subject: ReturnType<typeof getBookAccessSubject>) => {
+  if (!subject.serviceAccountId) {
+    return { boundBookId: null, error: null as ApiErrorResponse | null };
+  }
+
+  const account = subject.serviceAccount;
+  if (
+    account?.kind !== "resource_bound" ||
+    account.appId !== CONTACTS_APP_ID ||
+    account.resourceType !== CONTACT_BOOK_RESOURCE_TYPE ||
+    !account.resourceId ||
+    !isUuid(account.resourceId) ||
+    !hasPermission(permissionFromScopes(subject.serviceAccountScopes), "read")
+  ) {
+    return {
+      boundBookId: null,
+      error: await respond(c, fail(err.forbidden("Access denied"))),
+    };
+  }
+
+  return { boundBookId: account.resourceId, error: null as ApiErrorResponse | null };
 };
 
 /**
@@ -424,6 +451,15 @@ const requireBookAccess = async (c: Context<AuthContext>, bookId: string, requir
     return { book, permission: "admin" as PermissionLevel, user: subject.user, error: null as ApiErrorResponse | null };
   }
 
+  if (book.isSystem && !subject.user) {
+    return {
+      book: null,
+      permission: "none" as PermissionLevel,
+      user: null,
+      error: await respond(c, fail(err.forbidden("Access denied"))),
+    };
+  }
+
   if (
     subject.serviceAccount?.kind === "resource_bound" &&
     (subject.serviceAccount.appId !== CONTACTS_APP_ID ||
@@ -440,9 +476,7 @@ const requireBookAccess = async (c: Context<AuthContext>, bookId: string, requir
 
   let permission = await contactsService.book.permission.get({
     bookId,
-    userId: subject.userId,
-    userGroups: subject.userGroups,
-    serviceAccountId: subject.serviceAccountId,
+    subject: subject.subject,
   });
 
   if (subject.serviceAccount?.kind === "resource_bound") {
@@ -528,7 +562,7 @@ const adminApi = new Hono<AuthContext>()
     return respondMessage(c, contactsService.book.access.remove({ bookId, accessId }), "Access revoked");
   });
 
-/** Contacts API routes (IPA users only). */
+/** Contacts API routes for authenticated users and scoped resource credentials. */
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .route("/admin", adminApi)
@@ -550,15 +584,16 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ListBooksQuerySchema),
     async (c) => {
-      const userResult = requireUserBackedActor(c);
-      if (!userResult.ok) return respond(c, userResult);
-      const user = userResult.data;
+      const subject = getBookAccessSubject(c);
+      const binding = await requireReadableCollectionBinding(c, subject);
+      if (binding.error) return binding.error;
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
       const result = await contactsService.book.list({
-        userId: user.id,
-        groups: user.memberofGroupIds,
+        subject: subject.subject,
+        boundBookId: binding.boundBookId,
+        includeSystem: Boolean(subject.user),
         pagination,
         filter: { query: query.q },
       });
@@ -1216,8 +1251,7 @@ const app = new Hono<AuthContext>()
 
       const permission = await contactsService.book.permission.get({
         bookId,
-        userId: user.id,
-        userGroups: user.memberofGroupIds,
+        subject: { type: "user", userId: user.id },
       });
 
       return respondMessage(
@@ -1445,19 +1479,19 @@ const app = new Hono<AuthContext>()
     }),
     v("query", SearchContactsQuerySchema),
     async (c) => {
-      const userResult = requireUserBackedActor(c);
-      if (!userResult.ok) return respond(c, userResult);
-      const user = userResult.data;
+      const subject = getBookAccessSubject(c);
+      const binding = await requireReadableCollectionBinding(c, subject);
+      if (binding.error) return binding.error;
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
       const result = await contactsService.contact.search({
-        userId: user.id,
-        groups: user.memberofGroupIds,
+        subject: subject.subject,
+        boundBookId: binding.boundBookId,
         pagination,
         filter: {
           query: query.q,
-          includeSystem: query.includeSystem ?? false,
+          includeSystem: Boolean(subject.user) && (query.includeSystem ?? false),
         },
       });
 

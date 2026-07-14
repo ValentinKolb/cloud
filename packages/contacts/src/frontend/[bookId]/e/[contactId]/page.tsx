@@ -13,8 +13,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const hasReadAccess = await contactsService.book.permission.canAccess({
     bookId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    subject: { type: "user", userId: user.id },
     requiredLevel: "read",
   });
 
@@ -23,8 +22,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const hasWriteAccess = await contactsService.book.permission.canAccess({
     bookId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    subject: { type: "user", userId: user.id },
     requiredLevel: "write",
   });
 

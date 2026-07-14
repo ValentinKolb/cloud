@@ -1,3 +1,4 @@
+import { buildAccessPrincipalCondition, type AccessSubject } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { resolveStoredContactLabel } from "../shared";
@@ -638,15 +639,22 @@ const mapManualSearchCondition = (searchPattern: string | null) => sql`
   )
 `;
 
-const mapManualReadableAccessCondition = (userId: string, groups: string[]) => sql`
+const mapManualReadableAccessCondition = (subject: AccessSubject) => {
+  const principalMatch = buildAccessPrincipalCondition({
+    subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+
+  return sql`
   a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
-  AND (
-    a.user_id = ${userId}::uuid
-    OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-    OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-    OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
-  )
+  AND ${principalMatch}
 `;
+};
 
 const mapSystemSearchCondition = (searchPattern: string | null) => sql`
   (
@@ -1274,14 +1282,20 @@ const hydrateSearchRows = async (rows: SearchRow[]): Promise<Contact[]> => {
  * Global search across all readable manual books plus the virtual system book.
  */
 export const search = async (config: {
-  userId: string;
-  groups: string[];
+  subject: AccessSubject;
+  boundBookId?: string | null;
   pagination?: PageParams;
   filter?: { query?: string; includeSystem?: boolean };
 }): Promise<Paginated<Contact>> => {
-  const searchPattern = buildSearchPattern(config.filter?.query);
-  const includeSystem = config.filter?.includeSystem ?? false;
   const { page, perPage, offset } = paginate(config.pagination);
+  if (config.subject.type === "service_account" && !isUuid(config.boundBookId ?? "")) {
+    return { items: [], page, perPage, total: 0, hasNext: false };
+  }
+
+  const searchPattern = buildSearchPattern(config.filter?.query);
+  const includeSystem = config.subject.type === "user" && (config.filter?.includeSystem ?? false);
+  const bindingMatch =
+    config.subject.type === "service_account" ? sql`c.book_id = ${config.boundBookId}::uuid` : sql`true`;
 
   const [countRow] = await sql<{ count: number }[]>`
     WITH manual_matches AS (
@@ -1296,7 +1310,8 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE ${mapManualReadableAccessCondition(config.userId, config.groups)}
+      WHERE ${mapManualReadableAccessCondition(config.subject)}
+        AND ${bindingMatch}
         AND ${mapManualSearchCondition(searchPattern)}
     ),
     system_matches AS (
@@ -1337,7 +1352,8 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE ${mapManualReadableAccessCondition(config.userId, config.groups)}
+      WHERE ${mapManualReadableAccessCondition(config.subject)}
+        AND ${bindingMatch}
         AND ${mapManualSearchCondition(searchPattern)}
     ),
     system_matches AS (

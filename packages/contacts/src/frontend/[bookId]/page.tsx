@@ -23,8 +23,8 @@ export default ssr<AuthContext>(async (c) => {
   const [book, booksResult] = await Promise.all([
     contactsService.book.get({ id: bookId }),
     contactsService.book.list({
-      userId: user.id,
-      groups: user.memberofGroupIds,
+      subject: { type: "user", userId: user.id },
+      includeSystem: true,
     }),
   ]);
   if (!book) {
@@ -40,8 +40,7 @@ export default ssr<AuthContext>(async (c) => {
   }
   const hasReadAccess = await contactsService.book.permission.canAccess({
     bookId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    subject: { type: "user", userId: user.id },
     requiredLevel: "read",
   });
   if (!hasReadAccess) {

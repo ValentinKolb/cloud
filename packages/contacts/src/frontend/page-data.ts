@@ -25,8 +25,7 @@ export const loadContactBookPermissions = async (config: { books: ContactBook[];
       book,
       permission: await contactsService.book.permission.get({
         bookId: book.id,
-        userId: config.user.id,
-        userGroups: config.user.memberofGroupIds,
+        subject: { type: "user", userId: config.user.id },
       }),
     })),
   );
@@ -56,8 +55,7 @@ export const resolveSelectedContact = async (config: {
 
   const hasReadAccess = await contactsService.book.permission.canAccess({
     bookId: config.bookId,
-    userId: config.user.id,
-    userGroups: config.user.memberofGroupIds,
+    subject: { type: "user", userId: config.user.id },
     requiredLevel: "read",
   });
   if (!hasReadAccess) return null;

@@ -41,8 +41,7 @@ const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const fetchLimit = facetFilterActive ? Math.min(FACET_OVERFETCH_CAP, input.limit * FACET_OVERFETCH_MULTIPLIER) : input.limit;
 
   const page = await contactsService.contact.search({
-    userId: user.id,
-    groups: user.memberofGroupIds,
+    subject: { type: "user", userId: user.id },
     pagination: { page: 1, perPage: fetchLimit },
     filter: { query: input.query, includeSystem: true },
   });
