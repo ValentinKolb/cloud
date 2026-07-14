@@ -25,6 +25,9 @@ const metricSyntax = `metric <metric> <aggregation>
   [where <key>=<value>, ...]`;
 
 const eventsSyntax = `events [<kind>|*]
+  [count|sum|unique actor|unique session]
+  [every <duration>]
+  [group by <dimension>, ...]
   [since <duration>]
   [source <uuid>]
   [entity <id>]
@@ -54,6 +57,18 @@ const syntaxRows: SyntaxRow[] = [
     example: "events deploy.finished",
   },
   {
+    clause: "count | sum | unique actor | unique session",
+    appliesTo: "events",
+    meaning: "Aggregate matched events in SQL and return time-series points instead of raw rows.",
+    example: "events page.viewed unique actor every 1d since 30d",
+  },
+  {
+    clause: "group by <dimension>, ...",
+    appliesTo: "aggregated events",
+    meaning: "Split an event aggregation by one to four dimension keys. Other event field roles cannot be grouped.",
+    example: "group by campaign, country",
+  },
+  {
     clause: "states [<key>|*]",
     appliesTo: "states",
     meaning:
@@ -62,8 +77,8 @@ const syntaxRows: SyntaxRow[] = [
   },
   {
     clause: "every <duration>",
-    appliesTo: "metric",
-    meaning: "Bucket metric samples into fixed time windows. Use compact durations such as 5m, 1h, or 7d.",
+    appliesTo: "metric, aggregated events",
+    meaning: "Bucket metric samples or aggregated events into fixed time windows. Use compact durations such as 5m, 1h, or 7d.",
     example: "every 15m",
   },
   {
@@ -99,7 +114,7 @@ const syntaxRows: SyntaxRow[] = [
   {
     clause: "limit <rows>",
     appliesTo: "events, states",
-    meaning: "Limit returned rows. The parser accepts positive integers and clamps values above 1000.",
+    meaning: "Limit returned rows. Use a positive integer no larger than 1000.",
     example: "limit 100",
   },
 ];
@@ -153,6 +168,18 @@ const aggregationRows: AggregationRow[] = [
     bestFor: "Latency and distribution metrics.",
     example: "metric http_request_duration_seconds p95 every 5m since 24h",
   },
+  {
+    name: "events count / sum",
+    meaning: "Count events or sum their numeric value in each bucket.",
+    bestFor: "Visits, orders, errors, revenue, and other point-in-time facts.",
+    example: "events order.created sum every 1h since 7d group by currency",
+  },
+  {
+    name: "events unique actor / session",
+    meaning: "Count distinct first-class actorId or sessionId values in each bucket.",
+    bestFor: "Visitors, active users, sessions, and engagement without high-cardinality dimensions.",
+    example: "events page.viewed unique actor every 1d since 30d",
+  },
 ];
 
 const syntaxColumns: DataTableColumn<SyntaxRow>[] = [
@@ -172,8 +199,8 @@ const aggregationColumns: DataTableColumn<AggregationRow>[] = [
 export const PulseQueryDslHelpPage = () => (
   <PulseDocPage>
     <DocLead>
-      Query DSL answers one data question at a time. Pick whether you need a numeric time series, event rows, or current state rows, then
-      narrow the query with source, resource, and dimension filters.
+      Query DSL answers one data question at a time. Pick whether you need a metric series, raw or aggregated events, or current states,
+      then narrow the query with source, resource, and dimension filters.
     </DocLead>
 
     <DocSection title="Pick the statement by question" eyebrow="Query DSL">
@@ -194,8 +221,8 @@ export const PulseQueryDslHelpPage = () => (
             icon: "ti-bolt",
             text: (
               <>
-                Use <DocInlineCode>events</DocInlineCode>. Events return rows for audits, deploys, incidents, checkout steps, imports, and
-                other things that happened at a point in time.
+                Use <DocInlineCode>events</DocInlineCode>. Return raw rows for inspection, or count, sum, and count unique actors or
+                sessions in SQL.
               </>
             ),
           },
@@ -217,8 +244,11 @@ export const PulseQueryDslHelpPage = () => (
       <PulseStepList
         items={[
           { title: "Name the signal", text: "Choose the metric, event kind, or state key from the UI or Inventory." },
-          { title: "Choose the shape", text: "Metrics need an aggregation. Events and states usually need a limit." },
-          { title: "Set the time range", text: "Use since for the range, and every for metric buckets." },
+          {
+            title: "Choose the shape",
+            text: "Metrics need an aggregation. Events can return rows or use count, sum, or unique aggregation.",
+          },
+          { title: "Set the time range", text: "Use since for the range, and every for metric or aggregated-event buckets." },
           {
             title: "Narrow the scope",
             text: "Add source, entity, entity_type, or where filters when the result includes too many variants or rows.",
@@ -240,7 +270,7 @@ export const PulseQueryDslHelpPage = () => (
           title="Events"
           code={eventsSyntax}
           highlight={pulseQueryHighlight}
-          copyText="events [<kind>|*] [since <duration>] [source <uuid>] [entity <id>] [entity_type <type>] [where <key>=<value>, ...] [limit <rows>]"
+          copyText="events [<kind>|*] [count|sum|unique actor|unique session] [every <duration>] [group by <dimension>, ...] [since <duration>] [source <uuid>] [entity <id>] [entity_type <type>] [where <key>=<value>, ...] [limit <rows>]"
           copy
         />
         <DocCode
@@ -279,7 +309,12 @@ export const PulseQueryDslHelpPage = () => (
           {
             title: "Recent events",
             query: "events deploy.finished since 7d where env=prod limit 100",
-            reason: "Use events for rows you want to inspect, audit, or later feed into funnel-style analysis.",
+            reason: "Use raw events for rows you want to inspect or audit.",
+          },
+          {
+            title: "Daily unique visitors",
+            query: "events page.viewed unique actor every 1d since 30d where channel=web",
+            reason: "Use first-class actor identities for unique counts instead of creating one dimension value per visitor.",
           },
           {
             title: "Current states",
@@ -330,8 +365,10 @@ export const PulseQueryDslHelpPage = () => (
           <DocInlineCode>metric</DocInlineCode> requires a metric and aggregation. Use <DocInlineCode>every</DocInlineCode> to choose
           buckets and <DocInlineCode>since</DocInlineCode> to define the time range.
         </DocNote>
-        <DocNote title="Events and states return rows" variant="tip">
-          <DocInlineCode>events</DocInlineCode> and <DocInlineCode>states</DocInlineCode> start as table output. Use{" "}
+        <DocNote title="Events return rows or points" variant="tip">
+          <DocInlineCode>events</DocInlineCode> starts as table output. Add <DocInlineCode>count</DocInlineCode>,{" "}
+          <DocInlineCode>sum</DocInlineCode>, <DocInlineCode>unique actor</DocInlineCode>, or <DocInlineCode>unique session</DocInlineCode>{" "}
+          for SQL time-series aggregation. <DocInlineCode>states</DocInlineCode> returns current rows. Use{" "}
           <DocInlineCode>source</DocInlineCode>, <DocInlineCode>entity</DocInlineCode>, <DocInlineCode>entity_type</DocInlineCode>,{" "}
           <DocInlineCode>where</DocInlineCode>, and <DocInlineCode>limit</DocInlineCode> to narrow them.
         </DocNote>
@@ -341,8 +378,8 @@ export const PulseQueryDslHelpPage = () => (
         </DocNote>
         <DocNote title="Performance limits" variant="warning">
           Metric queries fail when more than 250 series match. Add <DocInlineCode>source</DocInlineCode>,{" "}
-          <DocInlineCode>entity</DocInlineCode>, or <DocInlineCode>where</DocInlineCode> filters. Event and state limits are capped at 1000
-          rows.
+          <DocInlineCode>entity</DocInlineCode>, or <DocInlineCode>where</DocInlineCode> filters. Raw event and state limits are capped at
+          1000 rows; event aggregations accept at most four group keys and return at most 1000 points.
         </DocNote>
       </div>
     </DocSection>

@@ -31,7 +31,7 @@ Read the app reference for the current task. Follow specialized links inside it 
 - Read [Contacts](references/contacts.md) for contact books, contacts, tags, notes, exports, and access grants.
 - Read [Mail](references/mail.md) to configure mailboxes, connect IMAP/SMTP providers, search and operate messages, send mail, and run provider smoke tests.
 - Read [Notebooks](references/notebooks.md) for collaborative notes, knowledge search, safe Markdown editing, attachments, scripts, formulas, exports, and access.
-- Read [Pulse](references/pulse.md) to explore telemetry, run queries, create DSL dashboards, manage sources, and share public displays.
+- Read [Pulse](references/pulse.md) to explore telemetry and observed fields, ingest structured events, run queries, create DSL dashboards, manage sources, and share public displays.
 - Read [Spaces](references/spaces.md) for spaces, items, comments, calendars, and access grants.
 - Read [Tools](references/tools.md) for local password, encoding, QR, encryption, and speedtest utilities.
 - Read [Venue](references/venue.md) to operate venues, opening rules, public sections, shifts, and venue access.

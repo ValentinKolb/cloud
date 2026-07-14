@@ -154,7 +154,8 @@ const dashboardStatementRows: DashboardStatementRow[] = [
   {
     statement: "query <Query DSL>",
     scope: "widget",
-    meaning: "Embeds metric, events, or states Query DSL. Dashboard controls may be referenced as $variables.",
+    meaning:
+      "Embeds metric, events, or states Query DSL. Dashboard controls may be referenced as $variables. Event widgets render raw rows; event aggregation points are Query Explorer and CLI results.",
     example: "query metric orders.created increase every 1h since $range where region=$region",
   },
   {
@@ -248,7 +249,8 @@ export const PulseDashboardDslHelpPage = () => (
       <div class="grid gap-3 text-sm lg:grid-cols-2">
         <DocNote title="Dashboards compose query output" variant="info">
           Widget <DocInlineCode>query</DocInlineCode> lines use the same Query DSL. Metric widgets render values and charts; table widgets
-          render events and states.
+          render raw event rows and current states. Event aggregation points are available in the Query Explorer and CLI, not dashboard
+          widgets.
         </DocNote>
         <DocNote title="Controls define variables" variant="info">
           Declare controls once, then use variables inside widget queries. This keeps dashboards editable without duplicating filters.

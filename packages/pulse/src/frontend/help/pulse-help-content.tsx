@@ -142,6 +142,70 @@ export const PulseDataModelHelpPage = () => (
       />
     </DocSection>
 
+    <DocSection title="Choose the right signal type">
+      <DocRows
+        items={[
+          {
+            title: "Metric: a bounded numeric time series",
+            icon: "ti-chart-line",
+            text: "Use metrics for repeated measurements such as CPU usage, power, latency, or revenue. Keep dimensions bounded: one metric may have at most 10,000 series in a base.",
+          },
+          {
+            title: "Event: something happened",
+            icon: "ti-bolt",
+            text: "Use events for visits, QR opens, orders, requests, deployments, and other point-in-time facts. Events can carry high-cardinality detail without creating metric series.",
+          },
+          {
+            title: "State: what is true now",
+            icon: "ti-toggle-right",
+            text: "Use states for online status, current version, operating mode, or another latest value. Pulse adds history only when the value actually changes.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Classify event fields">
+      <DocRows
+        items={[
+          {
+            title: "Dimensions filter and group",
+            icon: "ti-tags",
+            text: "Use bounded labels such as campaign, channel, country, outcome, or environment. Query DSL where and group by operate on dimensions.",
+          },
+          {
+            title: "Attributes retain high-cardinality detail",
+            icon: "ti-braces",
+            text: "Use attributes for full URLs, request IDs, referrers, user agents, and irregular event detail that should remain visible on raw events.",
+          },
+          {
+            title: "Sensitive fields expire independently",
+            icon: "ti-shield-lock",
+            text: "Use sensitive for raw IPs, precise geodata, and classified event data. Normal event results never expose it, and Pulse clears it before the remaining event expires.",
+          },
+          {
+            title: "Payload stays opaque",
+            icon: "ti-code-dots",
+            text: "Use payload for nested domain data that should be returned as one object but does not need field discovery, filtering, or grouping.",
+          },
+          {
+            title: "The field catalog stores shape, not values",
+            icon: "ti-list-details",
+            text: "Inventory records observed dimension, attribute, and sensitive field names, roles, value types, counts, and timestamps. It does not copy their values into the catalog.",
+          },
+          {
+            title: "Identities support analytics",
+            icon: "ti-fingerprint",
+            text: "Use actorId, sessionId, and correlationId for high-cardinality identities. Pulse can count unique actors and sessions without turning them into dimensions.",
+          },
+          {
+            title: "Resources stay stable",
+            icon: "ti-cube",
+            text: "Create resources for browsable objects such as a campaign, QR code, host, or service. A visit, session, request, timestamp, or IP address is not a resource.",
+          },
+        ]}
+      />
+    </DocSection>
+
     <DocNote title="Resource in the UI, entity in the DSL">
       The UI says resource because it is easier to read. Query DSL uses <DocInlineCode>entity</DocInlineCode> for the same identifier and{" "}
       <DocInlineCode>entity_type</DocInlineCode> for the resource class. For example,{" "}
@@ -178,7 +242,7 @@ export const PulseFindDataHelpPage = () => (
           {
             title: "Use Inventory as the lookup table",
             icon: "ti-database-search",
-            text: "Inventory is the live catalog for the current base. Filter it by source or entity, then copy scoped snippets into Query explorer or Dashboard DSL.",
+            text: "Inventory is the live catalog for the current base. Filter it by source or entity, inspect observed field roles, then copy scoped snippets into Query explorer or Dashboard DSL.",
           },
         ]}
       />
@@ -229,7 +293,7 @@ export const PulseOperateHelpPage = () => (
           {
             title: "Retention and clear data",
             icon: "ti-recycle",
-            text: "Raw telemetry, hourly metric rollups, and classified sensitive event fields have independent retention. Clear telemetry when you want to keep the base, sources, access, and settings but discard collected data.",
+            text: "Raw telemetry, hourly metric rollups, and classified sensitive event fields have independent retention. Sensitive expiry clears only the event's sensitive object; raw expiry removes the event. Clear telemetry to keep the base, sources, access, and settings while discarding collected data.",
           },
           {
             title: "Access",
@@ -263,6 +327,11 @@ export const PulseOperateHelpPage = () => (
             icon: "ti-repeat",
             text: "Send the same Idempotency-Key when retrying one batch. Pulse returns the original result for 24 hours and rejects reuse with different content.",
           },
+          {
+            title: "Bounded metric cardinality",
+            icon: "ti-chart-dots",
+            text: "One metric may have at most 10,000 series in a base. Move request IDs, sessions, full URLs, IPs, and other unbounded values to events instead of metric dimensions.",
+          },
         ]}
       />
     </DocSection>
@@ -289,6 +358,11 @@ export const PulseOperateHelpPage = () => (
             title: "Rows look duplicated",
             icon: "ti-stack-2",
             text: "Open the resource or signal page. Repeated rows are usually variants with different resources or dimensions.",
+          },
+          {
+            title: "A metric hits the series limit",
+            icon: "ti-alert-triangle",
+            text: "Inspect its dimensions. Keep stable grouping labels, then move unbounded identities or event detail into an event's first-class identities, attributes, sensitive fields, or payload.",
           },
         ]}
       />
@@ -318,7 +392,7 @@ export const PulseReferenceOverviewPage = (props: { includeDashboardDsl?: boolea
     <DocSection title="What this reference covers" eyebrow="Overview">
       <div class="grid gap-3 text-sm lg:grid-cols-3">
         <DocNote title="Query DSL" variant="info">
-          Fetch metrics, event rows, and current states. The explorer and dashboard widgets use the same language.
+          Fetch metric series, raw or aggregated events, and current states. The explorer and dashboard widgets use the same language.
         </DocNote>
         <Show when={props.includeDashboardDsl}>
           <DocNote title="Dashboard DSL" variant="tip">
@@ -363,6 +437,7 @@ export const PulseReferenceOverviewPage = (props: { includeDashboardDsl?: boolea
         <PulseQuerySnippet title="Counter throughput" code="metric http_requests_total rate every 1m since 1h where route=/api" />
         <PulseQuerySnippet title="Orders per hour" code="metric orders.created increase every 1h since 7d where channel=web" />
         <PulseQuerySnippet title="Recent errors" code="events app.error since 24h where severity=critical limit 100" />
+        <PulseQuerySnippet title="Daily unique visitors" code="events page.viewed unique actor every 1d since 30d where channel=web" />
         <PulseQuerySnippet
           title="Fresh integration states"
           code="states integration.online since 10m where integration=webshop limit 200"
