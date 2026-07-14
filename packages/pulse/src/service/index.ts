@@ -11,7 +11,7 @@ import type {
 } from "../contracts";
 import { compileDashboardDsl } from "../dashboard-dsl";
 import { compilePulseQueryText } from "../query-dsl";
-import { requireBaseAccess, type UserScope } from "./access-control";
+import { requireBaseAccess, type AccessScope } from "./access-control";
 import {
   clearBaseData,
   createBase,
@@ -80,7 +80,7 @@ export const scrapeMetricsSource = async (params: {
 const scrapeSource = async (params: {
   baseId: string;
   sourceId: string;
-  user: UserScope;
+  user: AccessScope;
 }): Promise<Result<{ metrics: number; events: number; states: number }>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
@@ -90,7 +90,7 @@ const scrapeSource = async (params: {
 const compileDashboardDslText = async (params: {
   baseId: string;
   text: string;
-  user: UserScope;
+  user: AccessScope;
 }): Promise<Result<PulseDashboardDslCompileResult>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "read");
   if (!access.ok) return fail(access.error);
@@ -108,7 +108,7 @@ const getPublicDashboardSnapshot = async (token: string): Promise<Result<PulseDa
   return getPublicDashboardSnapshotWithDeps(token, { queryMetricData, queryEventsData, queryStatesData });
 };
 
-const getDashboardSnapshot = async (params: { dashboardId: string; user: UserScope }): Promise<Result<PulseDashboardSnapshot>> =>
+const getDashboardSnapshot = async (params: { dashboardId: string; user: AccessScope }): Promise<Result<PulseDashboardSnapshot>> =>
   getDashboardSnapshotWithDeps(params.dashboardId, params.user, { queryMetricData, queryEventsData, queryStatesData });
 
 const capabilities = async (): Promise<Result<PulseCapabilitySnapshot>> => {

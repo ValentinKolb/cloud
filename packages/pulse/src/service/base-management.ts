@@ -11,7 +11,7 @@ import {
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { PulseBase } from "../contracts";
-import { requireBaseAccess, type UserScope } from "./access-control";
+import { listBaseIdsVisibleTo, requireBaseAccess, userIdForScope, type AccessScope, type UserScope } from "./access-control";
 import { submitBaseDataClearJob, submitBaseDeletionJob } from "./base-lifecycle";
 import { PULSE_APP_ID, PULSE_SOURCE_RESOURCE_TYPE } from "./source-management";
 import { iso, isoNullable } from "./telemetry-values";
@@ -39,6 +39,7 @@ type AccessRow = {
   id: string;
   user_id: string | null;
   group_id: string | null;
+  service_account_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date | string;
@@ -79,9 +80,12 @@ const mapBase = (row: BaseRow): PulseBase => ({
   updatedAt: iso(row.updated_at),
 });
 
-const principalFromAccessRow = (row: Pick<AccessRow, "user_id" | "group_id" | "authenticated_only">): Principal => {
+const principalFromAccessRow = (
+  row: Pick<AccessRow, "user_id" | "group_id" | "service_account_id" | "authenticated_only">,
+): Principal => {
   if (row.user_id) return { type: "user", userId: row.user_id };
   if (row.group_id) return { type: "group", groupId: row.group_id };
+  if (row.service_account_id) return { type: "service_account", serviceAccountId: row.service_account_id };
   if (row.authenticated_only) return { type: "authenticated" };
   return { type: "public" };
 };
@@ -93,19 +97,14 @@ const mapAccessRow = (row: AccessRow): AccessEntry => ({
   createdAt: iso(row.created_at),
 });
 
-export const listBases = async (user: UserScope): Promise<Result<PulseBase[]>> => {
-  const groups = toPgUuidArray(user.memberofGroupIds ?? []);
+export const listBases = async (user: AccessScope): Promise<Result<PulseBase[]>> => {
+  const baseIds = await listBaseIdsVisibleTo(user);
+  if (baseIds.length === 0) return ok([]);
   const rows = await sql<BaseRow[]>`
-    SELECT DISTINCT b.*
+    SELECT b.*
     FROM pulse.bases b
-    JOIN pulse.base_access ba ON ba.base_id = b.id
-    JOIN auth.access a ON a.id = ba.access_id
     WHERE b.deletion_started_at IS NULL
-      AND (
-        a.user_id = ${user.id}::uuid
-        OR a.group_id = ANY(${groups}::uuid[])
-        OR a.authenticated_only = TRUE
-      )
+      AND b.id = ANY(${toPgUuidArray(baseIds)}::uuid[])
     ORDER BY b.updated_at DESC, b.name ASC
   `;
   return ok(rows.map(mapBase));
@@ -140,11 +139,11 @@ export const createBase = async (params: { name: string; description?: string | 
   return ok(mapBase(created.data));
 };
 
-export const listBaseAccess = async (baseId: string, user: UserScope): Promise<Result<AccessEntry[]>> => {
+export const listBaseAccess = async (baseId: string, user: AccessScope): Promise<Result<AccessEntry[]>> => {
   const access = await requireBaseAccess(baseId, user, "admin");
   if (!access.ok) return fail(access.error);
   const rows = await sql<AccessRow[]>`
-    SELECT a.id, a.user_id, a.group_id, a.authenticated_only, a.permission, a.created_at
+    SELECT a.id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only, a.permission, a.created_at
     FROM pulse.base_access ba
     JOIN auth.access a ON a.id = ba.access_id
     WHERE ba.base_id = ${baseId}::uuid
@@ -155,7 +154,7 @@ export const listBaseAccess = async (baseId: string, user: UserScope): Promise<R
 
 export const grantBaseAccess = async (params: {
   baseId: string;
-  user: UserScope;
+  user: AccessScope;
   principal: Principal;
   permission: Exclude<PermissionLevel, "none">;
 }): Promise<Result<AccessEntry>> => {
@@ -165,6 +164,7 @@ export const grantBaseAccess = async (params: {
   const created = await sql.begin(async (tx): Promise<Result<AccessRow>> => {
     let userId: string | null = null;
     let groupId: string | null = null;
+    let serviceAccountId: string | null = null;
     let authenticatedOnly = false;
 
     if (params.principal.type === "user") {
@@ -175,14 +175,27 @@ export const grantBaseAccess = async (params: {
       groupId = params.principal.groupId;
       const [groupRow] = await tx<{ id: string }[]>`SELECT id FROM auth.groups WHERE id = ${groupId}::uuid`;
       if (!groupRow) return fail(err.notFound("Group"));
+    } else if (params.principal.type === "service_account") {
+      serviceAccountId = params.principal.serviceAccountId;
+      const [serviceAccountRow] = await tx<{ id: string }[]>`
+        SELECT id FROM auth.service_accounts
+        WHERE id = ${serviceAccountId}::uuid AND status = 'active'
+      `;
+      if (!serviceAccountRow) return fail(err.notFound("Service account"));
     } else if (params.principal.type === "authenticated") {
       authenticatedOnly = true;
     }
 
     const [row] = await tx<AccessRow[]>`
-      INSERT INTO auth.access (user_id, group_id, authenticated_only, permission)
-      VALUES (${userId}::uuid, ${groupId}::uuid, ${authenticatedOnly}, ${params.permission}::auth.permission_level)
-      RETURNING id, user_id, group_id, authenticated_only, permission, created_at
+      INSERT INTO auth.access (user_id, group_id, service_account_id, authenticated_only, permission)
+      VALUES (
+        ${userId}::uuid,
+        ${groupId}::uuid,
+        ${serviceAccountId}::uuid,
+        ${authenticatedOnly},
+        ${params.permission}::auth.permission_level
+      )
+      RETURNING id, user_id, group_id, service_account_id, authenticated_only, permission, created_at
     `;
     if (!row) return fail(err.internal("Failed to create access entry"));
     await tx`
@@ -209,7 +222,7 @@ const hasBaseAccessBinding = async (baseId: string, accessId: string): Promise<b
 export const updateBaseAccess = async (params: {
   baseId: string;
   accessId: string;
-  user: UserScope;
+  user: AccessScope;
   permission: Exclude<PermissionLevel, "none">;
 }): Promise<Result<void>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "admin");
@@ -224,7 +237,7 @@ export const updateBaseAccess = async (params: {
   return ok();
 };
 
-export const revokeBaseAccess = async (params: { baseId: string; accessId: string; user: UserScope }): Promise<Result<void>> => {
+export const revokeBaseAccess = async (params: { baseId: string; accessId: string; user: AccessScope }): Promise<Result<void>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "admin");
   if (!access.ok) return fail(access.error);
   if (!(await hasBaseAccessBinding(params.baseId, params.accessId))) return fail(err.notFound("Access entry"));
@@ -233,7 +246,7 @@ export const revokeBaseAccess = async (params: { baseId: string; accessId: strin
   return ok();
 };
 
-export const getBase = async (baseId: string, user: UserScope): Promise<Result<PulseBase>> => {
+export const getBase = async (baseId: string, user: AccessScope): Promise<Result<PulseBase>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
   const [row] = await sql<BaseRow[]>`
@@ -301,7 +314,7 @@ const persistBaseUpdate = async (baseId: string, values: BaseUpdateValues): Prom
 
 export const updateBase = async (params: {
   baseId: string;
-  user: UserScope;
+  user: AccessScope;
   name?: string;
   description?: string | null;
   rawRetentionDays?: number;
@@ -318,7 +331,7 @@ export const updateBase = async (params: {
   return row.ok ? ok(mapBase(row.data)) : fail(row.error);
 };
 
-export const deleteBase = async (params: { baseId: string; user: UserScope }): Promise<Result<void>> => {
+export const deleteBase = async (params: { baseId: string; user: AccessScope }): Promise<Result<void>> => {
   const [existing] = await sql<BaseRow[]>`SELECT * FROM pulse.bases WHERE id = ${params.baseId}::uuid`;
   if (!existing) return fail(err.notFound("Pulse base"));
 
@@ -357,7 +370,7 @@ export const deleteBase = async (params: { baseId: string; user: UserScope }): P
     `;
     await tx`
       INSERT INTO pulse.base_deletions (base_id, requested_by, status, phase, updated_at)
-      VALUES (${params.baseId}::uuid, ${params.user.id}::uuid, 'queued', 'queued', now())
+      VALUES (${params.baseId}::uuid, ${userIdForScope(params.user)}::uuid, 'queued', 'queued', now())
       ON CONFLICT (base_id)
       DO UPDATE SET
         requested_by = EXCLUDED.requested_by,
@@ -374,7 +387,7 @@ export const deleteBase = async (params: { baseId: string; user: UserScope }): P
   return ok();
 };
 
-export const clearBaseData = async (params: { baseId: string; user: UserScope }): Promise<Result<void>> => {
+export const clearBaseData = async (params: { baseId: string; user: AccessScope }): Promise<Result<void>> => {
   const [existing] = await sql<BaseRow[]>`SELECT * FROM pulse.bases WHERE id = ${params.baseId}::uuid`;
   if (!existing) return fail(err.notFound("Pulse base"));
 
@@ -411,7 +424,7 @@ export const clearBaseData = async (params: { baseId: string; user: UserScope })
       )
       VALUES (
         ${params.baseId}::uuid,
-        ${params.user.id}::uuid,
+        ${userIdForScope(params.user)}::uuid,
         'queued',
         'queued',
         0,

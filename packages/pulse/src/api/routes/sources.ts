@@ -11,7 +11,7 @@ import {
   SourceScrapeSchema,
   UpdateSourceSchema,
 } from "../schemas";
-import { requireUserBackedActor, requireUuidParam } from "../shared";
+import { requestAccessScope, requireUserBackedActor, requireUuidParam } from "../shared";
 
 const routes = new Hono<AuthContext>()
   .get(
@@ -24,7 +24,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.source.list(baseId.value, c.get("user")));
+      return respond(c, pulseService.source.list(baseId.value, requestAccessScope(c)));
     },
   )
   .post(
@@ -43,7 +43,7 @@ const routes = new Hono<AuthContext>()
           if (!baseId.ok) return baseId.result;
           return pulseService.source.create({
             baseId: baseId.value,
-            user: c.get("user"),
+            user: requestAccessScope(c),
             ...c.req.valid("json"),
           });
         })(),
@@ -55,7 +55,7 @@ const routes = new Hono<AuthContext>()
     if (!baseId.ok) return respond(c, baseId.result);
     const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
     if (!sourceId.ok) return respond(c, sourceId.result);
-    return respond(c, pulseService.source.scrape({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
+    return respond(c, pulseService.source.scrape({ baseId: baseId.value, sourceId: sourceId.value, user: requestAccessScope(c) }));
   })
   .get(
     "/bases/:baseId/sources/:sourceId/scrapes",
@@ -69,7 +69,7 @@ const routes = new Hono<AuthContext>()
       if (!baseId.ok) return respond(c, baseId.result);
       const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
       if (!sourceId.ok) return respond(c, sourceId.result);
-      return respond(c, pulseService.source.scrapes({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
+      return respond(c, pulseService.source.scrapes({ baseId: baseId.value, sourceId: sourceId.value, user: requestAccessScope(c) }));
     },
   )
   .get(
@@ -150,7 +150,12 @@ const routes = new Hono<AuthContext>()
       if (!sourceId.ok) return respond(c, sourceId.result);
       return respond(
         c,
-        pulseService.source.update({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user"), ...c.req.valid("json") }),
+        pulseService.source.update({
+          baseId: baseId.value,
+          sourceId: sourceId.value,
+          user: requestAccessScope(c),
+          ...c.req.valid("json"),
+        }),
       );
     },
   )
@@ -159,7 +164,7 @@ const routes = new Hono<AuthContext>()
     if (!baseId.ok) return respond(c, baseId.result);
     const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
     if (!sourceId.ok) return respond(c, sourceId.result);
-    return respond(c, pulseService.source.remove({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
+    return respond(c, pulseService.source.remove({ baseId: baseId.value, sourceId: sourceId.value, user: requestAccessScope(c) }));
   });
 
 export default routes;

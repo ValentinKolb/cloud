@@ -10,7 +10,7 @@ import type {
   PulseRecordedEvent,
   StateQuery,
 } from "../contracts";
-import { requireBaseAccess, type UserScope } from "./access-control";
+import { requireBaseAccess, type AccessScope } from "./access-control";
 import { queryEventAggregateData, queryEventsData, queryMetricData, queryStatesData } from "./query-execution";
 
 type MetricExplorerQuery = Extract<PulseExplorerQuery, { kind: "metric" }>;
@@ -23,31 +23,31 @@ type ExplorerQueryResult = {
   states: PulseCurrentState[];
 };
 
-export const queryMetric = async (query: MetricQuery, user: UserScope): Promise<Result<MetricQueryPoint[]>> => {
+export const queryMetric = async (query: MetricQuery, user: AccessScope): Promise<Result<MetricQueryPoint[]>> => {
   const access = await requireBaseAccess(query.baseId, user, "read");
   if (!access.ok) return fail(access.error);
   return queryMetricData(query);
 };
 
-const queryEvents = async (query: EventQuery, user: UserScope): Promise<Result<PulseRecordedEvent[]>> => {
+const queryEvents = async (query: EventQuery, user: AccessScope): Promise<Result<PulseRecordedEvent[]>> => {
   const access = await requireBaseAccess(query.baseId, user, "read");
   if (!access.ok) return fail(access.error);
   return queryEventsData(query);
 };
 
-const queryStates = async (query: StateQuery, user: UserScope): Promise<Result<PulseCurrentState[]>> => {
+const queryStates = async (query: StateQuery, user: AccessScope): Promise<Result<PulseCurrentState[]>> => {
   const access = await requireBaseAccess(query.baseId, user, "read");
   if (!access.ok) return fail(access.error);
   return queryStatesData(query);
 };
 
-const runMetricExplorerQuery = async (query: MetricExplorerQuery, user: UserScope): Promise<Result<ExplorerQueryResult>> => {
+const runMetricExplorerQuery = async (query: MetricExplorerQuery, user: AccessScope): Promise<Result<ExplorerQueryResult>> => {
   const points = await queryMetric(query, user);
   if (!points.ok) return fail(points.error);
   return ok({ compiled: query, points: points.data, events: [], states: [] });
 };
 
-const runEventsExplorerQuery = async (query: EventsExplorerQuery, user: UserScope): Promise<Result<ExplorerQueryResult>> => {
+const runEventsExplorerQuery = async (query: EventsExplorerQuery, user: AccessScope): Promise<Result<ExplorerQueryResult>> => {
   if ((query.aggregation ?? "rows") !== "rows") {
     const access = await requireBaseAccess(query.baseId, user, "read");
     if (!access.ok) return fail(access.error);
@@ -60,7 +60,7 @@ const runEventsExplorerQuery = async (query: EventsExplorerQuery, user: UserScop
   return ok({ compiled: query, points: [], events: events.data, states: [] });
 };
 
-const runStatesExplorerQuery = async (query: StatesExplorerQuery, user: UserScope): Promise<Result<ExplorerQueryResult>> => {
+const runStatesExplorerQuery = async (query: StatesExplorerQuery, user: AccessScope): Promise<Result<ExplorerQueryResult>> => {
   const states = await queryStates(query, user);
   if (!states.ok) return fail(states.error);
   return ok({ compiled: query, points: [], events: [], states: states.data });
@@ -69,7 +69,7 @@ const runStatesExplorerQuery = async (query: StatesExplorerQuery, user: UserScop
 export const queryMetricText = async (params: {
   baseId: string;
   query: string;
-  user: UserScope;
+  user: AccessScope;
 }): Promise<Result<ExplorerQueryResult>> => {
   const compiled = compilePulseQueryText(params.baseId, params.query);
   if (!compiled.ok) return fail(compiled.error);
@@ -84,7 +84,7 @@ export const queryMetricText = async (params: {
   }
 };
 
-export const compileQueryText = async (params: { baseId: string; query: string; user: UserScope }): Promise<Result<PulseQueryCompileResult>> => {
+export const compileQueryText = async (params: { baseId: string; query: string; user: AccessScope }): Promise<Result<PulseQueryCompileResult>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "read");
   if (!access.ok) return fail(access.error);
   const compiled = compilePulseQueryText(params.baseId, params.query);

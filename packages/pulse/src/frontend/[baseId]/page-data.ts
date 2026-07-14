@@ -23,6 +23,7 @@ import type {
 } from "../../contracts";
 import { compilePulseQueryText } from "../../query-dsl";
 import { pulseService } from "../../service";
+import type { UserScope } from "../../service/access-control";
 import {
   dashboardEventsWidgets,
   dashboardMetricWidgets,
@@ -39,7 +40,7 @@ import {
 } from "../workspace/routes";
 import type { PulseWorkspaceProps } from "../workspace/types";
 
-type PulseUser = Parameters<typeof pulseService.base.list>[0];
+type PulseUser = UserScope;
 type DashboardControlValues = Record<string, string>;
 type PulseWorkspacePageContext<T extends AuthContext = AuthContext> = Context<T>;
 

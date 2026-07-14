@@ -10,6 +10,7 @@ import {
   QueryCompileResultSchema,
   QueryTextSchema,
 } from "../schemas";
+import { requestAccessScope } from "../shared";
 
 const routes = new Hono<AuthContext>()
   .post(
@@ -20,7 +21,7 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(z.object({ bucket: z.string(), value: z.number().nullable() })), "Query points") },
     }),
     v("json", MetricQuerySchema),
-    async (c) => respond(c, pulseService.query.metric({ kind: "metric", ...c.req.valid("json") }, c.get("user"))),
+    async (c) => respond(c, pulseService.query.metric({ kind: "metric", ...c.req.valid("json") }, requestAccessScope(c))),
   )
   .post(
     "/query/metric-text",
@@ -30,7 +31,7 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(MetricQueryResultSchema, "Compiled query and results") },
     }),
     v("json", QueryTextSchema),
-    async (c) => respond(c, pulseService.query.metricText({ ...c.req.valid("json"), user: c.get("user") })),
+    async (c) => respond(c, pulseService.query.metricText({ ...c.req.valid("json"), user: requestAccessScope(c) })),
   )
   .post(
     "/query/compile-text",
@@ -40,7 +41,7 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(QueryCompileResultSchema, "Query diagnostics") },
     }),
     v("json", CompileTextQuerySchema),
-    async (c) => respond(c, pulseService.query.compileText({ ...c.req.valid("json"), user: c.get("user") })),
+    async (c) => respond(c, pulseService.query.compileText({ ...c.req.valid("json"), user: requestAccessScope(c) })),
   );
 
 export default routes;

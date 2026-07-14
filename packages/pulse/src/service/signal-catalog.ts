@@ -11,7 +11,7 @@ import type {
   PulseResourceSummary,
   PulseSignalField,
 } from "../contracts";
-import { requireBaseAccess, type UserScope } from "./access-control";
+import { requireBaseAccess, type AccessScope } from "./access-control";
 import {
   type CurrentStateRow,
   isoNullable,
@@ -171,7 +171,7 @@ const querySignalFields = async (baseId: string, params: SignalFieldListParams =
 
 export const listSignalFields = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: SignalFieldListParams = {},
 ): Promise<Result<PulseSignalField[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
@@ -181,7 +181,7 @@ export const listSignalFields = async (
 
 export const listMetrics = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: {
     q?: string | null;
     sourceId?: string | null;
@@ -229,7 +229,7 @@ export const listMetrics = async (
 
 export const listMetricSeries = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: {
     metric: string;
     sourceId?: string | null;
@@ -315,7 +315,7 @@ export const listMetricSeries = async (
 
 export const listRecentEvents = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: {
     q?: string | null;
     kind?: string | null;
@@ -356,7 +356,7 @@ export const listRecentEvents = async (
 
 export const listCurrentStates = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: {
     q?: string | null;
     key?: string | null;
@@ -397,7 +397,7 @@ export const listCurrentStates = async (
 
 export const listResources = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: { q?: string | null; ref?: string | null; type?: string | null; sourceId?: string | null; limit?: number; offset?: number } = {},
 ): Promise<Result<PulseResourceSummary[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
@@ -464,7 +464,7 @@ export const listResources = async (
 
 export const listResourceMetrics = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: { resourceKey: string; q?: string | null; sourceId?: string | null; type?: MetricType | null; limit?: number; offset?: number },
 ): Promise<Result<PulseResourceMetric[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
@@ -519,7 +519,7 @@ export const listResourceMetrics = async (
 
 export const listResourceEvents = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: { resourceKey: string; q?: string | null; kind?: string | null; sourceId?: string | null; limit?: number; offset?: number },
 ): Promise<Result<PulseRecordedEvent[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
@@ -553,7 +553,7 @@ export const listResourceEvents = async (
 
 export const listResourceStates = async (
   baseId: string,
-  user: UserScope,
+  user: AccessScope,
   params: { resourceKey: string; q?: string | null; key?: string | null; sourceId?: string | null; limit?: number; offset?: number },
 ): Promise<Result<PulseCurrentState[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
@@ -585,7 +585,7 @@ export const listResourceStates = async (
   return ok(rows.map(mapCurrentState));
 };
 
-export const listInventory = async (baseId: string, user: UserScope): Promise<Result<PulseInventory>> => {
+export const listInventory = async (baseId: string, user: AccessScope): Promise<Result<PulseInventory>> => {
   const resourceResult = await listResources(baseId, user, { limit: 500 });
   if (!resourceResult.ok) return fail(resourceResult.error);
   const resources = resourceResult.data;

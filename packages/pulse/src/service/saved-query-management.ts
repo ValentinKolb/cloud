@@ -2,7 +2,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type { PulseSavedQuery } from "../contracts";
 import { compilePulseQueryText } from "../query-dsl";
-import { requireBaseAccess, requireBaseActive, type UserScope } from "./access-control";
+import { requireBaseAccess, requireBaseActive, userIdForScope, type AccessScope } from "./access-control";
 import { iso } from "./telemetry-values";
 
 type SavedQueryRow = {
@@ -25,7 +25,7 @@ const mapSavedQuery = (row: SavedQueryRow): PulseSavedQuery => ({
   updatedAt: iso(row.updated_at),
 });
 
-export const listSavedQueries = async (baseId: string, user: UserScope): Promise<Result<PulseSavedQuery[]>> => {
+export const listSavedQueries = async (baseId: string, user: AccessScope): Promise<Result<PulseSavedQuery[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
   const rows = await sql<SavedQueryRow[]>`
@@ -40,7 +40,7 @@ export const listSavedQueries = async (baseId: string, user: UserScope): Promise
 
 export const createSavedQuery = async (params: {
   baseId: string;
-  user: UserScope;
+  user: AccessScope;
   name: string;
   description?: string | null;
   query: string;
@@ -57,14 +57,14 @@ export const createSavedQuery = async (params: {
   if (!compiled.ok) return fail(compiled.error);
   const [row] = await sql<SavedQueryRow[]>`
     INSERT INTO pulse.saved_queries (base_id, name, description, query, created_by)
-    VALUES (${params.baseId}::uuid, ${name}, ${params.description?.trim() || null}, ${query}, ${params.user.id}::uuid)
+    VALUES (${params.baseId}::uuid, ${name}, ${params.description?.trim() || null}, ${query}, ${userIdForScope(params.user)}::uuid)
     RETURNING id, base_id, name, description, query, created_at, updated_at
   `;
   if (!row) return fail(err.internal("Failed to save query"));
   return ok(mapSavedQuery(row));
 };
 
-export const deleteSavedQuery = async (params: { baseId: string; queryId: string; user: UserScope }): Promise<Result<void>> => {
+export const deleteSavedQuery = async (params: { baseId: string; queryId: string; user: AccessScope }): Promise<Result<void>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
   const active = await requireBaseActive(params.baseId);

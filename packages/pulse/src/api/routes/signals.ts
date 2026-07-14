@@ -21,13 +21,13 @@ import {
   SignalFieldQuerySchema,
   SignalFieldSchema,
 } from "../schemas";
-import { requireUuidParam } from "../shared";
+import { requestAccessScope, requireUuidParam } from "../shared";
 
 const routes = new Hono<AuthContext>()
   .get("/bases/:baseId/metrics", v("query", MetricsQuerySchema), async (c) => {
     const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    return respond(c, pulseService.query.metrics(baseId.value, c.get("user"), c.req.valid("query")));
+    return respond(c, pulseService.query.metrics(baseId.value, requestAccessScope(c), c.req.valid("query")));
   })
   .get(
     "/bases/:baseId/resources",
@@ -40,7 +40,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.resources(baseId.value, c.get("user"), c.req.valid("query")));
+      return respond(c, pulseService.query.resources(baseId.value, requestAccessScope(c), c.req.valid("query")));
     },
   )
   .get(
@@ -54,7 +54,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.fields(baseId.value, c.get("user"), c.req.valid("query")));
+      return respond(c, pulseService.query.fields(baseId.value, requestAccessScope(c), c.req.valid("query")));
     },
   )
   .get(
@@ -67,7 +67,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.inventory(baseId.value, c.get("user")));
+      return respond(c, pulseService.query.inventory(baseId.value, requestAccessScope(c)));
     },
   )
   .get(
@@ -81,7 +81,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.resourceMetrics(baseId.value, c.get("user"), c.req.valid("query")));
+      return respond(c, pulseService.query.resourceMetrics(baseId.value, requestAccessScope(c), c.req.valid("query")));
     },
   )
   .get(
@@ -95,7 +95,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.resourceEvents(baseId.value, c.get("user"), c.req.valid("query")));
+      return respond(c, pulseService.query.resourceEvents(baseId.value, requestAccessScope(c), c.req.valid("query")));
     },
   )
   .get(
@@ -109,7 +109,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.resourceStates(baseId.value, c.get("user"), c.req.valid("query")));
+      return respond(c, pulseService.query.resourceStates(baseId.value, requestAccessScope(c), c.req.valid("query")));
     },
   )
   .get(
@@ -123,7 +123,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.recentEvents(baseId.value, c.get("user"), c.req.valid("query")));
+      return respond(c, pulseService.query.recentEvents(baseId.value, requestAccessScope(c), c.req.valid("query")));
     },
   )
   .get(
@@ -137,7 +137,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.currentStates(baseId.value, c.get("user"), c.req.valid("query")));
+      return respond(c, pulseService.query.currentStates(baseId.value, requestAccessScope(c), c.req.valid("query")));
     },
   )
   .get(
@@ -151,7 +151,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.series(baseId.value, c.get("user"), c.req.valid("query")));
+      return respond(c, pulseService.query.series(baseId.value, requestAccessScope(c), c.req.valid("query")));
     },
   )
   .post(
@@ -165,7 +165,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      const gate = await pulseService.base.access.require(baseId.value, c.get("user"), "write");
+      const gate = await pulseService.base.access.require(baseId.value, requestAccessScope(c), "write");
       if (!gate.ok) return respond(c, gate);
       return respond(c, pulseService.ingest.batch({ baseId: baseId.value, batch: c.req.valid("json") }));
     },

@@ -11,7 +11,7 @@ import {
   DashboardSnapshotSchema,
   UpdateDashboardSchema,
 } from "../schemas";
-import { requireUuidParam } from "../shared";
+import { requestAccessScope, requireUuidParam } from "../shared";
 
 const routes = new Hono<AuthContext>()
   .get(
@@ -24,7 +24,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.dashboard.list(baseId.value, c.get("user")));
+      return respond(c, pulseService.dashboard.list(baseId.value, requestAccessScope(c)));
     },
   )
   .post(
@@ -41,7 +41,7 @@ const routes = new Hono<AuthContext>()
         (() => {
           const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
           if (!baseId.ok) return baseId.result;
-          return pulseService.dashboard.create({ baseId: baseId.value, user: c.get("user"), ...c.req.valid("json") });
+          return pulseService.dashboard.create({ baseId: baseId.value, user: requestAccessScope(c), ...c.req.valid("json") });
         })(),
         201,
       ),
@@ -57,7 +57,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
       if (!dashboardId.ok) return respond(c, dashboardId.result);
-      return respond(c, pulseService.dashboard.update({ dashboardId: dashboardId.value, user: c.get("user"), ...c.req.valid("json") }));
+      return respond(c, pulseService.dashboard.update({ dashboardId: dashboardId.value, user: requestAccessScope(c), ...c.req.valid("json") }));
     },
   )
   .get(
@@ -70,23 +70,27 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
       if (!dashboardId.ok) return respond(c, dashboardId.result);
-      return respond(c, pulseService.dashboard.snapshot({ dashboardId: dashboardId.value, user: c.get("user") }));
+      return respond(c, pulseService.dashboard.snapshot({ dashboardId: dashboardId.value, user: requestAccessScope(c) }));
     },
   )
   .delete("/dashboards/:dashboardId", async (c) => {
     const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
     if (!dashboardId.ok) return respond(c, dashboardId.result);
-    return respondMessage(c, pulseService.dashboard.remove({ dashboardId: dashboardId.value, user: c.get("user") }), "Dashboard removed");
+    return respondMessage(
+      c,
+      pulseService.dashboard.remove({ dashboardId: dashboardId.value, user: requestAccessScope(c) }),
+      "Dashboard removed",
+    );
   })
   .post("/dashboards/:dashboardId/public-token", async (c) => {
     const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
     if (!dashboardId.ok) return respond(c, dashboardId.result);
-    return respond(c, pulseService.dashboard.enablePublic({ dashboardId: dashboardId.value, user: c.get("user") }));
+    return respond(c, pulseService.dashboard.enablePublic({ dashboardId: dashboardId.value, user: requestAccessScope(c) }));
   })
   .delete("/dashboards/:dashboardId/public-token", async (c) => {
     const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
     if (!dashboardId.ok) return respond(c, dashboardId.result);
-    return respond(c, pulseService.dashboard.disablePublic({ dashboardId: dashboardId.value, user: c.get("user") }));
+    return respond(c, pulseService.dashboard.disablePublic({ dashboardId: dashboardId.value, user: requestAccessScope(c) }));
   })
   .post(
     "/dashboard-dsl/compile",
@@ -96,7 +100,7 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(DashboardDslCompileResultSchema, "Dashboard DSL diagnostics and config") },
     }),
     v("json", DashboardDslCompileSchema),
-    async (c) => respond(c, pulseService.dashboard.compileDsl({ ...c.req.valid("json"), user: c.get("user") })),
+    async (c) => respond(c, pulseService.dashboard.compileDsl({ ...c.req.valid("json"), user: requestAccessScope(c) })),
   );
 
 export default routes;

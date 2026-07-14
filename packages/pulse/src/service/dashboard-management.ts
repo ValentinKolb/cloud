@@ -1,7 +1,7 @@
 import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type { PulseDashboard } from "../contracts";
-import { requireBaseAccess, requireBaseActive, type UserScope } from "./access-control";
+import { requireBaseAccess, requireBaseActive, userIdForScope, type AccessScope } from "./access-control";
 import { compileDashboardConfigForSave, normalizeDashboardConfig } from "./dashboard-config";
 import {
   resolvePublicDashboardToken,
@@ -30,7 +30,7 @@ const mapDashboard = (row: DashboardRow): PulseDashboard => ({
   updatedAt: iso(row.updated_at),
 });
 
-export const listDashboards = async (baseId: string, user: UserScope): Promise<Result<PulseDashboard[]>> => {
+export const listDashboards = async (baseId: string, user: AccessScope): Promise<Result<PulseDashboard[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
   const rows = await sql<DashboardRow[]>`
@@ -44,7 +44,7 @@ export const listDashboards = async (baseId: string, user: UserScope): Promise<R
 
 export const createDashboard = async (params: {
   baseId: string;
-  user: UserScope;
+  user: AccessScope;
   name: string;
   config?: unknown;
 }): Promise<Result<PulseDashboard>> => {
@@ -59,7 +59,7 @@ export const createDashboard = async (params: {
   const config = configResult.data;
   const [row] = await sql<DashboardRow[]>`
     INSERT INTO pulse.dashboards (base_id, name, config, created_by)
-    VALUES (${params.baseId}::uuid, ${name}, ${JSON.stringify(config)}::jsonb, ${params.user.id}::uuid)
+    VALUES (${params.baseId}::uuid, ${name}, ${JSON.stringify(config)}::jsonb, ${userIdForScope(params.user)}::uuid)
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to create Pulse dashboard"));
@@ -68,7 +68,7 @@ export const createDashboard = async (params: {
 
 export const updateDashboard = async (params: {
   dashboardId: string;
-  user: UserScope;
+  user: AccessScope;
   name?: string;
   config?: unknown;
 }): Promise<Result<PulseDashboard>> => {
@@ -96,7 +96,7 @@ export const updateDashboard = async (params: {
   return ok(mapDashboard(row));
 };
 
-export const deleteDashboard = async (params: { dashboardId: string; user: UserScope }): Promise<Result<void>> => {
+export const deleteDashboard = async (params: { dashboardId: string; user: AccessScope }): Promise<Result<void>> => {
   const [existing] = await sql<{ base_id: string }[]>`
     SELECT base_id
     FROM pulse.dashboards
@@ -114,7 +114,7 @@ export const deleteDashboard = async (params: { dashboardId: string; user: UserS
 
 export const enablePublicDashboard = async (params: {
   dashboardId: string;
-  user: UserScope;
+  user: AccessScope;
 }): Promise<Result<{ dashboard: PulseDashboard; token: string }>> => {
   const [existing] = await sql<{ base_id: string; public_enabled: boolean; public_token_encrypted: string | null }[]>`
     SELECT base_id, public_enabled, public_token_encrypted
@@ -144,7 +144,7 @@ export const enablePublicDashboard = async (params: {
   return ok({ dashboard: mapDashboard(row), token: publicToken.token });
 };
 
-export const disablePublicDashboard = async (params: { dashboardId: string; user: UserScope }): Promise<Result<PulseDashboard>> => {
+export const disablePublicDashboard = async (params: { dashboardId: string; user: AccessScope }): Promise<Result<PulseDashboard>> => {
   const [existing] = await sql<{ base_id: string }[]>`
     SELECT base_id
     FROM pulse.dashboards

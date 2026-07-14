@@ -3,7 +3,7 @@ import { err, fail, ok, type PermissionLevel, type Result } from "@valentinkolb/
 import { encryptSecret, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { PulseSource, PulseSourceScrape, SourceKind } from "../contracts";
-import { requireBaseAccess, requireBaseActive, type UserScope } from "./access-control";
+import { requireBaseAccess, requireBaseActive, type AccessScope, type UserScope } from "./access-control";
 import { iso, isoNullable } from "./telemetry-values";
 
 export const PULSE_APP_ID = "pulse";
@@ -44,7 +44,7 @@ type PulseSourceApiKey = ServiceAccountCredential & { permission: PermissionLeve
 type UpdateSourceParams = {
   baseId: string;
   sourceId: string;
-  user: UserScope;
+  user: AccessScope;
   name?: string;
   enabled?: boolean;
   endpointUrl?: string | null;
@@ -120,7 +120,7 @@ const ensureHttpIngestSource = async (params: { baseId: string; sourceId: string
   return source ? ok(mapSource(source)) : fail(err.notFound("Ingest source"));
 };
 
-export const listSources = async (baseId: string, user: UserScope): Promise<Result<PulseSource[]>> => {
+export const listSources = async (baseId: string, user: AccessScope): Promise<Result<PulseSource[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
   const rows = await sql<SourceRow[]>`
@@ -135,7 +135,7 @@ export const listSources = async (baseId: string, user: UserScope): Promise<Resu
 export const listSourceScrapes = async (params: {
   baseId: string;
   sourceId: string;
-  user: UserScope;
+  user: AccessScope;
 }): Promise<Result<PulseSourceScrape[]>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "read");
   if (!access.ok) return fail(access.error);
@@ -152,7 +152,7 @@ export const listSourceScrapes = async (params: {
 
 export const createSource = async (params: {
   baseId: string;
-  user: UserScope;
+  user: AccessScope;
   kind: SourceKind;
   name: string;
   endpointUrl?: string | null;
@@ -191,7 +191,7 @@ export const createSource = async (params: {
   return ok(mapSource(row));
 };
 
-export const removeSource = async (params: { baseId: string; sourceId: string; user: UserScope }): Promise<Result<void>> => {
+export const removeSource = async (params: { baseId: string; sourceId: string; user: AccessScope }): Promise<Result<void>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
   const active = await requireBaseActive(params.baseId);

@@ -30,7 +30,7 @@ import type {
   PulseRecordedEvent,
   StateQuery,
 } from "../contracts";
-import { requireBaseAccess, type UserScope } from "./access-control";
+import { requireBaseAccess, type AccessScope } from "./access-control";
 import {
   dashboardEventsWidgets,
   dashboardMetricWidgets,
@@ -88,7 +88,7 @@ const getPublicDashboardByToken = async (token: string): Promise<Result<PulseDas
   return row ? ok(mapDashboard(row)) : fail(err.notFound("Pulse dashboard"));
 };
 
-const getDashboardById = async (dashboardId: string, user: UserScope): Promise<Result<PulseDashboard>> => {
+const getDashboardById = async (dashboardId: string, user: AccessScope): Promise<Result<PulseDashboard>> => {
   const [row] = await sql<DashboardRow[]>`
     SELECT d.id, d.base_id, d.name, d.config, d.public_enabled, d.created_at, d.updated_at
     FROM pulse.dashboards d
@@ -328,7 +328,7 @@ export const getPublicDashboardSnapshot = async (
 
 export const getDashboardSnapshot = async (
   dashboardId: string,
-  user: UserScope,
+  user: AccessScope,
   deps: PublicDashboardSnapshotDeps,
 ): Promise<Result<PulseDashboardSnapshot>> => {
   const dashboardResult = await getDashboardById(dashboardId, user);

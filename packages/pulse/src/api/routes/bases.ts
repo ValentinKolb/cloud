@@ -12,7 +12,7 @@ import {
   UpdateBaseAccessSchema,
   UpdateBaseSchema,
 } from "../schemas";
-import { requireUuidParam } from "../shared";
+import { requestAccessScope, requireUserBackedActor, requireUuidParam } from "../shared";
 
 const routes = new Hono<AuthContext>()
   .get(
@@ -36,7 +36,7 @@ const routes = new Hono<AuthContext>()
       summary: "List accessible Pulse bases",
       responses: { 200: jsonResponse(z.array(BaseSchema), "Pulse bases") },
     }),
-    async (c) => respond(c, pulseService.base.list(c.get("user"))),
+    async (c) => respond(c, pulseService.base.list(requestAccessScope(c))),
   )
   .post(
     "/bases",
@@ -46,12 +46,16 @@ const routes = new Hono<AuthContext>()
       responses: { 201: jsonResponse(BaseSchema, "Created Pulse base") },
     }),
     v("json", CreateBaseSchema),
-    async (c) => respond(c, pulseService.base.create({ ...c.req.valid("json"), user: c.get("user") }), 201),
+    async (c) => {
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
+      return respond(c, pulseService.base.create({ ...c.req.valid("json"), user: user.data }), 201);
+    },
   )
   .get("/bases/:baseId", async (c) => {
     const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    return respond(c, pulseService.base.get(baseId.value, c.get("user")));
+    return respond(c, pulseService.base.get(baseId.value, requestAccessScope(c)));
   })
   .patch(
     "/bases/:baseId",
@@ -64,18 +68,18 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.base.update({ baseId: baseId.value, user: c.get("user"), ...c.req.valid("json") }));
+      return respond(c, pulseService.base.update({ baseId: baseId.value, user: requestAccessScope(c), ...c.req.valid("json") }));
     },
   )
   .delete("/bases/:baseId", async (c) => {
     const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    return respondMessage(c, pulseService.base.remove({ baseId: baseId.value, user: c.get("user") }), "Pulse base deletion started");
+    return respondMessage(c, pulseService.base.remove({ baseId: baseId.value, user: requestAccessScope(c) }), "Pulse base deletion started");
   })
   .post("/bases/:baseId/clear-data", async (c) => {
     const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    return respondMessage(c, pulseService.base.clearData({ baseId: baseId.value, user: c.get("user") }), "Pulse data clear started");
+    return respondMessage(c, pulseService.base.clearData({ baseId: baseId.value, user: requestAccessScope(c) }), "Pulse data clear started");
   })
   .get(
     "/bases/:baseId/access",
@@ -87,7 +91,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.base.access.list(baseId.value, c.get("user")));
+      return respond(c, pulseService.base.access.list(baseId.value, requestAccessScope(c)));
     },
   )
   .post(
@@ -101,7 +105,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.base.access.grant({ baseId: baseId.value, user: c.get("user"), ...c.req.valid("json") }), 201);
+      return respond(c, pulseService.base.access.grant({ baseId: baseId.value, user: requestAccessScope(c), ...c.req.valid("json") }), 201);
     },
   )
   .patch(
@@ -119,7 +123,12 @@ const routes = new Hono<AuthContext>()
       if (!accessId.ok) return respond(c, accessId.result);
       return respondMessage(
         c,
-        pulseService.base.access.update({ baseId: baseId.value, accessId: accessId.value, user: c.get("user"), ...c.req.valid("json") }),
+        pulseService.base.access.update({
+          baseId: baseId.value,
+          accessId: accessId.value,
+          user: requestAccessScope(c),
+          ...c.req.valid("json"),
+        }),
         "Access updated",
       );
     },
@@ -131,7 +140,7 @@ const routes = new Hono<AuthContext>()
     if (!accessId.ok) return respond(c, accessId.result);
     return respondMessage(
       c,
-      pulseService.base.access.revoke({ baseId: baseId.value, accessId: accessId.value, user: c.get("user") }),
+      pulseService.base.access.revoke({ baseId: baseId.value, accessId: accessId.value, user: requestAccessScope(c) }),
       "Access revoked",
     );
   });
