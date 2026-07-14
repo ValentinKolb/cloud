@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { createAccess, deleteAccess, getEffectiveGroupIds, getEffectivePermission, listUsersWithAccess } from "./access";
+import { createAccess, deleteAccess, getEffectiveGroupIds, getEffectiveGroups, getEffectivePermission, listUsersWithAccess } from "./access";
 
 type Fixture = {
   accessIds: string[];
   groupAccessId: string;
+  publicAccessId: string;
+  authenticatedAccessId: string;
   userIds: {
     direct: string;
     group: string;
@@ -92,6 +94,8 @@ const createFixture = async (): Promise<Fixture> => {
   return {
     accessIds: [directAccess!.id, groupAccess!.id, publicAccess!.id, authenticatedAccess!.id],
     groupAccessId: groupAccess!.id,
+    publicAccessId: publicAccess!.id,
+    authenticatedAccessId: authenticatedAccess!.id,
     userIds: {
       direct: directUserId,
       group: groupUserId,
@@ -166,12 +170,28 @@ describe("listUsersWithAccess", () => {
       expect(transactionalUsers.map((user) => user.id)).toEqual(users.map((user) => user.id));
 
       const serviceAccountPublicPermission = await getEffectivePermission({
-        accessIds: fixture.accessIds,
-        userId: null,
-        userGroups: [],
-        serviceAccountId: fixture.serviceAccountId,
+        accessIds: [fixture.publicAccessId],
+        subject: { type: "service_account", serviceAccountId: fixture.serviceAccountId },
       });
-      expect(serviceAccountPublicPermission).toBe("none");
+      expect(serviceAccountPublicPermission).toBe("admin");
+
+      const serviceAccountAuthenticatedPermission = await getEffectivePermission({
+        accessIds: [fixture.authenticatedAccessId],
+        subject: { type: "service_account", serviceAccountId: fixture.serviceAccountId },
+      });
+      expect(serviceAccountAuthenticatedPermission).toBe("admin");
+
+      const anonymousPublicPermission = await getEffectivePermission({
+        accessIds: [fixture.publicAccessId],
+        subject: null,
+      });
+      expect(anonymousPublicPermission).toBe("admin");
+
+      const anonymousAuthenticatedPermission = await getEffectivePermission({
+        accessIds: [fixture.authenticatedAccessId],
+        subject: null,
+      });
+      expect(anonymousAuthenticatedPermission).toBe("none");
 
       const serviceAccountAccess = await createAccess({
         principal: { type: "service_account", serviceAccountId: fixture.serviceAccountId },
@@ -183,9 +203,7 @@ describe("listUsersWithAccess", () => {
 
       const serviceAccountPermission = await getEffectivePermission({
         accessIds: [serviceAccountAccess.data.id],
-        userId: null,
-        userGroups: [],
-        serviceAccountId: fixture.serviceAccountId,
+        subject: { type: "service_account", serviceAccountId: fixture.serviceAccountId },
       });
       expect(serviceAccountPermission).toBe("write");
 
@@ -214,16 +232,21 @@ describe("effective access", () => {
       expect(nestedGroups).toContain(fixture.groupIds.child);
       expect(nestedGroups).toContain(fixture.groupIds.parent);
 
+      const effectiveGroups = await getEffectiveGroups({ userId: fixture.userIds.nested });
+      expect(effectiveGroups).toEqual([
+        { id: fixture.groupIds.child, name: "Access child" },
+        { id: fixture.groupIds.parent, name: "Access parent" },
+      ]);
+
       const nestedPermission = await getEffectivePermission({
         accessIds: [fixture.groupAccessId],
-        userId: fixture.userIds.nested,
-        userGroups: [],
+        subject: { type: "user", userId: fixture.userIds.nested },
       });
       expect(nestedPermission).toBe("write");
 
       const directGroupPermission = await getEffectivePermission({
         accessIds: [fixture.groupAccessId],
-        userId: fixture.userIds.group,
+        subject: { type: "user", userId: fixture.userIds.group },
       });
       expect(directGroupPermission).toBe("write");
 

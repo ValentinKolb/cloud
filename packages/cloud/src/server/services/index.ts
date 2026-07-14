@@ -3,19 +3,23 @@
 export type {
   AccessDb,
   AccessEntry,
+  AccessPrincipalColumns,
   AccessSubject,
   AccessUser,
   AccessUserSource,
+  EffectiveGroup,
   PermissionLevel,
   Principal,
   PrincipalType,
   ResourceAccessAdapter,
 } from "./access";
 export {
+  buildAccessPrincipalCondition,
   createAccess,
   deleteAccess,
   getAccess,
   getEffectiveGroupIds,
+  getEffectiveGroups,
   getEffectivePermission,
   hasPermission,
   listUsersWithAccess,

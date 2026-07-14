@@ -21,9 +21,11 @@ export {
 } from "./middleware";
 export type {
   AccessEntry,
+  AccessPrincipalColumns,
   AccessSubject,
   AccessUser,
   AccessUserSource,
+  EffectiveGroup,
   GeoPlace,
   GeoService,
   PageParams,
@@ -39,6 +41,7 @@ export type {
 export type { RequestActor, ServiceAccountRequestActor, UserRequestActor } from "./middleware";
 
 export {
+  buildAccessPrincipalCondition,
   createAccess,
   deleteAccess,
   err,
@@ -49,6 +52,7 @@ export {
   geoService,
   getAccess,
   getEffectiveGroupIds,
+  getEffectiveGroups,
   getEffectivePermission,
   hasPermission,
   images,

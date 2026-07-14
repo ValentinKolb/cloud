@@ -1,5 +1,5 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { sql } from "bun";
+import { sql, type SQLQuery } from "bun";
 import { recursiveGroupIdsSubquery } from "../../services/accounts/group-sql";
 import { toPgUuidArray } from "../../services/postgres";
 
@@ -34,6 +34,18 @@ export type Principal =
 export type AccessSubject =
   | { type: "user"; userId: string; delegatedByServiceAccountId?: string | null }
   | { type: "service_account"; serviceAccountId: string };
+
+export type EffectiveGroup = {
+  id: string;
+  name: string;
+};
+
+export type AccessPrincipalColumns = {
+  userId: SQLQuery;
+  groupId: SQLQuery;
+  serviceAccountId: SQLQuery;
+  authenticatedOnly: SQLQuery;
+};
 
 // ==========================
 // Access Entry Types
@@ -217,11 +229,19 @@ export const updateAccess = async (params: { id: string; permission: PermissionL
 };
 
 /** Resolve direct and nested group memberships from the authoritative database mirror. */
-export const getEffectiveGroupIds = async (params: { userId: string | null }, db: AccessDb = sql): Promise<string[]> => {
+export const getEffectiveGroups = async (params: { userId: string | null }, db: AccessDb = sql): Promise<EffectiveGroup[]> => {
   if (!params.userId) return [];
-  const rows = await db<{ group_id: string }[]>`${recursiveGroupIdsSubquery(params.userId)}`;
-  return rows.map((row) => row.group_id);
+  const rows = await db<{ id: string; name: string }[]>`
+    SELECT g.id, g.name
+    FROM auth.groups g
+    WHERE g.id IN (${recursiveGroupIdsSubquery(params.userId)})
+    ORDER BY g.name
+  `;
+  return rows;
 };
+
+export const getEffectiveGroupIds = async (params: { userId: string | null }, db: AccessDb = sql): Promise<string[]> =>
+  (await getEffectiveGroups(params, db)).map((group) => group.id);
 
 /**
  * Delete an access entry.
@@ -259,46 +279,85 @@ export type ResourceAccessAdapter<TResourceId = string> = {
 };
 
 /**
- * Get the effective permission level for a user on a resource.
+ * Build the canonical principal predicate for one auth.access row.
+ *
+ * Apps provide column fragments because access rows are commonly joined under
+ * different aliases. The subject is authoritative: group membership is always
+ * resolved recursively from its user id and never accepted from a caller.
+ * Resource binding, credential scopes, and permission precedence remain the
+ * responsibility of the app using the predicate.
+ */
+export const buildAccessPrincipalCondition = (params: {
+  subject: AccessSubject | null;
+  columns: AccessPrincipalColumns;
+}): SQLQuery => {
+  const userId = params.subject?.type === "user" ? params.subject.userId : null;
+  const serviceAccountId = params.subject?.type === "service_account" ? params.subject.serviceAccountId : null;
+  const authenticated = params.subject !== null;
+  const columns = params.columns;
+
+  return sql`(
+    ${columns.userId} = ${userId}::uuid
+    OR (
+      ${userId}::uuid IS NOT NULL
+      AND ${columns.groupId} IN (${userId ? recursiveGroupIdsSubquery(userId) : sql`SELECT NULL::uuid WHERE FALSE`})
+    )
+    OR ${columns.serviceAccountId} = ${serviceAccountId}::uuid
+    OR (${authenticated} AND ${columns.authenticatedOnly} = true)
+    OR (
+      ${columns.userId} IS NULL
+      AND ${columns.groupId} IS NULL
+      AND ${columns.serviceAccountId} IS NULL
+      AND ${columns.authenticatedOnly} = false
+    )
+  )`;
+};
+
+/**
+ * Get the effective permission level for an actor on a resource.
  * Returns the highest permission from:
- * - Direct user access
- * - Direct and nested group memberships resolved from the database
- * - Public access
+ * - Direct user or service-account access
+ * - Direct and nested user group memberships resolved from the database
+ * - Authenticated access for every authenticated subject
+ * - Public access for every subject, including anonymous callers
  */
 export const getEffectivePermission = async (params: {
   accessIds: string[];
-  userId: string | null;
+  subject?: AccessSubject | null;
+  /** @deprecated Pass subject instead. */
+  userId?: string | null;
   /** @deprecated Membership is resolved from userId and this value is intentionally ignored. */
   userGroups?: string[];
+  /** @deprecated Pass subject instead. */
   serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
   const accessIds = params.accessIds ?? [];
-  const userId = params.userId;
-  const serviceAccountId = params.serviceAccountId ?? null;
+  const subject =
+    "subject" in params
+      ? (params.subject ?? null)
+      : params.userId
+        ? { type: "user" as const, userId: params.userId }
+        : params.serviceAccountId
+          ? { type: "service_account" as const, serviceAccountId: params.serviceAccountId }
+          : null;
 
   if (accessIds.length === 0) return "none";
 
-  // Query all matching access entries
+  const principalMatch = buildAccessPrincipalCondition({
+    subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+
   const rows = await sql<{ permission: PermissionLevel }[]>`
-    SELECT permission
-    FROM auth.access
-    WHERE id = ANY(${toPgUuidArray(accessIds)}::uuid[])
-      AND (
-        user_id = ${userId}::uuid
-        OR (
-          ${userId}::uuid IS NOT NULL
-          AND group_id IN (${userId ? recursiveGroupIdsSubquery(userId) : sql`SELECT NULL::uuid WHERE FALSE`})
-        )
-        OR service_account_id = ${serviceAccountId}::uuid
-        OR (${userId}::uuid IS NOT NULL AND authenticated_only = true)
-        OR (
-          ${serviceAccountId}::uuid IS NULL
-          AND user_id IS NULL
-          AND group_id IS NULL
-          AND service_account_id IS NULL
-          AND authenticated_only = false
-        )
-      )
+    SELECT a.permission
+    FROM auth.access a
+    WHERE a.id = ANY(${toPgUuidArray(accessIds)}::uuid[])
+      AND ${principalMatch}
     ORDER BY
       CASE permission
         WHEN 'admin' THEN 4
