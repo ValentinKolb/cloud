@@ -43,6 +43,10 @@
     "./config/*": "./src/config/*",
     "./contracts": "./src/contracts/index.ts",
     "./contracts/notifications": "./src/contracts/notification-types.ts",
+    "./workflows": "./src/workflows/index.ts",
+    "./workflows/language": "./src/workflows/language/index.ts",
+    "./workflows/runtime": "./src/workflows/runtime/index.ts",
+    "./workflows/testing": "./src/workflows/testing/index.ts",
     "./api": "./src/api/index.ts",
     "./clients/core": "./src/clients/core.ts",
     "./styles/global.css": "./src/styles/global.css"
@@ -77,6 +81,7 @@
     "solid-js": "^1.9.10",
     "tailwindcss": "^4.1.18",
     "web-push": "^3.6.7",
+    "yaml": "^2.9.0",
     "zod": "^4.3.4"
   },
   "devDependencies": {
