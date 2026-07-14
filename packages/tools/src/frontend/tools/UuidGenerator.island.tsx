@@ -1,5 +1,5 @@
-import { createEffect, createSignal, For } from "solid-js";
 import { Slider } from "@valentinkolb/cloud/ui";
+import { createEffect, createSignal, For } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 export default function UuidGenerator() {
   const [count, setCount] = createSignal(1);
@@ -27,7 +27,7 @@ export default function UuidGenerator() {
     setTimeout(() => setCopiedAll(false), 2000);
   };
   return (
-    <div class="flex flex-col gap-4">
+    <div class="flex min-h-0 flex-1 flex-col gap-4">
       <div class="paper p-4 flex flex-col gap-3">
         <Slider
           label="Count"
@@ -41,7 +41,7 @@ export default function UuidGenerator() {
         />
       </div>
       {uuids().length > 0 && (
-        <div class="paper p-4 flex flex-col gap-2">
+        <div class="paper flex min-h-0 flex-1 flex-col gap-2 p-4">
           <div class="flex items-center justify-between mb-1">
             <p class="text-xs font-medium text-dimmed">
               {uuids().length} UUID{uuids().length !== 1 ? "s" : ""}
@@ -50,7 +50,7 @@ export default function UuidGenerator() {
               <i class={`ti ${copiedAll() ? "ti-check" : "ti-copy"}`} /> {copiedAll() ? "Copied" : "Copy All"}
             </button>
           </div>
-          <div class="flex flex-col gap-1 max-h-80 overflow-y-auto">
+          <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
             <For each={uuids()}>
               {(uuid, idx) => (
                 <div class="flex items-center gap-2 group">
