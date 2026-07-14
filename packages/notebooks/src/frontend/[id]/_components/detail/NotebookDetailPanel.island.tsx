@@ -1,5 +1,5 @@
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
-import { AppWorkspace, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { dates, fileIcons } from "@valentinkolb/stdlib";
 import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -64,8 +64,6 @@ type SoftNavigatedDetail = {
   backlinks: Backlink[];
   namedBlocks: NamedBlockSummary[];
 };
-
-const ACTION_BTN = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimmed hover:text-primary";
 
 const namedBlockSnippet = (block: NamedBlockSummary): string => {
   const name = JSON.stringify(block.name);
@@ -278,218 +276,242 @@ export default function NotebookDetailPanel(props: Props) {
   });
 
   return (
-    <AppWorkspace.Detail open={open()} class="detail-stack">
-      {/* Contents */}
-      <Show when={tocItems().length >= 1}>
-        <section class="detail-section">
-          <h3 class="detail-section-label">Contents</h3>
-          <ul class="flex flex-col">
-            <For each={tocItems()}>
-              {(item) => (
-                <li>
-                  <a
-                    href={`#${item.id}`}
-                    class="detail-row hover:text-blue-500 truncate"
-                    style={`padding-left:${(item.level - 1) * 0.75}rem`}
-                    onClick={(event) => onTocItemClick(event, item.id)}
-                  >
-                    <span class="shrink-0 text-dimmed font-mono text-[10px]">H{item.level}</span>
-                    <span class="truncate">{item.text || "Untitled"}</span>
-                  </a>
-                </li>
-              )}
-            </For>
-          </ul>
-        </section>
-      </Show>
-
-      {/* Tasks — checklist progress, hidden when the note has no tasks. */}
-      <Show when={tasks().total > 0}>
-        <section class="detail-section">
-          <h3 class="detail-section-label">Tasks</h3>
-          <div class="flex items-center justify-between text-xs">
-            <span>
-              <span class="text-primary tabular-nums">{tasks().done}</span>
-              <span class="text-dimmed"> of </span>
-              <span class="text-primary tabular-nums">{tasks().total}</span>
-              <span class="text-dimmed"> done</span>
-            </span>
-            <span class="text-dimmed tabular-nums">{Math.round((tasks().done / Math.max(1, tasks().total)) * 100)}%</span>
+    <AppWorkspace.Detail open={open()} class="!p-[var(--ui-space-section)]">
+      <div class="flex h-full min-h-0 flex-col">
+        <header class="detail-header" style="view-transition-name: notebook-detail-panel">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold text-secondary">Note details</span>
+            <Tooltip content="Close details">
+              <button type="button" class="icon-btn" aria-label="Close note details" onClick={closePanel}>
+                <i class="ti ti-x" />
+              </button>
+            </Tooltip>
           </div>
-          <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
-            <div
-              class="h-full bg-emerald-500 dark:bg-emerald-400 transition-[width] duration-200"
-              style={`width: ${(tasks().done / Math.max(1, tasks().total)) * 100}%`}
-            />
+
+          <div class="mt-4 flex min-w-0 items-start gap-3">
+            <div class="app-accent-text flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-surface)] bg-[var(--ui-selected)]">
+              <i class={`ti ${lockedAt() ? "ti-lock" : "ti-file-text"} text-base`} />
+            </div>
+            <div class="min-w-0 flex-1">
+              <h2 class="truncate text-base font-semibold leading-5 text-primary">{noteTitle() || "Untitled"}</h2>
+              <p class="mt-1 truncate text-xs text-dimmed">
+                {lockedAt() ? "Locked note" : props.mode === "edit" ? "Collaborative note" : "Read-only note"}
+              </p>
+            </div>
           </div>
-        </section>
-      </Show>
 
-      {/* References */}
-      <Show when={namedBlocks().length > 0}>
-        <section class="detail-section">
-          <h3 class="detail-section-label">References</h3>
-          <ul class="flex flex-col gap-1">
-            <For each={namedBlocks()}>
-              {(block) => (
-                <li class="group flex items-center gap-1 text-xs">
-                  <button
-                    type="button"
-                    class="detail-row min-w-0 flex-1 justify-between hover:text-blue-500"
-                    onClick={() => scrollToNamedBlock(block)}
-                    title={`Jump to @${block.name}`}
-                  >
-                    <span class="inline-flex min-w-0 items-center gap-1">
-                      <i class="ti ti-at detail-row-icon" />
-                      <code class="truncate">{block.name}</code>
-                    </span>
-                    <span class="text-dimmed capitalize">{block.type}</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn h-6 w-6 shrink-0 text-dimmed opacity-0 transition-opacity hover:text-primary focus:opacity-100 group-hover:opacity-100"
-                    onClick={(event) => void copyNamedBlockSnippet(event, block)}
-                    title={`Copy script snippet for @${block.name}`}
-                    aria-label={`Copy script snippet for ${block.name}`}
-                  >
-                    <i class="ti ti-copy text-xs" />
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-        </section>
-      </Show>
+          <div class="mt-3 flex flex-wrap items-center gap-1">
+            <Show when={props.mode === "edit"}>
+              <Tooltip content={isRich() ? "Show Markdown source" : "Show rich text"}>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  aria-label={isRich() ? "Show Markdown source" : "Show rich text"}
+                  onClick={toggleRichMode}
+                >
+                  <i class={`ti ${isRich() ? "ti-markdown" : "ti-typography"}`} />
+                </button>
+              </Tooltip>
+            </Show>
+            <Tooltip content="Copy content">
+              <button type="button" class="icon-btn" aria-label="Copy note content" onClick={copyContent}>
+                <i class="ti ti-copy" />
+              </button>
+            </Tooltip>
+            <Tooltip content="Download Markdown">
+              <button type="button" class="icon-btn" aria-label="Download note as Markdown" onClick={downloadContent}>
+                <i class="ti ti-download" />
+              </button>
+            </Tooltip>
+            <Tooltip content="Version history">
+              <a href={buildVersionsUrl(props.notebookId, noteId())} class="icon-btn" aria-label="Open version history">
+                <i class="ti ti-history" />
+              </a>
+            </Tooltip>
+            <Tooltip content="Graph view">
+              <a href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`} class="icon-btn" aria-label="Open graph view">
+                <i class="ti ti-vector" />
+              </a>
+            </Tooltip>
+          </div>
+        </header>
 
-      {/* Attachments — files & images referenced from this note. Click a
-          row → download confirm modal. Deletion lives on the dedicated
-          attachments overview page. */}
-      <Show when={visibleAttachments().length > 0}>
-        <section class="detail-section">
-          <h3 class="detail-section-label">Attachments</h3>
-          <ul class="flex flex-col">
-            <For each={visibleAttachments()}>
-              {(att) => (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId))}
-                    class="list-item w-full !px-2 !py-1.5 text-left text-xs"
-                    title={att.filename}
-                  >
-                    <i
-                      class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`}
-                    />
-                    <span class="flex-1 truncate">{att.filename}</span>
-                    <span class="text-dimmed tabular-nums shrink-0">{formatBytes(att.sizeBytes)}</span>
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-        </section>
-      </Show>
-
-      {/* Backlinks */}
-      <Show when={backlinks().length > 0}>
-        <section class="detail-section">
-          <h3 class="detail-section-label">Linked by</h3>
-          <ul class="flex flex-col">
-            <For each={backlinks()}>
-              {(bl) => {
-                const showNotebook = bl.notebookShortId !== props.currentNotebookId;
-                return (
-                  <li>
-                    <a href={`/app/notebooks/${bl.notebookShortId}/notes/${bl.noteShortId}`} class="detail-row hover:text-blue-500">
-                      <i class="ti ti-file-text detail-row-icon" />
-                      <span class="truncate">{bl.title || "Untitled"}</span>
-                      {showNotebook && (
-                        <span class="text-dimmed text-[11px] ml-auto truncate flex items-center gap-1">
-                          <i class="ti ti-notebook" />
-                          {bl.notebookName}
-                        </span>
-                      )}
-                    </a>
-                  </li>
-                );
-              }}
-            </For>
-          </ul>
-        </section>
-      </Show>
-
-      {/* Online (edit mode only — readonly rendering has no presence connection) */}
-      <Show when={props.mode === "edit" && participants().length > 0}>
-        <section class="detail-section">
-          <h3 class="detail-section-label">Online · {participants().length}</h3>
-          <ul class="flex flex-col">
-            <For each={participants()}>
-              {(p) => (
-                <li class="detail-row">
-                  <span class="w-2 h-2 rounded-full shrink-0 detail-row-icon" style={`background:${p.color}`} />
-                  <span class="truncate">{p.displayName}</span>
-                  {p.peerCount > 1 && <span class="text-dimmed text-[11px] ml-auto">{p.peerCount} tabs</span>}
-                </li>
-              )}
-            </For>
-          </ul>
-        </section>
-      </Show>
-
-      {/* Actions */}
-      <section class="detail-section">
-        <h3 class="detail-section-label">Actions</h3>
-        <div class="flex flex-col gap-0.5">
-          <button type="button" class={`${ACTION_BTN} lg:hidden`} onClick={closePanel}>
-            <i class="ti ti-layout-sidebar-right-collapse" />
-            <span>Close panel</span>
-          </button>
-
-          <Show when={props.mode === "edit"}>
-            <button type="button" class={ACTION_BTN} onClick={toggleRichMode}>
-              <i class={`ti ${isRich() ? "ti-markdown" : "ti-typography"}`} />
-              <span>{isRich() ? "Markdown source" : "Rich text mode"}</span>
-            </button>
+        <div class="detail-stack">
+          {/* Contents */}
+          <Show when={tocItems().length >= 1}>
+            <section class="detail-section">
+              <h3 class="detail-section-label">Contents</h3>
+              <ul class="flex flex-col">
+                <For each={tocItems()}>
+                  {(item) => (
+                    <li>
+                      <a
+                        href={`#${item.id}`}
+                        class="detail-row hover:text-blue-500 truncate"
+                        style={`padding-left:${(item.level - 1) * 0.75}rem`}
+                        onClick={(event) => onTocItemClick(event, item.id)}
+                      >
+                        <span class="shrink-0 text-dimmed font-mono text-[10px]">H{item.level}</span>
+                        <span class="truncate">{item.text || "Untitled"}</span>
+                      </a>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
           </Show>
 
-          <button type="button" class={ACTION_BTN} onClick={copyContent}>
-            <i class="ti ti-clipboard" />
-            <span>Copy content</span>
-          </button>
+          {/* Tasks — checklist progress, hidden when the note has no tasks. */}
+          <Show when={tasks().total > 0}>
+            <section class="detail-section">
+              <h3 class="detail-section-label">Tasks</h3>
+              <div class="flex items-center justify-between text-xs">
+                <span>
+                  <span class="text-primary tabular-nums">{tasks().done}</span>
+                  <span class="text-dimmed"> of </span>
+                  <span class="text-primary tabular-nums">{tasks().total}</span>
+                  <span class="text-dimmed"> done</span>
+                </span>
+                <span class="text-dimmed tabular-nums">{Math.round((tasks().done / Math.max(1, tasks().total)) * 100)}%</span>
+              </div>
+              <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                <div
+                  class="h-full bg-emerald-500 dark:bg-emerald-400 transition-[width] duration-200"
+                  style={`width: ${(tasks().done / Math.max(1, tasks().total)) * 100}%`}
+                />
+              </div>
+            </section>
+          </Show>
 
-          <button type="button" class={ACTION_BTN} onClick={downloadContent}>
-            <i class="ti ti-download" />
-            <span>Download as .md</span>
-          </button>
+          {/* References */}
+          <Show when={namedBlocks().length > 0}>
+            <section class="detail-section">
+              <h3 class="detail-section-label">References</h3>
+              <ul class="flex flex-col gap-1">
+                <For each={namedBlocks()}>
+                  {(block) => (
+                    <li class="group flex items-center gap-1 text-xs">
+                      <button
+                        type="button"
+                        class="detail-row min-w-0 flex-1 justify-between hover:text-blue-500"
+                        onClick={() => scrollToNamedBlock(block)}
+                        title={`Jump to @${block.name}`}
+                      >
+                        <span class="inline-flex min-w-0 items-center gap-1">
+                          <i class="ti ti-at detail-row-icon" />
+                          <code class="truncate">{block.name}</code>
+                        </span>
+                        <span class="text-dimmed capitalize">{block.type}</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn h-6 w-6 shrink-0 text-dimmed opacity-0 transition-opacity hover:text-primary focus:opacity-100 group-hover:opacity-100"
+                        onClick={(event) => void copyNamedBlockSnippet(event, block)}
+                        title={`Copy script snippet for @${block.name}`}
+                        aria-label={`Copy script snippet for ${block.name}`}
+                      >
+                        <i class="ti ti-copy text-xs" />
+                      </button>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
+          </Show>
 
-          <a href={buildVersionsUrl(props.notebookId, noteId())} class={ACTION_BTN}>
-            <i class="ti ti-history" />
-            <span>Version history</span>
-          </a>
+          {/* Attachments — files & images referenced from this note. Click a
+          row → download confirm modal. Deletion lives on the dedicated
+          attachments overview page. */}
+          <Show when={visibleAttachments().length > 0}>
+            <section class="detail-section">
+              <h3 class="detail-section-label">Attachments</h3>
+              <ul class="flex flex-col">
+                <For each={visibleAttachments()}>
+                  {(att) => (
+                    <li>
+                      <button
+                        type="button"
+                        onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId))}
+                        class="list-item w-full !px-2 !py-1.5 text-left text-xs"
+                        title={att.filename}
+                      >
+                        <i
+                          class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`}
+                        />
+                        <span class="flex-1 truncate">{att.filename}</span>
+                        <span class="text-dimmed tabular-nums shrink-0">{formatBytes(att.sizeBytes)}</span>
+                      </button>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
+          </Show>
 
-          <a href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`} class={ACTION_BTN}>
-            <i class="ti ti-vector" />
-            <span>Graph view</span>
-          </a>
+          {/* Backlinks */}
+          <Show when={backlinks().length > 0}>
+            <section class="detail-section">
+              <h3 class="detail-section-label">Linked by</h3>
+              <ul class="flex flex-col">
+                <For each={backlinks()}>
+                  {(bl) => {
+                    const showNotebook = bl.notebookShortId !== props.currentNotebookId;
+                    return (
+                      <li>
+                        <a href={`/app/notebooks/${bl.notebookShortId}/notes/${bl.noteShortId}`} class="detail-row hover:text-blue-500">
+                          <i class="ti ti-file-text detail-row-icon" />
+                          <span class="truncate">{bl.title || "Untitled"}</span>
+                          {showNotebook && (
+                            <span class="text-dimmed text-[11px] ml-auto truncate flex items-center gap-1">
+                              <i class="ti ti-notebook" />
+                              {bl.notebookName}
+                            </span>
+                          )}
+                        </a>
+                      </li>
+                    );
+                  }}
+                </For>
+              </ul>
+            </section>
+          </Show>
+
+          {/* Online (edit mode only — readonly rendering has no presence connection) */}
+          <Show when={props.mode === "edit" && participants().length > 0}>
+            <section class="detail-section">
+              <h3 class="detail-section-label">Online · {participants().length}</h3>
+              <ul class="flex flex-col">
+                <For each={participants()}>
+                  {(p) => (
+                    <li class="detail-row">
+                      <span class="w-2 h-2 rounded-full shrink-0 detail-row-icon" style={`background:${p.color}`} />
+                      <span class="truncate">{p.displayName}</span>
+                      {p.peerCount > 1 && <span class="text-dimmed text-[11px] ml-auto">{p.peerCount} tabs</span>}
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
+          </Show>
+
+          {/* Info — always renders (a note always has created/updated). */}
+          <section class="detail-section">
+            <h3 class="detail-section-label">Info</h3>
+            <dl class="detail-facts">
+              <dt class="detail-fact-key">Created</dt>
+              <dd>{dates.formatDateTimeRelative(createdAt())}</dd>
+              <dt class="detail-fact-key">Updated</dt>
+              <dd>{dates.formatDateTimeRelative(updatedAt())}</dd>
+              {lockedAt() && (
+                <>
+                  <dt class="detail-fact-key">Locked</dt>
+                  <dd class="text-amber-600 dark:text-amber-400">{dates.formatDateTimeRelative(lockedAt()!)}</dd>
+                </>
+              )}
+            </dl>
+          </section>
         </div>
-      </section>
-
-      {/* Info — always renders (a note always has created/updated). */}
-      <section class="detail-section">
-        <h3 class="detail-section-label">Info</h3>
-        <dl class="detail-facts">
-          <dt class="detail-fact-key">Created</dt>
-          <dd>{dates.formatDateTimeRelative(createdAt())}</dd>
-          <dt class="detail-fact-key">Updated</dt>
-          <dd>{dates.formatDateTimeRelative(updatedAt())}</dd>
-          {lockedAt() && (
-            <>
-              <dt class="detail-fact-key">Locked</dt>
-              <dd class="text-amber-600 dark:text-amber-400">{dates.formatDateTimeRelative(lockedAt()!)}</dd>
-            </>
-          )}
-        </dl>
-      </section>
+      </div>
     </AppWorkspace.Detail>
   );
 }

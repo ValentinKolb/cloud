@@ -155,55 +155,6 @@
   display: none !important;
 }
 
-/* ── navigator note cards ──────────────────────────────────────── */
-
-.notebook-note-card {
-  display: block;
-  border: 1px solid transparent;
-  border-radius: 0.7rem;
-  padding: 0.72rem 0.8rem;
-  color: inherit;
-  text-decoration: none;
-  background: color-mix(in oklab, white 78%, rgb(244 244 245));
-  box-shadow: var(--theme-bevel-top), var(--theme-bevel-bottom);
-  transition:
-    background-color 140ms ease,
-    border-color 140ms ease,
-    box-shadow 140ms ease;
-}
-
-.notebook-note-card:hover {
-  border-color: color-mix(in oklab, rgb(59 130 246) 24%, transparent);
-  background: color-mix(in oklab, white 86%, rgb(59 130 246) 5%);
-}
-
-.notebook-note-card-active {
-  border-color: color-mix(in oklab, rgb(59 130 246) 50%, transparent);
-  background: color-mix(in oklab, rgb(59 130 246) 10%, white);
-  color: rgb(30 64 175);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, rgb(59 130 246) 35%, transparent), var(--theme-bevel-top), var(--theme-bevel-bottom);
-}
-
-.notebook-note-card-pinned {
-  background: color-mix(in oklab, white 86%, rgb(244 244 245));
-}
-
-.dark .notebook-note-card {
-  background: color-mix(in oklab, rgb(24 24 27) 76%, rgb(39 39 42));
-}
-
-.dark .notebook-note-card:hover {
-  border-color: color-mix(in oklab, rgb(96 165 250) 26%, transparent);
-  background: color-mix(in oklab, rgb(24 24 27) 82%, rgb(59 130 246) 10%);
-}
-
-.dark .notebook-note-card-active {
-  border-color: color-mix(in oklab, rgb(96 165 250) 45%, transparent);
-  background: color-mix(in oklab, rgb(59 130 246) 18%, rgb(24 24 27));
-  color: rgb(219 234 254);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, rgb(96 165 250) 28%, transparent), var(--theme-bevel-top), var(--theme-bevel-bottom);
-}
-
 /* ── ```script block output (rich-mode editor) ──────────────────────────
    The output container is mounted as a block decoration. In collapsed
    mode it replaces the source range; in edit mode it sits after the

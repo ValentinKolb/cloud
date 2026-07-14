@@ -175,9 +175,9 @@ export default function NotebooksOverview(props: Props) {
                 {(notebook) => (
                   <a
                     href={`/app/notebooks/${notebook.shortId}`}
-                    class="paper group p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
+                    class="paper group flex items-center gap-2 p-4 no-underline transition-all hover:paper-highlighted"
                   >
-                    <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                    <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
                       <i class={`${notebook.icon || "ti ti-notebook"} text-lg text-blue-600 dark:text-blue-400`} />
                     </div>
                     <div class="flex-1 min-w-0">
@@ -199,11 +199,11 @@ export default function NotebooksOverview(props: Props) {
             {(template) => (
               <button
                 type="button"
-                class="paper group p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
+                class="paper group flex items-start gap-2 p-4 text-left transition-all hover:paper-highlighted"
                 onClick={() => createFromTemplate(template)}
                 disabled={createFromTemplateMutation.loading()}
               >
-                <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
                   <i class={`${template.icon} text-lg text-primary`} />
                 </span>
                 <span class="min-w-0 flex-1">
@@ -217,11 +217,11 @@ export default function NotebooksOverview(props: Props) {
 
           <button
             type="button"
-            class="paper group p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
+            class="paper group flex items-start gap-2 p-4 text-left transition-all hover:paper-highlighted"
             onClick={createBlank}
             disabled={createNotebookMutation.loading()}
           >
-            <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+            <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-blue-100 dark:bg-blue-900/50">
               <i class="ti ti-plus text-lg text-blue-600 dark:text-blue-400" />
             </span>
             <span class="min-w-0 flex-1">

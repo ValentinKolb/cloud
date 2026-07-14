@@ -4,8 +4,8 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
-import { SaveStatus, settingsChoiceClass } from "./shared";
 import { readSettings, writeSettings } from "./NotebookSettingsStore";
+import { SaveStatus, settingsChoiceClass } from "./shared";
 import { readErrorMessage } from "./utils";
 
 function ViewSection(props: { notebook: Notebook }) {
@@ -19,7 +19,7 @@ function ViewSection(props: { notebook: Notebook }) {
   };
 
   return (
-    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
       <button type="button" class={settingsChoiceClass(mode() === "simple")} onClick={() => selectMode("simple")}>
         <span class="flex items-center gap-2 text-sm font-semibold">
           <i class="ti ti-layout-sidebar" />
@@ -86,12 +86,12 @@ export function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; o
   };
 
   return (
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col gap-2">
       <div class="flex flex-col gap-2">
         <ViewSection notebook={props.notebook} />
       </div>
 
-      <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-2">
         <CheckboxCard
           label="Enable script blocks"
           description="Allows ```script fences to run trusted JavaScript for everyone who opens this notebook."

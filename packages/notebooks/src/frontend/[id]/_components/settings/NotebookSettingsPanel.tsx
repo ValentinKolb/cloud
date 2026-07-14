@@ -18,8 +18,8 @@ function NotebookSettingsBody(props: NotebookSettingsProps & { bare?: boolean; c
   const [notebook, setNotebook] = createSignal(props.notebook);
 
   return (
-    <div class={props.bare ? "flex h-[86vh] min-h-0 flex-col overflow-hidden" : "flex-1 overflow-y-auto"}>
-      <div class={props.bare ? "min-h-0 flex-1 overflow-hidden" : "mx-auto flex h-full min-h-[70vh] max-w-5xl flex-col px-4 py-6"}>
+    <div class={props.bare ? "flex h-[86vh] min-h-0 flex-col overflow-hidden" : "min-h-0 flex-1 overflow-hidden"}>
+      <div class="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         <SettingsModal
           title="Notebook settings"
           subtitle={notebook().name}

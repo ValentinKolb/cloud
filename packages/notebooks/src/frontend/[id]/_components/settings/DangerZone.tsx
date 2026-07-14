@@ -28,7 +28,7 @@ export function DangerZone(props: { notebook: Notebook }) {
   };
 
   return (
-    <div class="flex flex-col gap-3">
+    <div class="flex flex-col gap-2">
       <p class="text-xs text-dimmed">This removes notes, versions, attachments, and access grants. It cannot be undone.</p>
       <button type="button" onClick={handleDelete} disabled={mutation.loading()} class="btn-danger btn-md self-start">
         {mutation.loading() ? (

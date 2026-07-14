@@ -1,16 +1,16 @@
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
-import { type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import type { LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import { requestSoftNoteNavigation } from "../../../lib/soft-navigation";
+import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
+import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
 import SearchButton from "../search/SearchButton";
 import NotebookSettingsButton from "../settings/NotebookSettingsButton";
 import CreateNoteButton from "./CreateNoteButton";
 import NotebookNavigator from "./NotebookNavigator";
 import NoteTree from "./NoteTree";
 import TagsButton from "./TagsButton";
-import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
 import type { NotebookContext, NoteTreeNode } from "./types";
 import { WORKSPACE_EVENT, type WorkspaceEventDetail } from "./workspace-events";
 
@@ -268,7 +268,7 @@ export default function NotebookSidebar(props: Props) {
           when={navigatorMode()}
           fallback={
             <>
-              <div class="flex flex-col gap-3">
+              <div class="flex flex-col gap-2">
                 <AppWorkspace.SidebarIconGrid columns={3}>
                   {canWrite && (
                     <div style={`view-transition-name:${vt("create-desktop")}`}>

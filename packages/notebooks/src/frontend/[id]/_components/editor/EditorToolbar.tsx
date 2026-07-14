@@ -6,7 +6,7 @@ import { createSignal, onCleanup, onMount } from "solid-js";
 import { requestNotebookSearch } from "../../../lib/hotkeys";
 import { DETAIL_PANEL_STATE_EVENT, DETAIL_PANEL_TOGGLE_EVENT } from "../detail/events";
 import { openAttachmentPicker } from "./AttachmentPicker";
-import { cycleHeading, insertCallout, insertLink, insertLinePrefix, insertNoteLink, insertTable, wrapSelection } from "./editor-actions";
+import { cycleHeading, insertCallout, insertLinePrefix, insertLink, insertNoteLink, insertTable, wrapSelection } from "./editor-actions";
 
 type Props = {
   connected: boolean;
@@ -117,13 +117,13 @@ export default function EditorToolbar(props: Props) {
   const toggleDetailPanel = () => window.dispatchEvent(new CustomEvent(DETAIL_PANEL_TOGGLE_EVENT));
 
   const Btn = (p: { icon: string; title: string; onClick: () => void }) => (
-    <button title={p.title} onClick={p.onClick} class="hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors">
+    <button type="button" title={p.title} aria-label={p.title} onClick={p.onClick} class="icon-btn h-7 w-7 text-dimmed">
       <i class={`ti ${p.icon}`} />
     </button>
   );
 
   return (
-    <div class="mt-1 flex items-center gap-3 px-2 py-2 text-base text-dimmed">
+    <div class="mt-1 flex items-center gap-2 px-2 py-2 text-base text-dimmed">
       {/* Text formatting */}
       <Btn icon="ti-bold" title="Bold" onClick={bold} />
       <Btn icon="ti-italic" title="Italic" onClick={italic} />
@@ -136,7 +136,7 @@ export default function EditorToolbar(props: Props) {
       {/* Insert dropdown — Lists, Info Blocks, Table */}
       <Dropdown
         trigger={
-          <span title="Insert" class="hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors flex items-center gap-1">
+          <span title="Insert" class="icon-btn flex h-7 w-7 items-center gap-0.5 text-dimmed">
             <i class="ti ti-layout-grid-add" />
             <i class="ti ti-chevron-down text-[10px]" />
           </span>

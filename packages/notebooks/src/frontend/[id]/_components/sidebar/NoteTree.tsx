@@ -180,7 +180,7 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
         const [selected, setSelected] = createSignal<string | null>(node.parentId);
 
         return (
-          <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-2">
             <p class="text-sm text-secondary">
               Move <strong>{node.title}</strong> to:
             </p>
@@ -210,7 +210,7 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
               </For>
             </div>
 
-            <div class="flex justify-end gap-3">
+            <div class="flex justify-end gap-2">
               <button type="button" onClick={() => close(undefined)} class="btn-secondary btn-md">
                 Cancel
               </button>
@@ -413,7 +413,7 @@ function TreeNode(props: {
           </button>
         ) : (
           <span class="sidebar-tree-toggle">
-            <span class="w-1 h-1 rounded-full bg-zinc-300 dark:bg-zinc-600" />
+            <i class="ti ti-file-text text-[10px] text-dimmed" />
           </span>
         )}
 
@@ -444,7 +444,7 @@ function TreeNode(props: {
           )}
         </Show>
         <Show when={props.canWrite}>
-          <div class="opacity-0 group-hover/node:opacity-100 transition-opacity shrink-0">
+          <div class="shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 group-focus-within/node:opacity-100">
             <Dropdown
               trigger={
                 <span class="sidebar-item-action">

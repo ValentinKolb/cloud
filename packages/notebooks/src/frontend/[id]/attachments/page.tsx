@@ -10,7 +10,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { notebooksService } from "@/service";
 import { ssr } from "../../../config";
@@ -118,9 +118,9 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Attachments" },
       ]}
     >
-      <div class="app-cols flex-1 min-h-0">
+      <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
         <NotebookSidebar ctx={ctx} />
-        <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+        <AppWorkspace.Main class="flex-col overflow-hidden p-[var(--ui-space-shell)]">
           {/* Search bar across the full content width. The breadcrumb already
               labels the page — no additional title above. */}
           <SearchBar value={search} action={baseHref} placeholder="Search attachments…" ariaLabel="Search attachments" />
@@ -129,8 +129,8 @@ export default ssr<AuthContext>(async (c) => {
             <AttachmentsOverview notebookId={notebook.shortId} initial={paginatedResult.items} searchQuery={search} />
             <Pagination currentPage={paginatedResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
           </div>
-        </div>
-      </div>
+        </AppWorkspace.Main>
+      </AppWorkspace>
     </Layout>
   );
 });

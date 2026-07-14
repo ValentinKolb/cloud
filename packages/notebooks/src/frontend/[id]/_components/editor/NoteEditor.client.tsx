@@ -1,26 +1,30 @@
-import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
+import { EditorView, keymap, lineNumbers } from "@codemirror/view";
+import { layout, prompts, toast } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { encoding } from "@valentinkolb/stdlib";
 import { clipboard, files } from "@valentinkolb/stdlib/browser";
-import { editor } from "../../../lib/editor";
-import { getNotebookPresenceColor } from "../../../lib/yjs";
-import { yjs } from "../../../lib/yjs";
-import { layout, prompts, toast } from "@valentinkolb/cloud/ui";
+import { dropzone } from "@valentinkolb/stdlib/solid";
 import { createCodeMirror } from "solid-codemirror";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { dropzone } from "@valentinkolb/stdlib/solid";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { apiClient } from "@/api/client";
+import { extractNamedBlockSummaries, type NamedBlockSummary } from "../../../../lib/named-blocks";
+import type { Backlink } from "../../../../service/links";
+import { editor } from "../../../lib/editor";
+import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
+import { handleSoftNoteNavigationRequests } from "../../../lib/soft-navigation";
+import { getNotebookPresenceColor, yjs } from "../../../lib/yjs";
 import {
   ATTACHMENTS_UPDATE_EVENT,
   EDITOR_COPY_EVENT,
   EDITOR_DOWNLOAD_EVENT,
   EDITOR_INSERT_ATTACHMENT_EVENT,
-  NOTE_SOFT_NAVIGATED_EVENT,
-  NAMED_BLOCKS_UPDATE_EVENT,
   NAMED_BLOCK_SCROLL_EVENT,
+  NAMED_BLOCKS_UPDATE_EVENT,
+  NOTE_SOFT_NAVIGATED_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   TASKS_UPDATE_EVENT,
@@ -32,15 +36,10 @@ import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
 import { readSettings, writeSettings } from "../settings/NotebookSettingsStore";
 import { WORKSPACE_EVENT } from "../sidebar/workspace-events";
-import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
-import { handleSoftNoteNavigationRequests } from "../../../lib/soft-navigation";
-import { extractNamedBlockSummaries, type NamedBlockSummary } from "../../../../lib/named-blocks";
 import type { Attachment, AttachmentRef } from "./attachments-client";
-import type { Backlink } from "../../../../service/links";
-import { MAX_ATTACHMENT_SIZE_BYTES, formatBytes, insertAttachment, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
+import { formatBytes, insertAttachment, MAX_ATTACHMENT_SIZE_BYTES, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
 import { slashCommandsExtension } from "./slash-commands";
-import { apiClient } from "@/api/client";
 
 const TOC_DEBOUNCE_MS = 300;
 const NOTE_NAV_LOADING_MIN_MS = 150;
@@ -673,7 +672,7 @@ function EditorInstance(props: Props) {
   return (
     <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
       <div
-        class={`paper relative flex-1 min-h-0 overflow-y-auto bg-white dark:bg-zinc-950 cursor-text transition-colors ${
+        class={`relative min-h-0 flex-1 cursor-text overflow-y-auto transition-colors ${
           !props.readOnly && dz.isDragging() ? "ring-2 ring-blue-400 dark:ring-blue-500 ring-inset" : ""
         }`}
         onMouseDown={(event) => {

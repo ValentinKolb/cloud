@@ -64,8 +64,8 @@ export function GeneralSection(props: {
   });
 
   return (
-    <div class="flex flex-col gap-4">
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div class="flex flex-col gap-2">
+      <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
         <TextInput
           label="Name"
           description="Shown in the sidebar and overview."

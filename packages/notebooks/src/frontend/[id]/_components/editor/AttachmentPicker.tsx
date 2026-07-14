@@ -59,7 +59,7 @@ const AttachmentPicker = (props: Props) => {
   };
 
   return (
-    <div class="w-full max-w-full flex flex-col gap-3">
+    <div class="flex w-full max-w-full flex-col gap-2">
       <FileDropzone
         title="Drop file or click to choose"
         subtitle="Upload a new attachment and insert it at the cursor."

@@ -10,7 +10,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { notebooksService } from "@/service";
 import { ssr } from "../../../../config";
@@ -122,9 +122,9 @@ export default ssr<AuthContext>(async (c) => {
         { title: `#${tagParam}` },
       ]}
     >
-      <div class="app-cols flex-1 min-h-0">
+      <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
         <NotebookSidebar ctx={ctx} />
-        <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+        <AppWorkspace.Main class="flex-col overflow-hidden">
           {/* SearchBar (full width) + note counter on the right. The
               tag itself already lives in the breadcrumb above. */}
           <div class="flex items-center gap-2">
@@ -143,12 +143,12 @@ export default ssr<AuthContext>(async (c) => {
 
           <div class="mt-2 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
             {paginatedResult.items.length > 0 ? (
-              <ul class="paper overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+              <ul class="flex flex-col gap-1">
                 {paginatedResult.items.map((n) => (
                   <li>
                     <a
                       href={buildNoteUrl(notebook.shortId, n.shortId)}
-                      class="flex flex-col gap-1 px-3 py-2.5 no-underline transition-colors hover:bg-[var(--theme-list-hover-bg)]"
+                      class="list-item flex-col !items-stretch gap-1 !px-3 !py-2.5 no-underline"
                     >
                       <div class="flex items-center gap-2">
                         <i class="ti ti-file-text text-sm shrink-0 text-dimmed" />
@@ -161,8 +161,7 @@ export default ssr<AuthContext>(async (c) => {
                 ))}
               </ul>
             ) : (
-              <div class="paper p-8 flex flex-col items-center justify-center gap-2 text-xs text-dimmed">
-                <i class="ti ti-search-off text-2xl" />
+              <Placeholder surface="paper" icon="ti ti-search-off">
                 {search ? (
                   <p>
                     No notes tagged #{tagParam} match "{search}".
@@ -175,13 +174,13 @@ export default ssr<AuthContext>(async (c) => {
                 ) : (
                   <p>No results.</p>
                 )}
-              </div>
+              </Placeholder>
             )}
 
             <Pagination currentPage={page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
           </div>
-        </div>
-      </div>
+        </AppWorkspace.Main>
+      </AppWorkspace>
     </Layout>
   );
 });

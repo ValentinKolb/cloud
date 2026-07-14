@@ -11,7 +11,7 @@ export function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?
         </p>
       }
     >
-      <div class="paper flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-200">
+      <div class="info-block-info flex flex-wrap items-center gap-2 text-xs">
         <span class="flex items-center gap-1.5">
           <i class="ti ti-pencil" />
           Unsaved changes
@@ -32,7 +32,7 @@ export function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?
 }
 
 export const settingsChoiceClass = (active: boolean) =>
-  `paper relative rounded-lg p-4 text-left transition-[background-color,box-shadow,color] ${
+  `paper relative p-4 text-left transition-[background-color,box-shadow,color] ${
     active
       ? "text-blue-700 dark:text-blue-300 before:absolute before:left-2 before:top-4 before:h-3.5 before:w-0.5 before:rounded-full before:bg-blue-500 dark:before:bg-blue-400"
       : "text-secondary"

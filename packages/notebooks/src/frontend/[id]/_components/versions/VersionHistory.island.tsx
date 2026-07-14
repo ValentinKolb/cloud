@@ -273,11 +273,11 @@ export default function VersionHistory(props: Props) {
   };
 
   return (
-    <div class="flex-1 flex flex-col min-h-0">
+    <div class="flex min-h-0 flex-1 flex-col gap-2">
       {/* Header */}
-      <div class="flex items-center justify-between px-4 py-3 shrink-0">
-        <div class="flex items-center gap-3">
-          <a href={backUrl} class="p-1.5 text-dimmed hover:text-primary transition-colors" title="Back to editor">
+      <div class="flex shrink-0 items-center justify-between px-2 pt-2">
+        <div class="flex items-center gap-2">
+          <a href={backUrl} class="icon-btn h-8 w-8 text-dimmed" title="Back to editor" aria-label="Back to editor">
             <i class="ti ti-arrow-left" />
           </a>
           <div>
@@ -312,8 +312,6 @@ export default function VersionHistory(props: Props) {
           </div>
         </Show>
       </div>
-
-      <hr class="divider" />
 
       {/* Loading */}
       <Show when={loading()}>

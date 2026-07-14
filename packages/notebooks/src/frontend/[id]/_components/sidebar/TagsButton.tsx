@@ -10,7 +10,7 @@
  */
 import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { timed } from "@valentinkolb/stdlib/solid";
-import { For, Show, createMemo, createResource, createSignal } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildTagPageUrl } from "../../../params";
 
@@ -57,7 +57,7 @@ const TagsModal = (props: { notebookId: string; close: () => void }) => {
   };
 
   return (
-    <div class="w-full max-w-full flex flex-col gap-3 min-w-[24rem]">
+    <div class="flex min-w-[24rem] w-full max-w-full flex-col gap-2">
       <input type="text" class="input" placeholder="Search tags..." autofocus value={query()} onInput={onInput} />
 
       <Show when={!tags.loading} fallback={<p class="text-xs text-dimmed">Loading tags…</p>}>

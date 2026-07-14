@@ -11,10 +11,10 @@
  * Delete is the only path that wipes a blob. After delete, broken refs in
  * other notes stay broken by design (KISS — see dex task `vnzej6v5`).
  */
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { clipboard } from "@valentinkolb/stdlib/browser";
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
-import { For, Show, createSignal } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import {
   type Attachment,
@@ -107,7 +107,7 @@ const AttachmentsOverview = (props: Props) => {
         )
       }
     >
-      <ul class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 2xl:grid-cols-16 gap-2">
+      <ul class="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 2xl:grid-cols-16">
         <For each={items()}>
           {(att) => (
             <li class="paper group relative flex flex-col overflow-hidden">
@@ -117,7 +117,7 @@ const AttachmentsOverview = (props: Props) => {
                     `aspect-ratio` grows when the intrinsic image is
                     taller than wide). Action buttons overlay on hover —
                     at this tile width the meta row has no room for them. */}
-              <div class="relative aspect-square overflow-hidden bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-100 dark:border-zinc-800">
+              <div class="relative aspect-square overflow-hidden bg-zinc-100 dark:bg-zinc-800">
                 {att.kind === "image" ? (
                   <img
                     src={buildAttachmentContentUrl(props.notebookId, att.shortId)}
@@ -139,12 +139,13 @@ const AttachmentsOverview = (props: Props) => {
 
                 {/* Hover overlay: download / copy / delete. Sits on the
                       preview so meta row stays clean (filename + size). */}
-                <div class="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                   <button
                     type="button"
                     onClick={() => onDownload(att)}
                     title="Download"
-                    class="w-6 h-6 inline-flex items-center justify-center rounded bg-white/90 dark:bg-zinc-950/80 backdrop-blur-sm text-dimmed hover:text-primary shadow-sm"
+                    aria-label={`Download ${att.filename}`}
+                    class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-primary dark:bg-zinc-950/80"
                   >
                     <i class="ti ti-download text-xs" />
                   </button>
@@ -152,7 +153,8 @@ const AttachmentsOverview = (props: Props) => {
                     type="button"
                     onClick={() => void onCopy(att)}
                     title="Copy markdown"
-                    class="w-6 h-6 inline-flex items-center justify-center rounded bg-white/90 dark:bg-zinc-950/80 backdrop-blur-sm text-dimmed hover:text-primary shadow-sm"
+                    aria-label={`Copy markdown for ${att.filename}`}
+                    class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-primary dark:bg-zinc-950/80"
                   >
                     <i class="ti ti-copy text-xs" />
                   </button>
@@ -160,7 +162,8 @@ const AttachmentsOverview = (props: Props) => {
                     type="button"
                     onClick={() => void onDelete(att)}
                     title="Delete"
-                    class="w-6 h-6 inline-flex items-center justify-center rounded bg-white/90 dark:bg-zinc-950/80 backdrop-blur-sm text-dimmed hover:text-red-500 shadow-sm"
+                    aria-label={`Delete ${att.filename}`}
+                    class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-red-500 dark:bg-zinc-950/80"
                   >
                     <i class="ti ti-trash text-xs" />
                   </button>

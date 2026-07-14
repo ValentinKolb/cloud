@@ -33,7 +33,7 @@ const openPermissionDialog = async (props: AdminNotebookActionsProps) => {
 
   await prompts.dialog<void>(
     (_close) => (
-      <div class="w-full max-w-full flex flex-col gap-3">
+      <div class="flex w-full max-w-full flex-col gap-2">
         <p class="text-xs text-dimmed">Manage who can access this notebook.</p>
         <PermissionEditor
           initialEntries={entries}

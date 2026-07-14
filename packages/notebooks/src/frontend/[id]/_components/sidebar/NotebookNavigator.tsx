@@ -47,7 +47,8 @@ const TREE_MODE_OPTIONS = [
   { value: "level", label: "Children" },
 ] satisfies { value: TreeMode; label: string }[];
 
-const navigatorRowClass = (active: boolean, extra = "") => `sidebar-item w-full text-xs ${active ? "sidebar-item-active" : ""} ${extra}`;
+const navigatorRowClass = (active: boolean, extra = "") =>
+  `sidebar-item h-8 min-h-8 w-full py-0 text-xs ${active ? "sidebar-item-active" : ""} ${extra}`;
 
 const activateRowOnKey = (event: KeyboardEvent, action: () => void) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -125,7 +126,7 @@ const NoteBranchPicker = (props: {
             <Show when={note.children.length > 0} fallback={<span class="h-4 w-4 shrink-0" />}>
               <button
                 type="button"
-                class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-dimmed hover:bg-zinc-200/70 hover:text-secondary dark:hover:bg-zinc-700"
+                class="sidebar-item-action h-4 w-4 shrink-0"
                 aria-label={`${props.collapsedIds.has(note.id) ? "Expand" : "Collapse"} ${note.title || "Untitled"}`}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -258,10 +259,10 @@ export default function NotebookNavigator(props: Props) {
   };
 
   return (
-    <div class="grid min-h-0 flex-1 grid-cols-[11rem_minmax(0,1fr)] gap-2.5">
+    <div class="grid min-h-0 flex-1 grid-cols-[11rem_minmax(0,1fr)] gap-2">
       <div class="flex min-h-0 flex-col pr-1">
         <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`notebooks-navigator-roots-${props.notebook.shortId}`}>
-          <div class="relative mb-4 flex items-center gap-3 pr-7">
+          <div class="relative mb-2 flex items-center gap-2 pr-7">
             <div class="sidebar-header-icon flex shrink-0 items-center justify-center bg-blue-500 text-white">
               <i class={`ti ${props.notebook.icon || "ti-notebook"} text-xs`} />
             </div>
@@ -277,7 +278,7 @@ export default function NotebookNavigator(props: Props) {
             />
           </div>
 
-          <div class="flex flex-col gap-1">
+          <div class="flex flex-col gap-0.5">
             <For each={ROOTS}>
               {(root) => (
                 <button type="button" class={navigatorRowClass(selectedRoot() === root.id)} onClick={() => setSelection({ root: root.id })}>
@@ -294,7 +295,7 @@ export default function NotebookNavigator(props: Props) {
             <SearchButton notebookId={props.notebook.shortId} notebookName={props.notebook.name} variant="sidebar" />
           </div>
 
-          <div class="mt-3">
+          <div class="mt-2">
             <div
               role="button"
               tabIndex={0}
@@ -304,7 +305,7 @@ export default function NotebookNavigator(props: Props) {
             >
               <button
                 type="button"
-                class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-dimmed hover:bg-zinc-200/70 hover:text-secondary dark:hover:bg-zinc-700"
+                class="sidebar-item-action h-4 w-4 shrink-0"
                 aria-label={`${notesExpanded() ? "Collapse" : "Expand"} all notes`}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -327,7 +328,7 @@ export default function NotebookNavigator(props: Props) {
             </Show>
           </div>
 
-          <div class="mt-3">
+          <div class="mt-2">
             <button type="button" class={navigatorRowClass(false, "mb-1 font-medium")} onClick={() => setTagsExpanded((value) => !value)}>
               <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-dimmed">
                 <i class={`ti ti-chevron-down text-[10px] transition-transform ${tagsExpanded() ? "" : "-rotate-90"}`} />
@@ -355,7 +356,7 @@ export default function NotebookNavigator(props: Props) {
           </div>
         </div>
 
-        <div class="mt-3 flex shrink-0 flex-col gap-1">
+        <div class="mt-2 flex shrink-0 flex-col gap-0.5">
           <a href="/app/notebooks" class="sidebar-item w-full text-xs">
             <i class="ti ti-library text-sm" />
             <span class="min-w-0 flex-1 truncate text-left">All Notebooks</span>
@@ -368,7 +369,7 @@ export default function NotebookNavigator(props: Props) {
       </div>
 
       <div class="flex min-h-0 min-w-0 flex-col">
-        <div class="flex shrink-0 flex-wrap items-center gap-1.5 pb-2">
+        <div class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
           <SelectChip value={treeMode()} options={TREE_MODE_OPTIONS} onChange={setTreeMode} icon="ti ti-list-tree" />
           <SelectChip value={sortMode()} options={SORT_OPTIONS} onChange={setSortMode} icon="ti ti-sort-descending" />
           <Show when={props.canWrite}>
@@ -393,12 +394,12 @@ export default function NotebookNavigator(props: Props) {
               </Placeholder>
             }
           >
-            <div class="flex flex-col gap-1.5">
+            <div class="flex flex-col gap-2">
               <Show when={pinnedNote()}>
                 {(note) => (
                   <a
                     href={noteHref(note())}
-                    class="notebook-note-card notebook-note-card-pinned group"
+                    class="paper group block p-3 no-underline transition-all hover:paper-highlighted"
                     onClick={(event) => {
                       event.preventDefault();
                       setActiveNoteId(note().id);
@@ -441,7 +442,7 @@ export default function NotebookNavigator(props: Props) {
                   return (
                     <a
                       href={href()}
-                      class={`notebook-note-card group ${active() ? "notebook-note-card-active" : ""}`}
+                      class={`paper group block p-3 no-underline transition-all hover:paper-highlighted ${active() ? "paper-highlighted" : ""}`}
                       onClick={(event) => {
                         event.preventDefault();
                         setActiveNoteId(note.id);
@@ -484,7 +485,7 @@ export default function NotebookNavigator(props: Props) {
                           />
                         </Show>
                       </div>
-                      <div class="mt-1.5 flex items-center gap-1.5">
+                      <div class="mt-2 flex items-center gap-1.5">
                         <For each={tags()}>
                           {(tag) => (
                             <span class="truncate rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">

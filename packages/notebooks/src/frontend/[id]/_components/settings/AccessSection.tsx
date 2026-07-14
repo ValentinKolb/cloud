@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { PermissionEditor, ResourceApiKeys, type ResourceApiKey } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, type ResourceApiKey, ResourceApiKeys } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
@@ -65,7 +65,7 @@ function PermissionsSection(props: { notebook: Notebook; accessEntries: AccessEn
 
 export function AccessSection(props: { notebook: Notebook; accessEntries: AccessEntry[]; apiKeys: ResourceApiKey[]; isAdmin: boolean }) {
   return (
-    <div class="flex flex-col gap-6">
+    <div class="flex flex-col gap-2">
       <PermissionsSection notebook={props.notebook} accessEntries={props.accessEntries} isAdmin={props.isAdmin} />
       <ApiKeysSection notebook={props.notebook} apiKeys={props.apiKeys} isAdmin={props.isAdmin} />
     </div>

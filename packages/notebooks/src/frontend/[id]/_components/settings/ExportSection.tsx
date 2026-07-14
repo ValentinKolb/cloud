@@ -1,4 +1,4 @@
-import { CheckboxCard, LogEntriesTable, prompts, TextInput, type LogTableEntry } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, LogEntriesTable, type LogTableEntry, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { Link } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { type Accessor, createEffect, createResource, createSignal, type Setter, Show } from "solid-js";
@@ -63,13 +63,13 @@ function SnapshotConfigFields(props: {
         disabled={props.saving}
       />
 
-      <div class="paper px-3 py-2 text-xs text-secondary">
+      <div class="info-block-info text-xs">
         Automatic schedule: <span class="font-mono text-primary">{props.status?.scheduleCron ?? "0 3 * * *"}</span>
         <span class="ml-2 text-dimmed">Cloud admins edit it in /admin/notebooks.</span>
       </div>
 
       <Show when={props.enabled()}>
-        <div class="grid gap-3">
+        <div class="grid gap-2">
           <TextInput
             label="Endpoint"
             value={props.endpoint}
@@ -90,7 +90,7 @@ function SnapshotConfigFields(props: {
               </p>
             </div>
           </div>
-          <div class="grid gap-3 md:grid-cols-2">
+          <div class="grid gap-2 md:grid-cols-2">
             <TextInput label="Region" value={props.region} onInput={props.setRegion} placeholder="eu-central-1" icon="ti ti-map" />
             <TextInput
               label="Bucket"
@@ -100,7 +100,7 @@ function SnapshotConfigFields(props: {
               icon="ti ti-bucket"
             />
           </div>
-          <div class="grid gap-3 md:grid-cols-2">
+          <div class="grid gap-2 md:grid-cols-2">
             <TextInput
               label="Access key ID"
               value={props.accessKeyId}
@@ -117,7 +117,7 @@ function SnapshotConfigFields(props: {
               password
             />
           </div>
-          <div class="paper px-3 py-2 text-xs text-secondary">
+          <div class="info-block-info text-xs">
             Target: <span class="font-medium text-primary">{props.status?.target ?? "not configured"}</span>
             <Show when={props.missing !== "none"}>
               <span class="ml-2 text-amber-600 dark:text-amber-300">Missing: {props.missing}</span>
@@ -141,7 +141,7 @@ function SnapshotConfigFields(props: {
 function SnapshotLogsSection(props: { show: boolean; entries: LogTableEntry[]; loading: boolean; error: string | null }) {
   return (
     <Show when={props.show}>
-      <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-2">
         <h3 class="text-sm font-semibold">Recent snapshots</h3>
         <Show
           when={!props.error}
@@ -275,8 +275,8 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
   const showSnapshotLogs = () => enabled() || logEntries().length > 0 || logs.loading || !!logError();
 
   return (
-    <div class="flex flex-col gap-4">
-      <div class="paper p-4 text-sm text-secondary">
+    <div class="flex flex-col gap-2">
+      <div class="info-block-info text-sm">
         Export this notebook as plain Markdown, raw attachments, and small JSON metadata files. Admin permission is required because the
         archive contains the full notebook.
       </div>
@@ -285,8 +285,8 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
           <i class="ti ti-download" />
           Download ZIP export
         </Link>
-        <div class="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <div class="flex flex-wrap items-start justify-between gap-3">
+        <section class="flex flex-col gap-2">
+          <div class="flex flex-wrap items-start justify-between gap-2">
             <div>
               <h3 class="text-sm font-semibold">S3 snapshots</h3>
               <p class="mt-1 text-xs text-dimmed">
@@ -323,7 +323,7 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
             dirty={dirty()}
             onSave={() => configMutation.mutate(undefined)}
           />
-        </div>
+        </section>
 
         <SnapshotLogsSection show={showSnapshotLogs()} entries={logEntries()} loading={logs.loading} error={logError()} />
       </Show>
