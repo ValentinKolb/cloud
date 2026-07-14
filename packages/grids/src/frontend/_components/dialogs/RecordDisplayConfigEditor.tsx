@@ -1,5 +1,5 @@
 import { MultiSelectInput, Select } from "@valentinkolb/cloud/ui";
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import type { RecordDisplayConfig, RecordDisplayMode } from "../../../contracts";
 import type { Field } from "../../../service";
 import { fieldOption, fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
@@ -141,22 +141,6 @@ export function RecordDisplayConfigEditor(props: {
         <Show when={dateFieldOptions().length === 0}>
           <div class="info-block-warning text-xs">Add a date field before using calendar display.</div>
         </Show>
-      </Show>
-
-      <Show when={display().mode === "table"}>
-        <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <For each={MODE_OPTIONS}>
-            {(mode) => (
-              <div class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-secondary dark:border-zinc-800 dark:bg-zinc-900/40">
-                <div class="mb-1 flex items-center gap-2 font-semibold text-primary">
-                  <i class={mode.icon} />
-                  {mode.label}
-                </div>
-                {mode.description}
-              </div>
-            )}
-          </For>
-        </div>
       </Show>
     </div>
   );

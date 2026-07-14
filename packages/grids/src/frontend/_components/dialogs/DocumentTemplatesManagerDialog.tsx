@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentTemplate } from "../../../contracts";
@@ -133,64 +133,76 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
       </div>
 
       <Show when={!templates.loading && (templates()?.length ?? 0) === 0}>
-        <div class="paper p-3 text-sm text-dimmed">No document templates yet.</div>
+        <Placeholder align="left">No document templates yet.</Placeholder>
       </Show>
 
       <For each={[...(templates() ?? [])].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))}>
         {(template, index) => (
-          <div class="paper flex items-start gap-3 p-3">
+          <div class="paper flex flex-wrap items-start gap-3 p-3">
             <i class="ti ti-file-type-pdf mt-0.5 text-lg text-dimmed" />
-            <div class="min-w-0 flex-1">
+            <div class="min-w-48 flex-1">
               <div class="flex items-center gap-2">
                 <span class="truncate text-sm font-semibold text-primary">{template.name}</span>
                 <Show when={!template.enabled}>
-                  <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-dimmed dark:bg-zinc-800">disabled</span>
+                  <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] font-medium text-dimmed">disabled</span>
                 </Show>
               </div>
               <Show when={template.description}>
                 <p class="mt-1 text-xs text-dimmed">{template.description}</p>
               </Show>
             </div>
-            <button
-              type="button"
-              class="btn-simple btn-sm"
-              title={template.enabled ? "Disable template" : "Enable template"}
-              onClick={() => void patchTemplate(template, { enabled: !template.enabled })}
-            >
-              <i class={`ti ${template.enabled ? "ti-toggle-right" : "ti-toggle-left"}`} />
-            </button>
-            <button
-              type="button"
-              class="btn-simple btn-sm"
-              title="Move up"
-              disabled={reordering() || index() === 0}
-              onClick={() => void moveTemplate(template, -1)}
-            >
-              <i class="ti ti-arrow-up" />
-            </button>
-            <button
-              type="button"
-              class="btn-simple btn-sm"
-              title="Move down"
-              disabled={reordering() || index() === (templates()?.length ?? 0) - 1}
-              onClick={() => void moveTemplate(template, 1)}
-            >
-              <i class="ti ti-arrow-down" />
-            </button>
-            <button type="button" class="btn-simple btn-sm" title="Duplicate template" onClick={() => void duplicateTemplate(template)}>
-              <i class="ti ti-copy" />
-            </button>
-            <button type="button" class="btn-simple btn-sm" title="Edit template" onClick={() => openEditor(template)}>
-              <i class="ti ti-pencil" />
-            </button>
-            <button
-              type="button"
-              class="btn-simple btn-sm text-dimmed hover:text-red-500"
-              title="Delete template"
-              onClick={() => void deleteTemplate(template)}
-            >
-              <i class="ti ti-trash" />
-            </button>
+            <div class="flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                class="icon-btn"
+                title={template.enabled ? "Disable template" : "Enable template"}
+                aria-label={template.enabled ? "Disable template" : "Enable template"}
+                onClick={() => void patchTemplate(template, { enabled: !template.enabled })}
+              >
+                <i class={`ti ${template.enabled ? "ti-toggle-right" : "ti-toggle-left"}`} />
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Move up"
+                aria-label="Move template up"
+                disabled={reordering() || index() === 0}
+                onClick={() => void moveTemplate(template, -1)}
+              >
+                <i class="ti ti-arrow-up" />
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Move down"
+                aria-label="Move template down"
+                disabled={reordering() || index() === (templates()?.length ?? 0) - 1}
+                onClick={() => void moveTemplate(template, 1)}
+              >
+                <i class="ti ti-arrow-down" />
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Duplicate template"
+                aria-label="Duplicate template"
+                onClick={() => void duplicateTemplate(template)}
+              >
+                <i class="ti ti-copy" />
+              </button>
+              <button type="button" class="icon-btn" title="Edit template" aria-label="Edit template" onClick={() => openEditor(template)}>
+                <i class="ti ti-pencil" />
+              </button>
+              <button
+                type="button"
+                class="icon-btn text-dimmed hover:text-red-500"
+                title="Delete template"
+                aria-label="Delete template"
+                onClick={() => void deleteTemplate(template)}
+              >
+                <i class="ti ti-trash" />
+              </button>
+            </div>
           </div>
         )}
       </For>
@@ -210,15 +222,13 @@ const chooseDocumentTemplateStarter = () =>
               {(starter) => (
                 <button type="button" class="paper p-3 text-left transition hover:paper-highlighted" onClick={() => close(starter)}>
                   <div class="flex items-start gap-3">
-                    <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                    <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-[var(--ui-surface-raised)]">
                       <i class={`${starter.icon} text-lg text-primary`} />
                     </span>
                     <div class="min-w-0">
                       <div class="flex min-w-0 flex-wrap items-center gap-1.5">
                         <div class="truncate text-sm font-semibold text-primary">{starter.name}</div>
-                        <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-dimmed dark:bg-zinc-800">
-                          {starter.category}
-                        </span>
+                        <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] font-medium text-dimmed">{starter.category}</span>
                       </div>
                       <p class="mt-1 text-xs leading-snug text-dimmed">{starter.description}</p>
                       <div class="mt-2 grid gap-1 text-[11px] leading-snug text-dimmed">
@@ -229,10 +239,8 @@ const chooseDocumentTemplateStarter = () =>
                           <span class="font-medium text-secondary">Data:</span> {starter.expectedData}
                         </div>
                         <div class="flex flex-wrap items-center gap-1.5">
-                          <span class="rounded bg-zinc-100 px-1.5 py-0.5 dark:bg-zinc-800">{starter.page}</span>
-                          <For each={starter.uses ?? []}>
-                            {(use) => <span class="rounded bg-zinc-100 px-1.5 py-0.5 dark:bg-zinc-800">{use}</span>}
-                          </For>
+                          <span class="badge bg-[var(--ui-surface-subtle)]">{starter.page}</span>
+                          <For each={starter.uses ?? []}>{(use) => <span class="badge bg-[var(--ui-surface-subtle)]">{use}</span>}</For>
                         </div>
                       </div>
                     </div>

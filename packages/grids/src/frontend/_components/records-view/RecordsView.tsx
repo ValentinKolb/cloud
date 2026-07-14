@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Dropdown, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
@@ -116,6 +116,7 @@ type Props = {
   displayConfig: RecordDisplayConfig;
   bulkSelectionWorkflows: Workflow[];
   dateConfig?: DateContext;
+  workspaceRouteKey: string;
 };
 
 type BulkWorkflowRunInput = {
@@ -726,306 +727,311 @@ export default function RecordsView(props: Props) {
     syncUrl,
   });
 
+  const hasOpenDetail = () => Boolean(selectedRecordId() || selectedGroup());
+
   // ── Render ─────────────────────────────────────────────────────────
-  // Two-column layout (records + detail). The detail column appears
-  // when a record is selected and disappears when none is — pure
-  // signal-derived rendering, no DOM-class flipping.
   return (
-    <div class="flex flex-col lg:flex-row gap-2 flex-1 min-w-0 min-h-0 overflow-hidden">
-      {/* Records column splits into two zones:
+    <>
+      <AppWorkspace.Main>
+        <div class="flex flex-1 min-w-0 min-h-0 overflow-hidden" data-route-key={props.workspaceRouteKey}>
+          {/* Records workbench splits into two zones:
           - header (search + toolbar) — fixed, never scrolls
           - body (records grid + pagination) — scrolls independently
-            of the detail panel column on the right (which has its own
-            scroll inside RecordDetailPanel).
+            of the workspace detail panel.
           The column itself is `overflow-hidden` so neither zone leaks
           into the other; the inner body div is the single y-scroll
           container, paired with the table-head `position: sticky` in
-          DataTable so the column headers stay pinned while rows
-          scroll. Mirrors the contacts page layout. */}
-      <div
-        class={
-          "order-1 flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col gap-2 transition-opacity duration-150 " +
-          (data.loading ? "opacity-60" : "")
-        }
-      >
-        {/* Row 1 — always visible. Search (left, flex-grow), record
-            count + Actions dropdown (right). Trash mode swaps the
-            Actions for a "Back to live records" link. */}
-        <div class="flex flex-wrap items-center gap-2 shrink-0">
-          <Show when={props.searchableFields.length > 0}>
-            <div class="flex-1 min-w-0">
-              <SearchBar
-                fields={props.searchableFields}
-                initialQ={search().q}
-                initialQFields={search().fieldIds}
-                onSearchChange={onSearchChange}
-              />
-            </div>
-          </Show>
-
-          <span class="text-xs text-dimmed whitespace-nowrap">
-            {props.trashMode && "Deleted: "}
-            {recordCountText()}
-          </span>
-          <Show when={livePending() || liveRefreshing()}>
-            <button
-              type="button"
-              class="btn-input btn-input-sm text-blue-700 dark:text-blue-300"
-              disabled={liveRefreshing()}
-              onClick={() => void applyLiveRefresh()}
-              title="Refresh records"
-            >
-              <i class={`ti ${liveRefreshing() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} />
-              Updates available
-            </button>
-          </Show>
-          <Show when={renderMode() === "cards" && (props.viewMode || props.trashMode)}>
-            <CardSizeDropdown value={cardSize()} onChange={onCardSizeChange} />
-          </Show>
-
-          <Show
-            when={!props.trashMode}
-            fallback={
-              <a href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`} class="btn-input btn-input-sm">
-                <i class="ti ti-arrow-back" />
-                Back to live records
-              </a>
+          DataTable so the column headers stay pinned while rows scroll. */}
+          <div
+            class={
+              "flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col gap-2 transition-opacity duration-150 " +
+              (data.loading ? "opacity-60" : "")
             }
           >
-            <Show when={activeRecordMetaCount() > 0}>
-              <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={openRecordMetaDialog}>
-                <i class="ti ti-user-search" />
-                Record info · {activeRecordMetaCount()}
-              </button>
-            </Show>
-            <Show when={bulkSelectionEnabled() && selectedBulkCount() > 0}>
-              <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={clearBulkSelection}>
-                <i class="ti ti-checklist" />
-                {selectedBulkCount()} selected
-                <i class="ti ti-x text-[10px] opacity-60" />
-              </button>
-            </Show>
-            <Dropdown
-              // bottom-LEFT = drop below, right-edge aligned with the
-              // trigger. The trigger lives at the far right of row 1
-              // so the default (bottom-right = expand-rightward) clips
-              // off the viewport. This flips the menu inward.
-              position="bottom-left"
-              trigger={
-                <span class="btn-input btn-input-sm">
-                  Actions
-                  <i class="ti ti-chevron-down text-[10px] opacity-60" />
-                </span>
-              }
-              elements={[
-                {
-                  icon: "ti ti-user-search",
-                  label: "Record metadata",
-                  action: openRecordMetaDialog,
-                },
-                {
-                  icon: "ti ti-download",
-                  label: "Export records",
-                  action: openExportDialog,
-                },
-                ...props.bulkSelectionWorkflows.map((workflow) => ({
-                  icon: "ti ti-route",
-                  label: bulkWorkflowActionLabel(workflow.name, selectedBulkCount()),
-                  action: () => queueBulkWorkflow(workflow),
-                })),
-                {
-                  icon: "ti ti-code",
-                  label: "Open query",
-                  href: queryWorkspaceHref(),
-                },
-                {
-                  icon: "ti ti-archive",
-                  label: "Show deleted",
-                  href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
-                },
-              ]}
-            />
-          </Show>
-        </div>
+            {/* Row 1 — always visible. Search (left, flex-grow), record
+            count + Actions dropdown (right). Trash mode swaps the
+            Actions for a "Back to live records" link. */}
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
+              <Show when={props.searchableFields.length > 0}>
+                <div class="flex-1 min-w-0">
+                  <SearchBar
+                    fields={props.searchableFields}
+                    initialQ={search().q}
+                    initialQFields={search().fieldIds}
+                    onSearchChange={onSearchChange}
+                  />
+                </div>
+              </Show>
 
-        {/* Saved views use their settings dialog; trash mode only exposes recovery actions. */}
-        <Show when={!props.viewMode && !props.trashMode}>
-          <div class="shrink-0">
-            <GridToolbar
-              baseId={props.baseId}
-              tableId={props.tableId}
-              tableName={tableName()}
-              disableDirectInsert={disableDirectInsert()}
-              fields={fields()}
-              initialFilter={toolbarFilterRows()}
-              initialSort={toolbarSortRows()}
-              initialGroupBy={toolbarGroupByRows()}
-              initialAggregations={toolbarAggregationRows()}
-              recordMeta={query().recordMeta}
-              columns={effectiveViewColumns()}
-              queryHref={queryWorkspaceHref()}
-              onOpenQuery={openQueryPanel}
-              onAddComputedColumn={openAddComputedColumn}
-              onClearColumns={clearComputedColumns}
-              currentSearch={search()}
-              forms={forms()}
-              canWrite={props.canWrite}
-              onCommit={onToolbarCommit}
-              onRecordCreated={onRecordCreated}
-              onRecordsChanged={() => void refreshVisibleRecords({ force: true })}
-              dateConfig={props.dateConfig}
-              showCardSize={renderMode() === "cards"}
-              cardSize={cardSize()}
-              onCardSizeChange={onCardSizeChange}
-            />
-          </div>
-        </Show>
-
-        <Show when={canUseEditMode() && adminMode()}>
-          <RecordsAdminToolbar
-            savedView={isSavedView()}
-            activeViewAvailable={!!props.activeView}
-            canEditActiveView={!!props.canEditActiveView}
-            hiddenViewColumnCount={hiddenViewColumnCount()}
-            formsButtonLabel={formsButtonLabel()}
-            onOpenTableSettings={openTableSettings}
-            onAddField={() => void openAddField()}
-            onOpenForms={openForms}
-            onOpenTemplates={openTemplates}
-            onOpenViewSettings={openViewSettings}
-            onAddViewColumn={openAddViewColumnDialog}
-            onDone={() => setAdminModeAndUrl(false)}
-          />
-        </Show>
-
-        <Show when={queryFailure()}>
-          {(failure) => (
-            <Placeholder
-              state="error"
-              surface="paper"
-              align="left"
-              title="Could not refresh records"
-              description={failure().error.message}
-              class="shrink-0 py-2"
-              action={
-                <button type="button" class="btn-input btn-input-sm" onClick={retryQuery}>
-                  <i class="ti ti-refresh" aria-hidden="true" /> Retry
+              <span class="text-xs text-dimmed whitespace-nowrap">
+                {props.trashMode && "Deleted: "}
+                {recordCountText()}
+              </span>
+              <Show when={livePending() || liveRefreshing()}>
+                <button
+                  type="button"
+                  class="btn-input btn-input-sm app-accent-text"
+                  disabled={liveRefreshing()}
+                  onClick={() => void applyLiveRefresh()}
+                  title="Refresh records"
+                >
+                  <i class={`ti ${liveRefreshing() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} />
+                  Updates available
                 </button>
-              }
-            />
-          )}
-        </Show>
+              </Show>
+              <Show when={renderMode() === "cards" && (props.viewMode || props.trashMode)}>
+                <CardSizeDropdown value={cardSize()} onChange={onCardSizeChange} />
+              </Show>
 
-        {/* DatabaseTable owns the single scroll context required by its sticky header. */}
-        <div class="flex-1 min-h-0 flex flex-col gap-2">
-          <Show
-            when={isGrouped()}
-            fallback={
               <Show
-                when={renderMode() === "cards"}
+                when={!props.trashMode}
+                fallback={
+                  <a href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`} class="btn-input btn-input-sm">
+                    <i class="ti ti-arrow-back" />
+                    Back to live records
+                  </a>
+                }
+              >
+                <Show when={activeRecordMetaCount() > 0}>
+                  <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={openRecordMetaDialog}>
+                    <i class="ti ti-user-search" />
+                    Record info · {activeRecordMetaCount()}
+                  </button>
+                </Show>
+                <Show when={bulkSelectionEnabled() && selectedBulkCount() > 0}>
+                  <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={clearBulkSelection}>
+                    <i class="ti ti-checklist" />
+                    {selectedBulkCount()} selected
+                    <i class="ti ti-x text-[10px] opacity-60" />
+                  </button>
+                </Show>
+                <Dropdown
+                  // bottom-LEFT = drop below, right-edge aligned with the
+                  // trigger. The trigger lives at the far right of row 1
+                  // so the default (bottom-right = expand-rightward) clips
+                  // off the viewport. This flips the menu inward.
+                  position="bottom-left"
+                  trigger={
+                    <span class="btn-input btn-input-sm">
+                      Actions
+                      <i class="ti ti-chevron-down text-[10px] opacity-60" />
+                    </span>
+                  }
+                  elements={[
+                    {
+                      icon: "ti ti-user-search",
+                      label: "Record metadata",
+                      action: openRecordMetaDialog,
+                    },
+                    {
+                      icon: "ti ti-download",
+                      label: "Export records",
+                      action: openExportDialog,
+                    },
+                    ...props.bulkSelectionWorkflows.map((workflow) => ({
+                      icon: "ti ti-route",
+                      label: bulkWorkflowActionLabel(workflow.name, selectedBulkCount()),
+                      action: () => queueBulkWorkflow(workflow),
+                    })),
+                    {
+                      icon: "ti ti-code",
+                      label: "Open query",
+                      href: queryWorkspaceHref(),
+                    },
+                    {
+                      icon: "ti ti-archive",
+                      label: "Show deleted",
+                      href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
+                    },
+                  ]}
+                />
+              </Show>
+            </div>
+
+            {/* Saved views use their settings dialog; trash mode only exposes recovery actions. */}
+            <Show when={!props.viewMode && !props.trashMode}>
+              <div class="shrink-0">
+                <GridToolbar
+                  baseId={props.baseId}
+                  tableId={props.tableId}
+                  tableName={tableName()}
+                  disableDirectInsert={disableDirectInsert()}
+                  fields={fields()}
+                  initialFilter={toolbarFilterRows()}
+                  initialSort={toolbarSortRows()}
+                  initialGroupBy={toolbarGroupByRows()}
+                  initialAggregations={toolbarAggregationRows()}
+                  recordMeta={query().recordMeta}
+                  columns={effectiveViewColumns()}
+                  queryHref={queryWorkspaceHref()}
+                  onOpenQuery={openQueryPanel}
+                  onAddComputedColumn={openAddComputedColumn}
+                  onClearColumns={clearComputedColumns}
+                  currentSearch={search()}
+                  forms={forms()}
+                  canWrite={props.canWrite}
+                  onCommit={onToolbarCommit}
+                  onRecordCreated={onRecordCreated}
+                  onRecordsChanged={() => void refreshVisibleRecords({ force: true })}
+                  dateConfig={props.dateConfig}
+                  showCardSize={renderMode() === "cards"}
+                  cardSize={cardSize()}
+                  onCardSizeChange={onCardSizeChange}
+                />
+              </div>
+            </Show>
+
+            <Show when={canUseEditMode() && adminMode()}>
+              <RecordsAdminToolbar
+                savedView={isSavedView()}
+                activeViewAvailable={!!props.activeView}
+                canEditActiveView={!!props.canEditActiveView}
+                hiddenViewColumnCount={hiddenViewColumnCount()}
+                formsButtonLabel={formsButtonLabel()}
+                onOpenTableSettings={openTableSettings}
+                onAddField={() => void openAddField()}
+                onOpenForms={openForms}
+                onOpenTemplates={openTemplates}
+                onOpenViewSettings={openViewSettings}
+                onAddViewColumn={openAddViewColumnDialog}
+                onDone={() => setAdminModeAndUrl(false)}
+              />
+            </Show>
+
+            <Show when={queryFailure()}>
+              {(failure) => (
+                <Placeholder
+                  state="error"
+                  surface="paper"
+                  align="left"
+                  title="Could not refresh records"
+                  description={failure().error.message}
+                  class="shrink-0 py-2"
+                  action={
+                    <button type="button" class="btn-input btn-input-sm" onClick={retryQuery}>
+                      <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                    </button>
+                  }
+                />
+              )}
+            </Show>
+
+            {/* DatabaseTable owns the single scroll context required by its sticky header. */}
+            <div class="flex-1 min-h-0 flex flex-col gap-2">
+              <Show
+                when={isGrouped()}
                 fallback={
                   <Show
-                    when={renderMode() === "calendar"}
+                    when={renderMode() === "cards"}
                     fallback={
-                      <DatabaseTable
-                        result={{
-                          items: items() as GridRecord[],
-                          fields: fields(),
-                          nextCursor: null,
-                        }}
-                        baseId={props.baseShortId}
-                        tableShortIds={props.tableShortIds}
-                        fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
-                        selectedId={selectedRecordId()}
-                        highlightedIds={highlightedRecordIds()}
-                        onRecordClick={onSelectRecord}
-                        viewColumns={effectiveViewColumns()}
-                        aggregates={props.trashMode ? {} : aggregates()}
-                        aggregationSpecs={tableAggregationSpecs()}
-                        hasMore={!props.trashMode && !!nextCursor()}
-                        loadingMore={data.loading && !!cursor()}
-                        onLoadMore={loadNextFlatPage}
-                        scrollPreserveKey={`grids-records-${props.tableId}-${props.viewShortId ?? "default"}`}
-                        adminMode={adminMode()}
-                        onFieldSettings={adminMode() && !isSavedView() && props.canManageTable ? openFieldSettings : undefined}
-                        onFieldMove={undefined}
-                        onViewColumnSettings={adminMode() && isSavedView() && props.canEditActiveView ? openViewColumnSettings : undefined}
-                        onViewColumnMove={
-                          adminMode() && (isSavedView() ? props.canEditActiveView : props.canManageTable) ? moveViewColumnInline : undefined
+                      <Show
+                        when={renderMode() === "calendar"}
+                        fallback={
+                          <DatabaseTable
+                            result={{
+                              items: items() as GridRecord[],
+                              fields: fields(),
+                              nextCursor: null,
+                            }}
+                            baseId={props.baseShortId}
+                            tableShortIds={props.tableShortIds}
+                            fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
+                            selectedId={selectedRecordId()}
+                            highlightedIds={highlightedRecordIds()}
+                            onRecordClick={onSelectRecord}
+                            viewColumns={effectiveViewColumns()}
+                            aggregates={props.trashMode ? {} : aggregates()}
+                            aggregationSpecs={tableAggregationSpecs()}
+                            hasMore={!props.trashMode && !!nextCursor()}
+                            loadingMore={data.loading && !!cursor()}
+                            onLoadMore={loadNextFlatPage}
+                            scrollPreserveKey={`grids-records-${props.tableId}-${props.viewShortId ?? "default"}`}
+                            adminMode={adminMode()}
+                            onFieldSettings={adminMode() && !isSavedView() && props.canManageTable ? openFieldSettings : undefined}
+                            onFieldMove={undefined}
+                            onViewColumnSettings={
+                              adminMode() && isSavedView() && props.canEditActiveView ? openViewColumnSettings : undefined
+                            }
+                            onViewColumnMove={
+                              adminMode() && (isSavedView() ? props.canEditActiveView : props.canManageTable)
+                                ? moveViewColumnInline
+                                : undefined
+                            }
+                            bulkSelection={
+                              bulkSelectionEnabled()
+                                ? {
+                                    selectedIds: bulkSelectedRecordIds(),
+                                    onToggleRecord: toggleBulkRecordSelection,
+                                    onToggleVisible: toggleVisibleBulkRecords,
+                                  }
+                                : undefined
+                            }
+                            dateConfig={props.dateConfig}
+                          />
                         }
-                        bulkSelection={
-                          bulkSelectionEnabled()
-                            ? {
-                                selectedIds: bulkSelectedRecordIds(),
-                                onToggleRecord: toggleBulkRecordSelection,
-                                onToggleVisible: toggleVisibleBulkRecords,
-                              }
-                            : undefined
-                        }
-                        dateConfig={props.dateConfig}
-                      />
+                      >
+                        <RecordCalendarView
+                          items={items() as GridRecord[]}
+                          fields={fields()}
+                          displayConfig={displayConfig()}
+                          calendarState={calendarState()}
+                          onCalendarChange={onCalendarChange}
+                          selectedRecordId={selectedRecordId()}
+                          onRecordClick={onSelectRecord}
+                          dateConfig={props.dateConfig}
+                          fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
+                        />
+                      </Show>
                     }
                   >
-                    <RecordCalendarView
+                    <RecordCardsView
                       items={items() as GridRecord[]}
                       fields={fields()}
                       displayConfig={displayConfig()}
-                      calendarState={calendarState()}
-                      onCalendarChange={onCalendarChange}
-                      selectedRecordId={selectedRecordId()}
-                      onRecordClick={onSelectRecord}
-                      dateConfig={props.dateConfig}
+                      filePreviews={filePreviews()}
+                      baseId={props.baseShortId}
+                      tableId={props.tableId}
+                      tableShortIds={props.tableShortIds}
                       fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
+                      selectedId={selectedRecordId()}
+                      highlightedIds={highlightedRecordIds()}
+                      onRecordClick={onSelectRecord}
+                      cardSize={cardSize()}
+                      hasMore={!props.trashMode && !!nextCursor()}
+                      loadingMore={data.loading && !!cursor()}
+                      onLoadMore={loadNextFlatPage}
+                      dateConfig={props.dateConfig}
                     />
                   </Show>
                 }
               >
-                <RecordCardsView
-                  items={items() as GridRecord[]}
-                  fields={fields()}
-                  displayConfig={displayConfig()}
-                  filePreviews={filePreviews()}
+                <GroupedTable
                   baseId={props.baseShortId}
-                  tableId={props.tableId}
                   tableShortIds={props.tableShortIds}
-                  fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
-                  selectedId={selectedRecordId()}
-                  highlightedIds={highlightedRecordIds()}
-                  onRecordClick={onSelectRecord}
-                  cardSize={cardSize()}
-                  hasMore={!props.trashMode && !!nextCursor()}
-                  loadingMore={data.loading && !!cursor()}
-                  onLoadMore={loadNextFlatPage}
+                  fields={fields()}
+                  groupBy={groupBy()}
+                  aggregations={aggregations()}
+                  buckets={buckets()}
+                  explode={props.groupedExplode}
+                  relationLabels={mergedRelationLabels()}
+                  selectedBucketKey={groupBucketKey(selectedGroup())}
+                  onBucketClick={onSelectGroup}
+                  adminMode={adminMode() && isSavedView() && !!props.canEditActiveView}
+                  columnOrder={visibleGroupedColumnOrder()}
+                  hiddenColumnIds={query().hiddenGroupedColumns}
+                  scrollPreserveKey={`grids-groups-${props.tableId}-${props.viewShortId ?? "default"}`}
+                  onColumnSettings={openGroupedViewColumnSettings}
+                  onColumnMove={moveGroupedViewColumnInline}
                   dateConfig={props.dateConfig}
                 />
               </Show>
-            }
-          >
-            <GroupedTable
-              baseId={props.baseShortId}
-              tableShortIds={props.tableShortIds}
-              fields={fields()}
-              groupBy={groupBy()}
-              aggregations={aggregations()}
-              buckets={buckets()}
-              explode={props.groupedExplode}
-              relationLabels={mergedRelationLabels()}
-              selectedBucketKey={groupBucketKey(selectedGroup())}
-              onBucketClick={onSelectGroup}
-              adminMode={adminMode() && isSavedView() && !!props.canEditActiveView}
-              columnOrder={visibleGroupedColumnOrder()}
-              hiddenColumnIds={query().hiddenGroupedColumns}
-              scrollPreserveKey={`grids-groups-${props.tableId}-${props.viewShortId ?? "default"}`}
-              onColumnSettings={openGroupedViewColumnSettings}
-              onColumnMove={moveGroupedViewColumnInline}
-              dateConfig={props.dateConfig}
-            />
-          </Show>
+            </div>
+          </div>
         </div>
-      </div>
+      </AppWorkspace.Main>
 
-      <Show when={selectedRecordId() || selectedGroup()}>
-        <div class="order-2 lg:order-3 w-full lg:w-[28rem] shrink-0 flex flex-col min-h-0 overflow-hidden">
+      <AppWorkspace.Detail open={hasOpenDetail()} width="lg" viewTransitionName="grids-record-detail">
+        <Show when={selectedRecordId() || selectedGroup()}>
           <Show
             when={selectedGroup()}
             fallback={
@@ -1091,8 +1097,8 @@ export default function RecordsView(props: Props) {
               />
             )}
           </Show>
-        </div>
-      </Show>
-    </div>
+        </Show>
+      </AppWorkspace.Detail>
+    </>
   );
 }

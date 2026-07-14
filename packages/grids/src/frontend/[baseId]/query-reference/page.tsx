@@ -8,7 +8,7 @@ import QueryReferenceWindow, { normalizeQueryReferenceTab } from "../../_compone
 const messagePage =
   (message: string, icon = "ti-alert-circle") =>
   () => (
-    <main class="min-h-screen bg-zinc-50 p-6 dark:bg-zinc-950">
+    <main class="min-h-screen bg-[var(--ui-canvas)] p-[var(--ui-space-shell)]">
       <div class="paper mx-auto mt-16 max-w-md p-8 text-center text-dimmed">
         <i class={`ti ${icon} text-sm`} /> {message}
       </div>

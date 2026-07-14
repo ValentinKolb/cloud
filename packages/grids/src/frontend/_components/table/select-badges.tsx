@@ -8,7 +8,7 @@ export function SelectValueBadges(props: { items: SelectBadgeItem[]; empty?: JSX
         ? (props.empty ?? "")
         : props.items.map((item) => (
             <span
-              class="badge max-w-full shrink-0 border border-zinc-200 bg-zinc-100 font-medium leading-5 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+              class="badge max-w-full shrink-0 border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] font-medium leading-5 text-secondary"
               classList={{ "opacity-75": !item.known }}
               style={selectBadgeStyle(item.color) as JSX.CSSProperties}
               title={item.known ? item.id : `Unknown option: ${item.id}`}

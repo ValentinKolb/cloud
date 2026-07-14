@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
-  Checkbox,
+  CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
@@ -32,7 +32,6 @@ import {
 import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
-import { SectionCard } from "../utils/SectionCard";
 import DashboardLayout from "./DashboardLayout";
 import { clampInsertionIndex, moveItemByInsertionIndex } from "./dashboard-reorder";
 import type { WidgetData } from "./widget-data";
@@ -438,10 +437,10 @@ const chooseCellKind = () =>
               {(opt) => (
                 <button
                   type="button"
-                  class="paper flex items-center gap-3 p-4 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  class="paper flex items-center gap-3 p-4 text-left transition hover:paper-highlighted"
                   onClick={() => close(opt.id)}
                 >
-                  <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+                  <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-dimmed">
                     <i class={opt.icon} />
                   </span>
                   <span class="min-w-0">
@@ -579,30 +578,37 @@ function DashboardGeneralBody(props: {
   return (
     <>
       <PanelDialog.Body>
-        <SectionCard title="General" subtitle="Name, description, and sharing.">
+        <PanelDialog.Section title="General" subtitle="Name, description, and sharing." icon="ti ti-id">
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} required />
             <TextInput label="Description" value={description} onInput={(v) => patch({ description: v })} />
             <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
           </div>
-          <Checkbox
+          <CheckboxCard
             label="Shared dashboard"
             description="Visible to users who can open this base. Permissions below can narrow access."
+            icon="ti ti-users"
             value={shared}
             onChange={(v) => patch({ shared: v })}
           />
           <Show when={props.isBaseDefault}>
-            <p class="text-xs text-blue-700 dark:text-blue-300">This dashboard is the base default.</p>
+            <p class="app-accent-text text-xs">
+              <i class="ti ti-home mr-1" /> This dashboard is the base default.
+            </p>
           </Show>
-        </SectionCard>
+        </PanelDialog.Section>
 
-        <SectionCard title="Permissions" subtitle="Viewers see dashboard widgets. Source pages keep their own access.">
+        <PanelDialog.Section
+          title="Permissions"
+          subtitle="Viewers see dashboard widgets. Source pages keep their own access."
+          icon="ti ti-lock"
+        >
           <DashboardPermissions
             dashboardId={props.dashboard.id}
             initialEntries={props.initialAccessEntries}
             canEdit={props.canEditAccess}
           />
-        </SectionCard>
+        </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <DeleteDashboardButton dashboardId={props.dashboard.id} baseShortId={props.baseShortId} name={props.dashboard.name} />

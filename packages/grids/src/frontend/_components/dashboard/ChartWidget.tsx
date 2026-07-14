@@ -105,15 +105,7 @@ function ChartBody(props: { widget: Extract<Widget, { kind: "chart" }>; data: Ex
               />
             );
           case "sparkline":
-            return (
-              <Chart
-                kind="sparkline"
-                class="h-full max-h-full min-h-0 flex-1 text-blue-600 dark:text-blue-300"
-                data={rd.data}
-                area
-                showLast
-              />
-            );
+            return <Chart kind="sparkline" class="app-accent-text h-full max-h-full min-h-0 flex-1" data={rd.data} area showLast />;
           case "scatter":
             return (
               <Chart

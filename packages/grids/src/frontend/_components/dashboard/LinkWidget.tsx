@@ -42,7 +42,7 @@ export default function LinkWidget(props: Props) {
         {(d) => (
           <div class="flex flex-1 min-h-0 flex-col gap-3 p-4">
             <div class="flex min-w-0 items-start gap-3">
-              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-dimmed">
                 <i class={`${d().icon} text-lg`} />
               </span>
               <div class="min-w-0 flex-1">

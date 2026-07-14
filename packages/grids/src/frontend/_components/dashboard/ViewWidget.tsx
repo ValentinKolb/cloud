@@ -67,17 +67,11 @@ export default function ViewWidget(props: Props) {
           // already requested includeRelations so each record carries
           // its own .expanded map.
           //
-          // `px-3 pb-3` wrapper insets the DatabaseTable's own `paper`
-          // away from the OUTER widget paper — without it the inner
-          // table's rounded border sat flush against the widget's
-          // rounded border, reading as a doubled outline. Same pattern
-          // ViewStatsCell uses for its nested StatGrid (see that file
-          // for the visual reference). `flex-1 min-h-0` so the inner
-          // table's flex-1 sizing inside the wrapper still resolves
-          // to "fill the remaining row height".
+          // The widget owns the frame. The shared table renders flat inside
+          // it so the dashboard does not create a second nested paper.
           const viewData = props.data as Extract<WidgetData, { kind: "view" }>;
           return (
-            <div class="px-3 pb-3 flex-1 min-h-0 flex flex-col">
+            <div class="flex min-h-0 flex-1 flex-col">
               <DatabaseTable
                 result={{
                   items: viewData.records,
@@ -89,6 +83,7 @@ export default function ViewWidget(props: Props) {
                 viewColumns={viewData.viewColumns}
                 showColumnSubtitles={false}
                 dateConfig={props.dateConfig}
+                class="min-h-0 flex-1 overflow-auto"
               />
             </div>
           );

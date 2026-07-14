@@ -89,6 +89,7 @@ type Props = {
   onLoadMore?: () => void;
   scrollPreserveKey?: string;
   dateConfig?: DateContext;
+  class?: string;
   adminMode?: boolean;
   onFieldSettings?: (field: Field) => void;
   onFieldMove?: (field: Field, direction: -1 | 1) => void;
@@ -117,7 +118,8 @@ const SelectionCheckbox = (props: { checked: boolean; indeterminate?: boolean; l
     <input
       ref={inputRef}
       type="checkbox"
-      class="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+      class="focus-ui h-4 w-4 rounded border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900"
+      style={{ "accent-color": "var(--app-accent)" }}
       checked={props.checked}
       aria-label={props.label}
       onClick={(event) => event.stopPropagation()}
@@ -208,7 +210,7 @@ export default function DatabaseTable(props: Props) {
   );
 
   const headerLabel = (field: Field, computed: boolean) => (
-    <span class={`inline-flex min-w-0 items-center gap-1.5 ${computed ? "text-blue-600 dark:text-blue-300" : ""}`}>
+    <span class={`inline-flex min-w-0 items-center gap-1.5 ${computed ? "app-accent-text" : ""}`}>
       <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-[13px] ${computed ? "" : "text-dimmed"}`} />
       <span class="truncate">{columnLabel(field.id, field.name)}</span>
     </span>
@@ -246,7 +248,7 @@ export default function DatabaseTable(props: Props) {
         header: headerLabel(field, computed),
         subtitle: props.showColumnSubtitles === false ? undefined : computed ? "computed" : fieldTypeLabel(field.type).toLowerCase(),
         value: (record) => record.data[field.id],
-        headerClass: computed ? "bg-blue-50/40 dark:bg-blue-950/15" : undefined,
+        headerClass: computed ? "bg-[var(--theme-list-active-bg)]" : undefined,
       };
     });
 
@@ -255,15 +257,13 @@ export default function DatabaseTable(props: Props) {
     return selection ? [selection, ...dataColumns()] : dataColumns();
   };
 
-  const shellClass = () => undefined;
+  const shellClass = () => props.class;
 
   const renderAdminHeader = (field: Field, subtitle: JSX.Element | undefined, computed: boolean) => (
     <div class="flex flex-col gap-0.5 leading-tight">
-      <span class={computed ? "font-semibold text-blue-600 dark:text-blue-300" : "font-semibold text-primary"}>
-        {headerLabel(field, computed)}
-      </span>
+      <span class={computed ? "app-accent-text font-semibold" : "font-semibold text-primary"}>{headerLabel(field, computed)}</span>
       <Show when={subtitle !== undefined}>
-        <span class={computed ? "text-[10px] font-normal text-blue-500/80 dark:text-blue-300/80" : "text-[10px] font-normal text-dimmed"}>
+        <span class={computed ? "app-accent-text text-[10px] font-normal opacity-80" : "text-[10px] font-normal text-dimmed"}>
           {subtitle}
         </span>
       </Show>

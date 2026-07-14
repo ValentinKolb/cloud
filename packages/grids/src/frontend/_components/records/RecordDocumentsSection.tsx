@@ -76,7 +76,7 @@ function DocumentGenerationReviewDialog(props: {
               </Show>
             </div>
 
-            <div class="rounded-md border border-blue-500/20 bg-blue-500/10 p-3 text-xs leading-relaxed text-secondary">
+            <div class="info-block-info text-xs leading-relaxed">
               Generating creates a recursive record snapshot and stores a document run. The PDF can be redownloaded later from the generated
               document history.
             </div>
@@ -207,53 +207,52 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
       const relationLabels = snapshotRelationLabels(snapshot);
       await prompts.dialog<void>(
         () => (
-          <div class="flex max-h-[70vh] flex-col gap-3 overflow-auto p-4">
-            <div class="flex flex-col gap-2">
-              <RecordReadView
-                baseId={snapshot.baseId}
-                tableId={snapshot.tableId}
-                tableName={snapshotTableName(snapshot)}
-                fields={fields}
-                record={snapshotRecord}
-                mode="snapshot"
-                relationLabels={relationLabels}
-                headerMeta={
-                  <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-dimmed">
-                    <span class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                      <i class="ti ti-camera" /> snapshot
-                    </span>
-                    <span>·</span>
-                    <span class="truncate">{snapshotTableName(snapshot)}</span>
-                    <span>·</span>
-                    <span>{formatRecordRelativeTime(snapshot.createdAt)}</span>
-                    <span>·</span>
-                    <span class="font-mono">{snapshotRecord.id.slice(0, 8)}</span>
-                  </div>
-                }
+          <div class="h-[70vh] min-h-0">
+            <RecordReadView
+              baseId={snapshot.baseId}
+              tableId={snapshot.tableId}
+              tableName={snapshotTableName(snapshot)}
+              fields={fields}
+              record={snapshotRecord}
+              mode="snapshot"
+              relationLabels={relationLabels}
+              headerMeta={
+                <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-dimmed">
+                  <span class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                    <i class="ti ti-camera" /> snapshot
+                  </span>
+                  <span>·</span>
+                  <span class="truncate">{snapshotTableName(snapshot)}</span>
+                  <span>·</span>
+                  <span>{formatRecordRelativeTime(snapshot.createdAt)}</span>
+                  <span>·</span>
+                  <span class="font-mono">{snapshotRecord.id.slice(0, 8)}</span>
+                </div>
+              }
+            >
+              <StructuredDataPreview
+                title="Metadata"
+                data={{
+                  id: snapshot.id,
+                  tableId: snapshot.tableId,
+                  recordId: snapshot.recordId,
+                  createdAt: snapshot.createdAt,
+                  createdBy: snapshot.createdBy,
+                }}
+                maxRows={8}
               />
-            </div>
-            <StructuredDataPreview
-              title="Metadata"
-              data={{
-                id: snapshot.id,
-                tableId: snapshot.tableId,
-                recordId: snapshot.recordId,
-                createdAt: snapshot.createdAt,
-                createdBy: snapshot.createdBy,
-              }}
-              maxRows={8}
-            />
-            <details class="paper p-0">
-              <summary class="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-medium text-secondary">
-                <i class="ti ti-code text-sm" />
-                Raw snapshot data
-                <i class="ti ti-chevron-down ml-auto text-xs text-dimmed" />
-              </summary>
-              <div class="flex flex-col gap-3 px-3 pb-3">
-                <StructuredDataPreview title="Root record" data={snapshot.root} defaultMode="raw" />
-                <StructuredDataPreview title="Record graph" data={snapshot.graph} defaultMode="raw" />
-              </div>
-            </details>
+              <details class="detail-section group">
+                <summary class="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-secondary">
+                  <i class="ti ti-code text-sm" />
+                  Raw snapshot data
+                  <i class="ti ti-chevron-down ml-auto text-xs text-dimmed transition-transform group-open:rotate-180" />
+                </summary>
+                <div class="mt-3 flex flex-col gap-3">
+                  <StructuredDataPreview title="Root record" data={snapshot.root} defaultMode="raw" />
+                  <StructuredDataPreview title="Record graph" data={snapshot.graph} defaultMode="raw" />
+                </div>
+              </details>
+            </RecordReadView>
           </div>
         ),
         { title: "Record snapshot", icon: "ti ti-camera", size: "large" },
@@ -274,9 +273,9 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
 
   return (
     <>
-      <section class="paper p-4 flex flex-col gap-3">
+      <section class="detail-section flex flex-col gap-3">
         <div class="flex items-center justify-between gap-2">
-          <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Snapshots</h3>
+          <h3 class="detail-section-label mb-0">Snapshots</h3>
           <Show when={props.live}>
             <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
               {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
@@ -319,8 +318,8 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
       </section>
 
       <Show when={props.live}>
-        <section class="paper p-4 flex flex-col gap-3">
-          <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Generate document</h3>
+        <section class="detail-section flex flex-col gap-3">
+          <h3 class="detail-section-label mb-0">Generate document</h3>
 
           <Show when={templates.loading}>
             <p class="text-xs text-dimmed">Loading templates…</p>
@@ -336,7 +335,7 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
                 {(template) => (
                   <button
                     type="button"
-                    class="flex w-full min-w-0 items-center gap-2 rounded-md bg-zinc-50 px-2.5 py-2 text-left text-sm transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                    class="flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--ui-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={() => void generate(template)}
                     aria-label={`Review ${template.name}`}
                   >
@@ -358,8 +357,8 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
         </section>
       </Show>
 
-      <section class="paper p-4 flex flex-col gap-3">
-        <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Generated documents</h3>
+      <section class="detail-section flex flex-col gap-3">
+        <h3 class="detail-section-label mb-0">Generated documents</h3>
 
         <Show when={runs.loading}>
           <p class="text-xs text-dimmed">Loading generated documents…</p>

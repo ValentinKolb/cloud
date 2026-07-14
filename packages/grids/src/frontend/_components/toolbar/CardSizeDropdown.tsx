@@ -26,9 +26,7 @@ export function CardSizeDropdown(props: { value: CardSize; onChange: (size: Card
         element: (close) => (
           <button
             type="button"
-            class={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-white/10 ${
-              option.value === props.value ? "text-blue-600 dark:text-blue-400" : "text-zinc-700 dark:text-zinc-300"
-            }`}
+            class={`menu-item text-left ${option.value === props.value ? "app-accent-text" : "text-secondary"}`}
             onClick={() => {
               props.onChange(option.value);
               close();
@@ -40,7 +38,7 @@ export function CardSizeDropdown(props: { value: CardSize; onChange: (size: Card
               <span class="block truncate text-xs text-dimmed">{option.description}</span>
             </span>
             <Show when={option.value === props.value}>
-              <i class="ti ti-check ml-auto text-blue-500" />
+              <i class="ti ti-check app-accent-text ml-auto" />
             </Show>
           </button>
         ),

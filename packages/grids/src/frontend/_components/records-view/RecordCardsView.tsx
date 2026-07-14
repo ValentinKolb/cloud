@@ -95,7 +95,7 @@ export function RecordCardsView(props: {
                 <button
                   type="button"
                   class={`paper flex min-w-0 flex-col overflow-hidden text-left transition hover:paper-highlighted ${cardPaddingClass[size()]} ${
-                    selected() ? "bg-blue-50/50 dark:bg-blue-950/15" : ""
+                    selected() ? "app-accent-border bg-[var(--theme-list-active-bg)]" : ""
                   } ${highlighted() ? "bg-sky-50/60 dark:bg-sky-950/20" : ""}`}
                   onClick={() => props.onRecordClick(record)}
                 >
@@ -108,11 +108,7 @@ export function RecordCardsView(props: {
                   </Show>
                   <div class="flex flex-col gap-3 pt-3">
                     <div class="min-w-0">
-                      <div
-                        class={`truncate text-sm font-semibold leading-tight ${
-                          selected() ? "text-blue-600 dark:text-blue-400" : "text-primary"
-                        }`}
-                      >
+                      <div class={`truncate text-sm font-semibold leading-tight ${selected() ? "app-accent-text" : "text-primary"}`}>
                         {title(record)}
                       </div>
                       <Show when={subtitle(record)}>

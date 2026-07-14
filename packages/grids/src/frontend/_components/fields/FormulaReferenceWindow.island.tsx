@@ -219,7 +219,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
   ];
 
   return (
-    <main class="flex h-screen overflow-hidden bg-zinc-50 p-4 dark:bg-zinc-950 md:p-6">
+    <main class="flex h-screen overflow-hidden bg-[var(--ui-canvas)] p-[var(--ui-space-shell)]">
       <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-4">
         <header class="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -290,7 +290,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
                 }
                 if (col.id === "example") {
                   return (
-                    <code class="block max-w-full truncate rounded bg-zinc-50 px-2 py-1 font-mono text-[11px] text-dimmed dark:bg-zinc-900">
+                    <code class="block max-w-full truncate rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-1 font-mono text-[11px] text-dimmed">
                       {String(value)}
                     </code>
                   );

@@ -81,7 +81,7 @@ export function DocumentDataTree(props: {
 }) {
   const rows = createMemo(() => dataTreeRows(props.data()));
   return (
-    <section class="paper min-h-0 flex-1 overflow-auto">
+    <section class="min-h-0 flex-1 overflow-auto">
       <Show when={!props.loading()} fallback={<div class="p-3 text-sm text-dimmed">Loading preview data...</div>}>
         <Show
           when={props.error()}
@@ -90,7 +90,7 @@ export function DocumentDataTree(props: {
               when={rows().length > 0}
               fallback={<div class="p-3 text-sm text-dimmed">Choose a preview record to inspect available template data.</div>}
             >
-              <div class="divide-y divide-zinc-100 text-xs dark:divide-zinc-800">
+              <div class="flex flex-col gap-1 p-1 text-xs">
                 <For each={rows()}>
                   {(row) => (
                     <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5">
@@ -114,7 +114,7 @@ export function DocumentDataTree(props: {
             </Show>
           }
         >
-          {(message) => <div class="m-3 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">{message()}</div>}
+          {(message) => <div class="info-block-danger m-3 text-sm">{message()}</div>}
         </Show>
       </Show>
     </section>
@@ -124,7 +124,7 @@ export function DocumentDataTree(props: {
 export function RenderedDocumentSource(props: { source: () => string | null; loading: () => boolean; error: () => string | null }) {
   const sourceText = () => props.source() ?? "";
   return (
-    <section class="paper relative min-h-0 flex-1 overflow-hidden">
+    <section class="relative min-h-0 flex-1 overflow-hidden">
       <Show when={!props.loading()} fallback={<div class="p-3 text-sm text-dimmed">Rendering source...</div>}>
         <Show
           when={props.error()}
@@ -142,7 +142,7 @@ export function RenderedDocumentSource(props: { source: () => string | null; loa
             </Show>
           }
         >
-          {(message) => <div class="m-3 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">{message()}</div>}
+          {(message) => <div class="info-block-danger m-3 text-sm">{message()}</div>}
         </Show>
       </Show>
     </section>

@@ -1,4 +1,6 @@
 import {
+  DataTable,
+  type DataTableColumn,
   dialogCore,
   FilterChip,
   type FilterChipSection,
@@ -6,6 +8,8 @@ import {
   Placeholder,
   panelDialogWorkspaceOptions,
   prompts,
+  StatCell,
+  StatGrid,
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
@@ -141,26 +145,6 @@ const emptyStats = (): WorkflowRunStats => ({
   byWorkflow: [],
 });
 
-function StatCard(props: { label: string; value: number | string; icon: string; tone?: "default" | "danger" | "success" }) {
-  const toneClass = () =>
-    props.tone === "danger"
-      ? "text-red-600 dark:text-red-400"
-      : props.tone === "success"
-        ? "text-emerald-600 dark:text-emerald-400"
-        : "text-secondary";
-  return (
-    <div class="paper flex min-w-0 items-center gap-3 px-3 py-2">
-      <span class={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-900 ${toneClass()}`}>
-        <i class={`ti ti-${props.icon}`} />
-      </span>
-      <span class="min-w-0">
-        <span class="block text-xs uppercase tracking-wider text-dimmed">{props.label}</span>
-        <span class="block truncate text-lg font-semibold text-primary">{props.value}</span>
-      </span>
-    </div>
-  );
-}
-
 function WorkflowCard(props: {
   baseShortId: string;
   workflow: Workflow;
@@ -172,13 +156,12 @@ function WorkflowCard(props: {
   return (
     <a
       href={href()}
-      class={`flex min-w-0 items-start gap-3 rounded-md border px-3 py-2 text-left transition-colors ${
-        props.active
-          ? "border-blue-200 bg-blue-50/70 dark:border-blue-900/60 dark:bg-blue-950/20"
-          : "border-zinc-100 bg-white hover:border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+      aria-current={props.active ? "page" : undefined}
+      class={`flex min-w-0 items-start gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-left transition-colors ${
+        props.active ? "list-item-active" : "hover:bg-[var(--ui-hover)]"
       }`}
     >
-      <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-secondary dark:bg-zinc-900">
+      <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
         <i class="ti ti-route" />
       </span>
       <span class="min-w-0 flex-1">
@@ -218,7 +201,7 @@ function RunTimeline(props: {
 }) {
   const workflowById = createMemo(() => new Map(props.workflows.map((workflow) => [workflow.id, workflow])));
   return (
-    <div class="flex min-h-0 flex-col">
+    <div class="flex min-h-0 flex-col gap-1 p-1">
       <For
         each={props.runs}
         fallback={
@@ -232,8 +215,9 @@ function RunTimeline(props: {
           return (
             <button
               type="button"
-              class={`grid w-full grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/70 ${
-                props.selectedRunId === run.id ? "bg-blue-50/60 dark:bg-blue-950/20" : ""
+              aria-pressed={props.selectedRunId === run.id}
+              class={`grid w-full grid-cols-[auto_1fr_auto] items-start gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-left text-xs transition-colors ${
+                props.selectedRunId === run.id ? "list-item-active" : "hover:bg-[var(--ui-hover)]"
               }`}
               onClick={() => props.onSelect(run.id)}
             >
@@ -254,7 +238,7 @@ function RunTimeline(props: {
         }}
       </For>
       <Show when={props.nextCursor}>
-        <div class="border-t border-zinc-100 px-3 py-2 text-center dark:border-zinc-800">
+        <div class="px-3 py-2 text-center">
           <button type="button" class="btn-simple btn-sm" onClick={props.onLoadMore} disabled={props.loading}>
             <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-chevrons-down"} /> Load more
           </button>
@@ -275,6 +259,15 @@ function EmailDeliveryTable(props: {
   const workflowById = createMemo(() => new Map(props.workflows.map((workflow) => [workflow.id, workflow])));
   const recipients = (delivery: WorkflowEmailDelivery) =>
     delivery.recipients.map((recipient) => `${recipient.kind}:${recipient.recipient}`).join(", ") || "-";
+  const columns = createMemo<DataTableColumn<WorkflowEmailDelivery>[]>(() => [
+    { id: "status", header: "Status", value: (delivery) => delivery.status },
+    ...(props.showWorkflow
+      ? [{ id: "workflow", header: "Workflow", value: (delivery: WorkflowEmailDelivery) => delivery.workflowId }]
+      : []),
+    { id: "subject", header: "Subject", value: (delivery) => delivery.subject, cellClass: "max-w-72" },
+    { id: "recipients", header: "Recipients", value: recipients, cellClass: "max-w-72" },
+    { id: "sent", header: "Sent", value: (delivery) => delivery.createdAt, cellClass: "whitespace-nowrap" },
+  ]);
   return (
     <section class="paper min-h-0 overflow-hidden">
       <div class="flex items-center justify-between gap-2 px-3 py-2">
@@ -283,61 +276,36 @@ function EmailDeliveryTable(props: {
           <p class="text-xs text-dimmed">Workflow sendEmail audit trail.</p>
         </div>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs">
-          <thead class="bg-zinc-50 text-[11px] uppercase tracking-wider text-dimmed dark:bg-zinc-900/70">
-            <tr>
-              <th class="px-3 py-2 font-medium">Status</th>
-              <Show when={props.showWorkflow}>
-                <th class="px-3 py-2 font-medium">Workflow</th>
-              </Show>
-              <th class="px-3 py-2 font-medium">Subject</th>
-              <th class="px-3 py-2 font-medium">Recipients</th>
-              <th class="px-3 py-2 font-medium">Sent</th>
-            </tr>
-          </thead>
-          <tbody>
-            <For
-              each={props.deliveries}
-              fallback={
-                <tr>
-                  <td colSpan={props.showWorkflow ? 5 : 4}>
-                    <Placeholder align="left" class="py-8">
-                      {props.loading ? "Loading email deliveries..." : "No workflow emails sent yet."}
-                    </Placeholder>
-                  </td>
-                </tr>
-              }
-            >
-              {(delivery) => (
-                <tr class="border-t border-zinc-100 dark:border-zinc-800">
-                  <td class="px-3 py-2">
-                    <span class={`badge ${delivery.status === "failed" ? "badge-danger" : "badge-success"}`}>{delivery.status}</span>
-                    <Show when={delivery.error}>
-                      {(error) => <span class="mt-1 block max-w-48 truncate text-red-600 dark:text-red-400">{error()}</span>}
-                    </Show>
-                  </td>
-                  <Show when={props.showWorkflow}>
-                    <td class="max-w-48 truncate px-3 py-2 text-primary">
-                      {delivery.workflowId ? (workflowById().get(delivery.workflowId)?.name ?? "Deleted workflow") : "-"}
-                    </td>
-                  </Show>
-                  <td class="max-w-72 truncate px-3 py-2 text-primary">{delivery.subject ?? "-"}</td>
-                  <td class="max-w-72 truncate px-3 py-2 text-dimmed">{recipients(delivery)}</td>
-                  <td class="whitespace-nowrap px-3 py-2 text-dimmed">{formatDate(delivery.createdAt)}</td>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
-      </div>
-      <Show when={props.nextCursor}>
-        <div class="border-t border-zinc-100 px-3 py-2 text-center dark:border-zinc-800">
-          <button type="button" class="btn-simple btn-sm" onClick={props.onLoadMore} disabled={props.loading}>
-            <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-chevrons-down"} /> Load more
-          </button>
-        </div>
-      </Show>
+      <DataTable
+        rows={props.deliveries}
+        columns={columns()}
+        getRowId={(delivery) => delivery.id}
+        density="compact"
+        highlightColumns={false}
+        class="max-h-[34rem] min-h-0 overflow-auto"
+        hasMore={!!props.nextCursor}
+        loadingMore={props.loading}
+        onLoadMore={props.onLoadMore}
+        empty={props.loading ? "Loading email deliveries..." : "No workflow emails sent yet."}
+        renderCell={({ row: delivery, col, render, value }) => {
+          if (col.id === "status") {
+            return (
+              <span class="flex min-w-0 flex-col items-start gap-1">
+                <span class={`badge ${delivery.status === "failed" ? "badge-danger" : "badge-success"}`}>{delivery.status}</span>
+                <Show when={delivery.error}>
+                  {(error) => <span class="block max-w-48 truncate text-red-600 dark:text-red-400">{error()}</span>}
+                </Show>
+              </span>
+            );
+          }
+          if (col.id === "workflow") {
+            return delivery.workflowId ? (workflowById().get(delivery.workflowId)?.name ?? "Deleted workflow") : "-";
+          }
+          if (col.id === "sent") return <span class="text-dimmed">{formatDate(delivery.createdAt)}</span>;
+          if (col.id === "recipients") return <span class="text-dimmed">{recipients(delivery)}</span>;
+          return render(value);
+        }}
+      />
     </section>
   );
 }
@@ -694,17 +662,21 @@ export default function WorkflowsPage(props: Props) {
           </div>
         </div>
 
-        <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Running" value={stats().running + stats().queued} icon="player-play" />
-          <StatCard label="Succeeded" value={stats().succeeded} icon="circle-check" tone="success" />
-          <StatCard
+        <StatGrid columns={4} size="sm">
+          <StatCell label="Running" value={stats().running + stats().queued} accent={{ tone: "blue", icon: "ti ti-player-play" }} />
+          <StatCell label="Succeeded" value={stats().succeeded} accent={{ tone: "emerald", icon: "ti ti-circle-check" }} />
+          <StatCell
             label="Error rate"
             value={formatPercent(stats().errorRate)}
-            icon="alert-triangle"
-            tone={stats().failed > 0 ? "danger" : "default"}
+            valueClass={stats().failed > 0 ? "text-red-600 dark:text-red-400" : undefined}
+            accent={stats().failed > 0 ? { tone: "red", icon: "ti ti-alert-triangle" } : undefined}
           />
-          <StatCard label="P99 runtime" value={formatMetricDuration(stats().p99DurationMs)} icon="hourglass" />
-        </div>
+          <StatCell
+            label="P99 runtime"
+            value={formatMetricDuration(stats().p99DurationMs)}
+            accent={{ tone: "zinc", icon: "ti ti-hourglass" }}
+          />
+        </StatGrid>
 
         <div class="grid min-h-0 gap-2 xl:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)]">
           <section class="paper min-h-0 overflow-hidden">
@@ -712,7 +684,7 @@ export default function WorkflowsPage(props: Props) {
               <h2 class="text-sm font-semibold text-primary">{activeWorkflow() ? "Workflows" : "Workflow catalog"}</h2>
               <p class="text-xs text-dimmed">Definitions and trigger surfaces in this base.</p>
             </div>
-            <div class="flex max-h-[34rem] min-h-0 flex-col gap-2 overflow-y-auto p-2">
+            <div class="flex max-h-[34rem] min-h-0 flex-col gap-1 overflow-y-auto p-1">
               <For
                 each={rows()}
                 fallback={

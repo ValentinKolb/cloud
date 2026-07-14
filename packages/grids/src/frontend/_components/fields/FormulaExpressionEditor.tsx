@@ -187,24 +187,24 @@ export function FormulaExpressionEditor(props: {
 
   return (
     <div class="flex flex-col gap-3">
-      <div class="info-block-info text-xs flex flex-col gap-2">
+      <div class="flex flex-col gap-1 text-xs leading-snug text-dimmed">
         <span class="font-medium">Formula basics</span>
-        <span class="text-dimmed">
+        <span>
           Search fields by name, then insert a readable reference. Use double quotes for names with spaces, for example{" "}
           <code>"Unit price"</code>.
         </span>
-        <span class="text-dimmed">Field renames update saved formulas best effort. Check formulas after renaming important columns.</span>
-        <span class="text-dimmed">Strings use single quotes. Decimal arithmetic stays exact when exact values are involved.</span>
+        <span>Field renames update saved formulas best effort. Check formulas after renaming important columns.</span>
+        <span>Strings use single quotes. Decimal arithmetic stays exact when exact values are involved.</span>
       </div>
 
-      <div class="info-block-info text-xs flex flex-col gap-2">
-        <span class="font-medium">Examples</span>
+      <div class="flex flex-col gap-2 text-xs">
+        <span class="font-medium text-secondary">Examples</span>
         <div class="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           <For each={examples()}>
             {(example) => (
               <button
                 type="button"
-                class="rounded border border-blue-200/70 bg-white/60 px-2 py-1.5 text-left transition hover:border-blue-300 hover:bg-white dark:border-blue-900/60 dark:bg-zinc-950/30 dark:hover:border-blue-800"
+                class="btn-input btn-input-sm h-auto min-w-0 justify-start py-2 text-left"
                 onClick={() => props.onInput(example.expression)}
               >
                 <span class="block text-[11px] font-medium text-secondary">{example.label}</span>

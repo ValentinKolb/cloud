@@ -111,9 +111,7 @@ export function FormFieldsEditor(props: {
                   <li>
                     <div
                       class={`paper flex w-full items-center gap-2 px-2 py-2 text-left transition-colors ${
-                        selected()
-                          ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300"
-                          : "hover:paper-highlighted"
+                        selected() ? "app-accent-border app-accent-text bg-[var(--theme-list-active-bg)]" : "hover:paper-highlighted"
                       }`}
                     >
                       <button
@@ -132,10 +130,10 @@ export function FormFieldsEditor(props: {
                         </span>
                       </button>
                       <Show when={entry().kind === "form_value"}>
-                        <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-secondary dark:bg-zinc-800">Fixed</span>
+                        <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] text-secondary">Fixed</span>
                       </Show>
                       <Show when={entry().kind === "user_input" && (entry() as Extract<FormFieldEntry, { kind: "user_input" }>).required}>
-                        <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-secondary dark:bg-zinc-800">Required</span>
+                        <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] text-secondary">Required</span>
                       </Show>
                       <div class="flex shrink-0 items-center gap-0.5">
                         <button

@@ -73,10 +73,10 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
   };
 
   return (
-    <>
-      <section class="detail-section">
+    <div class="flex h-full min-h-0 flex-col">
+      <header class="detail-header">
         <div class="flex items-start gap-3">
-          <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-secondary dark:bg-zinc-900">
+          <span class="app-accent-text inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--ui-surface-subtle)]">
             <i class="ti ti-activity" />
           </span>
           <div class="min-w-0 flex-1">
@@ -90,101 +90,98 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
             <i class="ti ti-x" />
           </button>
         </div>
-      </section>
+      </header>
 
-      <section class="detail-section">
-        <h3 class="detail-section-label">Execution</h3>
-        <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
-          <span class="text-dimmed">Trigger</span>
-          <span class="text-primary">{run() ? (triggerLabels[run()!.triggerKind] ?? run()!.triggerKind) : "-"}</span>
-          <span class="text-dimmed">Started</span>
-          <span class="text-primary">{run() ? formatDate(run()!.startedAt) : "-"}</span>
-          <span class="text-dimmed">Finished</span>
-          <span class="text-primary">{run() ? formatDate(run()!.finishedAt) : "-"}</span>
-          <span class="text-dimmed">Duration</span>
-          <span class="text-primary">{run() ? formatDuration(run()!) : "-"}</span>
-        </div>
-        <Show when={run()?.error}>
-          {(error) => (
-            <p class="mt-3 rounded-md bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">{error()}</p>
-          )}
-        </Show>
-        <Show when={run()?.resultMessage}>
-          {(message) => (
-            <p class="mt-3 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-              {message()}
-            </p>
-          )}
-        </Show>
-      </section>
+      <div class="detail-stack" data-scroll-preserve={`grids-workflow-run-detail-${props.runId}`}>
+        <section class="detail-section">
+          <h3 class="detail-section-label">Execution</h3>
+          <dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-xs">
+            <dt class="text-dimmed">Trigger</dt>
+            <dd class="text-primary">{run() ? (triggerLabels[run()!.triggerKind] ?? run()!.triggerKind) : "-"}</dd>
+            <dt class="text-dimmed">Started</dt>
+            <dd class="text-primary">{run() ? formatDate(run()!.startedAt) : "-"}</dd>
+            <dt class="text-dimmed">Finished</dt>
+            <dd class="text-primary">{run() ? formatDate(run()!.finishedAt) : "-"}</dd>
+            <dt class="text-dimmed">Duration</dt>
+            <dd class="text-primary tabular-nums">{run() ? formatDuration(run()!) : "-"}</dd>
+          </dl>
+          <Show when={run()?.error}>{(error) => <p class="info-block-danger mt-3 text-xs">{error()}</p>}</Show>
+          <Show when={run()?.resultMessage}>{(message) => <p class="info-block-success mt-3 text-xs">{message()}</p>}</Show>
+        </section>
 
-      <section class="detail-section">
-        <h3 class="detail-section-label">Input</h3>
-        <CodeDisplay language="text" code={JSON.stringify(run()?.resolvedInput ?? run()?.triggerInput ?? {}, null, 2)} copy />
-      </section>
+        <section class="detail-section">
+          <h3 class="detail-section-label">Input</h3>
+          <CodeDisplay language="text" code={JSON.stringify(run()?.resolvedInput ?? run()?.triggerInput ?? {}, null, 2)} copy />
+        </section>
 
-      <section class="detail-section">
-        <h3 class="detail-section-label">Steps</h3>
-        <For
-          each={steps()}
-          fallback={
-            <Placeholder align="left" class="py-3">
-              {loadMut.loading() ? "Loading steps..." : "No step details."}
-            </Placeholder>
-          }
-        >
-          {(step) => (
-            <div class="grid grid-cols-[auto_1fr_auto] gap-2 border-b border-zinc-100 py-2 text-xs last:border-b-0 dark:border-zinc-800">
-              <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
-              <span class="min-w-0 truncate text-primary">
-                {step.stepPath} · {step.kind}
-              </span>
-              <span class="text-dimmed">{step.durationMs == null ? "-" : `${step.durationMs}ms`}</span>
-              <Show when={step.error}>
-                <p class="col-span-3 text-red-600 dark:text-red-400">{step.error}</p>
-              </Show>
-            </div>
-          )}
-        </For>
-      </section>
+        <section class="detail-section">
+          <h3 class="detail-section-label">Steps</h3>
+          <div class="flex flex-col gap-2">
+            <For
+              each={steps()}
+              fallback={
+                <Placeholder align="left" class="py-3">
+                  {loadMut.loading() ? "Loading steps..." : "No step details."}
+                </Placeholder>
+              }
+            >
+              {(step) => (
+                <div class="grid grid-cols-[auto_1fr_auto] items-start gap-2 py-1 text-xs">
+                  <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
+                  <span class="min-w-0 truncate text-primary">
+                    {step.stepPath} · {step.kind}
+                  </span>
+                  <span class="text-dimmed tabular-nums">{step.durationMs == null ? "-" : `${step.durationMs}ms`}</span>
+                  <Show when={step.error}>
+                    <p class="col-span-3 text-red-600 dark:text-red-400">{step.error}</p>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </section>
 
-      <section class="detail-section">
-        <div class="flex items-center justify-between gap-2">
-          <h3 class="detail-section-label mb-0">Generated documents</h3>
-          <Show when={documents().total > 0}>
-            <button type="button" class="btn-simple btn-sm" onClick={() => void downloadAllDocuments()} disabled={downloadingAll()}>
-              <i class={downloadingAll() ? "ti ti-loader-2 animate-spin" : "ti ti-download"} /> All
-            </button>
-          </Show>
-        </div>
-        <For
-          each={documents().items}
-          fallback={
-            <Placeholder align="left" class="py-3">
-              No documents generated by this run.
-            </Placeholder>
-          }
-        >
-          {(document) => (
-            <div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-b border-zinc-100 py-2 text-xs last:border-b-0 dark:border-zinc-800">
-              <i class="ti ti-file-type-pdf text-dimmed" />
-              <span class="min-w-0">
-                <span class="block truncate text-primary">{document.filename}</span>
-                <span class="block truncate text-dimmed">{document.documentNumber}</span>
-              </span>
-              <button
-                type="button"
-                class="btn-simple btn-sm"
-                title="Download document"
-                onClick={() => void downloadDocument(document)}
-                disabled={downloadingDocumentId() === document.id}
-              >
-                {downloadingDocumentId() === document.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+        <section class="detail-section">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="detail-section-label mb-0">Generated documents</h3>
+            <Show when={documents().total > 0}>
+              <button type="button" class="btn-simple btn-sm" onClick={() => void downloadAllDocuments()} disabled={downloadingAll()}>
+                <i class={downloadingAll() ? "ti ti-loader-2 animate-spin" : "ti ti-download"} /> All
               </button>
-            </div>
-          )}
-        </For>
-      </section>
-    </>
+            </Show>
+          </div>
+          <div class="mt-3 flex flex-col gap-2">
+            <For
+              each={documents().items}
+              fallback={
+                <Placeholder align="left" class="py-3">
+                  No documents generated by this run.
+                </Placeholder>
+              }
+            >
+              {(document) => (
+                <div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 py-1 text-xs">
+                  <i class="ti ti-file-type-pdf text-dimmed" />
+                  <span class="min-w-0">
+                    <span class="block truncate text-primary">{document.filename}</span>
+                    <span class="block truncate text-dimmed">{document.documentNumber}</span>
+                  </span>
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title="Download document"
+                    aria-label={`Download ${document.filename}`}
+                    onClick={() => void downloadDocument(document)}
+                    disabled={downloadingDocumentId() === document.id}
+                  >
+                    {downloadingDocumentId() === document.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </section>
+      </div>
+    </div>
   );
 }

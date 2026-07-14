@@ -66,31 +66,23 @@ async function openScanDetails(item: ScanLogItem) {
         <PanelDialog.Header title="Scan details" subtitle={item.run?.id ?? item.code} icon="ti ti-barcode" close={() => close()} />
         <PanelDialog.Body>
           <PanelDialog.Section title="Result" icon="ti ti-activity">
-            <div class="grid gap-2 text-sm sm:grid-cols-2">
-              <div class="paper bg-zinc-50 p-3 dark:bg-zinc-900">
-                <p class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">Status</p>
-                <p class={`mt-1 font-semibold ${statusClass(item.status)}`}>{item.status}</p>
-              </div>
-              <div class="paper bg-zinc-50 p-3 dark:bg-zinc-900">
-                <p class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">Format</p>
-                <p class="mt-1 font-mono text-sm">{item.format ?? "-"}</p>
-              </div>
-              <div class="paper bg-zinc-50 p-3 dark:bg-zinc-900 sm:col-span-2">
-                <p class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">Message</p>
-                <p class="mt-1 text-sm">{item.message}</p>
-              </div>
-              <div class="paper bg-zinc-50 p-3 dark:bg-zinc-900 sm:col-span-2">
-                <p class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">Scanned value</p>
-                <p class="mt-1 break-all font-mono text-xs">{item.code}</p>
-              </div>
-            </div>
+            <dl class="grid gap-x-3 gap-y-2 text-sm sm:grid-cols-[7rem_minmax(0,1fr)]">
+              <dt class="text-dimmed">Status</dt>
+              <dd class={`font-semibold ${statusClass(item.status)}`}>{item.status}</dd>
+              <dt class="text-dimmed">Format</dt>
+              <dd class="font-mono">{item.format ?? "-"}</dd>
+              <dt class="text-dimmed">Message</dt>
+              <dd>{item.message}</dd>
+              <dt class="text-dimmed">Scanned value</dt>
+              <dd class="break-all font-mono text-xs">{item.code}</dd>
+            </dl>
           </PanelDialog.Section>
           <PanelDialog.Section title="Steps" icon="ti ti-list-details">
             <Show when={item.steps.length > 0} fallback={<p class="text-sm text-dimmed">No step data loaded yet.</p>}>
-              <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+              <div class="flex flex-col gap-2">
                 <For each={item.steps}>
                   {(step) => (
-                    <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-zinc-100 p-3 text-sm last:border-b-0 dark:border-zinc-800">
+                    <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 py-1 text-sm">
                       <div class="min-w-0">
                         <p class="truncate font-medium text-primary">{step.stepPath}</p>
                         <p class="text-xs text-dimmed">{step.kind}</p>
@@ -448,6 +440,7 @@ export default function WorkflowScannerSurface(props: Props) {
               `/app/grids/${props.state.baseShortId}/workflows/${props.state.workflowShortId ?? props.state.workflowId}`
             }
             class="icon-btn text-zinc-200 hover:text-white"
+            aria-label="Back to workflow"
           >
             <i class="ti ti-arrow-left" />
           </a>

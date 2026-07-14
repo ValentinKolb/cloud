@@ -202,8 +202,8 @@ export default function BasesOverview(props: Props) {
                   class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
                   style={`view-transition-name: grids-base-card-${base.id}`}
                 >
-                  <div class="w-10 h-10 thumbnail bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950 flex items-center justify-center shrink-0">
-                    <i class="ti ti-database text-lg text-blue-600 dark:text-blue-400" />
+                  <div class="app-accent-text w-10 h-10 thumbnail bg-[var(--theme-list-active-bg)] flex items-center justify-center shrink-0">
+                    <i class="ti ti-database text-lg" />
                   </div>
                   <div class="flex-1 min-w-0">
                     <span
@@ -233,7 +233,7 @@ export default function BasesOverview(props: Props) {
                 onClick={() => createFromTemplate(template)}
                 disabled={createFromTemplateMutation.loading()}
               >
-                <span class="w-9 h-9 thumbnail bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950 flex items-center justify-center shrink-0">
+                <span class="w-9 h-9 thumbnail bg-[var(--ui-surface-raised)] flex items-center justify-center shrink-0">
                   <i class={`${template.icon} text-lg text-primary`} />
                 </span>
                 <span class="min-w-0 flex-1">
@@ -250,8 +250,8 @@ export default function BasesOverview(props: Props) {
             onClick={createBlank}
             disabled={createBaseMutation.loading()}
           >
-            <span class="w-9 h-9 thumbnail bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950 flex items-center justify-center shrink-0">
-              <i class="ti ti-plus text-lg text-blue-600 dark:text-blue-400" />
+            <span class="app-accent-text w-9 h-9 thumbnail bg-[var(--theme-list-active-bg)] flex items-center justify-center shrink-0">
+              <i class="ti ti-plus text-lg" />
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-semibold text-primary">Blank base</span>

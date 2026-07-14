@@ -244,7 +244,7 @@ function DashboardRowGrid(props: {
 
   return (
     <div
-      class={`group/row relative rounded-lg ${props.edit ? "pl-10" : ""}`}
+      class={`group/row relative ${props.edit ? "pl-10" : ""}`}
       style={props.edit && props.row.cells.length === 0 ? emptyRowMinHeightStyle(props.row) : undefined}
     >
       <Show when={props.edit}>
@@ -265,7 +265,7 @@ function DashboardRowGrid(props: {
             disabled: !props.edit,
           }));
         }}
-        class="relative flex min-w-0 flex-1 flex-col gap-3 rounded-lg md:flex-row md:flex-nowrap"
+        class="relative flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:flex-nowrap"
         style={props.edit && props.row.cells.length === 0 ? emptyRowMinHeightStyle(props.row) : undefined}
       >
         <For each={props.row.cells}>
@@ -488,7 +488,7 @@ function EditCellControls(props: {
   return (
     <Show when={props.edit}>
       {(edit) => (
-        <div class="grids-edit-control-surface absolute right-2 top-2 z-20 flex items-center gap-0 rounded-lg bg-white p-1 dark:bg-zinc-950">
+        <div class="grids-edit-control-surface absolute right-2 top-2 z-20 flex items-center gap-0 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] p-1">
           <span
             class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`}
             data-dashboard-cell-drag

@@ -194,7 +194,7 @@ function QueryPreview(props: {
         fallback={
           <div class="flex flex-1 items-center justify-center text-sm text-dimmed">
             <div class="flex max-w-sm flex-col items-center gap-2 text-center">
-              <span class="grid h-11 w-11 place-items-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+              <span class="state-placeholder-icon state-placeholder-icon-panel">
                 <i class={props.loading ? "ti ti-loader-2 animate-spin text-lg" : "ti ti-table-spark text-lg"} />
               </span>
               <p class="font-medium text-primary">{props.loading ? "Running query" : "No result yet"}</p>
@@ -206,7 +206,7 @@ function QueryPreview(props: {
           when={success()}
           fallback={
             <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div class="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-xs dark:border-zinc-800">
+              <div class="flex shrink-0 items-center justify-between gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2 text-xs">
                 <span class="inline-flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
                   <i class="ti ti-alert-triangle" /> Diagnostics
                 </span>
@@ -518,7 +518,7 @@ export default function QueryWorkspace(props: Props) {
   };
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col bg-zinc-100 p-2 dark:bg-zinc-900" data-scroll-preserve="grids-query-workspace">
+    <div class="flex min-h-0 flex-1 flex-col bg-[var(--ui-surface-subtle)] p-2" data-scroll-preserve="grids-query-workspace">
       <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full flex-1">
         <Panes.Element id="results" title="Results" icon="ti ti-table-spark">
           <QueryPreview
@@ -551,7 +551,7 @@ export default function QueryWorkspace(props: Props) {
               </div>
             </Show>
 
-            <div class="flex shrink-0 flex-wrap items-center gap-2 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+            <div class="flex shrink-0 flex-wrap items-center gap-2 pt-2">
               <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <For each={examples()}>
                   {(example) => (
@@ -606,7 +606,7 @@ export default function QueryWorkspace(props: Props) {
                 fallback={
                   <div class="flex h-full items-center justify-center p-6 text-center text-sm text-dimmed">
                     <div class="flex max-w-xs flex-col items-center gap-2">
-                      <span class="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
+                      <span class="state-placeholder-icon state-placeholder-icon-panel">
                         <i class="ti ti-database-off text-lg" />
                       </span>
                       <span>{sourceSearch().trim() ? "No matching sources." : "No readable sources."}</span>
@@ -628,12 +628,14 @@ export default function QueryWorkspace(props: Props) {
                               onClick={() => insertSource(source)}
                               title={`Insert ${source.fromLine}`}
                             >
-                              <span class="grid h-6 w-6 shrink-0 place-items-center rounded bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                              <span class="grid h-6 w-6 shrink-0 place-items-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
                                 <i class={source.icon} />
                               </span>
                               <span class="min-w-0">
                                 <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                                  <span class="truncate text-sm font-medium text-primary group-hover:text-blue-600">{source.name}</span>
+                                  <span class="truncate text-sm font-medium text-primary group-hover:text-[var(--ui-app-accent-text)]">
+                                    {source.name}
+                                  </span>
                                   <span class="text-[11px] text-dimmed">{source.metaLabel}</span>
                                 </span>
                                 <Show when={source.parent}>
@@ -656,7 +658,7 @@ export default function QueryWorkspace(props: Props) {
                               {(field) => (
                                 <button
                                   type="button"
-                                  class="inline-flex max-w-full items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-left text-[11px] text-zinc-700 hover:bg-blue-50 hover:text-blue-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
+                                  class="inline-flex max-w-full items-center gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[11px] text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
                                   onClick={() => insertField(field)}
                                   title={field.description || `${field.name} (${field.type})`}
                                 >
@@ -666,7 +668,9 @@ export default function QueryWorkspace(props: Props) {
                               )}
                             </For>
                             <Show when={hidden() > 0}>
-                              <span class="rounded bg-zinc-50 px-1.5 py-0.5 text-[11px] text-dimmed dark:bg-zinc-950">+{hidden()}</span>
+                              <span class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-[11px] text-dimmed">
+                                +{hidden()}
+                              </span>
                             </Show>
                           </div>
                         </article>

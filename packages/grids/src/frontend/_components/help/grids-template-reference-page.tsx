@@ -128,15 +128,15 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
                   <col class="w-[34%]" />
                   <col class="w-[32%]" />
                 </colgroup>
-                <thead class="bg-zinc-50 text-xs font-medium uppercase tracking-wide text-dimmed dark:bg-zinc-950">
-                  <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                <thead class="bg-[var(--ui-data-header)] text-xs font-medium uppercase tracking-wide text-dimmed">
+                  <tr class="border-b border-[var(--ui-data-divider)]">
                     <th class="px-4 py-2 text-left font-medium">Part</th>
                     <th class="px-4 py-2 text-left font-medium">Language</th>
                     <th class="px-4 py-2 text-left font-medium">Purpose</th>
                     <th class="px-4 py-2 text-left font-medium">Common use</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                <tbody class="divide-y divide-[var(--ui-data-row-divider)]">
                   <tr>
                     <td class="px-4 py-3 align-top font-semibold text-primary">GQL source</td>
                     <td class="px-4 py-3 align-top text-dimmed">Liquid + GQL</td>

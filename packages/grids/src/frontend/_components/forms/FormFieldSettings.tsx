@@ -56,7 +56,7 @@ function FormFieldSettings(props: {
   return (
     <>
       <div class="flex items-start gap-3">
-        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-dimmed">
           <i class={`${fieldTypeIcon(props.field()!.type, props.field()!.icon)} text-sm`} />
         </span>
         <div class="min-w-0 flex-1">
@@ -251,7 +251,7 @@ function InlineCreateEditor(props: {
 
   return (
     <Show when={targetTableId()}>
-      <div class="paper mt-1 flex flex-col gap-2 p-3">
+      <div class="mt-1 flex flex-col gap-2">
         <Checkbox
           label="Create related records inline"
           description="Let this form create the linked record together with the main record. Nothing is saved until submit."

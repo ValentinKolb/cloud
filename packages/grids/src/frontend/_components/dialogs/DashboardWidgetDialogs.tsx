@@ -386,7 +386,7 @@ function StatTrendSection(props: {
 
   return (
     <Show when={props.views.length > 0}>
-      <div class="paper flex flex-col gap-2 p-3">
+      <div class="flex flex-col gap-2">
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs font-semibold uppercase tracking-wider text-dimmed">Trend</span>
           <Show

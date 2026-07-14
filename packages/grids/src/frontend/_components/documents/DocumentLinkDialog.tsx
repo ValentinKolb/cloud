@@ -26,6 +26,7 @@ export const openDocumentLinkDialog = (args: DocumentLinkDialogArgs) =>
   dialogCore.open<void>((close) => <DocumentLinkDialog args={args} close={close} />, panelDialogOptions);
 
 function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => void }) {
+  const optionRefs: HTMLButtonElement[] = [];
   const [expiresIn, setExpiresIn] = createSignal<DocumentLinkTtl>("30d");
   const [comment, setComment] = createSignal("");
   const [createdUrl, setCreatedUrl] = createSignal<string | null>(null);
@@ -51,6 +52,35 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
     onError: (error) => prompts.error(error.message),
   });
 
+  const selectOption = (index: number) => {
+    const option = ttlOptions[index];
+    if (!option) return;
+    setExpiresIn(option.value);
+    queueMicrotask(() => optionRefs[index]?.focus());
+  };
+
+  const onOptionKeyDown = (event: KeyboardEvent, index: number) => {
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      selectOption((index + 1) % ttlOptions.length);
+      return;
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      selectOption((index - 1 + ttlOptions.length) % ttlOptions.length);
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      selectOption(0);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      selectOption(ttlOptions.length - 1);
+    }
+  };
+
   return (
     <PanelDialog>
       <PanelDialog.Header title="Create public link" subtitle={props.args.run.filename} icon="ti ti-link" close={props.close} />
@@ -61,17 +91,24 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
             <section class="flex flex-col gap-3">
               <div>
                 <p class="text-sm font-medium text-primary">Validity</p>
-                <div class="mt-2 grid gap-2 sm:grid-cols-2">
+                <div class="mt-2 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Public link validity">
                   <For each={ttlOptions}>
-                    {(option) => (
+                    {(option, index) => (
                       <button
+                        ref={(element) => {
+                          optionRefs[index()] = element;
+                        }}
                         type="button"
-                        class={`rounded-md border px-3 py-2 text-left transition-colors ${
+                        role="radio"
+                        aria-checked={expiresIn() === option.value}
+                        tabIndex={expiresIn() === option.value ? 0 : -1}
+                        class={`rounded-[var(--ui-radius-control)] border px-3 py-2 text-left transition-colors ${
                           expiresIn() === option.value
-                            ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
-                            : "border-zinc-200 bg-white text-secondary hover:text-primary dark:border-zinc-800 dark:bg-zinc-950"
+                            ? "app-accent-border app-accent-text bg-[var(--theme-list-active-bg)]"
+                            : "border-[var(--ui-border)] bg-[var(--ui-surface)] text-secondary hover:bg-[var(--ui-hover)] hover:text-primary"
                         }`}
                         onClick={() => setExpiresIn(option.value)}
+                        onKeyDown={(event) => onOptionKeyDown(event, index())}
                       >
                         <span class="block text-sm font-medium">{option.label}</span>
                         <span class="block text-xs text-dimmed">{option.description}</span>
@@ -101,7 +138,9 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
                 <i class="ti ti-check" />
                 Link created and copied to clipboard.
               </div>
-              <code class="block break-all rounded-md bg-zinc-100 p-2 font-mono text-xs text-secondary dark:bg-zinc-900">{url()}</code>
+              <code class="block break-all rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] p-2 font-mono text-xs text-secondary">
+                {url()}
+              </code>
               <div class="flex flex-wrap items-center gap-2">
                 <CopyButton text={url()} label="Copy link" class="btn-input btn-sm" />
                 <a href={url()} target="_blank" rel="noreferrer" class="btn-input btn-sm">

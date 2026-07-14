@@ -172,7 +172,7 @@ function FormEditor(props: {
       (close) => (
         <div class="flex flex-col gap-3">
           <p class="text-xs text-secondary">Copied to clipboard:</p>
-          <code class="block break-all text-xs bg-zinc-100 dark:bg-zinc-800 rounded-md p-2 font-mono">{url}</code>
+          <code class="block break-all rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] p-2 font-mono text-xs">{url}</code>
           <div class="flex justify-end">
             <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
               OK
@@ -252,15 +252,13 @@ function FormEditor(props: {
               <i class="ti ti-copy" />
             </button>
           </div>
-          <div class="rounded-md border border-zinc-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/35">
+          <div class="flex flex-col gap-3">
             <p class="text-xs font-semibold text-primary">Submit access</p>
-            <p class="mt-1 text-[11px] leading-snug text-dimmed">
+            <p class="text-[11px] leading-snug text-dimmed">
               Grant Write to specific users or groups when this form should be private or internal. Public forms still accept anyone with
               the link.
             </p>
-            <div class="mt-3">
-              <FormPermissions formId={props.form.id} initialEntries={props.initialAccessEntries} canEdit={props.canManageAccess} />
-            </div>
+            <FormPermissions formId={props.form.id} initialEntries={props.initialAccessEntries} canEdit={props.canManageAccess} />
           </div>
         </FormEditorSection>
 

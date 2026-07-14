@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
-  Checkbox,
+  CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
@@ -17,7 +17,6 @@ import type { Field, View } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
-import { SectionCard } from "../utils/SectionCard";
 import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 
 type Props = {
@@ -71,18 +70,22 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
 
       <QuerySourceSection viewId={props.initialView.id} initial={props.initialView} onSaved={props.onSaved} onDirtyChange={setQueryDirty} />
 
-      <SectionCard title="Permissions" subtitle="Choose who can open this view. Views only support View access.">
+      <PanelDialog.Section title="Permissions" subtitle="Choose who can open this view. Views only support View access." icon="ti ti-lock">
         <ViewPermissions viewId={props.initialView.id} initialEntries={props.initialAccessEntries} canEdit={props.canEditAccess} />
-      </SectionCard>
+      </PanelDialog.Section>
 
-      <SectionCard title="Danger zone" subtitle="Delete this view. Records remain; only this saved view is removed." variant="danger">
+      <PanelDialog.Section
+        title="Danger zone"
+        subtitle="Delete this view. Records remain; only this saved view is removed."
+        icon="ti ti-trash"
+      >
         <DeleteButton
           viewId={props.initialView.id}
           baseShortId={props.baseShortId}
           tableShortId={props.tableShortId}
           name={props.initialView.name}
         />
-      </SectionCard>
+      </PanelDialog.Section>
     </PanelDialog.Body>
   );
 }
@@ -137,13 +140,15 @@ function GeneralSection(props: {
   });
 
   return (
-    <SectionCard title="General" subtitle="Name and visibility scope.">
+    <PanelDialog.Section title="General" subtitle="Name and visibility scope." icon="ti ti-id">
       <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} icon="ti ti-typography" required />
       <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
       <RecordDisplayConfigEditor value={displayConfig} onChange={(value) => patch({ displayConfig: value })} fields={() => props.fields} />
-      <Checkbox
+      <CheckboxCard
         label="Shared view"
         description={`Visible on ${props.tableName} by default. View permissions below can grant direct access or narrow access.`}
+        icon="ti ti-users"
+        variant="input"
         value={shared}
         onChange={(v) => patch({ shared: v })}
       />
@@ -163,7 +168,7 @@ function GeneralSection(props: {
           {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
         </button>
       </Show>
-    </SectionCard>
+    </PanelDialog.Section>
   );
 }
 
@@ -201,7 +206,7 @@ function QuerySourceSection(props: {
   });
 
   return (
-    <SectionCard title="Query" subtitle="The saved GQL source for this view.">
+    <PanelDialog.Section title="Query" subtitle="The saved GQL source for this view." icon="ti ti-code">
       <TextInput
         name={`view-source-${props.viewId}`}
         label="GQL source"
@@ -220,7 +225,7 @@ function QuerySourceSection(props: {
           {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save query"}
         </button>
       </Show>
-    </SectionCard>
+    </PanelDialog.Section>
   );
 }
 

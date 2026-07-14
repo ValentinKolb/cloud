@@ -398,14 +398,14 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
   const fieldReason = (field: FieldRow) => field.description || field.typeLabel;
 
   const SourceRef = (source: SourceRow) => (
-    <div class="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-zinc-50 px-2 py-1 text-xs dark:bg-zinc-950">
+    <div class="inline-flex min-w-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs">
       <span class="shrink-0 text-dimmed">use:</span>
       <code class="truncate font-mono text-primary">{refSourceLabel(source)}</code>
     </div>
   );
 
   const FieldChip = (field: FieldRow) => (
-    <code class="inline-flex max-w-full items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+    <code class="inline-flex max-w-full items-center gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-[11px] text-secondary">
       <span class="truncate">{field.ref}</span>
       <span class="text-[10px] text-dimmed">{field.typeLabel}</span>
     </code>
@@ -455,14 +455,12 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                       <div class="mt-3 flex flex-wrap gap-1.5">
                         <For each={shownFields(table)}>{FieldChip}</For>
                         <Show when={hiddenFieldCount(table) > 0}>
-                          <span class="rounded bg-zinc-50 px-1.5 py-0.5 text-[11px] text-dimmed dark:bg-zinc-950">
-                            +{hiddenFieldCount(table)}
-                          </span>
+                          <span class="badge bg-[var(--ui-surface-subtle)] text-[11px] text-dimmed">+{hiddenFieldCount(table)}</span>
                         </Show>
                       </div>
 
                       <Show when={viewsForTable(table).length > 0}>
-                        <div class="mt-3 space-y-2 border-l border-zinc-200 pl-4 dark:border-zinc-800">
+                        <div class="mt-3 space-y-2 pl-2">
                           <For each={viewsForTable(table)}>
                             {(view) => (
                               <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -534,15 +532,15 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                     <col class="w-[40%]" />
                     <col class="w-[16%]" />
                   </colgroup>
-                  <thead class="bg-zinc-50 text-xs font-medium uppercase tracking-wide text-dimmed dark:bg-zinc-950">
-                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                  <thead class="bg-[var(--ui-data-header)] text-xs font-medium uppercase tracking-wide text-dimmed">
+                    <tr class="border-b border-[var(--ui-data-divider)]">
                       <th class="px-4 py-2 text-left font-medium">Field</th>
                       <th class="px-4 py-2 text-left font-medium">Type</th>
                       <th class="px-4 py-2 text-left font-medium">Description</th>
                       <th class="px-4 py-2 text-right font-medium">Use as</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  <tbody class="divide-y divide-[var(--ui-data-row-divider)]">
                     <For each={inspectedFields()}>
                       {(field) => (
                         <tr>
@@ -556,7 +554,7 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                           <td class="px-4 py-3 align-middle leading-relaxed text-dimmed">{fieldReason(field)}</td>
                           <td class="px-4 py-3 align-middle">
                             <div class="flex items-center justify-end gap-2">
-                              <code class="inline-flex rounded bg-zinc-100 px-2 py-1 text-xs text-primary dark:bg-zinc-900">
+                              <code class="inline-flex rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-primary">
                                 {field.ref}
                               </code>
                               <CopyButton text={field.ref} class="btn-ghost btn-sm inline-flex h-8 w-8 items-center justify-center p-0" />
@@ -786,8 +784,8 @@ export default function QueryReferenceWindow(props: Props) {
   return (
     <AppWorkspace class="h-screen bg-surface">
       <ReferenceSidebar activeTab={activeTab()} baseShortId={props.baseShortId} baseName={props.baseName} />
-      <AppWorkspace.Main class="bg-surface">
-        <div class="flex min-h-0 flex-1 flex-col overflow-auto p-4 md:p-6">{content()}</div>
+      <AppWorkspace.Main class="bg-surface p-[var(--ui-space-shell)]">
+        <div class="flex min-h-0 flex-1 flex-col overflow-auto">{content()}</div>
       </AppWorkspace.Main>
     </AppWorkspace>
   );

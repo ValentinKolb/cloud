@@ -135,73 +135,60 @@ export default function RecordDetailPanel(props: Props) {
   return (
     <Show when={record()} fallback={null} keyed>
       {(rec) => (
-        <div class="flex h-full min-h-0 flex-col gap-2 overflow-y-auto">
-          <RecordReadView
-            baseId={props.baseShortId ?? props.baseId}
-            tableId={props.tableId}
-            tableName={props.tableName}
-            fields={props.fields}
-            record={rec}
-            mode={mode()}
-            relationLabels={props.relationLabels}
-            tableShortIds={props.tableShortIds}
-            fieldsByTable={props.fieldsByTable}
-            viewColumns={props.viewColumns}
-            dateConfig={props.dateConfig}
-            renderFileField={(field, record) => (
-              <RecordFileField tableId={props.tableId} recordId={record.id} field={field} canWrite={props.canWrite && mode() === "live"} />
-            )}
-            headerActions={
-              <>
-                <Show when={props.canWrite && mode() === "live"}>
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-dimmed hover:text-primary"
-                    aria-label="Edit record"
-                    title="Edit"
-                    onClick={() => handleEdit(rec)}
-                  >
-                    <i class="ti ti-pencil" />
-                  </button>
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-dimmed hover:text-red-500"
-                    aria-label="Delete record"
-                    title="Delete"
-                    onClick={() => handleDelete(rec)}
-                    disabled={deleteMut.loading()}
-                  >
-                    <i class="ti ti-trash" />
-                  </button>
-                </Show>
-                <Show when={props.canWrite && mode() === "trash"}>
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-dimmed hover:text-emerald-600"
-                    aria-label="Restore record"
-                    title="Restore"
-                    onClick={() => handleRestore(rec)}
-                    disabled={restoreMut.loading()}
-                  >
-                    <i class="ti ti-arrow-back-up" />
-                  </button>
-                </Show>
+        <RecordReadView
+          baseId={props.baseShortId ?? props.baseId}
+          tableId={props.tableId}
+          tableName={props.tableName}
+          fields={props.fields}
+          record={rec}
+          mode={mode()}
+          relationLabels={props.relationLabels}
+          tableShortIds={props.tableShortIds}
+          fieldsByTable={props.fieldsByTable}
+          viewColumns={props.viewColumns}
+          dateConfig={props.dateConfig}
+          scrollPreserveKey={`grids-record-detail-${props.tableId}-${rec.id}`}
+          renderFileField={(field, record) => (
+            <RecordFileField tableId={props.tableId} recordId={record.id} field={field} canWrite={props.canWrite && mode() === "live"} />
+          )}
+          headerActions={
+            <>
+              <Show when={props.canWrite && mode() === "live"}>
+                <button type="button" class="icon-btn" aria-label="Edit record" title="Edit record" onClick={() => handleEdit(rec)}>
+                  <i class="ti ti-pencil" />
+                </button>
                 <button
                   type="button"
-                  class="btn-simple btn-sm text-dimmed hover:text-primary"
-                  aria-label="Close detail panel"
-                  title="Close"
-                  onClick={() => props.onClose()}
+                  class="icon-btn text-dimmed hover:text-red-500"
+                  aria-label="Delete record"
+                  title="Delete record"
+                  onClick={() => handleDelete(rec)}
+                  disabled={deleteMut.loading()}
                 >
-                  <i class="ti ti-x" />
+                  <i class="ti ti-trash" />
                 </button>
-              </>
-            }
-          />
-
+              </Show>
+              <Show when={props.canWrite && mode() === "trash"}>
+                <button
+                  type="button"
+                  class="icon-btn text-dimmed hover:text-emerald-600"
+                  aria-label="Restore record"
+                  title="Restore record"
+                  onClick={() => handleRestore(rec)}
+                  disabled={restoreMut.loading()}
+                >
+                  <i class="ti ti-arrow-back-up" />
+                </button>
+              </Show>
+              <button type="button" class="icon-btn" aria-label="Close detail panel" title="Close detail" onClick={() => props.onClose()}>
+                <i class="ti ti-x" />
+              </button>
+            </>
+          }
+        >
           <RecordDocumentsSection tableId={props.tableId} recordId={rec.id} live={mode() === "live"} />
           <RecordHistorySection tableId={props.tableId} recordId={rec.id} />
-        </div>
+        </RecordReadView>
       )}
     </Show>
   );

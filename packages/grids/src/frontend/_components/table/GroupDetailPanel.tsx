@@ -154,15 +154,15 @@ export default function GroupDetailPanel(props: Props) {
   };
 
   return (
-    <div class="flex h-full min-h-0 flex-col gap-2 overflow-y-auto">
-      <section class="paper p-4">
+    <div class="flex h-full min-h-0 flex-col">
+      <header class="detail-header">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
-            <h2 class="truncate text-lg font-semibold text-primary">Group</h2>
+            <h2 class="app-accent-text truncate text-lg font-semibold">Group</h2>
             <div class="mt-1 flex flex-wrap gap-1.5">
               <For each={props.groupBy}>
                 {(spec, index) => (
-                  <span class="inline-flex min-w-0 items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                  <span class="inline-flex min-w-0 items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-secondary">
                     <i class={`${groupIcon(spec)} shrink-0`} />
                     <span class="font-medium">{groupLabel(spec, index())}</span>
                     <span class="min-w-0 truncate">{groupValue(spec, index())}</span>
@@ -171,93 +171,90 @@ export default function GroupDetailPanel(props: Props) {
               </For>
             </div>
           </div>
-          <button
-            type="button"
-            class="btn-simple btn-sm text-dimmed hover:text-primary"
-            aria-label="Close group detail panel"
-            title="Close"
-            onClick={() => props.onClose()}
-          >
+          <button type="button" class="icon-btn" aria-label="Close group detail panel" title="Close" onClick={() => props.onClose()}>
             <i class="ti ti-x" />
           </button>
         </div>
-      </section>
+      </header>
 
-      <div class="grid grid-cols-2 gap-2">
-        <For each={aggSpecsWithCount()}>
-          {(agg) => (
-            <div class="paper min-w-0 p-3">
-              <div class="flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-wide text-blue-500">
-                <i class="ti ti-math-function shrink-0" />
-                {aggLabel(agg)}
-              </div>
-              <div class="mt-1 min-w-0 break-words text-sm font-semibold leading-5 text-primary">
-                {formatAggregationValue({
-                  value: props.bucket.values[`${agg.fieldId}__${agg.agg}`],
-                  spec: agg,
-                  field: agg.fieldId === "*" ? undefined : fieldsById().get(agg.fieldId),
-                  dateConfig: props.dateConfig,
-                })}
-              </div>
-            </div>
-          )}
-        </For>
-      </div>
-
-      <div class="flex min-h-[18rem] flex-col gap-2">
-        <TextInput
-          icon="ti ti-search"
-          placeholder="Search in group..."
-          value={q}
-          onInput={(next) => {
-            setQ(next);
-            searchDebounce.debouncedFn(next);
-          }}
-          clearable
-          onClear={() => {
-            setQ("");
-            loadFirst("");
-          }}
-        />
-
-        <div class="flex min-h-0 flex-1 flex-col gap-2">
-          <Show
-            when={items().length > 0}
-            fallback={
-              <Placeholder>
-                <Show when={fetchMut.error()} fallback={fetchMut.loading() ? "Loading records..." : "No records in this group."}>
-                  {(err) => (
-                    <span>
-                      Could not load records.
-                      <span class="block text-xs">{err().message}</span>
-                    </span>
-                  )}
-                </Show>
-              </Placeholder>
-            }
-          >
-            <For each={items()}>
-              {(record) => (
-                <div class="paper flex min-h-8 items-center gap-2 px-2.5 py-1.5 transition-colors hover:bg-zinc-50/60 dark:hover:bg-zinc-800/25">
-                  <div class="min-w-0 flex-1 truncate text-xs text-primary">{renderRecordLine(record)}</div>
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm h-6 min-h-0 px-1.5 text-xs text-dimmed hover:text-blue-500"
-                    onClick={() => props.onOpenRecord(record)}
-                    title="Open record"
-                  >
-                    <i class="ti ti-external-link" />
-                    Open
-                  </button>
+      <div class="detail-stack" data-scroll-preserve={`grids-group-detail-${props.tableId}-${bucketKey()}`}>
+        <section class="detail-section">
+          <h3 class="detail-section-label">Summary</h3>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+            <For each={aggSpecsWithCount()}>
+              {(agg) => (
+                <div class="min-w-0">
+                  <div class="flex min-w-0 items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-dimmed">
+                    <i class="ti ti-math-function shrink-0" />
+                    <span class="truncate">{aggLabel(agg)}</span>
+                  </div>
+                  <div class="mt-1 min-w-0 break-words text-right text-base font-semibold leading-5 tabular-nums text-primary">
+                    {formatAggregationValue({
+                      value: props.bucket.values[`${agg.fieldId}__${agg.agg}`],
+                      spec: agg,
+                      field: agg.fieldId === "*" ? undefined : fieldsById().get(agg.fieldId),
+                      dateConfig: props.dateConfig,
+                    })}
+                  </div>
                 </div>
               )}
             </For>
-          </Show>
-          <div ref={sentinel} class="h-1" />
-          <Show when={fetchMut.loading() && items().length > 0}>
-            <div class="py-2 text-center text-xs text-dimmed">Loading more...</div>
-          </Show>
-        </div>
+          </div>
+        </section>
+
+        <section class="detail-section flex min-h-[18rem] flex-col gap-3">
+          <h3 class="detail-section-label mb-0">Records</h3>
+          <TextInput
+            icon="ti ti-search"
+            placeholder="Search in group..."
+            value={q}
+            onInput={(next) => {
+              setQ(next);
+              searchDebounce.debouncedFn(next);
+            }}
+            clearable
+            onClear={() => {
+              setQ("");
+              loadFirst("");
+            }}
+          />
+
+          <div class="flex min-h-0 flex-1 flex-col gap-1">
+            <Show
+              when={items().length > 0}
+              fallback={
+                <Placeholder align="left" class="py-3">
+                  <Show when={fetchMut.error()} fallback={fetchMut.loading() ? "Loading records..." : "No records in this group."}>
+                    {(err) => (
+                      <span>
+                        Could not load records.
+                        <span class="block text-xs">{err().message}</span>
+                      </span>
+                    )}
+                  </Show>
+                </Placeholder>
+              }
+            >
+              <For each={items()}>
+                {(record) => (
+                  <button
+                    type="button"
+                    class="group flex min-h-8 w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-[var(--ui-hover)]"
+                    onClick={() => props.onOpenRecord(record)}
+                  >
+                    <i class="ti ti-row-insert-bottom shrink-0 text-dimmed" />
+                    <span class="min-w-0 flex-1 truncate text-primary">{renderRecordLine(record)}</span>
+                    <i class="ti ti-chevron-right shrink-0 text-dimmed transition-colors group-hover:text-primary" />
+                  </button>
+                )}
+              </For>
+            </Show>
+            <div ref={sentinel} class="h-1" />
+            <Show when={fetchMut.loading() && items().length > 0}>
+              <div class="py-2 text-center text-xs text-dimmed">Loading more...</div>
+            </Show>
+          </div>
+        </section>
       </div>
     </div>
   );

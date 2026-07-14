@@ -93,7 +93,7 @@ type LegalLink = { label: string; href: string; icon?: string };
 
 function PublicShell(props: { legalLinks: LegalLink[]; children: any }) {
   return (
-    <div class="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950">
+    <div class="min-h-screen flex flex-col bg-[var(--ui-canvas)]">
       <PublicTimezoneCookie />
       <main class="flex-1 w-full max-w-2xl mx-auto px-4 py-6 sm:py-10">{props.children}</main>
       <footer class="shrink-0 w-full px-4 py-3 flex items-center justify-center flex-wrap gap-x-4 gap-y-1 text-xs text-dimmed">

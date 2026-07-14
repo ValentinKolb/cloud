@@ -98,7 +98,7 @@ export default function DocumentBrowser(props: Props) {
         >
           <div class="flex h-full min-h-0 flex-col overflow-hidden">
             <Show when={props.mode === "folders" && !props.searching}>
-              <div class="flex shrink-0 items-center gap-1 border-b border-zinc-100 px-3 py-2 text-xs text-secondary dark:border-zinc-800/70">
+              <div class="flex shrink-0 items-center gap-1 px-3 py-2 text-xs text-secondary">
                 <For each={props.breadcrumbs}>
                   {(crumb, index) => (
                     <>
@@ -119,7 +119,7 @@ export default function DocumentBrowser(props: Props) {
                 </For>
               </div>
             </Show>
-            <div class="min-h-0 flex-1 overflow-auto">
+            <div class="min-h-0 flex-1 overflow-auto p-1">
               <Show
                 when={props.folders.length > 0 || props.runs.length > 0}
                 fallback={<Placeholder class="h-full">{props.emptyText}</Placeholder>}
@@ -129,11 +129,11 @@ export default function DocumentBrowser(props: Props) {
                     {(folder) => (
                       <button
                         type="button"
-                        class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-zinc-100 px-3 py-2 text-left text-sm transition-colors hover:bg-zinc-50 dark:border-zinc-800/70 dark:hover:bg-zinc-900/70"
+                        class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-left text-sm transition-colors hover:paper-highlighted"
                         onClick={() => props.onFolder(folder)}
                       >
                         <div class="flex min-w-0 items-center gap-2">
-                          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-secondary dark:bg-zinc-900">
+                          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
                             <i class="ti ti-folder" />
                           </span>
                           <span class="min-w-0">
@@ -149,7 +149,7 @@ export default function DocumentBrowser(props: Props) {
                 <Show when={props.mode !== "folders" || props.runs.length > 0 || props.searching}>
                   <For each={props.runs}>
                     {(run) => (
-                      <div class="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-zinc-100 px-3 py-2 text-sm transition-colors hover:bg-zinc-50 dark:border-zinc-800/70 dark:hover:bg-zinc-900/70">
+                      <div class="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-sm transition-colors hover:paper-highlighted">
                         <button type="button" class="min-w-0 text-left" onClick={() => props.onRun(run)}>
                           <div class="flex min-w-0 items-center gap-2">
                             <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />

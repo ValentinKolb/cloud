@@ -217,7 +217,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
           <p class="shrink-0 text-xs text-dimmed">
             Type {"{{"} for values, {"{%"} for Liquid logic, or {"<"} for HTML snippets. Use sample data to change preview values.
           </p>
-          <div class="min-h-[30rem] min-w-0 flex-1 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
+          <div class="min-h-[30rem] min-w-0 flex-1 overflow-hidden">
             <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full" allowResize={false}>
               <Panes.Element id="html" title="HTML" icon="ti ti-code">
                 <div class="h-full min-h-0 overflow-auto">
@@ -331,7 +331,7 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
         close={props.onClose}
       />
       <PanelDialog.Body scrollPreserveKey="grids-email-template-manager">
-        <section class="paper overflow-hidden">
+        <section class="paper flex flex-col gap-1 overflow-hidden p-1">
           <For
             each={sortedTemplates()}
             fallback={
@@ -341,8 +341,8 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
             }
           >
             {(template) => (
-              <article class="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800">
-                <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-secondary dark:bg-zinc-900">
+              <article class="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 transition-colors hover:bg-[var(--ui-hover)]">
+                <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
                   <i class="ti ti-mail" />
                 </span>
                 <button type="button" class="min-w-0 text-left" onClick={() => void openEditor(template)}>
@@ -358,13 +358,20 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                   </Show>
                 </button>
                 <div class="flex items-center gap-1">
-                  <button type="button" class="icon-btn" title="Edit email template" onClick={() => void openEditor(template)}>
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title="Edit email template"
+                    aria-label="Edit email template"
+                    onClick={() => void openEditor(template)}
+                  >
                     <i class="ti ti-pencil" />
                   </button>
                   <button
                     type="button"
                     class="icon-btn text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                     title="Delete email template"
+                    aria-label="Delete email template"
                     disabled={deleteMut.loading()}
                     onClick={() => deleteMut.mutate(template)}
                   >

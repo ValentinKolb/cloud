@@ -4,6 +4,7 @@ import { For, type JSX, Show } from "solid-js";
 import type { ColumnSpec, FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord } from "../../../service";
+import { fieldTypeIcon } from "../fields/field-type-meta";
 import { barcodeValueText, canRenderBarcode } from "../table/BarcodeRendering";
 import { FieldValue } from "../table/FieldValue";
 import { fieldDisplayFormatForView, recordDisplayTitle, recordTitleField } from "./record-display";
@@ -25,6 +26,8 @@ type RecordReadViewProps = {
   viewColumns?: ColumnSpec[];
   dateConfig?: DateContext;
   renderFileField?: (field: Field, record: GridRecord) => JSX.Element;
+  scrollPreserveKey?: string;
+  children?: JSX.Element;
 };
 
 const visibleFieldsFor = (fields: Field[]) => fields.filter((field) => !field.deletedAt);
@@ -62,20 +65,6 @@ export default function RecordReadView(props: RecordReadViewProps) {
     relationFields().length > 0 ||
     textBlockFields().length > 0 ||
     fileFields().length > 0;
-
-  const detailIcon = (field: Field) => {
-    if (field.icon) return field.icon;
-    if (isComputedField(field)) return "ti ti-math-function";
-    const name = field.name.toLowerCase();
-    if (name.includes("price")) return "ti ti-currency-euro";
-    if (name.includes("discount")) return "ti ti-percentage";
-    if (name.includes("published") || field.type === "date" || field.type === "datetime") return "ti ti-calendar";
-    if (name.includes("stock") || field.type === "boolean") return "ti ti-check";
-    if (name.includes("tag") || field.type.includes("select")) return "ti ti-tags";
-    if (name.includes("sku")) return "ti ti-barcode";
-    if (field.type === "number" || field.type === "percent") return "ti ti-hash";
-    return "ti ti-info-circle";
-  };
 
   const renderField = (field: Field, record: GridRecord) => {
     if (field.type === "file" && props.renderFileField) return props.renderFileField(field, record);
@@ -122,34 +111,20 @@ export default function RecordReadView(props: RecordReadViewProps) {
     </div>
   );
 
-  const renderDetailsPaperTile = (field: Field) => (
-    <div class="paper min-w-0 p-3">
-      <div
-        class={`flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-wide ${
-          isComputedField(field) ? "text-blue-500" : "text-dimmed"
-        }`}
-      >
-        <i class={`${detailIcon(field)} shrink-0`} />
-        {field.name}
-      </div>
-      <div class="mt-1 min-w-0 break-words text-sm font-semibold leading-5 text-primary">{renderField(field, props.record)}</div>
-    </div>
-  );
-
   const Section = (sectionProps: { title: string; children: JSX.Element }) => (
-    <section class="paper p-4 flex flex-col gap-3">
-      <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">{sectionProps.title}</h3>
+    <section class="detail-section flex flex-col gap-3">
+      <h3 class="detail-section-label mb-0">{sectionProps.title}</h3>
       {sectionProps.children}
     </section>
   );
 
-  const renderBarcodePaper = (field: Field) => {
+  const renderBarcodeSection = (field: Field) => {
     const format = fieldBarcodeFormat(field);
     if (!format) return null;
     return (
-      <section class="paper p-4 flex flex-col gap-3">
-        <div class="flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-wide text-dimmed">
-          <i class={`${detailIcon(field)} shrink-0`} />
+      <section class="detail-section flex flex-col gap-3">
+        <div class="detail-section-label mb-0 flex min-w-0 items-center gap-1.5 truncate">
+          <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0`} />
           {field.name}
         </div>
         <FieldValue
@@ -173,11 +148,11 @@ export default function RecordReadView(props: RecordReadViewProps) {
   };
 
   return (
-    <>
-      <section class="paper p-4">
+    <div class="flex h-full min-h-0 flex-col">
+      <header class="detail-header">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0 flex-1">
-            <h2 class="truncate text-lg font-semibold leading-tight text-primary">
+            <h2 class="app-accent-text truncate text-lg font-semibold leading-tight">
               {recordDisplayTitle({
                 fields: props.fields,
                 record: props.record,
@@ -191,68 +166,96 @@ export default function RecordReadView(props: RecordReadViewProps) {
           </div>
           <Show when={props.headerActions}>{(actions) => <div class="flex shrink-0 items-center gap-0.5">{actions()}</div>}</Show>
         </div>
-      </section>
+      </header>
 
-      <Show
-        when={hasBodyFields()}
-        fallback={
-          <Placeholder surface="paper" align="left">
-            No fields to show.
-          </Placeholder>
-        }
-      >
-        <For each={barcodeFields()}>{(field) => renderBarcodePaper(field)}</For>
+      <div class="detail-stack" data-scroll-preserve={props.scrollPreserveKey}>
+        <Show
+          when={hasBodyFields()}
+          fallback={
+            <Placeholder surface="paper" align="left">
+              No fields to show.
+            </Placeholder>
+          }
+        >
+          <For each={barcodeFields()}>{(field) => renderBarcodeSection(field)}</For>
 
-        <Show when={detailsFields().length > 0}>
-          <div class="grid grid-cols-2 gap-2">
-            <For each={detailsFields()}>{(field) => renderDetailsPaperTile(field)}</For>
-          </div>
-        </Show>
-
-        <Show when={relationFields().length > 0}>
-          <Section title="Relations">
-            <div class="flex flex-col gap-3">
-              <For each={relationFields()}>
-                {(field) => (
-                  <div class="min-w-0">
-                    <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">{field.name}</p>
-                    <Show when={field.description}>
-                      {(description) => <p class="mt-0.5 text-[11px] text-dimmed leading-snug">{description()}</p>}
-                    </Show>
-                    <div class="mt-1 min-w-0 break-words text-sm text-secondary">{renderField(field, props.record)}</div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Section>
-        </Show>
-
-        <For each={textBlockFields()}>
-          {(field) => (
-            <Section title={field.name}>
-              <div class="text-sm text-secondary break-words">{renderField(field, props.record)}</div>
+          <Show when={detailsFields().length > 0}>
+            <Section title="Fields">
+              <dl class="grid grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm">
+                <For each={detailsFields()}>
+                  {(field) => (
+                    <>
+                      <dt
+                        class={`flex min-w-0 items-center gap-1.5 self-start text-xs ${
+                          isComputedField(field) ? "text-blue-600 dark:text-blue-400" : "text-dimmed"
+                        }`}
+                      >
+                        <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-sm`} />
+                        <span class="min-w-0 break-words">{field.name}</span>
+                      </dt>
+                      <dd class="min-w-0 break-words text-primary">{renderField(field, props.record)}</dd>
+                    </>
+                  )}
+                </For>
+              </dl>
             </Section>
-          )}
-        </For>
+          </Show>
 
-        <Show when={fileFields().length > 0}>
-          <Section title="Files">
-            <div class="flex flex-col gap-3">
-              <For each={fileFields()}>
-                {(field) => (
-                  <div class="min-w-0">
-                    <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">{field.name}</p>
-                    <Show when={field.description}>
-                      {(description) => <p class="mt-0.5 text-[11px] text-dimmed leading-snug">{description()}</p>}
-                    </Show>
-                    <div class="mt-1 min-w-0 break-words text-sm text-secondary">{renderField(field, props.record)}</div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Section>
+          <Show when={relationFields().length > 0}>
+            <Section title="Relations">
+              <div class="flex flex-col gap-3">
+                <For each={relationFields()}>
+                  {(field) => (
+                    <div class="grid min-w-0 grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] gap-x-4">
+                      <div class="min-w-0 text-xs text-dimmed">
+                        <p class="flex items-center gap-1.5">
+                          <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-sm`} />
+                          <span class="break-words">{field.name}</span>
+                        </p>
+                        <Show when={field.description}>
+                          {(description) => <p class="mt-1 text-[11px] leading-snug">{description()}</p>}
+                        </Show>
+                      </div>
+                      <div class="min-w-0 break-words text-sm text-primary">{renderField(field, props.record)}</div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Section>
+          </Show>
+
+          <For each={textBlockFields()}>
+            {(field) => (
+              <Section title={field.name}>
+                <div class="break-words text-sm leading-relaxed text-secondary">{renderField(field, props.record)}</div>
+              </Section>
+            )}
+          </For>
+
+          <Show when={fileFields().length > 0}>
+            <Section title="Files">
+              <div class="flex flex-col gap-3">
+                <For each={fileFields()}>
+                  {(field) => (
+                    <div class="min-w-0">
+                      <p class="flex items-center gap-1.5 text-xs text-dimmed">
+                        <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-sm`} />
+                        {field.name}
+                      </p>
+                      <Show when={field.description}>
+                        {(description) => <p class="mt-1 text-[11px] leading-snug text-dimmed">{description()}</p>}
+                      </Show>
+                      <div class="mt-2 min-w-0 break-words text-sm text-secondary">{renderField(field, props.record)}</div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Section>
+          </Show>
         </Show>
-      </Show>
-    </>
+
+        {props.children}
+      </div>
+    </div>
   );
 }

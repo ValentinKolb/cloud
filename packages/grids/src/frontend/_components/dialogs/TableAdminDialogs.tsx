@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
-  Checkbox,
+  CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
@@ -141,7 +141,7 @@ const chooseFieldType = () =>
               {(type) => (
                 <button type="button" class="paper p-3 text-left hover:paper-highlighted transition" onClick={() => close(type.value)}>
                   <div class="flex items-start gap-3">
-                    <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                    <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center bg-[var(--ui-surface-subtle)]">
                       <i class={`${FIELD_TYPE_ICONS[type.value] ?? "ti ti-database"} text-base text-dimmed`} />
                     </span>
                     <div class="min-w-0">
@@ -309,9 +309,11 @@ function TableSettingsBody(props: {
             lines={2}
             placeholder="Optional"
           />
-          <Checkbox
+          <CheckboxCard
             label="Add records through forms"
             description="New records use forms by default. Admins can still edit the table directly."
+            icon="ti ti-forms"
+            variant="input"
             value={disableDirectInsert}
             onChange={(v) => patch({ disableDirectInsert: v })}
           />

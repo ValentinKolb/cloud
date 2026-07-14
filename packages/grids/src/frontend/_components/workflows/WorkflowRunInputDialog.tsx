@@ -54,7 +54,7 @@ function WorkflowRunInputDialog(props: Props) {
         close={() => props.close()}
       />
       <PanelDialog.Body>
-        <div class="flex flex-col gap-3 p-4">
+        <div class="flex flex-col gap-3">
           <For each={inputs()}>
             {([name, input]) => {
               const label = input.label ?? name;

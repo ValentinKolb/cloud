@@ -14,6 +14,7 @@ import FormSidebarEntry from "../sidebar/FormSidebarEntry";
 import RememberGridsPath from "../sidebar/RememberGridsPath";
 import { WorkflowRunDetailPanel } from "../workflows/WorkflowRunDetailPanel";
 import WorkflowsPage from "../workflows/WorkflowsPage";
+import { workspaceMainClass } from "./workspace-layout";
 import { useWorkspaceLiveUpdates } from "./workspace-live-updates";
 import { shouldReloadWorkspaceForPopState } from "./workspace-route-ownership";
 import type {
@@ -191,48 +192,47 @@ export default function GridsWorkspace(props: Props) {
   };
 
   const renderRecords = (route: WorkspaceRecordsRoute) => (
-    <div class="flex-1 min-h-0 flex flex-col" data-route-key={routeKey()}>
-      <RecordsView
-        baseId={state().base.id}
-        tableId={route.activeTable.id}
-        tableName={route.activeTable.name}
-        tableDescription={route.activeTable.description ?? null}
-        tableIcon={route.activeTable.icon ?? null}
-        tableColumns={route.activeTable.columns}
-        disableDirectInsert={route.activeTable.disableDirectInsert}
-        baseShortId={state().base.shortId}
-        tableShortId={route.activeTable.shortId}
-        tableShortIds={state().catalog.tableShortIds}
-        viewShortId={route.activeView?.shortId ?? null}
-        fields={route.fields}
-        tables={state().catalog.tables}
-        viewsByTable={state().catalog.viewsByTable}
-        forms={route.formsForTable}
-        canWrite={route.canWriteRecords}
-        canManageTable={route.canManageActiveTable}
-        trashMode={route.initialState.query.deletedOnly === true}
-        initialAdminMode={state().adminModeRequested}
-        initialAccessEntries={route.activeTableAccessEntries}
-        initialFormAccessEntries={route.activeFormAccessEntries}
-        activeView={route.activeView}
-        activeViewAccessEntries={route.activeViewAccessEntries}
-        canEditActiveView={route.canEditActiveView}
-        otherTables={route.otherTables}
-        fieldsByTable={state().catalog.fieldsByTable}
-        viewMode={route.activeView !== null}
-        initialState={route.initialState}
-        initialData={route.initialData}
-        initialSelectedRecord={route.initialSelectedRecord}
-        relationLabels={route.relationLabels}
-        viewColumns={route.activeViewColumns}
-        searchableFields={route.searchableFields}
-        groupedExplode={route.groupedExplode}
-        activeRecordQuery={route.activeRecordQuery}
-        displayConfig={route.displayConfig}
-        bulkSelectionWorkflows={route.bulkSelectionWorkflows}
-        dateConfig={state().dateConfig}
-      />
-    </div>
+    <RecordsView
+      baseId={state().base.id}
+      tableId={route.activeTable.id}
+      tableName={route.activeTable.name}
+      tableDescription={route.activeTable.description ?? null}
+      tableIcon={route.activeTable.icon ?? null}
+      tableColumns={route.activeTable.columns}
+      disableDirectInsert={route.activeTable.disableDirectInsert}
+      baseShortId={state().base.shortId}
+      tableShortId={route.activeTable.shortId}
+      tableShortIds={state().catalog.tableShortIds}
+      viewShortId={route.activeView?.shortId ?? null}
+      fields={route.fields}
+      tables={state().catalog.tables}
+      viewsByTable={state().catalog.viewsByTable}
+      forms={route.formsForTable}
+      canWrite={route.canWriteRecords}
+      canManageTable={route.canManageActiveTable}
+      trashMode={route.initialState.query.deletedOnly === true}
+      initialAdminMode={state().adminModeRequested}
+      initialAccessEntries={route.activeTableAccessEntries}
+      initialFormAccessEntries={route.activeFormAccessEntries}
+      activeView={route.activeView}
+      activeViewAccessEntries={route.activeViewAccessEntries}
+      canEditActiveView={route.canEditActiveView}
+      otherTables={route.otherTables}
+      fieldsByTable={state().catalog.fieldsByTable}
+      viewMode={route.activeView !== null}
+      initialState={route.initialState}
+      initialData={route.initialData}
+      initialSelectedRecord={route.initialSelectedRecord}
+      relationLabels={route.relationLabels}
+      viewColumns={route.activeViewColumns}
+      searchableFields={route.searchableFields}
+      groupedExplode={route.groupedExplode}
+      activeRecordQuery={route.activeRecordQuery}
+      displayConfig={route.displayConfig}
+      bulkSelectionWorkflows={route.bulkSelectionWorkflows}
+      dateConfig={state().dateConfig}
+      workspaceRouteKey={routeKey()}
+    />
   );
 
   const renderDashboard = (route: WorkspaceDashboardRoute) => (
@@ -540,7 +540,7 @@ export default function GridsWorkspace(props: Props) {
 
           <AppWorkspace.SidebarDesktop>
             <div class="flex flex-col gap-3">
-              <AppWorkspace.SidebarSection title="Actions">
+              <AppWorkspace.SidebarSection>
                 <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid" navigation="document">
                   All Grids
                 </AppWorkspace.SidebarItem>
@@ -565,47 +565,51 @@ export default function GridsWorkspace(props: Props) {
           </AppWorkspace.SidebarDesktop>
         </AppWorkspace.Sidebar>
 
-        <AppWorkspace.Main>
-          <Show keyed when={state().route}>
-            {(route) => (
-              <Switch>
-                <Match when={route.kind === "dashboard"}>{renderDashboard(route as WorkspaceDashboardRoute)}</Match>
-                <Match when={route.kind === "workflows"}>{renderWorkflows(route as WorkspaceWorkflowsRoute)}</Match>
-                <Match when={route.kind === "query"}>{renderQueryWorkspace(route as WorkspaceQueryRoute)}</Match>
-                <Match when={route.kind === "documentTemplate"}>
-                  {renderDocumentTemplateWorkspace(route as WorkspaceDocumentTemplateRoute)}
-                </Match>
-                <Match when={route.kind === "records"}>{renderRecords(route as WorkspaceRecordsRoute)}</Match>
-                <Match when={route.kind === "empty"}>
-                  <Placeholder surface="paper">
-                    <Show
-                      when={state().catalog.sidebarForms.length > 0 || state().catalog.sidebarDocumentTemplates.length > 0}
-                      fallback={
-                        state().canCreateTables
-                          ? 'No tables yet. Click "New table" in the sidebar.'
-                          : "No tables. You don't have write access to create one."
-                      }
-                    >
-                      {state().catalog.sidebarDocumentTemplates.length > 0
-                        ? limitedAccessEmptyText(state().catalog.sidebarForms.length, state().catalog.sidebarDocumentTemplates.length)
-                        : formOnlyEmptyText(state().catalog.sidebarForms.length)}
+        <Show keyed when={state().route}>
+          {(route) => (
+            <Show
+              keyed
+              when={route.kind === "records" ? (route as WorkspaceRecordsRoute) : null}
+              fallback={
+                <>
+                  <AppWorkspace.Main class={workspaceMainClass(route.kind)}>
+                    <Switch>
+                      <Match when={route.kind === "dashboard"}>{renderDashboard(route as WorkspaceDashboardRoute)}</Match>
+                      <Match when={route.kind === "workflows"}>{renderWorkflows(route as WorkspaceWorkflowsRoute)}</Match>
+                      <Match when={route.kind === "query"}>{renderQueryWorkspace(route as WorkspaceQueryRoute)}</Match>
+                      <Match when={route.kind === "documentTemplate"}>
+                        {renderDocumentTemplateWorkspace(route as WorkspaceDocumentTemplateRoute)}
+                      </Match>
+                      <Match when={route.kind === "empty"}>
+                        <Placeholder surface="paper">
+                          <Show
+                            when={state().catalog.sidebarForms.length > 0 || state().catalog.sidebarDocumentTemplates.length > 0}
+                            fallback={
+                              state().canCreateTables
+                                ? 'No tables yet. Click "New table" in the sidebar.'
+                                : "No tables. You don't have write access to create one."
+                            }
+                          >
+                            {state().catalog.sidebarDocumentTemplates.length > 0
+                              ? limitedAccessEmptyText(state().catalog.sidebarForms.length, state().catalog.sidebarDocumentTemplates.length)
+                              : formOnlyEmptyText(state().catalog.sidebarForms.length)}
+                          </Show>
+                        </Placeholder>
+                      </Match>
+                    </Switch>
+                  </AppWorkspace.Main>
+                  <AppWorkspace.Detail open={Boolean(workflowRunDetailId())} width="lg" viewTransitionName="grids-workflow-run-detail">
+                    <Show keyed when={workflowRunDetailId()}>
+                      {(runId) => <WorkflowRunDetailPanel runId={runId} onClose={() => void selectWorkflowRun(null)} />}
                     </Show>
-                  </Placeholder>
-                </Match>
-              </Switch>
-            )}
-          </Show>
-        </AppWorkspace.Main>
-        <AppWorkspace.Detail
-          open={Boolean(workflowRunDetailId())}
-          width="lg"
-          class="detail-stack"
-          viewTransitionName="grids-workflow-run-detail"
-        >
-          <Show keyed when={workflowRunDetailId()}>
-            {(runId) => <WorkflowRunDetailPanel runId={runId} onClose={() => void selectWorkflowRun(null)} />}
-          </Show>
-        </AppWorkspace.Detail>
+                  </AppWorkspace.Detail>
+                </>
+              }
+            >
+              {(recordsRoute) => renderRecords(recordsRoute)}
+            </Show>
+          )}
+        </Show>
       </AppWorkspace>
     </>
   );

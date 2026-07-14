@@ -165,7 +165,7 @@ function FormBody(props: {
           </For>
         </div>
 
-        <div class="shrink-0 border-t border-zinc-100 bg-white/95 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/95">
+        <div class="shrink-0 bg-[var(--ui-surface-subtle)] px-3 py-2">
           <Show when={error()}>
             <div class="info-block-error mb-2 flex items-start gap-2 text-xs">
               <i class="ti ti-alert-circle mt-0.5 shrink-0" />

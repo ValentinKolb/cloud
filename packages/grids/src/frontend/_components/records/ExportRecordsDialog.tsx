@@ -1,4 +1,4 @@
-import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
+import { Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ExportBody, Field, RecordQuery } from "../../../contracts";
@@ -131,31 +131,37 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
       <PanelDialog.Header title="Export records" icon="ti ti-download" close={props.close} />
       <PanelDialog.Body>
         <div class="grid gap-3 sm:grid-cols-3">
-          <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-            Format
-            <select class="input" value={format()} onChange={(e) => setFormat(e.currentTarget.value as "csv" | "json")}>
-              <option value="csv">CSV</option>
-              <option value="json">JSON</option>
-            </select>
-          </label>
+          <Select
+            label="Format"
+            value={format}
+            onChange={(value) => setFormat(value as "csv" | "json")}
+            options={[
+              { id: "csv", label: "CSV" },
+              { id: "json", label: "JSON" },
+            ]}
+          />
           <Show when={format() === "csv"}>
-            <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-              Delimiter
-              <select class="input" value={delimiter()} onChange={(e) => setDelimiter(e.currentTarget.value as "," | ";" | "\t" | "|")}>
-                <option value=",">Comma</option>
-                <option value=";">Semicolon</option>
-                <option value={"\t"}>Tab</option>
-                <option value="|">Pipe</option>
-              </select>
-            </label>
+            <Select
+              label="Delimiter"
+              value={delimiter}
+              onChange={(value) => setDelimiter(value as "," | ";" | "\t" | "|")}
+              options={[
+                { id: ",", label: "Comma" },
+                { id: ";", label: "Semicolon" },
+                { id: "\t", label: "Tab" },
+                { id: "|", label: "Pipe" },
+              ]}
+            />
           </Show>
-          <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-            Markdown
-            <select class="input" value={markdown()} onChange={(e) => setMarkdown(e.currentTarget.value as "raw" | "html")}>
-              <option value="raw">Keep markdown</option>
-              <option value="html">Convert to HTML</option>
-            </select>
-          </label>
+          <Select
+            label="Markdown"
+            value={markdown}
+            onChange={(value) => setMarkdown(value as "raw" | "html")}
+            options={[
+              { id: "raw", label: "Keep markdown" },
+              { id: "html", label: "Convert to HTML" },
+            ]}
+          />
         </div>
 
         <PanelDialog.Section title="Fields" subtitle="Pick exported columns and relation output." icon="ti ti-columns">
@@ -167,39 +173,36 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
                 const availableTargetFields = () =>
                   targetTableId ? (targetFields()[targetTableId] ?? []).sort((a, b) => a.position - b.position) : [];
                 return (
-                  <div class="rounded-lg border border-zinc-200/70 p-3 dark:border-zinc-800">
-                    <div class="grid gap-2 sm:grid-cols-[1.4rem_1fr_1fr] sm:items-center">
-                      <input
-                        type="checkbox"
-                        checked={row.enabled}
-                        onChange={(e) => updateRow(index(), { enabled: e.currentTarget.checked })}
-                        aria-label={`Export ${field.name}`}
+                  <div class="px-1 py-2">
+                    <div class="grid gap-2 sm:grid-cols-2 sm:items-start">
+                      <Checkbox
+                        label={field.name}
+                        description={field.type}
+                        value={() => row.enabled}
+                        onChange={(enabled) => updateRow(index(), { enabled })}
                       />
-                      <div class="min-w-0">
-                        <div class="truncate text-xs font-medium text-primary">{field.name}</div>
-                        <div class="text-[11px] text-dimmed">{field.type}</div>
-                      </div>
-                      <input
-                        class="input input-sm"
-                        value={row.label}
-                        onInput={(e) => updateRow(index(), { label: e.currentTarget.value })}
+                      <TextInput
+                        label="Column label"
+                        value={() => row.label}
+                        onInput={(label) => updateRow(index(), { label })}
                         disabled={!row.enabled}
-                        aria-label={`Export label for ${field.name}`}
                       />
                     </div>
                     <Show when={field.type === "relation" && row.enabled}>
-                      <div class="mt-2 grid gap-2 sm:grid-cols-[10rem_1fr]">
-                        <select
-                          class="input input-sm"
-                          value={row.relationMode}
-                          onChange={(e) => updateRow(index(), { relationMode: e.currentTarget.value as RowState["relationMode"] })}
-                        >
-                          <option value="ids">IDs</option>
-                          <option value="labels">Labels</option>
-                          <option value="fields">Selected fields</option>
-                        </select>
+                      <div class="mt-2 grid gap-2 sm:grid-cols-[12rem_1fr]">
+                        <Select
+                          label="Relation output"
+                          value={() => row.relationMode}
+                          onChange={(relationMode) => updateRow(index(), { relationMode: relationMode as RowState["relationMode"] })}
+                          options={[
+                            { id: "ids", label: "IDs" },
+                            { id: "labels", label: "Labels" },
+                            { id: "fields", label: "Selected fields" },
+                          ]}
+                        />
                         <Show when={row.relationMode === "fields"}>
                           <MultiSelectInput
+                            label="Target fields"
                             placeholder="Choose fields"
                             icon="ti ti-columns"
                             value={() => row.targetFieldIds}

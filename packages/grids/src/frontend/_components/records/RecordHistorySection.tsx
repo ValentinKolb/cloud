@@ -45,8 +45,8 @@ export default function RecordHistorySection(props: { tableId: string; recordId:
   );
 
   return (
-    <details class="paper p-0 group">
-      <summary class="cursor-pointer select-none flex items-center gap-2 px-3 py-2 text-xs font-medium text-secondary">
+    <details class="detail-section-compact group">
+      <summary class="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-secondary">
         <i class="ti ti-history text-sm" />
         History
         <Show when={!entries.loading && entries()}>
@@ -54,7 +54,7 @@ export default function RecordHistorySection(props: { tableId: string; recordId:
         </Show>
         <i class="ti ti-chevron-down ml-auto text-xs text-dimmed transition-transform group-open:rotate-180" />
       </summary>
-      <div class="px-3 pb-3 flex flex-col gap-2">
+      <div class="mt-3 flex flex-col gap-2">
         <Show when={entries.loading}>
           <p class="text-xs text-dimmed">Loading history…</p>
         </Show>
@@ -113,7 +113,7 @@ export default function RecordHistorySection(props: { tableId: string; recordId:
                   <p class="ml-5 text-[11px] text-dimmed">changed {summary}</p>
                 </Show>
                 <Show when={entry.diff && fieldsChanged.length > 0}>
-                  <pre class="ml-5 mt-1 max-h-40 overflow-auto rounded-md bg-zinc-50 dark:bg-zinc-800 p-2 text-[10px] font-mono text-zinc-700 dark:text-zinc-300">
+                  <pre class="ml-5 mt-1 max-h-40 overflow-auto rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2 font-mono text-[10px] text-secondary">
                     {JSON.stringify(entry.diff, null, 2)}
                   </pre>
                 </Show>
