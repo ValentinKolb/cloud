@@ -1,11 +1,13 @@
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { markdown } from "@valentinkolb/cloud/shared";
+import { MarkdownView, Placeholder, prompts, SegmentedControl, SelectInput } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import dayjs from "dayjs";
 import { diffLines } from "diff";
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildNoteUrl } from "../../../params";
+import { buildDiffRows, type DiffRow, orderComparison, summarizeDiff } from "./version-history";
 
 type NoteVersion = {
   id: string;
@@ -22,12 +24,6 @@ type PaginationInfo = {
   has_next: boolean;
 };
 
-type DiffPart = {
-  added?: boolean;
-  removed?: boolean;
-  value: string;
-};
-
 type VersionData = {
   contentMd: string | null;
   yjsSnapshot: string;
@@ -41,6 +37,8 @@ type Props = {
   currentContentMd: string | null;
 };
 
+type PreviewMode = "content" | "changes";
+
 const PER_PAGE = 20;
 
 /** Pseudo-ID for "Current version" */
@@ -52,16 +50,17 @@ export default function VersionHistory(props: Props) {
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [pagination, setPagination] = createSignal<PaginationInfo | null>(null);
 
-  // A = older/left side, B = newer/right side
-  // Default: A = clicked version, B = current
-  const [sideA, setSideA] = createSignal<string | null>(null);
-  const [sideB, setSideB] = createSignal<string>(CURRENT_ID);
-
-  const [diffParts, setDiffParts] = createSignal<DiffPart[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = createSignal<string | null>(null);
+  const [selectedVersionData, setSelectedVersionData] = createSignal<VersionData | null>(null);
+  const [comparisonVersionId, setComparisonVersionId] = createSignal(CURRENT_ID);
+  const [previewMode, setPreviewMode] = createSignal<PreviewMode>("content");
+  const [diffRows, setDiffRows] = createSignal<DiffRow[]>([]);
   const [previewLoading, setPreviewLoading] = createSignal(false);
+  const [previewError, setPreviewError] = createSignal(false);
 
   // Cache loaded version data to avoid re-fetching
   const versionCache = new Map<string, VersionData>();
+  let previewRequestId = 0;
 
   const backUrl = buildNoteUrl(props.notebookId, props.noteId);
 
@@ -118,19 +117,24 @@ export default function VersionHistory(props: Props) {
 
   // ── Diff computation ──
 
-  const computeDiff = async () => {
-    const a = sideA();
-    const b = sideB();
-    if (!a) return;
-
+  const computeDiff = async (selectedId: string, comparisonId: string) => {
+    const requestId = ++previewRequestId;
+    const { fromId, toId } = orderComparison(selectedId, comparisonId, versions(), CURRENT_ID);
     setPreviewLoading(true);
-    setDiffParts([]);
+    setPreviewError(false);
+    setDiffRows([]);
 
-    const [dataA, dataB] = await Promise.all([fetchVersionData(a), fetchVersionData(b)]);
+    const [selectedData, comparisonData] = await Promise.all([fetchVersionData(selectedId), fetchVersionData(comparisonId)]);
+    if (requestId !== previewRequestId) return;
 
-    if (dataA && dataB) {
-      const parts = diffLines(dataA.contentMd ?? "", dataB.contentMd ?? "");
-      setDiffParts(parts as DiffPart[]);
+    setSelectedVersionData(selectedData);
+    const fromData = fromId === selectedId ? selectedData : comparisonData;
+    const toData = toId === selectedId ? selectedData : comparisonData;
+
+    if (fromData && toData) {
+      setDiffRows(buildDiffRows(diffLines(fromData.contentMd ?? "", toData.contentMd ?? "")));
+    } else {
+      setPreviewError(true);
     }
 
     setPreviewLoading(false);
@@ -138,39 +142,20 @@ export default function VersionHistory(props: Props) {
 
   // ── Selection logic ──
 
-  const handleVersionClick = (versionId: string) => {
-    const currentA = sideA();
-    const currentB = sideB();
-
-    if (versionId === currentA) {
-      setSideA(null);
-      setSideB(CURRENT_ID);
-      setDiffParts([]);
-      return;
-    }
-
-    if (versionId === currentB) {
-      setSideB(CURRENT_ID);
-      computeDiff();
-      return;
-    }
-
-    if (!currentA) {
-      setSideA(versionId);
-      setSideB(CURRENT_ID);
-      computeDiff();
-    } else if (currentB === CURRENT_ID) {
-      setSideB(versionId);
-      computeDiff();
-    } else {
-      setSideA(versionId);
-      computeDiff();
-    }
+  const selectVersion = (versionId: string) => {
+    setSelectedVersionId(versionId);
+    setSelectedVersionData(null);
+    setComparisonVersionId(CURRENT_ID);
+    setPreviewMode("content");
+    void computeDiff(versionId, CURRENT_ID);
   };
 
-  const resetToCurrentComparison = () => {
-    setSideB(CURRENT_ID);
-    computeDiff();
+  const changeComparison = (versionId: string) => {
+    const selectedId = selectedVersionId();
+    if (!selectedId || versionId === selectedId) return;
+    setComparisonVersionId(versionId);
+    setPreviewMode("changes");
+    void computeDiff(selectedId, versionId);
   };
 
   // ── Init ──
@@ -191,9 +176,9 @@ export default function VersionHistory(props: Props) {
   // ── Restore ──
 
   const getRestoreSnapshot = (): string | null => {
-    const a = sideA();
-    if (!a || a === CURRENT_ID) return null;
-    return versionCache.get(a)?.yjsSnapshot ?? null;
+    const selectedId = selectedVersionId();
+    if (!selectedId) return null;
+    return versionCache.get(selectedId)?.yjsSnapshot ?? null;
   };
 
   const restoreAsNewMut = mutations.create<{ id: string; shortId: string }, { title: string; snapshot: string }>({
@@ -222,14 +207,14 @@ export default function VersionHistory(props: Props) {
     const snapshot = getRestoreSnapshot();
     if (!snapshot) return;
     const result = await prompts.form({
-      title: "Restore as New Note",
+      title: "Create Note from Version",
       icon: "ti ti-file-plus",
       fields: {
         title: {
           type: "text" as const,
           label: "Title",
           required: true,
-          default: `${props.noteTitle} (restored)`,
+          default: `${props.noteTitle} (version copy)`,
         },
       },
     });
@@ -242,35 +227,35 @@ export default function VersionHistory(props: Props) {
 
   const isWorking = () => restoreAsNewMut.loading();
 
-  const splitLines = (value: string): string[] => {
-    const lines = value.split("\n");
-    if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-    return lines;
-  };
+  const comparisonOptions = createMemo(() => [
+    { id: CURRENT_ID, label: "Current note", icon: "ti ti-file-text" },
+    ...versions()
+      .filter((version) => version.id !== selectedVersionId())
+      .map((version) => ({ id: version.id, label: formatDate(version.createdAt), icon: "ti ti-history" })),
+  ]);
 
-  const getSelectionRole = (versionId: string): "a" | "b" | null => {
-    if (versionId === sideA()) return "a";
-    if (versionId === sideB()) return "b";
-    return null;
-  };
-
-  const comparisonLabel = (): { from: string; to: string } | null => {
-    const a = sideA();
-    if (!a) return null;
-    const b = sideB();
-
-    const aVersion = versions().find((v) => v.id === a);
-    const fromLabel = aVersion ? formatDate(aVersion.createdAt) : "?";
-
-    if (b === CURRENT_ID) {
-      return { from: fromLabel, to: "Current" };
-    }
-    const bVersion = versions().find((v) => v.id === b);
-    return {
-      from: fromLabel,
-      to: bVersion ? formatDate(bVersion.createdAt) : "?",
+  const comparisonLabel = createMemo((): { from: string; to: string } | null => {
+    const selectedId = selectedVersionId();
+    if (!selectedId) return null;
+    const comparisonId = comparisonVersionId();
+    const { fromId, toId } = orderComparison(selectedId, comparisonId, versions(), CURRENT_ID);
+    const labelFor = (id: string) => {
+      if (id === CURRENT_ID) return "Current note";
+      const version = versions().find((entry) => entry.id === id);
+      return version ? formatDate(version.createdAt) : "Unknown version";
     };
-  };
+    return { from: labelFor(fromId), to: labelFor(toId) };
+  });
+
+  const diffSummary = createMemo(() => summarizeDiff(diffRows()));
+
+  const selectedVersionLabel = createMemo(() => {
+    const selectedId = selectedVersionId();
+    const version = versions().find((entry) => entry.id === selectedId);
+    return version ? formatDate(version.createdAt) : null;
+  });
+
+  const selectedContentHtml = createMemo(() => markdown.renderSync(selectedVersionData()?.contentMd ?? ""));
 
   return (
     <div class="flex min-h-0 flex-1 flex-col gap-2">
@@ -286,7 +271,7 @@ export default function VersionHistory(props: Props) {
           </div>
         </div>
 
-        <Show when={sideA()}>
+        <Show when={selectedVersionId()}>
           <div class="flex items-center gap-2">
             <Show when={props.isLocked}>
               <span class="text-xs text-dimmed flex items-center gap-1">
@@ -299,13 +284,14 @@ export default function VersionHistory(props: Props) {
               onClick={handleRestoreAsNew}
               disabled={isWorking() || previewLoading() || !getRestoreSnapshot()}
               class="btn-secondary btn-sm"
+              title="Creates a new note. The current note stays unchanged."
             >
               {restoreAsNewMut.loading() ? (
                 <i class="ti ti-loader-2 animate-spin" />
               ) : (
                 <>
                   <i class="ti ti-file-plus mr-1" />
-                  Restore as New Note
+                  Create note from version
                 </>
               )}
             </button>
@@ -331,36 +317,21 @@ export default function VersionHistory(props: Props) {
       <Show when={!loading() && versions().length > 0}>
         <div class="flex-1 min-h-0 app-cols">
           {/* Left: version list */}
-          <div class="w-48 shrink-0 overflow-y-auto scrollbar">
+          <div class="max-h-48 w-full shrink-0 overflow-y-auto scrollbar lg:max-h-none lg:w-56">
             <div class="flex flex-col gap-0.5 p-2">
+              <p class="px-2.5 pb-1 text-[10px] font-semibold uppercase text-dimmed">Saved versions</p>
               <For each={versions()}>
-                {(version) => {
-                  const role = () => getSelectionRole(version.id);
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => handleVersionClick(version.id)}
-                      class={`list-item w-full !px-2.5 !py-1.5 text-left text-xs ${
-                        role() === "a"
-                          ? "list-item-active"
-                          : role() === "b"
-                            ? "paper relative font-medium text-purple-600 before:absolute before:left-1 before:top-1/2 before:h-3.5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-purple-500 dark:text-purple-300 dark:before:bg-purple-400"
-                            : ""
-                      }`}
-                    >
-                      <div class="flex items-center gap-1.5">
-                        <Show when={role()} fallback={<i class="ti ti-clock text-[10px] text-dimmed" />}>
-                          <span
-                            class={`text-[9px] font-bold uppercase leading-none ${role() === "a" ? "text-blue-500" : "text-purple-500"}`}
-                          >
-                            {role() === "a" ? "A" : "B"}
-                          </span>
-                        </Show>
-                        <span>{formatDate(version.createdAt)}</span>
-                      </div>
-                    </button>
-                  );
-                }}
+                {(version) => (
+                  <button
+                    type="button"
+                    onClick={() => selectVersion(version.id)}
+                    class={`list-item w-full !px-2.5 !py-1.5 text-left text-xs ${selectedVersionId() === version.id ? "list-item-active" : ""}`}
+                    aria-pressed={selectedVersionId() === version.id}
+                  >
+                    <i class="ti ti-history text-[11px] text-dimmed" />
+                    <span>{formatDate(version.createdAt)}</span>
+                  </button>
+                )}
               </For>
 
               {/* Load more */}
@@ -383,79 +354,141 @@ export default function VersionHistory(props: Props) {
             </div>
           </div>
 
-          {/* Right: diff preview */}
+          {/* Right: saved content and optional comparison */}
           <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-            {/* Comparison context bar */}
-            <Show when={comparisonLabel()}>
-              {(label) => (
-                <div class="flex items-center gap-2 px-4 py-2 text-xs text-dimmed shrink-0">
-                  <i class="ti ti-git-compare text-sm" />
-                  <span>
-                    <span class="font-medium text-blue-600 dark:text-blue-400">{label().from}</span>
-                    {" → "}
-                    <span class="font-medium text-purple-600 dark:text-purple-400">{label().to}</span>
-                  </span>
-                  <Show when={sideB() !== CURRENT_ID}>
-                    <button
-                      type="button"
-                      onClick={resetToCurrentComparison}
-                      class="ml-auto text-[10px] text-dimmed hover:text-primary transition-colors"
-                    >
-                      Compare to Current
-                    </button>
-                  </Show>
+            <Show when={selectedVersionId()}>
+              <div class="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
+                <div class="w-56">
+                  <SegmentedControl<PreviewMode>
+                    options={[
+                      { value: "content", label: "Content", icon: "ti ti-file-text" },
+                      { value: "changes", label: "Changes", icon: "ti ti-git-compare" },
+                    ]}
+                    value={previewMode}
+                    onChange={setPreviewMode}
+                    ariaLabel="Version preview"
+                  />
                 </div>
-              )}
+                <Show when={previewMode() === "content" && selectedVersionLabel()}>
+                  <span class="text-xs text-dimmed">Saved {selectedVersionLabel()}</span>
+                </Show>
+              </div>
+
+              <Show when={previewMode() === "changes" && comparisonLabel()}>
+                <div class="flex shrink-0 flex-wrap items-end gap-3 px-3 pb-2">
+                  <div class="min-w-0 flex-1">
+                    <p class="text-[10px] font-semibold uppercase text-dimmed">Comparing</p>
+                    <p class="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
+                      <span class="truncate font-medium text-primary">{comparisonLabel()!.from}</span>
+                      <i class="ti ti-arrow-right shrink-0 text-dimmed" />
+                      <span class="truncate font-medium text-primary">{comparisonLabel()!.to}</span>
+                    </p>
+                  </div>
+                  <Show when={!previewLoading() && diffSummary().hasChanges}>
+                    <div class="flex items-center gap-2 pb-2 font-mono text-[11px] tabular-nums">
+                      <span class="text-green-700 dark:text-green-300">+{diffSummary().added}</span>
+                      <span class="text-red-700 dark:text-red-300">-{diffSummary().removed}</span>
+                    </div>
+                  </Show>
+                  <div class="w-full sm:w-52">
+                    <SelectInput
+                      label="Compare with"
+                      icon="ti ti-git-compare"
+                      value={comparisonVersionId}
+                      onChange={changeComparison}
+                      options={comparisonOptions()}
+                    />
+                  </div>
+                </div>
+              </Show>
             </Show>
 
-            {/* Diff content */}
             <div class="flex-1 min-h-0 overflow-auto scrollbar">
-              <Show when={!sideA()}>
-                <div class="flex items-center justify-center h-full text-xs text-dimmed">
+              <Show when={!selectedVersionId()}>
+                <div class="flex h-full items-center justify-center">
                   <Placeholder
-                    icon="ti ti-git-compare"
-                    title="Select a version to see changes"
-                    description="Click a second version to compare two versions"
+                    icon="ti ti-file-search"
+                    title="Select a saved version"
+                    description="Its saved content opens here. You can then inspect its changes against the current note."
                   />
                 </div>
               </Show>
 
-              <Show when={sideA()}>
+              <Show when={selectedVersionId()}>
                 <Show when={previewLoading()}>
-                  <div class="flex items-center justify-center h-full">
+                  <div class="flex h-full items-center justify-center">
                     <i class="ti ti-loader-2 animate-spin text-dimmed" />
                   </div>
                 </Show>
 
-                <Show when={!previewLoading() && diffParts().length > 0}>
-                  <div class="font-mono text-xs leading-5">
-                    <For each={diffParts()}>
-                      {(part) => (
-                        <For each={splitLines(part.value)}>
-                          {(line) => (
-                            <div
-                              class={`px-1 ${
-                                part.added
-                                  ? "bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-300"
-                                  : part.removed
-                                    ? "bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300"
-                                    : "text-secondary"
-                              }`}
-                            >
-                              <span class="inline-block w-5 text-center text-dimmed select-none shrink-0">
-                                {part.added ? "+" : part.removed ? "-" : " "}
-                              </span>
-                              <span class="whitespace-pre-wrap">{line || " "}</span>
-                            </div>
-                          )}
-                        </For>
+                <Show when={!previewLoading() && previewMode() === "content" && !selectedVersionData()}>
+                  <div class="flex h-full items-center justify-center">
+                    <Placeholder
+                      icon="ti ti-alert-circle"
+                      title="Version could not be loaded"
+                      description="Select the version again to retry."
+                    />
+                  </div>
+                </Show>
+
+                <Show when={!previewLoading() && previewMode() === "content" && selectedVersionData()}>
+                  <Show
+                    when={selectedVersionData()?.contentMd?.trim()}
+                    fallback={
+                      <div class="flex h-full items-center justify-center">
+                        <Placeholder
+                          icon="ti ti-file-off"
+                          title="Empty version"
+                          description="This saved version has no Markdown content."
+                        />
+                      </div>
+                    }
+                  >
+                    <div class="mx-auto w-full max-w-4xl p-4">
+                      <MarkdownView html={selectedContentHtml()} />
+                    </div>
+                  </Show>
+                </Show>
+
+                <Show when={!previewLoading() && previewMode() === "changes" && previewError()}>
+                  <div class="flex h-full items-center justify-center">
+                    <Placeholder
+                      icon="ti ti-alert-circle"
+                      title="Comparison could not be loaded"
+                      description="Select the version again to retry."
+                    />
+                  </div>
+                </Show>
+
+                <Show when={!previewLoading() && previewMode() === "changes" && !previewError() && diffSummary().hasChanges}>
+                  <div class="min-w-max font-mono text-xs leading-5">
+                    <For each={diffRows()}>
+                      {(row) => (
+                        <div
+                          class={`grid grid-cols-[2.5rem_2.5rem_1.5rem_minmax(20rem,1fr)] ${
+                            row.kind === "added"
+                              ? "bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-300"
+                              : row.kind === "removed"
+                                ? "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-300"
+                                : "text-secondary"
+                          }`}
+                        >
+                          <span class="select-none px-1 text-right text-dimmed tabular-nums">{row.oldLine ?? ""}</span>
+                          <span class="select-none px-1 text-right text-dimmed tabular-nums">{row.newLine ?? ""}</span>
+                          <span class="select-none text-center text-dimmed">
+                            {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
+                          </span>
+                          <span class="whitespace-pre-wrap break-words pr-3">{row.value || " "}</span>
+                        </div>
                       )}
                     </For>
                   </div>
                 </Show>
 
-                <Show when={!previewLoading() && sideA() && diffParts().length === 0}>
-                  <div class="flex items-center justify-center h-full text-xs text-dimmed">No differences</div>
+                <Show when={!previewLoading() && previewMode() === "changes" && !previewError() && !diffSummary().hasChanges}>
+                  <div class="flex h-full items-center justify-center">
+                    <Placeholder icon="ti ti-check" title="No differences" description="Both versions contain the same Markdown content." />
+                  </div>
                 </Show>
               </Show>
             </div>

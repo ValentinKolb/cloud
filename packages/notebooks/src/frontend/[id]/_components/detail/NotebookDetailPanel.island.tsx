@@ -330,7 +330,7 @@ export default function NotebookDetailPanel(props: Props) {
             </Tooltip>
             <Tooltip content="Graph view">
               <a href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`} class="icon-btn" aria-label="Open graph view">
-                <i class="ti ti-vector" />
+                <i class="ti ti-affiliate" />
               </a>
             </Tooltip>
           </div>

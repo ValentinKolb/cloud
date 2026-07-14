@@ -1,3 +1,4 @@
+import { Tooltip } from "@valentinkolb/cloud/ui";
 import { forceCenter, forceLink, forceManyBody, forceSimulation, type Simulation } from "d3-force";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { NoteGraph } from "../../../../service/links";
@@ -46,6 +47,11 @@ const NODE_RADIUS_PER_LINK = 1;
 const NODE_MAX_RADIUS = 10;
 const LINK_DISTANCE = 90;
 const CHARGE_STRENGTH = -260;
+const VIEWBOX_WIDTH = 800;
+const VIEWBOX_HEIGHT = 600;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 4;
+const ZOOM_STEP = 1.2;
 
 const radiusFor = (inDegree: number): number => Math.min(NODE_MAX_RADIUS, NODE_BASE_RADIUS + inDegree * NODE_RADIUS_PER_LINK);
 
@@ -82,6 +88,36 @@ export default function NotebookGraph(props: Props) {
   let svgRef: SVGSVGElement | undefined;
   let simulation: Simulation<SimNode, SimLink> | undefined;
 
+  const closeHref = () => {
+    const selected = simNodes.find((node) => node.id === props.selectedNoteId);
+    return selected ? buildNoteUrl(props.notebookId, selected.shortId) : `/app/notebooks/${props.notebookId}`;
+  };
+
+  const setClampedZoom = (next: number) => setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next)));
+
+  const fitGraph = () => {
+    const positioned = simNodes.filter((node) => node.x !== undefined && node.y !== undefined);
+    if (positioned.length === 0) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    const minX = Math.min(...positioned.map((node) => node.x! - radiusFor(node.inDegree) - 24));
+    const maxX = Math.max(...positioned.map((node) => node.x! + radiusFor(node.inDegree) + 24));
+    const minY = Math.min(...positioned.map((node) => node.y! - radiusFor(node.inDegree) - 24));
+    const maxY = Math.max(...positioned.map((node) => node.y! + radiusFor(node.inDegree) + 32));
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+    const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min((VIEWBOX_WIDTH - 96) / width, (VIEWBOX_HEIGHT - 96) / height)));
+
+    setZoom(nextZoom);
+    setPan({
+      x: -((minX + maxX) / 2) * nextZoom,
+      y: -((minY + maxY) / 2) * nextZoom,
+    });
+  };
+
   const applyPositionsToDom = () => {
     for (const node of simNodes) {
       const el = nodeGroups.get(node.id);
@@ -108,7 +144,7 @@ export default function NotebookGraph(props: Props) {
   const onWheel = (event: WheelEvent) => {
     event.preventDefault();
     const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-    const next = Math.min(4, Math.max(0.2, zoom() * factor));
+    const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom() * factor));
     // Anchor zoom on cursor position so the point under the cursor stays put.
     if (svgRef) {
       const rect = svgRef.getBoundingClientRect();
@@ -239,6 +275,12 @@ export default function NotebookGraph(props: Props) {
   return (
     <div class="flex-1 min-w-0 min-h-0 paper relative overflow-hidden">
       <Show when={simNodes.length > 0} fallback={<EmptyState />}>
+        <Tooltip content="Close graph">
+          <a href={closeHref()} class="icon-btn absolute left-2 top-2 z-10 h-8 w-8" aria-label="Close graph">
+            <i class="ti ti-x" />
+          </a>
+        </Tooltip>
+
         <svg
           ref={svgRef}
           class="w-full h-full select-none touch-none cursor-grab active:cursor-grabbing"
@@ -294,6 +336,24 @@ export default function NotebookGraph(props: Props) {
             </For>
           </g>
         </svg>
+
+        <div class="paper absolute bottom-2 right-2 z-10 flex flex-col gap-1 p-1">
+          <Tooltip content="Zoom in">
+            <button type="button" class="icon-btn h-8 w-8" aria-label="Zoom in" onClick={() => setClampedZoom(zoom() * ZOOM_STEP)}>
+              <i class="ti ti-plus" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Zoom out">
+            <button type="button" class="icon-btn h-8 w-8" aria-label="Zoom out" onClick={() => setClampedZoom(zoom() / ZOOM_STEP)}>
+              <i class="ti ti-minus" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Fit graph">
+            <button type="button" class="icon-btn h-8 w-8" aria-label="Fit graph" onClick={fitGraph}>
+              <i class="ti ti-focus-centered" />
+            </button>
+          </Tooltip>
+        </div>
       </Show>
     </div>
   );
@@ -302,7 +362,7 @@ export default function NotebookGraph(props: Props) {
 const EmptyState = () => (
   <div class="absolute inset-0 flex items-center justify-center">
     <div class="text-center text-xs text-dimmed flex flex-col items-center gap-2 max-w-sm">
-      <i class="ti ti-vector text-2xl" />
+      <i class="ti ti-affiliate text-2xl" />
       <p class="font-medium">No graph yet</p>
       <p>
         Use <span class="font-mono">/note</span> in the editor or paste note URLs to start building this notebook's knowledge graph.
