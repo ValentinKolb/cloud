@@ -2224,7 +2224,7 @@ const appWithLimits = appWithTags.get(
 // Admin — notebooks-app-level settings (extensible: any setting whose key
 // is in the `notebooks` group is exposed here, so future settings just
 // need a `defaults.ts` entry to show up in the admin UI without API
-// changes). Plus a manual reindex trigger.
+// changes). Scheduled maintenance is controlled from Gateway Ops Jobs.
 // =============================================================================
 
 const NOTEBOOKS_SETTING_GROUP = "notebooks";
@@ -2314,28 +2314,6 @@ const appWithAdmin = appWithLimits
         }
       }
       return respond(c, ok({ message: "Setting updated" }));
-    },
-  )
-
-  // Manual trigger — for the admin's "Run reindex now" action
-  .post(
-    "/admin/reindex",
-    describeRoute({
-      tags: ["Notebooks", "Admin"],
-      summary: "Run note-refs reindex now",
-      description:
-        "Submits an immediate reindex job. Returns once submitted — actual work runs async in the scheduler worker. Watch logs for progress.",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(MessageResponseSchema, "Reindex submitted"),
-        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
-      },
-    }),
-    async (c) => {
-      const denied = requireAdmin(c);
-      if (denied) return denied;
-      await reindexRuntime.runNow();
-      return respond(c, ok({ message: "Reindex submitted" }));
     },
   );
 

@@ -9,7 +9,7 @@
  * Extensible by design: future settings just need a `defaults.ts`
  * entry — they auto-appear in this modal without any frontend change.
  */
-import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, Placeholder, panelDialogOptions } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -38,14 +38,6 @@ const updateSetting = async (key: string, value: unknown): Promise<void> => {
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { message?: string } | null;
     throw new Error(data?.message ?? `Failed to update ${key}`);
-  }
-};
-
-const runReindex = async (): Promise<void> => {
-  const res = await apiClient.admin.reindex.$post();
-  if (!res.ok) {
-    const data = (await res.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(data?.message ?? "Failed to submit reindex");
   }
 };
 
@@ -148,22 +140,6 @@ const SettingsBody = (props: { close: () => void }) => {
     }
   };
 
-  const onReindexNow = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await runReindex();
-      await prompts.alert("Reindex job submitted. Check the notebooks app logs for progress.", {
-        title: "Reindex submitted",
-        icon: "ti ti-refresh",
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to submit reindex");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <PanelDialog>
       <PanelDialog.Header
@@ -195,16 +171,10 @@ const SettingsBody = (props: { close: () => void }) => {
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button
-          type="button"
-          class="btn-input btn-input-sm"
-          onClick={() => void onReindexNow()}
-          disabled={busy()}
-          title="Run a one-shot reindex right now (instead of waiting for the next scheduled tick)"
-        >
-          <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-refresh"} text-sm`} />
-          Reindex now
-        </button>
+        <a href="/admin/observability/jobs?search=notebooks%3Areindex" class="btn-input btn-input-sm">
+          <i class="ti ti-calendar-time text-sm" />
+          Reindex job
+        </a>
         <div class="flex items-center gap-2">
           <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={busy()}>
             Cancel
