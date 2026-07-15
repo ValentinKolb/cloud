@@ -212,9 +212,10 @@ export const materializeAutomaticWorkflowRun = async (
     await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`;
     const activation = await loadAutomaticActivation(params.activationId, params.triggerKind, tx, true);
     if (!activation) return { state: "skipped", reason: "Activation is no longer active" } as const;
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${activation.mailbox_id}:workflow-trigger:${idempotencyKey}`}, 0))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${activation.mailbox_id}:${activation.workflow_id}:execute:${idempotencyKey}`}, 0))`;
     const existing = await loadRunByIdempotency({
       mailboxId: activation.mailbox_id,
+      workflowId: activation.workflow_id,
       mode: "execute",
       idempotencyKey,
       db: tx,

@@ -1667,7 +1667,8 @@ const replaceWorkflowFoundation = async (db: SqlClient): Promise<void> => {
         target_count = queued_targets + running_targets + waiting_targets + succeeded_targets
           + failed_targets + canceled_targets + needs_attention_targets
       ),
-      UNIQUE (mailbox_id, mode, idempotency_key)
+      CONSTRAINT workflow_runs_mailbox_workflow_mode_idempotency_key
+        UNIQUE (mailbox_id, workflow_id, mode, idempotency_key)
     )
   `;
   await db`
@@ -1862,6 +1863,16 @@ const hardenCanonicalWorkflowAuthority = async (db: SqlClient): Promise<void> =>
   `;
 };
 
+const scopeWorkflowRunIdempotency = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.workflow_runs
+      DROP CONSTRAINT IF EXISTS workflow_runs_mailbox_id_mode_idempotency_key_key,
+      DROP CONSTRAINT IF EXISTS workflow_runs_mailbox_workflow_mode_idempotency_key,
+      ADD CONSTRAINT workflow_runs_mailbox_workflow_mode_idempotency_key
+        UNIQUE (mailbox_id, workflow_id, mode, idempotency_key)
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -1891,6 +1902,7 @@ const migrations = [
   { version: 26, name: "canonical_workflow_foundation", run: replaceWorkflowFoundation },
   { version: 27, name: "durable_workflow_materialization", run: addDurableWorkflowMaterialization },
   { version: 28, name: "canonical_workflow_authority", run: hardenCanonicalWorkflowAuthority },
+  { version: 29, name: "workflow_scoped_idempotency", run: scopeWorkflowRunIdempotency },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

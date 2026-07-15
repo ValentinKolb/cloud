@@ -549,6 +549,18 @@ suite("mail canonical workflow runtime", () => {
     expect(materialized).toEqual({ targets: 2, steps: 0, distinct_targets: 2 });
   });
 
+  test("scopes idempotency keys to a workflow", async () => {
+    const firstWorkflow = await createWorkflowFixture(keywordSource("First"), "First idempotency scope");
+    const secondWorkflow = await createWorkflowFixture(keywordSource("Second"), "Second idempotency scope");
+    const key = `shared-workflow-key-${suffix}`;
+    const first = await backfill(firstWorkflow, key);
+    const second = await backfill(secondWorkflow, key);
+
+    expect(second.id).not.toBe(first.id);
+    expect(first.workflowId).toBe(firstWorkflow.id);
+    expect(second.workflowId).toBe(secondWorkflow.id);
+  });
+
   test("restores an atomically ledgered collaboration action after crash and lease takeover", async () => {
     const baselineRevision = await resetConversation();
     const workflow = await createWorkflowFixture(

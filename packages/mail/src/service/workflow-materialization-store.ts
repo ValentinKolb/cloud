@@ -92,6 +92,7 @@ export const recordWorkflowRunRequest = async (params: {
 
 export const loadRunByIdempotency = async (params: {
   mailboxId: string;
+  workflowId: string;
   mode: WorkflowRunMode;
   idempotencyKey: string;
   db?: SqlClient;
@@ -102,6 +103,7 @@ export const loadRunByIdempotency = async (params: {
     SELECT ${workflowRunColumns}, run.request_hash
     FROM mail.workflow_runs run
     WHERE run.mailbox_id = ${params.mailboxId}::uuid
+      AND run.workflow_id = ${params.workflowId}::uuid
       AND run.mode = ${params.mode}
       AND run.idempotency_key = ${params.idempotencyKey}
     ${params.lock ? sql`FOR UPDATE` : sql``}

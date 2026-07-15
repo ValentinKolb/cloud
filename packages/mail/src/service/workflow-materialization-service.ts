@@ -91,7 +91,7 @@ const resumeBackfillWorkflowRun = async (params: {
   while (run.state === "materializing") {
     const materialized = await sql.begin(async (tx) => {
       await tx`SET LOCAL statement_timeout = '30s'`;
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${run.mailbox_id}:execute:execute:${params.idempotencyKey}`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${run.mailbox_id}:${run.workflow_id}:execute:${params.idempotencyKey}`}, 0))`;
       const current = await loadBackfillMaterializationRun(run.id, tx, true);
       if (!current) return fail(err.notFound("Workflow run"));
       if (current.request_hash !== params.requestHash) {
@@ -222,6 +222,7 @@ const materializeBackfillWorkflowRun = async (params: {
   const actor = workflowActorColumns(params.authorizationSnapshot, params.input.expectedVersionId);
   const existing = await loadRunByIdempotency({
     mailboxId: params.mailboxId,
+    workflowId: params.workflowId,
     mode: "execute",
     idempotencyKey: params.input.idempotencyKey,
   });
@@ -257,9 +258,10 @@ const materializeBackfillWorkflowRun = async (params: {
         db: tx,
       });
       if (!currentPermission.ok) return currentPermission;
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:execute:execute:${params.input.idempotencyKey}`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:${params.workflowId}:execute:${params.input.idempotencyKey}`}, 0))`;
       const concurrent = await loadRunByIdempotency({
         mailboxId: params.mailboxId,
+        workflowId: params.workflowId,
         mode: "execute",
         idempotencyKey: params.input.idempotencyKey,
         db: tx,
@@ -349,7 +351,7 @@ const cancelRejectedMaterialization = async (
   failure: { code: string; message: string; reason: string },
 ): Promise<boolean> =>
   sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${run.mailbox_id}:execute:execute:${run.idempotency_key}`}, 0))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${run.mailbox_id}:${run.workflow_id}:execute:${run.idempotency_key}`}, 0))`;
     const current = await loadBackfillMaterializationRun(run.id, tx, true);
     if (!current || current.state !== "materializing") return false;
 
@@ -573,9 +575,10 @@ const materializeWorkflowRun = async (params: {
         db: tx,
       });
       if (!currentPermission.ok) return currentPermission;
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:execute:${params.mode}:${params.input.idempotencyKey}`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:${params.workflowId}:${params.mode}:${params.input.idempotencyKey}`}, 0))`;
       const existing = await loadRunByIdempotency({
         mailboxId: params.mailboxId,
+        workflowId: params.workflowId,
         mode: params.mode,
         idempotencyKey: params.input.idempotencyKey,
         db: tx,
