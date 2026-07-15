@@ -4,13 +4,14 @@ import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { SpaceColumn, SpaceComment, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
+import type { SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
 import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 import { summarizeRecurrence } from "../shared/recurrence";
 import SpaceAssigneePicker from "../shared/SpaceAssigneePicker";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import type { SpaceItemDetail } from "../workspace/workspace-types";
 import { canTransferThroughWormhole, showWormholeTransferToast, transferThroughWormhole } from "../wormhole-transfer";
 import CommentsSection from "./CommentsSection";
 
@@ -24,8 +25,8 @@ type Props = {
   baseUrl: string;
   /** Current user ID for comment editing */
   currentUserId: string;
-  /** Initial comments list */
-  initialComments?: SpaceComment[];
+  /** Newest bounded comments page rendered with the detail snapshot. */
+  initialCommentsPage: SpaceItemDetail["comments"];
   dateConfig?: DateContext;
   canWrite: boolean;
 };
@@ -58,27 +59,6 @@ const DROPDOWN_TRIGGER_CLASS = "btn-input btn-input-sm w-full gap-2";
 const ICON_ACTION_BUTTON_CLASS = "icon-btn h-7 w-7";
 
 const DANGER_ICON_ACTION_BUTTON_CLASS = "icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400";
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
-
-const isNullableString = (value: unknown): value is string | null => typeof value === "string" || value === null;
-
-const isSpaceComment = (value: unknown): value is SpaceComment => {
-  if (!isObject(value)) return false;
-  return (
-    typeof value["id"] === "string" &&
-    typeof value["itemId"] === "string" &&
-    typeof value["content"] === "string" &&
-    isNullableString(value["userId"]) &&
-    isNullableString(value["userName"]) &&
-    isNullableString(value["userAvatarHash"]) &&
-    typeof value["createdAt"] === "string" &&
-    typeof value["updatedAt"] === "string" &&
-    typeof value["canDelete"] === "boolean"
-  );
-};
-
-const isSpaceCommentArray = (value: unknown): value is SpaceComment[] => Array.isArray(value) && value.every(isSpaceComment);
 
 // =============================================================================
 // Helper Components
@@ -368,8 +348,7 @@ function AssigneesSection(props: {
  * All edits are saved immediately via API.
  */
 export default function ItemDetailPanel(props: Props) {
-  // Comments state
-  const [comments, setComments] = createSignal<SpaceComment[]>(props.initialComments ?? []);
+  const [commentsPage, setCommentsPage] = createSignal(props.initialCommentsPage);
 
   const patchItem = async (data: Record<string, unknown>) => {
     const res = await apiClient[":id"].items[":itemId"].$patch({
@@ -388,24 +367,38 @@ export default function ItemDetailPanel(props: Props) {
     requestCurrentSpacesRouteRefresh();
   };
 
-  const refreshCommentsMutation = mutations.create<SpaceComment[], void>({
-    mutation: async (_vars, ctx) => {
-      const res = await apiClient[":id"].items[":itemId"].comments.$get(
-        {
-          param: { id: props.spaceId, itemId: props.item.id },
-        },
-        { init: { signal: ctx.abortSignal } },
-      );
-      if (!res.ok) {
-        throw new Error(await readResponseError(res, "Failed to refresh comments"));
-      }
-      const data = await res.json();
-      return isSpaceCommentArray(data) ? data : [];
-    },
-    onSuccess: setComments,
+  const loadCommentsPage = async (page: number, signal: AbortSignal) => {
+    const res = await apiClient[":id"].items[":itemId"].comments.page.$get(
+      {
+        param: { id: props.spaceId, itemId: props.item.id },
+        query: { page: String(page), per_page: String(props.initialCommentsPage.perPage) },
+      },
+      { init: { signal } },
+    );
+    if (!res.ok) throw new Error(await readResponseError(res, "Failed to refresh comments"));
+    return res.json();
+  };
+
+  const refreshCommentsMutation = mutations.create<SpaceItemDetail["comments"], void>({
+    mutation: (_vars, ctx) => loadCommentsPage(1, ctx.abortSignal),
+    onSuccess: setCommentsPage,
     onError: (err) => {
       if (err.name === "AbortError") return;
       prompts.error(err.message);
+    },
+  });
+
+  const loadEarlierCommentsMutation = mutations.create<SpaceItemDetail["comments"], void>({
+    mutation: (_vars, ctx) => loadCommentsPage(commentsPage().page + 1, ctx.abortSignal),
+    onSuccess: (older) => {
+      setCommentsPage((current) => ({
+        ...older,
+        items: [...older.items, ...current.items],
+        total: Math.max(older.total, current.total),
+      }));
+    },
+    onError: (err) => {
+      if (err.name !== "AbortError") prompts.error(err.message);
     },
   });
 
@@ -414,7 +407,10 @@ export default function ItemDetailPanel(props: Props) {
     void refreshCommentsMutation.mutate(undefined);
   };
 
-  onCleanup(() => refreshCommentsMutation.abort());
+  onCleanup(() => {
+    refreshCommentsMutation.abort();
+    loadEarlierCommentsMutation.abort();
+  });
 
   const updateMutation = mutations.create<SpaceItem, Record<string, unknown>>({
     mutation: patchItem,
@@ -776,12 +772,16 @@ export default function ItemDetailPanel(props: Props) {
           </section>
         </Show>
 
-        <Show when={props.canWrite || comments().length > 0}>
+        <Show when={props.canWrite || commentsPage().total > 0}>
           <section class="detail-section" style="view-transition-name: space-item-detail-comments">
             <CommentsSection
               spaceId={props.spaceId}
               itemId={props.item.id}
-              comments={comments()}
+              comments={commentsPage().items}
+              total={commentsPage().total}
+              hasMore={commentsPage().hasNext}
+              loadingMore={loadEarlierCommentsMutation.loading()}
+              onLoadMore={() => loadEarlierCommentsMutation.mutate(undefined)}
               currentUserId={props.currentUserId}
               onUpdate={refreshComments}
               dateConfig={props.dateConfig}

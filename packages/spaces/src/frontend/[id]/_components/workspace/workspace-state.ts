@@ -1,14 +1,17 @@
-import { weatherService } from "@valentinkolb/cloud/services";
+import { logger, weatherService } from "@valentinkolb/cloud/services";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
-import type { CalendarItem, ItemListResult, SpaceComment, SpaceDetail, SpaceItem, SpaceWormhole, User } from "@/contracts";
+import type { CalendarItem, ItemListResult, SpaceDetail, SpaceItem, SpaceWormhole, User } from "@/contracts";
 import { spacesService } from "@/service";
+import { latestSpaceEventCursor } from "@/service/events";
 import type { CalendarView, DayWeather } from "../calendar/types";
 import { defaultFilter, type FilterState, parseFilterFromUrl } from "../filter/types";
 import type { KanbanBucketInitial } from "../kanban/types";
 import { isValidView, parseSpaceSettings, type SpaceUserSettings, type ViewType } from "../settings/SpaceSettingsStore";
-import type { SpacesWorkspaceState } from "./workspace-types";
+import type { SpaceItemDetail, SpacesViewSnapshot, SpacesWorkspaceState } from "./workspace-types";
 
 type AuthUser = Pick<User, "id" | "roles">;
+
+const log = logger("spaces:workspace-state");
 
 type WorkspaceRequest = {
   user: AuthUser;
@@ -35,6 +38,8 @@ type RouteState = {
 const LIST_PAGE_SIZE = 50;
 const KANBAN_PAGE_SIZE = 30;
 const CALENDAR_VIEWS: CalendarView[] = ["day", "week", "month", "year"];
+const COMMENT_PAGE_SIZE = 50;
+const emptyCommentPage = () => ({ items: [], page: 1, perPage: COMMENT_PAGE_SIZE, total: 0, hasNext: false });
 
 const isSettingsRoute = (params: { settings?: boolean; url: URL }) =>
   params.settings === true || params.url.pathname.endsWith("/settings") || params.url.searchParams.get("mode") === "settings";
@@ -68,16 +73,11 @@ const resolveRouteState = (params: WorkspaceRequest): RouteState => {
 };
 
 const resolvePermissions = async (params: { spaceId: string; user: AuthUser }) => {
-  const hasAccess = await spacesService.space.permission.canAccess({
-    spaceId: params.spaceId,
-    subject: { type: "user", userId: params.user.id },
-  });
-  if (!hasAccess) return null;
-
   const userPermission = await spacesService.space.permission.get({
     spaceId: params.spaceId,
     subject: { type: "user", userId: params.user.id },
   });
+  if (userPermission === "none") return null;
 
   return {
     isAdmin: userPermission === "admin",
@@ -163,10 +163,9 @@ const loadKanbanBuckets = async (params: {
     return { ...config, items: result.items, page: result.page, totalPages: result.totalPages, total: result.total };
   };
 
-  const buckets: KanbanBucketInitial[] = [];
-  for (const column of params.space.columns) {
-    buckets.push(
-      await loadBucket({
+  return Promise.all(
+    params.space.columns.map((column) =>
+      loadBucket({
         key: `column:${column.id}`,
         label: column.name,
         color: column.color,
@@ -175,9 +174,8 @@ const loadKanbanBuckets = async (params: {
         isDone: column.isDone,
         columnIds: [column.id],
       }),
-    );
-  }
-  return buckets;
+    ),
+  );
 };
 
 const resolveCalendarRange = (params: { calendarView: CalendarView; calendarDate: Date; dateConfig?: DateContext }) => {
@@ -206,12 +204,6 @@ const readWeatherLocationCookie = (cookieHeader?: string) => {
 };
 
 const resolveCalendarView = (view: CalendarView | null): CalendarView => (view && CALENDAR_VIEWS.includes(view) ? view : "month");
-
-const filterCalendarItems = (items: CalendarItem[], spaceId: string, tagIds: string[]) => {
-  const spaceItems = items.filter((item) => item.spaceId === spaceId);
-  if (tagIds.length === 0) return spaceItems;
-  return spaceItems.filter((item) => item.tags?.some((tag) => tagIds.includes(tag.id)));
-};
 
 const loadCalendarWeather = async (cookieHeader?: string): Promise<Record<string, DayWeather>> => {
   const location = readWeatherLocationCookie(cookieHeader);
@@ -249,18 +241,23 @@ const loadCalendarState = async (params: {
   if (params.currentView !== "calendar") return { calendarView, calendarDate, calendarItems: [], calendarWeather: {} };
 
   const { from, to } = resolveCalendarRange({ calendarView, calendarDate, dateConfig: params.dateConfig });
-  const accessibleItems = await spacesService.item.calendar.list({
-    subject: { type: "user", userId: params.user.id },
-    from: from.toISOString(),
-    to: to.toISOString(),
-    dateConfig: params.dateConfig,
-  });
+  const [accessibleItems, calendarWeather] = await Promise.all([
+    spacesService.item.calendar.list({
+      subject: { type: "user", userId: params.user.id },
+      spaceId: params.spaceId,
+      tagIds: params.calendarTagIds,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      dateConfig: params.dateConfig,
+    }),
+    loadCalendarWeather(params.cookieHeader),
+  ]);
 
   return {
     calendarView,
     calendarDate,
-    calendarItems: filterCalendarItems(accessibleItems, params.spaceId, params.calendarTagIds),
-    calendarWeather: await loadCalendarWeather(params.cookieHeader),
+    calendarItems: accessibleItems,
+    calendarWeather,
   };
 };
 
@@ -269,22 +266,21 @@ const loadSelectedItemState = async (params: {
   itemsResult: ItemListResult;
   spaceId: string;
   userId: string;
-}): Promise<{ selectedItem: SpaceItem | null; selectedItemComments: SpaceComment[] }> => {
-  if (!params.selectedItemId) return { selectedItem: null, selectedItemComments: [] };
+}): Promise<{ selectedItem: SpaceItem | null; selectedItemComments: SpaceItemDetail["comments"] }> => {
+  if (!params.selectedItemId) return { selectedItem: null, selectedItemComments: emptyCommentPage() };
 
   let selectedItem = params.itemsResult.items.find((item) => item.id === params.selectedItemId) ?? null;
   if (!selectedItem) {
     selectedItem = await spacesService.item.get({ id: params.selectedItemId });
     if (selectedItem?.spaceId !== params.spaceId) selectedItem = null;
   }
-  if (!selectedItem) return { selectedItem: null, selectedItemComments: [] };
+  if (!selectedItem) return { selectedItem: null, selectedItemComments: emptyCommentPage() };
 
-  const selectedItemComments = (
-    await spacesService.comment.list({
-      itemId: params.selectedItemId,
-      viewerUserId: params.userId,
-    })
-  ).items;
+  const selectedItemComments = await spacesService.comment.list({
+    itemId: params.selectedItemId,
+    viewerUserId: params.userId,
+    pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
+  });
 
   return { selectedItem, selectedItemComments };
 };
@@ -376,17 +372,166 @@ const buildWorkspaceTitle = (space: SpaceDetail, isSettingsMode: boolean) => {
   return title;
 };
 
-export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promise<SpacesWorkspaceState> => {
+const loadEventCursor = async (spaceId: string): Promise<string | null> => {
+  try {
+    return await latestSpaceEventCursor(spaceId);
+  } catch (error) {
+    log.warn("Could not capture workspace event cursor", {
+      spaceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+};
+
+type WorkspaceError = Extract<SpacesWorkspaceState, { kind: "notFound" | "accessDenied" }>;
+type AuthorizedWorkspaceContext = {
+  route: RouteState;
+  permissions: { isAdmin: boolean; canWrite: boolean };
+};
+type WorkspaceContext = {
+  route: RouteState;
+  space: SpaceDetail;
+  permissions: { isAdmin: boolean; canWrite: boolean };
+  calendarTagIds: string[];
+};
+
+const authorizeWorkspace = async (
+  params: WorkspaceRequest,
+): Promise<{ ok: true; value: AuthorizedWorkspaceContext } | { ok: false; error: WorkspaceError }> => {
   const route = resolveRouteState(params);
+  const [existingSpace, permissions] = await Promise.all([
+    spacesService.space.get({ id: params.spaceId }),
+    resolvePermissions({ spaceId: params.spaceId, user: params.user }),
+  ]);
+  if (!existingSpace) return { ok: false, error: { kind: "notFound", title: "Not found", message: "Space not found" } };
+  if (!permissions) {
+    return { ok: false, error: { kind: "accessDenied", title: "Access denied", message: "You don't have access to this space" } };
+  }
+  return { ok: true, value: { route, permissions } };
+};
+
+const loadWorkspaceContext = async (
+  params: WorkspaceRequest,
+  authorized?: AuthorizedWorkspaceContext,
+): Promise<{ ok: true; value: WorkspaceContext } | { ok: false; error: WorkspaceError }> => {
+  const access = authorized ? { ok: true as const, value: authorized } : await authorizeWorkspace(params);
+  if (!access.ok) return access;
 
   const space = await spacesService.space.getDetail({ id: params.spaceId });
-  if (!space) return { kind: "notFound", title: "Not found", message: "Space not found" };
+  if (!space) return { ok: false, error: { kind: "notFound", title: "Not found", message: "Space not found" } };
 
   const spaceTagIds = new Set(space.tags.map((tag) => tag.id));
-  const calendarTagIds = route.calendarTagIds.filter((tagId) => spaceTagIds.has(tagId));
+  const calendarTagIds = access.value.route.calendarTagIds.filter((tagId) => spaceTagIds.has(tagId));
+  return { ok: true, value: { ...access.value, space, calendarTagIds } };
+};
 
-  const permissions = await resolvePermissions({ spaceId: params.spaceId, user: params.user });
+const toViewSnapshot = (params: {
+  route: RouteState;
+  itemsResult: ItemListResult;
+  kanbanBuckets: KanbanBucketInitial[];
+  wormholes: SpaceWormhole[];
+  calendarState: Awaited<ReturnType<typeof loadCalendarState>>;
+  calendarTagIds: string[];
+}): SpacesViewSnapshot => {
+  if (params.route.currentView === "list" || params.route.currentView === "table") {
+    return { kind: "list", currentView: params.route.currentView, itemsResult: params.itemsResult };
+  }
+  if (params.route.currentView === "kanban") {
+    return { kind: "kanban", buckets: params.kanbanBuckets, wormholes: params.wormholes };
+  }
+  return {
+    kind: "calendar",
+    view: params.calendarState.calendarView,
+    date: params.calendarState.calendarDate.toISOString(),
+    tagIds: params.calendarTagIds,
+    items: params.calendarState.calendarItems,
+    weather: params.calendarState.calendarWeather,
+  };
+};
+
+export const loadSpacesViewSnapshot = async (
+  params: WorkspaceRequest,
+): Promise<SpacesViewSnapshot | Extract<SpacesWorkspaceState, { kind: "notFound" | "accessDenied" }>> => {
+  const context = await loadWorkspaceContext(params);
+  if (!context.ok) return context.error;
+  const { route, space, permissions, calendarTagIds } = context.value;
+
+  const [itemsResult, kanbanBuckets, calendarState, wormholeState] = await Promise.all([
+    loadListItems({
+      currentView: route.currentView,
+      spaceId: params.spaceId,
+      filter: route.filter,
+      userId: params.user.id,
+      dateConfig: params.dateConfig,
+    }),
+    loadKanbanBuckets({
+      currentView: route.currentView,
+      space,
+      spaceId: params.spaceId,
+      userId: params.user.id,
+      dateConfig: params.dateConfig,
+    }),
+    loadCalendarState({
+      currentView: route.currentView,
+      calendarViewParam: route.calendarViewParam,
+      calendarDateParam: route.calendarDateParam,
+      calendarTagIds,
+      spaceId: params.spaceId,
+      user: params.user,
+      dateConfig: params.dateConfig,
+      cookieHeader: params.cookieHeader,
+    }),
+    loadWormholes({
+      canWrite: permissions.canWrite,
+      isAdmin: permissions.isAdmin,
+      isSettingsMode: false,
+      spaceId: params.spaceId,
+      user: params.user,
+    }),
+  ]);
+  return toViewSnapshot({
+    route,
+    itemsResult,
+    kanbanBuckets,
+    wormholes: wormholeState.wormholes,
+    calendarState,
+    calendarTagIds,
+  });
+};
+
+export const loadSpaceItemDetail = async (params: {
+  user: AuthUser;
+  spaceId: string;
+  itemId: string;
+}): Promise<{ kind: "ok"; detail: SpaceItemDetail } | Extract<SpacesWorkspaceState, { kind: "notFound" | "accessDenied" }>> => {
+  const [space, permissions] = await Promise.all([
+    spacesService.space.get({ id: params.spaceId }),
+    resolvePermissions({ spaceId: params.spaceId, user: params.user }),
+  ]);
+  if (!space) return { kind: "notFound", title: "Not found", message: "Space not found" };
   if (!permissions) return { kind: "accessDenied", title: "Access denied", message: "You don't have access to this space" };
+
+  const item = await spacesService.item.get({ id: params.itemId });
+  if (!item || item.spaceId !== params.spaceId) return { kind: "notFound", title: "Not found", message: "Item not found" };
+  const comments = await spacesService.comment.list({
+    itemId: item.id,
+    viewerUserId: params.user.id,
+    pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
+  });
+  return { kind: "ok", detail: { item, comments } };
+};
+
+export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promise<SpacesWorkspaceState> => {
+  const authorized = await authorizeWorkspace(params);
+  if (!authorized.ok) return authorized.error;
+
+  // Capture after authorization but before any snapshot reads. Replaying an
+  // event already reflected below is harmless; starting after it can miss one.
+  const eventCursor = await loadEventCursor(params.spaceId);
+  const context = await loadWorkspaceContext(params, authorized.value);
+  if (!context.ok) return context.error;
+  const { route, space, permissions, calendarTagIds } = context.value;
 
   const { accessEntries, apiKeys, wormholeState, itemsResult, kanbanBuckets, calendarState } = await loadWorkspaceData({
     route,
@@ -416,6 +561,7 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     canWrite: permissions.canWrite,
     query: route.url.searchParams.toString(),
     icalBaseUrl: `${route.url.protocol}//${route.url.host}`,
+    eventCursor,
     itemsResult,
     kanbanBuckets,
     calendarView: calendarState.calendarView,

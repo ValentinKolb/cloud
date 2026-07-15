@@ -3,7 +3,6 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceDetail } from "@/contracts";
-import { requestCurrentSpacesRouteRefresh } from "../workspace/workspace-events";
 import { readErrorMessage } from "./utils";
 
 export function GeneralSection(props: { space: SpaceDetail }) {
@@ -36,7 +35,9 @@ export function GeneralSection(props: { space: SpaceDetail }) {
     onSuccess: () => {
       setHasChanges(false);
       toast.success("Space settings saved");
-      requestCurrentSpacesRouteRefresh();
+      // Name, description, and color are server-rendered shell data. Reloading
+      // here keeps the shell authoritative without turning it into an island.
+      window.location.reload();
     },
     onError: (err) => prompts.error(err.message),
   });

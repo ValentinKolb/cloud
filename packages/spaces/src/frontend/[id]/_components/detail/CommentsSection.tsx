@@ -11,6 +11,10 @@ type Props = {
   spaceId: string;
   itemId: string;
   comments: SpaceComment[];
+  total: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
   currentUserId: string;
   onUpdate: () => void;
   dateConfig?: DateContext;
@@ -102,7 +106,7 @@ export default function CommentsSection(props: Props) {
         <h3 class="detail-section-label mb-0">Comments</h3>
         <div class="flex items-center gap-2">
           <span class="inline-flex items-center rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 text-[11px] font-medium text-secondary">
-            {props.comments.length} {props.comments.length === 1 ? "comment" : "comments"}
+            {props.total} {props.total === 1 ? "comment" : "comments"}
           </span>
           <Show when={props.canWrite && !composerOpen()}>
             <button type="button" class="btn-simple btn-sm" onClick={() => setComposerOpen(true)}>
@@ -120,38 +124,45 @@ export default function CommentsSection(props: Props) {
           </Placeholder>
         }
       >
-        <ol class="flex flex-col gap-3">
-          <For each={sortedComments()}>
-            {(comment) => (
-              <li class="group flex gap-2">
-                <Avatar username={comment.userName ?? "Unknown"} userId={comment.userId} avatarHash={comment.userAvatarHash} size="xs" />
-                <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span class="truncate text-xs font-medium text-primary">{comment.userName ?? "Unknown"}</span>
-                    <span class="text-[11px] text-dimmed" title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
-                      {formatDate(comment.createdAt)}
-                    </span>
-                    <Show when={props.canWrite && comment.canDelete}>
-                      <button
-                        type="button"
-                        onClick={() => deleteCommentMutation.mutate(comment.id)}
-                        disabled={deleteCommentMutation.loading()}
-                        class="icon-btn ml-auto h-7 w-7 opacity-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:hover:text-red-400"
-                        aria-label="Delete comment"
-                        title="Delete comment"
-                      >
-                        <i class="ti ti-trash" />
-                      </button>
-                    </Show>
+        <>
+          <Show when={props.hasMore}>
+            <button type="button" class="btn-simple btn-sm self-start" disabled={props.loadingMore} onClick={props.onLoadMore}>
+              <i class={`ti ${props.loadingMore ? "ti-loader-2 animate-spin" : "ti-history"}`} /> Load earlier comments
+            </button>
+          </Show>
+          <ol class="flex flex-col gap-3">
+            <For each={sortedComments()}>
+              {(comment) => (
+                <li class="group flex gap-2">
+                  <Avatar username={comment.userName ?? "Unknown"} userId={comment.userId} avatarHash={comment.userAvatarHash} size="xs" />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span class="truncate text-xs font-medium text-primary">{comment.userName ?? "Unknown"}</span>
+                      <span class="text-[11px] text-dimmed" title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
+                        {formatDate(comment.createdAt)}
+                      </span>
+                      <Show when={props.canWrite && comment.canDelete}>
+                        <button
+                          type="button"
+                          onClick={() => deleteCommentMutation.mutate(comment.id)}
+                          disabled={deleteCommentMutation.loading()}
+                          class="icon-btn ml-auto h-7 w-7 opacity-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:hover:text-red-400"
+                          aria-label="Delete comment"
+                          title="Delete comment"
+                        >
+                          <i class="ti ti-trash" />
+                        </button>
+                      </Show>
+                    </div>
+                    <div class="mt-1">
+                      <MarkdownView html={markdown.render(comment.content)} smallHeadings class="text-sm" />
+                    </div>
                   </div>
-                  <div class="mt-1">
-                    <MarkdownView html={markdown.render(comment.content)} smallHeadings class="text-sm" />
-                  </div>
-                </div>
-              </li>
-            )}
-          </For>
-        </ol>
+                </li>
+              )}
+            </For>
+          </ol>
+        </>
       </Show>
 
       <Show when={props.canWrite && composerOpen()}>

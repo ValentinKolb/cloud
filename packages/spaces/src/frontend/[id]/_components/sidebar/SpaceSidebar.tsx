@@ -1,17 +1,14 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import type { LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
-import SearchButton from "../search/SearchButton";
+import SearchButton from "../search/SearchButton.island";
 import type { ViewType } from "../settings/SpaceSettingsStore";
-import CopyICalButton from "./CopyICalButton";
-import CreateItemButton from "./CreateItemButton";
+import CopyICalButton from "./CopyICalButton.island";
+import CreateItemButton from "./CreateItemButton.island";
 import type { SpaceContext } from "./types";
 
 type Props = {
   ctx: SpaceContext;
-  onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
-  onOpenSettings: () => void | Promise<void>;
   dateConfig?: DateContext;
 };
 
@@ -92,8 +89,7 @@ export default function SpaceSidebar(props: Props) {
             return (
               <AppWorkspace.SidebarItem
                 href={href}
-                navigation="enhanced"
-                onNavigate={props.onNavigate}
+                navigation="document"
                 icon={view.icon}
                 active={props.ctx.currentView === view.id}
                 viewTransitionName={vt(`view-${view.id}-mobile`)}
@@ -106,7 +102,8 @@ export default function SpaceSidebar(props: Props) {
             <CopyICalButton icalToken={props.ctx.space.icalToken} variant="chip" />
           </div>
           <AppWorkspace.SidebarItem
-            onClick={() => void props.onOpenSettings()}
+            href={`/app/spaces/${props.ctx.space.id}/settings`}
+            navigation="document"
             icon="ti ti-settings"
             viewTransitionName={vt("settings-mobile")}
           >
@@ -155,8 +152,7 @@ export default function SpaceSidebar(props: Props) {
               return (
                 <AppWorkspace.SidebarItem
                   href={href}
-                  navigation="enhanced"
-                  onNavigate={props.onNavigate}
+                  navigation="document"
                   icon={view.icon}
                   active={props.ctx.currentView === view.id}
                   viewTransitionName={vt(`view-${view.id}-desktop`)}
@@ -190,8 +186,7 @@ export default function SpaceSidebar(props: Props) {
           {views.map((view) => (
             <AppWorkspace.SidebarIconAction
               href={buildViewHref(props.ctx, view.id)}
-              navigation="enhanced"
-              onNavigate={props.onNavigate}
+              navigation="document"
               icon={view.icon}
               label={view.label}
               active={props.ctx.currentView === view.id}
@@ -207,7 +202,8 @@ export default function SpaceSidebar(props: Props) {
               <CopyICalButton icalToken={props.ctx.space.icalToken} />
             </div>
             <AppWorkspace.SidebarItem
-              onClick={() => void props.onOpenSettings()}
+              href={`/app/spaces/${props.ctx.space.id}/settings`}
+              navigation="document"
               icon="ti ti-settings"
               viewTransitionName={vt("settings-desktop")}
             >
@@ -218,7 +214,12 @@ export default function SpaceSidebar(props: Props) {
         <AppWorkspace.SidebarFooter sidebarMode="collapsed">
           <AppWorkspace.SidebarIconGrid>
             <CopyICalButton icalToken={props.ctx.space.icalToken} variant="icon" />
-            <AppWorkspace.SidebarIconAction icon="ti ti-settings" label="Space settings" onClick={() => void props.onOpenSettings()} />
+            <AppWorkspace.SidebarIconAction
+              href={`/app/spaces/${props.ctx.space.id}/settings`}
+              navigation="document"
+              icon="ti ti-settings"
+              label="Space settings"
+            />
           </AppWorkspace.SidebarIconGrid>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>

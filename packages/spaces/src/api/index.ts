@@ -56,8 +56,13 @@ import {
   UpdateWormholeSchema,
   WormholeTransferResultSchema,
 } from "@/contracts";
-import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
-import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
+import { loadSpaceItemDetail, loadSpacesViewSnapshot } from "../frontend/[id]/_components/workspace/workspace-state";
+import {
+  parseSpacesWorkspaceHref,
+  SpaceCommentPageSchema,
+  SpaceItemDetailSchema,
+  SpacesViewSnapshotSchema,
+} from "../frontend/[id]/_components/workspace/workspace-types";
 import { spacesService } from "../service";
 import { isSpaceResourceId, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
 import { latestSpaceEventCursor, liveSpaceEvents } from "../service/events";
@@ -75,6 +80,10 @@ const SpaceWormholeDestinationListSchema = z.array(SpaceWormholeDestinationSchem
 const AssignableUsersQuerySchema = z.object({
   search: z.string().optional(),
   exclude_user_ids: z.string().optional(),
+});
+const CommentPageQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  per_page: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 const SpaceApiKeySchema = ServiceAccountCredentialSchema.extend({
@@ -297,15 +306,17 @@ const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
   .get(
-    "/workspace/route",
+    "/workspace/view",
     describeRoute({
       tags: ["Spaces"],
-      summary: "Load workspace route state",
-      description: "Resolve an enhanced Spaces workspace route into client-renderable state.",
+      summary: "Refresh the active workspace view",
+      description: "Load only the permission-checked list, table, kanban, or calendar snapshot selected by a Spaces URL.",
       ...requiresAuth,
       responses: {
-        200: jsonResponse(z.any(), "Workspace route state"),
+        200: jsonResponse(SpacesViewSnapshotSchema, "Active workspace view snapshot"),
         400: jsonResponse(ErrorResponseSchema, "Unsupported route"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
       },
     }),
     v("query", z.object({ href: z.string().min(1).max(3000) })),
@@ -314,16 +325,50 @@ const app = new Hono<AuthContext>()
       if (!userResult.ok) return respond(c, userResult);
       const href = c.req.valid("query").href;
       const target = parseSpacesWorkspaceHref(href);
-      if (!target) return respond(c, fail(err.badInput("Unsupported workspace route")));
-      const state = await loadSpacesWorkspaceState({
+      if (!target || target.settings) return respond(c, fail(err.badInput("Unsupported workspace view route")));
+      const snapshot = await loadSpacesViewSnapshot({
         user: userResult.data,
         spaceId: target.spaceId,
         href,
         cookieHeader: c.req.header("Cookie"),
-        settings: target.settings,
         dateConfig: getDateConfig(c),
       });
-      return respond(c, ok(state));
+      if (snapshot.kind === "accessDenied") return respond(c, fail(err.forbidden(snapshot.message)));
+      if (snapshot.kind === "notFound") return respond(c, fail(err.notFound("Space")));
+      return respond(c, ok(snapshot));
+    },
+  )
+
+  .get(
+    "/:id/items/:itemId/detail",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Get item detail snapshot",
+      description: "Load one permission-checked item and its bounded initial comments page for enhanced detail navigation.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceItemDetailSchema, "Item detail snapshot"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid identifier"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Item not found"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
+      if (!z.uuid().safeParse(spaceId).success || !z.uuid().safeParse(itemId).success) {
+        return respond(c, fail(err.badInput("Invalid space or item identifier")));
+      }
+      const result = await loadSpaceItemDetail({
+        user: userResult.data,
+        spaceId,
+        itemId,
+      });
+      if (result.kind === "accessDenied") return respond(c, fail(err.forbidden(result.message)));
+      if (result.kind === "notFound") return respond(c, fail(err.notFound("Item")));
+      return respond(c, ok(result.detail));
     },
   )
 
@@ -376,8 +421,10 @@ const app = new Hono<AuthContext>()
             checkingAccess = true;
             void checkSpaceAccess(c, spaceId)
               .then(({ error: accessError }) => {
-                if (accessError) close();
-                else send("ping", { at: new Date().toISOString() });
+                if (accessError) {
+                  send("access.revoked", { spaceId });
+                  close();
+                } else send("ping", { at: new Date().toISOString() });
               })
               .catch(() => close())
               .finally(() => {
@@ -389,6 +436,7 @@ const app = new Hono<AuthContext>()
               if (closed || streamAbort.signal.aborted) break;
               const { error: accessError } = await checkSpaceAccess(c, spaceId);
               if (accessError) {
+                send("access.revoked", { spaceId });
                 close();
                 break;
               }
@@ -1262,7 +1310,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Spaces"],
       summary: "List comments",
-      description: "List all comments on an item.",
+      description: "List the newest bounded comment page as a legacy array response.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(SpaceCommentListSchema, "List of comments"),
@@ -1282,6 +1330,38 @@ const app = new Hono<AuthContext>()
       const user = getUserBackedActor(c);
       const result = await spacesService.comment.list({ itemId, viewerUserId: user?.id ?? null });
       return respond(c, ok(result.items));
+    },
+  )
+
+  .get(
+    "/:id/items/:itemId/comments/page",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "List a comments page",
+      description: "List one bounded page of comments, starting with the newest conversation tail.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceCommentPageSchema, "Paginated comments"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Item not found"),
+      },
+    }),
+    v("query", CommentPageQuerySchema),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
+      const { error } = await checkSpaceAccess(c, spaceId);
+      if (error) return error;
+      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      if (!itemCheck.ok) return respond(c, itemCheck);
+      const query = c.req.valid("query");
+      const user = getUserBackedActor(c);
+      const result = await spacesService.comment.list({
+        itemId,
+        viewerUserId: user?.id ?? null,
+        pagination: { page: query.page, perPage: query.per_page },
+      });
+      return respond(c, ok(result));
     },
   )
 

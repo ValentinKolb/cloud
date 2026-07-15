@@ -1,3 +1,4 @@
+import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { MutationResult, SpaceComment } from "@/contracts";
 
@@ -39,17 +40,42 @@ const mapToComment = (row: DbComment, viewerUserId?: string | null): SpaceCommen
 });
 
 /**
- * List comments for an item
+ * Lists one bounded page of comments. Rows are fetched newest-first so page 1
+ * always contains the current conversation tail, then reversed for display.
  */
-export const list = async (params: { itemId: string; viewerUserId?: string | null }): Promise<SpaceComment[]> => {
+export const list = async (params: {
+  itemId: string;
+  viewerUserId?: string | null;
+  pagination?: PageParams;
+  query?: string;
+}): Promise<Paginated<SpaceComment>> => {
+  const { page, perPage, offset } = paginate(params.pagination ?? { page: 1, perPage: 50 });
+  const query = params.query?.trim();
+  const pattern = query ? `%${query}%` : null;
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM spaces.comments c
+    WHERE c.item_id = ${params.itemId}
+      AND (${pattern}::text IS NULL OR c.content ILIKE ${pattern})
+  `;
   const rows = await sql<DbComment[]>`
     SELECT c.id, c.item_id, c.user_id, u.display_name AS user_name, u.avatar_hash AS user_avatar_hash, c.content, c.created_at, c.updated_at
     FROM spaces.comments c
     LEFT JOIN auth.users u ON c.user_id = u.id
     WHERE c.item_id = ${params.itemId}
-    ORDER BY c.created_at ASC
+      AND (${pattern}::text IS NULL OR c.content ILIKE ${pattern})
+    ORDER BY c.created_at DESC, c.id DESC
+    LIMIT ${perPage}
+    OFFSET ${offset}
   `;
-  return rows.map((row) => mapToComment(row, params.viewerUserId));
+  const total = countRow?.count ?? 0;
+  return {
+    items: rows.reverse().map((row) => mapToComment(row, params.viewerUserId)),
+    page,
+    perPage,
+    total,
+    hasNext: page * perPage < total,
+  };
 };
 
 /**

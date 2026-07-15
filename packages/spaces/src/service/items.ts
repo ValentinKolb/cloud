@@ -1363,6 +1363,8 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
 type CalendarAccessParams = {
   subject: AccessSubject;
   boundSpaceId?: string | null;
+  spaceId?: string;
+  tagIds?: string[];
 };
 
 /**
@@ -1381,6 +1383,16 @@ export const listCalendar = async (
   const principalMatch = buildSpacePrincipalCondition(params.subject);
   const bindingMatch =
     params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
+  const requestedSpaceMatch = params.spaceId ? sql`s.id = ${params.spaceId}::uuid` : sql`true`;
+  const tagMatch =
+    params.tagIds && params.tagIds.length > 0
+      ? sql`EXISTS (
+          SELECT 1
+          FROM spaces.item_tags it
+          WHERE it.item_id = i.id
+            AND it.tag_id = ANY(${toPgUuidArray(params.tagIds)}::uuid[])
+        )`
+      : sql`true`;
 
   // Use subquery to get accessible space IDs first, then query items
   const rows = await sql<DbCalendarItem[]>`
@@ -1392,6 +1404,7 @@ export const listCalendar = async (
       WHERE a.permission <> 'none'
         AND ${principalMatch}
         AND ${bindingMatch}
+        AND ${requestedSpaceMatch}
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
            i.title, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline, i.priority,
@@ -1400,6 +1413,7 @@ export const listCalendar = async (
     JOIN spaces.spaces s ON i.space_id = s.id
     WHERE i.space_id IN (SELECT id FROM accessible_spaces)
       AND i.completed_at IS NULL
+      AND ${tagMatch}
       AND (
         (
           i.recurrence_rrule IS NULL

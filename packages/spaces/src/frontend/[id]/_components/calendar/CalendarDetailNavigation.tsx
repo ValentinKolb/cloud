@@ -1,10 +1,6 @@
 import { onCleanup, onMount } from "solid-js";
 import { getDetailItemFromUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
-import {
-  requestSpacesRouteNavigation,
-  SPACES_ROUTE_NAVIGATION_EVENT,
-  type SpacesRouteNavigationDetail,
-} from "../workspace/workspace-events";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type Props = {
   rootId: string;
@@ -62,20 +58,12 @@ export default function CalendarDetailNavigation(props: Props) {
     };
 
     root.addEventListener("click", onClick);
-    const onRouteNavigation = (event: Event) => {
-      const href = (event as CustomEvent<SpacesRouteNavigationDetail>).detail?.href;
-      if (!href) return;
-      const url = new URL(href, window.location.origin);
-      setActiveItem(url.searchParams.get("item"));
-    };
     const unsubscribe = subscribeToDetailSelection(({ itemId }) => setActiveItem(itemId));
     setActiveItem(getDetailItemFromUrl());
-    window.addEventListener(SPACES_ROUTE_NAVIGATION_EVENT, onRouteNavigation);
 
     onCleanup(() => {
       if (pendingNavigation) clearTimeout(pendingNavigation);
       root.removeEventListener("click", onClick);
-      window.removeEventListener(SPACES_ROUTE_NAVIGATION_EVENT, onRouteNavigation);
       unsubscribe();
     });
   });

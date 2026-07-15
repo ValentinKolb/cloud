@@ -1,49 +1,111 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
+import { AccessEntrySchema, PermissionLevelSchema, ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
-import type { CalendarItem, ItemListResult, SpaceComment, SpaceDetail, SpaceItem, SpaceWormhole } from "@/contracts";
-import type { CalendarView, DayWeather } from "../calendar/types";
+import { z } from "zod";
+import {
+  CalendarItemSchema,
+  ItemListResultSchema,
+  SpaceCommentSchema,
+  SpaceDetailSchema,
+  SpaceItemSchema,
+  SpaceWormholeSchema,
+} from "@/contracts";
 import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
-import type { KanbanBucketInitial } from "../kanban/types";
-import type { SpaceUserSettings, ViewType } from "../settings/SpaceSettingsStore";
 
 type FilterState = ReturnType<typeof parseFilterFromUrl>;
 
-export type SpacesWorkspaceState =
-  | { kind: "notFound"; title: string; message: string }
-  | { kind: "accessDenied"; title: string; message: string; redirectTo?: string }
-  | {
-      kind: "ok";
-      title: Array<{ title: string; href?: string }>;
-      currentUserId: string;
-      space: SpaceDetail;
-      settings: SpaceUserSettings;
-      currentView: ViewType;
-      hasOverride: boolean;
-      isSettingsMode: boolean;
-      isAdmin: boolean;
-      canWrite: boolean;
-      query: string;
-      icalBaseUrl: string;
-      itemsResult: ItemListResult;
-      kanbanBuckets: KanbanBucketInitial[];
-      calendarView: CalendarView;
-      calendarDate: string;
-      calendarTagIds: string[];
-      calendarItems: CalendarItem[];
-      calendarWeather: Record<string, DayWeather>;
-      selectedItem: SpaceItem | null;
-      selectedItemComments: SpaceComment[];
-      accessEntries: AccessEntry[];
-      apiKeys: ResourceApiKey[];
-      wormholes: SpaceWormhole[];
-      configuredWormholes: SpaceWormhole[];
-    };
+const WorkspaceNotFoundSchema = z.object({ kind: z.literal("notFound"), title: z.string(), message: z.string() });
+const WorkspaceAccessDeniedSchema = z.object({
+  kind: z.literal("accessDenied"),
+  title: z.string(),
+  message: z.string(),
+  redirectTo: z.string().optional(),
+});
+
+const WorkspaceTitleSchema = z.array(z.object({ title: z.string(), href: z.string().optional() }));
+const SpaceUserSettingsSchema = z.object({ view: z.enum(["list", "table", "kanban", "calendar"]), hideSettings: z.boolean() });
+const CalendarViewSchema = z.enum(["day", "week", "month", "year"]);
+const DayWeatherSchema = z.object({ tempMin: z.number(), tempMax: z.number(), icon: z.string() });
+const SpaceApiKeySchema = ServiceAccountCredentialSchema.extend({ permission: PermissionLevelSchema });
+
+const KanbanBucketInitialSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  color: z.string().nullable(),
+  kind: z.literal("column"),
+  columnId: z.string().nullable(),
+  isDone: z.boolean(),
+  items: z.array(SpaceItemSchema),
+  page: z.number().int().positive(),
+  totalPages: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+
+export const SpaceCommentPageSchema = z.object({
+  items: z.array(SpaceCommentSchema),
+  page: z.number().int().positive(),
+  perPage: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  hasNext: z.boolean(),
+});
+
+export const SpaceItemDetailSchema = z.object({
+  item: SpaceItemSchema,
+  comments: SpaceCommentPageSchema,
+});
+export type SpaceItemDetail = z.infer<typeof SpaceItemDetailSchema>;
+
+export const SpacesViewSnapshotSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("list"), currentView: z.enum(["list", "table"]), itemsResult: ItemListResultSchema }),
+  z.object({ kind: z.literal("kanban"), buckets: z.array(KanbanBucketInitialSchema), wormholes: z.array(SpaceWormholeSchema) }),
+  z.object({
+    kind: z.literal("calendar"),
+    view: CalendarViewSchema,
+    date: z.string().datetime(),
+    tagIds: z.array(z.string()),
+    items: z.array(CalendarItemSchema),
+    weather: z.record(z.string(), DayWeatherSchema),
+  }),
+]);
+export type SpacesViewSnapshot = z.infer<typeof SpacesViewSnapshotSchema>;
+
+const SpacesWorkspaceStateSchema = z.discriminatedUnion("kind", [
+  WorkspaceNotFoundSchema,
+  WorkspaceAccessDeniedSchema,
+  z.object({
+    kind: z.literal("ok"),
+    title: WorkspaceTitleSchema,
+    currentUserId: z.string(),
+    space: SpaceDetailSchema,
+    settings: SpaceUserSettingsSchema,
+    currentView: z.enum(["list", "table", "kanban", "calendar"]),
+    hasOverride: z.boolean(),
+    isSettingsMode: z.boolean(),
+    isAdmin: z.boolean(),
+    canWrite: z.boolean(),
+    query: z.string(),
+    icalBaseUrl: z.string(),
+    eventCursor: z.string().nullable(),
+    itemsResult: ItemListResultSchema,
+    kanbanBuckets: z.array(KanbanBucketInitialSchema),
+    calendarView: CalendarViewSchema,
+    calendarDate: z.string().datetime(),
+    calendarTagIds: z.array(z.string()),
+    calendarItems: z.array(CalendarItemSchema),
+    calendarWeather: z.record(z.string(), DayWeatherSchema),
+    selectedItem: SpaceItemSchema.nullable(),
+    selectedItemComments: SpaceCommentPageSchema,
+    accessEntries: z.array(AccessEntrySchema),
+    apiKeys: z.array(SpaceApiKeySchema),
+    wormholes: z.array(SpaceWormholeSchema),
+    configuredWormholes: z.array(SpaceWormholeSchema),
+  }),
+]);
+export type SpacesWorkspaceState = z.infer<typeof SpacesWorkspaceStateSchema>;
 
 export const parseSpacesWorkspaceHref = (href: string) => {
   const url = new URL(href, "http://spaces.local");
   const parts = url.pathname.split("/").filter(Boolean);
-  if (parts[0] !== "app" || parts[1] !== "spaces" || !parts[2]) return null;
+  if (parts[0] !== "app" || parts[1] !== "spaces" || !parts[2] || !z.uuid().safeParse(parts[2]).success) return null;
   if (parts.length === 3) return { spaceId: parts[2], settings: false };
   if (parts.length === 4 && parts[3] === "settings") return { spaceId: parts[2], settings: true };
   return null;
