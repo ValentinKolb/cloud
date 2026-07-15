@@ -9,7 +9,7 @@ import {
   trace,
 } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid, StructuredDataPreview } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import JobsActionToast from "./_components/JobsActionToast.island";
@@ -150,8 +150,6 @@ const summarize = (summary: Record<string, unknown> | null): string => {
     .join(" · ");
 };
 
-const prettyJson = (value: Record<string, unknown> | null): string | null => (value ? JSON.stringify(value, null, 2) : null);
-
 const paginationBaseUrl = (filter: JobsFilterState): string => {
   const url = buildJobsFilterUrl(baseUrl, { page: 1, run: null }, filter);
   return url.includes("?") ? `${url}&page=` : `${url}?page=`;
@@ -228,14 +226,25 @@ const sourceSubtitle = (group: TraceSourceGroup): string => {
 
 const overviewSubtitle = (row: BackgroundJobOverviewRow): string => {
   const parts = [row.family];
+  if (row.resourceKind) parts.push(row.resourceKind);
   if (row.resourceLabel) parts.push(row.resourceLabel);
   if (row.kind === "schedule") parts.push(`${row.schedulerId} / ${row.scheduleId}`);
   else parts.push(sourceSubtitle(row.trace));
   return parts.join(" · ");
 };
 
+const DetailLink = (props: { row: BackgroundJobOverviewRow }) => {
+  if (!props.row.detailHref) return null;
+  return (
+    <a class="btn-simple btn-sm" href={props.row.detailHref} title="Open the owning resource.">
+      <i class="ti ti-external-link" />
+      Open
+    </a>
+  );
+};
+
 const RunNowButton = (props: { row: BackgroundJobOverviewRow; filter: JobsFilterState }) => {
-  if (props.row.kind !== "schedule") return <span class="text-[10px] text-dimmed">-</span>;
+  if (props.row.kind !== "schedule") return null;
   const disabled = props.row.state !== "available";
   return (
     <form method="post" action="/admin/observability/jobs/run-now" class="inline-flex justify-end">
@@ -252,6 +261,18 @@ const RunNowButton = (props: { row: BackgroundJobOverviewRow; filter: JobsFilter
         Run now
       </button>
     </form>
+  );
+};
+
+const ActionCell = (props: { row: BackgroundJobOverviewRow; filter: JobsFilterState }) => {
+  const hasDetail = Boolean(props.row.detailHref);
+  const hasRun = props.row.kind === "schedule";
+  if (!hasDetail && !hasRun) return <span class="text-[10px] text-dimmed">-</span>;
+  return (
+    <div class="inline-flex flex-wrap justify-end gap-1">
+      <DetailLink row={props.row} />
+      <RunNowButton row={props.row} filter={props.filter} />
+    </div>
   );
 };
 
@@ -296,100 +317,90 @@ const OverviewTable = (props: { rows: BackgroundJobOverviewRow[]; filter: JobsFi
             </span>
           );
         if (col.id === "next") return <span class="text-[10px] text-dimmed">{formatTimestamp(row.nextRunAt)}</span>;
-        if (col.id === "action") return <RunNowButton row={row} filter={props.filter} />;
+        if (col.id === "action") return <ActionCell row={row} filter={props.filter} />;
         return "";
       }}
     />
   </section>
 );
 
-const RunDetailPanel = (props: { span: TraceSpan; events: TraceEvent[]; closeHref: string }) => {
-  const attributes = prettyJson(props.span.attributes);
-  const summary = prettyJson(props.span.summary);
-  return (
-    <aside class="paper min-h-0 overflow-y-auto">
-      <div class="detail-stack">
-        <section class="detail-section">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <p class="detail-section-label">Run detail</p>
-              <h2 class="truncate text-base font-semibold text-primary">{props.span.name}</h2>
-              <p class="mt-1 truncate text-[11px] text-dimmed">{props.span.spanKey ?? props.span.spanId}</p>
-            </div>
-            <a href={props.closeHref} class="btn-simple btn-sm shrink-0 text-dimmed hover:text-primary" aria-label="Close run detail panel">
-              <i class="ti ti-x" />
-            </a>
+const RunDetailPanel = (props: { span: TraceSpan; events: TraceEvent[]; closeHref: string }) => (
+  <aside class="min-h-0 overflow-y-auto">
+    <div class="detail-stack">
+      <section class="detail-section">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <p class="detail-section-label">Run detail</p>
+            <h2 class="truncate text-base font-semibold text-primary">{props.span.name}</h2>
+            <p class="mt-1 truncate text-[11px] text-dimmed">{props.span.spanKey ?? props.span.spanId}</p>
           </div>
-        </section>
+          <a href={props.closeHref} class="btn-simple btn-sm shrink-0 text-dimmed hover:text-primary" aria-label="Close run detail panel">
+            <i class="ti ti-x" />
+          </a>
+        </div>
+      </section>
 
+      <section class="detail-section">
+        <h3 class="detail-section-label">Status</h3>
+        <dl class="detail-facts">
+          <dt class="detail-fact-key">Source</dt>
+          <dd class="break-all font-mono">{props.span.source}</dd>
+          <dt class="detail-fact-key">Type</dt>
+          <dd>{props.span.category}</dd>
+          <dt class="detail-fact-key">Status</dt>
+          <dd>{statusBadge({ status: props.span.status, running: !props.span.endedAt })}</dd>
+          <dt class="detail-fact-key">Started</dt>
+          <dd>{formatDate(props.span.startedAt)}</dd>
+          <dt class="detail-fact-key">Ended</dt>
+          <dd>{formatDate(props.span.endedAt)}</dd>
+          <dt class="detail-fact-key">Duration</dt>
+          <dd>{formatMs(props.span.durationMs)}</dd>
+          <dt class="detail-fact-key">Events</dt>
+          <dd>{formatNumber(props.span.eventCount)}</dd>
+          {props.span.statusMessage ? (
+            <>
+              <dt class="detail-fact-key">Message</dt>
+              <dd class="break-words">{props.span.statusMessage}</dd>
+            </>
+          ) : null}
+        </dl>
+      </section>
+
+      {props.span.summary ? (
         <section class="detail-section">
-          <h3 class="detail-section-label">Status</h3>
-          <dl class="detail-facts">
-            <dt class="detail-fact-key">Source</dt>
-            <dd class="break-all font-mono">{props.span.source}</dd>
-            <dt class="detail-fact-key">Type</dt>
-            <dd>{props.span.category}</dd>
-            <dt class="detail-fact-key">Status</dt>
-            <dd>{statusBadge({ status: props.span.status, running: !props.span.endedAt })}</dd>
-            <dt class="detail-fact-key">Started</dt>
-            <dd>{formatDate(props.span.startedAt)}</dd>
-            <dt class="detail-fact-key">Ended</dt>
-            <dd>{formatDate(props.span.endedAt)}</dd>
-            <dt class="detail-fact-key">Duration</dt>
-            <dd>{formatMs(props.span.durationMs)}</dd>
-            <dt class="detail-fact-key">Events</dt>
-            <dd>{formatNumber(props.span.eventCount)}</dd>
-            {props.span.statusMessage ? (
-              <>
-                <dt class="detail-fact-key">Message</dt>
-                <dd class="break-words">{props.span.statusMessage}</dd>
-              </>
-            ) : null}
-          </dl>
+          <StructuredDataPreview title="Summary" data={props.span.summary} maxRows={8} />
         </section>
+      ) : null}
 
-        {summary ? (
-          <section class="detail-section">
-            <h3 class="detail-section-label">Summary</h3>
-            <pre class="max-h-72 overflow-auto rounded-md bg-zinc-50 p-2 text-[10px] text-primary dark:bg-zinc-950">{summary}</pre>
-          </section>
-        ) : null}
-
-        {attributes ? (
-          <section class="detail-section">
-            <h3 class="detail-section-label">Attributes</h3>
-            <pre class="max-h-72 overflow-auto rounded-md bg-zinc-50 p-2 text-[10px] text-primary dark:bg-zinc-950">{attributes}</pre>
-          </section>
-        ) : null}
-
+      {props.span.attributes ? (
         <section class="detail-section">
-          <h3 class="detail-section-label">Events</h3>
-          <div class="flex flex-col gap-1.5">
-            {props.events.length === 0 ? (
-              <p class="text-[11px] text-dimmed">No events recorded for this run.</p>
-            ) : (
-              props.events.map((event) => (
-                <article class="rounded-md border border-zinc-100 p-2 dark:border-zinc-800">
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="truncate text-[11px] font-medium text-primary">{event.name}</span>
-                    <span class="shrink-0 text-[10px] text-dimmed">{formatDate(event.occurredAt)}</span>
-                  </div>
-                  <p class="mt-1 text-[10px] text-dimmed">{event.severity}</p>
-                  {event.body ? <p class="mt-1 break-words text-[10px] text-primary">{event.body}</p> : null}
-                  {event.attributes ? (
-                    <pre class="mt-1 max-h-40 overflow-auto rounded bg-zinc-50 p-1.5 text-[10px] text-primary dark:bg-zinc-950">
-                      {JSON.stringify(event.attributes, null, 2)}
-                    </pre>
-                  ) : null}
-                </article>
-              ))
-            )}
-          </div>
+          <StructuredDataPreview title="Attributes" data={props.span.attributes} maxRows={10} />
         </section>
-      </div>
-    </aside>
-  );
-};
+      ) : null}
+
+      <section class="detail-section">
+        <h3 class="detail-section-label">Events</h3>
+        <div class="flex flex-col gap-1.5">
+          {props.events.length === 0 ? (
+            <p class="text-[11px] text-dimmed">No events recorded for this run.</p>
+          ) : (
+            props.events.map((event) => (
+              <article class="rounded-md border border-zinc-100 p-2 dark:border-zinc-800">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="truncate text-[11px] font-medium text-primary">{event.name}</span>
+                  <span class="shrink-0 text-[10px] text-dimmed">{formatDate(event.occurredAt)}</span>
+                </div>
+                <p class="mt-1 text-[10px] text-dimmed">{event.severity}</p>
+                {event.body ? <p class="mt-1 break-words text-[10px] text-primary">{event.body}</p> : null}
+                {event.attributes ? <StructuredDataPreview class="mt-1" data={event.attributes} maxRows={6} /> : null}
+              </article>
+            ))
+          )}
+        </div>
+      </section>
+    </div>
+  </aside>
+);
 
 const SourceRunsTable = (props: {
   spans: TraceSpan[];

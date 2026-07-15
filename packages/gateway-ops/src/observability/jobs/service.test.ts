@@ -29,6 +29,10 @@ const schedule = (overrides: Partial<SchedulerControlInfo> = {}): SchedulerContr
     family: "gateway:health",
     label: "Gateway health webhook check",
     source: "gateway:health-webhook-check",
+    resourceKind: "webhook",
+    resourceId: "health",
+    resourceLabel: "Health webhook",
+    detailHref: "/admin/observability/health-webhooks",
   },
   ...overrides,
 });
@@ -66,15 +70,21 @@ describe("jobs observability service", () => {
       family: "gateway:health",
       label: "Gateway health webhook check",
       source: "gateway:health-webhook-check",
-      resourceLabel: null,
+      resourceKind: "webhook",
+      resourceId: "health",
+      resourceLabel: "Health webhook",
+      detailHref: "/admin/observability/health-webhooks",
     });
 
-    expect(normalizeScheduleMetadata(schedule({ meta: { label: "  " } }))).toEqual({
+    expect(normalizeScheduleMetadata(schedule({ meta: { detailHref: "https://example.org/out", label: "  " } }))).toEqual({
       appId: null,
       family: "gateway:health-webhook-check",
       label: "gateway:health-webhook-check",
       source: "gateway:health-webhook-check",
+      resourceKind: null,
+      resourceId: null,
       resourceLabel: null,
+      detailHref: null,
     });
   });
 
@@ -90,6 +100,9 @@ describe("jobs observability service", () => {
       schedulerId: "gateway-ops-lifecycle",
       scheduleId: "gateway:health-webhook-check",
       source: "gateway:health-webhook-check",
+      resourceKind: "webhook",
+      resourceId: "health",
+      detailHref: "/admin/observability/health-webhooks",
       trace: { runs: 10, failed: 1 },
     });
 
@@ -99,6 +112,7 @@ describe("jobs observability service", () => {
       source: "auth:ipa:backfill",
       label: "IPA backfill",
       state: "trace-only",
+      detailHref: null,
     });
   });
 

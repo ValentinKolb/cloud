@@ -15,7 +15,10 @@ export type ScheduleMetadata = {
   family: string;
   label: string;
   source: string;
+  resourceKind: string | null;
+  resourceId: string | null;
   resourceLabel: string | null;
+  detailHref: string | null;
 };
 
 export type ScheduleOverviewRow = ScheduleMetadata & {
@@ -51,7 +54,10 @@ export type TraceOnlyOverviewRow = {
   family: string;
   label: string;
   source: string;
+  resourceKind: null;
+  resourceId: null;
   resourceLabel: null;
+  detailHref: null;
   trace: TraceSourceGroup;
 };
 
@@ -87,6 +93,13 @@ const clean = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const cleanDetailHref = (value: unknown): string | null => {
+  const href = clean(value);
+  if (!href) return null;
+  if (!href.startsWith("/") || href.startsWith("//")) return null;
+  return href;
+};
+
 export const normalizeScheduleMetadata = (schedule: Pick<SchedulerControlInfo, "scheduleId" | "schedulerId" | "meta">): ScheduleMetadata => {
   const meta = schedule.meta && typeof schedule.meta === "object" ? schedule.meta : {};
   const source = clean(meta.source) ?? schedule.scheduleId;
@@ -95,7 +108,10 @@ export const normalizeScheduleMetadata = (schedule: Pick<SchedulerControlInfo, "
     family: clean(meta.family) ?? source,
     label: clean(meta.label) ?? schedule.scheduleId,
     source,
+    resourceKind: clean(meta.resourceKind),
+    resourceId: clean(meta.resourceId),
     resourceLabel: clean(meta.resourceLabel),
+    detailHref: cleanDetailHref(meta.detailHref),
   };
 };
 
@@ -148,7 +164,10 @@ export const buildBackgroundJobRows = (
       family: group.source,
       label: traceOnlyLabel(group),
       source: group.source,
+      resourceKind: null,
+      resourceId: null,
       resourceLabel: null,
+      detailHref: null,
       trace: group,
     });
   }
@@ -171,7 +190,10 @@ const rowMatchesSearch = (row: BackgroundJobOverviewRow, search: string): boolea
     row.appId,
     row.family,
     row.label,
+    row.resourceKind,
+    row.resourceId,
     row.resourceLabel,
+    row.detailHref,
     row.source,
     row.schedulerId,
     row.scheduleId,
