@@ -37,9 +37,17 @@ export type DropdownItem = DropdownAction | DropdownElement | DropdownSection;
 type DropdownProps = {
   trigger: JSX.Element;
   elements: DropdownItem[];
-  position?: "bottom-right" | "bottom-left" | "top-right" | "top-left" | (() => "bottom-right" | "bottom-left" | "top-right" | "top-left");
+  position?:
+    | "bottom-right"
+    | "bottom-left"
+    | "top-right"
+    | "top-left"
+    | "right-start"
+    | (() => "bottom-right" | "bottom-left" | "top-right" | "top-left" | "right-start");
   width?: string;
   className?: string;
+  triggerClass?: string;
+  openOnHover?: boolean;
   /** Called when the dropdown closes (click outside, escape, or programmatic) */
   onClose?: () => void;
 };
@@ -65,6 +73,10 @@ const POSITION_STYLES: Record<string, string> = {
     "bottom: anchor(top); right: anchor(right); margin-bottom: 4px;" +
     "position-try-fallbacks: --flip-block-down-left;" +
     "position-try: --flip-block-down-left { top: anchor(bottom); bottom: auto; margin-bottom: 0; margin-top: 4px; };",
+  "right-start":
+    "top: anchor(top); left: anchor(right); margin-left: 6px;" +
+    "position-try-fallbacks: --flip-inline-start;" +
+    "position-try: --flip-inline-start { right: anchor(left); left: auto; margin-left: 0; margin-right: 6px; };",
 };
 
 const ITEM_BASE_CLASSES = "menu-item";
@@ -81,6 +93,7 @@ export default function Dropdown(props: DropdownProps) {
   const [isOpen, setIsOpen] = createSignal(false);
   let triggerRef!: HTMLSpanElement;
   let popoverRef!: HTMLDivElement;
+  let hoverCloseTimer: number | undefined;
 
   const triggerFocusTarget = () =>
     triggerRef.querySelector<HTMLElement>("button, a[href], input, select, textarea, [role='button'], [tabindex]:not([tabindex='-1'])") ??
@@ -111,9 +124,33 @@ export default function Dropdown(props: DropdownProps) {
     target.addEventListener("click", handleClick);
     target.addEventListener("keydown", handleTriggerKeyDown);
 
+    const cancelHoverClose = () => {
+      if (hoverCloseTimer !== undefined) window.clearTimeout(hoverCloseTimer);
+      hoverCloseTimer = undefined;
+    };
+    const scheduleHoverClose = () => {
+      cancelHoverClose();
+      hoverCloseTimer = window.setTimeout(() => close(false), 120);
+    };
+    const openFromHover = () => {
+      cancelHoverClose();
+      if (!isOpen()) open(false);
+    };
+    if (props.openOnHover) {
+      triggerRef.addEventListener("pointerenter", openFromHover);
+      triggerRef.addEventListener("pointerleave", scheduleHoverClose);
+      popoverRef.addEventListener("pointerenter", cancelHoverClose);
+      popoverRef.addEventListener("pointerleave", scheduleHoverClose);
+    }
+
     onCleanup(() => {
+      cancelHoverClose();
       target.removeEventListener("click", handleClick);
       target.removeEventListener("keydown", handleTriggerKeyDown);
+      triggerRef.removeEventListener("pointerenter", openFromHover);
+      triggerRef.removeEventListener("pointerleave", scheduleHoverClose);
+      popoverRef.removeEventListener("pointerenter", cancelHoverClose);
+      popoverRef.removeEventListener("pointerleave", scheduleHoverClose);
     });
   });
 
@@ -145,13 +182,13 @@ export default function Dropdown(props: DropdownProps) {
   const getVariantClasses = (variant?: "danger"): string =>
     variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300";
 
-  const open = (focus: "first" | "last" = "first") => {
+  const open = (focus: "first" | "last" | false = "first") => {
     const base = `position-anchor: ${anchor}; position: fixed; inset: unset; margin: 0; scrollbar-gutter: auto;`;
     popoverRef.setAttribute("style", props.className ? base : `${base} ${getPositionStyle()}`);
     popoverRef.showPopover();
     queueMicrotask(() => {
       prepareMenuItems();
-      focusItem(focus === "first" ? 0 : menuItems().length - 1);
+      if (focus) focusItem(focus === "first" ? 0 : menuItems().length - 1);
     });
   };
 
@@ -247,7 +284,7 @@ export default function Dropdown(props: DropdownProps) {
 
   return (
     <>
-      <span class="inline-flex" ref={triggerRef} style={`anchor-name: ${anchor}`}>
+      <span class={`inline-flex ${props.triggerClass ?? ""}`} ref={triggerRef} style={`anchor-name: ${anchor}`}>
         {props.trigger}
       </span>
 

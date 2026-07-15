@@ -148,7 +148,7 @@ Spacing is part of component behaviour. Do not tune it independently in each app
 - Give forms enough vertical space for labels, descriptions, errors, and touch targets.
 - Align title baselines, icon centres, and control heights. Optical alignment wins when mathematical centring looks wrong.
 
-Avoid generic `p-4` wrappers inside `AppWorkspace.Main`. The shell owns outer spacing. Components own their inner spacing.
+`AppWorkspace.Main` does not add content padding automatically. Standard inset workspaces must put `p-[var(--ui-space-shell)]` directly on `AppWorkspace.Main`, as Spaces does. Do not replace the token with `p-3` or `p-4`, and do not move the outer padding to an extra full-height wrapper. Edge-to-edge tables, editors, canvases, and pane layouts are deliberate exceptions; their shared primitives own their internal gutters.
 
 ## Typography
 
@@ -191,6 +191,7 @@ Dark mode mixes appearance colours into the dark canvas; it does not invert a li
 - Shell spacing separates the workspace from the platform chrome. Section spacing organizes content inside its regions; there is no shell gap between the regions themselves.
 - The sidebar owns navigation scrolling.
 - Main owns the primary work scroll unless the screen contains independent panes or tables.
+- A contextual right-side detail area is always an `AppWorkspace.Detail` sibling after Main. Do not create a second grid or flex column inside `AppWorkspace.Main` to imitate a detail panel; the shared detail region owns responsive order, width, clipping, scrolling, and selection visibility.
 - Detail selection is URL-backed when it must survive reload, sharing, and browser history.
 
 ### Workspace header
@@ -210,6 +211,12 @@ The header identifies the current resource, not the app twice.
 - Row actions use progressive disclosure but remain keyboard accessible.
 - Section labels organize real groups. Do not add a label above one self-explanatory item.
 - Counts align and use tabular figures.
+- Build the sidebar as one flat vertical flow: header, sections, scrollable body, and footer use flex columns with shared gaps. Do not repair section rhythm with conditional `mt-*`, borders, or wrapper boxes. The section gap must be visibly larger than the gap between a section label and its first item.
+- A navigation label owns all remaining row width and truncates before trailing metadata. When a row action appears on row hover or keyboard focus, the label yields only the action's width. Long labels expose their full text through the shared marquee treatment and an accessible name; do not implement app-local scrolling text.
+- Desktop sidebars and contextual detail panels are resizable through the shared workspace separators. The large invisible hit area must not change layout. Hover, keyboard focus, and active drag may reveal a subtle one-pixel guide and slightly strengthen the existing edge depth; the resting workspace stays quiet.
+- Resizing is optional only for genuinely fixed layouts. Persist the chosen width per app, keep an always-usable main area, and retain a predictable default when no preference exists.
+- Resize capability is consistent across an app. If one primary view exposes a resizable sidebar, every primary view keeps it unless a documented UX constraint genuinely requires a different shell. Search, history, archive, and management flows must not silently drop resize behavior; use a modal for temporary collection work or retain the same workspace shell.
+- Icon-only collapse is opt-in and curated. Crossing the shared narrow-width threshold snaps smoothly to a compact state and restores the previous expanded width when reopened. Show only high-value, recognizable actions in that state; do not compress an entire dense list into ambiguous repeated icons. Every icon has an accessible name and a tooltip or title.
 
 ## Controls
 
@@ -264,6 +271,7 @@ Use `DataTable` for tabular data.
 
 ### Detail panels
 
+- If selecting a record keeps the primary work visible and opens contextual content beside it, that content belongs in `AppWorkspace.Detail`, not in a second column inside `AppWorkspace.Main`.
 - Render only sections that contain data.
 - Start with a flat, full-width detail hero at the panel edge. It orients the user with the record identity, title, compact context or status, close and overflow controls, and the most frequent quick actions.
 - The detail hero is not a `paper` or content section. It has no independent background, border, radius, shadow, section label, or divider below it. Do not inset it where main and detail meet.

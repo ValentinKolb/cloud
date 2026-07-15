@@ -66,6 +66,11 @@ const ConversationListQuerySchema = z.object({
   status: z.enum(["running", "needs_attention", "failed", "unread"]).optional(),
 });
 
+const ConversationPageQuerySchema = ConversationListQuerySchema.extend({
+  page: z.coerce.number().int().min(1).optional(),
+  perPage: z.coerce.number().int().min(1).max(50).optional(),
+});
+
 const ConversationMetadataInputSchema = z.object({
   title: z.string().trim().min(1).max(120),
   icon: z.string().trim().min(1).max(80).optional(),
@@ -196,6 +201,26 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             archived: query.archived,
             status: query.status,
             limit: query.limit,
+          }),
+        ),
+      );
+    })
+    .get("/conversations/page", v("query", ConversationPageQuerySchema), async (c) => {
+      const ctx = await config.resolveContext(c);
+      if (ctx instanceof Response) return ctx;
+      const query = c.req.valid("query");
+      return respond(
+        c,
+        ok(
+          await aiConversationStore.listConversationsPage({
+            appId: config.appId,
+            ownerUserId: ctx.ownerUserId,
+            resource: ctx.resource,
+            search: query.q,
+            archived: query.archived,
+            status: query.status,
+            page: query.page ?? 1,
+            perPage: query.perPage ?? 20,
           }),
         ),
       );

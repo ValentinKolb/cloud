@@ -26,18 +26,19 @@ export default function ContactsSidebar(props: Props) {
       <AppWorkspace.SidebarItem
         href={href}
         navigation="document"
-        icon={icon}
         active={isActive}
+        title={book.name}
         viewTransitionName={vt(`book-${book.id}-${mode}`)}
         class="w-full"
       >
-        {book.name}
+        <AppWorkspace.SidebarItemIcon icon={icon} />
+        <AppWorkspace.SidebarItemLabel>{book.name}</AppWorkspace.SidebarItemLabel>
       </AppWorkspace.SidebarItem>
     );
   };
 
   return (
-    <AppWorkspace.Sidebar>
+    <AppWorkspace.Sidebar collapsible>
       <AppWorkspace.SidebarHeader
         title="Contacts"
         icon="ti ti-address-book"
@@ -72,9 +73,13 @@ export default function ContactsSidebar(props: Props) {
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
-        <div style={`view-transition-name:${vt("primary-actions-desktop")}`}>
+        <div data-sidebar-mode="expanded" style={`view-transition-name:${vt("primary-actions-desktop")}`}>
           <ContactsSpotlightButton variant="sidebar" registerShortcut />
         </div>
+        <AppWorkspace.SidebarIconGrid sidebarMode="collapsed">
+          <ContactsSpotlightButton variant="icon" />
+          <CreateBookButton variant="icon" label="New book" />
+        </AppWorkspace.SidebarIconGrid>
 
         <AppWorkspace.SidebarBody scrollPreserveKey="contacts-sidebar">
           <AppWorkspace.SidebarSection>
@@ -83,6 +88,7 @@ export default function ContactsSidebar(props: Props) {
               navigation="document"
               icon="ti ti-users"
               active={props.active === "all"}
+              title="All contacts"
               viewTransitionName={vt("all-desktop")}
             >
               All contacts
@@ -95,25 +101,24 @@ export default function ContactsSidebar(props: Props) {
               const isActive = props.active === book.id;
               const canManage = adminBookIds.includes(book.id);
               return (
-                <div
-                  class={`sidebar-item group text-xs ${isActive ? "sidebar-item-active" : ""}`}
-                  style={`view-transition-name:${vt(`book-${book.id}-desktop`)}`}
+                <AppWorkspace.SidebarItem
+                  href={href}
+                  navigation="document"
+                  active={isActive}
+                  viewTransitionName={vt(`book-${book.id}-desktop`)}
+                  title={book.name}
                 >
-                  <a href={href} class="flex min-w-0 flex-1 items-center gap-2" aria-current={isActive ? "page" : undefined}>
-                    <i class="ti ti-address-book text-sm" />
-                    <span class="truncate">{book.name}</span>
-                  </a>
+                  <AppWorkspace.SidebarItemIcon icon="ti ti-address-book" />
+                  <AppWorkspace.SidebarItemLabel>{book.name}</AppWorkspace.SidebarItemLabel>
                   {canManage && (
-                    <a
+                    <AppWorkspace.SidebarItemAction
                       href={`/app/contacts/${book.id}/settings`}
-                      class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                      aria-label={`Open settings for ${book.name}`}
-                      title="Book settings"
-                    >
-                      <i class="ti ti-settings text-xs" />
-                    </a>
+                      navigation="document"
+                      icon="ti ti-settings"
+                      label={`Open settings for ${book.name}`}
+                    />
                   )}
-                </div>
+                </AppWorkspace.SidebarItem>
               );
             })}
           </AppWorkspace.SidebarSection>
@@ -123,7 +128,7 @@ export default function ContactsSidebar(props: Props) {
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarBody>
 
-        <AppWorkspace.SidebarFooter class="border-t border-[var(--ui-divider)] pt-2">
+        <AppWorkspace.SidebarFooter sidebarMode="expanded">
           <CreateBookButton buttonClass="btn-simple btn-sm w-full justify-start text-dimmed" label="New book" />
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>

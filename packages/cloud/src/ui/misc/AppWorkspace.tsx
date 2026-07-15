@@ -13,6 +13,10 @@ import { children, createContext, createMemo, type JSX, Show, useContext } from 
 const SIDEBAR_HEADER = Symbol("AppWorkspace.SidebarHeader");
 const SIDEBAR_MOBILE = Symbol("AppWorkspace.SidebarMobile");
 const SIDEBAR_DESKTOP = Symbol("AppWorkspace.SidebarDesktop");
+const SIDEBAR_ITEM_ICON = Symbol("AppWorkspace.SidebarItemIcon");
+const SIDEBAR_ITEM_LABEL = Symbol("AppWorkspace.SidebarItemLabel");
+const SIDEBAR_ITEM_META = Symbol("AppWorkspace.SidebarItemMeta");
+const SIDEBAR_ITEM_ACTION = Symbol("AppWorkspace.SidebarItemAction");
 
 type SidebarSlotKind = typeof SIDEBAR_HEADER | typeof SIDEBAR_MOBILE | typeof SIDEBAR_DESKTOP;
 
@@ -41,12 +45,43 @@ type SidebarDesktopSlot = SidebarSlot & {
   readonly kind: typeof SIDEBAR_DESKTOP;
 };
 
+type SidebarItemIconSlot = {
+  readonly kind: typeof SIDEBAR_ITEM_ICON;
+  icon?: string;
+  children?: JSX.Element;
+};
+
+type SidebarItemLabelSlot = {
+  readonly kind: typeof SIDEBAR_ITEM_LABEL;
+  children: JSX.Element;
+  marquee?: boolean;
+};
+
+type SidebarItemMetaSlot = {
+  readonly kind: typeof SIDEBAR_ITEM_META;
+  children: JSX.Element;
+};
+
+type SidebarItemActionSlot = {
+  readonly kind: typeof SIDEBAR_ITEM_ACTION;
+  icon?: string;
+  label: string;
+  href?: string;
+  navigation?: "enhanced" | "document";
+  onSelect?: (event: MouseEvent) => void;
+  children?: JSX.Element;
+};
+
+type SidebarItemSlot = SidebarItemIconSlot | SidebarItemLabelSlot | SidebarItemMetaSlot | SidebarItemActionSlot;
+
 type SidebarMode = "desktop" | "mobile";
 
 const SidebarModeContext = createContext<SidebarMode>("desktop");
+const AppWorkspaceResizeContext = createContext(true);
 
 export type AppWorkspaceProps = {
   class?: string;
+  resizable?: boolean;
   children: JSX.Element;
 };
 
@@ -64,11 +99,14 @@ export type AppWorkspaceDetailProps = {
   widthClass?: string;
   viewTransitionName?: string;
   class?: string;
+  resizable?: boolean;
   children: JSX.Element;
 };
 
 export type AppWorkspaceSidebarProps = {
   class?: string;
+  resizable?: boolean;
+  collapsible?: boolean;
   children: JSX.Element;
 };
 
@@ -95,17 +133,20 @@ export type AppWorkspaceSidebarMobileItemsProps = {
 export type AppWorkspaceSidebarBodyProps = {
   class?: string;
   scrollPreserveKey?: string | false;
+  sidebarMode?: AppWorkspaceSidebarVisibility;
   children: JSX.Element;
 };
 
 export type AppWorkspaceSidebarSectionProps = {
   title?: string;
   class?: string;
+  sidebarMode?: AppWorkspaceSidebarVisibility;
   children: JSX.Element;
 };
 
 export type AppWorkspaceSidebarItemTone = "default" | "success" | "danger";
 export type AppWorkspaceSidebarIconActionTone = "default" | "success" | "danger";
+export type AppWorkspaceSidebarVisibility = "always" | "expanded" | "collapsed";
 
 export type AppWorkspaceSidebarItemProps = {
   href?: string;
@@ -127,6 +168,7 @@ export type AppWorkspaceSidebarItemProps = {
   onActionClick?: (event: MouseEvent) => void;
   onClick?: (event: MouseEvent) => void;
   data?: Record<string, string | number | boolean | null | undefined>;
+  sidebarMode?: AppWorkspaceSidebarVisibility;
   children: JSX.Element;
 };
 
@@ -134,6 +176,7 @@ export type AppWorkspaceSidebarIconGridProps = {
   title?: string;
   columns?: 2 | 3;
   class?: string;
+  sidebarMode?: AppWorkspaceSidebarVisibility;
   children: JSX.Element;
 };
 
@@ -150,6 +193,30 @@ export type AppWorkspaceSidebarIconActionProps = {
   tone?: AppWorkspaceSidebarIconActionTone;
   viewTransitionName?: string;
   onClick?: (event: MouseEvent) => void;
+  sidebarMode?: AppWorkspaceSidebarVisibility;
+};
+
+export type AppWorkspaceSidebarItemIconProps = {
+  icon?: string;
+  children?: JSX.Element;
+};
+
+export type AppWorkspaceSidebarItemLabelProps = {
+  marquee?: boolean;
+  children: JSX.Element;
+};
+
+export type AppWorkspaceSidebarItemMetaProps = {
+  children: JSX.Element;
+};
+
+export type AppWorkspaceSidebarItemActionProps = {
+  icon?: string;
+  label: string;
+  href?: string;
+  navigation?: "enhanced" | "document";
+  onSelect?: (event: MouseEvent) => void;
+  children?: JSX.Element;
 };
 
 type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
@@ -163,8 +230,12 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   SidebarDesktop: (props: { children: JSX.Element }) => JSX.Element;
   SidebarSection: (props: AppWorkspaceSidebarSectionProps) => JSX.Element;
   SidebarBody: (props: AppWorkspaceSidebarBodyProps) => JSX.Element;
-  SidebarFooter: (props: { class?: string; children: JSX.Element }) => JSX.Element;
+  SidebarFooter: (props: { class?: string; sidebarMode?: AppWorkspaceSidebarVisibility; children: JSX.Element }) => JSX.Element;
   SidebarItem: (props: AppWorkspaceSidebarItemProps) => JSX.Element;
+  SidebarItemIcon: (props: AppWorkspaceSidebarItemIconProps) => JSX.Element;
+  SidebarItemLabel: (props: AppWorkspaceSidebarItemLabelProps) => JSX.Element;
+  SidebarItemMeta: (props: AppWorkspaceSidebarItemMetaProps) => JSX.Element;
+  SidebarItemAction: (props: AppWorkspaceSidebarItemActionProps) => JSX.Element;
   SidebarIconGrid: (props: AppWorkspaceSidebarIconGridProps) => JSX.Element;
   SidebarIconAction: (props: AppWorkspaceSidebarIconActionProps) => JSX.Element;
 };
@@ -174,6 +245,19 @@ const isSidebarSlot = (value: unknown): value is SidebarSlot => !!value && typeo
 const collectSidebarSlots = (value: unknown): SidebarSlot[] => {
   if (Array.isArray(value)) return value.flatMap(collectSidebarSlots);
   return isSidebarSlot(value) ? [value] : [];
+};
+
+const isSidebarItemSlot = (value: unknown): value is SidebarItemSlot =>
+  !!value &&
+  typeof value === "object" &&
+  "kind" in value &&
+  [SIDEBAR_ITEM_ICON, SIDEBAR_ITEM_LABEL, SIDEBAR_ITEM_META, SIDEBAR_ITEM_ACTION].includes(
+    (value as SidebarItemSlot).kind as typeof SIDEBAR_ITEM_ICON,
+  );
+
+const collectSidebarItemSlots = (value: unknown): SidebarItemSlot[] => {
+  if (Array.isArray(value)) return value.flatMap(collectSidebarItemSlots);
+  return isSidebarItemSlot(value) ? [value] : [];
 };
 
 const tablerIconClass = (icon: string | null | undefined, fallback: string): string => {
@@ -268,21 +352,79 @@ const detailWidthClass = (props: AppWorkspaceDetailProps): string => {
   }
 };
 
+const detailDefaultWidth = (props: AppWorkspaceDetailProps): number => {
+  switch (props.width ?? "md") {
+    case "sm":
+      return 288;
+    case "lg":
+      return 480;
+    case "xl":
+      return 544;
+    case "md":
+    default:
+      return 384;
+  }
+};
+
+const AppWorkspaceResizeHandle = (props: { kind: "sidebar" | "detail"; defaultWidth: number; collapsible?: boolean }) => (
+  <button
+    type="button"
+    role="separator"
+    aria-label={props.kind === "sidebar" ? "Resize navigation" : "Resize detail panel"}
+    aria-orientation="vertical"
+    aria-valuemin={props.kind === "sidebar" ? (props.collapsible ? 64 : 176) : 288}
+    aria-valuemax={props.kind === "sidebar" ? 360 : 640}
+    aria-valuenow={props.defaultWidth}
+    data-app-workspace-resize={props.kind}
+    class={`workspace-resize-handle workspace-resize-handle-${props.kind}`}
+    style={props.kind === "detail" ? `--workspace-detail-default:${props.defaultWidth}px` : undefined}
+  >
+    <span aria-hidden="true" />
+  </button>
+);
+
 const AppWorkspaceMain = (props: AppWorkspaceMainProps) => (
   <main class={`workspace-main order-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-2 ${props.class ?? ""}`}>
     {props.children}
   </main>
 );
 
-const AppWorkspaceDetail = (props: AppWorkspaceDetailProps) => (
-  <aside
-    id={props.id}
-    class={`workspace-detail ${props.open ? "flex" : "hidden"} order-2 min-h-0 w-full shrink-0 flex-col overflow-hidden lg:order-3 lg:h-full ${detailWidthClass(props)} ${props.class ?? ""}`}
-    style={props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined}
-  >
-    {props.children}
-  </aside>
-);
+const AppWorkspaceDetail = (props: AppWorkspaceDetailProps) => {
+  const rootResizable = useContext(AppWorkspaceResizeContext);
+  const resizable = () => props.resizable ?? (props.widthClass ? false : rootResizable);
+  const defaultWidth = () => detailDefaultWidth(props);
+  return (
+    <>
+      <aside
+        id={props.id}
+        data-workspace-resizable={resizable() ? "true" : "false"}
+        class={`workspace-detail ${props.open ? "flex" : "hidden"} order-2 min-h-0 w-full shrink-0 flex-col overflow-hidden lg:order-3 lg:h-full ${detailWidthClass(props)} ${props.class ?? ""}`}
+        style={`${props.viewTransitionName ? `view-transition-name:${props.viewTransitionName};` : ""}--workspace-detail-default:${defaultWidth()}px`}
+      >
+        {props.children}
+      </aside>
+      <Show when={resizable()}>
+        <AppWorkspaceResizeHandle kind="detail" defaultWidth={defaultWidth()} />
+      </Show>
+    </>
+  );
+};
+
+function AppWorkspaceSidebarItemIcon(props: AppWorkspaceSidebarItemIconProps): JSX.Element {
+  return { kind: SIDEBAR_ITEM_ICON, ...props } satisfies SidebarItemIconSlot as unknown as JSX.Element;
+}
+
+function AppWorkspaceSidebarItemLabel(props: AppWorkspaceSidebarItemLabelProps): JSX.Element {
+  return { kind: SIDEBAR_ITEM_LABEL, ...props } satisfies SidebarItemLabelSlot as unknown as JSX.Element;
+}
+
+function AppWorkspaceSidebarItemMeta(props: AppWorkspaceSidebarItemMetaProps): JSX.Element {
+  return { kind: SIDEBAR_ITEM_META, ...props } satisfies SidebarItemMetaSlot as unknown as JSX.Element;
+}
+
+function AppWorkspaceSidebarItemAction(props: AppWorkspaceSidebarItemActionProps): JSX.Element {
+  return { kind: SIDEBAR_ITEM_ACTION, ...props } satisfies SidebarItemActionSlot as unknown as JSX.Element;
+}
 
 function AppWorkspaceSidebarHeader(props: AppWorkspaceSidebarHeaderProps): JSX.Element {
   return {
@@ -331,6 +473,8 @@ const SidebarHeaderContent = (props: { header: SidebarHeaderSlot; mobile?: boole
 );
 
 const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
+  const rootResizable = useContext(AppWorkspaceResizeContext);
+  const resizable = () => props.resizable ?? rootResizable;
   const resolved = children(() => props.children);
   const slots = createMemo(() => collectSidebarSlots(resolved()));
   const header = createMemo(() => slots().find((slot): slot is SidebarHeaderSlot => slot.kind === SIDEBAR_HEADER));
@@ -353,7 +497,11 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
         </nav>
       </Show>
 
-      <aside class={`workspace-sidebar sidebar-container ${props.class ?? ""}`}>
+      <aside
+        class={`workspace-sidebar sidebar-container ${props.class ?? ""}`}
+        data-workspace-resizable={resizable() ? "true" : "false"}
+        data-workspace-collapsible={props.collapsible ? "true" : "false"}
+      >
         <div class="workspace-sidebar-surface paper flex h-full min-h-0 flex-col gap-4 p-3">
           <Show when={header() && header()!.showDesktop !== false}>
             <div class="workspace-sidebar-header relative flex items-center gap-3">
@@ -363,6 +511,9 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
           <SidebarModeContext.Provider value="desktop">{desktop()?.children}</SidebarModeContext.Provider>
         </div>
       </aside>
+      <Show when={resizable()}>
+        <AppWorkspaceResizeHandle kind="sidebar" defaultWidth={208} collapsible={props.collapsible} />
+      </Show>
     </>
   );
 };
@@ -376,13 +527,19 @@ const AppWorkspaceSidebarMobileItems = (props: AppWorkspaceSidebarMobileItemsPro
 );
 
 const AppWorkspaceSidebarMobileBody = (props: AppWorkspaceSidebarBodyProps) => (
-  <div class={`mt-2 max-h-64 overflow-y-auto p-2 ${props.class ?? ""}`} {...scrollPreserveAttr(props.scrollPreserveKey)}>
+  <div
+    class={`mt-2 flex max-h-64 flex-col gap-3 overflow-y-auto p-2 ${props.class ?? ""}`}
+    {...scrollPreserveAttr(props.scrollPreserveKey)}
+  >
     {props.children}
   </div>
 );
 
+const sidebarModeAttr = (mode: AppWorkspaceSidebarVisibility | undefined) =>
+  mode && mode !== "always" ? { "data-sidebar-mode": mode } : {};
+
 const AppWorkspaceSidebarSection = (props: AppWorkspaceSidebarSectionProps) => (
-  <section class={`sidebar-group ${props.class ?? ""}`}>
+  <section class={`sidebar-group ${props.class ?? ""}`} {...sidebarModeAttr(props.sidebarMode)}>
     <Show when={props.title}>
       <p class="sidebar-section-title">{props.title}</p>
     </Show>
@@ -391,17 +548,19 @@ const AppWorkspaceSidebarSection = (props: AppWorkspaceSidebarSectionProps) => (
 );
 
 const AppWorkspaceSidebarBody = (props: AppWorkspaceSidebarBodyProps) => (
-  <div class={`sidebar-body ${props.class ?? ""}`} {...scrollPreserveAttr(props.scrollPreserveKey)}>
+  <div class={`sidebar-body ${props.class ?? ""}`} {...scrollPreserveAttr(props.scrollPreserveKey)} {...sidebarModeAttr(props.sidebarMode)}>
     {props.children}
   </div>
 );
 
-const AppWorkspaceSidebarFooter = (props: { class?: string; children: JSX.Element }) => (
-  <section class={`sidebar-footer ${props.class ?? ""}`}>{props.children}</section>
+const AppWorkspaceSidebarFooter = (props: { class?: string; sidebarMode?: AppWorkspaceSidebarVisibility; children: JSX.Element }) => (
+  <section class={`sidebar-footer ${props.class ?? ""}`} {...sidebarModeAttr(props.sidebarMode)}>
+    {props.children}
+  </section>
 );
 
 const AppWorkspaceSidebarIconGrid = (props: AppWorkspaceSidebarIconGridProps) => (
-  <section class={`sidebar-icon-grid-wrap ${props.class ?? ""}`}>
+  <section class={`sidebar-icon-grid-wrap ${props.class ?? ""}`} {...sidebarModeAttr(props.sidebarMode)}>
     <Show when={props.title}>
       <p class="sidebar-section-title">{props.title}</p>
     </Show>
@@ -433,15 +592,25 @@ const iconActionToneClass = (tone: AppWorkspaceSidebarIconActionTone | undefined
 
 const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
   const mode = useContext(SidebarModeContext);
+  const resolved = children(() => props.children);
+  const slots = createMemo(() => collectSidebarItemSlots(resolved()));
+  const iconSlot = createMemo(() => slots().find((slot): slot is SidebarItemIconSlot => slot.kind === SIDEBAR_ITEM_ICON));
+  const labelSlot = createMemo(() => slots().find((slot): slot is SidebarItemLabelSlot => slot.kind === SIDEBAR_ITEM_LABEL));
+  const metaSlot = createMemo(() => slots().find((slot): slot is SidebarItemMetaSlot => slot.kind === SIDEBAR_ITEM_META));
+  const actionSlot = createMemo(() => slots().find((slot): slot is SidebarItemActionSlot => slot.kind === SIDEBAR_ITEM_ACTION));
   const mobile = () => mode === "mobile";
+  const hasAction = () => Boolean(actionSlot() || props.actionIcon);
   const className = () =>
     mobile()
-      ? `sidebar-item-mobile ${props.active ? (props.activeClass ?? activeMobileClass) : ""} ${itemToneClass(props.tone, true)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`
-      : `sidebar-item group text-xs ${props.active ? (props.activeClass ?? "sidebar-item-active") : ""} ${itemToneClass(props.tone, false)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`;
+      ? `sidebar-item-mobile ${hasAction() ? "sidebar-item-has-action" : ""} ${props.active ? (props.activeClass ?? activeMobileClass) : ""} ${itemToneClass(props.tone, true)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`
+      : `sidebar-item group text-xs ${hasAction() ? "sidebar-item-has-action" : ""} ${props.active ? (props.activeClass ?? "sidebar-item-active") : ""} ${itemToneClass(props.tone, false)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`;
   const style = () => (props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined);
   const dataAttrs = () =>
     Object.fromEntries(
-      Object.entries(props.data ?? {})
+      Object.entries({
+        ...props.data,
+        ...(props.sidebarMode && props.sidebarMode !== "always" ? { "sidebar-mode": props.sidebarMode } : {}),
+      })
         .filter(([, value]) => value !== null && value !== undefined)
         .map(([key, value]) => [`data-${key}`, String(value)]),
     );
@@ -454,46 +623,81 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
       onNavigate: props.onNavigate,
     });
 
+  const legacyChildren = (value: unknown): unknown[] => {
+    if (Array.isArray(value)) return value.flatMap(legacyChildren);
+    return isSidebarItemSlot(value) ? [] : [value];
+  };
+  const labelContent = createMemo(() => {
+    if (labelSlot()) return labelSlot()!.children;
+    const content = legacyChildren(resolved());
+    return content.length === 1 ? content[0] : content;
+  });
+  const iconContent = () => iconSlot()?.children;
+  const iconName = () => iconSlot()?.icon ?? props.icon;
+  const metaContent = () => metaSlot()?.children ?? props.meta;
+
   const mainContent = (
     <>
-      <Show when={props.icon}>
-        <i class={`${tablerIconClass(props.icon, "ti-circle")} ${mobile() ? "" : "text-sm"}`} />
+      <Show when={iconContent() || iconName()}>
+        <span class="sidebar-item-icon" aria-hidden="true">
+          <Show when={iconContent()} fallback={<i class={`${tablerIconClass(iconName(), "ti-circle")} ${mobile() ? "" : "text-sm"}`} />}>
+            {iconContent()}
+          </Show>
+        </span>
       </Show>
-      <span class="min-w-0 flex-1 truncate text-left">{props.children}</span>
-      <Show when={props.meta}>
-        <span class="shrink-0 text-dimmed tabular-nums">{props.meta}</span>
+      <span class="sidebar-item-label" data-app-workspace-label data-marquee={labelSlot()?.marquee === false ? undefined : "true"}>
+        <span class="sidebar-item-label-text" data-app-workspace-label-text>
+          {labelContent() as JSX.Element}
+        </span>
+      </span>
+      <Show when={metaContent()}>
+        <span class="sidebar-item-meta-trailing">{metaContent()}</span>
       </Show>
     </>
   );
-  const actionButton = () => (
-    <Show when={props.actionIcon && !mobile()}>
-      <button
-        type="button"
-        class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-        aria-label={props.actionLabel ?? "Row action"}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          props.onActionClick?.(event);
-        }}
-      >
-        <i class={`${tablerIconClass(props.actionIcon, "ti-dots")} text-xs`} />
+  const actionContent = () =>
+    actionSlot()?.children ?? <i class={`${tablerIconClass(actionSlot()?.icon ?? props.actionIcon, "ti-dots")} text-xs`} />;
+  const actionLabel = () => actionSlot()?.label ?? props.actionLabel ?? "Row action";
+  const actionSelect = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    actionSlot()?.onSelect?.(event);
+    props.onActionClick?.(event);
+  };
+  const actionButton = () => {
+    const slot = actionSlot();
+    if (!hasAction()) return null;
+    if (slot?.href) {
+      const linkProps = linkEnhancementProps({ href: slot.href, navigation: slot.navigation });
+      return (
+        <a
+          href={slot.href}
+          class="sidebar-item-action"
+          aria-label={actionLabel()}
+          title={actionLabel()}
+          onClick={(event) => {
+            event.stopPropagation();
+            slot.onSelect?.(event);
+            if (linkProps) handleEnhancedClick(event, slot.href!, linkProps);
+          }}
+        >
+          {actionContent()}
+        </a>
+      );
+    }
+    return (
+      <button type="button" class="sidebar-item-action" aria-label={actionLabel()} title={actionLabel()} onClick={actionSelect}>
+        {actionContent()}
       </button>
-    </Show>
-  );
-  const content = (
-    <>
-      {mainContent}
-      {actionButton()}
-    </>
-  );
-  const actionRowContentClass = "flex min-w-0 flex-1 items-center gap-2 text-left";
+    );
+  };
+  const actionRowContentClass = "sidebar-item-main";
 
   const renderWithAction = () => (
     <Show
       when={props.disabled ? undefined : props.href}
       fallback={
-        <div class={className()} title={props.title} style={style()} {...dataAttrs()}>
+        <div class={className()} title={props.title} style={style()} data-app-workspace-item {...dataAttrs()}>
           <button type="button" class={actionRowContentClass} disabled={props.disabled} onClick={props.onClick}>
             {mainContent}
           </button>
@@ -505,8 +709,8 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
         <Show
           when={enhanced(href())}
           fallback={
-            <div class={className()} title={props.title} style={style()} {...dataAttrs()}>
-              <a href={href()} class={actionRowContentClass} onClick={props.onClick}>
+            <div class={className()} title={props.title} style={style()} data-app-workspace-item {...dataAttrs()}>
+              <a href={href()} class={actionRowContentClass} aria-current={props.active ? "page" : undefined} onClick={props.onClick}>
                 {mainContent}
               </a>
               {actionButton()}
@@ -514,10 +718,11 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
           }
         >
           {(linkProps) => (
-            <div class={className()} title={props.title} style={style()} {...dataAttrs()}>
+            <div class={className()} title={props.title} style={style()} data-app-workspace-item {...dataAttrs()}>
               <a
                 href={href()}
                 class={actionRowContentClass}
+                aria-current={props.active ? "page" : undefined}
                 onClick={(event) => {
                   props.onClick?.(event);
                   handleEnhancedClick(event, href(), linkProps());
@@ -533,7 +738,7 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
     </Show>
   );
 
-  if (props.actionIcon && !mobile()) return renderWithAction();
+  if (hasAction()) return renderWithAction();
 
   return (
     <Show
@@ -544,11 +749,12 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
           class={className()}
           title={props.title}
           style={style()}
+          data-app-workspace-item
           disabled={props.disabled}
           onClick={props.onClick}
           {...dataAttrs()}
         >
-          {content}
+          {mainContent}
         </button>
       }
     >
@@ -556,8 +762,17 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
         <Show
           when={enhanced(href())}
           fallback={
-            <a href={href()} class={className()} title={props.title} style={style()} onClick={props.onClick} {...dataAttrs()}>
-              {content}
+            <a
+              href={href()}
+              class={className()}
+              title={props.title}
+              style={style()}
+              aria-current={props.active ? "page" : undefined}
+              data-app-workspace-item
+              onClick={props.onClick}
+              {...dataAttrs()}
+            >
+              {mainContent}
             </a>
           }
         >
@@ -567,13 +782,15 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
               class={className()}
               title={props.title}
               style={style()}
+              aria-current={props.active ? "page" : undefined}
+              data-app-workspace-item
               onClick={(event) => {
                 props.onClick?.(event);
                 handleEnhancedClick(event, href(), linkProps());
               }}
               {...dataAttrs()}
             >
-              {content}
+              {mainContent}
             </a>
           )}
         </Show>
@@ -609,6 +826,7 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
           disabled={props.disabled}
           style={style()}
           onClick={props.onClick}
+          {...sidebarModeAttr(props.sidebarMode)}
         >
           {content}
         </button>
@@ -618,7 +836,15 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
         <Show
           when={enhanced(href())}
           fallback={
-            <a href={href()} class={className()} title={props.label} aria-label={props.label} style={style()} onClick={props.onClick}>
+            <a
+              href={href()}
+              class={className()}
+              title={props.label}
+              aria-label={props.label}
+              style={style()}
+              onClick={props.onClick}
+              {...sidebarModeAttr(props.sidebarMode)}
+            >
               {content}
             </a>
           }
@@ -634,6 +860,7 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
                 props.onClick?.(event);
                 handleEnhancedClick(event, href(), linkProps());
               }}
+              {...sidebarModeAttr(props.sidebarMode)}
             >
               {content}
             </a>
@@ -645,7 +872,11 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
 };
 
 const AppWorkspace = ((props: AppWorkspaceProps) => (
-  <div class={`app-workspace app-cols h-full ${props.class ?? ""}`}>{props.children}</div>
+  <AppWorkspaceResizeContext.Provider value={props.resizable !== false}>
+    <div class={`app-workspace app-cols relative h-full ${props.class ?? ""}`} data-app-workspace>
+      {props.children}
+    </div>
+  </AppWorkspaceResizeContext.Provider>
 )) as AppWorkspaceComponent;
 
 AppWorkspace.Main = AppWorkspaceMain;
@@ -660,6 +891,10 @@ AppWorkspace.SidebarSection = AppWorkspaceSidebarSection;
 AppWorkspace.SidebarBody = AppWorkspaceSidebarBody;
 AppWorkspace.SidebarFooter = AppWorkspaceSidebarFooter;
 AppWorkspace.SidebarItem = AppWorkspaceSidebarItem;
+AppWorkspace.SidebarItemIcon = AppWorkspaceSidebarItemIcon;
+AppWorkspace.SidebarItemLabel = AppWorkspaceSidebarItemLabel;
+AppWorkspace.SidebarItemMeta = AppWorkspaceSidebarItemMeta;
+AppWorkspace.SidebarItemAction = AppWorkspaceSidebarItemAction;
 AppWorkspace.SidebarIconGrid = AppWorkspaceSidebarIconGrid;
 AppWorkspace.SidebarIconAction = AppWorkspaceSidebarIconAction;
 

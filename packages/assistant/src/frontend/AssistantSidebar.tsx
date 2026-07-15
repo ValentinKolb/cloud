@@ -1,6 +1,7 @@
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import {
   AppWorkspace,
+  Dropdown,
   isSpotlightShortcut,
   openAiSkillsManager,
   openSpotlightSearch,
@@ -9,6 +10,7 @@ import {
 import { type LinkNavigateEvent, navigate, navigateTo } from "@valentinkolb/ssr/nav";
 import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
+import { openAssistantAllChatsDialog } from "./AssistantAllChatsDialog";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { openAssistantPrefsModal } from "./AssistantPrefsModals";
 import { assistantConversationHref } from "./assistant-navigation";
@@ -30,7 +32,11 @@ type AssistantSidebarProps = {
 const ASSISTANT_ICON_STYLE = "background-color: var(--app-accent)";
 const PER_SPOTLIGHT_PAGE = 20;
 
-function AssistantSpotlightButton(props: { registerShortcut?: boolean; openConversation?: (conversation: AiConversation) => void }) {
+function AssistantSpotlightButton(props: {
+  registerShortcut?: boolean;
+  openConversation?: (conversation: AiConversation) => void;
+  variant?: "item" | "icon";
+}) {
   const openSearch = async () => {
     const selected = await openSpotlightSearch<AiConversation>({
       title: "Search chats",
@@ -69,7 +75,9 @@ function AssistantSpotlightButton(props: { registerShortcut?: boolean; openConve
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
-  return (
+  return props.variant === "icon" ? (
+    <AppWorkspace.SidebarIconAction icon="ti ti-search" onClick={openSearch} label={`Search chats (${SPOTLIGHT_SHORTCUT_TITLE})`} />
+  ) : (
     <AppWorkspace.SidebarItem icon="ti ti-search" onClick={openSearch} title={`Search chats (${SPOTLIGHT_SHORTCUT_TITLE})`}>
       Search Chats
     </AppWorkspace.SidebarItem>
@@ -96,15 +104,19 @@ function ConversationSidebarItem(props: {
       navigation={props.open ? "enhanced" : "document"}
       scroll="manual"
       onNavigate={props.open ? handleNavigate : undefined}
-      icon={running() ? "ti ti-loader-2 animate-spin" : conversationIcon(props.conversation)}
       active={props.active}
       title={props.conversation.title}
-      meta={<ConversationStatusMeta conversation={props.conversation} hideStatus={running()} />}
-      actionIcon="ti ti-settings"
-      actionLabel={`Edit ${props.conversation.title}`}
-      onActionClick={() => props.edit(props.conversation)}
     >
-      {props.conversation.title}
+      <AppWorkspace.SidebarItemIcon icon={running() ? "ti ti-loader-2 animate-spin" : conversationIcon(props.conversation)} />
+      <AppWorkspace.SidebarItemLabel>{props.conversation.title}</AppWorkspace.SidebarItemLabel>
+      <AppWorkspace.SidebarItemMeta>
+        <ConversationStatusMeta conversation={props.conversation} hideStatus={running()} />
+      </AppWorkspace.SidebarItemMeta>
+      <AppWorkspace.SidebarItemAction
+        icon="ti ti-settings"
+        label={`Edit ${props.conversation.title}`}
+        onSelect={() => props.edit(props.conversation)}
+      />
     </AppWorkspace.SidebarItem>
   );
 }
@@ -114,7 +126,6 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
   const activeView = () => props.activeView ?? "chat";
   const creatingConversation = () => props.creatingConversation?.() ?? false;
   const groups = () => groupRecentConversations(props.conversations());
-  const hasConversations = () => props.conversations().length > 0;
 
   const openConversationFromCommand = (conversation: AiConversation) => {
     if (conversation.id === activeConversationId()) return;
@@ -137,9 +148,26 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
     if (result.action === "save") props.onConversationUpdated?.(result.conversation);
     else props.onConversationArchived?.(result.conversation);
   };
+  const openAllChats = () => void openAssistantAllChatsDialog(openConversationFromCommand);
+  const collapsedChatMenu = () => [
+    {
+      sectionLabel: "Chats",
+      items: [
+        ...props
+          .conversations()
+          .slice(0, 6)
+          .map((conversation) => ({
+            icon: conversationIcon(conversation),
+            label: conversation.title,
+            action: () => openConversationFromCommand(conversation),
+          })),
+        { icon: "ti ti-messages", label: "All chats", action: openAllChats },
+      ],
+    },
+  ];
 
   return (
-    <AppWorkspace.Sidebar>
+    <AppWorkspace.Sidebar collapsible>
       <AppWorkspace.SidebarHeader title="Assistant" icon="ti ti-sparkles" iconStyle={ASSISTANT_ICON_STYLE} showDesktop={false} />
 
       <AppWorkspace.SidebarMobile>
@@ -153,7 +181,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
             {creatingConversation() ? "Creating Chat" : "New Chat"}
           </AppWorkspace.SidebarItem>
           <AssistantSpotlightButton openConversation={openConversationFromCommand} />
-          <AppWorkspace.SidebarItem href="/app/assistant/chats" navigation="document" icon="ti ti-messages" active={activeView() === "all"}>
+          <AppWorkspace.SidebarItem icon="ti ti-messages" active={activeView() === "all"} onClick={openAllChats}>
             All Chats
           </AppWorkspace.SidebarItem>
           <AppWorkspace.SidebarItem icon="ti ti-user-cog" onClick={() => void openAssistantPrefsModal()}>
@@ -164,11 +192,10 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
           </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="assistant-sidebar-mobile">
-          <AppWorkspace.SidebarSection>
+          <Show when={groups().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No chats yet</p>}>
             <For each={groups()}>
               {(group) => (
-                <>
-                  <p class="sidebar-section-title px-2 pt-2">{group.title}</p>
+                <AppWorkspace.SidebarSection title={group.title}>
                   <For each={group.items}>
                     {(conversation) => (
                       <ConversationSidebarItem
@@ -179,33 +206,43 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
                       />
                     )}
                   </For>
-                </>
+                </AppWorkspace.SidebarSection>
               )}
             </For>
-            <Show when={!hasConversations()}>
-              <p class="px-2 py-1 text-xs text-dimmed">No chats yet</p>
-            </Show>
-          </AppWorkspace.SidebarSection>
+          </Show>
         </AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
-        <AppWorkspace.SidebarSection>
-          <AppWorkspace.SidebarItem
+        <AppWorkspace.SidebarIconGrid columns={2}>
+          <AppWorkspace.SidebarIconAction
             icon={creatingConversation() ? "ti ti-loader-2 animate-spin" : "ti ti-message-plus"}
+            label={creatingConversation() ? "Creating chat" : "New chat"}
             active={!activeConversationId() && activeView() === "chat"}
             disabled={creatingConversation()}
             onClick={() => void props.onNewConversation?.()}
-          >
-            {creatingConversation() ? "Creating Chat" : "New Chat"}
-          </AppWorkspace.SidebarItem>
-          <AssistantSpotlightButton registerShortcut openConversation={openConversationFromCommand} />
-          <AppWorkspace.SidebarItem href="/app/assistant/chats" navigation="document" icon="ti ti-messages" active={activeView() === "all"}>
+          />
+          <AssistantSpotlightButton variant="icon" registerShortcut openConversation={openConversationFromCommand} />
+        </AppWorkspace.SidebarIconGrid>
+
+        <AppWorkspace.SidebarSection sidebarMode="expanded">
+          <AppWorkspace.SidebarItem icon="ti ti-messages" active={activeView() === "all"} onClick={openAllChats}>
             All Chats
           </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarSection>
 
-        <AppWorkspace.SidebarBody scrollPreserveKey="assistant-sidebar">
+        <AppWorkspace.SidebarSection sidebarMode="collapsed">
+          <Dropdown
+            trigger={<AppWorkspace.SidebarIconAction icon="ti ti-messages" label="Recent and all chats" active={activeView() === "all"} />}
+            elements={collapsedChatMenu()}
+            position="right-start"
+            width="w-64"
+            triggerClass="flex w-full"
+            openOnHover
+          />
+        </AppWorkspace.SidebarSection>
+
+        <AppWorkspace.SidebarBody scrollPreserveKey="assistant-sidebar" sidebarMode="expanded">
           <Show when={groups().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No recent chats</p>}>
             <For each={groups()}>
               {(group) => (
@@ -225,13 +262,19 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
             </For>
           </Show>
         </AppWorkspace.SidebarBody>
-        <AppWorkspace.SidebarFooter>
+        <AppWorkspace.SidebarFooter sidebarMode="expanded">
           <AppWorkspace.SidebarItem icon="ti ti-user-cog" onClick={() => void openAssistantPrefsModal()}>
             Personalize
           </AppWorkspace.SidebarItem>
           <AppWorkspace.SidebarItem icon="ti ti-wand" onClick={() => void openAiSkillsManager()}>
             Skills
           </AppWorkspace.SidebarItem>
+        </AppWorkspace.SidebarFooter>
+        <AppWorkspace.SidebarFooter sidebarMode="collapsed">
+          <AppWorkspace.SidebarIconGrid>
+            <AppWorkspace.SidebarIconAction icon="ti ti-user-cog" label="Personalize" onClick={() => void openAssistantPrefsModal()} />
+            <AppWorkspace.SidebarIconAction icon="ti ti-wand" label="Skills" onClick={() => void openAiSkillsManager()} />
+          </AppWorkspace.SidebarIconGrid>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>

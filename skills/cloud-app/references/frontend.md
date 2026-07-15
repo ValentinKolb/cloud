@@ -976,7 +976,7 @@ Compound layout for full-height app screens with left sidebar, main work area, a
 For full-height `AppWorkspace.Main` screens, use the same content spacing as admin stretch pages:
 
 ```tsx
-<AppWorkspace.Main>
+<AppWorkspace.Main class="p-[var(--ui-space-shell)]">
   <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
     <div class="flex flex-col gap-2">
       <div class="flex items-center justify-between gap-3" style="view-transition-name: my-app-title">
@@ -990,11 +990,13 @@ For full-height `AppWorkspace.Main` screens, use the same content spacing as adm
 </AppWorkspace.Main>
 ```
 
-Do not turn `AppWorkspace.Main` into another `paper`. The workspace root owns the outer surface, radius, and shadow. Content that needs an inset uses section spacing once; edge-to-edge tables, editors, and panes own their own internal padding. Keep vertical rhythm at `gap-2` unless a specific component needs a larger semantic section gap.
+Do not turn `AppWorkspace.Main` into another `paper`. The workspace root owns the outer surface, radius, and shadow. `AppWorkspace.Main` does not supply content padding automatically: for a standard inset work area, put `p-[var(--ui-space-shell)]` directly on Main. Do not substitute `p-3` or `p-4`, and do not add a full-height wrapper just to carry the outer padding. Omit the token only for an intentional edge-to-edge table, editor, canvas, or `Panes` layout whose shared primitive owns its internal gutters. Keep vertical rhythm at `gap-2` unless a specific component needs a larger semantic section gap.
 
 Only put `scrollbar-gutter: stable` on the element that actually owns page scrolling. If the screen is composed of independently scrollable regions (for example an endpoints table and a requests table), keep `AppWorkspace.Main` as `flex min-h-0 flex-1 flex-col gap-2` without `overflow-y-auto` and put `overflow-auto` / `scrollPreserveKey` on each `DataTable`. Otherwise the reserved gutter appears as false spacing between main and detail.
 
 Do not add gaps, margins, borders, radii, or shadows between `AppWorkspace.Sidebar`, `AppWorkspace.Main`, and `AppWorkspace.Detail`. They are internal regions of the unified frame. Sidebar and detail use the quiet surface role; main remains neutral.
+
+Main and Detail are siblings. Never implement contextual detail as `grid-cols-2`, a flex split, or another column inside `AppWorkspace.Main`. Use `AppWorkspace.Detail` so the shared shell owns responsive stacking and order, width, clipping, scrolling, and visibility. If the main content itself is an IDE-like multi-pane tool rather than a selected-record detail, use `Panes` inside Main instead.
 
 Detail panels have two hierarchy layers. Put the record identity, compact
 context or status, close/overflow controls, and frequent quick actions in a
@@ -1008,7 +1010,7 @@ the transition from orientation to content.
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
 <AppWorkspace class="cloud-ui-soft">
-  <AppWorkspace.Sidebar>
+  <AppWorkspace.Sidebar collapsible>
     <AppWorkspace.SidebarHeader title="My App" icon="ti ti-list" />
     <AppWorkspace.SidebarDesktop>
       <AppWorkspace.SidebarSection title="Navigation">
@@ -1018,7 +1020,7 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
       </AppWorkspace.SidebarSection>
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
-  <AppWorkspace.Main>{children}</AppWorkspace.Main>
+  <AppWorkspace.Main class="p-[var(--ui-space-shell)]">{children}</AppWorkspace.Main>
   <AppWorkspace.Detail open={Boolean(selectedId())} width="md">
     <header class="detail-header">
       {detailIdentity}
@@ -1037,18 +1039,42 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 tokens and workspace rules are promoted globally in the dedicated rollout
 change.
 
-Use compound components instead of hand-written sidebar/detail classes. `SidebarItem` owns active, icon, mobile, tone, and meta styling.
+Use compound components instead of hand-written sidebar/detail classes. `SidebarItem` owns active, icon, mobile, tone, label truncation, trailing metadata, progressive row actions, and the accessible long-label marquee.
+
+Desktop Sidebar and Detail regions are resizable by default. `Layout` restores validated widths from a per-app cookie during SSR, so the first paint already uses the saved geometry. One Layout-owned controller handles pointer and keyboard resizing for all server-rendered workspaces; do not turn an app page or every sidebar item into an island. The separator supports Arrow keys, Shift+Arrow for larger steps, Home, and End. Set `resizable={false}` on the root or one region only when that layout deliberately owns a fixed width, such as a dedicated navigator mode.
+
+Resize behavior is an app-level contract, not a route-level accident. When one primary view of an app has a resizable sidebar, every primary view of that app must keep the same sidebar and resize behavior unless there is a documented UX reason to omit it. Do not replace the workspace with a standalone page merely for search, history, archive, or management. Prefer a modal for temporary collection workflows, or keep the same `AppWorkspace` shell when the workflow genuinely needs its own route.
+
+Collapsed desktop navigation is opt-in with `collapsible` on `AppWorkspace.Sidebar`. Crossing the shared collapse threshold snaps to the icon-only state with a short reduced-motion-aware transition; dragging back restores the last useful expanded width. The per-app SSR cookie stores both states, so reload never flashes the wrong geometry. Curate the collapsed navigation instead of shrinking every dense row: use `sidebarMode="expanded"` for labels or long lists and `sidebarMode="collapsed"` for a small set of recognizable icon actions. Every collapsed icon needs an accessible label and a visible tooltip or title.
 
 Compound pieces:
 - `AppWorkspace`, `AppWorkspace.Main`
-- `AppWorkspace.Detail` with `open`, `width?: "sm" | "md" | "lg" | "xl"`, `widthClass?`, `viewTransitionName?`
-- `AppWorkspace.Sidebar`, `SidebarHeader`, `SidebarMobile`, `SidebarMobileItems`, `SidebarDesktop`, `SidebarBody`, `SidebarFooter`, `SidebarSection`
+- `AppWorkspace` with `resizable?: boolean`
+- `AppWorkspace.Detail` with `open`, `width?: "sm" | "md" | "lg" | "xl"`, `widthClass?`, `viewTransitionName?`, and `resizable?`
+- `AppWorkspace.Sidebar` with `resizable?` and opt-in `collapsible?`, plus `SidebarHeader`, `SidebarMobile`, `SidebarMobileItems`, `SidebarDesktop`, `SidebarBody`, `SidebarFooter`, and `SidebarSection`
 - `AppWorkspace.SidebarHeader` accepts `showDesktop={false}` when its static app title is redundant on desktop but must remain as the mobile sidebar trigger.
 - `AppWorkspace.SidebarBody` and `SidebarMobileBody` accept `scrollPreserveKey?: string | false`; pass a stable app-specific key when the body is a scrollable navigation/list region.
+- `SidebarSection`, `SidebarBody`, `SidebarFooter`, `SidebarItem`, `SidebarIconGrid`, and `SidebarIconAction` accept `sidebarMode?: "always" | "expanded" | "collapsed"` for a deliberately curated icon-only state.
 - `AppWorkspace.SidebarItem` with `href?`, `active?`, `activeClass?`, `icon?`, `meta?`, `tone?: "default" | "success" | "danger"`, `actionIcon?`, `actionLabel?`, `onActionClick?`, `onClick?`, and navigation props `navigation?: "enhanced" | "document"`, `onNavigate?`, `scroll?`, `replace?`.
+- `SidebarItemIcon`, `SidebarItemLabel`, `SidebarItemMeta`, and `SidebarItemAction` are the preferred explicit slots. Legacy `icon`, `meta`, and action props remain supported while apps migrate.
 - `AppWorkspace.SidebarIconGrid` and `SidebarIconAction` for compact icon action groups. `SidebarIconAction` supports the same navigation props as `SidebarItem`.
 
 `SidebarItem`/`SidebarIconAction` default to enhanced navigation for same-origin `href`s. Without a custom `onNavigate`, enhanced navigation only updates history and scroll state; use `navigation="document"` when the target route must be loaded by SSR. Add `onNavigate` when the current island can safely update its own state for the target URL.
+
+```tsx
+<AppWorkspace.SidebarItem href={conversationHref} active={selected} title={conversation.title}>
+  <AppWorkspace.SidebarItemIcon icon="ti ti-message" />
+  <AppWorkspace.SidebarItemLabel>{conversation.title}</AppWorkspace.SidebarItemLabel>
+  <AppWorkspace.SidebarItemMeta>{unreadCount}</AppWorkspace.SidebarItemMeta>
+  <AppWorkspace.SidebarItemAction
+    icon="ti ti-settings"
+    label={`Edit ${conversation.title}`}
+    onSelect={openConversationSettings}
+  />
+</AppWorkspace.SidebarItem>
+```
+
+Keep sidebar sections as direct children of `SidebarBody` or `SidebarMobileBody`. Those containers own the vertical section gap; do not wrap a set of sections in a margin-bearing `div`, add borders between them, or attach conditional top margins to headings.
 
 ```tsx
 // Full SSR route change: server must load new data.

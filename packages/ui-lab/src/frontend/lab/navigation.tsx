@@ -215,7 +215,7 @@ export const AppWorkspaceDemo = () => {
       chip={{ kind: "component", name: "AppWorkspace", from: FROM_UI }}
       description="One clipped workbench frame with quiet navigation and detail regions around a neutral main surface. Apps compose content without hand-rolling outer papers."
       code={`<AppWorkspace class="cloud-ui-soft">
-  <AppWorkspace.Sidebar>
+  <AppWorkspace.Sidebar collapsible>
     <AppWorkspace.SidebarHeader title="Project" subtitle="Q2 sprint" icon="ti ti-folder" />
     <AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarMobileItems>
@@ -224,7 +224,11 @@ export const AppWorkspaceDemo = () => {
     </AppWorkspace.SidebarMobile>
     <AppWorkspace.SidebarDesktop>
       <AppWorkspace.SidebarSection title="Navigation">
-        <AppWorkspace.SidebarItem href="/app" icon="ti ti-home" active navigation="document">Overview</AppWorkspace.SidebarItem>
+        <AppWorkspace.SidebarItem href="/app" active navigation="document">
+          <AppWorkspace.SidebarItemIcon icon="ti ti-home" />
+          <AppWorkspace.SidebarItemLabel>Overview</AppWorkspace.SidebarItemLabel>
+          <AppWorkspace.SidebarItemAction icon="ti ti-settings" label="Overview settings" onSelect={openSettings} />
+        </AppWorkspace.SidebarItem>
       </AppWorkspace.SidebarSection>
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
@@ -236,7 +240,7 @@ export const AppWorkspaceDemo = () => {
     >
       <div class="h-80 overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--ui-canvas)] p-2">
         <AppWorkspace class="cloud-ui-soft">
-          <AppWorkspace.Sidebar>
+          <AppWorkspace.Sidebar collapsible>
             <AppWorkspace.SidebarHeader title="Project" subtitle="Q2 sprint" icon="ti ti-folder" />
             <AppWorkspace.SidebarMobile>
               <AppWorkspace.SidebarMobileItems>
@@ -254,7 +258,7 @@ export const AppWorkspaceDemo = () => {
               </AppWorkspace.SidebarMobileItems>
             </AppWorkspace.SidebarMobile>
             <AppWorkspace.SidebarDesktop>
-              <AppWorkspace.SidebarSection title="Navigation">
+              <AppWorkspace.SidebarSection title="Navigation" sidebarMode="expanded">
                 <AppWorkspace.SidebarItem icon="ti ti-home" active={selectedId() === "overview"} onClick={() => setSelectedId("overview")}>
                   Overview
                 </AppWorkspace.SidebarItem>
@@ -271,8 +275,25 @@ export const AppWorkspaceDemo = () => {
                 </AppWorkspace.SidebarItem>
               </AppWorkspace.SidebarSection>
 
-              <AppWorkspace.SidebarBody scrollPreserveKey="ui-lab-workspace-demo-sidebar">
+              <AppWorkspace.SidebarIconGrid sidebarMode="collapsed">
+                <AppWorkspace.SidebarIconAction icon="ti ti-home" label="Overview" onClick={() => setSelectedId("overview")} />
+                <AppWorkspace.SidebarIconAction icon="ti ti-checklist" label="Tasks" onClick={() => setSelectedId("tasks")} />
+              </AppWorkspace.SidebarIconGrid>
+
+              <AppWorkspace.SidebarBody scrollPreserveKey="ui-lab-workspace-demo-sidebar" sidebarMode="expanded">
                 <AppWorkspace.SidebarSection title="Roadmap">
+                  <AppWorkspace.SidebarItem active={selectedId() === "long"} onClick={() => setSelectedId("long")}>
+                    <AppWorkspace.SidebarItemIcon icon="ti ti-message" />
+                    <AppWorkspace.SidebarItemLabel>
+                      Customer launch conversation with a deliberately long title
+                    </AppWorkspace.SidebarItemLabel>
+                    <AppWorkspace.SidebarItemMeta>4</AppWorkspace.SidebarItemMeta>
+                    <AppWorkspace.SidebarItemAction
+                      icon="ti ti-settings"
+                      label="Conversation settings"
+                      onSelect={() => setSelectedId("long-settings")}
+                    />
+                  </AppWorkspace.SidebarItem>
                   <AppWorkspace.SidebarItem
                     icon="ti ti-file-text"
                     active={selectedId() === "launch"}
@@ -293,8 +314,13 @@ export const AppWorkspaceDemo = () => {
                 </AppWorkspace.SidebarSection>
               </AppWorkspace.SidebarBody>
 
-              <AppWorkspace.SidebarFooter>
+              <AppWorkspace.SidebarFooter sidebarMode="expanded">
                 <AppWorkspace.SidebarItem icon="ti ti-settings">Settings</AppWorkspace.SidebarItem>
+              </AppWorkspace.SidebarFooter>
+              <AppWorkspace.SidebarFooter sidebarMode="collapsed">
+                <AppWorkspace.SidebarIconGrid>
+                  <AppWorkspace.SidebarIconAction icon="ti ti-settings" label="Settings" />
+                </AppWorkspace.SidebarIconGrid>
               </AppWorkspace.SidebarFooter>
             </AppWorkspace.SidebarDesktop>
           </AppWorkspace.Sidebar>

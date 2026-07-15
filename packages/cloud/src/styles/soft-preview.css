@@ -174,9 +174,12 @@ body:has(.cloud-ui-soft),
 }
 
 .cloud-ui-soft.app-workspace > .workspace-sidebar {
-  width: 12.625rem;
   overflow: hidden;
   background: var(--ui-surface-subtle);
+}
+
+.cloud-ui-soft.app-workspace > .workspace-sidebar[data-workspace-resizable="true"] {
+  width: var(--workspace-sidebar-width, 13rem);
 }
 
 .cloud-ui-soft .workspace-sidebar-surface {
@@ -195,6 +198,15 @@ body:has(.cloud-ui-soft),
   border-radius: 0;
   background: var(--ui-surface);
   box-shadow: var(--ui-shadow-workspace-edge);
+  transition: box-shadow 150ms ease-out;
+}
+
+.cloud-ui-soft.app-workspace:has(> .workspace-resize-handle:is(:hover, :focus-visible)) > .workspace-main,
+.cloud-ui-soft.app-workspace[data-workspace-resize-active] > .workspace-main {
+  box-shadow:
+    -8px 0 18px -16px rgb(24 24 27 / 0.34),
+    8px 0 18px -16px rgb(24 24 27 / 0.28),
+    var(--ui-shadow-workspace-edge);
 }
 
 .cloud-ui-soft.app-workspace > .workspace-detail {

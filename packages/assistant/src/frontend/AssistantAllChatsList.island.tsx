@@ -1,8 +1,8 @@
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
-import { createSignal, For, Show } from "solid-js";
 import { mutation } from "@valentinkolb/stdlib/solid";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { ConversationStatusMeta } from "./conversation-status";
@@ -10,6 +10,8 @@ import { ConversationStatusMeta } from "./conversation-status";
 type Props = {
   conversations: AiConversation[];
   archived?: boolean;
+  onOpenConversation?: (conversation: AiConversation) => void;
+  onChanged?: () => void;
 };
 
 const formatUpdatedAt = (value: string): string =>
@@ -23,6 +25,7 @@ const formatUpdatedAt = (value: string): string =>
 
 export default function AssistantAllChatsList(props: Props) {
   const [conversations, setConversations] = createSignal(props.conversations);
+  createEffect(() => setConversations(props.conversations));
   const [restoringId, setRestoringId] = createSignal<string | null>(null);
   const restore = mutation.create<AiConversation, AiConversation>({
     mutation: (conversation) => {
@@ -32,7 +35,8 @@ export default function AssistantAllChatsList(props: Props) {
     onSuccess: (conversation) => {
       setRestoringId(null);
       setConversations((current) => current.filter((item) => item.id !== conversation.id));
-      refreshCurrentPath();
+      if (props.onChanged) props.onChanged();
+      else refreshCurrentPath();
     },
     onError: (error) => {
       setRestoringId(null);
@@ -46,12 +50,14 @@ export default function AssistantAllChatsList(props: Props) {
 
     if (result.action === "save") {
       setConversations((prev) => prev.map((item) => (item.id === result.conversation.id ? result.conversation : item)));
-      refreshCurrentPath();
+      if (props.onChanged) props.onChanged();
+      else refreshCurrentPath();
       return;
     }
 
     setConversations((prev) => prev.filter((item) => item.id !== result.conversation.id));
-    refreshCurrentPath();
+    if (props.onChanged) props.onChanged();
+    else refreshCurrentPath();
   };
 
   return (
@@ -59,9 +65,11 @@ export default function AssistantAllChatsList(props: Props) {
       <For each={conversations()}>
         {(conversation) => (
           <div class="group flex min-w-0 items-center gap-3 rounded-md px-2 py-2.5 text-sm transition-colors hover:bg-[var(--ui-surface-subtle)] focus-within:bg-[var(--ui-surface-subtle)]">
-            <a
-              href={props.archived ? undefined : `/app/assistant?conversation=${conversation.id}`}
-              class={`flex min-w-0 flex-1 items-center gap-3 ${props.archived ? "cursor-default" : ""}`}
+            <button
+              type="button"
+              disabled={props.archived}
+              class={`flex min-w-0 flex-1 items-center gap-3 text-left ${props.archived ? "cursor-default" : ""}`}
+              onClick={() => props.onOpenConversation?.(conversation)}
             >
               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--ui-surface-subtle)] text-dimmed">
                 <i class={`${conversationIcon(conversation)} text-base`} />
@@ -72,7 +80,7 @@ export default function AssistantAllChatsList(props: Props) {
                   {conversation.description || `Updated ${formatUpdatedAt(conversation.updatedAt)}`}
                 </span>
               </span>
-            </a>
+            </button>
             <ConversationStatusMeta conversation={conversation} labels />
             <span class="hidden shrink-0 text-xs text-dimmed sm:block">{formatUpdatedAt(conversation.updatedAt)}</span>
             <button

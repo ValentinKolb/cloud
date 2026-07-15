@@ -6,7 +6,9 @@ import { dates } from "../shared";
 import { readThemeFromCookieHeader } from "../shared/theme";
 import type { LayoutBreadcrumb } from "../ui/layout";
 import Avatar from "../ui/misc/Avatar";
+import { appWorkspaceLayoutStyle, readAppWorkspaceLayoutCookie } from "../ui/misc/app-workspace-state";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
+import AppWorkspaceController from "./AppWorkspaceController.island";
 import { appAccentStyle, appAppearanceStyle, resolveCurrentApp } from "./app-appearance";
 import { visibleNavigationApps } from "./app-navigation";
 import BrowserNotifications from "./BrowserNotifications.island";
@@ -140,6 +142,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   const user = c.get("user");
   const pathname = new URL(c.req.raw.url).pathname;
   const currentApp = resolveCurrentApp(runtime.apps, pathname);
+  const workspaceLayout = readAppWorkspaceLayoutCookie(cookie, currentApp?.id);
   const { primary: primaryApps, more: moreApps } = buildNavLinks(runtime.apps, user);
   const allApps = [...primaryApps, ...moreApps];
   const launchpadApps: AppLaunchpadApp[] = allApps.map((app) => ({
@@ -193,12 +196,17 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   const breadcrumbs: Breadcrumb[] = !title ? [{ title: appName }] : typeof title === "string" ? [{ title }] : title;
   const showRail = !!user;
   const mainLayoutClass = fullPage || fullWidth ? "flex flex-col" : "md:overflow-auto";
+  const canvasStyle =
+    [appAppearanceStyle(currentApp?.appearance), appWorkspaceLayoutStyle(workspaceLayout)].filter(Boolean).join(";") || undefined;
   return (
     <div
       class={`cloud-app-canvas relative flex w-full ${fullPage ? "h-dvh overflow-hidden" : "min-h-screen md:h-screen md:overflow-hidden"}`}
-      style={appAppearanceStyle(currentApp?.appearance)}
+      style={canvasStyle}
+      data-app-id={currentApp?.id}
+      data-workspace-sidebar-collapsed={workspaceLayout?.sidebarCollapsed ? "true" : undefined}
     >
       <TimezoneCookie />
+      <AppWorkspaceController appId={currentApp?.id} />
       {user && <BrowserNotifications />}
       {showRail && <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} />}
       {showRail && (

@@ -1,4 +1,11 @@
-import type { AiConversation, AiConversationStatusFilter, AiEnrichmentRun, AiEnrichmentStatus, AiUserPrefs } from "@valentinkolb/cloud/ai";
+import type {
+  AiConversation,
+  AiConversationPage,
+  AiConversationStatusFilter,
+  AiEnrichmentRun,
+  AiEnrichmentStatus,
+  AiUserPrefs,
+} from "@valentinkolb/cloud/ai";
 
 const BASE = "/api/assistant";
 
@@ -24,6 +31,23 @@ export const assistantApi = {
     const response = await fetch(`${BASE}/conversations?${params.toString()}`, { signal: input.signal });
     if (!response.ok) throw new Error(await readError(response, "Failed to search chats"));
     return (await response.json()) as AiConversation[];
+  },
+
+  listConversationsPage: async (input: {
+    q?: string;
+    page: number;
+    perPage?: number;
+    archived?: boolean;
+    status?: AiConversationStatusFilter;
+    signal?: AbortSignal;
+  }): Promise<AiConversationPage> => {
+    const params = new URLSearchParams({ page: String(input.page), perPage: String(input.perPage ?? 20) });
+    if (input.q) params.set("q", input.q);
+    if (input.archived) params.set("archived", "true");
+    if (input.status) params.set("status", input.status);
+    const response = await fetch(`${BASE}/conversations/page?${params.toString()}`, { signal: input.signal });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load chats"));
+    return (await response.json()) as AiConversationPage;
   },
 
   createConversation: async (input: { title?: string } = {}): Promise<AiConversation> => {

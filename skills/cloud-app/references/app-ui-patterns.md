@@ -62,9 +62,11 @@ Cloud-specific rules:
 - SSR page wraps the island in `<Layout c={c} fullWidth title={breadcrumbs}>`. Add `fullPage` only when the route should suppress the normal footer and match an existing full-height reference.
 - Sidebar is built from `AppWorkspace.Sidebar*` components, not custom nav markup.
 - `AppWorkspace.SidebarBody` / `SidebarMobileBody` get stable `scrollPreserveKey` values for scrollable lists.
-- `AppWorkspace.Main` should not get a generic `p-3` or `p-4` wrapper. The shell owns the outer gutters.
+- Sidebar geometry is an app-level contract: if one primary view is resizable, all primary views keep the same shell and behavior unless the exception is documented. Temporary search/history/archive workflows belong in a modal instead of a standalone page that drops the sidebar.
+- Opt into icon-only collapse with `collapsible` and curate expanded/collapsed content with `sidebarMode`; collapsed icons require accessible labels and tooltips.
+- `AppWorkspace.Main` does not add content padding automatically. Standard inset work areas put `p-[var(--ui-space-shell)]` directly on Main; do not replace it with `p-3`/`p-4` or an extra full-height wrapper. Omit it only for intentional edge-to-edge tables, editors, canvases, or pane layouts whose shared primitives own their gutters.
 - Keep workspace vertical rhythm at `gap-2`.
-- Detail panels use `AppWorkspace.Detail` and a `detail-stack` wrapper with separate `detail-section` cards. The stack owns inter-card spacing; sections own only their surface and inner padding.
+- Contextual right-side detail is an `AppWorkspace.Detail` sibling after Main, never a second grid or flex column inside Main. Detail panels use a `detail-stack` wrapper with separate `detail-section` cards. The stack owns inter-card spacing; sections own only their surface and inner padding.
 - Links that require fresh SSR data use `navigation="document"` unless the mounted workspace owns an enhanced route-state loader.
 
 Use `Panes` for the nested work surface inside an app main area when the screen behaves like an IDE: output/result, editor, context, and reference panes. Keep pane children edge-to-edge; put padding inside the actual `paper`, table, editor, or panel component. `DockWorkspace` is deprecated and should not be used for new screens.

@@ -132,7 +132,7 @@
 }
 
 @utility sidebar-group {
-  @apply flex flex-col gap-1;
+  @apply flex flex-col gap-1.5;
 }
 
 @utility sidebar-container-mobile {
@@ -156,7 +156,7 @@
 }
 
 @utility sidebar-body {
-  @apply flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto;
+  @apply flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto;
 }
 
 @utility sidebar-footer {
@@ -274,9 +274,244 @@
 }
 
 @utility sidebar-item-action {
-  @apply ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-dimmed;
-  @apply transition-colors duration-150 ease-out hover:text-secondary hover:bg-zinc-100;
+  @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed;
+  @apply transition-[background-color,color,opacity] duration-150 ease-out hover:text-secondary hover:bg-zinc-100;
   @apply dark:hover:bg-zinc-800;
+}
+
+.sidebar-item-main {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: left;
+  outline: none;
+}
+
+.sidebar-item-icon {
+  display: inline-flex;
+  width: 1rem;
+  flex: 0 0 1rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-item-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sidebar-item-label-text {
+  display: inline-block;
+  min-width: max-content;
+  transform: translateX(0);
+}
+
+.sidebar-item-meta-trailing {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.sidebar-item-has-action {
+  position: relative;
+}
+
+.sidebar-item-has-action .sidebar-item-main {
+  transition: padding-right 150ms ease-out;
+}
+
+.sidebar-item-has-action > .sidebar-item-action {
+  position: absolute;
+  top: 50%;
+  right: 0.375rem;
+  z-index: 1;
+  opacity: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.sidebar-item-has-action:is(:hover, :focus-within) .sidebar-item-main {
+  padding-right: 1.5rem;
+}
+
+.sidebar-item-has-action:is(:hover, :focus-within) > .sidebar-item-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none), (max-width: 1023px) {
+  .sidebar-item-has-action .sidebar-item-main {
+    padding-right: 1.5rem;
+  }
+
+  .sidebar-item-has-action > .sidebar-item-action {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.sidebar-item-has-action:focus-within {
+  box-shadow: var(--ui-focus);
+}
+
+@keyframes sidebar-label-marquee {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  85%,
+  100% {
+    transform: translateX(calc(-1 * var(--sidebar-label-overflow)));
+  }
+}
+
+.sidebar-item-label[data-overflow="true"][data-marquee="true"]:hover .sidebar-item-label-text,
+[data-app-workspace-item]:focus-within .sidebar-item-label[data-overflow="true"][data-marquee="true"] .sidebar-item-label-text {
+  animation: sidebar-label-marquee 4s ease-in-out 0.2s infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-item-label-text {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* The separator owns a generous hit area while its visible affordance stays
+   one pixel wide. It overlays the workspace and never changes layout. */
+.workspace-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+  display: none;
+  width: 0.875rem;
+  margin: 0;
+  padding: 0;
+  cursor: col-resize;
+  touch-action: none;
+  border: 0;
+  background: transparent;
+  transform: translateX(-50%);
+}
+
+.workspace-resize-handle-sidebar {
+  left: var(--workspace-sidebar-width, 13rem);
+}
+
+.workspace-resize-handle-detail {
+  right: var(--workspace-detail-width, var(--workspace-detail-default, 24rem));
+  transform: translateX(50%);
+}
+
+.workspace-resize-handle > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  border-radius: 999px;
+  background: transparent;
+  transform: translateX(-50%);
+  transition: background-color 150ms ease-out;
+}
+
+.workspace-resize-handle:is(:hover, :focus-visible) > span,
+.app-workspace[data-workspace-resize-active] > .workspace-resize-handle > span {
+  background: var(--ui-border-strong);
+}
+
+.workspace-resize-handle:focus-visible {
+  outline: none;
+}
+
+@media (min-width: 1024px) {
+  .workspace-resize-handle {
+    display: block;
+  }
+
+  .app-workspace > .workspace-sidebar[data-workspace-resizable="true"] {
+    width: var(--workspace-sidebar-width, 13rem);
+  }
+
+  .app-workspace > .workspace-sidebar[data-workspace-collapsible="true"] {
+    transition: width 140ms ease-out;
+  }
+
+  .app-workspace[data-workspace-resize-active]:not([data-workspace-sidebar-snapping])
+    > .workspace-sidebar[data-workspace-collapsible="true"] {
+    transition: none;
+  }
+
+  .app-workspace > .workspace-detail[data-workspace-resizable="true"] {
+    width: var(--workspace-detail-width, var(--workspace-detail-default, 24rem));
+  }
+
+  .app-workspace > .workspace-detail.hidden + .workspace-resize-handle-detail {
+    display: none;
+  }
+}
+
+/* Collapsible navigation is opt-in. Apps can curate a compact mode with
+   `sidebarMode`, while always-visible items degrade to accessible icon buttons. */
+.workspace-sidebar [data-sidebar-mode="collapsed"] {
+  display: none !important;
+}
+
+.cloud-app-canvas[data-workspace-sidebar-collapsed="true"]
+  .workspace-sidebar[data-workspace-collapsible="true"]
+  [data-sidebar-mode="expanded"] {
+  display: none !important;
+}
+
+.cloud-app-canvas[data-workspace-sidebar-collapsed="true"]
+  .workspace-sidebar[data-workspace-collapsible="true"]
+  [data-sidebar-mode="collapsed"] {
+  display: flex !important;
+}
+
+.cloud-app-canvas[data-workspace-sidebar-collapsed="true"]
+  .workspace-sidebar[data-workspace-collapsible="true"]
+  .workspace-sidebar-header {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.cloud-app-canvas[data-workspace-sidebar-collapsed="true"]
+  .workspace-sidebar[data-workspace-collapsible="true"]
+  .workspace-sidebar-header
+  > :not(.sidebar-header-icon) {
+  display: none;
+}
+
+.cloud-app-canvas[data-workspace-sidebar-collapsed="true"]
+  .workspace-sidebar[data-workspace-collapsible="true"]
+  :is(.sidebar-section-title, .sidebar-item-label, .sidebar-item-meta-trailing, .sidebar-item-action) {
+  display: none !important;
+}
+
+.cloud-app-canvas[data-workspace-sidebar-collapsed="true"]
+  .workspace-sidebar[data-workspace-collapsible="true"]
+  :is(.sidebar-item, .sidebar-item-main) {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.cloud-app-canvas[data-workspace-sidebar-collapsed="true"]
+  .workspace-sidebar[data-workspace-collapsible="true"]
+  .sidebar-icon-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-workspace > .workspace-sidebar[data-workspace-collapsible="true"] {
+    transition: none;
+  }
 }
 
 /* Sidebar tree primitives */

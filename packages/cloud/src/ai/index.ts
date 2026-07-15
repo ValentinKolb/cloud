@@ -182,6 +182,7 @@ export { defineAiTool, isFrontendToolMode, type PreparedAiTools, prepareAiTools 
 export type {
   AiAccessResult,
   AiConversation,
+  AiConversationPage,
   AiConversationResource,
   AiConversationRunStatus,
   AiConversationStatusFilter,
