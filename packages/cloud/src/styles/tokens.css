@@ -36,9 +36,9 @@
   --ui-data-header: var(--color-zinc-50);
   --ui-data-divider: var(--color-zinc-100);
   --ui-data-row-divider: var(--color-zinc-100);
-  --ui-data-row-hover: rgb(59 130 246 / 0.08);
+  --ui-data-row-hover: rgb(9 9 11 / 0.025);
   --ui-data-row-selected: var(--color-blue-50);
-  --ui-data-column-hover: rgb(9 9 11 / 0.015);
+  --ui-data-column-hover: rgb(9 9 11 / 0.01);
   --ui-dialog-surface: var(--color-white);
   --ui-dialog-border: var(--color-zinc-200);
   --ui-dialog-divider: var(--color-zinc-200);
@@ -131,9 +131,9 @@
   --ui-data-header: var(--color-zinc-950);
   --ui-data-divider: var(--color-zinc-800);
   --ui-data-row-divider: rgb(39 39 42 / 0.6);
-  --ui-data-row-hover: rgb(96 165 250 / 0.12);
+  --ui-data-row-hover: rgb(255 255 255 / 0.045);
   --ui-data-row-selected: rgb(30 58 138 / 0.2);
-  --ui-data-column-hover: rgb(0 0 0 / 0.12);
+  --ui-data-column-hover: rgb(255 255 255 / 0.018);
   --ui-dialog-surface: var(--color-zinc-950);
   --ui-dialog-border: var(--color-zinc-800);
   --ui-dialog-divider: var(--color-zinc-800);

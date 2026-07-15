@@ -35,9 +35,9 @@ body:has(.cloud-ui-soft),
   --ui-data-header: var(--ui-surface-subtle);
   --ui-data-divider: var(--ui-border);
   --ui-data-row-divider: color-mix(in srgb, var(--ui-border) 72%, transparent);
-  --ui-data-row-hover: var(--ui-hover);
+  --ui-data-row-hover: rgb(9 9 11 / 0.025);
   --ui-data-row-selected: var(--ui-selected);
-  --ui-data-column-hover: color-mix(in srgb, var(--ui-hover) 52%, transparent);
+  --ui-data-column-hover: rgb(9 9 11 / 0.012);
   --ui-dialog-surface: var(--ui-surface-raised);
   --ui-dialog-border: var(--ui-border-strong);
   --ui-dialog-divider: var(--ui-border);
@@ -127,6 +127,8 @@ body:has(.cloud-ui-soft),
   --ui-field-hover-border: var(--ui-border);
   --ui-field-focus: var(--ui-surface);
   --ui-field-focus-border: transparent;
+  --ui-data-row-hover: rgb(255 255 255 / 0.045);
+  --ui-data-column-hover: rgb(255 255 255 / 0.018);
   --ui-segment-inactive-text: var(--color-zinc-400);
   --ui-segment-hover-text: var(--color-zinc-200);
   --ui-divider: var(--ui-border);
