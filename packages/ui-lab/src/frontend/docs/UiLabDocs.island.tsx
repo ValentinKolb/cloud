@@ -149,44 +149,46 @@ export default function UiLabDocs(props: UiLabDocsProps) {
           </AppWorkspace.SidebarDesktop>
         </AppWorkspace.Sidebar>
 
-        <AppWorkspace.Main>
-          <div ref={mainScroll} class="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
-            <div class="mx-auto flex max-w-6xl flex-col gap-4">
-              {current() ? (
-                <>
-                  <header class="flex flex-col gap-1">
-                    <div class="flex min-w-0 items-start justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="flex items-center gap-2 text-xs text-dimmed">
-                          <i class={`${current()!.icon} text-sm`} />
-                          <span>{currentSectionTitle()}</span>
+        <AppWorkspace.Content>
+          <AppWorkspace.Main>
+            <div ref={mainScroll} class="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
+              <div class="mx-auto flex max-w-6xl flex-col gap-4">
+                {current() ? (
+                  <>
+                    <header class="flex flex-col gap-1">
+                      <div class="flex min-w-0 items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2 text-xs text-dimmed">
+                            <i class={`${current()!.icon} text-sm`} />
+                            <span>{currentSectionTitle()}</span>
+                          </div>
+                          <h1 class="text-xl font-semibold text-primary">{current()!.title}</h1>
+                          <p class="max-w-3xl text-sm text-dimmed">{current()!.summary}</p>
                         </div>
-                        <h1 class="text-xl font-semibold text-primary">{current()!.title}</h1>
-                        <p class="max-w-3xl text-sm text-dimmed">{current()!.summary}</p>
+                        <button
+                          type="button"
+                          class="icon-btn h-8 w-8 shrink-0"
+                          aria-label={theme() === "light" ? "Switch UI Lab to dark mode" : "Switch UI Lab to light mode"}
+                          title={theme() === "light" ? "Dark mode" : "Light mode"}
+                          onClick={() => setTheme(setThemePreference(theme() === "light" ? "dark" : "light"))}
+                        >
+                          <i class={`ti ${theme() === "light" ? "ti-moon" : "ti-sun-high"}`} aria-hidden="true" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        class="icon-btn h-8 w-8 shrink-0"
-                        aria-label={theme() === "light" ? "Switch UI Lab to dark mode" : "Switch UI Lab to light mode"}
-                        title={theme() === "light" ? "Dark mode" : "Light mode"}
-                        onClick={() => setTheme(setThemePreference(theme() === "light" ? "dark" : "light"))}
-                      >
-                        <i class={`ti ${theme() === "light" ? "ti-moon" : "ti-sun-high"}`} aria-hidden="true" />
-                      </button>
-                    </div>
-                  </header>
+                    </header>
 
-                  {current()!.render({ markdownHtml: props.markdownHtml, dockWorkspaceInitialState: props.dockWorkspaceInitialState })}
-                </>
-              ) : (
-                <div class="paper flex max-w-md flex-col items-center gap-2 self-center p-8 text-center text-xs text-dimmed">
-                  <i class="ti ti-alert-circle text-2xl" />
-                  <p>UI Lab page not found.</p>
-                </div>
-              )}
+                    {current()!.render({ markdownHtml: props.markdownHtml, dockWorkspaceInitialState: props.dockWorkspaceInitialState })}
+                  </>
+                ) : (
+                  <div class="paper flex max-w-md flex-col items-center gap-2 self-center p-8 text-center text-xs text-dimmed">
+                    <i class="ti ti-alert-circle text-2xl" />
+                    <p>UI Lab page not found.</p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </AppWorkspace.Main>
+          </AppWorkspace.Main>
+        </AppWorkspace.Content>
       </AppWorkspace>
     </>
   );
