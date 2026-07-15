@@ -28,6 +28,23 @@ type AutomaticActivationRow = {
   catalog_hash: string;
 };
 
+export type AutomaticWorkflowActivationSnapshot = {
+  activationId: string;
+  mailboxId: string;
+  workflowId: string;
+  workflowVersionId: string;
+  triggerKey: string;
+  triggerKind: string;
+  triggerConfig: Record<string, WorkflowJsonValue>;
+  authorizationSnapshot: MailWorkflowAuthorizationSnapshot;
+  versionIdentity: string;
+  sourceHash: string;
+  boundPlan: WorkflowBoundPlan;
+  effectBudget: WorkflowEffectBudget;
+  manifestHash: string;
+  catalogHash: string;
+};
+
 type AutomaticWorkflowTarget = {
   key: string;
   source: WorkflowJsonValue;
@@ -133,19 +150,38 @@ const recordAutomaticSkip = async (activation: AutomaticActivationRow, deliveryK
 };
 
 export type AutomaticWorkflowMaterializationInput = {
-  activationId: string;
   triggerKind: string;
   deliveryKey: string;
   occurredAt: string;
   channel: "event" | "schedule";
   triggerValues: Record<string, WorkflowJsonValue>;
   target: AutomaticWorkflowTarget;
-};
+} & ({ activationId: string; activation?: never } | { activation: AutomaticWorkflowActivationSnapshot; activationId?: never });
+
+const activationSnapshotRow = (activation: AutomaticWorkflowActivationSnapshot): AutomaticActivationRow => ({
+  activation_id: activation.activationId,
+  mailbox_id: activation.mailboxId,
+  workflow_id: activation.workflowId,
+  workflow_version_id: activation.workflowVersionId,
+  trigger_key: activation.triggerKey,
+  trigger_kind: activation.triggerKind,
+  trigger_config: activation.triggerConfig,
+  authorization_snapshot: activation.authorizationSnapshot,
+  version_identity: activation.versionIdentity,
+  source_hash: activation.sourceHash,
+  bound_plan: activation.boundPlan,
+  effect_budget: activation.effectBudget,
+  manifest_hash: activation.manifestHash,
+  catalog_hash: activation.catalogHash,
+});
 
 export const materializeAutomaticWorkflowRun = async (
   params: AutomaticWorkflowMaterializationInput,
 ): Promise<AutomaticWorkflowMaterialization> => {
-  const candidate = await loadAutomaticActivation(params.activationId, params.triggerKind);
+  const pinnedActivation = params.activation ? activationSnapshotRow(params.activation) : null;
+  const activationId = pinnedActivation?.activation_id ?? params.activationId;
+  if (!activationId) throw new TypeError("Automatic workflow materialization requires an activation");
+  const candidate = pinnedActivation ?? (await loadAutomaticActivation(activationId, params.triggerKind));
   if (!candidate) return { state: "skipped", reason: "Activation is no longer active" };
   const authorization = parseWorkflowDbJson(candidate.authorization_snapshot);
   if (authorization.authority !== "mailbox" || authorization.mailboxId !== candidate.mailbox_id) {
@@ -179,7 +215,7 @@ export const materializeAutomaticWorkflowRun = async (
   }
 
   const idempotencyKey = sha256Json({
-    activationId: params.activationId,
+    activationId: candidate.activation_id,
     triggerKind: params.triggerKind,
     deliveryKey: params.deliveryKey,
   });
@@ -189,7 +225,7 @@ export const materializeAutomaticWorkflowRun = async (
     deliveryKey: params.deliveryKey,
   };
   const requestHash = sha256Json({
-    activationId: params.activationId,
+    activationId: candidate.activation_id,
     workflowVersionId: candidate.workflow_version_id,
     authorization,
     inputs,
@@ -210,7 +246,7 @@ export const materializeAutomaticWorkflowRun = async (
 
   const materialized = await sql.begin(async (tx) => {
     await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`;
-    const activation = await loadAutomaticActivation(params.activationId, params.triggerKind, tx, true);
+    const activation = pinnedActivation ?? (await loadAutomaticActivation(activationId, params.triggerKind, tx, true));
     if (!activation) return { state: "skipped", reason: "Activation is no longer active" } as const;
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${activation.mailbox_id}:${activation.workflow_id}:execute:${idempotencyKey}`}, 0))`;
     const existing = await loadRunByIdempotency({

@@ -3,8 +3,11 @@ import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import { createRuntimeTaskTracker, stopRuntimeJobs } from "./runtime-lifecycle";
-import { materializeAutomaticWorkflowRun } from "./workflow-automatic-materialization";
-import { getWorkflowSnapshot } from "./workflow-data";
+import {
+  type AutomaticWorkflowActivationSnapshot,
+  type AutomaticWorkflowMaterializationInput,
+  materializeAutomaticWorkflowRun,
+} from "./workflow-automatic-materialization";
 
 const TRIGGER_EVENT_JOB_ID = "mail:workflow-trigger-events:v1";
 const TRIGGER_EVENT_LEASE_MS = 120_000;
@@ -13,19 +16,14 @@ const TRIGGER_EVENT_HEARTBEAT_MS = Math.floor(TRIGGER_EVENT_LEASE_MS / 3);
 const RECONCILE_LIMIT = 500;
 const triggerEventTasks = createRuntimeTaskTracker();
 
-type TriggerEventPayload = {
-  remoteMessageRefId: string;
-  messageContentId: string;
-  conversationId: string | null;
-};
-
 type TriggerEventClaim = {
   id: string;
-  mailboxId: string;
+  activation: AutomaticWorkflowActivationSnapshot;
   triggerKind: string;
   deliveryKey: string;
   occurredAt: string;
-  payload: TriggerEventPayload;
+  triggerValues: AutomaticWorkflowMaterializationInput["triggerValues"];
+  target: AutomaticWorkflowMaterializationInput["target"];
   generation: number;
   leaseToken: string;
 };
@@ -33,10 +31,25 @@ type TriggerEventClaim = {
 type TriggerEventRow = {
   id: string;
   mailbox_id: string;
+  activation_id: string;
+  workflow_id: string;
+  workflow_version_id: string;
+  trigger_key: string;
   trigger_kind: string;
+  trigger_config: AutomaticWorkflowActivationSnapshot["triggerConfig"] | string;
+  authorization_snapshot: AutomaticWorkflowActivationSnapshot["authorizationSnapshot"] | string;
+  version_identity: string;
+  workflow_source_hash: string;
+  bound_plan: AutomaticWorkflowActivationSnapshot["boundPlan"] | string;
+  effect_budget: AutomaticWorkflowActivationSnapshot["effectBudget"] | string;
+  manifest_hash: string;
+  catalog_hash: string;
   delivery_key: string;
   occurred_at: Date | string;
-  payload: TriggerEventPayload | string;
+  trigger_values: AutomaticWorkflowMaterializationInput["triggerValues"] | string;
+  target_key: string;
+  frozen_source: AutomaticWorkflowMaterializationInput["target"]["source"] | string;
+  frozen_preconditions: AutomaticWorkflowMaterializationInput["target"]["preconditions"] | string;
   execution_generation: string | number;
   lease_token: string;
 };
@@ -74,21 +87,56 @@ const claimTriggerEvent = async (eventId: string, workerId: string): Promise<Tri
       RETURNING
         event.id,
         event.mailbox_id,
+        event.activation_id,
+        event.workflow_id,
+        event.workflow_version_id,
+        event.trigger_key,
         event.trigger_kind,
+        event.trigger_config,
+        event.authorization_snapshot,
+        event.version_identity,
+        event.workflow_source_hash,
+        event.bound_plan,
+        event.effect_budget,
+        event.manifest_hash,
+        event.catalog_hash,
         event.delivery_key,
         event.occurred_at,
-        event.payload,
+        event.trigger_values,
+        event.target_key,
+        event.frozen_source,
+        event.frozen_preconditions,
         event.execution_generation,
         event.lease_token
     `;
     return event
       ? {
           id: event.id,
-          mailboxId: event.mailbox_id,
+          activation: {
+            activationId: event.activation_id,
+            mailboxId: event.mailbox_id,
+            workflowId: event.workflow_id,
+            workflowVersionId: event.workflow_version_id,
+            triggerKey: event.trigger_key,
+            triggerKind: event.trigger_kind,
+            triggerConfig: parseJson(event.trigger_config),
+            authorizationSnapshot: parseJson(event.authorization_snapshot),
+            versionIdentity: event.version_identity,
+            sourceHash: event.workflow_source_hash,
+            boundPlan: parseJson(event.bound_plan),
+            effectBudget: parseJson(event.effect_budget),
+            manifestHash: event.manifest_hash,
+            catalogHash: event.catalog_hash,
+          },
           triggerKind: event.trigger_kind,
           deliveryKey: event.delivery_key,
           occurredAt: toIso(event.occurred_at),
-          payload: parseJson(event.payload),
+          triggerValues: parseJson(event.trigger_values),
+          target: {
+            key: event.target_key,
+            source: parseJson(event.frozen_source),
+            preconditions: parseJson(event.frozen_preconditions),
+          },
           generation: Number(event.execution_generation),
           leaseToken: event.lease_token,
         }
@@ -169,49 +217,18 @@ export const processMailWorkflowTriggerEvent = async (
       },
       work: async (assertLeaseActive) => {
         if (claim.triggerKind !== "messageReceived") throw new Error(`Unsupported Mail workflow trigger event ${claim.triggerKind}`);
-        const snapshot = await getWorkflowSnapshot({
-          mailboxId: claim.mailboxId,
-          remoteMessageRefId: claim.payload.remoteMessageRefId,
-          query: { type: "all" },
+        const result = { activations: 1, created: 0, existing: 0, skipped: 0 };
+        await assertLeaseActive();
+        const materialized = await materializeAutomaticWorkflowRun({
+          activation: claim.activation,
+          triggerKind: claim.triggerKind,
+          deliveryKey: claim.deliveryKey,
+          occurredAt: claim.occurredAt,
+          channel: "event",
+          triggerValues: claim.triggerValues,
+          target: claim.target,
         });
-        const activations = await sql<{ id: string }[]>`
-          SELECT activation.id
-          FROM mail.workflow_activations activation
-          JOIN mail.workflows workflow
-            ON workflow.id = activation.workflow_id
-           AND workflow.mailbox_id = activation.mailbox_id
-           AND workflow.active_version_id = activation.workflow_version_id
-          WHERE activation.mailbox_id = ${claim.mailboxId}::uuid
-            AND activation.trigger_kind = ${claim.triggerKind}
-            AND activation.enabled
-          ORDER BY workflow.priority, activation.workflow_id, activation.id
-        `;
-        const result = { activations: activations.length, created: 0, existing: 0, skipped: 0 };
-        for (const activation of activations) {
-          await assertLeaseActive();
-          if (!snapshot) {
-            result.skipped += 1;
-            continue;
-          }
-          const materialized = await materializeAutomaticWorkflowRun({
-            activationId: activation.id,
-            triggerKind: claim.triggerKind,
-            deliveryKey: claim.deliveryKey,
-            occurredAt: claim.occurredAt,
-            channel: "event",
-            triggerValues: {
-              message: snapshot.source.message,
-              conversation: snapshot.source.conversation,
-              occurredAt: claim.occurredAt,
-            },
-            target: {
-              key: snapshot.targetKey,
-              source: snapshot.source,
-              preconditions: snapshot.preconditions,
-            },
-          });
-          result[materialized.state] += 1;
-        }
+        result[materialized.state] += 1;
         await assertLeaseActive();
         await finishTriggerEvent(claim, result);
       },

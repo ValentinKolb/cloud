@@ -1873,6 +1873,65 @@ const scopeWorkflowRunIdempotency = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const pinWorkflowTriggerDeliveries = async (db: SqlClient): Promise<void> => {
+  await db`DROP TABLE IF EXISTS mail.workflow_trigger_events`;
+  await db`
+    CREATE TABLE mail.workflow_trigger_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      activation_id UUID NOT NULL,
+      workflow_id UUID NOT NULL,
+      workflow_version_id UUID NOT NULL,
+      trigger_key TEXT NOT NULL CHECK (char_length(trigger_key) BETWEEN 1 AND 200),
+      trigger_kind TEXT NOT NULL CHECK (char_length(trigger_kind) BETWEEN 1 AND 120),
+      trigger_config JSONB NOT NULL CHECK (jsonb_typeof(trigger_config) = 'object'),
+      authorization_snapshot JSONB NOT NULL CHECK (jsonb_typeof(authorization_snapshot) = 'object'),
+      version_identity TEXT NOT NULL CHECK (char_length(version_identity) BETWEEN 1 AND 200),
+      workflow_source_hash TEXT NOT NULL CHECK (workflow_source_hash ~ '^[a-f0-9]{64}$'),
+      bound_plan JSONB NOT NULL CHECK (jsonb_typeof(bound_plan) = 'object'),
+      effect_budget JSONB NOT NULL CHECK (jsonb_typeof(effect_budget) = 'object'),
+      manifest_hash TEXT NOT NULL CHECK (manifest_hash ~ '^[a-f0-9]{64}$'),
+      catalog_hash TEXT NOT NULL CHECK (catalog_hash ~ '^[a-f0-9]{64}$'),
+      delivery_key TEXT NOT NULL CHECK (char_length(delivery_key) BETWEEN 1 AND 500),
+      occurred_at TIMESTAMPTZ NOT NULL,
+      trigger_values JSONB NOT NULL CHECK (jsonb_typeof(trigger_values) = 'object'),
+      target_key TEXT NOT NULL CHECK (char_length(target_key) BETWEEN 1 AND 500),
+      frozen_source JSONB NOT NULL CHECK (jsonb_typeof(frozen_source) = 'object'),
+      frozen_preconditions JSONB NOT NULL CHECK (jsonb_typeof(frozen_preconditions) = 'object'),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'running', 'succeeded', 'failed')),
+      execution_generation BIGINT NOT NULL DEFAULT 0 CHECK (execution_generation >= 0),
+      lease_owner TEXT,
+      lease_token UUID,
+      lease_expires_at TIMESTAMPTZ,
+      result JSONB CHECK (result IS NULL OR jsonb_typeof(result) = 'object'),
+      last_error JSONB CHECK (last_error IS NULL OR jsonb_typeof(last_error) = 'object'),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (workflow_version_id, workflow_id, mailbox_id, version_identity, workflow_source_hash)
+        REFERENCES mail.workflow_versions(id, workflow_id, mailbox_id, version_identity, source_hash)
+        ON DELETE CASCADE,
+      CONSTRAINT workflow_trigger_events_lease_check CHECK (
+        (lease_owner IS NULL AND lease_token IS NULL AND lease_expires_at IS NULL)
+        OR (lease_owner IS NOT NULL AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL)
+      ),
+      CONSTRAINT workflow_trigger_events_activation_delivery_unique
+        UNIQUE (activation_id, trigger_kind, delivery_key)
+    )
+  `;
+  await db`
+    CREATE INDEX workflow_trigger_events_dispatch_idx
+    ON mail.workflow_trigger_events (state, lease_expires_at, occurred_at, id)
+    WHERE state IN ('queued', 'running')
+  `;
+  await db`
+    CREATE TRIGGER workflow_trigger_events_touch_updated_at
+    BEFORE UPDATE ON mail.workflow_trigger_events
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -1903,6 +1962,7 @@ const migrations = [
   { version: 27, name: "durable_workflow_materialization", run: addDurableWorkflowMaterialization },
   { version: 28, name: "canonical_workflow_authority", run: hardenCanonicalWorkflowAuthority },
   { version: 29, name: "workflow_scoped_idempotency", run: scopeWorkflowRunIdempotency },
+  { version: 30, name: "pinned_workflow_trigger_deliveries", run: pinWorkflowTriggerDeliveries },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

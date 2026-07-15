@@ -14,6 +14,7 @@ import { hydrateMessageFromSource } from "./message-hydration";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { createRuntimeLifecycle, createRuntimeTaskTracker, stopRuntimeJobs, stopRuntimeResources } from "./runtime-lifecycle";
+import { getWorkflowSnapshot } from "./workflow-data";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 import { enqueueMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
 
@@ -508,35 +509,63 @@ export const ingestEnvelope = async (params: {
   if (!linked) return messageContentId;
   if (params.captureWorkflowTriggers && !outbound[0]?.outbound) {
     const deliveryKey = `message:${remoteRef.id}`;
-    const [event] = await params.db<{ id: string }[]>`
+    const snapshot = await getWorkflowSnapshot({
+      mailboxId: params.mailboxId,
+      remoteMessageRefId: remoteRef.id,
+      query: { type: "all" },
+      db: params.db,
+    });
+    if (!snapshot) throw new Error("Received message workflow snapshot could not be loaded");
+    const occurredAt = params.message.internalDate.toISOString();
+    const events = await params.db<{ id: string }[]>`
       INSERT INTO mail.workflow_trigger_events (
-        mailbox_id, trigger_kind, delivery_key, occurred_at, payload
+        mailbox_id, activation_id, workflow_id, workflow_version_id,
+        trigger_key, trigger_kind, trigger_config, authorization_snapshot,
+        version_identity, workflow_source_hash, bound_plan, effect_budget, manifest_hash, catalog_hash,
+        delivery_key, occurred_at, trigger_values, target_key, frozen_source, frozen_preconditions
       )
       SELECT
-        ${params.mailboxId}::uuid,
-        'messageReceived',
+        activation.mailbox_id,
+        activation.id,
+        activation.workflow_id,
+        activation.workflow_version_id,
+        activation.trigger_key,
+        activation.trigger_kind,
+        activation.trigger_config,
+        activation.authorization_snapshot,
+        version.version_identity,
+        version.source_hash,
+        version.bound_plan,
+        version.effect_budget,
+        version.manifest_hash,
+        version.catalog_hash,
         ${deliveryKey},
-        ${params.message.internalDate}::timestamptz,
+        ${occurredAt}::timestamptz,
         ${{
-          remoteMessageRefId: remoteRef.id,
-          messageContentId,
-          conversationId,
-        }}::jsonb
-      WHERE EXISTS (
-        SELECT 1
-        FROM mail.workflow_activations activation
-        JOIN mail.workflows workflow
-          ON workflow.id = activation.workflow_id
-         AND workflow.mailbox_id = activation.mailbox_id
-         AND workflow.active_version_id = activation.workflow_version_id
-        WHERE activation.mailbox_id = ${params.mailboxId}::uuid
-          AND activation.trigger_kind = 'messageReceived'
-          AND activation.enabled
-      )
-      ON CONFLICT (mailbox_id, trigger_kind, delivery_key) DO NOTHING
+          message: snapshot.source.message,
+          conversation: snapshot.source.conversation,
+          occurredAt,
+        }}::jsonb,
+        ${snapshot.targetKey},
+        ${snapshot.source}::jsonb,
+        ${snapshot.preconditions}::jsonb
+      FROM mail.workflow_activations activation
+      JOIN mail.workflows workflow
+        ON workflow.id = activation.workflow_id
+       AND workflow.mailbox_id = activation.mailbox_id
+       AND workflow.active_version_id = activation.workflow_version_id
+      JOIN mail.workflow_versions version
+        ON version.id = activation.workflow_version_id
+       AND version.workflow_id = activation.workflow_id
+       AND version.mailbox_id = activation.mailbox_id
+      WHERE activation.mailbox_id = ${params.mailboxId}::uuid
+        AND activation.trigger_kind = 'messageReceived'
+        AND activation.enabled
+      ORDER BY workflow.priority, activation.workflow_id, activation.id
+      ON CONFLICT (activation_id, trigger_kind, delivery_key) DO NOTHING
       RETURNING id
     `;
-    if (event) params.workflowTriggerEventIds?.push(event.id);
+    params.workflowTriggerEventIds?.push(...events.map((event) => event.id));
   }
   return messageContentId;
 };

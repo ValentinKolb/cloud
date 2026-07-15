@@ -8,7 +8,7 @@ import { createMailbox } from "./mailboxes";
 import { claimFence, commitSyncBatch } from "./sync-runtime";
 import { workflowRuntime } from "./workflow-runtime";
 import { processMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
-import { activateWorkflow, createWorkflow, deactivateWorkflow } from "./workflows";
+import { activateWorkflow, createWorkflow, createWorkflowVersion, deactivateWorkflow } from "./workflows";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -278,7 +278,7 @@ suite("mail workflow trigger event runtime", () => {
     }
   });
 
-  test("deduplicates delivery, preserves mailbox-owned authority, honors deactivation, and recovers expired claims", async () => {
+  test("pins receipt-time deliveries across replacement, mutation, and deactivation", async () => {
     const historical = envelope(1, "Historical message");
     expect((await commitEnvelope(historical, "backfill")).workflowTriggerEventIds).toEqual([]);
     expect((await commitEnvelope(historical, "incremental")).workflowTriggerEventIds).toEqual([]);
@@ -286,6 +286,16 @@ suite("mail workflow trigger event runtime", () => {
         SELECT COUNT(*)::int AS count FROM mail.workflow_trigger_events WHERE mailbox_id = ${mailboxId}::uuid
       `;
     expect(historicalEvents?.count).toBe(0);
+    const [deliveryConstraint] = await sql<{ present: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'mail.workflow_trigger_events'::regclass
+          AND conname = 'workflow_trigger_events_activation_delivery_unique'
+          AND pg_get_constraintdef(oid) = 'UNIQUE (activation_id, trigger_kind, delivery_key)'
+      ) AS present
+    `;
+    expect(deliveryConstraint?.present).toBe(true);
 
     const first = await commitEnvelope(envelope(2, "First live message"), "incremental");
     expect(first.workflowTriggerEventIds).toHaveLength(1);
@@ -394,19 +404,140 @@ suite("mail workflow trigger event runtime", () => {
       `;
     expect(runCount?.count).toBe(3);
 
+    const replacementPending = await commitEnvelope(envelope(5, "Receipt-time subject"), "incremental");
+    const replacementPendingEventId = replacementPending.workflowTriggerEventIds[0]!;
+    expect(replacementPendingEventId).toBeTruthy();
+    const [replacementPendingEvent] = await sql<
+      {
+        activation_id: string;
+        workflow_version_id: string;
+        authorization_snapshot: Record<string, unknown> | string;
+        delivery_key: string;
+        trigger_values: Record<string, unknown> | string;
+        target_key: string;
+        frozen_source: { message: { id: string }; conversation: { id: string } | null } | string;
+        frozen_preconditions: Record<string, unknown> | string;
+      }[]
+    >`
+      SELECT
+        activation_id,
+        workflow_version_id,
+        authorization_snapshot,
+        delivery_key,
+        trigger_values,
+        target_key,
+        frozen_source,
+        frozen_preconditions
+      FROM mail.workflow_trigger_events
+      WHERE id = ${replacementPendingEventId}::uuid
+    `;
+    expect(replacementPendingEvent?.workflow_version_id).toBe(workflowVersionId);
+    expect(parseJson(replacementPendingEvent!.trigger_values)).toMatchObject({
+      message: { subject: "Receipt-time subject" },
+      conversation: { subject: "Receipt-time subject" },
+    });
+
+    const replacement = unwrap(
+      await createWorkflowVersion({
+        context: ownerContext,
+        mailboxId,
+        workflowId,
+        input: { source: triggerSource.replace("Received ", "Replacement "), effectBudget },
+      }),
+    );
+    const replacementVersionId = replacement.currentVersionId;
+    unwrap(
+      await activateWorkflow({
+        context: ownerContext,
+        mailboxId,
+        workflowId,
+        input: { expectedVersionId: replacementVersionId },
+      }),
+    );
+    const [replacementActivation] = await sql<{ id: string }[]>`
+      SELECT id
+      FROM mail.workflow_activations
+      WHERE workflow_id = ${workflowId}::uuid AND trigger_kind = 'messageReceived' AND enabled
+    `;
+    expect(replacementActivation?.id).not.toBe(replacementPendingEvent?.activation_id);
+
+    const replacementSource = parseJson(replacementPendingEvent!.frozen_source);
+    await sql`UPDATE mail.message_contents SET subject = 'Mutated after receipt' WHERE id = ${replacementSource.message.id}::uuid`;
+    if (replacementSource.conversation) {
+      await sql`
+        UPDATE mail.conversations
+        SET subject = 'Mutated conversation after receipt', revision = revision + 1
+        WHERE id = ${replacementSource.conversation.id}::uuid
+      `;
+    }
+    await processMailWorkflowTriggerEvent(replacementPendingEventId, "trigger-worker-after-replacement");
+
+    const [replacementPinnedRun] = await sql<
+      {
+        id: string;
+        workflow_version_id: string;
+        authorization_snapshot: Record<string, unknown> | string;
+        inputs: Record<string, unknown> | string;
+      }[]
+    >`
+      SELECT id, workflow_version_id, authorization_snapshot, inputs
+      FROM mail.workflow_runs
+      WHERE mailbox_id = ${mailboxId}::uuid
+        AND target_query->>'deliveryKey' = ${replacementPendingEvent!.delivery_key}
+    `;
+    expect(replacementPinnedRun?.workflow_version_id).toBe(workflowVersionId);
+    expect(parseJson(replacementPinnedRun!.authorization_snapshot)).toEqual(parseJson(replacementPendingEvent!.authorization_snapshot));
+    expect(parseJson(replacementPinnedRun!.inputs)).toMatchObject({
+      message: { subject: "Receipt-time subject" },
+      conversation: { subject: "Receipt-time subject" },
+    });
+    const [replacementPinnedTarget] = await sql<
+      { target_key: string; frozen_source: Record<string, unknown> | string; frozen_preconditions: Record<string, unknown> | string }[]
+    >`
+      SELECT target_key, frozen_source, frozen_preconditions
+      FROM mail.workflow_run_targets
+      WHERE parent_run_id = ${replacementPinnedRun!.id}::uuid
+    `;
+    expect(replacementPinnedTarget?.target_key).toBe(replacementPendingEvent?.target_key);
+    expect(parseJson(replacementPinnedTarget!.frozen_source)).toEqual(parseJson(replacementPendingEvent!.frozen_source));
+    expect(parseJson(replacementPinnedTarget!.frozen_preconditions)).toEqual(parseJson(replacementPendingEvent!.frozen_preconditions));
+
+    const deactivationPending = await commitEnvelope(envelope(6, "Receipt before deactivation"), "incremental");
+    const deactivationPendingEventId = deactivationPending.workflowTriggerEventIds[0]!;
+    expect(deactivationPendingEventId).toBeTruthy();
+    const [deactivationPendingEvent] = await sql<{ activation_id: string; workflow_version_id: string; delivery_key: string }[]>`
+      SELECT activation_id, workflow_version_id, delivery_key
+      FROM mail.workflow_trigger_events
+      WHERE id = ${deactivationPendingEventId}::uuid
+    `;
+    expect(deactivationPendingEvent).toMatchObject({
+      activation_id: replacementActivation?.id,
+      workflow_version_id: replacementVersionId,
+    });
+
     unwrap(
       await deactivateWorkflow({
         context: ownerContext,
         mailboxId,
         workflowId,
-        input: { expectedVersionId: workflowVersionId },
+        input: { expectedVersionId: replacementVersionId },
       }),
     );
-    const deactivated = await commitEnvelope(envelope(5, "Deactivated workflow message"), "incremental");
+    await processMailWorkflowTriggerEvent(deactivationPendingEventId, "trigger-worker-after-deactivation");
+    const [deactivationPinnedRun] = await sql<{ workflow_version_id: string; inputs: Record<string, unknown> | string }[]>`
+      SELECT workflow_version_id, inputs
+      FROM mail.workflow_runs
+      WHERE mailbox_id = ${mailboxId}::uuid
+        AND target_query->>'deliveryKey' = ${deactivationPendingEvent!.delivery_key}
+    `;
+    expect(deactivationPinnedRun?.workflow_version_id).toBe(replacementVersionId);
+    expect(parseJson(deactivationPinnedRun!.inputs)).toMatchObject({ message: { subject: "Receipt before deactivation" } });
+
+    const deactivated = await commitEnvelope(envelope(7, "Deactivated workflow message"), "incremental");
     expect(deactivated.workflowTriggerEventIds).toEqual([]);
     const [finalRunCount] = await sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count FROM mail.workflow_runs WHERE mailbox_id = ${mailboxId}::uuid
     `;
-    expect(finalRunCount?.count).toBe(3);
+    expect(finalRunCount?.count).toBe(5);
   }, 30_000);
 });
