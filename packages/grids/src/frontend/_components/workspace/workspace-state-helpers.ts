@@ -52,6 +52,8 @@ export const okState = (common: WorkspaceCommon, route: GridsWorkspaceRoute, tit
   canCreateTables: common.canCreateTables,
   canUseEditMode: common.canUseEditMode,
   canUseQueryWorkspace: common.canUseQueryWorkspace,
+  metadataEventCursor: common.metadataEventCursor,
+  recordEventCursor: common.recordEventCursor,
   dateConfig: common.params.dateConfig,
   catalog: common.catalog,
   route,

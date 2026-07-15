@@ -24,11 +24,13 @@ type DocumentRunBrowsePage = {
   nextCursor?: string | null;
 };
 
-export const listRunsForRecord = async (tableId: string, recordId: string): Promise<DocumentRun[]> => {
+export const listRunsForRecord = async (tableId: string, recordId: string, limit = 100): Promise<DocumentRun[]> => {
+  const cap = Math.min(Math.max(limit, 1), 500);
   const rows = await sql<DocumentDbRow[]>`
     SELECT * FROM grids.document_runs
     WHERE table_id = ${tableId}::uuid AND record_id = ${recordId}::uuid
     ORDER BY generated_at DESC, id DESC
+    LIMIT ${cap}
   `;
   return rows.map(mapDocumentRun);
 };

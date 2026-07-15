@@ -3,10 +3,11 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec } from "../../../contracts";
+import type { ColumnSpec, DocumentTemplateSummary } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { errorMessage } from "../utils/api-helpers";
+import type { WorkspaceRecordDetail } from "../workspace/workspace-state-model";
 import RecordDocumentsSection from "./RecordDocumentsSection";
 import RecordFileField from "./RecordFileField";
 import RecordHistorySection from "./RecordHistorySection";
@@ -24,6 +25,8 @@ type Props = {
    *  user clicks a different row in the grid, the parent passes a new
    *  record here. null = panel renders nothing. */
   record: () => GridRecord | null;
+  detail: () => WorkspaceRecordDetail | null;
+  documentTemplates: DocumentTemplateSummary[];
   /** "live" = edit/delete; "trash" = restore. Driven by the URL state's
    *  trash flag, lifted up to the parent. */
   mode: () => "live" | "trash";
@@ -149,7 +152,13 @@ export default function RecordDetailPanel(props: Props) {
           dateConfig={props.dateConfig}
           scrollPreserveKey={`grids-record-detail-${props.tableId}-${rec.id}`}
           renderFileField={(field, record) => (
-            <RecordFileField tableId={props.tableId} recordId={record.id} field={field} canWrite={props.canWrite && mode() === "live"} />
+            <RecordFileField
+              tableId={props.tableId}
+              recordId={record.id}
+              field={field}
+              canWrite={props.canWrite && mode() === "live"}
+              initialFiles={props.detail()?.filesByField[field.id] ?? []}
+            />
           )}
           headerActions={
             <>
@@ -186,8 +195,15 @@ export default function RecordDetailPanel(props: Props) {
             </>
           }
         >
-          <RecordDocumentsSection tableId={props.tableId} recordId={rec.id} live={mode() === "live"} />
-          <RecordHistorySection tableId={props.tableId} recordId={rec.id} />
+          <RecordDocumentsSection
+            tableId={props.tableId}
+            recordId={rec.id}
+            live={mode() === "live"}
+            templates={props.documentTemplates}
+            initialRuns={props.detail()?.documentRuns ?? []}
+            initialSnapshots={props.detail()?.snapshots ?? []}
+          />
+          <RecordHistorySection entries={props.detail()?.auditEntries ?? []} />
         </RecordReadView>
       )}
     </Show>

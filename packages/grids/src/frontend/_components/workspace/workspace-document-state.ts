@@ -16,6 +16,17 @@ export const loadDocumentTemplateState = async (
   }
   const canWriteTemplate = gridsService.permission.hasAtLeast(level, "write");
   const canManageTemplate = gridsService.permission.hasAtLeast(level, "admin");
+  const initialDocumentViewMode = common.params.initialDocumentViewMode ?? "list";
+  const initialBrowserPage = await gridsService.document.browseRunsForTemplate({
+    templateId: template.id,
+    q: "",
+    tags: [],
+    path: [],
+    limit: 200,
+    cursor: null,
+    timeZone: common.params.dateConfig?.timeZone,
+    mode: initialDocumentViewMode,
+  });
   return okState(
     common,
     {
@@ -27,7 +38,16 @@ export const loadDocumentTemplateState = async (
       canManageTemplate,
       activeTemplateAccessEntries: canManageTemplate ? await gridsService.access.listForDocumentTemplate(template.id) : [],
       initialRecordId: common.chrome.url.searchParams.get("record"),
-      initialDocumentViewMode: common.params.initialDocumentViewMode ?? "list",
+      initialDocumentViewMode,
+      initialBrowserPage: {
+        path: initialBrowserPage.path,
+        folders: initialBrowserPage.folders,
+        items: initialBrowserPage.items.map(gridsService.document.summarizeRun),
+        total: initialBrowserPage.total,
+        limit: initialBrowserPage.limit,
+        hasMore: initialBrowserPage.hasMore,
+        nextCursor: initialBrowserPage.nextCursor,
+      },
     },
     [...common.chrome.titleBase, { title: "Documents" }, { title: template.name }],
   );

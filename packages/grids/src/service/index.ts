@@ -228,6 +228,7 @@ export const gridsService = {
     submit: submitForm,
   },
   file: {
+    listForRecord: files.listForRecord,
     listForRecordField: files.listForRecordField,
     upload: files.upload,
     getContent: files.getContent,

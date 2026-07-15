@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { err, fail } from "@valentinkolb/stdlib";
 import type { MiddlewareHandler } from "hono";
-import { createWorkspaceApi, parseWorkspaceHref } from "./workspace";
+import { createWorkspaceApi } from "./workspace";
 
+const tableId = "22222222-2222-4222-8222-222222222222";
+const recordId = "33333333-3333-4333-8333-333333333333";
+const runId = "55555555-5555-4555-8555-555555555555";
+const workflowId = "66666666-6666-4666-8666-666666666666";
+const baseId = "44444444-4444-4444-8444-444444444444";
 const user: User = {
   id: "11111111-1111-4111-8111-111111111111",
   uid: "workspace-user",
@@ -32,126 +36,84 @@ const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   await next();
 };
 
-describe("parseWorkspaceHref", () => {
-  test("accepts the base and query workspace routes", () => {
-    expect(parseWorkspaceHref("/app/grids/hNTsc")).toMatchObject({ baseShortId: "hNTsc" });
-    expect(parseWorkspaceHref("/app/grids/hNTsc/query?table=tbl123")).toMatchObject({
-      baseShortId: "hNTsc",
-      activeTableSlug: null,
+describe("Grids workspace record detail", () => {
+  test("does not load record data when table access is denied", async () => {
+    let recordCalls = 0;
+    const app = createWorkspaceApi({
+      requireAuthenticated: authenticated,
+      getTable: async () => ({ id: tableId, baseId }) as never,
+      gate: async () => ({ ok: false }) as never,
+      getRecord: async () => {
+        recordCalls += 1;
+        return {} as never;
+      },
     });
+
+    const response = await app.request(`/record-detail?tableId=${tableId}&recordId=${recordId}`);
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ message: "Record not found" });
+    expect(recordCalls).toBe(0);
   });
 
-  test("accepts table and view workspace routes", () => {
-    expect(parseWorkspaceHref("/app/grids/hNTsc/table/tbl123")).toMatchObject({
-      baseShortId: "hNTsc",
-      activeTableSlug: "tbl123",
-      activeViewSlug: null,
+  test("returns one composed detail payload for a readable record", async () => {
+    const detail = {
+      recordId,
+      filesByField: {},
+      documentRuns: [],
+      snapshots: [],
+      auditEntries: [],
+    };
+    const app = createWorkspaceApi({
+      requireAuthenticated: authenticated,
+      getTable: async () => ({ id: tableId, baseId }) as never,
+      gate: async () => ({ ok: true, value: "read" }) as never,
+      getRecord: async () => ({ id: recordId }) as never,
+      listFields: async () => [],
+      loadRecordDetail: async () => detail,
     });
-    expect(parseWorkspaceHref("/app/grids/hNTsc/table/tbl123/query")).toMatchObject({
-      baseShortId: "hNTsc",
-      activeTableSlug: "tbl123",
-      activeViewSlug: null,
-    });
-    expect(parseWorkspaceHref("/app/grids/hNTsc/table/tbl123/view/view456")).toMatchObject({
-      baseShortId: "hNTsc",
-      activeTableSlug: "tbl123",
-      activeViewSlug: "view456",
-    });
-    expect(parseWorkspaceHref("/app/grids/hNTsc/table/tbl123/view/view456/query")).toMatchObject({
-      baseShortId: "hNTsc",
-      activeTableSlug: "tbl123",
-      activeViewSlug: "view456",
-    });
-  });
 
-  test("accepts dashboard and document workspace routes", () => {
-    expect(parseWorkspaceHref("/app/grids/hNTsc/dashboard/dash123")).toMatchObject({
-      baseShortId: "hNTsc",
-      activeDashboardSlug: "dash123",
-    });
-    expect(parseWorkspaceHref("/app/grids/hNTsc/document/tbl123/tpl456")).toMatchObject({
-      baseShortId: "hNTsc",
-      activeDocumentTableSlug: "tbl123",
-      activeDocumentTemplateSlug: "tpl456",
-    });
-  });
+    const response = await app.request(`/record-detail?tableId=${tableId}&recordId=${recordId}`);
 
-  test("accepts workflow overview routes with edit mode", () => {
-    expect(parseWorkspaceHref("/app/grids/hNTsc/workflows?edit=true")).toEqual({
-      baseShortId: "hNTsc",
-      activeTableSlug: null,
-      activeViewSlug: null,
-      activeDashboardSlug: null,
-      activeWorkflowSlug: null,
-      activeDocumentTableSlug: null,
-      activeDocumentTemplateSlug: null,
-    });
-  });
-
-  test("accepts workflow detail routes with edit mode", () => {
-    expect(parseWorkspaceHref("/app/grids/hNTsc/workflows/wf123?edit=true")).toEqual({
-      baseShortId: "hNTsc",
-      activeTableSlug: null,
-      activeViewSlug: null,
-      activeDashboardSlug: null,
-      activeWorkflowSlug: "wf123",
-      activeDocumentTableSlug: null,
-      activeDocumentTemplateSlug: null,
-    });
-  });
-
-  test("rejects removed automation routes", () => {
-    expect(parseWorkspaceHref("/app/grids/hNTsc/automations?edit=true")).toBeNull();
-  });
-
-  test("rejects removed scanner routes", () => {
-    expect(parseWorkspaceHref("/app/grids/scan")).toBeNull();
-    expect(parseWorkspaceHref("/app/grids/hNTsc/workflows/wf123/scan")).toBeNull();
-  });
-
-  test("rejects incomplete, trailing, and non-workspace paths", () => {
-    expect(parseWorkspaceHref("/app/grids/hNTsc/table")).toBeNull();
-    expect(parseWorkspaceHref("/app/grids/hNTsc/table/tbl123/view")).toBeNull();
-    expect(parseWorkspaceHref("/app/grids/hNTsc/dashboard")).toBeNull();
-    expect(parseWorkspaceHref("/app/grids/hNTsc/document/tbl123")).toBeNull();
-    expect(parseWorkspaceHref("/app/grids/hNTsc/query/extra")).toBeNull();
-    expect(parseWorkspaceHref("/app/grids/hNTsc/reference")).toBeNull();
-    expect(parseWorkspaceHref("/app/notebooks/hNTsc")).toBeNull();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(detail);
   });
 });
 
-describe("Grids workspace route", () => {
-  test("checks base access before loading workspace state without revealing base existence", async () => {
-    let loadCalls = 0;
-    const deniedApp = createWorkspaceApi({
+describe("Grids workspace workflow run detail", () => {
+  const run = { id: runId, baseId, workflowId } as never;
+
+  test("does not load run details when workflow access is denied", async () => {
+    let detailCalls = 0;
+    const app = createWorkspaceApi({
       requireAuthenticated: authenticated,
-      getBaseByShortId: async () => ({ id: "22222222-2222-4222-8222-222222222222" }) as never,
-      gate: async () => fail(err.forbidden("Base access denied")),
-      loadState: async () => {
-        loadCalls += 1;
-        return {} as never;
-      },
-    });
-    const missingApp = createWorkspaceApi({
-      requireAuthenticated: authenticated,
-      getBaseByShortId: async () => null,
-      gate: async () => {
-        throw new Error("Gate must not run for a missing base");
-      },
-      loadState: async () => {
-        loadCalls += 1;
+      getWorkflowRun: async () => run,
+      gate: async () => ({ ok: false }) as never,
+      loadWorkflowDetail: async () => {
+        detailCalls += 1;
         return {} as never;
       },
     });
 
-    const href = encodeURIComponent("/app/grids/hNTsc");
-    const deniedResponse = await deniedApp.request(`/route?href=${href}`);
-    const missingResponse = await missingApp.request(`/route?href=${href}`);
+    const response = await app.request(`/workflow-run-detail?runId=${runId}`);
 
-    expect(deniedResponse.status).toBe(404);
-    expect(await deniedResponse.json()).toEqual({ message: "Base not found" });
-    expect(missingResponse.status).toBe(404);
-    expect(await missingResponse.json()).toEqual({ message: "Base not found" });
-    expect(loadCalls).toBe(0);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ message: "Workflow run not found" });
+    expect(detailCalls).toBe(0);
+  });
+
+  test("returns one composed payload for a readable workflow run", async () => {
+    const detail = { run, steps: [], documents: { items: [], total: 0, hasMore: false } };
+    const app = createWorkspaceApi({
+      requireAuthenticated: authenticated,
+      getWorkflowRun: async () => run,
+      gate: async () => ({ ok: true, value: "read" }) as never,
+      loadWorkflowDetail: async () => detail as never,
+    });
+
+    const response = await app.request(`/workflow-run-detail?runId=${runId}`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(detail);
   });
 });

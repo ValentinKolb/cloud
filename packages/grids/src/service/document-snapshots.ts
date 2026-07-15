@@ -282,7 +282,8 @@ export const filterSnapshotRelatedRecords = async (
   return { ...snapshot, graph: { rootId, records: filteredRecords } };
 };
 
-export const listSnapshotsForRecord = async (tableId: string, recordId: string): Promise<RecordSnapshotSummary[]> => {
+export const listSnapshotsForRecord = async (tableId: string, recordId: string, limit = 100): Promise<RecordSnapshotSummary[]> => {
+  const cap = Math.min(Math.max(limit, 1), 500);
   const rows = await sql<DocumentDbRow[]>`
     SELECT snapshot.id, snapshot.base_id, snapshot.table_id, snapshot.record_id, snapshot.created_by, snapshot.created_at
     FROM grids.record_snapshots snapshot
@@ -294,6 +295,7 @@ export const listSnapshotsForRecord = async (tableId: string, recordId: string):
         WHERE run.snapshot_id = snapshot.id
       )
     ORDER BY snapshot.created_at DESC
+    LIMIT ${cap}
   `;
   return rows.map(mapRecordSnapshotSummary);
 };

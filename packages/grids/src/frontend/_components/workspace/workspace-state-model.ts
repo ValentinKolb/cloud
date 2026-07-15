@@ -1,15 +1,24 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type {
+  DocumentRunBrowseResponse,
+  DocumentRunSummary,
   DocumentTemplate,
   DocumentTemplateSummary,
   DslQueryPreviewResponse,
   RecordDisplayConfig,
   RecordQuery,
+  RecordSnapshotSummary,
 } from "../../../contracts";
-import type { Base, Dashboard, Field, Form, GridRecord, Table, View, Workflow } from "../../../service";
+import type { AuditEntry, Base, Dashboard, Field, Form, GridFile, GridRecord, Table, View, Workflow } from "../../../service";
 import type { WidgetData } from "../../../service/dashboard-widget-data";
-import type { GridsWorkflowLauncher } from "../../../workflows/contracts";
+import type {
+  GridsWorkflowEmailDelivery,
+  GridsWorkflowLauncher,
+  GridsWorkflowRun,
+  GridsWorkflowRunStats,
+  GridsWorkflowStepRun,
+} from "../../../workflows/contracts";
 import type { RecordsState } from "../records-view/query-url";
 import type { GridsDocumentViewMode } from "../sidebar/GridsSettingsStore";
 
@@ -32,10 +41,8 @@ export type WorkspaceCatalog = {
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
-  formAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>>;
   documentTemplatesByTable: Record<string, DocumentTemplateSummary[]>;
   documentTemplateLevels: Record<string, "none" | "read" | "write" | "admin">;
-  documentTemplateAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>>;
   tableShortIds: Record<string, string>;
   sidebarForms: Array<{ form: Form; table: Table }>;
   sidebarDocumentTemplates: Array<{ template: DocumentTemplateSummary; table: Table }>;
@@ -74,6 +81,8 @@ export type WorkspaceRecordsRoute = {
     >;
   };
   initialSelectedRecord: GridRecord | null;
+  initialSelectedRecordDetail: WorkspaceRecordDetail | null;
+  documentTemplates: DocumentTemplateSummary[];
   relationLabels: Record<string, string>;
   activeViewColumns: RecordQuery["columns"] | undefined;
   searchableFields: Field[];
@@ -81,6 +90,14 @@ export type WorkspaceRecordsRoute = {
   activeRecordQuery: RecordQuery | null;
   displayConfig: RecordDisplayConfig;
   bulkSelectionLaunchers: WorkspaceBulkLauncher[];
+};
+
+export type WorkspaceRecordDetail = {
+  recordId: string;
+  filesByField: Record<string, GridFile[]>;
+  documentRuns: DocumentRunSummary[];
+  snapshots: RecordSnapshotSummary[];
+  auditEntries: Array<AuditEntry & { userDisplayName: string | null }>;
 };
 
 export type WorkspaceDashboardRoute = {
@@ -104,6 +121,25 @@ export type WorkspaceWorkflowsRoute = {
   canRunActiveWorkflow: boolean;
   canManageActiveWorkflow: boolean;
   selectedRunId: string | null;
+  initialOverview: WorkspaceWorkflowOverview;
+  initialSelectedRun: WorkspaceWorkflowRunDetail | null;
+};
+
+export type WorkspaceWorkflowOverview = {
+  stats: GridsWorkflowRunStats;
+  runs: { items: GridsWorkflowRun[]; nextCursor: string | null };
+  emailDeliveries: { items: GridsWorkflowEmailDelivery[]; nextCursor: string | null };
+  launchers: GridsWorkflowLauncher[];
+};
+
+export type WorkspaceWorkflowRunDetail = {
+  run: GridsWorkflowRun;
+  steps: GridsWorkflowStepRun[];
+  documents: {
+    items: DocumentRunSummary[];
+    total: number;
+    hasMore: boolean;
+  };
 };
 
 export type WorkspaceQueryRoute = {
@@ -126,6 +162,7 @@ export type WorkspaceDocumentTemplateRoute = {
   activeTemplateAccessEntries: AccessEntry[];
   initialRecordId: string | null;
   initialDocumentViewMode: GridsDocumentViewMode;
+  initialBrowserPage: DocumentRunBrowseResponse;
 };
 
 export type GridsWorkspaceRoute =
@@ -152,6 +189,8 @@ export type GridsWorkspaceState =
       canCreateTables: boolean;
       canUseEditMode: boolean;
       canUseQueryWorkspace: boolean;
+      metadataEventCursor: string | null;
+      recordEventCursor: string | null;
       dateConfig?: DateContext;
       catalog: WorkspaceCatalog;
       route: GridsWorkspaceRoute;
@@ -189,6 +228,8 @@ export type WorkspaceCommon = {
   canCreateTables: boolean;
   canUseEditMode: boolean;
   canUseQueryWorkspace: boolean;
+  metadataEventCursor: string | null;
+  recordEventCursor: string | null;
 };
 
 export type OkWorkspaceState = Extract<GridsWorkspaceState, { kind: "ok" }>;

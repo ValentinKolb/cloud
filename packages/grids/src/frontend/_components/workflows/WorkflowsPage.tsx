@@ -15,7 +15,7 @@ import {
 } from "@valentinkolb/cloud/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, lazy, onMount, Show, Suspense } from "solid-js";
+import { createEffect, createMemo, createSignal, For, lazy, Show, Suspense } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Table } from "../../../service";
 import type {
@@ -28,11 +28,12 @@ import type {
   GridsWorkflowRunStatsWindow as WorkflowRunStatsWindow,
 } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
+import type { WorkspaceWorkflowOverview } from "../workspace/workspace-state-model";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { EmailTemplateManager } from "./WorkflowEmailTemplates";
 import { WorkflowLauncherManager } from "./WorkflowLauncherManager";
 import { requestWorkflowRunInput } from "./WorkflowRunInputDialog";
-import type { WorkflowScannerState } from "./WorkflowScannerSurface.island";
+import type { WorkflowScannerState } from "./WorkflowScannerSurface";
 import {
   channelLabels,
   formatWorkflowRunDate as formatDate,
@@ -40,7 +41,7 @@ import {
   workflowRunStatusClass as statusClass,
 } from "./workflow-display";
 
-const WorkflowScannerSurface = lazy(() => import("./WorkflowScannerSurface.island"));
+const WorkflowScannerSurface = lazy(() => import("./WorkflowScannerSurface"));
 
 type Props = {
   baseId: string;
@@ -53,6 +54,7 @@ type Props = {
   canRunActiveWorkflow: boolean;
   canManageActiveWorkflow: boolean;
   editMode: boolean;
+  initialOverview: WorkspaceWorkflowOverview;
   onWorkflowChanged: () => void;
   onSelectRun: (runId: string | null) => void;
 };
@@ -336,12 +338,12 @@ export default function WorkflowsPage(props: Props) {
   const [runStatus, setRunStatus] = createSignal<RunStatusFilter>("all");
   const [runChannel, setRunChannel] = createSignal<RunChannelFilter>("all");
   const [items, setItems] = createSignal<Workflow[]>(props.workflows);
-  const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>([]);
-  const [stats, setStats] = createSignal<WorkflowRunStats | null>(null);
-  const [runs, setRuns] = createSignal<WorkflowRun[]>([]);
-  const [nextCursor, setNextCursor] = createSignal<string | null>(null);
-  const [emailDeliveries, setEmailDeliveries] = createSignal<WorkflowEmailDelivery[]>([]);
-  const [nextEmailCursor, setNextEmailCursor] = createSignal<string | null>(null);
+  const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>(props.initialOverview.launchers);
+  const [stats, setStats] = createSignal<WorkflowRunStats | null>(props.initialOverview.stats);
+  const [runs, setRuns] = createSignal<WorkflowRun[]>(props.initialOverview.runs.items);
+  const [nextCursor, setNextCursor] = createSignal<string | null>(props.initialOverview.runs.nextCursor);
+  const [emailDeliveries, setEmailDeliveries] = createSignal<WorkflowEmailDelivery[]>(props.initialOverview.emailDeliveries.items);
+  const [nextEmailCursor, setNextEmailCursor] = createSignal<string | null>(props.initialOverview.emailDeliveries.nextCursor);
   const [loadErrors, setLoadErrors] = createSignal<Partial<Record<WorkflowLoadArea, string>>>({});
 
   createEffect(() => setItems(props.workflows));
@@ -505,8 +507,6 @@ export default function WorkflowsPage(props: Props) {
     setRunChannel((value[0] as RunChannelFilter | undefined) ?? "all");
     runsMut.mutate();
   };
-
-  onMount(reloadAll);
 
   const openEditor = async (workflow?: Workflow) => {
     await dialogCore.open<void>(

@@ -1,23 +1,30 @@
 import { prompts } from "@valentinkolb/cloud/ui";
 import { text } from "@valentinkolb/stdlib";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, GridFile } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { uploadRecordFile } from "./record-transfer-client";
 
-export default function RecordFileField(props: { tableId: string; recordId: string; field: Field; canWrite: boolean }) {
+export default function RecordFileField(props: {
+  tableId: string;
+  recordId: string;
+  field: Field;
+  canWrite: boolean;
+  initialFiles: GridFile[];
+}) {
   const [uploading, setUploading] = createSignal(false);
-  const [files, { refetch }] = createResource(
-    () => `${props.tableId}:${props.recordId}:${props.field.id}`,
-    async () => {
-      const res = await apiClient.records[":tableId"][":recordId"].files[":fieldId"].$get({
-        param: { tableId: props.tableId, recordId: props.recordId, fieldId: props.field.id },
-      });
-      if (!res.ok) return { items: [] as GridFile[] };
-      return res.json();
-    },
-  );
+  const [files, setFiles] = createSignal<GridFile[]>(props.initialFiles);
+
+  createEffect(() => setFiles(props.initialFiles));
+
+  const refetch = async () => {
+    const res = await apiClient.records[":tableId"][":recordId"].files[":fieldId"].$get({
+      param: { tableId: props.tableId, recordId: props.recordId, fieldId: props.field.id },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "Failed to load files"));
+    setFiles(((await res.json()) as { items: GridFile[] }).items);
+  };
 
   const accept = () => {
     const raw = (props.field.config as { accept?: string[] }).accept;
@@ -65,12 +72,12 @@ export default function RecordFileField(props: { tableId: string; recordId: stri
 
   return (
     <div class="flex flex-col gap-2">
-      <Show when={!files.loading && (files()?.items.length ?? 0) === 0}>
+      <Show when={files().length === 0}>
         <span class="text-dimmed">—</span>
       </Show>
-      <Show when={(files()?.items.length ?? 0) > 0}>
+      <Show when={files().length > 0}>
         <div class="flex flex-col gap-1">
-          <For each={files()?.items ?? []}>
+          <For each={files()}>
             {(file) => (
               <div class="paper flex items-center gap-2 px-2.5 py-1.5 text-xs">
                 <i class="ti ti-paperclip text-dimmed" />

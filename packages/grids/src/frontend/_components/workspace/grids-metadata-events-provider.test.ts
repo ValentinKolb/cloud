@@ -106,6 +106,17 @@ describe("createGridsMetadataEventsProvider", () => {
     provider.dispose();
   });
 
+  test("starts from the server-rendered cursor", () => {
+    installFakeBrowser();
+    const provider = createGridsMetadataEventsProvider({ baseId: BASE_ID, initialCursor: "7-9" });
+
+    provider.connect();
+    FakeWebSocket.instances[0]!.open();
+
+    expect(lastSubscribeCursor(FakeWebSocket.instances[0]!)).toBe("7-9");
+    provider.dispose();
+  });
+
   test("filters unrelated base events", () => {
     installFakeBrowser();
     const cursors: Array<string | null> = [];

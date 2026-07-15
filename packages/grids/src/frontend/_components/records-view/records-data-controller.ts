@@ -91,6 +91,7 @@ type RecordsDataControllerOptions = {
   trashMode: boolean;
   source: Accessor<RecordsQuerySource>;
   initialData: TableQueryResult;
+  initialEventCursor: string | null;
   cursor: Accessor<string | null>;
   setCursor: Setter<string | null>;
   isGrouped: Accessor<boolean>;
@@ -294,7 +295,7 @@ export const createRecordsDataController = (options: RecordsDataControllerOption
     if (options.trashMode) return;
     liveProvider = createGridsRecordEventsProvider({
       tableId: options.tableId,
-      onReady: () => void refreshVisibleRecords(),
+      initialCursor: options.initialEventCursor,
       onEvent: (event, cursor) => {
         if (!event) return;
         if (cursor) pendingLiveCursor = cursor;

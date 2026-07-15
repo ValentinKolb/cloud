@@ -9,6 +9,7 @@ type LiveProviderError = {
 
 type GridsRecordEventsProviderOptions = {
   tableId: string;
+  initialCursor?: string | null;
   dashboardId?: string;
   onReady?: () => void;
   onEvent?: (event: LiveRecordEvent | null, cursor: string | null) => void;
@@ -61,7 +62,7 @@ export const createGridsRecordEventsProvider = (opts: GridsRecordEventsProviderO
   let terminated = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempt = 0;
-  let lastAppliedCursor: string | null = null;
+  let lastAppliedCursor: string | null = opts.initialCursor ?? null;
   let fatalSent = false;
 
   const clearReconnectTimer = () => {

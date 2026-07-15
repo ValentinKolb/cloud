@@ -102,6 +102,35 @@ export const listForRecordField = async (params: { tableId: string; recordId: st
   return ok(rows.map(mapRow));
 };
 
+export const listForRecord = async (params: {
+  tableId: string;
+  recordId: string;
+  fieldIds: string[];
+}): Promise<Record<string, GridFile[]>> => {
+  const fieldIds = [...new Set(params.fieldIds)].filter(Boolean);
+  const filesByField = Object.fromEntries(fieldIds.map((fieldId) => [fieldId, [] as GridFile[]]));
+  if (fieldIds.length === 0) return filesByField;
+  const rows = await sql<DbRow[]>`
+    SELECT file.id::text AS id, file.record_id::text AS record_id, file.field_id::text AS field_id,
+           file.position, file.filename, file.mime_type, file.size_bytes, file.sha256,
+           file.created_by::text AS created_by, file.created_at
+    FROM grids.files file
+    JOIN grids.records record
+      ON record.id = file.record_id
+     AND record.table_id = ${params.tableId}::uuid
+    JOIN grids.fields field
+      ON field.id = file.field_id
+     AND field.table_id = record.table_id
+     AND field.type = 'file'
+     AND field.deleted_at IS NULL
+    WHERE file.record_id = ${params.recordId}::uuid
+      AND file.field_id = ANY(${sql.array(fieldIds, "UUID")}::uuid[])
+    ORDER BY file.field_id, file.position, file.created_at, file.id
+  `;
+  for (const row of rows) filesByField[row.field_id]?.push(mapRow(row));
+  return filesByField;
+};
+
 export const listFirstImagePreviews = async (params: {
   recordIds: string[];
   fieldIds: string[];

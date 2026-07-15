@@ -1,17 +1,17 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { apiClient } from "../../../api/client";
 import type { Field, Form } from "../../../service";
 import { openFormEditorDialog } from "../forms/FormsManager";
 import { openFormModal } from "../records/FormSubmitModal";
+import { errorMessage } from "../utils/api-helpers";
 import SidebarTableMeta from "./SidebarTableMeta";
 
 type Props = {
   form: Form;
   tableName: string;
   editMode?: boolean;
-  initialAccessEntries?: AccessEntry[];
   /** All fields on the form's parent table — used by the modal to
    *  render input rows for each user_input entry referenced by the
    *  form config. Pre-fetched server-side so the click is instant. */
@@ -53,21 +53,28 @@ export default function FormSidebarEntry(props: Props) {
       dateConfig: props.dateConfig,
     });
 
-  const openEditor = () =>
-    openFormEditorDialog({
+  const openEditor = async () => {
+    const response = await apiClient.access["by-form"][":formId"].$get({ param: { formId: props.form.id } });
+    if (!response.ok) throw new Error(await errorMessage(response, "Could not load form permissions"));
+    return openFormEditorDialog({
       form: props.form,
       tableFields: props.fields,
-      initialAccessEntries: props.initialAccessEntries ?? [],
+      initialAccessEntries: await response.json(),
       canManageAccess: true,
       onSaved: refreshCurrentPath,
       onDelete: refreshCurrentPath,
     });
+  };
 
   const handleClick = async () => {
     if (props.editMode) {
       const action = await chooseEditModeAction(props.form.name);
       if (action === "use") void openSubmit();
-      if (action === "edit") void openEditor();
+      if (action === "edit") {
+        await openEditor().catch((error: unknown) => {
+          prompts.error(error instanceof Error ? error.message : "Could not open form editor");
+        });
+      }
       return;
     }
     void openSubmit();

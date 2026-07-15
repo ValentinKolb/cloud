@@ -7,6 +7,7 @@ import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/
 import { downloadPdfResponse } from "../documents/document-download";
 import { requestDocumentRunDownload, requestWorkflowDocumentsDownload } from "../documents/document-transfer-client";
 import { errorMessage } from "../utils/api-helpers";
+import type { WorkspaceWorkflowRunDetail } from "../workspace/workspace-state-model";
 import {
   channelLabels,
   formatWorkflowRunDate as formatDate,
@@ -15,50 +16,32 @@ import {
 } from "./workflow-display";
 import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
 
-type WorkflowRunDetailApi = {
-  [":runId"]: {
-    $get: (input: { param: { runId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
-    steps: { $get: (input: { param: { runId: string } }, options?: { init?: RequestInit }) => Promise<Response> };
-    documents: {
-      $get: (input: { param: { runId: string }; query: { limit: string } }, options?: { init?: RequestInit }) => Promise<Response>;
-    };
-  };
+const workflowRunDetailApi = apiClient.workspace["workflow-run-detail"] as unknown as {
+  $get: (input: { query: { runId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
 };
-
-const workflowRunDetailApi = apiClient.workflows.runs as unknown as WorkflowRunDetailApi;
 
 const isTerminalRun = (run: GridsWorkflowRun): boolean =>
   run.status === "succeeded" || run.status === "failed" || run.status === "canceled" || run.status === "needs_attention";
 
-export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => void }) {
-  const [run, setRun] = createSignal<GridsWorkflowRun | null>(null);
-  const [steps, setSteps] = createSignal<GridsWorkflowStepRun[]>([]);
+export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: WorkspaceWorkflowRunDetail | null; onClose: () => void }) {
+  const [run, setRun] = createSignal<GridsWorkflowRun | null>(props.initialDetail?.run ?? null);
+  const [steps, setSteps] = createSignal<GridsWorkflowStepRun[]>(props.initialDetail?.steps ?? []);
   const [documents, setDocuments] = createSignal<{ items: DocumentRunSummary[]; total: number; hasMore: boolean }>({
-    items: [],
-    total: 0,
-    hasMore: false,
+    items: props.initialDetail?.documents.items ?? [],
+    total: props.initialDetail?.documents.total ?? 0,
+    hasMore: props.initialDetail?.documents.hasMore ?? false,
   });
   const [downloadingDocumentId, setDownloadingDocumentId] = createSignal<string | null>(null);
   const [downloadingAll, setDownloadingAll] = createSignal(false);
 
   const loadMut = mutations.create<void, string>({
     mutation: async (runId, { abortSignal }) => {
-      const [runRes, stepsRes, documentsRes] = await Promise.all([
-        workflowRunDetailApi[":runId"].$get({ param: { runId } }, { init: { signal: abortSignal } }),
-        workflowRunDetailApi[":runId"].steps.$get({ param: { runId } }, { init: { signal: abortSignal } }),
-        workflowRunDetailApi[":runId"].documents.$get({ param: { runId }, query: { limit: "100" } }, { init: { signal: abortSignal } }),
-      ]);
-      if (!runRes.ok) throw new Error(await errorMessage(runRes, "Could not load workflow run."));
-      if (!stepsRes.ok) throw new Error(await errorMessage(stepsRes, "Could not load workflow run steps."));
-      if (!documentsRes.ok) throw new Error(await errorMessage(documentsRes, "Could not load generated documents."));
-      setRun((await runRes.json()) as GridsWorkflowRun);
-      setSteps(((await stepsRes.json()) as { items: GridsWorkflowStepRun[] }).items);
-      const documentPage = (await documentsRes.json()) as { items: DocumentRunSummary[]; total?: number; hasMore?: boolean };
-      setDocuments({
-        items: documentPage.items,
-        total: documentPage.total ?? documentPage.items.length,
-        hasMore: documentPage.hasMore ?? false,
-      });
+      const response = await workflowRunDetailApi.$get({ query: { runId } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not load workflow run."));
+      const detail = (await response.json()) as WorkspaceWorkflowRunDetail;
+      setRun(detail.run);
+      setSteps(detail.steps);
+      setDocuments(detail.documents);
     },
   });
 
@@ -66,8 +49,11 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
     if (!loadMut.loading()) loadMut.mutate(runId);
   };
 
+  let loadedRunId = props.initialDetail?.run.id ?? null;
   createEffect(() => {
     const runId = props.runId;
+    if (loadedRunId === runId) return;
+    loadedRunId = runId;
     setRun(null);
     setSteps([]);
     setDocuments({ items: [], total: 0, hasMore: false });

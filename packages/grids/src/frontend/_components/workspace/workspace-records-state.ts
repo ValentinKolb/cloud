@@ -6,6 +6,7 @@ import { gridsService } from "../../../service";
 import { filterSearchableFields } from "../../../service/search";
 import { activeDisplayConfig } from "../records-view/display-mode";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
+import { emptyRecordDetail, loadRecordDetailData, writableDocumentTemplates } from "./workspace-record-detail-state";
 import { compileViewSource, isComputedColumn, loadInitialRecords, outputFieldsForQuery } from "./workspace-records-query";
 import { viewLevelForUser, workflowLevelForUser } from "./workspace-state-access";
 import { buildViewer, okState } from "./workspace-state-helpers";
@@ -172,6 +173,22 @@ const buildRecordsRoute = async (params: {
   selectedRecord: GridRecord | null;
 }): Promise<WorkspaceRecordsRoute> => {
   const { common, activeTable, view, recordsState, displayConfig, initial, selectedRecord } = params;
+  const canReadTable = gridsService.permission.hasAtLeast(view.activeTableLevel, "read");
+  const canManageTable = gridsService.permission.hasAtLeast(view.activeTableLevel, "admin");
+  const activeFormAccessEntries = canManageTable
+    ? Object.fromEntries(
+        await Promise.all(
+          (common.catalog.formsByTable[activeTable.id] ?? [])
+            .filter((form) => !form.isDefault)
+            .map(async (form) => [form.id, await gridsService.access.listForForm(form.id)] as const),
+        ),
+      )
+    : {};
+  const initialSelectedRecordDetail = selectedRecord
+    ? canReadTable
+      ? await loadRecordDetailData({ tableId: activeTable.id, recordId: selectedRecord.id, fields: view.fields })
+      : emptyRecordDetail(selectedRecord.id)
+    : null;
   return {
     kind: "records",
     activeTable,
@@ -181,11 +198,11 @@ const buildRecordsRoute = async (params: {
       ? (common.catalog.formsByTable[activeTable.id] ?? [])
       : [],
     canWriteRecords: gridsService.permission.hasAtLeast(view.activeTableLevel, "write"),
-    canManageActiveTable: gridsService.permission.hasAtLeast(view.activeTableLevel, "admin"),
+    canManageActiveTable: canManageTable,
     activeTableAccessEntries: gridsService.permission.hasAtLeast(view.activeTableLevel, "admin")
       ? await gridsService.access.listForTable(activeTable.id)
       : [],
-    activeFormAccessEntries: common.catalog.formAccessEntriesByTable[activeTable.id] ?? {},
+    activeFormAccessEntries,
     activeViewAccessEntries: view.activeView && view.canEditActiveView ? await gridsService.access.listForView(view.activeView.id) : [],
     canEditActiveView: view.canEditActiveView,
     otherTables: common.catalog.tables.map((table) => ({ id: table.id, name: table.name })),
@@ -216,6 +233,8 @@ const buildRecordsRoute = async (params: {
       filePreviews: initial.records.filePreviews,
     },
     initialSelectedRecord: selectedRecord,
+    initialSelectedRecordDetail,
+    documentTemplates: writableDocumentTemplates(common, activeTable.id),
     relationLabels: initial.relationLabels,
     activeViewColumns: initial.effective.columns,
     searchableFields: filterSearchableFields(view.fields),

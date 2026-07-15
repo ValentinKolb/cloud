@@ -7,6 +7,7 @@ import { apiClient } from "../../../api/client";
 import type {
   AggregationSpec,
   ColumnSpec,
+  DocumentTemplateSummary,
   FieldColumnSpec,
   GroupBySpec,
   RecordDisplayConfig,
@@ -30,7 +31,7 @@ import GridToolbar from "../toolbar/GridToolbar";
 import SearchBar from "../toolbar/SearchBar";
 import { errorMessage } from "../utils/api-helpers";
 import { workspaceMainClass } from "../workspace/workspace-layout";
-import type { WorkspaceBulkLauncher } from "../workspace/workspace-state-model";
+import type { WorkspaceBulkLauncher, WorkspaceRecordDetail } from "../workspace/workspace-state-model";
 import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
 import { visibleIdsFromResult } from "./live-refresh";
@@ -104,10 +105,13 @@ type Props = {
   viewMode: boolean;
   initialState: RecordsState;
   initialData: TableQueryResult;
+  initialEventCursor: string | null;
   /** Selected-record payload from SSR — non-null when the URL had
    *  ?record=<id> at initial render. Lets the panel show immediately
    *  on deep-link without a client-side fetch. */
   initialSelectedRecord: GridRecord | null;
+  initialSelectedRecordDetail: WorkspaceRecordDetail | null;
+  documentTemplates: DocumentTemplateSummary[];
   relationLabels: Record<string, string>;
   viewColumns: ColumnSpec[] | undefined;
   searchableFields: Field[];
@@ -329,6 +333,7 @@ export default function RecordsView(props: Props) {
       calendar: calendarState(),
     }),
     initialData: props.initialData,
+    initialEventCursor: props.initialEventCursor,
     cursor,
     setCursor,
     isGrouped,
@@ -447,6 +452,7 @@ export default function RecordsView(props: Props) {
   // to the SSR-provided initialSelectedRecord (deep-link case where the
   // record isn't on this page). Final fallback: client-side fetch.
   const [fetchedSelected, setFetchedSelected] = createSignal<GridRecord | null>(null);
+  const [selectedRecordDetail, setSelectedRecordDetail] = createSignal<WorkspaceRecordDetail | null>(props.initialSelectedRecordDetail);
   const [selectedRecordFailure, setSelectedRecordFailure] = createSignal<Error | null>(null);
   const [selectedRecordLoadAttempt, setSelectedRecordLoadAttempt] = createSignal(0);
   const selectedRecord = createMemo<GridRecord | null>(() => {
@@ -465,9 +471,43 @@ export default function RecordsView(props: Props) {
   const closeSelectedRecord = () => {
     setSelectedRecordId(null);
     setFetchedSelected(null);
+    setSelectedRecordDetail(null);
     setSelectedRecordFailure(null);
     syncUrl({ replace: true });
   };
+
+  const fetchSelectedRecordDetail = async (recordId: string, signal?: AbortSignal) => {
+    const res = await apiClient.workspace["record-detail"].$get(
+      { query: { tableId: props.tableId, recordId } },
+      signal ? { init: { signal } } : undefined,
+    );
+    if (res.status === 403 || res.status === 404) {
+      return {
+        recordId,
+        filesByField: {},
+        documentRuns: [],
+        snapshots: [],
+        auditEntries: [],
+      } satisfies WorkspaceRecordDetail;
+    }
+    if (!res.ok) throw new Error(await errorMessage(res, "Could not load record details"));
+    return (await res.json()) as WorkspaceRecordDetail;
+  };
+
+  createEffect(() => {
+    const recordId = selectedRecordId();
+    if (!recordId) return;
+    if (selectedRecordDetail()?.recordId === recordId) return;
+    const abort = new AbortController();
+    onCleanup(() => abort.abort());
+    void fetchSelectedRecordDetail(recordId, abort.signal)
+      .then((detail) => {
+        if (selectedRecordId() === recordId) setSelectedRecordDetail(detail);
+      })
+      .catch((error: unknown) => {
+        if (!abort.signal.aborted) prompts.error(error instanceof Error ? error.message : "Could not load record details");
+      });
+  });
 
   // When a selected id can't be found locally, fetch it once. This is
   // the rare deep-link / paginated-out path; common case (row click)
@@ -573,6 +613,7 @@ export default function RecordsView(props: Props) {
    *  model ("back undoes my last forward action"). */
   const onSelectRecord = (rec: GridRecord) => {
     setSelectedGroup(null);
+    if (selectedRecordDetail()?.recordId !== rec.id) setSelectedRecordDetail(null);
     setSelectedRecordId(rec.id);
     syncUrl({ replace: false });
   };
@@ -582,6 +623,7 @@ export default function RecordsView(props: Props) {
   const onSelectGroup = (bucket: GroupBucket) => {
     setSelectedRecordId(null);
     setFetchedSelected(null);
+    setSelectedRecordDetail(null);
     setSelectedGroup(bucket);
     syncUrl({ replace: true });
   };
@@ -609,6 +651,7 @@ export default function RecordsView(props: Props) {
    *  back button collapses the picker first. */
   const onRecordCreated = (record: GridRecord) => {
     setFetchedSelected(() => record);
+    setSelectedRecordDetail(null);
     setSelectedRecordId(record.id);
     syncUrl({ replace: false });
     void refreshVisibleRecords({ recordIds: [record.id], force: true });
@@ -619,6 +662,11 @@ export default function RecordsView(props: Props) {
     setFetchedSelected(() => record);
     replaceRecord(record);
     void refreshVisibleRecords({ recordIds: [record.id], force: true });
+    void fetchSelectedRecordDetail(record.id)
+      .then(setSelectedRecordDetail)
+      .catch((error: unknown) => {
+        prompts.error(error instanceof Error ? error.message : "Could not refresh record details");
+      });
   };
 
   /** After a delete or restore: close the panel + refetch. */
@@ -1075,6 +1123,8 @@ export default function RecordsView(props: Props) {
                   tableName={tableName()}
                   fields={fields()}
                   record={selectedRecord}
+                  detail={selectedRecordDetail}
+                  documentTemplates={props.documentTemplates}
                   mode={detailMode}
                   canWrite={props.canWrite}
                   relationLabels={mergedRelationLabels()}

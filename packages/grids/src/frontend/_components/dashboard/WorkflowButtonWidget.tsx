@@ -3,10 +3,10 @@ import { createSignal, lazy, Show, Suspense } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { WorkflowButtonWidget as WorkflowButtonWidgetConfig } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
-import type { WorkflowScannerState } from "../workflows/WorkflowScannerSurface.island";
+import type { WorkflowScannerState } from "../workflows/WorkflowScannerSurface";
 import type { WidgetData } from "./widget-data";
 
-const WorkflowScannerSurface = lazy(() => import("../workflows/WorkflowScannerSurface.island"));
+const WorkflowScannerSurface = lazy(() => import("../workflows/WorkflowScannerSurface"));
 
 type Props = {
   dashboardId: string;

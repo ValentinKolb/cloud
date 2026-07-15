@@ -1,54 +1,8 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DocumentTemplateSummary } from "../../../contracts";
 import type { Form, Table } from "../../../service";
 import { gridsService } from "../../../service";
 import { workflowLevelForUser } from "./workspace-state-access";
 import type { AuthUser, WorkspaceCatalog } from "./workspace-state-model";
-
-const loadFormAccessEntriesByTable = async (
-  tables: Table[],
-  tableLevels: Record<string, "none" | "read" | "write" | "admin">,
-  formsByTable: Record<string, Form[]>,
-) => {
-  const formAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>> = {};
-  await Promise.all(
-    tables
-      .filter((table) => gridsService.permission.hasAtLeast(tableLevels[table.id] ?? "none", "admin"))
-      .map(async (table) => {
-        const entries: Record<string, AccessEntry[]> = {};
-        await Promise.all(
-          (formsByTable[table.id] ?? [])
-            .filter((form) => !form.isDefault)
-            .map(async (form) => {
-              entries[form.id] = await gridsService.access.listForForm(form.id);
-            }),
-        );
-        formAccessEntriesByTable[table.id] = entries;
-      }),
-  );
-  return formAccessEntriesByTable;
-};
-
-const loadDocumentTemplateAccessEntriesByTable = async (
-  templatesByTable: Record<string, Array<Pick<DocumentTemplateSummary, "id">>>,
-  templateLevels: Record<string, "none" | "read" | "write" | "admin">,
-) => {
-  const entriesByTable: Record<string, Record<string, AccessEntry[]>> = {};
-  await Promise.all(
-    Object.entries(templatesByTable).map(async ([tableId, templates]) => {
-      const entries: Record<string, AccessEntry[]> = {};
-      await Promise.all(
-        templates
-          .filter((template) => gridsService.permission.hasAtLeast(templateLevels[template.id] ?? "none", "admin"))
-          .map(async (template) => {
-            entries[template.id] = await gridsService.access.listForDocumentTemplate(template.id);
-          }),
-      );
-      entriesByTable[tableId] = entries;
-    }),
-  );
-  return entriesByTable;
-};
 
 export const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCatalog> => {
   const catalogRaw = await gridsService.base.catalog({
@@ -79,11 +33,6 @@ export const loadCatalog = async (baseId: string, user: AuthUser): Promise<Works
   }
   sidebarDocumentTemplates.sort((left, right) => left.template.name.localeCompare(right.template.name, undefined, { sensitivity: "base" }));
 
-  const formAccessEntriesByTable = await loadFormAccessEntriesByTable(tables, catalogRaw.tableLevels, catalogRaw.formsByTable);
-  const documentTemplateAccessEntriesByTable = await loadDocumentTemplateAccessEntriesByTable(
-    documentTemplatesByTable,
-    catalogRaw.documentTemplateLevels ?? {},
-  );
   const allWorkflows = gridsService.workflow?.listForBase ? await gridsService.workflow.listForBase(baseId) : [];
   const workflowLevels = Object.fromEntries(
     await Promise.all(allWorkflows.map(async (workflow) => [workflow.id, await workflowLevelForUser(user, baseId, workflow.id)] as const)),
@@ -100,10 +49,8 @@ export const loadCatalog = async (baseId: string, user: AuthUser): Promise<Works
     fieldsByTable: catalogRaw.fieldsByTable,
     viewsByTable: catalogRaw.viewsByTable,
     formsByTable: catalogRaw.formsByTable,
-    formAccessEntriesByTable,
     documentTemplatesByTable,
     documentTemplateLevels: catalogRaw.documentTemplateLevels ?? {},
-    documentTemplateAccessEntriesByTable,
     tableShortIds: Object.fromEntries([...tables, ...formTables, ...documentTemplateTables].map((table) => [table.id, table.shortId])),
     sidebarForms,
     sidebarDocumentTemplates,

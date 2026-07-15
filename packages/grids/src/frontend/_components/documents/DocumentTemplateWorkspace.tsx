@@ -2,7 +2,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
-import { createEffect, createResource, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type {
   DocumentRunBrowseResponse,
@@ -44,6 +44,7 @@ type Props = {
   editMode: boolean;
   initialRecordId: string | null;
   initialDocumentViewMode: GridsDocumentViewMode;
+  initialBrowserPage: DocumentRunBrowseResponse;
   dateConfig?: DateContext;
 };
 
@@ -70,17 +71,18 @@ const fetchBrowserPage = async (
 };
 
 export default function DocumentTemplateWorkspace(props: Props) {
+  const initialPage = replaceDocumentBrowserPage(props.initialBrowserPage);
   const [searchDraft, setSearchDraft] = createSignal("");
   const [search, setSearch] = createSignal("");
   const [viewMode, setViewMode] = createSignal<DocumentViewMode>(props.initialDocumentViewMode);
   const [folderPath, setFolderPath] = createSignal<string[]>([]);
   const [busy, setBusy] = createSignal<string | null>(null);
-  const [runItems, setRunItems] = createSignal<DocumentRunSummary[]>([]);
-  const [folderItems, setFolderItems] = createSignal<DocumentRunFolder[]>([]);
+  const [runItems, setRunItems] = createSignal<DocumentRunSummary[]>(initialPage.runs);
+  const [folderItems, setFolderItems] = createSignal<DocumentRunFolder[]>(initialPage.folders);
   const [runPage, setRunPage] = createSignal<{ total: number; hasMore: boolean; nextCursor: string | null }>({
-    total: 0,
-    hasMore: false,
-    nextCursor: null,
+    total: initialPage.total,
+    hasMore: initialPage.hasMore,
+    nextCursor: initialPage.nextCursor,
   });
 
   const debouncedSearch = timing.debounce((next: string) => setSearch(next.trim()), 250);
@@ -89,17 +91,26 @@ export default function DocumentTemplateWorkspace(props: Props) {
   const activeViewMode = () => activeDocumentViewMode(viewMode(), search());
   const currentBrowserKey = () => documentBrowserKey(props.template.id, viewMode(), search(), folderPath());
   const browserKeyString = (key = currentBrowserKey()) => serializeDocumentBrowserKey(key);
-  const [browser, { refetch: refetchBrowser }] = createResource(currentBrowserKey, (key) =>
-    fetchBrowserPage({ ...key, search: key.search.trim() }),
-  );
+  let loadedBrowserKey = browserKeyString();
+  const browserMut = mutations.create<DocumentRunBrowseResponse, ReturnType<typeof currentBrowserKey>>({
+    mutation: (key, { abortSignal }) => fetchBrowserPage({ ...key, search: key.search.trim(), signal: abortSignal }),
+    onSuccess: (page) => {
+      const next = replaceDocumentBrowserPage(page);
+      setRunItems(next.runs);
+      setFolderItems(next.folders);
+      setRunPage({ total: next.total, hasMore: next.hasMore, nextCursor: next.nextCursor });
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const refetchBrowser = () => browserMut.mutate(currentBrowserKey());
 
   createEffect(() => {
-    const page = browser();
-    if (!page) return;
-    const next = replaceDocumentBrowserPage(page);
-    setRunItems(next.runs);
-    setFolderItems(next.folders);
-    setRunPage({ total: next.total, hasMore: next.hasMore, nextCursor: next.nextCursor });
+    const key = currentBrowserKey();
+    const serialized = serializeDocumentBrowserKey(key);
+    if (serialized === loadedBrowserKey) return;
+    loadedBrowserKey = serialized;
+    browserMut.mutate(key);
   });
 
   const loadMoreMut = mutations.create<DocumentRunBrowseResponse, void, { key: string; cursor: string }>({
@@ -236,8 +247,8 @@ export default function DocumentTemplateWorkspace(props: Props) {
         )}
       </Show>
       <DocumentBrowser
-        loading={browser.loading}
-        error={browser.error}
+        loading={browserMut.loading()}
+        error={browserMut.error() ?? undefined}
         mode={activeViewMode() === "folders" ? "folders" : "list"}
         searching={Boolean(search().trim())}
         folders={folders()}

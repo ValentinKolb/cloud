@@ -1,6 +1,5 @@
 import { Placeholder } from "@valentinkolb/cloud/ui";
-import { createResource, For, Show } from "solid-js";
-import { apiClient } from "@/api/client";
+import { For, Show } from "solid-js";
 import type { AuditEntry } from "../../../service";
 
 type AuditEntryWithUser = AuditEntry & { userDisplayName: string | null };
@@ -32,38 +31,22 @@ export function formatRecordRelativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export default function RecordHistorySection(props: { tableId: string; recordId: string }) {
-  const [entries] = createResource(
-    () => `${props.tableId}:${props.recordId}`,
-    async () => {
-      const res = await apiClient.records[":tableId"][":recordId"].audit.$get({
-        param: { tableId: props.tableId, recordId: props.recordId },
-      });
-      if (!res.ok) return { items: [] as AuditEntryWithUser[] };
-      return res.json();
-    },
-  );
-
+export default function RecordHistorySection(props: { entries: AuditEntryWithUser[] }) {
   return (
     <details class="detail-section-compact group">
       <summary class="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-secondary">
         <i class="ti ti-history text-sm" />
         History
-        <Show when={!entries.loading && entries()}>
-          <span class="text-[10px] text-dimmed">({entries()!.items.length})</span>
-        </Show>
+        <span class="text-[10px] text-dimmed">({props.entries.length})</span>
         <i class="ti ti-chevron-down ml-auto text-xs text-dimmed transition-transform group-open:rotate-180" />
       </summary>
       <div class="mt-3 flex flex-col gap-2">
-        <Show when={entries.loading}>
-          <p class="text-xs text-dimmed">Loading history…</p>
-        </Show>
-        <Show when={!entries.loading && entries() && entries()!.items.length === 0}>
+        <Show when={props.entries.length === 0}>
           <Placeholder align="left" class="px-0 py-2">
             No history yet.
           </Placeholder>
         </Show>
-        <For each={entries()?.items ?? []}>
+        <For each={props.entries}>
           {(entry) => {
             const fieldsChanged = entry.diff ? Object.keys(entry.diff) : [];
             const summary =

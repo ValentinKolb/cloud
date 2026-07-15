@@ -60,6 +60,22 @@ const templateSummary = {
   updatedAt: template.updatedAt,
 };
 
+const documentRun = {
+  id: "66666666-6666-4666-8666-666666666666",
+  shortId: "RUN01",
+  baseId: base.id,
+  tableId: documentTable.id,
+  recordId: "55555555-5555-4555-8555-555555555555",
+  filename: "invoice.pdf",
+  templateId: template.id,
+  workflowRunId: null,
+  snapshotId: "77777777-7777-4777-8777-777777777777",
+  documentNumber: "INV-001",
+  tags: [],
+  generatedBy: null,
+  generatedAt: "2026-01-01T00:00:00.000Z",
+};
+
 let documentTemplateLevel: "read" | "write" = "read";
 
 mock.module("../../../service", () => ({
@@ -101,6 +117,16 @@ mock.module("../../../service", () => ({
     document: {
       getTemplateByIdOrShortId: async (_tableId: string, idOrSlug: string) =>
         template.id === idOrSlug || template.shortId === idOrSlug ? template : null,
+      browseRunsForTemplate: async () => ({
+        path: [],
+        folders: [],
+        items: [documentRun],
+        total: 1,
+        limit: 200,
+        hasMore: false,
+        nextCursor: null,
+      }),
+      summarizeRun: (run: unknown) => run,
       summarizeTemplate: () => templateSummary,
     },
     view: {
@@ -147,6 +173,8 @@ describe("loadGridsWorkspaceState — document-template-only access", () => {
     expect(state.route.table.id).toBe(documentTable.id);
     expect(state.route.initialRecordId).toBe("55555555-5555-4555-8555-555555555555");
     expect(state.route.initialDocumentViewMode).toBe("list");
+    expect(state.route.initialBrowserPage.items).toEqual([documentRun]);
+    expect(state.route.initialBrowserPage.total).toBe(1);
     expect(state.catalog.tables).toEqual([]);
     expect(state.catalog.sidebarDocumentTemplates).toEqual([{ template: templateSummary, table: documentTable }]);
     expect("source" in state.catalog.sidebarDocumentTemplates[0]!.template).toBe(false);

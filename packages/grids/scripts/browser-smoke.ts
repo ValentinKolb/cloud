@@ -7,7 +7,7 @@
  * regress during v1 polish. Avoid golden screenshots and fragile full-app
  * snapshots; assert visible user-facing behaviour.
  */
-import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { type Browser, type BrowserContext, chromium, type Page, type Request } from "playwright";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "dev-admin";
@@ -640,10 +640,6 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
       `dashboard form submit failed with ${submitted.status()}: ${(await submitted.text()).slice(0, 400)}; request=${submitted.request().postData()}; inputs=${JSON.stringify(formInputs)}`,
     );
   }
-  const dashboardRefreshAfterSubmit = await pageB
-    .waitForResponse((response) => response.url().includes("/api/grids/workspace/route") && response.ok(), { timeout: TIMEOUT })
-    .catch(() => null);
-  if (!dashboardRefreshAfterSubmit) fail("dashboard form submit did not request a dashboard refresh");
   await expectVisibleText(pageB, inlineDashboardTitle, "dashboard form submit refreshes embedded view");
   await expectVisibleTextPattern(pageB, /68[,.]152[,.]21/, "dashboard form submit refreshes stat widget");
 
@@ -747,10 +743,19 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await page.waitForURL((url) => !url.searchParams.has("edit"), { timeout: TIMEOUT });
   ok("enhanced edit-mode navigation updates URL");
 
+  let initialRecordDetailRequests = 0;
+  const countInitialRecordDetailRequest = (request: Request) => {
+    if (new URL(request.url()).pathname === "/api/grids/workspace/record-detail") initialRecordDetailRequests += 1;
+  };
+  page.on("request", countInitialRecordDetailRequest);
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?record=${fixture.records.first}`, {
     waitUntil: "domcontentloaded",
   });
   await expectVisibleText(page, "History", "record detail opens");
+  await page.waitForTimeout(250);
+  page.off("request", countInitialRecordDetailRequest);
+  if (initialRecordDetailRequests !== 0) fail("record detail refetched during initial hydration");
+  ok("record detail hydrates from server data without refetching");
 
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.view.shortId}`, {
     waitUntil: "domcontentloaded",

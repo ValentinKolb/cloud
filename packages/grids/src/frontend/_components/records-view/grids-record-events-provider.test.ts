@@ -109,6 +109,17 @@ describe("createGridsRecordEventsProvider", () => {
     provider.dispose();
   });
 
+  test("starts from the server-rendered cursor", () => {
+    installFakeBrowser();
+    const provider = createGridsRecordEventsProvider({ tableId: TABLE_ID, initialCursor: "6-9" });
+
+    provider.connect();
+    FakeWebSocket.instances[0]!.open();
+
+    expect(lastSubscribeCursor(FakeWebSocket.instances[0]!)).toBe("6-9");
+    provider.dispose();
+  });
+
   test("does not reconnect after terminal websocket closes", () => {
     installFakeBrowser();
     const fatal: string[] = [];

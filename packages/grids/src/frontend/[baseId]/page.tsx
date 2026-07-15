@@ -4,7 +4,7 @@ import { currentActorUser } from "../../api/permissions";
 import { withInitialQueryPreview } from "../../api/workspace-query-preview";
 import { ssr } from "../../config";
 import { parseDocumentViewMode } from "../_components/sidebar/GridsSettingsStore";
-import GridsWorkspace from "../_components/workspace/GridsWorkspace.island";
+import GridsWorkspace from "../_components/workspace/GridsWorkspace";
 import { loadGridsWorkspaceState } from "../_components/workspace/workspace-state";
 
 export default ssr<AuthContext>(async (c) => {
@@ -47,7 +47,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>
-      <GridsWorkspace initialState={state} />
+      <GridsWorkspace state={state} />
     </Layout>
   );
 });

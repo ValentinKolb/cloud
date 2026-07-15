@@ -8,7 +8,7 @@ import {
   StructuredDataPreview,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentRunSummary, DocumentTemplateSummary, RecordSnapshot, RecordSnapshotSummary } from "../../../contracts";
 import { downloadPdfResponse } from "../documents/document-download";
@@ -121,36 +121,37 @@ function DocumentGenerationReviewDialog(props: {
   );
 }
 
-export default function RecordDocumentsSection(props: { tableId: string; recordId: string; live: boolean }) {
-  const [templates] = createResource(
-    () => props.tableId,
-    async (tableId) => {
-      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId }, query: { min: "write" } });
-      if (!res.ok) return [] as DocumentTemplateSummary[];
-      return res.json();
-    },
-  );
-  const [runs, { refetch: refetchRuns }] = createResource(
-    () => `${props.tableId}:${props.recordId}`,
-    async () => {
-      const res = await apiClient.documents.runs["by-record"][":tableId"][":recordId"].$get({
-        param: { tableId: props.tableId, recordId: props.recordId },
-      });
-      if (!res.ok) return { items: [] as DocumentRunSummary[] };
-      return res.json();
-    },
-  );
-  const [snapshots, { refetch: refetchSnapshots }] = createResource(
-    () => `${props.tableId}:${props.recordId}`,
-    async () => {
-      const res = await apiClient.documents.snapshots["by-record"][":tableId"][":recordId"].$get({
-        param: { tableId: props.tableId, recordId: props.recordId },
-      });
-      if (!res.ok) return { items: [] as RecordSnapshotSummary[] };
-      return res.json();
-    },
-  );
+export default function RecordDocumentsSection(props: {
+  tableId: string;
+  recordId: string;
+  live: boolean;
+  templates: DocumentTemplateSummary[];
+  initialRuns: DocumentRunSummary[];
+  initialSnapshots: RecordSnapshotSummary[];
+}) {
+  const [runs, setRuns] = createSignal<DocumentRunSummary[]>(props.initialRuns);
+  const [snapshots, setSnapshots] = createSignal<RecordSnapshotSummary[]>(props.initialSnapshots);
   const [busy, setBusy] = createSignal<string | null>(null);
+
+  createEffect(() => setRuns(props.initialRuns));
+  createEffect(() => setSnapshots(props.initialSnapshots));
+
+  const refetchRuns = async () => {
+    const res = await apiClient.documents.runs["by-record"][":tableId"][":recordId"].$get({
+      param: { tableId: props.tableId, recordId: props.recordId },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "Failed to load generated documents"));
+    const value = (await res.json()) as { items: DocumentRunSummary[] } | DocumentRunSummary[];
+    setRuns(Array.isArray(value) ? value : value.items);
+  };
+
+  const refetchSnapshots = async () => {
+    const res = await apiClient.documents.snapshots["by-record"][":tableId"][":recordId"].$get({
+      param: { tableId: props.tableId, recordId: props.recordId },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "Failed to load snapshots"));
+    setSnapshots(((await res.json()) as { items: RecordSnapshotSummary[] }).items);
+  };
 
   const iconActionClass =
     "inline-flex h-7 w-7 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-secondary disabled:cursor-not-allowed disabled:opacity-50";
@@ -264,12 +265,9 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
     }
   };
 
-  const availableTemplates = () => (templates() ?? []).filter((template) => template.enabled);
-  const generatedRuns = () => {
-    const value = runs();
-    return Array.isArray(value) ? value : (value?.items ?? []);
-  };
-  const manualSnapshots = () => snapshots()?.items ?? [];
+  const availableTemplates = () => props.templates.filter((template) => template.enabled);
+  const generatedRuns = runs;
+  const manualSnapshots = snapshots;
 
   return (
     <>
@@ -284,10 +282,7 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
           </Show>
         </div>
 
-        <Show when={snapshots.loading}>
-          <p class="text-xs text-dimmed">Loading snapshots…</p>
-        </Show>
-        <Show when={!snapshots.loading && manualSnapshots().length === 0}>
+        <Show when={manualSnapshots().length === 0}>
           <Placeholder align="left" class="px-0 py-2">
             No manual snapshots yet.
           </Placeholder>
@@ -321,10 +316,7 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
         <section class="detail-section flex flex-col gap-3">
           <h3 class="detail-section-label mb-0">Generate document</h3>
 
-          <Show when={templates.loading}>
-            <p class="text-xs text-dimmed">Loading templates…</p>
-          </Show>
-          <Show when={!templates.loading && availableTemplates().length === 0}>
+          <Show when={availableTemplates().length === 0}>
             <Placeholder align="left" class="px-0 py-2">
               No enabled document templates.
             </Placeholder>
@@ -360,10 +352,7 @@ export default function RecordDocumentsSection(props: { tableId: string; recordI
       <section class="detail-section flex flex-col gap-3">
         <h3 class="detail-section-label mb-0">Generated documents</h3>
 
-        <Show when={runs.loading}>
-          <p class="text-xs text-dimmed">Loading generated documents…</p>
-        </Show>
-        <Show when={!runs.loading && generatedRuns().length === 0}>
+        <Show when={generatedRuns().length === 0}>
           <Placeholder align="left" class="px-0 py-2">
             No generated documents yet.
           </Placeholder>

@@ -7,6 +7,7 @@ type LiveProviderError = {
 
 type GridsMetadataEventsProviderOptions = {
   baseId: string;
+  initialCursor?: string | null;
   onReady?: () => void;
   onEvent?: (cursor: string | null) => void;
   onError?: (error: LiveProviderError) => void;
@@ -69,7 +70,7 @@ export const createGridsMetadataEventsProvider = (opts: GridsMetadataEventsProvi
   let terminated = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempt = 0;
-  let lastAppliedCursor: string | null = null;
+  let lastAppliedCursor: string | null = opts.initialCursor ?? null;
   let fatalSent = false;
 
   const clearReconnectTimer = () => {
