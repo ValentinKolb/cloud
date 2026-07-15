@@ -14,6 +14,7 @@ import {
   type ClaimedMailWorkflowTarget,
   claimMailWorkflowTarget,
   MailWorkflowRuntimeRepository,
+  recoverCanceledMailWorkflowTargets,
   resumeMailWorkflowDependency,
 } from "./workflow-runtime-repository";
 import { createMailWorkflowValueResolver } from "./workflow-runtime-values";
@@ -851,6 +852,29 @@ suite("mail canonical workflow runtime", () => {
     });
     expect((await targetRows(run.id)).map(({ state }) => state)).toEqual(["canceled", "canceled"]);
     expect(await processTarget((await targetRows(run.id))[0]!.id, "cancel")).toMatchObject({ state: "idle" });
+  });
+
+  test("terminalizes a canceled running target after worker loss", async () => {
+    const workflow = await createWorkflowFixture(keywordSource("CanceledWorker"), "Canceled worker recovery");
+    const run = await backfill(workflow, `cancel-worker-${suffix}`);
+    const targets = await targetRows(run.id);
+    const claim = await claimMailWorkflowTarget({ targetId: targets[0]!.id, workerId: `lost-${suffix}` });
+    expect(claim).not.toBeNull();
+
+    unwrap(await cancelWorkflowRun({ context: writerContext, mailboxId, runId: run.id, reason: "worker lost" }));
+    await sql`
+      UPDATE mail.workflow_run_targets
+      SET lease_expires_at = now() - interval '1 second'
+      WHERE id = ${targets[0]!.id}::uuid
+    `;
+
+    expect(await recoverCanceledMailWorkflowTargets()).toBe(1);
+    expect(await recoverCanceledMailWorkflowTargets()).toBe(0);
+    const stored = unwrap(await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id }));
+    expect(stored).toMatchObject({
+      state: "canceled",
+      targetProgress: { total: 2, queued: 0, running: 0, waiting: 0, canceled: 2 },
+    });
   });
 
   test("atomically cancels waiting targets and blocks dependency resume", async () => {

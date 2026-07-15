@@ -603,5 +603,40 @@ export const listRecoverableMailWorkflowTargetIds = async (limit = 500): Promise
   return rows.map((row) => row.id);
 };
 
+export const recoverCanceledMailWorkflowTargets = async (limit = 500): Promise<number> =>
+  sql.begin(async (tx) => {
+    const rows = await tx<
+      { id: string; execution_generation: string | number; cancel_reason: string | null }[]
+    >`
+      SELECT target.id, target.execution_generation, target.cancel_reason
+      FROM mail.workflow_run_targets target
+      JOIN mail.workflow_runs run ON run.id = target.parent_run_id
+      WHERE run.state IN ('queued', 'running', 'waiting', 'canceled')
+        AND target.state = 'running'
+        AND target.cancel_requested_at IS NOT NULL
+        AND target.lease_expires_at < now()
+      ORDER BY target.lease_expires_at, target.id
+      FOR UPDATE OF target SKIP LOCKED
+      LIMIT ${Math.min(Math.max(limit, 1), 5_000)}
+    `;
+    let recovered = 0;
+    for (const row of rows) {
+      const changed = await transitionTarget({
+        db: tx,
+        targetId: row.id,
+        executionGeneration: Number(row.execution_generation),
+        from: ["running"],
+        to: "canceled",
+        error: {
+          code: "CANCELED",
+          message: row.cancel_reason ?? "Workflow run was canceled",
+          retryable: false,
+        },
+      });
+      if (changed) recovered += 1;
+    }
+    return recovered;
+  });
+
 export const cancelMailWorkflowRun = async (runId: string, reason: string): Promise<boolean> =>
   sql.begin((tx) => cancelRunInTransaction({ db: tx, runId, reason }));

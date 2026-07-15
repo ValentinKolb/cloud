@@ -19,6 +19,7 @@ import {
   listRecoverableMailWorkflowTargetIds,
   MAIL_WORKFLOW_TARGET_LEASE_MS,
   MailWorkflowRuntimeRepository,
+  recoverCanceledMailWorkflowTargets,
   type MailWorkflowTargetResult,
   resumeMailWorkflowDependency,
 } from "./workflow-runtime-repository";
@@ -240,9 +241,10 @@ const reconcileTerminalDependencies = async (): Promise<number> => {
 };
 
 const reconcileWorkflowTargets = async (): Promise<number> => {
+  const canceled = await recoverCanceledMailWorkflowTargets(RECONCILE_LIMIT);
   const targetIds = await listRecoverableMailWorkflowTargetIds(RECONCILE_LIMIT);
   await submitTargetIds(targetIds);
-  return targetIds.length;
+  return canceled + targetIds.length;
 };
 
 const workflowRuntimeScheduler = scheduler({ id: "mail:workflow-runtime" });
