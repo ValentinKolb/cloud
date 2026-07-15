@@ -1,14 +1,14 @@
 import { audit } from "@valentinkolb/cloud/services";
 import type { WorkflowBoundPlan, WorkflowIrStep, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
+import { evaluateWorkflowTriggerInputs, type WorkflowRunWake } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
 import type { WorkflowEffectBudget, WorkflowRunTargetSelection } from "../contracts";
 import { sha256Json } from "./canonical";
 import type { SqlClient } from "./workflow-data";
 import { loadRunByIdempotency, workflowActorColumns } from "./workflow-materialization-store";
 import { workflowEffectBudgetExceeded } from "./workflow-preflight-service";
-import { dispatchMailWorkflowRun } from "./workflow-run-dispatch";
 import { type DbWorkflowRun, parseWorkflowDbJson, workflowRunColumns } from "./workflow-run-model";
+import { wakeMailWorkflowRun } from "./workflow-run-wake";
 import type { MailWorkflowAuthorizationSnapshot } from "./workflow-runtime-context";
 
 type AutomaticActivationRow = {
@@ -177,6 +177,7 @@ const activationSnapshotRow = (activation: AutomaticWorkflowActivationSnapshot):
 
 export const materializeAutomaticWorkflowRun = async (
   params: AutomaticWorkflowMaterializationInput,
+  wake: WorkflowRunWake,
 ): Promise<AutomaticWorkflowMaterialization> => {
   const pinnedActivation = params.activation ? activationSnapshotRow(params.activation) : null;
   const activationId = pinnedActivation?.activation_id ?? params.activationId;
@@ -331,6 +332,6 @@ export const materializeAutomaticWorkflowRun = async (
     await recordAutomaticSkip(candidate, params.deliveryKey, materialized.reason);
     return materialized;
   }
-  if (materialized.state === "created") await dispatchMailWorkflowRun(materialized.runId);
+  if (materialized.state === "created") await wakeMailWorkflowRun(wake, materialized.runId);
   return materialized;
 };

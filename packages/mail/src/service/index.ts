@@ -4,6 +4,8 @@ import * as collaboration from "./collaboration";
 import { cancelSendCommand, commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
 import * as conversations from "./conversations";
+import * as draftLeases from "./draft-leases";
+import * as draftUploads from "./draft-uploads";
 import * as drafts from "./drafts";
 import * as events from "./events";
 import * as execution from "./execution";
@@ -21,12 +23,11 @@ import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
 import { enqueueMailboxSync, mailRuntime } from "./sync-runtime";
 import * as triage from "./triage";
-import { workflowMaterializationRuntime } from "./workflow-materialization-service";
-import { bindMailWorkflowRunDispatcher } from "./workflow-run-dispatch";
+import { createMailWorkflowMaterializationRuntime } from "./workflow-materialization-service";
 import { enqueueWorkflowRun, workflowRuntime } from "./workflow-runtime";
 import * as workflows from "./workflows";
 
-bindMailWorkflowRunDispatcher(enqueueWorkflowRun);
+const workflowMaterializationRuntime = createMailWorkflowMaterializationRuntime(enqueueWorkflowRun);
 
 export type { MailRequestContext } from "./auth";
 export {
@@ -36,6 +37,8 @@ export {
   commandRuntime,
   commands,
   conversations,
+  draftLeases,
+  draftUploads,
   drafts,
   enqueueMailboxSync,
   events,
@@ -64,6 +67,8 @@ export const mailService = {
   commands,
   collaboration,
   conversations,
+  draftLeases,
+  draftUploads,
   drafts,
   execution,
   events,

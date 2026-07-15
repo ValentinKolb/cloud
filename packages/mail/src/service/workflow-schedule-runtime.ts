@@ -13,6 +13,7 @@ import {
   type AutomaticWorkflowMaterializationInput,
   materializeAutomaticWorkflowRun,
 } from "./workflow-automatic-materialization";
+import { enqueueWorkflowRun } from "./workflow-runtime";
 
 const MAIL_WORKFLOW_SCHEDULER_ID = "mail:workflow-schedules";
 const MAIL_WORKFLOW_SCHEDULE_PREFIX = "mail:workflow-schedule:";
@@ -253,7 +254,7 @@ const mailWorkflowScheduleRuntime = createMailWorkflowScheduleRuntime({
   transport: scheduler({ id: MAIL_WORKFLOW_SCHEDULER_ID }),
   listActive: listActiveScheduleActivations,
   loadCurrent: loadCurrentScheduleActivation,
-  materialize: materializeAutomaticWorkflowRun,
+  materialize: (input) => materializeAutomaticWorkflowRun(input, enqueueWorkflowRun),
 });
 
 export const reconcileMailWorkflowSchedules = async (): Promise<void> => {

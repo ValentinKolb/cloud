@@ -50,3 +50,5 @@ export {
   workflowScheduleSlotKey,
 } from "./schedule";
 export { evaluateWorkflowTriggerInputs } from "./trigger";
+export type { WorkflowRunWake } from "./wake";
+export { wakeWorkflowRunBestEffort } from "./wake";

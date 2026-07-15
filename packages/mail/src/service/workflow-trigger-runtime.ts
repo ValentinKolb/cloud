@@ -7,6 +7,7 @@ import {
   type AutomaticWorkflowMaterializationInput,
   materializeAutomaticWorkflowRun,
 } from "./workflow-automatic-materialization";
+import { enqueueWorkflowRun } from "./workflow-runtime";
 
 const TRIGGER_EVENT_JOB_ID = "mail:workflow-trigger-events:v1";
 const TRIGGER_EVENT_LEASE_MS = 120_000;
@@ -218,15 +219,18 @@ export const processMailWorkflowTriggerEvent = async (
         if (claim.triggerKind !== "messageReceived") throw new Error(`Unsupported Mail workflow trigger event ${claim.triggerKind}`);
         const result = { activations: 1, created: 0, existing: 0, skipped: 0 };
         await assertLeaseActive();
-        const materialized = await materializeAutomaticWorkflowRun({
-          activation: claim.activation,
-          triggerKind: claim.triggerKind,
-          deliveryKey: claim.deliveryKey,
-          occurredAt: claim.occurredAt,
-          channel: "event",
-          triggerValues: claim.triggerValues,
-          target: claim.target,
-        });
+        const materialized = await materializeAutomaticWorkflowRun(
+          {
+            activation: claim.activation,
+            triggerKind: claim.triggerKind,
+            deliveryKey: claim.deliveryKey,
+            occurredAt: claim.occurredAt,
+            channel: "event",
+            triggerValues: claim.triggerValues,
+            target: claim.target,
+          },
+          enqueueWorkflowRun,
+        );
         result[materialized.state] += 1;
         await assertLeaseActive();
         await finishTriggerEvent(claim, result);

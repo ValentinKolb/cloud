@@ -1,4 +1,5 @@
 import { createRuntimeLifecycle, logger } from "@valentinkolb/cloud/services";
+import type { WorkflowRunWake } from "@valentinkolb/cloud/workflows/runtime";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
@@ -33,8 +34,8 @@ import {
   streamPreparedWorkflowTargets,
   type WorkflowTargetCursor,
 } from "./workflow-preflight-service";
-import { dispatchMailWorkflowRun } from "./workflow-run-dispatch";
 import { type DbWorkflowRun, mapWorkflowRun, parseWorkflowDbJson, workflowRunColumns, workflowTimestamp } from "./workflow-run-model";
+import { wakeMailWorkflowRun } from "./workflow-run-wake";
 import {
   type MailWorkflowAuthorizationSnapshot,
   restoreMailWorkflowContext,
@@ -84,6 +85,7 @@ const resumeBackfillWorkflowRun = async (params: {
   requestHash: string;
   idempotencyKey: string;
   enqueue: boolean;
+  wake?: WorkflowRunWake;
 }): Promise<Result<MailWorkflowRun>> => {
   let run = params.run;
   const resumedMaterialization = run.state === "materializing";
@@ -202,7 +204,8 @@ const resumeBackfillWorkflowRun = async (params: {
     run = materialized.data;
   }
   if (params.enqueue && resumedMaterialization && run.state === "queued") {
-    await dispatchMailWorkflowRun(run.id);
+    if (!params.wake) throw new Error("Workflow materialization recovery requires a wake port");
+    await wakeMailWorkflowRun(params.wake, run.id);
   }
   return ok(mapWorkflowRun(run));
 };
@@ -217,6 +220,7 @@ const materializeBackfillWorkflowRun = async (params: {
   enqueue: boolean;
   authorizationSnapshot: MailWorkflowAuthorizationSnapshot;
   requestHash: string;
+  wake: WorkflowRunWake;
 }): Promise<Result<MailWorkflowRun>> => {
   const actor = workflowActorColumns(params.authorizationSnapshot, params.input.expectedVersionId);
   const existing = await loadRunByIdempotency({
@@ -342,6 +346,7 @@ const materializeBackfillWorkflowRun = async (params: {
     requestHash: params.requestHash,
     idempotencyKey: params.input.idempotencyKey,
     enqueue: params.enqueue,
+    wake: params.wake,
   });
 };
 
@@ -395,7 +400,11 @@ type MailWorkflowMaterializationRecovery = {
 
 type MaterializationRecoveryOutcome = "recovered" | "canceled" | "failed" | "ignored";
 
-const recoverMaterializationCandidate = async (runId: string, enqueue: boolean): Promise<MaterializationRecoveryOutcome> => {
+const recoverMaterializationCandidate = async (
+  runId: string,
+  enqueue: boolean,
+  wake?: WorkflowRunWake,
+): Promise<MaterializationRecoveryOutcome> => {
   const run = await loadBackfillMaterializationRun(runId, sql);
   if (!run || run.state !== "materializing") return "ignored";
   const authorization = parseWorkflowDbJson(run.authorization_snapshot);
@@ -416,6 +425,7 @@ const recoverMaterializationCandidate = async (runId: string, enqueue: boolean):
     requestHash: run.request_hash,
     idempotencyKey: run.idempotency_key,
     enqueue,
+    wake,
   });
   if (resumed.ok) return "recovered";
   if (resumed.error.status === 401 || resumed.error.status === 403) {
@@ -436,8 +446,10 @@ const recoverMaterializationCandidate = async (runId: string, enqueue: boolean):
 };
 
 export const reconcileMailWorkflowMaterializations = async (
-  options: { enqueue?: boolean; limit?: number; staleAfterMs?: number } = {},
+  options: { enqueue?: boolean; limit?: number; staleAfterMs?: number; wake?: WorkflowRunWake } = {},
 ): Promise<MailWorkflowMaterializationRecovery> => {
+  const enqueue = options.enqueue ?? true;
+  if (enqueue && !options.wake) throw new Error("Workflow materialization recovery requires a wake port");
   const requestedLimit = options.limit ?? 10;
   if (!Number.isSafeInteger(requestedLimit) || requestedLimit <= 0) throw new Error("Workflow recovery limit must be a positive integer");
   const limit = Math.min(requestedLimit, 100);
@@ -460,7 +472,7 @@ export const reconcileMailWorkflowMaterializations = async (
 
   for (const candidate of candidates) {
     try {
-      const outcome = await recoverMaterializationCandidate(candidate.id, options.enqueue ?? true);
+      const outcome = await recoverMaterializationCandidate(candidate.id, enqueue, options.wake);
       if (outcome !== "ignored") result[outcome] += 1;
     } catch (error) {
       await sql`
@@ -483,33 +495,30 @@ export const reconcileMailWorkflowMaterializations = async (
 };
 
 const materializationLog = logger("mail:workflow-materialization");
-const materializationScheduler = scheduler({ id: "mail:workflow-materialization" });
 
-const runMaterializationRecovery = async (): Promise<MailWorkflowMaterializationRecovery> => {
-  const result = await reconcileMailWorkflowMaterializations();
-  if (result.failed > 0) materializationLog.error("Mail workflow materialization recovery failed", result);
-  return result;
-};
-
-const materializationRuntimeLifecycle = createRuntimeLifecycle({
-  start: async () => {
-    await materializationScheduler.create({
-      id: "mail:workflow-materialization:reconcile",
-      cron: "* * * * *",
-      meta: { appId: "mail", family: "mail:workflows", label: "Mail workflow materialization recovery" },
-      process: runMaterializationRecovery,
-    });
-    materializationScheduler.start();
-    await runMaterializationRecovery();
-  },
-  stop: async () => {
-    await materializationScheduler.stop();
-  },
-});
-
-export const workflowMaterializationRuntime = {
-  start: materializationRuntimeLifecycle.start,
-  stop: materializationRuntimeLifecycle.stop,
+export const createMailWorkflowMaterializationRuntime = (wake: WorkflowRunWake) => {
+  const materializationScheduler = scheduler({ id: "mail:workflow-materialization" });
+  const runRecovery = async (): Promise<MailWorkflowMaterializationRecovery> => {
+    const result = await reconcileMailWorkflowMaterializations({ wake });
+    if (result.failed > 0) materializationLog.error("Mail workflow materialization recovery failed", result);
+    return result;
+  };
+  const lifecycle = createRuntimeLifecycle({
+    start: async () => {
+      await materializationScheduler.create({
+        id: "mail:workflow-materialization:reconcile",
+        cron: "* * * * *",
+        meta: { appId: "mail", family: "mail:workflows", label: "Mail workflow materialization recovery" },
+        process: runRecovery,
+      });
+      materializationScheduler.start();
+      await runRecovery();
+    },
+    stop: async () => {
+      await materializationScheduler.stop();
+    },
+  });
+  return { start: lifecycle.start, stop: lifecycle.stop };
 };
 
 const materializeWorkflowRun = async (params: {
@@ -522,6 +531,7 @@ const materializeWorkflowRun = async (params: {
   input: WorkflowRunInput;
   occurredAt?: string;
   enqueue?: boolean;
+  wake: WorkflowRunWake;
 }): Promise<Result<MailWorkflowRun>> => {
   const allowed = await resolveMailExecution({
     mailboxId: params.mailboxId,
@@ -557,6 +567,7 @@ const materializeWorkflowRun = async (params: {
         enqueue: params.enqueue !== false,
         authorizationSnapshot,
         requestHash,
+        wake: params.wake,
       });
     } catch (error) {
       if (isServiceError(error)) return fail(error);
@@ -668,7 +679,7 @@ const materializeWorkflowRun = async (params: {
     });
     if (!materialized.ok) return materialized;
     if (params.enqueue !== false && materialized.data.created) {
-      await dispatchMailWorkflowRun(materialized.data.run.id);
+      await wakeMailWorkflowRun(params.wake, materialized.data.run.id);
     }
     return ok(materialized.data.run);
   } catch (error) {
@@ -685,6 +696,7 @@ export const invokeWorkflow = (params: {
   input: InvokeWorkflowInput;
   occurredAt?: string;
   enqueue?: boolean;
+  wake: WorkflowRunWake;
 }): Promise<Result<MailWorkflowRun>> => materializeWorkflowRun({ ...params, kind: "invoke", mode: "execute" });
 
 export const dryRunWorkflow = (params: {
@@ -695,6 +707,7 @@ export const dryRunWorkflow = (params: {
   input: DryRunWorkflowInput;
   occurredAt?: string;
   enqueue?: boolean;
+  wake: WorkflowRunWake;
 }): Promise<Result<MailWorkflowRun>> => materializeWorkflowRun({ ...params, kind: "invoke", mode: "dryRun" });
 
 export const backfillWorkflow = (params: {
@@ -705,6 +718,7 @@ export const backfillWorkflow = (params: {
   input: BackfillWorkflowInput;
   occurredAt?: string;
   enqueue?: boolean;
+  wake: WorkflowRunWake;
 }): Promise<Result<MailWorkflowRun>> => materializeWorkflowRun({ ...params, kind: "backfill", mode: "execute" });
 
 export const oneShotWorkflow = (params: {
@@ -715,4 +729,5 @@ export const oneShotWorkflow = (params: {
   input: OneShotWorkflowInput;
   occurredAt?: string;
   enqueue?: boolean;
+  wake: WorkflowRunWake;
 }): Promise<Result<MailWorkflowRun>> => materializeWorkflowRun({ ...params, kind: "oneShot", mode: "execute" });
