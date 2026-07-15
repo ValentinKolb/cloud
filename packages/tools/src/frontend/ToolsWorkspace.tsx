@@ -74,17 +74,19 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
           </AppWorkspace.SidebarBody>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
-      <AppWorkspace.Main
-        class={
-          props.activeToolId === "image" || props.activeToolId === "webhooks"
-            ? "tools-main overflow-hidden"
-            : props.activeToolId
-              ? "tools-main overflow-y-auto p-[var(--ui-space-shell)]"
-              : "tools-main overflow-y-auto"
-        }
-      >
-        {props.children}
-      </AppWorkspace.Main>
+      <AppWorkspace.Content>
+        <AppWorkspace.Main
+          class={
+            props.activeToolId === "image" || props.activeToolId === "webhooks"
+              ? "tools-main overflow-hidden"
+              : props.activeToolId
+                ? "tools-main overflow-y-auto p-[var(--ui-space-shell)]"
+                : "tools-main overflow-y-auto"
+          }
+        >
+          {props.children}
+        </AppWorkspace.Main>
+      </AppWorkspace.Content>
     </AppWorkspace>
   );
 };
