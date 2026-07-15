@@ -202,6 +202,18 @@ describe("cloud CLI OAuth session handling", () => {
     expect(result.stdout).toContain("--permission <value>");
   });
 
+  test("Pulse access help uses the shared offline access command shape", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    const result = await runCli(configPath, ["pulse", "access", "grant", "help"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("cld pulse access grant");
+    expect(result.stdout).toContain("--permission <value>");
+  });
+
   test("lists apps visible to the current profile", async () => {
     const state: MockServerState = { refreshCalls: 0, revokeCalls: 0, meCalls: 0 };
     const server = startMockServer(state);
