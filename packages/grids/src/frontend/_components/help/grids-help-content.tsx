@@ -813,7 +813,7 @@ export const GridsWorkflowsPage = () => (
 
     <DocSection title="How workflows work">
       <p class="text-dimmed">
-        A workflow is one saved executable definition. Start it directly from the manual UI, authenticated API, or CLI, attach a persisted
+        A workflow is one saved executable definition. Start it directly from the Grids UI, authenticated API, or CLI, attach a persisted
         launcher for scanner, bulk, or dashboard use, or declare an automatic schedule or record event in YAML. These paths all create the
         same kind of run from typed inputs and the active workflow revision.
       </p>
@@ -915,7 +915,7 @@ steps:
         ]}
       />
       <WorkflowSnippet
-        title="Inputs"
+        title="Input declarations (fragment)"
         code={`inputs:
   item:
     type: record
@@ -1018,6 +1018,11 @@ triggers:
   recordEvent:
     event: updated
     table: Items
+    filter:
+      fieldId: Name
+      op: contains
+      value: ready
+      caseInsensitive: true
     with:
       item: \${{ trigger.record }}
       eventAt: \${{ trigger.occurredAt }}
@@ -1026,6 +1031,35 @@ steps:
       record: inputs.item
       set:
         Reviewed at: \${{ inputs.eventAt }}`}
+      />
+      <DocRows
+        items={[
+          {
+            title: "Filter shape",
+            icon: "ti-filter",
+            text: "A leaf uses fieldId, op, and value; fieldId accepts a field name, short id, or uuid. Text leaves may also set caseInsensitive. Combine leaves with a group containing op: AND or op: OR and a filters list. isEmpty, isNotEmpty, today, thisWeek, and thisMonth omit value.",
+          },
+          {
+            title: "Text operators",
+            icon: "ti-letter-case",
+            text: "equals, notEquals, contains, notContains, startsWith, endsWith, regex, isEmpty, isNotEmpty.",
+          },
+          {
+            title: "Number operators",
+            icon: "ti-number",
+            text: "=, !=, <, <=, >, >=, between, isEmpty, isNotEmpty. between takes a two-number [from, to] list.",
+          },
+          {
+            title: "Date operators",
+            icon: "ti-calendar",
+            text: "=, notEquals, before, after, onOrBefore, onOrAfter, between, today, thisWeek, thisMonth, lastNDays, isEmpty, isNotEmpty. between takes a two-value [from, to] list. Use ISO dates, timezone-aware ISO date-times for fields with time, and a non-negative integer for lastNDays.",
+          },
+          {
+            title: "Boolean, select, and relation operators",
+            icon: "ti-list-check",
+            text: "Boolean fields use =, isEmpty, isNotEmpty. Select fields use is, isNot, isAnyOf, isNoneOf, isEmpty, isNotEmpty; list operators take option-id arrays. Relation fields use containsAny, notContainsAny, isEmpty, isNotEmpty; list operators take non-empty record UUID arrays.",
+          },
+        ]}
       />
       <DocNote title="Required inputs">
         Direct callers can provide every declared input. Launchers provide their configured binding plus any invocation inputs. Each
@@ -1092,8 +1126,7 @@ steps:
             text: (
               <>
                 Generates a PDF for one record. Supports <DocInlineCode>template</DocInlineCode>, <DocInlineCode>record</DocInlineCode>,{" "}
-                <DocInlineCode>batch</DocInlineCode>, <DocInlineCode>filename</DocInlineCode>, <DocInlineCode>tags</DocInlineCode>, and{" "}
-                <DocInlineCode>saveAs</DocInlineCode>.
+                <DocInlineCode>filename</DocInlineCode>, <DocInlineCode>tags</DocInlineCode>, and <DocInlineCode>saveAs</DocInlineCode>.
               </>
             ),
           },
@@ -1134,7 +1167,21 @@ steps:
       />
       <WorkflowSnippet
         title="Actions"
-        code={`steps:
+        code={`inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+  priority:
+    type: select
+    options:
+      - Low
+      - Normal
+      - High
+  recipientEmail:
+    type: text
+    required: true
+steps:
   - updateRecord:
       record: inputs.item
       set:
@@ -1192,7 +1239,22 @@ steps:
       </p>
       <WorkflowSnippet
         title="Branches and loops"
-        code={`steps:
+        code={`inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+  items:
+    type: recordList
+    table: Items
+    required: true
+  priority:
+    type: select
+    options:
+      - Low
+      - Normal
+      - High
+steps:
   - if:
       equals:
         - \${{ inputs.item.Status }}
@@ -1221,8 +1283,7 @@ steps:
     do:
       - generateDocument:
           template: Item label
-          record: item
-          batch: true`}
+          record: item`}
       />
     </DocSection>
 
@@ -1341,7 +1402,15 @@ steps:
       />
       <WorkflowSnippet
         title="Send a generated document link"
-        code={`steps:
+        code={`inputs:
+  invoice:
+    type: record
+    table: Invoices
+    required: true
+  recipientEmail:
+    type: text
+    required: true
+steps:
   - generateDocument:
       template: Invoice
       record: inputs.invoice
@@ -1383,7 +1452,7 @@ steps:
           {
             title: "Channels",
             icon: "ti-direction-sign",
-            text: "Runs identify their source as manual, api, cli, dashboard, scanner, bulk, schedule, recordEvent, or agent.",
+            text: "Direct UI, API, and CLI calls use api. Saved launchers use dashboard, scanner, or bulk. Automatic triggers use schedule or recordEvent.",
           },
           {
             title: "Run statuses",
@@ -1419,7 +1488,7 @@ steps:
           {
             title: "Caller run identity",
             icon: "ti-user-check",
-            text: "Direct manual, API, and CLI calls plus scanner, bulk, and dashboard launchers run as the user or service account that starts them, including that principal's current groups.",
+            text: "Direct UI, API, and CLI calls plus scanner, bulk, and dashboard launchers run as the user or service account that starts them. Direct calls share the api channel; authorization still records the authenticated principal.",
           },
           {
             title: "Automatic run identity",
@@ -1452,7 +1521,7 @@ steps:
 
     <DocSection title="Scanner example">
       <WorkflowSnippet
-        title="Workflow YAML"
+        title="Scanner workflow YAML"
         code={`inputs:
   item:
     type: record
@@ -1483,19 +1552,19 @@ steps:
 
     <DocSection title="Bulk document example">
       <WorkflowSnippet
-        title="Workflow YAML"
+        title="Bulk document workflow YAML"
         code={`inputs:
   items:
     type: recordList
     table: Items
+    required: true
 steps:
   - forEach: inputs.items
     as: item
     do:
       - generateDocument:
           template: Item label
-          record: item
-          batch: true`}
+          record: item`}
       />
       <DocNote title="Saved launcher">
         Add a bulk launcher for the <DocInlineCode>items</DocInlineCode> record-list input. The launcher can supply an explicit selection or

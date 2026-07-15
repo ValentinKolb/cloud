@@ -1,8 +1,10 @@
-import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
+import type { AccessSubject, AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import type { Context } from "hono";
 import type { Grant, ResolveTarget, ResourceType } from "../service";
 import { gridsService } from "../service";
+import { workflowCredentialBinding } from "../service/workflow-authorization";
+import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 
 const PERMISSION_RANK: Record<PermissionLevel, number> = {
   none: 0,
@@ -11,14 +13,14 @@ const PERMISSION_RANK: Record<PermissionLevel, number> = {
   admin: 3,
 };
 
-const permissionFromCredentialScopes = (scopes: readonly string[]): PermissionLevel => {
+export const permissionFromCredentialScopes = (scopes: readonly string[]): PermissionLevel => {
   if (scopes.includes("admin") || scopes.includes("grids:admin") || scopes.includes("grids:*")) return "admin";
   if (scopes.includes("write") || scopes.includes("grids:write")) return "write";
   if (scopes.includes("read") || scopes.includes("grids:read")) return "read";
   return "none";
 };
 
-const minPermission = (left: PermissionLevel, right: PermissionLevel): PermissionLevel =>
+export const minPermission = (left: PermissionLevel, right: PermissionLevel): PermissionLevel =>
   PERMISSION_RANK[left] <= PERMISSION_RANK[right] ? left : right;
 
 const currentActor = <T extends AuthContext>(c: Context<T>) => c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
@@ -30,14 +32,11 @@ export const currentActorUser = <T extends AuthContext>(c: Context<T>) => {
 
 export const currentActorUserId = <T extends AuthContext>(c: Context<T>) => currentActorUser(c)?.id ?? null;
 
-const currentPermissionSubject = <T extends AuthContext>(c: Context<T>) => {
+export const currentAccessSubject = <T extends AuthContext>(c: Context<T>): AccessSubject | null => {
   const accessSubject = c.get("accessSubject") as AuthContext["Variables"]["accessSubject"] | undefined;
   const user = currentActorUser(c);
-  return {
-    userId: accessSubject?.type === "user" ? accessSubject.userId : (user?.id ?? null),
-    userGroups: user?.memberofGroupIds ?? [],
-    serviceAccountId: accessSubject?.type === "service_account" ? accessSubject.serviceAccountId : null,
-  };
+  if (accessSubject) return accessSubject;
+  return user ? { type: "user", userId: user.id } : null;
 };
 
 /**
@@ -63,9 +62,10 @@ const targetMatchesResourceBinding = <T extends AuthContext>(c: Context<T>, targ
 };
 
 const loadCurrentGrants = (c: Context<AuthContext>, target: ResolveTarget): Promise<Grant[]> => {
-  const subject = currentPermissionSubject(c);
+  const subject = currentAccessSubject(c);
   return gridsService.permission.loadGrants({
-    ...subject,
+    userId: subject?.type === "user" ? subject.userId : null,
+    serviceAccountId: subject?.type === "service_account" ? subject.serviceAccountId : null,
     baseId: target.baseId,
     tableId: "tableId" in target ? target.tableId : null,
     viewId: "viewId" in target ? target.viewId : null,
@@ -92,11 +92,41 @@ export const gateCredentialScope = async <T extends AuthContext>(
 };
 
 export const currentActorViewer = <T extends AuthContext>(c: Context<T>) => {
-  const subject = currentPermissionSubject(c);
+  const subject = currentAccessSubject(c);
+  const user = currentActorUser(c);
   return {
-    userId: subject.userId,
-    userGroups: subject.userGroups,
-    serviceAccountId: subject.serviceAccountId,
+    userId: subject?.type === "user" ? subject.userId : null,
+    userGroups: user?.memberofGroupIds ?? [],
+    serviceAccountId: subject?.type === "service_account" ? subject.serviceAccountId : null,
+  };
+};
+
+export const currentWorkflowPrincipal = <T extends AuthContext>(c: Context<T>): GridsWorkflowPrincipal => {
+  const actor = currentActor(c);
+  const viewer = currentActorViewer(c);
+  if (!actor || actor.kind === "user") {
+    return {
+      userId: viewer.userId,
+      groupIds: viewer.userGroups,
+      serviceAccountId: viewer.serviceAccountId,
+      actorServiceAccountId: null,
+      credential: null,
+    };
+  }
+  const credentialId = actor.credentialId ?? null;
+  return {
+    userId: viewer.userId,
+    groupIds: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
+    actorServiceAccountId: actor.serviceAccount.id,
+    credential: {
+      kind: credentialId ? "api_token" : "oauth",
+      id: credentialId,
+      scopes: [...actor.scopes],
+      permissionCap: permissionFromCredentialScopes(actor.scopes),
+      expiresAt: actor.credentialExpiresAt ?? null,
+      resourceBinding: workflowCredentialBinding(actor.serviceAccount),
+    },
   };
 };
 

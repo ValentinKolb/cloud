@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { GridsWorkflowRunEvent } from "../../../lib/workflow-run-events";
 import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
 
 const WORKFLOW_ID = "11111111-1111-4111-8111-111111111111";
@@ -61,35 +62,31 @@ afterEach(() => {
   globalThis.clearTimeout = originalClearTimeout;
 });
 
-const runEvent = (workflowId = WORKFLOW_ID, cursor = "7-1") => ({
-  type: "grids.workflow-runs.event",
-  payload: {
-    cursor,
-    event: {
-      v: 1,
-      baseId: "44444444-4444-4444-8444-444444444444",
+const runEvent = (workflowId = WORKFLOW_ID, cursor = "7-1") => {
+  const event: GridsWorkflowRunEvent = {
+    v: 1,
+    baseId: "44444444-4444-4444-8444-444444444444",
+    workflowId,
+    run: {
+      id: "55555555-5555-4555-8555-555555555555",
       workflowId,
-      run: {
-        id: "55555555-5555-4555-8555-555555555555",
-        workflowId,
-        baseId: "44444444-4444-4444-8444-444444444444",
-        actorUserId: null,
-        serviceAccountId: null,
-        triggerKind: "scanner",
-        triggerInput: {},
-        resolvedInput: {},
-        status: "succeeded",
-        error: null,
-        resultMessage: "Returned",
-        createdAt: "2026-07-11T00:00:00.000Z",
-        startedAt: "2026-07-11T00:00:00.100Z",
-        finishedAt: "2026-07-11T00:00:00.200Z",
-      },
-      steps: [],
-      scope: { kind: "workflow" },
+      launcherId: null,
+      baseId: "44444444-4444-4444-8444-444444444444",
+      workflowRevision: 1,
+      mode: "execute",
+      channel: "scanner",
+      status: "succeeded",
+      error: null,
+      resultMessage: "Returned",
+      createdAt: "2026-07-11T00:00:00.000Z",
+      startedAt: "2026-07-11T00:00:00.100Z",
+      finishedAt: "2026-07-11T00:00:00.200Z",
     },
-  },
-});
+    steps: [],
+    scope: { kind: "workflow" },
+  };
+  return { type: "grids.workflow-runs.event", payload: { cursor, event } };
+};
 
 describe("workflow run events provider", () => {
   test("subscribes with workflow and dashboard scope", () => {

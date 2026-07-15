@@ -12,7 +12,12 @@ import {
   UpdateDashboardSchema,
   WidgetSchema,
 } from "../contracts";
-import { toWorkflowRunEventSummary, toWorkflowRunStepSummary } from "../lib/workflow-run-events";
+import {
+  toDashboardWorkflowRunStepSummary,
+  toDashboardWorkflowRunSummary,
+  toWorkflowRunEventSummary,
+  toWorkflowRunStepSummary,
+} from "../lib/workflow-run-events";
 import { gridsService } from "../service";
 import { resolveWidgetData } from "../service/dashboard-widget-data";
 import { get as getDashboardById } from "../service/dashboards";
@@ -22,7 +27,14 @@ import { listWorkflowStepRuns } from "../service/workflow-kernel-observability";
 import { getWorkflowRun } from "../service/workflow-kernel-runs";
 import { getLauncher as getWorkflowLauncher } from "../service/workflow-launchers";
 import { GridsWorkflowRunSchema, GridsWorkflowRunStatusSchema, GridsWorkflowStepRunSchema } from "../workflows/contracts";
-import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, resolveWithGrants } from "./permissions";
+import {
+  currentActorUser,
+  currentActorUserId,
+  currentActorViewer,
+  currentWorkflowPrincipal,
+  gateAt,
+  resolveWithGrants,
+} from "./permissions";
 import { uuidParam } from "./route-params";
 
 const DashboardWorkflowScannerRunSchema = z
@@ -69,8 +81,6 @@ const DashboardWorkflowRunStatusSchema = z.object({
     mode: true,
     channel: true,
     status: true,
-    error: true,
-    resultMessage: true,
     createdAt: true,
     startedAt: true,
     finishedAt: true,
@@ -80,12 +90,9 @@ const DashboardWorkflowRunStatusSchema = z.object({
       id: true,
       runId: true,
       key: true,
-      sourcePath: true,
-      iterationPath: true,
       kind: true,
       action: true,
       status: true,
-      outcome: true,
       executionGeneration: true,
       startedAt: true,
       finishedAt: true,
@@ -281,6 +288,7 @@ export const createDashboardsApi = (
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
+          500: jsonResponse(ErrorResponseSchema, "Workflow invocation failed"),
         },
       }),
       async (c) => {
@@ -297,13 +305,12 @@ export const createDashboardsApi = (
         const launcher = await getLauncher(widget.launcherId);
         if (!launcher || launcher.baseId !== dashboard.baseId) return c.json({ message: "Workflow launcher not found" }, 404);
         if (launcher.config.kind !== "dashboard") return c.json({ message: "Workflow launcher is not a dashboard launcher" }, 400);
-        const viewer = currentActorViewer(c);
         const result = await invokeDashboard({
           launcherId: launcher.id,
           operationId: Bun.randomUUIDv7(),
           mode: "execute",
           expectedRevision: launcher.validatedRevision,
-          principal: { userId: viewer.userId, groupIds: viewer.userGroups, serviceAccountId: viewer.serviceAccountId },
+          principal: currentWorkflowPrincipal(c),
           inputs: {},
           authorization: { kind: "dashboard-widget", dashboardId: dashboard.id, dashboardWidgetId: widget.id },
         });
@@ -328,6 +335,7 @@ export const createDashboardsApi = (
           400: jsonResponse(ErrorResponseSchema, "Invalid scanner input"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
+          500: jsonResponse(ErrorResponseSchema, "Workflow invocation failed"),
         },
       }),
       v("json", DashboardWorkflowScannerRunSchema),
@@ -345,13 +353,12 @@ export const createDashboardsApi = (
         const launcher = await getLauncher(widget.launcherId);
         if (!launcher || launcher.baseId !== dashboard.baseId) return c.json({ message: "Workflow launcher not found" }, 404);
         if (launcher.config.kind !== "scanner") return c.json({ message: "Workflow launcher is not a scanner launcher" }, 400);
-        const viewer = currentActorViewer(c);
         const result = await invokeScanner({
           launcherId: launcher.id,
           operationId: Bun.randomUUIDv7(),
           mode: "execute",
           expectedRevision: launcher.validatedRevision,
-          principal: { userId: viewer.userId, groupIds: viewer.userGroups, serviceAccountId: viewer.serviceAccountId },
+          principal: currentWorkflowPrincipal(c),
           inputs: {},
           scannedText: c.req.valid("json").code,
           authorization: { kind: "dashboard-widget", dashboardId: dashboard.id, dashboardWidgetId: widget.id },
@@ -396,9 +403,10 @@ export const createDashboardsApi = (
         ) {
           return c.json({ message: "Workflow run not found" }, 404);
         }
+        const runSummary = toWorkflowRunEventSummary(run);
         return c.json({
-          run: toWorkflowRunEventSummary(run),
-          steps: (await listWorkflowStepRunsImpl(run.id)).map(toWorkflowRunStepSummary),
+          run: toDashboardWorkflowRunSummary(runSummary),
+          steps: (await listWorkflowStepRunsImpl(run.id)).map(toWorkflowRunStepSummary).map(toDashboardWorkflowRunStepSummary),
         });
       },
     )

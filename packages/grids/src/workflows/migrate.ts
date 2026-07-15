@@ -143,6 +143,15 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
       request_fingerprint TEXT NOT NULL,
       actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE SET NULL,
+      actor_service_account_id UUID,
+      credential_kind TEXT,
+      credential_id UUID,
+      credential_scopes TEXT[] NOT NULL DEFAULT '{}',
+      credential_permission_cap TEXT,
+      credential_expires_at TIMESTAMPTZ,
+      credential_resource_app_id TEXT,
+      credential_resource_type TEXT,
+      credential_resource_id TEXT,
       actor_group_ids UUID[] NOT NULL DEFAULT '{}',
       authorization_snapshot JSONB NOT NULL DEFAULT '{"kind":"workflow"}'::jsonb,
       inputs JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -163,6 +172,73 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
       finished_at TIMESTAMPTZ,
       CONSTRAINT workflow_runs_idempotency_key_length_chk CHECK (length(idempotency_key) BETWEEN 1 AND 200)
     )
+  `.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS actor_service_account_id UUID`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_kind TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_id UUID`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_scopes TEXT[] NOT NULL DEFAULT '{}'`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_permission_cap TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_expires_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_resource_app_id TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_resource_type TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_resource_id TEXT`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'grids'
+          AND table_name = 'workflow_runs'
+          AND column_name = 'credential_permission_cap'
+          AND data_type = 'USER-DEFINED'
+      ) THEN
+        ALTER TABLE grids.workflow_runs
+          ALTER COLUMN credential_permission_cap TYPE TEXT USING credential_permission_cap::text;
+      END IF;
+    END $$
+  `.simple();
+  await sql`UPDATE grids.workflow_runs SET channel = 'api' WHERE channel IN ('manual', 'cli', 'agent')`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'workflow_runs_credential_kind_chk'
+          AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.workflow_runs
+          ADD CONSTRAINT workflow_runs_credential_kind_chk
+          CHECK (credential_kind IS NULL OR credential_kind IN ('api_token', 'oauth'));
+      END IF;
+    END $$
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'workflow_runs_credential_permission_cap_chk'
+          AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.workflow_runs
+          ADD CONSTRAINT workflow_runs_credential_permission_cap_chk
+          CHECK (credential_permission_cap IS NULL OR credential_permission_cap IN ('none', 'read', 'write', 'admin'));
+      END IF;
+    END $$
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'workflow_runs_channel_chk'
+          AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.workflow_runs
+          ADD CONSTRAINT workflow_runs_channel_chk
+          CHECK (channel IN ('api', 'dashboard', 'scanner', 'bulk', 'schedule', 'recordEvent'));
+      END IF;
+    END $$
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_runs_idempotency

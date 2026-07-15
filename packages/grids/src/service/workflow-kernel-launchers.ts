@@ -5,14 +5,19 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
 import { type RecordQuery, RecordQuerySchema } from "../contracts";
-import type { GridsWorkflow, GridsWorkflowLauncher, GridsWorkflowLauncherConfig } from "../workflows/contracts";
-import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import {
+  type GridsWorkflow,
+  type GridsWorkflowLauncher,
+  type GridsWorkflowLauncherConfig,
+  type GridsWorkflowPrincipal,
+  GridsWorkflowPrincipalSchema,
+} from "../workflows/contracts";
 import { list as listRecords } from "./records";
+import { authorizeWorkflowTarget, revalidateWorkflowPrincipal, workflowPermissionAllows } from "./workflow-authorization";
 import { loadWorkflowCatalog, resolveWorkflowFieldRef } from "./workflow-catalog";
 import { workflowConflict } from "./workflow-errors";
 import { invokeGridsWorkflow } from "./workflow-kernel-runtime";
 import { getWorkflow } from "./workflow-kernel-store";
-import type { GridsWorkflowPrincipal } from "./workflow-kernel-values";
 import { getLauncher } from "./workflow-launchers";
 
 export const MAX_BULK_LAUNCHER_RECORDS = 10_000;
@@ -20,13 +25,7 @@ export const MAX_BULK_LAUNCHER_RECORDS = 10_000;
 const SCAN_CODE_PATH_RE = /(?:^|\/)scan(?:\?|$)/;
 const operationIdSchema = z.string().trim().min(1).max(120);
 const jsonInputsSchema = z.record(z.string(), z.json());
-const principalSchema = z
-  .object({
-    userId: z.string().uuid().nullable(),
-    groupIds: z.array(z.string().uuid()).max(10_000),
-    serviceAccountId: z.string().uuid().nullable(),
-  })
-  .strict();
+const principalSchema = GridsWorkflowPrincipalSchema;
 
 const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("workflow") }).strict(),
@@ -172,21 +171,17 @@ const normalizeScannedText = (value: string): string => {
 };
 
 const authorize: WorkflowKernelLauncherDeps["authorize"] = async ({ workflow, principal, tableId, authorization }) => {
-  const grants = await loadGrantsForUser({
-    userId: principal.userId,
-    userGroups: principal.groupIds,
-    serviceAccountId: principal.serviceAccountId,
-    baseId: workflow.baseId,
-    workflowId: workflow.id,
-    tableId,
-  });
+  const principalState = await revalidateWorkflowPrincipal(principal, workflow.baseId);
+  if (!principalState.ok || !workflowPermissionAllows(principalState.permissionCap, "write")) {
+    return fail(err.forbidden("Workflow actor cannot run this workflow."));
+  }
   if (
     authorization?.kind !== "dashboard-widget" &&
-    !hasAtLeast(resolveEffectivePermission(grants, { baseId: workflow.baseId, workflowId: workflow.id }), "write")
+    !(await authorizeWorkflowTarget(principal, { baseId: workflow.baseId, workflowId: workflow.id }, "write"))
   ) {
     return fail(err.forbidden("Workflow actor cannot run this workflow."));
   }
-  if (tableId && !hasAtLeast(resolveEffectivePermission(grants, { baseId: workflow.baseId, tableId }), "read")) {
+  if (tableId && !(await authorizeWorkflowTarget(principal, { baseId: workflow.baseId, tableId }, "read"))) {
     return fail(err.forbidden("Workflow actor cannot read the launcher input table."));
   }
   return ok();

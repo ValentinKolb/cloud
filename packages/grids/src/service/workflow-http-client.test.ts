@@ -5,7 +5,7 @@ import { createServer as createHttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { PassThrough } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
-import { isUnsafeWorkflowHttpAddress, requestWorkflowHttp } from "./workflow-http-client";
+import { isUnsafeWorkflowHttpAddress, preflightWorkflowHttp, requestWorkflowHttp } from "./workflow-http-client";
 
 const publicAddress = "93.184.216.34";
 
@@ -92,6 +92,33 @@ const responseRequest =
   };
 
 describe("workflow HTTP client", () => {
+  test("preflights policy, DNS, headers, and body without opening a socket", async () => {
+    let requested = false;
+    const result = await preflightWorkflowHttp(
+      { url: "https://api.example.com/hooks", method: "POST", body: '{"ok":true}' },
+      {
+        getSetting: settings(),
+        lookup: async () => [{ address: publicAddress, family: 4 }],
+        request: responseRequest("unexpected", () => {
+          requested = true;
+        }),
+      },
+    );
+
+    expect(result).toEqual({ ok: true, data: { host: "api.example.com" } });
+    expect(requested).toBe(false);
+  });
+
+  test("reports an unresolved dry-run target without sending a request", async () => {
+    const result = await preflightWorkflowHttp(
+      { url: "https://missing.example.test/hooks", method: "POST" },
+      { getSetting: settings(), lookup: async () => [] },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.error.message).toBe("HTTP request target could not be resolved");
+  });
+
   test("forwards the runtime idempotency key instead of a workflow-supplied value", async () => {
     let headers: RequestOptions["headers"];
     const result = await requestWorkflowHttp(

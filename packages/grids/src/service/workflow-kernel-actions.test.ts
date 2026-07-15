@@ -16,6 +16,8 @@ const TABLE_ID = "00000000-0000-4000-8000-000000000004";
 const RECORD_ID = "00000000-0000-4000-8000-000000000005";
 const FIELD_ID = "00000000-0000-4000-8000-000000000006";
 const TEMPLATE_ID = "00000000-0000-4000-8000-000000000007";
+const SERVICE_ACCOUNT_ID = "00000000-0000-4000-8000-000000000009";
+const CREDENTIAL_ID = "00000000-0000-4000-8000-000000000010";
 
 const workflow = { id: WORKFLOW_ID, shortId: "abcde", baseId: BASE_ID, name: "Conformance" };
 const table = { id: TABLE_ID, baseId: BASE_ID } as Table;
@@ -89,7 +91,7 @@ const context = <Mode extends "execute" | "dryRun">(
   const invocation = {
     workflowId: WORKFLOW_ID,
     mode,
-    channel: "manual",
+    channel: "api",
     actor: { userId: "00000000-0000-4000-8000-000000000008", groupIds: [] },
     inputs: {},
     idempotencyKey: "invocation",
@@ -141,6 +143,7 @@ const executingIntents = (): GridsWorkflowEffectIntentPort => ({
     return { state: "succeeded" as const, ...(output === undefined ? {} : { output }) };
   }),
   succeed: mock(async () => undefined),
+  retry: mock(async () => undefined),
   fail: mock(async () => undefined),
   needsAttention: mock(async () => undefined),
 });
@@ -205,6 +208,84 @@ describe("Grids workflow kernel action ports", () => {
     expect(update).toHaveBeenCalledWith(TABLE_ID, RECORD_ID, { [FIELD_ID]: "Done" }, ctx.invocation.actor.userId, expect.anything());
   });
 
+  test("stores only a fingerprint and field ids for record effect intent matching", async () => {
+    let request: WorkflowJsonValue | undefined;
+    const intents = executingIntents();
+    intents.executeTransactional = mock(async (input, perform) => {
+      request = input.request;
+      const output = await perform({} as never);
+      return { state: "succeeded" as const, ...(output === undefined ? {} : { output }) };
+    });
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      services: {
+        ...commonServices(),
+        updateRecord: mock(async () => ({ ok: true as const, data: record })),
+      },
+      effectIntents: intents,
+    });
+    const step = actionStep("updateRecord", { record: "inputs.item", set: { Status: "customer-secret" } });
+    const ctx = context("execute", step, {
+      plan: boundPlan({ "steps.0.updateRecord.set.Status": FIELD_ID }),
+      references: { "inputs.item": { kind: "record", tableId: TABLE_ID, recordId: RECORD_ID } },
+    }).value;
+
+    await ports.execute.get("updateRecord")!.execute(ctx, step);
+
+    expect(request).toMatchObject({ action: "updateRecord", tableId: TABLE_ID, recordId: RECORD_ID, fieldIds: [FIELD_ID] });
+    expect(request).toHaveProperty("requestFingerprint");
+    expect(JSON.stringify(request)).not.toContain("customer-secret");
+  });
+
+  test("adds structured service-account credential provenance to effect audits", async () => {
+    const audit = mock(async (_input: unknown) => undefined);
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      principal: {
+        userId: null,
+        groupIds: [],
+        serviceAccountId: SERVICE_ACCOUNT_ID,
+        actorServiceAccountId: SERVICE_ACCOUNT_ID,
+        credential: {
+          kind: "api_token",
+          id: CREDENTIAL_ID,
+          scopes: ["grids:write"],
+          permissionCap: "write",
+          expiresAt: "2026-07-16T00:00:00.000Z",
+          resourceBinding: { appId: "grids", resourceType: "base", resourceId: BASE_ID },
+        },
+      },
+      services: {
+        ...commonServices(),
+        audit,
+        updateRecord: mock(async () => ({ ok: true as const, data: record })),
+      },
+      effectIntents: executingIntents(),
+    });
+    const step = actionStep("updateRecord", { record: "inputs.item", set: { Status: "Done" } });
+    const ctx = context("execute", step, {
+      plan: boundPlan({ "steps.0.updateRecord.set.Status": FIELD_ID }),
+      references: { "inputs.item": { kind: "record", tableId: TABLE_ID, recordId: RECORD_ID } },
+    }).value;
+
+    await ports.execute.get("updateRecord")!.execute(ctx, step);
+
+    expect(audit.mock.calls[0]![0]).toMatchObject({
+      diff: {
+        workflowRecordUpdate: {
+          new: {
+            actorServiceAccountId: SERVICE_ACCOUNT_ID,
+            credentialId: CREDENTIAL_ID,
+            credentialKind: "api_token",
+            credentialScopes: ["grids:write"],
+            credentialPermissionCap: "write",
+            credentialResourceBinding: { appId: "grids", resourceType: "base", resourceId: BASE_ID },
+          },
+        },
+      },
+    });
+  });
+
   test("uses persisted dashboard authorization while retaining target permission checks", async () => {
     const authorizeExecution = mock(async () => true);
     const requirePermission = mock(
@@ -226,7 +307,7 @@ describe("Grids workflow kernel action ports", () => {
     const outcome = await ports.execute.get("updateRecord")!.execute(ctx, step);
 
     expect(outcome.state).toBe("completed");
-    expect(authorizeExecution).toHaveBeenCalledTimes(1);
+    expect(authorizeExecution).toHaveBeenCalledTimes(2);
     expect(requirePermission).toHaveBeenCalledWith(
       expect.objectContaining({
         baseId: BASE_ID,
@@ -237,6 +318,32 @@ describe("Grids workflow kernel action ports", () => {
     );
     expect(requirePermission.mock.calls.some(([input]) => "workflowId" in input.target)).toBe(false);
     expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  test("blocks an effect when execution permission is revoked after action preparation", async () => {
+    let checks = 0;
+    const authorizeExecution = mock(async () => {
+      checks += 1;
+      return checks === 1;
+    });
+    const update = mock(async () => ({ ok: true as const, data: record }));
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      authorizeExecution,
+      services: { ...commonServices(), updateRecord: update },
+      effectIntents: executingIntents(),
+    });
+    const step = actionStep("updateRecord", { record: "inputs.item", set: { Status: "Done" } });
+    const ctx = context("execute", step, {
+      plan: boundPlan({ "steps.0.updateRecord.set.Status": FIELD_ID }),
+      references: { "inputs.item": { kind: "record", tableId: TABLE_ID, recordId: RECORD_ID } },
+    }).value;
+
+    const outcome = await ports.execute.get("updateRecord")!.execute(ctx, step);
+
+    expect(outcome).toMatchObject({ state: "failed", error: { code: "FORBIDDEN" } });
+    expect(authorizeExecution).toHaveBeenCalledTimes(2);
+    expect(update).not.toHaveBeenCalled();
   });
 
   test("dry-run validates reads but does not write, send, or create effect intents", async () => {
@@ -293,6 +400,7 @@ describe("Grids workflow kernel action ports", () => {
         error: { code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN", message: "unknown", retryable: false },
       })),
       succeed: mock(async () => undefined),
+      retry: mock(async () => undefined),
       fail: mock(async () => undefined),
       needsAttention: mock(async () => undefined),
     };
@@ -341,6 +449,70 @@ describe("Grids workflow kernel action ports", () => {
 
     expect(outcome).toMatchObject({ state: "needs_attention", error: { code: "WORKFLOW_HTTP_OUTCOME_UNKNOWN" } });
     expect(intents.needsAttention).toHaveBeenCalledTimes(1);
+    expect(intents.fail).not.toHaveBeenCalled();
+    expect(intents.retry).not.toHaveBeenCalled();
+  });
+
+  test("preflights HTTP safety during dry runs without executing the request", async () => {
+    const preflight = mock(async () => ({ ok: true as const, data: { host: "api.example.test" } }));
+    const request = mock(async () => ({ ok: true as const, data: { status: 200, ok: true, body: "ok", host: "api.example.test" } }));
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      services: { ...commonServices(), httpRequest: request, httpRequestPreflight: preflight },
+      effectIntents: executingIntents(),
+    });
+    const step = actionStep("httpRequest", { url: "https://api.example.test/hook", method: "POST" });
+    const ctx = context("dryRun", step);
+
+    const outcome = await ports.dryRun.get("httpRequest")!.plan(ctx.value, step);
+
+    expect(outcome.state).toBe("planned");
+    expect(preflight).toHaveBeenCalledTimes(1);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  test("marks unresolved HTTP dry-run targets as indeterminate", async () => {
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      services: {
+        ...commonServices(),
+        httpRequestPreflight: mock(async () => ({
+          ok: false as const,
+          error: { code: "BAD_INPUT", message: "HTTP request target could not be resolved", status: 400 },
+        })),
+      },
+      effectIntents: executingIntents(),
+    });
+    const step = actionStep("httpRequest", { url: "https://missing.example.test/hook", method: "POST" });
+    const ctx = context("dryRun", step);
+
+    const outcome = await ports.dryRun.get("httpRequest")!.plan(ctx.value, step);
+
+    expect(outcome).toEqual({ state: "indeterminate", reason: "HTTP request target could not be resolved" });
+  });
+
+  test("returns retryable durable-intent failures to the runtime retry path", async () => {
+    const intents = executingIntents();
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      services: {
+        ...commonServices(),
+        getEmailTemplate: mock(async () => emailTemplate),
+        getActiveStepRunId: mock(async () => "00000000-0000-4000-8000-000000000011"),
+        sendEmail: mock(async () => ({
+          ok: false as const,
+          error: { code: "MAIL_UNAVAILABLE", message: "Mail is unavailable", status: 503 },
+        })),
+      },
+      effectIntents: intents,
+    });
+    const step = actionStep("sendEmail", { template: "Notice", to: [{ email: "ada@example.test" }] });
+    const ctx = context("execute", step, { plan: boundPlan({ "steps.0.sendEmail.template": TEMPLATE_ID }) });
+
+    const outcome = await ports.execute.get("sendEmail")!.execute(ctx.value, step);
+
+    expect(outcome).toMatchObject({ state: "failed", error: { code: "MAIL_UNAVAILABLE", retryable: true } });
+    expect(intents.retry).toHaveBeenCalledTimes(1);
     expect(intents.fail).not.toHaveBeenCalled();
   });
 

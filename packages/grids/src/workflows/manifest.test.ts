@@ -19,4 +19,12 @@ describe("Grids workflow manifest", () => {
       httpRequest: "ambiguous-external",
     });
   });
+
+  test("does not advertise unsupported document batching", () => {
+    const action = gridsWorkflowManifest.actions.find((candidate) => candidate.kind === "generateDocument");
+
+    expect(action?.config.kind).toBe("object");
+    if (action?.config.kind !== "object") throw new Error("generateDocument config is not an object");
+    expect(action.config.properties).not.toHaveProperty("batch");
+  });
 });

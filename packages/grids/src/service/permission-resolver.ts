@@ -1,5 +1,4 @@
-import type { PermissionLevel } from "@valentinkolb/cloud/server";
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { type AccessSubject, buildAccessPrincipalCondition, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 
 const LEVEL_RANK: Record<PermissionLevel, number> = {
@@ -147,10 +146,7 @@ type DbRow = Record<string, unknown>;
  * authenticated_only=TRUE ⇒ authenticated, all-null ⇒ public. The
  * resolver walks tiers from most-specific to least.
  */
-export const loadGrantsForUser = async (params: {
-  userId: string | null;
-  userGroups: string[];
-  serviceAccountId?: string | null;
+export type LoadGrantTargets = {
   baseId: string;
   tableId?: string | null;
   viewId?: string | null;
@@ -158,12 +154,12 @@ export const loadGrantsForUser = async (params: {
   documentTemplateId?: string | null;
   dashboardId?: string | null;
   workflowId?: string | null;
-}): Promise<Grant[]> => {
-  const userId = params.userId;
-  const serviceAccountId = params.serviceAccountId ?? null;
-  // Use the shared helper — it tolerates non-array inputs (bun.sql surfaces
-  // empty uuid[] columns as "{}" string, and the admin user has no groups).
-  const groups = toPgUuidArray(params.userGroups);
+};
+
+export const loadGrantsForSubject = async (
+  params: LoadGrantTargets & { subject: AccessSubject | null },
+  db: typeof sql = sql,
+): Promise<Grant[]> => {
   const tableId = params.tableId ?? null;
   const viewId = params.viewId ?? null;
   const formId = params.formId ?? null;
@@ -183,15 +179,17 @@ export const loadGrantsForUser = async (params: {
     ELSE 'public'
   END`;
 
-  const principalMatch = sql`(
-    a.service_account_id = ${serviceAccountId}::uuid
-    OR a.user_id = ${userId}::uuid
-    OR a.group_id = ANY(${groups}::uuid[])
-    OR (a.authenticated_only = TRUE AND (${userId}::uuid IS NOT NULL OR ${serviceAccountId}::uuid IS NOT NULL))
-    OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE)
-  )`;
+  const principalMatch = buildAccessPrincipalCondition({
+    subject: params.subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
 
-  const rows = await sql<DbRow[]>`
+  const rows = await db<DbRow[]>`
     SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier
     FROM grids.base_access ba
     JOIN auth.access a ON a.id = ba.access_id
@@ -247,3 +245,24 @@ export const loadGrantsForUser = async (params: {
     level: row.level as PermissionLevel,
   }));
 };
+
+/**
+ * Compatibility adapter for existing Grids callers. Caller-provided group ids
+ * are deliberately ignored; nested membership is resolved by Cloud from the
+ * authoritative auth graph on every query.
+ */
+export const loadGrantsForUser = async (
+  params: LoadGrantTargets & {
+    userId: string | null;
+    userGroups?: string[];
+    serviceAccountId?: string | null;
+  },
+): Promise<Grant[]> =>
+  loadGrantsForSubject({
+    ...params,
+    subject: params.userId
+      ? { type: "user", userId: params.userId }
+      : params.serviceAccountId
+        ? { type: "service_account", serviceAccountId: params.serviceAccountId }
+        : null,
+  });

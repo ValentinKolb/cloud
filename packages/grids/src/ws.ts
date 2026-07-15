@@ -5,7 +5,7 @@ import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
-import { isWorkflowRunEventVisible } from "./lib/workflow-run-events";
+import { projectWorkflowRunEvent } from "./lib/workflow-run-events";
 import { gridsWorkspace } from "./lib/workspace-events";
 import { gridsService } from "./service";
 import { canReadDashboardIncludedData } from "./service/dashboard-included-access";
@@ -202,6 +202,8 @@ const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): 
   return { ok: true, user, baseId: base.id };
 };
 
+export const isDashboardWorkflowLauncherKind = (kind: string): boolean => kind === "dashboard" || kind === "scanner";
+
 const evaluateWorkflowAccess = async (
   workflowId: string,
   sessionToken: string | null,
@@ -221,7 +223,7 @@ const evaluateWorkflowAccess = async (
       return { ok: false, code: "not_found", message: "Workflow widget not found" };
     }
     const launcher = await gridsService.workflow.launcher.get(widget.launcherId);
-    if (!launcher || launcher.config.kind !== "dashboard" || launcher.workflowId !== workflow.id) {
+    if (!launcher || !isDashboardWorkflowLauncherKind(launcher.config.kind) || launcher.workflowId !== workflow.id) {
       return { ok: false, code: "not_found", message: "Workflow widget not found" };
     }
     if (!(await canReadDashboardIncludedData(item, { userId: user.id, userGroups: user.memberofGroupIds }))) {
@@ -302,13 +304,12 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
             subscription.dashboardId && subscription.dashboardWidgetId
               ? { id: subscription.dashboardId, widgetId: subscription.dashboardWidgetId }
               : undefined;
-          if (!isWorkflowRunEventVisible(event.data, dashboardScope)) {
-            continue;
-          }
+          const visibleEvent = projectWorkflowRunEvent(event.data, dashboardScope);
+          if (!visibleEvent) continue;
           const sent = send(ctx.socket, WS_TYPE.workflowRunsEvent, {
             workflowId,
             cursor: event.cursor,
-            event: event.data,
+            event: visibleEvent,
           });
           if (!sent) {
             closeWithError(ctx, "backpressure", "Workflow updates exceeded the connection capacity");

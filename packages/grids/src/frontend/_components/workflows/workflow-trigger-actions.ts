@@ -3,7 +3,7 @@ import type { WorkflowIrInput, WorkflowJsonValue } from "@valentinkolb/cloud/wor
 export type WorkflowRunInputDraftValue = string | number | boolean | string[] | null | undefined;
 export type WorkflowRunInputDraft = Record<string, WorkflowRunInputDraftValue>;
 
-type WorkflowRunInputResult = { ok: true; input: Record<string, unknown> } | { ok: false; errors: Record<string, string> };
+type WorkflowRunInputResult = { ok: true; input: Record<string, WorkflowJsonValue> } | { ok: false; errors: Record<string, string> };
 
 const configString = (input: WorkflowIrInput, key: string): string | undefined => {
   const value = input.config[key];
@@ -20,6 +20,26 @@ export const workflowInputOptions = (input: WorkflowIrInput): string[] => {
   return Array.isArray(options) ? options.filter((option): option is string => typeof option === "string") : [];
 };
 
+export const workflowInputDraftFromValues = (
+  inputs: WorkflowIrInput[],
+  values: Record<string, WorkflowJsonValue> | undefined,
+): WorkflowRunInputDraft => {
+  const draft: WorkflowRunInputDraft = {};
+  for (const input of inputs) {
+    const value = values?.[input.name];
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      value === null ||
+      (Array.isArray(value) && value.every((item) => typeof item === "string"))
+    ) {
+      draft[input.name] = value as WorkflowRunInputDraftValue;
+    }
+  }
+  return draft;
+};
+
 const missingValue = (value: WorkflowRunInputDraftValue): boolean =>
   value === undefined ||
   value === null ||
@@ -27,7 +47,7 @@ const missingValue = (value: WorkflowRunInputDraftValue): boolean =>
   (Array.isArray(value) && value.length === 0);
 
 export const buildWorkflowRunInput = (inputs: WorkflowIrInput[], draft: WorkflowRunInputDraft): WorkflowRunInputResult => {
-  const result: Record<string, unknown> = {};
+  const result: Record<string, WorkflowJsonValue> = {};
   const errors: Record<string, string> = {};
 
   for (const definition of inputs) {

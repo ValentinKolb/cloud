@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { type CloudCliContext, type CloudCliFlags, defineCliCommands } from "@valentinkolb/cloud/cli";
+import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
+import { buildWorkflowCatalog } from "../service/workflow-catalog";
+import { bindGridsWorkflow } from "../workflows/binder";
+import { gridsWorkflowManifest } from "../workflows/manifest";
 import { workflowCommands, workflowRunCommands } from "./workflows";
-import { workflowRunRows, workflowStepRows } from "./workflows-support";
+import { WORKFLOW_REFERENCE, workflowRunRows, workflowStepRows } from "./workflows-support";
 
 type FetchCall = { path: string; init?: RequestInit };
 
@@ -9,6 +13,7 @@ const baseId = "00000000-0000-4000-8000-000000000001";
 const workflowId = "00000000-0000-4000-8000-000000000002";
 const launcherId = "00000000-0000-4000-8000-000000000003";
 const runId = "00000000-0000-4000-8000-000000000004";
+const itemRecordId = "00000000-0000-4000-8000-000000000005";
 
 const workflow = {
   id: workflowId,
@@ -48,7 +53,7 @@ const receipt = {
   workflowId,
   revision: 3,
   mode: "execute",
-  channel: "cli",
+  channel: "api",
   created: true,
   status: "queued",
 };
@@ -99,6 +104,20 @@ const cli = defineCliCommands({
 const resolutionResponses = () => [jsonResponse({ id: baseId, shortId: "base1", name: "Bookshop" }), jsonResponse(workflow)];
 
 describe("Grids workflow CLI", () => {
+  test("keeps the reference invocation aligned with a compilable and bindable YAML example", async () => {
+    expect(WORKFLOW_REFERENCE.invocation.direct.inputs).toEqual({ item: "00000000-0000-4000-8000-000000000001" });
+
+    const compiled = await compileWorkflow(WORKFLOW_REFERENCE.example, gridsWorkflowManifest);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+
+    const catalog = buildWorkflowCatalog({
+      tables: [{ id: baseId, shortId: "items", name: "Items" }],
+      fieldsByTable: new Map([[baseId, [{ id: itemRecordId, shortId: "status", name: "Status" }]]]),
+    });
+    expect((await bindGridsWorkflow(compiled.ir, catalog)).ok).toBe(true);
+  });
+
   test("documents only kernel direct invocation and launcher JSON shapes", async () => {
     const direct = createContext(["workflows", "invoke"], { help: true });
     await cli.run(direct.ctx);
@@ -238,7 +257,7 @@ describe("Grids workflow CLI", () => {
           baseId,
           workflowRevision: 3,
           mode: "dryRun",
-          channel: "cli",
+          channel: "api",
           actorUserId: null,
           serviceAccountId: null,
           inputs: {},
@@ -251,7 +270,7 @@ describe("Grids workflow CLI", () => {
           finishedAt: "2026-07-15T00:00:01.000Z",
         },
       ]),
-    ).toEqual([expect.objectContaining({ revision: 3, channel: "cli", mode: "dryRun", status: "failed" })]);
+    ).toEqual([expect.objectContaining({ revision: 3, channel: "api", mode: "dryRun", status: "failed" })]);
 
     expect(
       workflowStepRows([

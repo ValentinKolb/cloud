@@ -42,6 +42,13 @@ export type GridsWorkflowRunEvent = {
   scope: WorkflowRunEventScope;
 };
 
+export type DashboardWorkflowRunSummary = Omit<WorkflowRunEventSummary, "error" | "resultMessage">;
+export type DashboardWorkflowRunStepSummary = Omit<WorkflowRunStepSummary, "sourcePath" | "iterationPath" | "outcome">;
+export type DashboardWorkflowRunEvent = Omit<GridsWorkflowRunEvent, "run" | "steps"> & {
+  run: DashboardWorkflowRunSummary;
+  steps: DashboardWorkflowRunStepSummary[];
+};
+
 export type WorkflowRunEventScope = { kind: "workflow" } | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
 
 export const isWorkflowRunEventVisible = (event: GridsWorkflowRunEvent, dashboard?: { id: string; widgetId: string }): boolean =>
@@ -93,3 +100,26 @@ export const toWorkflowRunStepSummary = ({
   startedAt,
   finishedAt,
 });
+
+export const toDashboardWorkflowRunSummary = ({ error: _error, resultMessage: _resultMessage, ...run }: WorkflowRunEventSummary) => run;
+
+export const toDashboardWorkflowRunStepSummary = ({
+  sourcePath: _sourcePath,
+  iterationPath: _iterationPath,
+  outcome: _outcome,
+  ...step
+}: WorkflowRunStepSummary): DashboardWorkflowRunStepSummary => step;
+
+export const toDashboardWorkflowRunEvent = (event: GridsWorkflowRunEvent): DashboardWorkflowRunEvent => ({
+  ...event,
+  run: toDashboardWorkflowRunSummary(event.run),
+  steps: event.steps.map(toDashboardWorkflowRunStepSummary),
+});
+
+export const projectWorkflowRunEvent = (
+  event: GridsWorkflowRunEvent,
+  dashboard?: { id: string; widgetId: string },
+): GridsWorkflowRunEvent | DashboardWorkflowRunEvent | null => {
+  if (!isWorkflowRunEventVisible(event, dashboard)) return null;
+  return dashboard ? toDashboardWorkflowRunEvent(event) : event;
+};

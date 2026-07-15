@@ -1,5 +1,11 @@
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
-import type { WorkflowBoundPlan, WorkflowInvocation, WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import type {
+  WorkflowBoundPlan,
+  WorkflowDependency,
+  WorkflowInvocation,
+  WorkflowInvocationReceipt,
+  WorkflowJsonValue,
+} from "@valentinkolb/cloud/workflows";
 import { hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
 import type {
   WorkflowHeartbeatOutcome,
@@ -12,7 +18,7 @@ import type {
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { WorkflowRunEventScope } from "../lib/workflow-run-events";
-import type { GridsWorkflowChannel, GridsWorkflowRun } from "../workflows/contracts";
+import type { GridsWorkflowChannel, GridsWorkflowCredential, GridsWorkflowPrincipal, GridsWorkflowRun } from "../workflows/contracts";
 import type { SqlClient } from "./audit";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
@@ -22,7 +28,7 @@ import { notifyWorkflowRunEvent } from "./workflow-run-events";
 
 type DbRow = Record<string, unknown>;
 
-const RUN_LEASE_MS = 120_000;
+export const WORKFLOW_RUN_LEASE_MS = 120_000;
 
 export type GridsWorkflowAuthorization =
   | { kind: "workflow" }
@@ -31,10 +37,13 @@ export type GridsWorkflowAuthorization =
 export type MaterializeWorkflowInvocation = {
   baseId: string;
   invocation: WorkflowInvocation<GridsWorkflowChannel>;
+  preparedRevision?: number;
+  requestFingerprint?: string;
   launcherId?: string | null;
   actorUserId?: string | null;
   actorGroupIds?: string[];
   serviceAccountId?: string | null;
+  principal?: GridsWorkflowPrincipal;
   authorization?: GridsWorkflowAuthorization;
 };
 
@@ -43,6 +52,7 @@ export type ClaimedWorkflowRun = {
   plan: WorkflowBoundPlan;
   context: Record<string, WorkflowJsonValue>;
   actorGroupIds: string[];
+  principal: GridsWorkflowPrincipal;
   authorization: GridsWorkflowAuthorization;
   idempotencyKey: string;
   occurredAt: string;
@@ -69,20 +79,125 @@ const mapRun = (row: DbRow): GridsWorkflowRun => ({
   finishedAt: row.finished_at ? (row.finished_at as Date).toISOString() : null,
 });
 
-const invocationFingerprint = (input: MaterializeWorkflowInvocation, workflowRevision: number): Promise<string> =>
-  hashWorkflowJson({
+const materializedPrincipal = (
+  input: Pick<MaterializeWorkflowInvocation, "invocation" | "principal" | "actorUserId" | "actorGroupIds" | "serviceAccountId">,
+): GridsWorkflowPrincipal =>
+  input.principal ?? {
+    userId: input.actorUserId ?? input.invocation.actor.userId ?? null,
+    groupIds: input.actorGroupIds ?? input.invocation.actor.groupIds ?? [],
+    serviceAccountId: input.serviceAccountId ?? input.invocation.actor.serviceAccountId ?? null,
+    actorServiceAccountId: null,
+    credential: null,
+  };
+
+const credentialFromRow = (row: DbRow): GridsWorkflowCredential | null => {
+  const kind = row.credential_kind;
+  if (kind !== "api_token" && kind !== "oauth") return null;
+  const resourceBinding =
+    typeof row.credential_resource_app_id === "string" &&
+    typeof row.credential_resource_type === "string" &&
+    typeof row.credential_resource_id === "string"
+      ? {
+          appId: row.credential_resource_app_id,
+          resourceType: row.credential_resource_type,
+          resourceId: row.credential_resource_id,
+        }
+      : null;
+  return {
+    kind,
+    id: (row.credential_id as string | null) ?? null,
+    scopes: parseJsonbRow<string[]>(row.credential_scopes, []),
+    permissionCap: (row.credential_permission_cap as GridsWorkflowCredential["permissionCap"] | null) ?? "none",
+    expiresAt: row.credential_expires_at ? (row.credential_expires_at as Date).toISOString() : null,
+    resourceBinding,
+  };
+};
+
+const principalFromRow = (row: DbRow): GridsWorkflowPrincipal => ({
+  userId: (row.actor_user_id as string | null) ?? null,
+  groupIds: parseJsonbRow<string[]>(row.actor_group_ids, []),
+  serviceAccountId: (row.service_account_id as string | null) ?? null,
+  actorServiceAccountId: (row.actor_service_account_id as string | null) ?? null,
+  credential: credentialFromRow(row),
+});
+
+const auditPrincipal = (row: DbRow) => ({
+  actorUserId: (row.actor_user_id as string | null) ?? null,
+  actorServiceAccountId: (row.actor_service_account_id as string | null) ?? null,
+  credentialId: (row.credential_id as string | null) ?? null,
+  credentialKind: (row.credential_kind as string | null) ?? null,
+  credentialPermissionCap: (row.credential_permission_cap as string | null) ?? null,
+  credentialResourceBinding:
+    typeof row.credential_resource_app_id === "string" &&
+    typeof row.credential_resource_type === "string" &&
+    typeof row.credential_resource_id === "string"
+      ? {
+          appId: row.credential_resource_app_id,
+          resourceType: row.credential_resource_type,
+          resourceId: row.credential_resource_id,
+        }
+      : null,
+});
+
+export const workflowInvocationFingerprint = (
+  input: Pick<MaterializeWorkflowInvocation, "invocation" | "principal" | "actorUserId" | "actorGroupIds" | "serviceAccountId">,
+): Promise<string> => {
+  const principal = materializedPrincipal(input);
+  const context = Object.fromEntries(Object.entries(input.invocation.context ?? {}).filter(([key]) => key !== "workflow"));
+  return hashWorkflowJson({
     workflowId: input.invocation.workflowId,
-    workflowRevision,
     mode: input.invocation.mode,
     channel: input.invocation.channel,
     actor: {
-      userId: input.invocation.actor.userId ?? null,
-      serviceAccountId: input.invocation.actor.serviceAccountId ?? null,
-      groupIds: [...(input.invocation.actor.groupIds ?? [])].sort(),
+      userId: principal.userId,
+      serviceAccountId: principal.serviceAccountId,
+      actorServiceAccountId: principal.actorServiceAccountId ?? null,
+      credential: principal.credential ?? null,
     },
     inputs: input.invocation.inputs,
-    context: input.invocation.context ?? {},
+    context,
   });
+};
+
+const existingInvocationReceipt = async (
+  input: MaterializeWorkflowInvocation,
+  existing: DbRow,
+): Promise<Result<WorkflowInvocationReceipt>> => {
+  const existingRevision = Number(existing.workflow_revision);
+  if (input.invocation.expectedRevision !== undefined && input.invocation.expectedRevision !== existingRevision) {
+    return fail(workflowConflict("Workflow changed since the caller loaded it."));
+  }
+  const fingerprint = input.requestFingerprint ?? (await workflowInvocationFingerprint(input));
+  if (existing.request_fingerprint !== fingerprint) {
+    return fail(workflowConflict("Idempotency key was already used for a different workflow invocation."));
+  }
+  const run = mapRun(existing);
+  return ok({
+    runId: run.id,
+    workflowId: input.invocation.workflowId,
+    revision: existingRevision,
+    mode: input.invocation.mode,
+    channel: input.invocation.channel,
+    created: false,
+    status: run.status,
+  });
+};
+
+export const findMaterializedWorkflowInvocation = async (
+  input: MaterializeWorkflowInvocation,
+): Promise<Result<WorkflowInvocationReceipt> | null> => {
+  const [existing] = await sql<DbRow[]>`
+    SELECT id, workflow_id, launcher_id, base_id, workflow_revision, mode, channel, actor_user_id,
+           service_account_id, inputs, status, result, error, result_message, request_fingerprint,
+           created_at, started_at, finished_at
+    FROM grids.workflow_runs
+    WHERE workflow_id = ${input.invocation.workflowId}::uuid
+      AND mode = ${input.invocation.mode}
+      AND channel = ${input.invocation.channel}
+      AND idempotency_key = ${input.invocation.idempotencyKey}
+  `;
+  return existing ? existingInvocationReceipt(input, existing) : null;
+};
 
 export const materializeWorkflowInvocation = async (input: MaterializeWorkflowInvocation): Promise<Result<WorkflowInvocationReceipt>> => {
   const result = await sql.begin(async (tx): Promise<Result<WorkflowInvocationReceipt>> => {
@@ -96,26 +211,7 @@ export const materializeWorkflowInvocation = async (input: MaterializeWorkflowIn
         AND channel = ${input.invocation.channel}
         AND idempotency_key = ${input.invocation.idempotencyKey}
     `;
-    if (existing) {
-      const existingRevision = Number(existing.workflow_revision);
-      if (input.invocation.expectedRevision !== undefined && input.invocation.expectedRevision !== existingRevision) {
-        return fail(workflowConflict("Workflow changed since the caller loaded it."));
-      }
-      const fingerprint = await invocationFingerprint(input, existingRevision);
-      if (existing.request_fingerprint !== fingerprint) {
-        return fail(workflowConflict("Idempotency key was already used for a different workflow invocation."));
-      }
-      const run = mapRun(existing);
-      return ok({
-        runId: run.id,
-        workflowId: input.invocation.workflowId,
-        revision: existingRevision,
-        mode: input.invocation.mode,
-        channel: input.invocation.channel,
-        created: false,
-        status: run.status,
-      });
-    }
+    if (existing) return existingInvocationReceipt(input, existing);
 
     const [workflow] = await tx<DbRow[]>`
       SELECT base_id, revision, plan, enabled
@@ -126,16 +222,25 @@ export const materializeWorkflowInvocation = async (input: MaterializeWorkflowIn
     if (!workflow) return fail(err.notFound("workflow"));
     if (workflow.base_id !== input.baseId) return fail(err.badInput("workflow base does not match invocation"));
     const workflowRevision = Number(workflow.revision);
+    if (input.preparedRevision !== undefined && input.preparedRevision !== workflowRevision) {
+      return fail(workflowConflict("Workflow changed while the invocation was being prepared."));
+    }
     if (input.invocation.expectedRevision !== undefined && input.invocation.expectedRevision !== workflowRevision) {
       return fail(workflowConflict("Workflow changed since the caller loaded it."));
     }
     if (input.invocation.mode === "execute" && workflow.enabled !== true) return fail(err.badInput("workflow is disabled"));
     const plan = parseJsonbRow<WorkflowBoundPlan>(workflow.plan, {} as WorkflowBoundPlan);
-    const fingerprint = await invocationFingerprint(input, workflowRevision);
+    const fingerprint = input.requestFingerprint ?? (await workflowInvocationFingerprint(input));
+    const principal = materializedPrincipal(input);
+    const credential = principal.credential ?? null;
+    const binding = credential?.resourceBinding ?? null;
     const [inserted] = await tx<DbRow[]>`
       INSERT INTO grids.workflow_runs (
         workflow_id, launcher_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
-        actor_user_id, service_account_id, actor_group_ids, authorization_snapshot, inputs, context, workflow_plan,
+        actor_user_id, service_account_id, actor_service_account_id,
+        credential_kind, credential_id, credential_scopes, credential_permission_cap, credential_expires_at,
+        credential_resource_app_id, credential_resource_type, credential_resource_id,
+        actor_group_ids, authorization_snapshot, inputs, context, workflow_plan,
         status, occurred_at
       ) VALUES (
         ${input.invocation.workflowId}::uuid,
@@ -146,9 +251,18 @@ export const materializeWorkflowInvocation = async (input: MaterializeWorkflowIn
         ${input.invocation.channel},
         ${input.invocation.idempotencyKey},
         ${fingerprint},
-        ${input.actorUserId ?? input.invocation.actor.userId ?? null}::uuid,
-        ${input.serviceAccountId ?? input.invocation.actor.serviceAccountId ?? null}::uuid,
-        ${toPgUuidArray(input.actorGroupIds ?? input.invocation.actor.groupIds ?? [])}::uuid[],
+        ${principal.userId}::uuid,
+        ${principal.serviceAccountId}::uuid,
+        ${principal.actorServiceAccountId ?? null}::uuid,
+        ${credential?.kind ?? null},
+        ${credential?.id ?? null}::uuid,
+        ${toPgTextArray(credential?.scopes ?? [])}::text[],
+        ${credential?.permissionCap ?? null},
+        ${credential?.expiresAt ?? null}::timestamptz,
+        ${binding?.appId ?? null},
+        ${binding?.resourceType ?? null},
+        ${binding?.resourceId ?? null},
+        ${toPgUuidArray(principal.groupIds)}::uuid[],
         ${input.authorization ?? { kind: "workflow" }}::jsonb,
         ${input.invocation.inputs}::jsonb,
         ${input.invocation.context ?? {}}::jsonb,
@@ -197,6 +311,8 @@ export const materializeWorkflowInvocation = async (input: MaterializeWorkflowIn
 
 const claimColumns = sql`
   id, workflow_id, launcher_id, base_id, workflow_revision, mode, channel, actor_user_id, service_account_id,
+  actor_service_account_id, credential_kind, credential_id, to_json(credential_scopes) AS credential_scopes,
+  credential_permission_cap, credential_expires_at, credential_resource_app_id, credential_resource_type, credential_resource_id,
   to_json(actor_group_ids) AS actor_group_ids, authorization_snapshot AS authorization, inputs, context, workflow_plan, status, result,
   error, result_message, idempotency_key, occurred_at, execution_generation, queue_attempts, created_at, started_at, finished_at
 `;
@@ -208,7 +324,7 @@ export const claimWorkflowRun = async (runId: string): Promise<ClaimedWorkflowRu
       SET status = 'running',
           started_at = COALESCE(started_at, now()),
           heartbeat_at = now(),
-          lease_expires_at = now() + (${RUN_LEASE_MS} * interval '1 millisecond'),
+          lease_expires_at = now() + (${WORKFLOW_RUN_LEASE_MS} * interval '1 millisecond'),
           execution_generation = execution_generation + 1,
           queue_attempts = queue_attempts + 1,
           last_queue_attempt_at = now()
@@ -234,6 +350,7 @@ export const claimWorkflowRun = async (runId: string): Promise<ClaimedWorkflowRu
               mode: claimed.mode,
               channel: claimed.channel,
               queueAttempt: claimed.queue_attempts,
+              principal: auditPrincipal(claimed),
             },
           },
         },
@@ -249,6 +366,7 @@ export const claimWorkflowRun = async (runId: string): Promise<ClaimedWorkflowRu
     plan: parseJsonbRow<WorkflowBoundPlan>(row.workflow_plan, {} as WorkflowBoundPlan),
     context: parseJsonbRow<Record<string, WorkflowJsonValue>>(row.context, {}),
     actorGroupIds: parseJsonbRow<string[]>(row.actor_group_ids, []),
+    principal: principalFromRow(row),
     authorization: parseJsonbRow<GridsWorkflowAuthorization>(row.authorization, { kind: "workflow" }),
     idempotencyKey: row.idempotency_key as string,
     occurredAt: (row.occurred_at as Date).toISOString(),
@@ -266,6 +384,33 @@ export const listRecoverableWorkflowRunIds = async (limit = 200): Promise<string
     LIMIT ${Math.max(1, Math.min(limit, 1000))}
   `;
   return rows.map((row) => row.id);
+};
+
+export const listExpiredWaitingWorkflowRunIds = async (limit = 200): Promise<string[]> => {
+  const rows = await sql<Array<{ id: string }>>`
+    SELECT id::text AS id
+    FROM grids.workflow_runs
+    WHERE status = 'waiting'
+      AND result #>> '{dependency,deadline}' IS NOT NULL
+      AND (result #>> '{dependency,deadline}')::timestamptz <= now()
+    ORDER BY created_at, id
+    LIMIT ${Math.max(1, Math.min(limit, 1000))}
+  `;
+  return rows.map((row) => row.id);
+};
+
+export const resumeWaitingWorkflowRun = async (runId: string, dependency?: WorkflowDependency): Promise<boolean> => {
+  const rows = await sql`
+    UPDATE grids.workflow_runs
+    SET status = 'queued', result = NULL, error = NULL, result_message = NULL, heartbeat_at = now(), lease_expires_at = NULL
+    WHERE id = ${runId}::uuid
+      AND status = 'waiting'
+      AND (${dependency === undefined} OR result->'dependency' = ${dependency ?? null}::jsonb)
+    RETURNING id
+  `;
+  const changed = rows.length > 0;
+  if (changed) await notifyPersistedWorkflowRun(runId, "resumed");
+  return changed;
 };
 
 export const getWorkflowRun = async (runId: string): Promise<GridsWorkflowRun | null> => {
@@ -337,9 +482,15 @@ export const failQueuedWorkflowRun = async (runId: string, message: string): Pro
       UPDATE grids.workflow_runs
       SET status = 'failed', error = ${error}::jsonb, lease_expires_at = NULL, heartbeat_at = now(), finished_at = now()
       WHERE id = ${runId}::uuid AND status = 'queued'
-      RETURNING id, workflow_id, base_id, actor_user_id, mode, channel
+      RETURNING id, workflow_id, base_id, actor_user_id, actor_service_account_id, credential_id, credential_kind,
+                credential_permission_cap, credential_resource_app_id, credential_resource_type, credential_resource_id, mode, channel
     `;
     if (!row) return false;
+    await tx`
+      UPDATE grids.workflow_step_runs
+      SET status = 'failed', outcome = ${{ state: "failed", error }}::jsonb, finished_at = now()
+      WHERE run_id = ${runId}::uuid AND status IN ('running', 'waiting')
+    `;
     await logAudit(
       {
         baseId: row.base_id as string,
@@ -348,7 +499,14 @@ export const failQueuedWorkflowRun = async (runId: string, message: string): Pro
         diff: {
           workflowRun: {
             old: null,
-            new: { id: row.id, workflowId: row.workflow_id, mode: row.mode, channel: row.channel, status: "failed" },
+            new: {
+              id: row.id,
+              workflowId: row.workflow_id,
+              mode: row.mode,
+              channel: row.channel,
+              status: "failed",
+              principal: auditPrincipal(row),
+            },
           },
         },
       },
@@ -391,7 +549,7 @@ export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepository
   async heartbeat(run: WorkflowRuntimeRunIdentity): Promise<WorkflowHeartbeatOutcome> {
     const rows = await sql`
       UPDATE grids.workflow_runs
-      SET heartbeat_at = now(), lease_expires_at = now() + (${RUN_LEASE_MS} * interval '1 millisecond')
+      SET heartbeat_at = now(), lease_expires_at = now() + (${WORKFLOW_RUN_LEASE_MS} * interval '1 millisecond')
       WHERE id = ${run.runId}::uuid
         AND status = 'running'
         AND execution_generation = ${run.executionGeneration}
@@ -463,6 +621,54 @@ export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepository
     if (rows.length === 0) throw workflowConflict(`Workflow step "${step.key}" lost its execution lease.`);
     await notifyPersistedWorkflowRun(step.runId, `step:${step.key}:${step.executionGeneration}:${resultStatus(result)}`);
   }
+
+  async parkStep(step: WorkflowRuntimeStepIdentity, dependency: WorkflowDependency): Promise<void> {
+    if (!dependency.kind.trim() || !dependency.key.trim()) {
+      throw new Error("Workflow dependencies require non-empty kind and key values.");
+    }
+    if (dependency.deadline !== undefined && !Number.isFinite(Date.parse(dependency.deadline))) {
+      throw new Error("Workflow dependency deadline must be an ISO date-time.");
+    }
+    const outcome = { state: "waiting", dependency } as const;
+    await sql.begin(async (tx) => {
+      const stepRows = await tx`
+        WITH owner AS (
+          SELECT id
+          FROM grids.workflow_runs
+          WHERE id = ${step.runId}::uuid
+            AND status = 'running'
+            AND execution_generation = ${step.executionGeneration}
+          FOR UPDATE
+        )
+        UPDATE grids.workflow_step_runs step_run
+        SET status = 'waiting', outcome = ${outcome}::jsonb, finished_at = NULL
+        FROM owner
+        WHERE step_run.run_id = owner.id
+          AND step_run.step_key = ${step.key}
+          AND step_run.status = 'running'
+          AND step_run.execution_generation = ${step.executionGeneration}
+        RETURNING step_run.id
+      `;
+      if (stepRows.length === 0) throw workflowConflict(`Workflow step "${step.key}" lost its execution lease.`);
+
+      const runRows = await tx`
+        UPDATE grids.workflow_runs
+        SET status = 'waiting',
+            result = ${{ dependency }}::jsonb,
+            error = NULL,
+            result_message = NULL,
+            heartbeat_at = now(),
+            lease_expires_at = NULL,
+            finished_at = NULL
+        WHERE id = ${step.runId}::uuid
+          AND status = 'running'
+          AND execution_generation = ${step.executionGeneration}
+        RETURNING id
+      `;
+      if (runRows.length === 0) throw workflowConflict("Workflow run lost its execution lease.");
+    });
+    await notifyPersistedWorkflowRun(step.runId, `step:${step.key}:${step.executionGeneration}:waiting`);
+  }
 }
 
 export const finishWorkflowRun = async (
@@ -488,7 +694,8 @@ export const finishWorkflowRun = async (
       WHERE id = ${run.runId}::uuid
         AND execution_generation = ${run.executionGeneration}
         AND status = 'running'
-      RETURNING id, workflow_id, base_id, actor_user_id, mode, channel
+      RETURNING id, workflow_id, base_id, actor_user_id, actor_service_account_id, credential_id, credential_kind,
+                credential_permission_cap, credential_resource_app_id, credential_resource_type, credential_resource_id, mode, channel
     `;
     if (!row) return false;
     if (input.status !== "waiting") {
@@ -500,7 +707,14 @@ export const finishWorkflowRun = async (
           diff: {
             workflowRun: {
               old: null,
-              new: { id: row.id, workflowId: row.workflow_id, mode: row.mode, channel: row.channel, status: input.status },
+              new: {
+                id: row.id,
+                workflowId: row.workflow_id,
+                mode: row.mode,
+                channel: row.channel,
+                status: input.status,
+                principal: auditPrincipal(row),
+              },
             },
           },
         },

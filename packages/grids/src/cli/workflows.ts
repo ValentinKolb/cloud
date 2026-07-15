@@ -218,16 +218,35 @@ export const workflowCommands = [
           "Direct, scanner, bulk, and dashboard invocation are API/CLI operations, not YAML triggers.",
           "",
           "Top-level keys:",
-          ...WORKFLOW_REFERENCE.yaml.topLevel.map((item) => `  ${item}`),
+          ...WORKFLOW_REFERENCE.language.topLevel.map((item) => `  ${item}`),
           "",
-          "Input types:",
-          `  ${WORKFLOW_REFERENCE.yaml.inputTypes.join(", ")}`,
+          "Language limits:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.language.limits).replace(/\n/g, "\n  ")}`,
           "",
-          "Automatic triggers:",
-          `  ${WORKFLOW_REFERENCE.yaml.triggers.join(", ")}`,
+          "Input types and fields:",
+          ...WORKFLOW_REFERENCE.language.inputs.flatMap((item) => [
+            `  ${item.kind}: ${item.description}`,
+            `    value type: ${item.valueType}`,
+            `    fields: ${prettyJson(item.config).replace(/\n/g, "\n    ")}`,
+          ]),
           "",
-          "Steps:",
-          ...WORKFLOW_REFERENCE.yaml.steps.map((item) => `  ${item}`),
+          "Automatic triggers and fields:",
+          ...WORKFLOW_REFERENCE.language.triggers.flatMap((item) => [
+            `  ${item.kind}: ${item.description}`,
+            `    event values: ${prettyJson(item.eventValues).replace(/\n/g, "\n    ")}`,
+            `    fields: ${prettyJson(item.config).replace(/\n/g, "\n    ")}`,
+            ...(item.snippet ? [`    example:\n      ${item.snippet.replace(/\n/g, "\n      ")}`] : []),
+          ]),
+          "",
+          "Actions and fields:",
+          ...WORKFLOW_REFERENCE.language.actions.flatMap((item) => [
+            `  ${item.kind}: ${item.description}`,
+            `    effect: ${item.effect}; dry run: ${item.dryRun}; output: ${item.outputType ?? "none"}`,
+            `    fields: ${prettyJson(item.config).replace(/\n/g, "\n    ")}`,
+          ]),
+          "",
+          "Control flow:",
+          `  ${WORKFLOW_REFERENCE.language.controlFlow.join(", ")}`,
           "",
           "Direct invocation JSON:",
           `  ${prettyJson(WORKFLOW_REFERENCE.invocation.direct).replace(/\n/g, "\n  ")}`,
@@ -416,9 +435,9 @@ export const workflowCommands = [
     },
   }),
   command("workflows invoke", {
-    summary: "Invoke a workflow through the CLI channel",
+    summary: "Invoke a workflow directly through the API",
     description:
-      "Invokes one workflow directly. Inputs must be a JSON object. Idempotency keys are scoped to this workflow and CLI channel; reuse the key only for the same revision, mode, actor, and inputs.",
+      "Invokes one workflow directly. Inputs must be a JSON object. Idempotency keys are scoped to this workflow and direct API channel; reuse the key only for the same revision, mode, actor, and inputs.",
     args: baseArgs,
     flags: {
       ...baseFlag,
@@ -559,7 +578,7 @@ export const workflowRunCommands = [
       status: flag.enum(["queued", "running", "waiting", "succeeded", "failed", "canceled", "needs_attention"] as const, {
         description: "Run status",
       }),
-      channel: flag.enum(["manual", "api", "cli", "dashboard", "scanner", "bulk", "schedule", "recordEvent", "agent"] as const, {
+      channel: flag.enum(["api", "dashboard", "scanner", "bulk", "schedule", "recordEvent"] as const, {
         description: "Invocation channel",
       }),
       mode: flag.enum(["execute", "dryRun"] as const, { description: "Execution mode" }),

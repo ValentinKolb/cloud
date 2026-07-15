@@ -11,6 +11,7 @@ import {
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
+import type { Table } from "../../../service";
 import type {
   CreateGridsWorkflowLauncherInput,
   GridsWorkflow,
@@ -18,7 +19,14 @@ import type {
   GridsWorkflowLauncherKind,
 } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
-import { dashboardLauncherConfigForSave } from "./workflow-launcher-draft";
+import { WorkflowInputFields } from "./WorkflowInputFields";
+import { dashboardLauncherConfigForSave, missingLauncherRequiredInputs } from "./workflow-launcher-draft";
+import {
+  buildWorkflowRunInput,
+  type WorkflowRunInputDraft,
+  type WorkflowRunInputDraftValue,
+  workflowInputDraftFromValues,
+} from "./workflow-trigger-actions";
 
 type WorkflowLauncherApi = {
   ":workflowId": {
@@ -52,7 +60,12 @@ const defaultDraft = (workflow: GridsWorkflow): LauncherDraft => {
   return { name: "", enabled: true, config: { kind: "scanner", input: recordInput, resolve: { by: "scanCode" } } };
 };
 
-function LauncherEditor(props: { workflow: GridsWorkflow; launcher?: GridsWorkflowLauncher; close: (draft?: LauncherDraft) => void }) {
+function LauncherEditor(props: {
+  workflow: GridsWorkflow;
+  tables: Table[];
+  launcher?: GridsWorkflowLauncher;
+  close: (draft?: LauncherDraft) => void;
+}) {
   const initial = props.launcher ?? defaultDraft(props.workflow);
   const [name, setName] = createSignal(initial.name);
   const [enabled, setEnabled] = createSignal(initial.enabled ?? true);
@@ -64,22 +77,41 @@ function LauncherEditor(props: { workflow: GridsWorkflow; launcher?: GridsWorkfl
   const [field, setField] = createSignal(
     initial.config.kind === "scanner" && initial.config.resolve.by === "field" ? (initial.config.resolve.field ?? "") : "",
   );
+  const [dashboardBindings, setDashboardBindings] = createSignal<WorkflowRunInputDraft>(
+    workflowInputDraftFromValues(
+      props.workflow.plan.inputs,
+      initial.config.kind === "dashboard" ? initial.config.inputBindings : undefined,
+    ),
+  );
   const inputOptions = createMemo(() =>
     props.workflow.plan.inputs
       .filter((candidate) => candidate.type === (kind() === "scanner" ? "record" : "recordList"))
       .map((candidate) => ({ id: candidate.name, label: candidate.config.label?.toString() || candidate.name })),
   );
+  const missingRequiredInputs = createMemo(() => missingLauncherRequiredInputs(props.workflow.plan.inputs, kind(), input()));
+  const dashboardValidation = createMemo(() => buildWorkflowRunInput(props.workflow.plan.inputs, dashboardBindings()));
   const valid = createMemo(
     () =>
       name().trim().length > 0 &&
-      (kind() === "dashboard" || (input().length > 0 && (kind() !== "scanner" || resolveBy() !== "field" || field().trim().length > 0))),
+      (kind() === "dashboard"
+        ? dashboardValidation().ok
+        : input().length > 0 &&
+          missingRequiredInputs().length === 0 &&
+          (kind() !== "scanner" || resolveBy() !== "field" || field().trim().length > 0)),
   );
+  const dashboardErrors = () => {
+    const validation = dashboardValidation();
+    return validation.ok ? {} : validation.errors;
+  };
+  const setDashboardBinding = (name: string, value: WorkflowRunInputDraftValue) =>
+    setDashboardBindings((current) => ({ ...current, [name]: value }));
 
   const submit = () => {
     if (!valid()) return;
+    const bindings = dashboardValidation();
     const config: LauncherDraft["config"] =
       kind() === "dashboard"
-        ? dashboardLauncherConfigForSave(props.launcher)
+        ? dashboardLauncherConfigForSave(props.launcher, bindings.ok ? bindings.input : {})
         : kind() === "bulk"
           ? { kind: "bulk", input: input() }
           : {
@@ -126,6 +158,28 @@ function LauncherEditor(props: { workflow: GridsWorkflow; launcher?: GridsWorkfl
               value={input}
               onChange={setInput}
             />
+            <Show when={missingRequiredInputs().length > 0}>
+              <div class="info-block-danger text-sm" role="alert">
+                This surface cannot supply the required {missingRequiredInputs().length === 1 ? "input" : "inputs"}:{" "}
+                {missingRequiredInputs().join(", ")}. Use a dashboard launcher or make the inputs optional.
+              </div>
+            </Show>
+          </Show>
+          <Show when={kind() === "dashboard"}>
+            <div class="info-block-info text-sm">Dashboard launchers use these fixed values every time the button runs.</div>
+            <WorkflowInputFields
+              workflow={props.workflow}
+              tables={props.tables}
+              draft={dashboardBindings}
+              onValueChange={setDashboardBinding}
+              errors={dashboardErrors}
+              emptyText="This workflow does not need fixed inputs."
+            />
+            <Show when={!dashboardValidation().ok}>
+              <div class="info-block-danger text-sm" role="alert">
+                Provide valid fixed values for every required workflow input.
+              </div>
+            </Show>
           </Show>
           <Show when={kind() === "scanner"}>
             <SelectInput
@@ -172,13 +226,18 @@ function LauncherEditor(props: { workflow: GridsWorkflow; launcher?: GridsWorkfl
   );
 }
 
-const requestLauncherDraft = (workflow: GridsWorkflow, launcher?: GridsWorkflowLauncher) =>
-  dialogCore.open<LauncherDraft>((close) => <LauncherEditor workflow={workflow} launcher={launcher} close={close} />, panelDialogOptions);
+const requestLauncherDraft = (workflow: GridsWorkflow, tables: Table[], launcher?: GridsWorkflowLauncher) =>
+  dialogCore.open<LauncherDraft>(
+    (close) => <LauncherEditor workflow={workflow} tables={tables} launcher={launcher} close={close} />,
+    panelDialogOptions,
+  );
 
-export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; onChanged: () => void; onClose: () => void }) {
+export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables: Table[]; onChanged: () => void; onClose: () => void }) {
   const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>([]);
+  const [loaded, setLoaded] = createSignal(false);
 
   const loadMut = mutations.create<void, void>({
+    onBefore: () => setLoaded(false),
     mutation: async (_, { abortSignal }) => {
       const res = await workflowLauncherApi[":workflowId"].launchers.$get(
         { param: { workflowId: props.workflow.id } },
@@ -187,7 +246,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; onChan
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow launchers."));
       setLaunchers(((await res.json()) as { items: GridsWorkflowLauncher[] }).items);
     },
-    onError: (error) => prompts.error(error.message),
+    onSuccess: () => setLoaded(true),
   });
 
   const saveMut = mutations.create<GridsWorkflowLauncher, { launcher?: GridsWorkflowLauncher; draft: LauncherDraft }>({
@@ -233,9 +292,12 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; onChan
   });
 
   const edit = async (launcher?: GridsWorkflowLauncher) => {
-    const draft = await requestLauncherDraft(props.workflow, launcher);
+    if (!loaded() || loadMut.loading() || saveMut.loading() || removeMut.loading()) return;
+    const draft = await requestLauncherDraft(props.workflow, props.tables, launcher);
     if (draft) saveMut.mutate({ launcher, draft });
   };
+
+  const mutationsBlocked = () => !loaded() || loadMut.loading() || saveMut.loading() || removeMut.loading();
 
   onMount(() => loadMut.mutate());
 
@@ -246,48 +308,67 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; onChan
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-2">
             <p class="text-sm text-dimmed">Expose this workflow as a scanner, bulk action, or dashboard button.</p>
-            <button type="button" class="btn-primary btn-sm" onClick={() => void edit()}>
+            <button type="button" class="btn-primary btn-sm" disabled={mutationsBlocked()} onClick={() => void edit()}>
               <i class="ti ti-plus" /> Add launcher
             </button>
           </div>
-          <For
-            each={launchers()}
-            fallback={<Placeholder align="left">{loadMut.loading() ? "Loading launchers..." : "No launchers configured."}</Placeholder>}
+          <Show
+            when={!loadMut.error()}
+            fallback={
+              <Placeholder
+                state="error"
+                surface="paper"
+                align="left"
+                title="Could not load workflow launchers"
+                description={loadMut.error()?.message}
+                action={
+                  <button type="button" class="btn-input btn-input-sm" disabled={loadMut.loading()} onClick={() => loadMut.retry()}>
+                    <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                  </button>
+                }
+              />
+            }
           >
-            {(launcher) => (
-              <div class="paper flex items-center gap-3 px-3 py-2">
-                <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
-                  <i
-                    class={`ti ${launcher.config.kind === "scanner" ? "ti-barcode" : launcher.config.kind === "bulk" ? "ti-list-check" : "ti-layout-dashboard"}`}
-                  />
-                </span>
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium text-primary">{launcher.name}</span>
-                  <span class="block text-xs text-dimmed">
-                    {launcherKindLabel(launcher.config.kind)} · {launcher.enabled ? "Enabled" : "Disabled"}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  class="icon-btn"
-                  aria-label={`Edit ${launcher.name}`}
-                  title="Edit launcher"
-                  onClick={() => void edit(launcher)}
-                >
-                  <i class="ti ti-pencil" />
-                </button>
-                <button
-                  type="button"
-                  class="icon-btn text-red-600 dark:text-red-400"
-                  aria-label={`Delete ${launcher.name}`}
-                  title="Delete launcher"
-                  onClick={() => removeMut.mutate(launcher)}
-                >
-                  <i class="ti ti-trash" />
-                </button>
-              </div>
-            )}
-          </For>
+            <Show when={loaded()} fallback={<Placeholder state="loading" align="left" description="Loading launchers..." />}>
+              <For each={launchers()} fallback={<Placeholder align="left">No launchers configured.</Placeholder>}>
+                {(launcher) => (
+                  <div class="paper flex items-center gap-3 px-3 py-2">
+                    <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                      <i
+                        class={`ti ${launcher.config.kind === "scanner" ? "ti-barcode" : launcher.config.kind === "bulk" ? "ti-list-check" : "ti-layout-dashboard"}`}
+                      />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-medium text-primary">{launcher.name}</span>
+                      <span class="block text-xs text-dimmed">
+                        {launcherKindLabel(launcher.config.kind)} · {launcher.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      disabled={mutationsBlocked()}
+                      aria-label={`Edit ${launcher.name}`}
+                      title="Edit launcher"
+                      onClick={() => void edit(launcher)}
+                    >
+                      <i class="ti ti-pencil" />
+                    </button>
+                    <button
+                      type="button"
+                      class="icon-btn text-red-600 dark:text-red-400"
+                      disabled={mutationsBlocked()}
+                      aria-label={`Delete ${launcher.name}`}
+                      title="Delete launcher"
+                      onClick={() => removeMut.mutate(launcher)}
+                    >
+                      <i class="ti ti-trash" />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </Show>
         </div>
       </PanelDialog.Body>
       <PanelDialog.Footer>

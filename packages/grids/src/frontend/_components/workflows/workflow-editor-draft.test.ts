@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Workflow } from "../../../service";
-import { workflowEditorDraft, workflowEditorDraftDirty } from "./workflow-editor-draft";
+import { workflowEditorDraft, workflowEditorDraftDirty, workflowEditorSavePayload } from "./workflow-editor-draft";
 
 const workflow = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -57,5 +57,26 @@ describe("workflow editor draft", () => {
 
     expect(workflowEditorDraftDirty({ ...clean, revision: clean.revision + 1 }, clean)).toBe(false);
     expect(workflowEditorDraftDirty({ ...clean, source: `${clean.source}\n` }, clean)).toBe(true);
+  });
+
+  test("builds a field-granular update and ignores normalized no-op edits", () => {
+    const clean = workflowEditorDraft(workflow, "fallback");
+
+    expect(workflowEditorSavePayload({ ...clean, name: `  ${clean.name}  ` }, clean, false)).toEqual({});
+    expect(workflowEditorSavePayload({ ...clean, description: "Updated description", enabled: false }, clean, false)).toEqual({
+      description: "Updated description",
+      enabled: false,
+    });
+  });
+
+  test("includes every editable field when creating a workflow", () => {
+    const draft = { ...workflowEditorDraft(undefined, "steps: []"), name: "  New workflow  ", description: "  " };
+
+    expect(workflowEditorSavePayload(draft, workflowEditorDraft(undefined, "steps: []"), true)).toEqual({
+      name: "New workflow",
+      description: null,
+      enabled: false,
+      source: "steps: []",
+    });
   });
 });

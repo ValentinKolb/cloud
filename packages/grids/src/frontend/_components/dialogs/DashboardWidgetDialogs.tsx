@@ -17,6 +17,7 @@ import type {
   WorkflowButtonWidget,
 } from "../../../service";
 import { formatWidgetValue } from "../dashboard/widget-format";
+import { dashboardWorkflowOption, dashboardWorkflowSelectOption } from "./dashboard-workflow-options";
 
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 
@@ -94,17 +95,6 @@ export const defaultWorkflowButtonWidget = (): WorkflowButtonWidget => ({
   description: "Start a saved workflow from this dashboard.",
   buttonLabel: "Run",
 });
-
-export type DashboardWorkflowOption = Workflow & {
-  dashboardLauncher: {
-    id: string;
-    name: string;
-    kind: "dashboard" | "scanner";
-    enabled: boolean;
-  };
-};
-
-export const dashboardWorkflowOption = (workflow: Workflow): DashboardWorkflowOption => workflow as DashboardWorkflowOption;
 
 type CellEditDialogResult = { action: "save"; widget: Widget } | { action: "delete" };
 
@@ -992,17 +982,7 @@ function WorkflowButtonCellBody(props: {
               title: props.widget.title || workflow?.name || undefined,
             });
           }}
-          options={[
-            { id: "", label: "(pick a workflow)" },
-            ...props.dashboardWorkflows.map((workflow) => ({
-              id: dashboardWorkflowOption(workflow).dashboardLauncher.id,
-              label: workflow.name,
-              description: dashboardWorkflowOption(workflow).dashboardLauncher.enabled
-                ? (workflow.description ?? dashboardWorkflowOption(workflow).dashboardLauncher.name)
-                : "Disabled",
-              icon: dashboardWorkflowOption(workflow).dashboardLauncher.enabled ? "ti ti-route" : "ti ti-player-pause",
-            })),
-          ]}
+          options={[{ id: "", label: "(pick a workflow)" }, ...props.dashboardWorkflows.map(dashboardWorkflowSelectOption)]}
         />
       </div>
     </WidgetEditorSection>

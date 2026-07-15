@@ -6,6 +6,7 @@ import type { z } from "zod";
 import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-kernel-launchers";
 import { invokeGridsWorkflow } from "../service/workflow-kernel-runtime";
 import { GridsWorkflowInvocationRequestSchema, WorkflowInvocationReceiptSchema } from "../workflows/contracts";
+import { uuidParam } from "./route-params";
 import {
   BulkLauncherRequestSchema,
   DashboardLauncherRequestSchema,
@@ -15,16 +16,13 @@ import {
 
 type DirectInvocation = z.infer<typeof GridsWorkflowInvocationRequestSchema>;
 
-const invokeDirect = (
-  workflowId: string,
-  channel: "api" | "manual" | "cli",
-  body: DirectInvocation,
-  principal: ReturnType<typeof workflowPrincipal>,
-) =>
+export const DIRECT_WORKFLOW_CHANNEL = "api" as const;
+
+const invokeDirect = (workflowId: string, body: DirectInvocation, principal: ReturnType<typeof workflowPrincipal>) =>
   invokeGridsWorkflow({
     workflowId,
     mode: body.mode,
-    channel,
+    channel: DIRECT_WORKFLOW_CHANNEL,
     inputs: body.inputs,
     idempotencyKey: body.idempotencyKey,
     expectedRevision: body.expectedRevision,
@@ -44,12 +42,15 @@ export const createWorkflowTriggerRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
           409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+          500: jsonResponse(ErrorResponseSchema, "Invocation failed"),
         },
       }),
       v("json", GridsWorkflowInvocationRequestSchema),
       async (c) => {
+        const workflowId = uuidParam(c, "workflowId");
+        if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const body = c.req.valid("json");
-        return respond(c, () => invokeDirect(c.req.param("workflowId")!, "api", body, workflowPrincipal(c)));
+        return respond(c, () => invokeDirect(workflowId, body, workflowPrincipal(c)));
       },
     )
     .post(
@@ -63,12 +64,15 @@ export const createWorkflowTriggerRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
           409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+          500: jsonResponse(ErrorResponseSchema, "Invocation failed"),
         },
       }),
       v("json", GridsWorkflowInvocationRequestSchema),
       async (c) => {
+        const workflowId = uuidParam(c, "workflowId");
+        if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const body = c.req.valid("json");
-        return respond(c, () => invokeDirect(c.req.param("workflowId")!, "manual", body, workflowPrincipal(c)));
+        return respond(c, () => invokeDirect(workflowId, body, workflowPrincipal(c)));
       },
     )
     .post(
@@ -82,12 +86,15 @@ export const createWorkflowTriggerRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
           409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+          500: jsonResponse(ErrorResponseSchema, "Invocation failed"),
         },
       }),
       v("json", GridsWorkflowInvocationRequestSchema),
       async (c) => {
+        const workflowId = uuidParam(c, "workflowId");
+        if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const body = c.req.valid("json");
-        return respond(c, () => invokeDirect(c.req.param("workflowId")!, "cli", body, workflowPrincipal(c)));
+        return respond(c, () => invokeDirect(workflowId, body, workflowPrincipal(c)));
       },
     )
     .post(
@@ -101,17 +108,21 @@ export const createWorkflowTriggerRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
           409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+          500: jsonResponse(ErrorResponseSchema, "Invocation failed"),
         },
       }),
       v("json", ScannerLauncherRequestSchema),
-      async (c) =>
-        respond(c, () =>
+      async (c) => {
+        const launcherId = uuidParam(c, "launcherId");
+        if (!launcherId) return c.json({ message: "Invalid workflow launcher id" }, 400);
+        return respond(c, () =>
           invokeScannerLauncher({
             ...c.req.valid("json"),
-            launcherId: c.req.param("launcherId")!,
+            launcherId,
             principal: workflowPrincipal(c),
           }),
-        ),
+        );
+      },
     )
     .post(
       "/launchers/:launcherId/invoke/bulk",
@@ -124,17 +135,21 @@ export const createWorkflowTriggerRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
           409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+          500: jsonResponse(ErrorResponseSchema, "Invocation failed"),
         },
       }),
       v("json", BulkLauncherRequestSchema),
-      async (c) =>
-        respond(c, () =>
+      async (c) => {
+        const launcherId = uuidParam(c, "launcherId");
+        if (!launcherId) return c.json({ message: "Invalid workflow launcher id" }, 400);
+        return respond(c, () =>
           invokeBulkLauncher({
             ...c.req.valid("json"),
-            launcherId: c.req.param("launcherId")!,
+            launcherId,
             principal: workflowPrincipal(c),
           }),
-        ),
+        );
+      },
     )
     .post(
       "/launchers/:launcherId/invoke/dashboard",
@@ -147,15 +162,19 @@ export const createWorkflowTriggerRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
           409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+          500: jsonResponse(ErrorResponseSchema, "Invocation failed"),
         },
       }),
       v("json", DashboardLauncherRequestSchema),
-      async (c) =>
-        respond(c, () =>
+      async (c) => {
+        const launcherId = uuidParam(c, "launcherId");
+        if (!launcherId) return c.json({ message: "Invalid workflow launcher id" }, 400);
+        return respond(c, () =>
           invokeDashboardLauncher({
             ...c.req.valid("json"),
-            launcherId: c.req.param("launcherId")!,
+            launcherId,
             principal: workflowPrincipal(c),
           }),
-        ),
+        );
+      },
     );

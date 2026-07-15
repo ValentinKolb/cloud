@@ -19,7 +19,7 @@ import {
   WorkflowDiagnosticSchema,
 } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
-import { currentActorViewer, gateAt } from "./permissions";
+import { currentWorkflowPrincipal, gateAt } from "./permissions";
 
 export const WorkflowValidateSchema = z.object({ source: z.string().min(1).max(200_000) });
 
@@ -77,9 +77,9 @@ export const canReadWorkflow = async (c: Context<AuthContext>, workflow: { baseI
   return gate.ok;
 };
 
-export const visibleWorkflowsForBase = async (c: Context<AuthContext>, baseId: string) => {
+export const visibleWorkflowsForBase = async (c: Context<AuthContext>, baseId: string, options: { includeDeleted?: boolean } = {}) => {
   const visible = [];
-  for (const workflow of await listWorkflows(baseId)) {
+  for (const workflow of await listWorkflows(baseId, false, options.includeDeleted)) {
     if (await canReadWorkflow(c, workflow)) visible.push(workflow);
   }
   return visible;
@@ -227,10 +227,5 @@ export const buildWorkflowCompletions = (source: string, caret: number, catalog:
 export const baseExists = async (baseId: string): Promise<boolean> => Boolean(await getBase(baseId));
 
 export const workflowPrincipal = (c: Context<AuthContext>) => {
-  const viewer = currentActorViewer(c);
-  return {
-    userId: viewer.userId,
-    groupIds: viewer.userGroups,
-    serviceAccountId: viewer.serviceAccountId,
-  };
+  return currentWorkflowPrincipal(c);
 };

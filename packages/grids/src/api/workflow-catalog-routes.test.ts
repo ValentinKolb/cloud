@@ -50,21 +50,24 @@ const workflow: GridsWorkflow = {
 
 let permissionLevel: PermissionLevel = "admin";
 let updateRevision: number | null = null;
+let getWorkflowCalls = 0;
 
-mock.module("../service/workflow-kernel-store", () => ({
-  getWorkflow: async () => workflow,
-  updateWorkflow: async (_id: string, input: { name?: string }, _actorId: string | null, expectedRevision: number) => {
-    updateRevision = expectedRevision;
-    if (expectedRevision !== workflow.revision) {
-      return fail({
-        code: "CONFLICT" as const,
-        message: "Workflow changed since you opened it. Reload the latest version before saving.",
-        status: 409 as const,
-      });
-    }
-    return ok({ ...workflow, ...input, revision: workflow.revision + 1 });
-  },
-}));
+const getWorkflow = async () => {
+  getWorkflowCalls += 1;
+  return workflow;
+};
+
+const updateWorkflow = async (_id: string, input: { name?: string }, _actorId: string | null, expectedRevision: number) => {
+  updateRevision = expectedRevision;
+  if (expectedRevision !== workflow.revision) {
+    return fail({
+      code: "CONFLICT" as const,
+      message: "Workflow changed since you opened it. Reload the latest version before saving.",
+      status: 409 as const,
+    });
+  }
+  return ok({ ...workflow, ...input, revision: workflow.revision + 1 });
+};
 
 mock.module("../service", () => ({
   gridsService: {
@@ -91,7 +94,8 @@ const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   await next();
 };
 
-const app = () => new Hono<AuthContext>().use("*", authenticated).route("/workflows", createWorkflowCatalogRoutes());
+const app = () =>
+  new Hono<AuthContext>().use("*", authenticated).route("/workflows", createWorkflowCatalogRoutes({ getWorkflow, updateWorkflow }));
 
 const patchWorkflow = (revision?: number) =>
   app().request(`/workflows/${workflowId}`, {
@@ -107,6 +111,7 @@ describe("workflow catalog update route", () => {
   beforeEach(() => {
     permissionLevel = "admin";
     updateRevision = null;
+    getWorkflowCalls = 0;
   });
 
   test("publishes the required revision header in OpenAPI", async () => {
@@ -120,6 +125,21 @@ describe("workflow catalog update route", () => {
       description: "Current workflow revision returned by the API.",
       schema: { type: "integer", minimum: 1 },
     });
+  });
+
+  test("publishes base id error responses in OpenAPI", async () => {
+    const spec = await generateSpecs(app());
+    const responses = spec.paths?.["/workflows/by-base/{baseId}/validate"]?.post?.responses;
+
+    expect(Object.keys(responses ?? {})).toEqual(["200", "400", "403", "404"]);
+  });
+
+  test("rejects invalid workflow ids before reading the store", async () => {
+    const response = await app().request("/workflows/not-a-uuid");
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Invalid workflow id" });
+    expect(getWorkflowCalls).toBe(0);
   });
 
   test("requires a valid workflow revision", async () => {

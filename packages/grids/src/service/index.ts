@@ -14,14 +14,22 @@ import * as forms from "./forms";
 import * as formulaPreview from "./formula-preview";
 import * as maintenance from "./maintenance";
 import * as metadataEvents from "./metadata-events";
-import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import {
+  hasAtLeast,
+  hasGrantsForResource,
+  loadGrantsForSubject,
+  loadGrantsForUser,
+  resolveEffectivePermission,
+} from "./permission-resolver";
+import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
 import * as records from "./records";
 import * as relationsModule from "./relations";
 import * as tables from "./tables";
 import * as templates from "./templates";
 import * as views from "./views";
 import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "./workflow-kernel-launchers";
-import { getWorkflowRun } from "./workflow-kernel-runs";
+import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-kernel-record-events";
+import { getWorkflowRun, resumeWaitingWorkflowRun } from "./workflow-kernel-runs";
 import {
   invokeGridsWorkflow,
   reconcileWorkflowKernelRuntime,
@@ -102,6 +110,7 @@ export const gridsService = {
   permission: {
     resolve: resolveEffectivePermission,
     loadGrants: loadGrantsForUser,
+    loadGrantsForSubject,
     hasAtLeast,
     hasGrantsForResource,
   },
@@ -252,6 +261,9 @@ export const gridsService = {
       start: startWorkflowKernelRuntime,
       stop: stopWorkflowKernelRuntime,
       reconcile: reconcileWorkflowKernelRuntime,
+      resumeWaiting: resumeWaitingWorkflowRun,
+      listDeadRecordEvents: listDeadRecordEventDeliveryFailures,
+      replayDeadRecordEvent: replayWorkflowRecordEventDeliveryFailure,
     },
   },
   template: {

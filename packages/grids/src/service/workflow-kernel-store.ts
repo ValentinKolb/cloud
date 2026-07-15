@@ -106,12 +106,12 @@ export const getWorkflowByIdOrShortId = async (baseId: string, idOrShortId: stri
   return row ? mapWorkflow(row) : null;
 };
 
-export const listWorkflows = async (baseId: string, enabledOnly = false): Promise<GridsWorkflow[]> => {
+export const listWorkflows = async (baseId: string, enabledOnly = false, includeDeleted = false): Promise<GridsWorkflow[]> => {
   const rows = await sql<DbRow[]>`
     SELECT ${selectColumns}
     FROM grids.workflows
     WHERE base_id = ${baseId}::uuid
-      AND deleted_at IS NULL
+      AND (${includeDeleted} = TRUE OR deleted_at IS NULL)
       AND (${enabledOnly} = FALSE OR enabled = TRUE)
     ORDER BY position, created_at, id
   `;
@@ -159,6 +159,8 @@ export const listRecordEventWorkflows = async (baseId: string, occurredAt: strin
 };
 
 const hasRecordEventTrigger = (plan: WorkflowBoundPlan): boolean => plan.triggers.some((trigger) => trigger.kind === "recordEvent");
+
+const recordEventTriggers = (plan: WorkflowBoundPlan) => plan.triggers.filter((trigger) => trigger.kind === "recordEvent");
 
 export const createWorkflow = async (
   baseId: string,
@@ -220,6 +222,9 @@ export const updateWorkflow = async (
   const plan = input.source === undefined ? ok(existing.plan) : await compileAndBind(existing.baseId, source);
   if (!plan.ok) return plan;
   const enabled = input.enabled ?? existing.enabled;
+  const recordEventsEnabled = enabled && hasRecordEventTrigger(plan.data);
+  const recordEventActivationChanged =
+    !existing.enabled || JSON.stringify(recordEventTriggers(existing.plan)) !== JSON.stringify(recordEventTriggers(plan.data));
 
   const updated = await sql.begin(async (tx): Promise<GridsWorkflow | null> => {
     const [row] = await tx<DbRow[]>`
@@ -232,8 +237,8 @@ export const updateWorkflow = async (
           enabled = ${enabled},
           position = ${input.position ?? existing.position},
           record_event_active_since = CASE
-            WHEN ${enabled && hasRecordEventTrigger(plan.data)} = FALSE THEN NULL
-            WHEN record_event_active_since IS NULL OR ${input.source !== undefined || input.enabled === true} THEN now()
+            WHEN ${recordEventsEnabled} = FALSE THEN NULL
+            WHEN record_event_active_since IS NULL OR ${recordEventActivationChanged} THEN now()
             ELSE record_event_active_since
           END
       WHERE id = ${id}::uuid AND deleted_at IS NULL AND revision = ${expectedRevision}
@@ -241,20 +246,29 @@ export const updateWorkflow = async (
     `;
     if (!row) return null;
     const workflow = mapWorkflow(row);
-    await tx`
-      UPDATE grids.workflow_launchers
-      SET enabled = FALSE,
-          diagnostics = ${[
-            {
-              code: "launcher.revalidate",
-              message: "Workflow changed. Review this launcher before enabling it again.",
-              severity: "warning",
-              path: [],
-            },
-          ]}::jsonb,
-          updated_at = now()
-      WHERE workflow_id = ${id}::uuid AND deleted_at IS NULL AND validated_revision <> ${workflow.revision}
-    `;
+    if (input.source === undefined) {
+      await tx`
+        UPDATE grids.workflow_launchers
+        SET validated_revision = ${workflow.revision}, updated_at = now()
+        WHERE workflow_id = ${id}::uuid AND deleted_at IS NULL AND validated_revision <> ${workflow.revision}
+      `;
+    } else {
+      await tx`
+        UPDATE grids.workflow_launchers
+        SET enabled = FALSE,
+            validated_revision = ${workflow.revision},
+            diagnostics = ${[
+              {
+                code: "launcher.revalidate",
+                message: "Workflow changed. Review this launcher before enabling it again.",
+                severity: "warning",
+                path: [],
+              },
+            ]}::jsonb,
+            updated_at = now()
+        WHERE workflow_id = ${id}::uuid AND deleted_at IS NULL
+      `;
+    }
     await logAudit(
       {
         baseId: existing.baseId,

@@ -127,7 +127,7 @@ describe("grids schema migration", () => {
             id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
             inputs, context, workflow_plan, status, occurred_at
           ) VALUES (
-            ${workflowRunId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'manual', 'old-run', 'old',
+            ${workflowRunId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'old-run', 'old',
             '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'succeeded', now()
           )
         `;

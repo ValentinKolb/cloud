@@ -8,6 +8,7 @@ import type {
   GridsWorkflowRun as WorkflowRun,
   GridsWorkflowStepRun as WorkflowStepRun,
 } from "../workflows/contracts";
+import { gridsWorkflowManifest } from "../workflows/manifest";
 import { assertBaseScoped, resolveBaseFromCommand, UUID_RE } from "./resources";
 import { compactId, exactMatch, readApi, requireRestArg } from "./runtime";
 
@@ -81,29 +82,20 @@ export const EMAIL_TEMPLATE_REFERENCE = {
 };
 
 export const WORKFLOW_REFERENCE = {
-  yaml: {
+  language: {
+    id: gridsWorkflowManifest.id,
+    version: gridsWorkflowManifest.version,
+    limits: gridsWorkflowManifest.limits,
     topLevel: ["inputs", "triggers", "steps"],
-    inputTypes: ["record", "recordList", "text", "number", "boolean", "date", "dateTime", "select"],
-    triggers: ["schedule", "recordEvent"],
-    steps: [
-      "setVariable",
-      "updateRecord",
-      "createRecord",
-      "generateDocument",
-      "createDocumentLink",
-      "sendEmail",
-      "httpRequest",
-      "if/then/else",
-      "switch/cases/default",
-      "forEach/as/do",
-      "succeed",
-      "fail",
-    ],
+    inputs: gridsWorkflowManifest.inputs,
+    triggers: gridsWorkflowManifest.triggers,
+    actions: gridsWorkflowManifest.actions,
+    controlFlow: ["if/then/else", "switch/cases/default", "forEach/as/do"],
   },
   invocation: {
     direct: {
       mode: "execute",
-      inputs: { message: "hello" },
+      inputs: { item: "00000000-0000-4000-8000-000000000001" },
       idempotencyKey: "agent-job-42",
       expectedRevision: 3,
     },
@@ -161,7 +153,7 @@ export const WORKFLOW_REFERENCE = {
     scope: "Inputs exist for the whole run; saved values exist after their step; forEach aliases exist only inside do.",
   },
   example:
-    "inputs:\n  item:\n    type: record\n    table: Items\nsteps:\n  - setVariable:\n      name: ranAt\n      value: ${{ now() }}\n  - updateRecord:\n      record: inputs.item\n      set:\n        Status: Checked",
+    "inputs:\n  item:\n    type: record\n    table: Items\n    required: true\nsteps:\n  - setVariable:\n      name: ranAt\n      value: ${{ now() }}\n  - updateRecord:\n      record: inputs.item\n      set:\n        Status: Checked",
 };
 
 export const listEmailTemplates = (ctx: CloudCliContext, baseId: string): Promise<EmailTemplate[]> =>

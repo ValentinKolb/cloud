@@ -1,10 +1,11 @@
+import { getEffectiveGroupIds } from "@valentinkolb/cloud/server";
 import type { WorkflowBoundPlan, WorkflowInvocation, WorkflowIrInput, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
 import type { WorkflowValueResolverPort, WorkflowVariableScope } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
 import { z } from "zod";
 import type { GridRecord } from "../contracts";
-import type { GridsWorkflowChannel } from "../workflows/contracts";
+import type { GridsWorkflowChannel, GridsWorkflowPrincipal } from "../workflows/contracts";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import { createReader } from "./record-read";
 
@@ -14,11 +15,7 @@ export type WorkflowRecordReference = {
   recordId: string;
 };
 
-export type GridsWorkflowPrincipal = {
-  userId: string | null;
-  groupIds: string[];
-  serviceAccountId: string | null;
-};
+export type { GridsWorkflowPrincipal } from "../workflows/contracts";
 
 type WorkflowInputPreparationDeps = {
   canReadTable: (tableId: string) => Promise<boolean>;
@@ -27,6 +24,7 @@ type WorkflowInputPreparationDeps = {
 
 type WorkflowInputPreparationOptions = {
   trustedRecordIds?: ReadonlyMap<string, ReadonlySet<string>>;
+  authorizeTable?: (tableId: string) => Promise<boolean>;
 };
 
 type WorkflowValueResolverDeps = {
@@ -34,17 +32,21 @@ type WorkflowValueResolverDeps = {
   readRecord: (tableId: string, recordId: string) => Promise<GridRecord | null>;
 };
 
+export class WorkflowInputPreparationError extends Error {
+  override readonly name = "WorkflowInputPreparationError";
+
+  constructor(
+    message: string,
+    readonly status: 400 | 403 = 400,
+  ) {
+    super(message);
+  }
+}
+
 const uuid = z.string().uuid();
 
 export const loadWorkflowUserGroupIds = async (userId: string | null): Promise<string[]> => {
-  if (!userId) return [];
-  const rows = await sql<Array<{ id: string }>>`
-    SELECT group_id::text AS id
-    FROM auth.user_groups_v2
-    WHERE user_id = ${userId}::uuid
-    ORDER BY group_id
-  `;
-  return rows.map((row) => row.id);
+  return getEffectiveGroupIds({ userId });
 };
 
 const isRecordReference = (value: WorkflowJsonValue | undefined): value is WorkflowRecordReference =>
@@ -98,12 +100,14 @@ const prepareRecordIds = async (
   recordIds: string[],
   deps: WorkflowInputPreparationDeps,
 ): Promise<WorkflowRecordReference[]> => {
-  if (!(await deps.canReadTable(tableId))) throw new Error("workflow actor cannot read the input table");
-  if (recordIds.some((recordId) => !uuid.safeParse(recordId).success)) throw new Error("contains an invalid record ID");
+  if (!(await deps.canReadTable(tableId))) throw new WorkflowInputPreparationError("workflow actor cannot read the input table", 403);
+  if (recordIds.some((recordId) => !uuid.safeParse(recordId).success)) {
+    throw new WorkflowInputPreparationError("contains an invalid record ID");
+  }
   const uniqueIds = [...new Set(recordIds)];
   const existingIds = await deps.existingRecordIds(tableId, uniqueIds);
   const missing = uniqueIds.find((recordId) => !existingIds.has(recordId));
-  if (missing) throw new Error(`references missing record "${missing}"`);
+  if (missing) throw new WorkflowInputPreparationError(`references missing record "${missing}"`);
   return recordIds.map((recordId) => recordReference(tableId, recordId));
 };
 
@@ -114,19 +118,19 @@ export const prepareWorkflowInputs = async (
 ): Promise<Record<string, WorkflowJsonValue>> => {
   const declaredNames = new Set(plan.inputs.map((input) => input.name));
   const unknownName = Object.keys(rawInputs).find((name) => !declaredNames.has(name));
-  if (unknownName) throw new Error(`unknown workflow input "${unknownName}"`);
+  if (unknownName) throw new WorkflowInputPreparationError(`unknown workflow input "${unknownName}"`);
 
   const prepared: Record<string, WorkflowJsonValue> = {};
   for (const input of plan.inputs) {
     const value = rawInputs[input.name];
     const shapeError = workflowInputShapeError(input, value);
-    if (shapeError) throw new Error(`workflow input "${input.name}" ${shapeError}`);
+    if (shapeError) throw new WorkflowInputPreparationError(`workflow input "${input.name}" ${shapeError}`);
     if (value === undefined || value === null) {
       continue;
     }
     if (input.type === "record" || input.type === "recordList") {
       const tableId = inputTableId(plan, input.name);
-      if (!tableId) throw new Error(`workflow input "${input.name}" has no bound table`);
+      if (!tableId) throw new WorkflowInputPreparationError(`workflow input "${input.name}" has no bound table`);
       const rawRecordIds = input.type === "record" ? [value] : value;
       const recordIds = rawRecordIds as string[];
       const references = await prepareRecordIds(tableId, recordIds, deps);
@@ -203,8 +207,9 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
 }
 
 const permissionChecker =
-  (baseId: string, principal: GridsWorkflowPrincipal) =>
+  (baseId: string, principal: GridsWorkflowPrincipal, authorizeTable?: (tableId: string) => Promise<boolean>) =>
   async (tableId: string): Promise<boolean> => {
+    if (authorizeTable) return authorizeTable(tableId);
     const grants = await loadGrantsForUser({
       userId: principal.userId,
       userGroups: principal.groupIds,
@@ -220,7 +225,7 @@ export const createWorkflowInputPreparationDeps = (
   principal: GridsWorkflowPrincipal,
   options: WorkflowInputPreparationOptions = {},
 ): WorkflowInputPreparationDeps => ({
-  canReadTable: permissionChecker(baseId, principal),
+  canReadTable: permissionChecker(baseId, principal, options.authorizeTable),
   existingRecordIds: async (tableId, recordIds) => {
     if (recordIds.length === 0) return new Set();
     const rows = await sql<Array<{ id: string }>>`
@@ -239,10 +244,14 @@ export const createWorkflowInputPreparationDeps = (
   },
 });
 
-export const createGridsWorkflowValueResolver = (baseId: string, principal: GridsWorkflowPrincipal): GridsWorkflowValueResolver => {
+export const createGridsWorkflowValueResolver = (
+  baseId: string,
+  principal: GridsWorkflowPrincipal,
+  options: Pick<WorkflowInputPreparationOptions, "authorizeTable"> = {},
+): GridsWorkflowValueResolver => {
   const readers = new Map<string, ReturnType<typeof createReader>>();
   return new GridsWorkflowValueResolver({
-    canReadTable: permissionChecker(baseId, principal),
+    canReadTable: permissionChecker(baseId, principal, options.authorizeTable),
     readRecord: async (tableId, recordId) => {
       let reader = readers.get(tableId);
       if (!reader) {

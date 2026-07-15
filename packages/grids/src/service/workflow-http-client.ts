@@ -16,14 +16,14 @@ const MAX_TIMEOUT_MS = 60_000;
 type RequestFactory = (options: RequestOptions, callback: (response: IncomingMessage) => void) => ClientRequest;
 type LookupAddress = { address: string; family: number };
 
-type WorkflowHttpClientDeps = {
+export type WorkflowHttpClientDeps = {
   getSetting?: (key: string) => Promise<unknown>;
   lookup?: (hostname: string, options: { all: true; verbatim: true }) => Promise<LookupAddress[]>;
   request?: RequestFactory;
   tlsCa?: string | Buffer;
 };
 
-type WorkflowHttpRequestInput = {
+export type WorkflowHttpRequestInput = {
   url: string;
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   headers?: Record<string, string>;
@@ -43,6 +43,11 @@ type ResolvedTarget = {
   url: URL;
   address: string;
   family: 4 | 6;
+};
+
+type PreparedWorkflowHttpRequest = {
+  target: ResolvedTarget;
+  headers: Record<string, string>;
 };
 
 export const isUnsafeWorkflowHttpAddress = isUnsafeNetworkAddress;
@@ -133,6 +138,45 @@ const requestHeaders = (input: WorkflowHttpRequestInput): Result<Record<string, 
   return ok(headers);
 };
 
+const prepareWorkflowHttpRequest = async (
+  input: WorkflowHttpRequestInput,
+  deps: WorkflowHttpClientDeps,
+  signal: AbortSignal,
+): Promise<Result<PreparedWorkflowHttpRequest>> => {
+  const headers = requestHeaders(input);
+  if (!headers.ok) return headers;
+  try {
+    const target = await Promise.race([
+      resolveTarget(input.url, deps),
+      new Promise<never>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(Object.assign(new Error("request timed out"), { name: "AbortError" })), {
+          once: true,
+        });
+      }),
+    ]);
+    if (!target.ok) return target;
+    return ok({ target: target.data, headers: headers.data });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") return fail(err.badInput("HTTP request target resolution timed out"));
+    return fail(err.badInput("HTTP request target could not be resolved"));
+  }
+};
+
+export const preflightWorkflowHttp = async (
+  input: WorkflowHttpRequestInput,
+  deps: WorkflowHttpClientDeps = {},
+): Promise<Result<{ host: string }>> => {
+  const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const prepared = await prepareWorkflowHttpRequest(input, deps, controller.signal);
+    return prepared.ok ? ok({ host: prepared.data.target.url.host }) : prepared;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const sendPinnedRequest = (
   target: ResolvedTarget,
   input: WorkflowHttpRequestInput,
@@ -211,24 +255,15 @@ export const requestWorkflowHttp = async (
   input: WorkflowHttpRequestInput,
   deps: WorkflowHttpClientDeps = {},
 ): Promise<Result<WorkflowHttpResponse>> => {
-  const headers = requestHeaders(input);
-  if (!headers.ok) return headers;
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let dispatched = false;
   try {
-    const target = await Promise.race([
-      resolveTarget(input.url, deps),
-      new Promise<never>((_resolve, reject) => {
-        controller.signal.addEventListener("abort", () => reject(Object.assign(new Error("request timed out"), { name: "AbortError" })), {
-          once: true,
-        });
-      }),
-    ]);
-    if (!target.ok) return target;
+    const prepared = await prepareWorkflowHttpRequest(input, deps, controller.signal);
+    if (!prepared.ok) return prepared;
     dispatched = true;
-    return ok(await sendPinnedRequest(target.data, input, headers.data, controller.signal, deps));
+    return ok(await sendPinnedRequest(prepared.data.target, input, prepared.data.headers, controller.signal, deps));
   } catch (error) {
     if (dispatched) {
       return fail({
@@ -237,7 +272,9 @@ export const requestWorkflowHttp = async (
         status: 500,
       });
     }
-    if (error instanceof Error && error.name === "AbortError") return fail(err.badInput("HTTP request target resolution timed out"));
+    if (error instanceof Error && error.name === "AbortError") {
+      return fail(err.badInput(dispatched ? "HTTP request timed out" : "HTTP request target resolution timed out"));
+    }
     return fail(err.badInput("HTTP request target could not be resolved"));
   } finally {
     clearTimeout(timer);

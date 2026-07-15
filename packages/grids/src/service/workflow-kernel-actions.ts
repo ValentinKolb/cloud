@@ -24,7 +24,7 @@ import { sql } from "bun";
 import { app } from "../config";
 import type { DocumentRun, DocumentTemplate, EmailTemplate, GridRecord, Table } from "../contracts";
 import { createWorkflowNotificationSender, type WorkflowNotificationSender } from "../notifications";
-import type { GridsWorkflow } from "../workflows/contracts";
+import type { GridsWorkflow, GridsWorkflowPrincipal } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
 import { logAudit, type SqlClient } from "./audit";
 import {
@@ -49,7 +49,7 @@ import {
   getWorkflowEmailDeliveryIntent,
   type WorkflowEmailDeliveryIntent,
 } from "./workflow-email-deliveries";
-import { requestWorkflowHttp } from "./workflow-http-client";
+import { preflightWorkflowHttp, requestWorkflowHttp } from "./workflow-http-client";
 import { getActiveWorkflowStepRunId } from "./workflow-kernel-runs";
 
 type ActionEffect = "pure" | "transactional" | "durable-intent" | "ambiguous-external";
@@ -134,6 +134,13 @@ export type GridsWorkflowActionServices = {
     timeoutMs?: number;
     idempotencyKey: string;
   }): Promise<ServiceResult<{ status: number; ok: boolean; body: string; host: string }>>;
+  httpRequestPreflight(input: {
+    url: string;
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    headers?: Record<string, string>;
+    body?: string;
+    timeoutMs?: number;
+  }): Promise<ServiceResult<{ host: string }>>;
 };
 
 export type GridsWorkflowEffectIntentInput = {
@@ -158,6 +165,7 @@ export type GridsWorkflowEffectIntentPort = {
     perform: (client: SqlClient) => Promise<WorkflowJsonValue | undefined>,
   ): Promise<PreparedEffectIntent>;
   succeed(idempotencyKey: string, output?: WorkflowJsonValue): Promise<void>;
+  retry(idempotencyKey: string, error: EffectIntentError): Promise<void>;
   fail(idempotencyKey: string, error: EffectIntentError): Promise<void>;
   needsAttention(idempotencyKey: string, error: EffectIntentError): Promise<void>;
 };
@@ -169,12 +177,23 @@ export type GridsWorkflowActionPorts = {
 
 export type CreateGridsWorkflowActionPortsOptions = {
   workflow: Pick<GridsWorkflow, "id" | "shortId" | "baseId" | "name">;
+  principal?: GridsWorkflowPrincipal;
   authorizeExecution?: () => Promise<boolean>;
+  authorizeTarget?: (target: GridsWorkflowActionPermissionTarget, required: PermissionLevel) => Promise<boolean>;
   services?: Partial<GridsWorkflowActionServices>;
   effectIntents?: GridsWorkflowEffectIntentPort;
   notificationSender?: WorkflowNotificationSender;
   documentPdfRenderer?: DocumentPdfRenderer;
 };
+
+const workflowPrincipalAuditMeta = (principal: GridsWorkflowPrincipal | undefined): Record<string, WorkflowJsonValue> => ({
+  actorServiceAccountId: principal?.actorServiceAccountId ?? null,
+  credentialId: principal?.credential?.id ?? null,
+  credentialKind: principal?.credential?.kind ?? null,
+  credentialScopes: principal?.credential?.scopes ?? [],
+  credentialPermissionCap: principal?.credential?.permissionCap ?? null,
+  credentialResourceBinding: principal?.credential?.resourceBinding ?? null,
+});
 
 class GridsWorkflowActionError extends Error {
   constructor(readonly executionError: WorkflowExecutionError) {
@@ -403,6 +422,7 @@ const defaultServices = (options: CreateGridsWorkflowActionPortsOptions): GridsW
                   workflowEmail: {
                     old: null,
                     new: {
+                      ...workflowPrincipalAuditMeta(options.principal),
                       workflowId: input.workflow.id,
                       workflowRunId: input.runId,
                       templateId: input.template.id,
@@ -436,6 +456,7 @@ const defaultServices = (options: CreateGridsWorkflowActionPortsOptions): GridsW
       };
     },
     httpRequest: requestWorkflowHttp,
+    httpRequestPreflight: preflightWorkflowHttp,
   };
 };
 
@@ -520,7 +541,7 @@ export class SqlGridsWorkflowEffectIntents implements GridsWorkflowEffectIntentP
       }
       const transitioned = await tx`
         UPDATE grids.workflow_effect_intents
-        SET status = 'executing', attempts = attempts + 1, updated_at = now()
+        SET status = 'executing', attempts = attempts + 1, error = NULL, updated_at = now()
         WHERE idempotency_key = ${input.idempotencyKey} AND status = 'pending'
         RETURNING id
       `;
@@ -611,6 +632,16 @@ export class SqlGridsWorkflowEffectIntents implements GridsWorkflowEffectIntentP
     if (rows.length === 0) throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect intent could not be failed");
   }
 
+  async retry(idempotencyKey: string, error: EffectIntentError): Promise<void> {
+    const rows = await sql`
+      UPDATE grids.workflow_effect_intents
+      SET status = 'pending', error = ${error}::jsonb, updated_at = now()
+      WHERE idempotency_key = ${idempotencyKey} AND status = 'executing'
+      RETURNING id
+    `;
+    if (rows.length === 0) throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect intent could not be retried");
+  }
+
   async needsAttention(idempotencyKey: string, error: EffectIntentError): Promise<void> {
     const rows = await sql`
       UPDATE grids.workflow_effect_intents
@@ -691,7 +722,15 @@ const workflowAuditMeta = (
 ): Record<string, WorkflowJsonValue> => ({
   workflowId: options.workflow.id,
   workflowRunId: context.run.runId,
-  serviceAccountId: context.invocation.actor.serviceAccountId ?? null,
+  ...workflowPrincipalAuditMeta(
+    options.principal ?? {
+      userId: context.invocation.actor.userId ?? null,
+      groupIds: context.invocation.actor.groupIds ?? [],
+      serviceAccountId: context.invocation.actor.serviceAccountId ?? null,
+      actorServiceAccountId: context.invocation.actor.serviceAccountId ?? null,
+      credential: null,
+    },
+  ),
 });
 
 const requirePermission = async (
@@ -701,6 +740,12 @@ const requirePermission = async (
   target: GridsWorkflowActionPermissionTarget,
   required: PermissionLevel,
 ): Promise<void> => {
+  if (options.authorizeTarget) {
+    if (!(await options.authorizeTarget(target, required))) {
+      throw actionError("FORBIDDEN", "Workflow actor does not have permission for this action");
+    }
+    return;
+  }
   const allowed = await services.requirePermission({
     baseId: options.workflow.baseId,
     actor: context.invocation.actor,
@@ -785,6 +830,7 @@ const executeIntent = async (
   context: WorkflowExecuteActionContext,
   step: WorkflowActionStep,
   request: WorkflowJsonValue,
+  authorize: () => Promise<void>,
   perform: () => Promise<WorkflowJsonValue | undefined>,
 ): Promise<WorkflowStepOutcome> => {
   const effect = gridsWorkflowActionEffect(step.action);
@@ -792,6 +838,7 @@ const executeIntent = async (
     throw actionError("WORKFLOW_EFFECT_INVALID", `${step.action} is not an intent-backed action`);
   }
   await context.heartbeat();
+  await authorize();
   const idempotencyKey = `workflow:${context.run.runId}:step:${context.step.key}`;
   const prepared = await effectIntents.prepare({
     runId: context.run.runId,
@@ -809,6 +856,10 @@ const executeIntent = async (
       if (effect === "ambiguous-external" && error.executionError.code === "WORKFLOW_HTTP_OUTCOME_UNKNOWN") {
         await effectIntents.needsAttention(idempotencyKey, error.executionError);
         return { state: "needs_attention", error: error.executionError };
+      }
+      if (effect === "durable-intent" && error.executionError.retryable) {
+        await effectIntents.retry(idempotencyKey, error.executionError);
+        return failedOutcome(error);
       }
       await effectIntents.fail(idempotencyKey, error.executionError);
       return failedOutcome(error);
@@ -832,9 +883,11 @@ const executeTransactional = async (
   context: WorkflowExecuteActionContext,
   step: WorkflowActionStep,
   request: WorkflowJsonValue,
+  authorize: () => Promise<void>,
   perform: (client: SqlClient) => Promise<WorkflowJsonValue | undefined>,
 ): Promise<WorkflowStepOutcome> => {
   await context.heartbeat();
+  await authorize();
   const prepared = await effectIntents.executeTransactional(
     {
       runId: context.run.runId,
@@ -893,11 +946,16 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         const record = await recordReference(context, step, "record");
         await currentRecord(services, options, context, record, "write");
         const values = await evaluatedFieldPayload(context, step, "set");
+        const requestFingerprint = await hashWorkflowJson(toJsonValue(values));
         return executeTransactional(
           effectIntents,
           context,
           step,
-          { action: step.action, tableId: record.tableId, recordId: record.recordId, values: toJsonValue(values) },
+          { action: step.action, tableId: record.tableId, recordId: record.recordId, fieldIds: Object.keys(values), requestFingerprint },
+          async () => {
+            await requireWorkflowPermission(services, options, context);
+            await requirePermission(services, options, context, { tableId: record.tableId }, "write");
+          },
           async (client) => {
             const updated = requireServiceResult(
               await services.updateRecord(record.tableId, record.recordId, values, actorId(context), client),
@@ -942,11 +1000,16 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         await currentTable(services, options, tableId);
         await requirePermission(services, options, context, { tableId }, "write");
         const values = await evaluatedFieldPayload(context, step, "values");
+        const requestFingerprint = await hashWorkflowJson(toJsonValue(values));
         const outcome = await executeTransactional(
           effectIntents,
           context,
           step,
-          { action: step.action, tableId, values: toJsonValue(values) },
+          { action: step.action, tableId, fieldIds: Object.keys(values), requestFingerprint },
+          async () => {
+            await requireWorkflowPermission(services, options, context);
+            await requirePermission(services, options, context, { tableId }, "write");
+          },
           async (client) => {
             const created = requireServiceResult(await services.createRecord(tableId, values, actorId(context), client));
             await services.audit(
@@ -1009,11 +1072,17 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
             if (typeof value === "string" && value.trim()) tags.push(value.trim());
           }
         }
+        const requestFingerprint = await hashWorkflowJson({ filename, tags });
         const outcome = await executeIntent(
           effectIntents,
           context,
           step,
-          { action: step.action, templateId, tableId: table.id, recordId: record.recordId, filename, tags },
+          { action: step.action, templateId, tableId: table.id, recordId: record.recordId, requestFingerprint },
+          async () => {
+            await requireWorkflowPermission(services, options, context);
+            await requirePermission(services, options, context, { tableId: table.id }, "read");
+            await requirePermission(services, options, context, { tableId: table.id, documentTemplateId: template.id }, "write");
+          },
           async () => {
             const run = requireServiceResult(
               await services.generateDocument({
@@ -1111,11 +1180,22 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
             ? step.config.expiresIn
             : "30d";
         const comment = typeof commentValue === "string" ? commentValue : null;
+        const requestFingerprint = await hashWorkflowJson({ expiresIn, comment });
         const outcome = await executeTransactional(
           effectIntents,
           context,
           step,
-          { action: step.action, documentRunId: run.id, expiresIn, comment },
+          { action: step.action, documentRunId: run.id, expiresIn, hasComment: comment !== null, requestFingerprint },
+          async () => {
+            await requireWorkflowPermission(services, options, context);
+            await requirePermission(
+              services,
+              options,
+              context,
+              { tableId: run.tableId, ...(run.templateId ? { documentTemplateId: run.templateId } : {}) },
+              "write",
+            );
+          },
           async (client) => {
             const created = requireServiceResult(
               await services.createDocumentLink({ run, expiresIn, comment, actorId: actorId(context), client }),
@@ -1220,6 +1300,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
             recipientKinds: input.recipients.map(({ kind }) => kind),
             requestFingerprint,
           },
+          () => requireWorkflowPermission(services, options, context),
           async () => {
             const workflowStepRunId = await services.getActiveStepRunId({
               runId: context.run.runId,
@@ -1281,11 +1362,13 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         await requireWorkflowPermission(services, options, context);
         const input = await httpInput(context, step);
         const requestFingerprint = await hashWorkflowJson(toJsonValue(input));
+        const requestHost = new URL(input.url).host;
         const outcome = await executeIntent(
           effectIntents,
           context,
           step,
-          { action: step.action, method: input.method, url: input.url, requestFingerprint },
+          { action: step.action, method: input.method, host: requestHost, requestFingerprint },
+          () => requireWorkflowPermission(services, options, context),
           async () => {
             const response = requireServiceResult(
               await services.httpRequest({
@@ -1324,7 +1407,16 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
     (context, step) =>
       planKnown(async () => {
         await requireWorkflowPermission(services, options, context);
-        await httpInput(context, step);
+        const input = await httpInput(context, step);
+        requireServiceResult(
+          await services.httpRequestPreflight({
+            url: input.url,
+            method: input.method,
+            ...(input.headers ? { headers: input.headers } : {}),
+            ...(input.payload === undefined ? {} : { body: JSON.stringify(input.payload) }),
+            ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+          }),
+        );
         return { state: "planned", effects: [effectDescription(context, step.action)] };
       }),
   );

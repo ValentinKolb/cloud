@@ -151,7 +151,6 @@ export const gridsWorkflowManifest: WorkflowLanguageManifest = {
       config: object({
         template: text("Document template name or ID.", false, 200),
         record: text("Record input or output reference.", false, 500),
-        batch: { kind: "boolean", optional: true, description: "Render a multi-record document." },
         filename: value("Optional filename override.", true),
         tags: { kind: "array", items: value("Tag value."), maxItems: 20, optional: true },
         saveAs,

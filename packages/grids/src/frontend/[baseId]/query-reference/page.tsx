@@ -16,13 +16,13 @@ const messagePage =
   );
 
 export default ssr<AuthContext>(async (c) => {
-  c.get("page").title = "GQL reference";
   const baseSlug = c.req.param("baseId")!;
   const defaultTabParam = c.req.query("defaultTab");
   const routeTabParam = c.req.param("tab");
   const sourceId = c.req.param("sourceId");
   const defaultTab =
     normalizeQueryReferenceTab(routeTabParam) ?? normalizeQueryReferenceTab(defaultTabParam) ?? (sourceId ? "tables" : "basics");
+  c.get("page").title = defaultTab === "workflows" ? "Workflow reference" : defaultTab === "gql" ? "GQL reference" : "Grids reference";
   const base = await gridsService.base.getByIdOrShortId(baseSlug);
   if (!base) return messagePage("Base not found");
 

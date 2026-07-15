@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowIrInput } from "@valentinkolb/cloud/workflows";
-import { buildWorkflowRunInput } from "./workflow-trigger-actions";
+import { buildWorkflowRunInput, workflowInputDraftFromValues } from "./workflow-trigger-actions";
 
 describe("workflow run inputs", () => {
   test("requires declared inputs and preserves typed values", () => {
@@ -33,5 +33,22 @@ describe("workflow run inputs", () => {
       ok: true,
       input: {},
     });
+  });
+
+  test("hydrates editable input values and ignores unsupported stored shapes", () => {
+    const inputs: WorkflowIrInput[] = [
+      { name: "range", type: "select", config: {} },
+      { name: "records", type: "recordList", config: {} },
+      { name: "metadata", type: "text", config: {} },
+    ];
+
+    expect(
+      workflowInputDraftFromValues(inputs, {
+        range: "30d",
+        records: ["one", "two"],
+        metadata: { unsupported: true },
+        stale: "ignored",
+      }),
+    ).toEqual({ range: "30d", records: ["one", "two"] });
   });
 });

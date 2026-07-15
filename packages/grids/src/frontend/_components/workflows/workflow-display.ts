@@ -1,15 +1,12 @@
 import type { GridsWorkflowChannel, GridsWorkflowRun } from "../../../workflows/contracts";
 
 export const channelLabels: Record<GridsWorkflowChannel, string> = {
-  manual: "Manual",
   api: "API",
-  cli: "CLI",
   dashboard: "Dashboard",
   scanner: "Scanner",
   bulk: "Bulk",
   schedule: "Schedule",
   recordEvent: "Record event",
-  agent: "Agent",
 };
 
 export const workflowRunStatusClass = (status: GridsWorkflowRun["status"] | string) =>

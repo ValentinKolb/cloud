@@ -18,7 +18,6 @@ import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget, Workflow } from "../../../service";
 import {
-  dashboardWorkflowOption,
   defaultChartWidget,
   defaultFormWidget,
   defaultLinkWidget,
@@ -30,6 +29,7 @@ import {
   isChartReadyView,
   openCellEditDialog,
 } from "../dialogs/DashboardWidgetDialogs";
+import { dashboardWorkflowOption } from "../dialogs/dashboard-workflow-options";
 import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";

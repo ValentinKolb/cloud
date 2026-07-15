@@ -8,19 +8,52 @@ import type {
 } from "@valentinkolb/cloud/workflows";
 import { z } from "zod";
 
-export const GRIDS_WORKFLOW_CHANNELS = [
-  "manual",
-  "api",
-  "cli",
-  "dashboard",
-  "scanner",
-  "bulk",
-  "schedule",
-  "recordEvent",
-  "agent",
-] as const;
+export const GRIDS_WORKFLOW_CHANNELS = ["api", "dashboard", "scanner", "bulk", "schedule", "recordEvent"] as const;
 
 export type GridsWorkflowChannel = (typeof GRIDS_WORKFLOW_CHANNELS)[number];
+
+export const GridsWorkflowCredentialBindingSchema = z
+  .object({
+    appId: z.string().min(1),
+    resourceType: z.string().min(1),
+    resourceId: z.string().min(1),
+  })
+  .strict();
+
+export type GridsWorkflowCredentialBinding = z.infer<typeof GridsWorkflowCredentialBindingSchema>;
+
+export const GridsWorkflowCredentialSchema = z
+  .object({
+    kind: z.enum(["api_token", "oauth"]),
+    id: z.string().uuid().nullable(),
+    scopes: z.array(z.string()).max(500),
+    permissionCap: z.enum(["none", "read", "write", "admin"]),
+    expiresAt: z.string().datetime().nullable(),
+    resourceBinding: GridsWorkflowCredentialBindingSchema.nullable(),
+  })
+  .strict();
+
+export type GridsWorkflowCredential = z.infer<typeof GridsWorkflowCredentialSchema>;
+
+export type GridsWorkflowPrincipal = {
+  userId: string | null;
+  /** Legacy projection only. Authorization resolves current recursive memberships from userId. */
+  groupIds: string[];
+  serviceAccountId: string | null;
+  /** The authenticating service account, including delegated-user credentials. */
+  actorServiceAccountId?: string | null;
+  credential?: GridsWorkflowCredential | null;
+};
+
+export const GridsWorkflowPrincipalSchema = z
+  .object({
+    userId: z.string().uuid().nullable(),
+    groupIds: z.array(z.string().uuid()).max(10_000),
+    serviceAccountId: z.string().uuid().nullable(),
+    actorServiceAccountId: z.string().uuid().nullable().default(null),
+    credential: GridsWorkflowCredentialSchema.nullable().default(null),
+  })
+  .strict();
 
 export const WORKFLOW_REVISION_HEADER = "X-Workflow-Revision";
 
@@ -148,6 +181,7 @@ export const WorkflowPlanSchema = z
     sourceHash: z.string(),
     manifestHash: z.string(),
     catalogHash: z.string(),
+    maxLoopItems: z.number().int().positive().optional(),
     inputs: z.array(z.unknown()),
     triggers: z.array(z.unknown()),
     steps: z.array(z.unknown()),

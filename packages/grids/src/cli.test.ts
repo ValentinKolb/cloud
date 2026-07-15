@@ -287,7 +287,7 @@ const workflowRun = {
   baseId,
   workflowRevision: 1,
   mode: "execute",
-  channel: "cli",
+  channel: "api",
   actorUserId: null,
   serviceAccountId: null,
   inputs: {},
@@ -369,7 +369,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(125);
+    expect(commands).toHaveLength(126);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -686,7 +686,7 @@ describe("grids CLI", () => {
     expect(lines[0]).toContain("Pass a JSON object keyed by field UUID.");
   });
 
-  test("prints compact references for GQL, formulas, templates, and workflows", async () => {
+  test("prints agent-ready references for GQL, formulas, templates, and workflows", async () => {
     const gql = createContext(["gql", "reference"], {}, [], { output: "json" });
     const formulas = createContext(["formulas", "reference"], {}, [], { output: "json" });
     const documents = createContext(["document-templates", "reference"], {}, [], { output: "json" });
@@ -709,8 +709,16 @@ describe("grids CLI", () => {
     expect(email.jsonValues[0]).toMatchObject({
       fields: expect.objectContaining({ html: "Liquid HTML email body. There is no plain-text fallback field." }),
     });
-    expect(workflows.jsonValues[0]).toMatchObject({
-      yaml: expect.objectContaining({ triggers: ["schedule", "recordEvent"] }),
+    const workflowReference = structuredClone(workflows.jsonValues[0]);
+    expect(workflowReference).toMatchObject({
+      language: expect.objectContaining({
+        limits: expect.objectContaining({ maxSteps: 1_000, maxLoopItems: 10_000 }),
+        inputs: expect.arrayContaining([expect.objectContaining({ kind: "record", config: expect.any(Object) })]),
+        triggers: expect.arrayContaining([expect.objectContaining({ kind: "schedule", config: expect.any(Object) })]),
+        actions: expect.arrayContaining([
+          expect.objectContaining({ kind: "httpRequest", effect: "ambiguous-external", dryRun: "validate" }),
+        ]),
+      }),
       values: expect.objectContaining({
         dynamic: expect.stringContaining("${{ inputs.name }}"),
         dedicatedReferences: expect.stringContaining("record: inputs.item"),
@@ -908,6 +916,25 @@ describe("grids CLI", () => {
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
     expect(lines).toEqual([`Queued workflow run ${runId} (succeeded).`]);
+  });
+
+  test("scans dashboard workflow-button widgets", async () => {
+    const { ctx, calls, lines } = createContext(
+      ["dashboards", "widgets", "scan", baseId, "Overview", "scanner-1"],
+      { code: "gsc_opaque" },
+      [jsonResponse(base), jsonResponse([dashboard]), jsonResponse({ ...workflowRun, channel: "scanner" })],
+    );
+
+    await gridsCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases/${baseId}`,
+      `/api/grids/dashboards/by-base/${baseId}`,
+      `/api/grids/dashboards/${dashboardId}/widgets/scanner-1/scan`,
+    ]);
+    expect(calls[2]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ code: "gsc_opaque" });
+    expect(lines).toEqual([`Queued scanner workflow run ${runId} (succeeded).`]);
   });
 
   test("rejects dashboard UUIDs outside the selected base", async () => {
@@ -1257,7 +1284,7 @@ describe("grids CLI", () => {
       [
         jsonResponse(base),
         jsonResponse([workflow]),
-        jsonResponse({ runId, workflowId, revision: 1, mode: "execute", channel: "cli", created: true, status: "queued" }),
+        jsonResponse({ runId, workflowId, revision: 1, mode: "execute", channel: "api", created: true, status: "queued" }),
       ],
     );
 
@@ -1284,7 +1311,7 @@ describe("grids CLI", () => {
       [
         jsonResponse(base),
         jsonResponse([scheduledWorkflow]),
-        jsonResponse({ runId, workflowId, revision: 1, mode: "execute", channel: "cli", created: true, status: "queued" }),
+        jsonResponse({ runId, workflowId, revision: 1, mode: "execute", channel: "api", created: true, status: "queued" }),
       ],
     );
 

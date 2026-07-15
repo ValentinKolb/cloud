@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { WorkflowBoundPlan, WorkflowInvocation, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import type { WorkflowVariableScope } from "@valentinkolb/cloud/workflows/runtime";
 import type { GridRecord } from "../contracts";
-import { GridsWorkflowValueResolver, prepareWorkflowInputs } from "./workflow-kernel-values";
+import { GridsWorkflowValueResolver, prepareWorkflowInputs, WorkflowInputPreparationError } from "./workflow-kernel-values";
 
 const recordId = "11111111-1111-4111-8111-111111111111";
 const otherRecordId = "22222222-2222-4222-8222-222222222222";
@@ -60,6 +60,41 @@ describe("workflow kernel inputs", () => {
       "cannot read the input table",
     );
   });
+
+  test("distinguishes invalid input, forbidden records, and infrastructure failures", async () => {
+    const invalid = prepareWorkflowInputs(
+      plan,
+      { note: "ready" },
+      {
+        canReadTable: async () => true,
+        existingRecordIds: async () => new Set(),
+      },
+    );
+    await expect(invalid).rejects.toMatchObject({ name: "WorkflowInputPreparationError", status: 400 });
+
+    const forbidden = prepareWorkflowInputs(
+      plan,
+      { item: recordId },
+      {
+        canReadTable: async () => false,
+        existingRecordIds: async () => new Set(),
+      },
+    );
+    await expect(forbidden).rejects.toMatchObject({ name: "WorkflowInputPreparationError", status: 403 });
+
+    const databaseError = new Error("database unavailable");
+    await expect(
+      prepareWorkflowInputs(
+        plan,
+        { item: recordId },
+        {
+          canReadTable: async () => true,
+          existingRecordIds: async () => Promise.reject(databaseError),
+        },
+      ),
+    ).rejects.toBe(databaseError);
+    expect(databaseError).not.toBeInstanceOf(WorkflowInputPreparationError);
+  });
 });
 
 describe("workflow kernel value resolver", () => {
@@ -86,7 +121,7 @@ describe("workflow kernel value resolver", () => {
     const invocation = {
       workflowId: recordId,
       mode: "execute",
-      channel: "manual",
+      channel: "api",
       actor: {},
       inputs: { item: { kind: "record", tableId, recordId }, note: { value: "plain" } },
       idempotencyKey: "run-1",

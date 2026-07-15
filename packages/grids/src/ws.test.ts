@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ServerWebSocket } from "bun";
-import { isWorkspaceAccessRefreshCurrent, sendWorkspaceMessage } from "./ws";
+import { isDashboardWorkflowLauncherKind, isWorkspaceAccessRefreshCurrent, sendWorkspaceMessage } from "./ws";
 
 const socket = (status: number) =>
   ({
@@ -42,5 +42,13 @@ describe("Grids websocket access refresh", () => {
     expect(
       isWorkspaceAccessRefreshCurrent({ phase: "closing", sessionToken: "old-session", subscription }, subscription, "old-session"),
     ).toBe(false);
+  });
+});
+
+describe("Grids dashboard workflow websocket access", () => {
+  test("accepts dashboard and scanner launchers", () => {
+    expect(isDashboardWorkflowLauncherKind("dashboard")).toBe(true);
+    expect(isDashboardWorkflowLauncherKind("scanner")).toBe(true);
+    expect(isDashboardWorkflowLauncherKind("bulk")).toBe(false);
   });
 });

@@ -1,14 +1,19 @@
 import { AutocompleteEditor, CheckboxCard, confirmDiscardIfDirty, PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import type { WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
 import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewDiagnostic } from "../../../contracts";
 import type { Table, Workflow } from "../../../service";
 import { WORKFLOW_REVISION_HEADER, type WorkflowAutocompleteResponse } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { buildBackendWorkflowCompletions } from "./workflow-autocomplete";
-import { type WorkflowEditorDraft, workflowEditorDraft, workflowEditorDraftDirty } from "./workflow-editor-draft";
+import {
+  type WorkflowEditorDraft,
+  workflowEditorDraft,
+  workflowEditorDraftDirty,
+  workflowEditorSavePayload,
+} from "./workflow-editor-draft";
 
 type WorkflowEditorApi = {
   "by-base": {
@@ -74,6 +79,13 @@ const openWorkflowReferenceWindow = (baseShortId: string) => {
 
 const yamlString = (value: string): string => JSON.stringify(value);
 
+const editorDiagnostic = (message: string): WorkflowDiagnostic => ({
+  code: "workflow.editor",
+  message,
+  severity: "error",
+  path: [],
+});
+
 const defaultSource = (
   table?: Table,
 ) => `${table ? `inputs:\n  record:\n    type: record\n    table: ${yamlString(table.name)}\n` : ""}steps:
@@ -82,10 +94,15 @@ const defaultSource = (
       value: \${{ now() }}
 `;
 
-function DiagnosticsPanel(props: { diagnostics: DslQueryPreviewDiagnostic[]; validating: boolean }) {
+function DiagnosticsPanel(props: { diagnostics: WorkflowDiagnostic[]; validating: boolean }) {
   const hasDiagnostics = () => props.diagnostics.length > 0;
   return (
-    <div class={`text-xs ${hasDiagnostics() ? "info-block-danger" : "info-block-success"}`}>
+    <div
+      class={`text-xs ${hasDiagnostics() ? "info-block-danger" : "info-block-success"}`}
+      role="status"
+      aria-live="polite"
+      aria-busy={props.validating}
+    >
       <div class="flex items-center gap-2 font-medium">
         <i class={`ti ${props.validating ? "ti-loader-2 animate-spin" : hasDiagnostics() ? "ti-alert-triangle" : "ti-circle-check"}`} />
         <span>{props.validating ? "Validating..." : hasDiagnostics() ? "Workflow YAML has diagnostics" : "Workflow YAML is valid"}</span>
@@ -95,12 +112,12 @@ function DiagnosticsPanel(props: { diagnostics: DslQueryPreviewDiagnostic[]; val
           <For each={props.diagnostics}>
             {(diagnostic) => (
               <li>
-                <Show when={diagnostic.line || diagnostic.column}>
-                  <span class="font-mono text-[11px] uppercase">
-                    {diagnostic.line ? `Line ${diagnostic.line}` : ""}
-                    {diagnostic.column ? ` · Col ${diagnostic.column}` : ""}
-                    {": "}
-                  </span>
+                <Show when={diagnostic.location}>
+                  {(location) => (
+                    <span class="font-mono text-[11px] uppercase">
+                      Line {location().line} · Col {location().column}:{" "}
+                    </span>
+                  )}
                 </Show>
                 {diagnostic.message}
               </li>
@@ -121,7 +138,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   const [enabled, setEnabled] = createSignal(initialDraft.enabled);
   const [source, setSource] = createSignal(initialDraft.source);
   const [revision, setRevision] = createSignal(initialDraft.revision);
-  const [diagnostics, setDiagnostics] = createSignal<DslQueryPreviewDiagnostic[]>([]);
+  const [diagnostics, setDiagnostics] = createSignal<WorkflowDiagnostic[]>([]);
   const [validating, setValidating] = createSignal(false);
   let validationTimer: ReturnType<typeof setTimeout> | undefined;
   let validationAbort: AbortController | undefined;
@@ -158,7 +175,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     const abort = new AbortController();
     validationAbort = abort;
     if (!value.trim()) {
-      setDiagnostics([{ message: "Workflow source is required" }]);
+      setDiagnostics([editorDiagnostic("Workflow source is required")]);
       setValidating(false);
       return;
     }
@@ -167,7 +184,9 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
       const response = await fetchAutocomplete({ source: value, caret: value.length }, abort.signal);
       if (!abort.signal.aborted) setDiagnostics(response.diagnostics);
     } catch (error) {
-      if (!abort.signal.aborted) setDiagnostics([{ message: error instanceof Error ? error.message : "Could not validate workflow." }]);
+      if (!abort.signal.aborted) {
+        setDiagnostics([editorDiagnostic(error instanceof Error ? error.message : "Could not validate workflow.")]);
+      }
     } finally {
       if (!abort.signal.aborted) setValidating(false);
     }
@@ -227,13 +246,10 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
 
   const saveMut = mutations.create<Workflow, void>({
     mutation: async (_, { abortSignal }) => {
-      const payload = {
-        name: name().trim(),
-        description: description().trim() || null,
-        enabled: enabled(),
-        source: source(),
-      };
-      if (!payload.name) throw new Error("Name is required.");
+      const draft = currentDraft();
+      const payload = workflowEditorSavePayload(draft, cleanDraft, !props.workflow);
+      if (!draft.name.trim()) throw new Error("Name is required.");
+      if (Object.keys(payload).length === 0) throw new Error("No workflow changes to save.");
       const res = props.workflow
         ? await workflowEditorApi[":workflowId"].$patch(
             { param: { workflowId: props.workflow.id }, json: payload },
@@ -278,7 +294,12 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   });
 
   const canSave = () =>
-    name().trim().length > 0 && source().trim().length > 0 && diagnostics().length === 0 && !validating() && !saveMut.loading();
+    workflowEditorDraftDirty(currentDraft(), cleanDraft) &&
+    name().trim().length > 0 &&
+    source().trim().length > 0 &&
+    diagnostics().length === 0 &&
+    !validating() &&
+    !saveMut.loading();
 
   return (
     <PanelDialog>

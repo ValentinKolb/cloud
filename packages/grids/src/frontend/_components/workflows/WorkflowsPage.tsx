@@ -139,6 +139,7 @@ const runChannelOptions: FilterChipSection[] = [
 
 type RunStatusFilter = "all" | WorkflowRun["status"];
 type RunChannelFilter = "all" | GridsWorkflowChannel;
+type WorkflowLoadArea = "workflows" | "stats" | "runs" | "emails" | "launchers";
 
 const formatMetricDuration = (ms: number | null): string => {
   if (ms === null) return "-";
@@ -159,24 +160,6 @@ const workflowTriggers = (workflow: Workflow): string[] => workflow.plan.trigger
 
 const workflowSearch = (workflow: Workflow): string =>
   [workflow.name, workflow.description ?? "", workflow.source, triggerSummary(workflow)].join(" ").toLowerCase();
-
-const emptyStats = (): WorkflowRunStats => ({
-  window: "24h",
-  total: 0,
-  queued: 0,
-  running: 0,
-  waiting: 0,
-  succeeded: 0,
-  failed: 0,
-  canceled: 0,
-  needsAttention: 0,
-  failedLast24h: 0,
-  errorRate: 0,
-  avgDurationMs: null,
-  p99DurationMs: null,
-  lastRunAt: null,
-  byWorkflow: [],
-});
 
 function WorkflowCard(props: {
   baseShortId: string;
@@ -354,11 +337,12 @@ export default function WorkflowsPage(props: Props) {
   const [runChannel, setRunChannel] = createSignal<RunChannelFilter>("all");
   const [items, setItems] = createSignal<Workflow[]>(props.workflows);
   const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>([]);
-  const [stats, setStats] = createSignal<WorkflowRunStats>(emptyStats());
+  const [stats, setStats] = createSignal<WorkflowRunStats | null>(null);
   const [runs, setRuns] = createSignal<WorkflowRun[]>([]);
   const [nextCursor, setNextCursor] = createSignal<string | null>(null);
   const [emailDeliveries, setEmailDeliveries] = createSignal<WorkflowEmailDelivery[]>([]);
   const [nextEmailCursor, setNextEmailCursor] = createSignal<string | null>(null);
+  const [loadErrors, setLoadErrors] = createSignal<Partial<Record<WorkflowLoadArea, string>>>({});
 
   createEffect(() => setItems(props.workflows));
 
@@ -369,7 +353,16 @@ export default function WorkflowsPage(props: Props) {
     );
     return query ? workflows.filter((workflow) => workflowSearch(workflow).includes(query)) : workflows;
   });
-  const statsByWorkflow = createMemo(() => new Map(stats().byWorkflow.map((row) => [row.workflowId, row])));
+  const statsByWorkflow = createMemo(() => new Map((stats()?.byWorkflow ?? []).map((row) => [row.workflowId, row])));
+  const loadError = createMemo(() => Object.values(loadErrors())[0] ?? null);
+  const setLoadFailure = (area: WorkflowLoadArea, message?: string) => {
+    setLoadErrors((current) => {
+      const next = { ...current };
+      if (message) next[area] = message;
+      else delete next[area];
+      return next;
+    });
+  };
 
   const refreshWorkflowsMut = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
@@ -377,7 +370,8 @@ export default function WorkflowsPage(props: Props) {
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflows."));
       setItems((await res.json()) as Workflow[]);
     },
-    onError: (error) => prompts.error(error.message),
+    onSuccess: () => setLoadFailure("workflows"),
+    onError: (error) => setLoadFailure("workflows", error.message),
   });
 
   const statsMut = mutations.create<void, void>({
@@ -389,7 +383,8 @@ export default function WorkflowsPage(props: Props) {
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow stats."));
       setStats((await res.json()) as WorkflowRunStats);
     },
-    onError: (error) => prompts.error(error.message),
+    onSuccess: () => setLoadFailure("stats"),
+    onError: (error) => setLoadFailure("stats", error.message),
   });
 
   const fetchRuns = async (cursor?: string | null, signal?: AbortSignal): Promise<WorkflowRunPage> => {
@@ -416,7 +411,8 @@ export default function WorkflowsPage(props: Props) {
       setRuns(page.items);
       setNextCursor(page.nextCursor ?? null);
     },
-    onError: (error) => prompts.error(error.message),
+    onSuccess: () => setLoadFailure("runs"),
+    onError: (error) => setLoadFailure("runs", error.message),
   });
 
   const loadMoreRunsMut = mutations.create<void, void>({
@@ -427,7 +423,8 @@ export default function WorkflowsPage(props: Props) {
       setRuns((current) => [...current, ...page.items]);
       setNextCursor(page.nextCursor ?? null);
     },
-    onError: (error) => prompts.error(error.message),
+    onSuccess: () => setLoadFailure("runs"),
+    onError: (error) => setLoadFailure("runs", error.message),
   });
 
   const fetchEmailDeliveries = async (cursor?: string | null, signal?: AbortSignal): Promise<WorkflowEmailDeliveryPage> => {
@@ -452,7 +449,8 @@ export default function WorkflowsPage(props: Props) {
       setEmailDeliveries(page.items);
       setNextEmailCursor(page.nextCursor ?? null);
     },
-    onError: (error) => prompts.error(error.message),
+    onSuccess: () => setLoadFailure("emails"),
+    onError: (error) => setLoadFailure("emails", error.message),
   });
 
   const loadMoreEmailDeliveriesMut = mutations.create<void, void>({
@@ -480,10 +478,12 @@ export default function WorkflowsPage(props: Props) {
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow launchers."));
       setLaunchers(((await res.json()) as { items: GridsWorkflowLauncher[] }).items);
     },
-    onError: (error) => prompts.error(error.message),
+    onSuccess: () => setLoadFailure("launchers"),
+    onError: (error) => setLoadFailure("launchers", error.message),
   });
 
   const reloadAll = () => {
+    setLoadErrors({});
     refreshWorkflowsMut.mutate();
     statsMut.mutate();
     runsMut.mutate();
@@ -547,6 +547,7 @@ export default function WorkflowsPage(props: Props) {
       (close) => (
         <WorkflowLauncherManager
           workflow={workflow}
+          tables={props.tables}
           onChanged={() => {
             props.onWorkflowChanged();
             reloadAll();
@@ -633,7 +634,7 @@ export default function WorkflowsPage(props: Props) {
   const runWorkflow = async (mode: "execute" | "dryRun" = "execute") => {
     const workflow = activeWorkflow();
     if (!workflow) return;
-    const input = await requestWorkflowRunInput({ workflow, tables: props.tables });
+    const input = await requestWorkflowRunInput({ workflow, tables: props.tables, mode });
     if (input === undefined) return;
     runMut.mutate({ input, mode });
   };
@@ -642,7 +643,7 @@ export default function WorkflowsPage(props: Props) {
     <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable" data-scroll-preserve="grids-workflows-main">
       <div class="flex flex-col gap-2">
         <div class="flex min-w-0 flex-col gap-2" style="view-transition-name: grids-workflows-title">
-          <div class="flex items-start justify-between gap-3">
+          <div class="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0">
               <h1 class="min-w-0 text-base font-semibold text-primary">{activeWorkflow()?.name ?? "Workflows"}</h1>
               <p class="mt-0.5 text-xs text-dimmed">
@@ -650,32 +651,41 @@ export default function WorkflowsPage(props: Props) {
                   "Monitor and run workflows directly or through scanners, selections, dashboards, schedules, and record events."}
               </p>
             </div>
-            <div class="flex shrink-0 items-center gap-2">
+            <div
+              class="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:max-w-[min(60vw,52rem)] sm:justify-end"
+              role="toolbar"
+              aria-label="Workflow actions"
+            >
               <Show when={activeWorkflow() && props.canRunActiveWorkflow}>
                 <button
                   type="button"
-                  class="btn-primary btn-sm"
+                  class="btn-primary btn-sm shrink-0"
                   disabled={runMut.loading() || activeWorkflow()?.enabled !== true}
                   onClick={() => void runWorkflow()}
                 >
                   <i class={runMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} /> Run workflow
                 </button>
-                <button type="button" class="btn-input btn-sm" disabled={runMut.loading()} onClick={() => void runWorkflow("dryRun")}>
+                <button
+                  type="button"
+                  class="btn-input btn-sm shrink-0"
+                  disabled={runMut.loading()}
+                  onClick={() => void runWorkflow("dryRun")}
+                >
                   <i class="ti ti-flask" /> Dry run
                 </button>
               </Show>
               <For each={scannerLaunchers()}>
                 {(launcher) => (
-                  <button type="button" class="btn-input btn-sm" onClick={() => void openScanner(activeWorkflow()!, launcher)}>
+                  <button type="button" class="btn-input btn-sm shrink-0" onClick={() => void openScanner(activeWorkflow()!, launcher)}>
                     <i class="ti ti-barcode" /> {launcher.name}
                   </button>
                 )}
               </For>
               <Show when={props.editMode && activeWorkflow() && props.canManageActiveWorkflow}>
-                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openLaunchers(activeWorkflow()!)}>
+                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openLaunchers(activeWorkflow()!)}>
                   <i class="ti ti-rocket" /> Launchers
                 </button>
-                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor(activeWorkflow()!)}>
+                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openEditor(activeWorkflow()!)}>
                   <i class="ti ti-settings" /> Manage
                 </button>
               </Show>
@@ -697,9 +707,13 @@ export default function WorkflowsPage(props: Props) {
           <TextInput type="search" value={search} onInput={setSearch} icon="ti ti-search" placeholder="Search workflows..." clearable />
           <div class="flex flex-wrap items-center gap-2 text-xs text-dimmed">
             <span>{rows().length} workflows</span>
-            <span>
-              {stats().total} runs · {statsWindowLabels[stats().window]}
-            </span>
+            <Show when={stats()} fallback={<span>{statsMut.loading() ? "Loading run stats..." : "Run stats unavailable"}</span>}>
+              {(current) => (
+                <span>
+                  {current().total} runs · {statsWindowLabels[current().window]}
+                </span>
+              )}
+            </Show>
             <FilterChip
               label="Window"
               icon="ti ti-clock"
@@ -733,21 +747,45 @@ export default function WorkflowsPage(props: Props) {
           </div>
         </div>
 
-        <StatGrid columns={4} size="sm">
-          <StatCell label="Running" value={stats().running + stats().queued} accent={{ tone: "blue", icon: "ti ti-player-play" }} />
-          <StatCell label="Succeeded" value={stats().succeeded} accent={{ tone: "emerald", icon: "ti ti-circle-check" }} />
-          <StatCell
-            label="Error rate"
-            value={formatPercent(stats().errorRate)}
-            valueClass={stats().failed > 0 ? "text-red-600 dark:text-red-400" : undefined}
-            accent={stats().failed > 0 ? { tone: "red", icon: "ti ti-alert-triangle" } : undefined}
-          />
-          <StatCell
-            label="P99 runtime"
-            value={formatMetricDuration(stats().p99DurationMs)}
-            accent={{ tone: "zinc", icon: "ti ti-hourglass" }}
-          />
-        </StatGrid>
+        <Show when={loadError()}>
+          {(message) => (
+            <div class="info-block-danger flex items-center justify-between gap-3 text-sm" role="alert">
+              <span>{message()}</span>
+              <button type="button" class="btn-simple btn-sm shrink-0" onClick={reloadAll}>
+                <i class="ti ti-refresh" aria-hidden="true" /> Retry
+              </button>
+            </div>
+          )}
+        </Show>
+
+        <Show
+          when={stats()}
+          fallback={
+            <Placeholder
+              surface="paper"
+              state={statsMut.loading() ? "loading" : "error"}
+              title={statsMut.loading() ? "Loading workflow statistics" : "Workflow statistics unavailable"}
+            />
+          }
+        >
+          {(current) => (
+            <StatGrid columns={4} size="sm">
+              <StatCell label="Running" value={current().running + current().queued} accent={{ tone: "blue", icon: "ti ti-player-play" }} />
+              <StatCell label="Succeeded" value={current().succeeded} accent={{ tone: "emerald", icon: "ti ti-circle-check" }} />
+              <StatCell
+                label="Error rate"
+                value={formatPercent(current().errorRate)}
+                valueClass={current().failed > 0 ? "text-red-600 dark:text-red-400" : undefined}
+                accent={current().failed > 0 ? { tone: "red", icon: "ti ti-alert-triangle" } : undefined}
+              />
+              <StatCell
+                label="P99 runtime"
+                value={formatMetricDuration(current().p99DurationMs)}
+                accent={{ tone: "zinc", icon: "ti ti-hourglass" }}
+              />
+            </StatGrid>
+          )}
+        </Show>
 
         <div class="grid min-h-0 gap-2 xl:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)]">
           <section class="paper min-h-0 overflow-hidden">
@@ -759,9 +797,23 @@ export default function WorkflowsPage(props: Props) {
               <For
                 each={rows()}
                 fallback={
-                  <Placeholder align="left" class="py-8">
-                    No workflows match this search.
-                  </Placeholder>
+                  <Placeholder
+                    align="left"
+                    class="py-8"
+                    title={search().trim() ? "No workflows match this search" : "No workflows yet"}
+                    description={
+                      search().trim()
+                        ? "Try a different workflow name, trigger, or source term."
+                        : "Create a workflow to automate work in this base."
+                    }
+                    action={
+                      !search().trim() && props.editMode && props.canCreateWorkflows ? (
+                        <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor()}>
+                          <i class="ti ti-plus" aria-hidden="true" /> Add workflow
+                        </button>
+                      ) : undefined
+                    }
+                  />
                 }
               >
                 {(workflow) => (

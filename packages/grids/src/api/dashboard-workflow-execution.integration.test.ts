@@ -60,6 +60,33 @@ const authenticateAs =
     await next();
   };
 
+const authenticateAsDelegated =
+  (user: User, serviceAccountId: string, credentialId: string): MiddlewareHandler<AuthContext> =>
+  async (c, next) => {
+    c.set("actor", {
+      kind: "service_account",
+      serviceAccount: {
+        id: serviceAccountId,
+        name: "Delegated dashboard key",
+        kind: "user_delegated",
+        status: "active",
+        delegatedUserId: user.id,
+        appId: null,
+        resourceType: null,
+        resourceId: null,
+        createdBy: user.id,
+        createdAt: "2026-07-15T00:00:00.000Z",
+      },
+      delegatedUser: user,
+      scopes: ["grids:write"],
+      credentialId,
+      credentialExpiresAt: "2026-07-16T00:00:00.000Z",
+    });
+    c.set("accessSubject", { type: "user", userId: user.id });
+    c.set("user", user);
+    await next();
+  };
+
 const resolveDashboardAccess = async (c: Context<AuthContext>, target: ResolveTarget) => {
   const user = c.get("user");
   const grants = await loadGrantsForUser({
@@ -254,6 +281,8 @@ describe("dashboard-scoped workflow execution", () => {
 
   test("invokes the saved dashboard launcher with server-trusted widget authorization", async () => {
     const user = testUser(uuid());
+    const serviceAccountId = uuid();
+    const credentialId = uuid();
     const baseId = uuid();
     const dashboardId = uuid();
     const workflowId = uuid();
@@ -273,7 +302,7 @@ describe("dashboard-scoped workflow execution", () => {
     const app = new Hono<AuthContext>().route(
       "/api/dashboards",
       createDashboardsApi({
-        requireAuthenticated: authenticateAs(user),
+        requireAuthenticated: authenticateAsDelegated(user, serviceAccountId, credentialId),
         getDashboard: mock(async () => dashboardWithLauncher(baseId, dashboardId, widgetId, launcherId)),
         getLauncher: mock(async () => ({
           id: launcherId,
@@ -303,7 +332,20 @@ describe("dashboard-scoped workflow execution", () => {
       mode: "execute",
       expectedRevision: 4,
       inputs: {},
-      principal: { userId: user.id, groupIds: [], serviceAccountId: null },
+      principal: {
+        userId: user.id,
+        groupIds: [],
+        serviceAccountId: null,
+        actorServiceAccountId: serviceAccountId,
+        credential: {
+          kind: "api_token",
+          id: credentialId,
+          scopes: ["grids:write"],
+          permissionCap: "write",
+          expiresAt: "2026-07-16T00:00:00.000Z",
+          resourceBinding: null,
+        },
+      },
       authorization: { kind: "dashboard-widget", dashboardId, dashboardWidgetId: widgetId },
     });
   });
@@ -425,12 +467,26 @@ describe("dashboard-scoped workflow execution", () => {
       expect(body.launcherId).toBe(fixture.launcherId);
       expect(body.channel).toBe("dashboard");
       expect(await waitForRunCompletion(body.id)).toBe("succeeded");
+      await sql`
+        UPDATE grids.workflow_runs
+        SET error = '{"code":"INTERNAL","message":"private detail","retryable":false}'::jsonb,
+            result_message = 'private result'
+        WHERE id = ${body.id}::uuid
+      `;
+      await sql`
+        INSERT INTO grids.workflow_step_runs (
+          run_id, step_key, source_path, iteration_path, kind, action, mode, status, outcome, execution_generation, finished_at
+        ) VALUES (
+          ${body.id}::uuid, 'steps.redaction', '["steps",0]'::jsonb, '{2}'::int[], 'action', 'httpRequest',
+          'execute', 'failed', '{"secret":"response body"}'::jsonb, 1, now()
+        )
+      `;
 
       const status = await app.request(`/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/runs/${body.id}`);
       expect(status.status).toBe(200);
       const statusBody = (await status.json()) as {
-        run: { id: string; status: string; launcherId: string; mode: string; inputs?: unknown };
-        steps: Array<{ outcome?: unknown }>;
+        run: { id: string; status: string; launcherId: string; mode: string; inputs?: unknown; error?: unknown; resultMessage?: unknown };
+        steps: Array<{ outcome?: unknown; sourcePath?: unknown; iterationPath?: unknown }>;
       };
       expect(statusBody.run).toMatchObject({
         id: body.id,
@@ -439,6 +495,11 @@ describe("dashboard-scoped workflow execution", () => {
         mode: "execute",
       });
       expect(statusBody.run.inputs).toBeUndefined();
+      expect(statusBody.run.error).toBeUndefined();
+      expect(statusBody.run.resultMessage).toBeUndefined();
+      expect(statusBody.steps[0]?.outcome).toBeUndefined();
+      expect(statusBody.steps[0]?.sourcePath).toBeUndefined();
+      expect(statusBody.steps[0]?.iterationPath).toBeUndefined();
 
       const [unscoped] = await sql<Array<{ id: string }>>`
         INSERT INTO grids.workflow_runs (

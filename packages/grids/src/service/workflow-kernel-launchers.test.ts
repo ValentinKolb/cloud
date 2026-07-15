@@ -17,7 +17,13 @@ const recordId = "50000000-0000-4000-8000-000000000005";
 const secondRecordId = "60000000-0000-4000-8000-000000000006";
 const userId = "70000000-0000-4000-8000-000000000007";
 
-const principal = { userId, groupIds: [], serviceAccountId: null };
+const principal = {
+  userId,
+  groupIds: [],
+  serviceAccountId: null,
+  actorServiceAccountId: null,
+  credential: null,
+};
 
 const workflow = (inputName = "record", inputType = "record"): GridsWorkflow =>
   ({

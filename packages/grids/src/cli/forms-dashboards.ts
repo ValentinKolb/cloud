@@ -335,4 +335,28 @@ export const dashboardCommands = [
       printJsonOrMessage(ctx, run, `Queued workflow run ${run.id} (${run.status}).`);
     },
   }),
+  command("dashboards widgets scan", {
+    summary: "Scan a code with a dashboard workflow-button widget",
+    args: {
+      args: arg.rest({ valueLabel: "base-dashboard-widget", description: "Optional base, then dashboard and widget id." }),
+    },
+    flags: {
+      ...baseFlag,
+      ...dashboardFlag,
+      widget: flag.string({ description: "Dashboard widget id" }),
+      code: flag.string({ description: "Scanned barcode, QR code, or scanner URL" }),
+    },
+    async run({ ctx, args, flags }) {
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.dashboard && flags.widget ? 0 : 2);
+      const dashboard = await resolveDashboard(ctx, base.id, flags.dashboard ?? requireRestArg(rest, 0, "dashboard"));
+      const widgetId = flags.widget ?? requireRestArg(flags.dashboard ? rest : rest.slice(1), 0, "widget");
+      if (!flags.code?.trim()) throw new Error("Missing scanner code. Pass --code.");
+      const run = await readApi<DashboardWorkflowRun>(
+        ctx,
+        `/dashboards/${encodeURIComponent(dashboard.id)}/widgets/${encodeURIComponent(widgetId)}/scan`,
+        jsonRequest("POST", { code: flags.code }),
+      );
+      printJsonOrMessage(ctx, run, `Queued scanner workflow run ${run.id} (${run.status}).`);
+    },
+  }),
 ];

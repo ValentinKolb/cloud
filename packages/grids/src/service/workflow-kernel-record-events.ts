@@ -4,36 +4,155 @@ import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { WorkflowInvocation, WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
 import type { Result } from "@valentinkolb/stdlib";
-import { type TopicInvalidDelivery, TopicPayloadError } from "@valentinkolb/sync";
+import { type Lock, mutex, type QueueReceived } from "@valentinkolb/sync";
 import { sql } from "bun";
 import type { FilterTree } from "../contracts";
 import type { GridsWorkflow, GridsWorkflowChannel } from "../workflows/contracts";
 import { listByTable as listFields } from "./fields";
 import { compileFilter, renderClause } from "./filter-compiler";
-import { recordInvalidRecordEventDelivery } from "./record-event-delivery-failures";
-import { type GridsRecordEvent, GridsRecordEventSchema, recordEventReader } from "./record-events";
+import {
+  getDeadRecordEventDeliveryFailure,
+  recordInvalidRecordEventDelivery,
+  recordRecordEventDeliveryFailure,
+} from "./record-event-delivery-failures";
+import {
+  type GridsRecordEvent,
+  GridsRecordEventSchema,
+  publishRecordEvent,
+  RECORD_EVENT_WORK_LEASE_MS,
+  RECORD_EVENT_WORK_PARTITIONS,
+  recordEventWorkReader,
+} from "./record-events";
 import { failQueuedWorkflowRun, materializeWorkflowInvocation } from "./workflow-kernel-runs";
-import { listRecordEventBaseIds, listRecordEventWorkflows } from "./workflow-kernel-store";
+import { listRecordEventWorkflows } from "./workflow-kernel-store";
 import { evaluateWorkflowTriggerInputs } from "./workflow-kernel-trigger-values";
 import { type GridsWorkflowPrincipal, loadWorkflowUserGroupIds } from "./workflow-kernel-values";
 
 const log = logger("grids:workflow-kernel-record-events");
-const CONSUMER_GROUP = "workflow-kernel";
+const CONSUMER_GROUP = "workflow-kernel-queue-v1";
 const RETRY_DELAY_MS = 1_000;
+const APPLICATION_MAX_DELIVERY_ATTEMPTS = 20;
+const LEASE_HEARTBEAT_MS = Math.floor(RECORD_EVENT_WORK_LEASE_MS / 3);
+const recordEventWorkMutex = mutex({
+  id: "grids:workflow-record-events:v1",
+  retryCount: 0,
+  defaultTtl: RECORD_EVENT_WORK_LEASE_MS,
+});
 
 export const processInvalidWorkflowRecordEventDelivery = async (
-  baseId: string,
-  delivery: TopicInvalidDelivery,
+  delivery: QueueReceived<GridsRecordEvent>,
   recordFailure: typeof recordInvalidRecordEventDelivery = recordInvalidRecordEventDelivery,
 ): Promise<void> => {
-  const failure = await recordFailure({
-    baseId,
-    consumerGroup: CONSUMER_GROUP,
-    eventId: delivery.eventId,
-    payload: delivery.rawPayload,
-    error: delivery.error,
-  });
-  if (failure.dead && !(await delivery.commit())) throw new Error("record event acknowledgement was not accepted");
+  const baseId = GridsRecordEventSchema.shape.baseId.safeParse(delivery.meta?.baseId);
+  if (!baseId.success) {
+    if (!(await delivery.nack({ reason: "invalid", error: "record event base metadata is unavailable" }))) {
+      throw new Error("record event rejection was not accepted");
+    }
+    return;
+  }
+  let failure: { dead: boolean; attempts: number };
+  try {
+    failure = await recordFailure({
+      baseId: baseId.data,
+      consumerGroup: CONSUMER_GROUP,
+      eventId: delivery.messageId,
+      payload: JSON.stringify(delivery.data),
+      error: "record event payload is invalid",
+    });
+  } catch (failureStoreError) {
+    const accepted = await delivery.nack({
+      delayMs: workflowRecordEventRetryDelayMs(delivery.attempt),
+      reason: "failure_store_unavailable",
+      error: "record event payload is invalid",
+    });
+    if (!accepted) throw new Error("record event rejection was not accepted", { cause: failureStoreError });
+    log.error("Could not persist invalid record event delivery", {
+      baseId: baseId.data,
+      eventId: delivery.messageId,
+      attempt: delivery.attempt,
+      error: failureStoreError instanceof Error ? failureStoreError.message : String(failureStoreError),
+    });
+    return;
+  }
+  const accepted = failure.dead
+    ? await delivery.ack()
+    : await delivery.nack({
+        delayMs: workflowRecordEventRetryDelayMs(failure.attempts),
+        reason: "invalid",
+        error: "record event payload is invalid",
+      });
+  if (!accepted) throw new Error(`record event ${failure.dead ? "acknowledgement" : "rejection"} was not accepted`);
+};
+
+export const workflowRecordEventRetryDelayMs = (attempt: number): number =>
+  Math.min(5 * 60_000, RETRY_DELAY_MS * 2 ** Math.max(0, Math.min(attempt - 1, 12)));
+
+export const processFailedWorkflowRecordEventDelivery = async (
+  delivery: QueueReceived<GridsRecordEvent>,
+  event: GridsRecordEvent,
+  error: unknown,
+  recordFailure: typeof recordRecordEventDeliveryFailure = recordRecordEventDeliveryFailure,
+): Promise<{ dead: boolean; attempts: number }> => {
+  const message = error instanceof Error ? error.message : String(error);
+  let failure: { dead: boolean; attempts: number };
+  try {
+    failure = await recordFailure({
+      baseId: event.baseId,
+      consumerGroup: CONSUMER_GROUP,
+      eventId: delivery.messageId,
+      payload: JSON.stringify(event),
+      error: message,
+      maxAttempts: APPLICATION_MAX_DELIVERY_ATTEMPTS,
+    });
+  } catch (failureStoreError) {
+    const accepted = await delivery.nack({
+      delayMs: workflowRecordEventRetryDelayMs(delivery.attempt),
+      reason: "failure_store_unavailable",
+      error: message,
+    });
+    if (!accepted) throw new Error("record event rejection was not accepted", { cause: failureStoreError });
+    log.error("Could not persist workflow record event delivery failure", {
+      baseId: event.baseId,
+      eventId: delivery.messageId,
+      recordId: event.recordId,
+      attempt: delivery.attempt,
+      error: failureStoreError instanceof Error ? failureStoreError.message : String(failureStoreError),
+    });
+    return { dead: false, attempts: delivery.attempt };
+  }
+  const accepted = failure.dead
+    ? await delivery.ack()
+    : await delivery.nack({
+        delayMs: workflowRecordEventRetryDelayMs(failure.attempts),
+        reason: "dispatch_failed",
+        error: message,
+      });
+  if (!accepted) throw new Error(`record event ${failure.dead ? "acknowledgement" : "rejection"} was not accepted`);
+  if (failure.dead) {
+    log.error("Workflow record event moved to the application dead-letter store", {
+      baseId: event.baseId,
+      eventId: delivery.messageId,
+      recordId: event.recordId,
+      attempts: failure.attempts,
+      error: message,
+    });
+  }
+  return failure;
+};
+
+export const replayWorkflowRecordEventDeliveryFailure = async (baseId: string, id: string): Promise<boolean> => {
+  const failure = await getDeadRecordEventDeliveryFailure(baseId, id);
+  if (!failure?.payload) return false;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(failure.payload);
+  } catch {
+    return false;
+  }
+  const event = GridsRecordEventSchema.safeParse(payload);
+  if (!event.success || event.data.baseId !== baseId) return false;
+  await publishRecordEvent(event.data, { replayKey: Bun.randomUUIDv7() });
+  return true;
 };
 
 type InvokeWorkflow = (input: {
@@ -165,7 +284,7 @@ const failedInvocation = async (
 };
 
 export const createWorkflowRecordEventRuntime = (invoke: InvokeWorkflow) => {
-  const readers = new Map<string, { controller: AbortController; task: Promise<void> }>();
+  const readers = new Map<number, { controller: AbortController; task: Promise<void> }>();
 
   const dispatch = async (event: GridsRecordEvent): Promise<void> => {
     const name = eventName(event);
@@ -207,73 +326,87 @@ export const createWorkflowRecordEventRuntime = (invoke: InvokeWorkflow) => {
     }
   };
 
-  const processDelivery = async (baseId: string, delivery: Awaited<ReturnType<ReturnType<typeof recordEventReader>["recv"]>>) => {
-    if (!delivery) return;
+  const processDelivery = async (delivery: QueueReceived<GridsRecordEvent>, lock: Lock): Promise<void> => {
     const parsed = GridsRecordEventSchema.safeParse(delivery.data);
-    if (!parsed.success || parsed.data.baseId !== baseId) {
-      const failure = await recordInvalidRecordEventDelivery({
-        baseId,
-        consumerGroup: CONSUMER_GROUP,
-        eventId: delivery.eventId,
-        payload: JSON.stringify(delivery.data),
-        error: parsed.success ? `baseId: expected ${baseId}, received ${parsed.data.baseId}` : parsed.error.message,
-      });
-      if (failure.dead && !(await delivery.commit())) throw new Error("record event acknowledgement was not accepted");
+    if (!parsed.success) {
+      await processInvalidWorkflowRecordEventDelivery(delivery);
       return;
     }
-    await dispatch(parsed.data);
-    if (!(await delivery.commit())) throw new Error("record event acknowledgement was not accepted");
+
+    let renewalFailure: unknown = null;
+    let renewal: Promise<void> | null = null;
+    const renew = (): Promise<void> => {
+      if (renewalFailure) return Promise.reject(renewalFailure);
+      if (renewal) return renewal;
+      renewal = Promise.all([
+        delivery.touch({ leaseMs: RECORD_EVENT_WORK_LEASE_MS }),
+        recordEventWorkMutex.extend(lock, RECORD_EVENT_WORK_LEASE_MS),
+      ])
+        .then(([deliveryActive, lockActive]) => {
+          if (!deliveryActive || !lockActive) throw new Error("record event work lease is no longer active");
+        })
+        .catch((error) => {
+          renewalFailure ??= error;
+          throw error;
+        })
+        .finally(() => {
+          renewal = null;
+        });
+      return renewal;
+    };
+    const timer = setInterval(() => {
+      void renew().catch(() => undefined);
+    }, LEASE_HEARTBEAT_MS);
+    try {
+      await dispatch(parsed.data);
+      await renew();
+      if (!(await delivery.ack())) throw new Error("record event acknowledgement was not accepted");
+    } catch (error) {
+      const failure = await processFailedWorkflowRecordEventDelivery(delivery, parsed.data, error);
+      if (!failure.dead) throw error;
+    } finally {
+      clearInterval(timer);
+    }
   };
 
-  const startReader = (baseId: string): void => {
-    if (readers.has(baseId)) return;
+  const startReader = (partition: number): void => {
+    if (readers.has(partition)) return;
     const controller = new AbortController();
-    const reader = recordEventReader(CONSUMER_GROUP);
+    const reader = recordEventWorkReader(partition);
     const task = (async () => {
-      let reclaimCursor = "0-0";
       while (!controller.signal.aborted) {
+        const lock = await recordEventWorkMutex.acquire(`partition:${partition}`, RECORD_EVENT_WORK_LEASE_MS).catch(() => null);
+        if (!lock) {
+          await Bun.sleep(RETRY_DELAY_MS);
+          continue;
+        }
         try {
-          const reclaimed = await reader.reclaim({ tenantId: baseId, cursor: reclaimCursor });
-          reclaimCursor = reclaimed.nextCursor;
-          for (const entry of reclaimed.entries) {
-            if (entry.kind === "invalid") {
-              await processInvalidWorkflowRecordEventDelivery(baseId, entry);
-              continue;
-            }
-            await processDelivery(baseId, entry.delivery);
-          }
           const delivery = await reader.recv({
-            tenantId: baseId,
-            wait: reclaimCursor === "0-0",
+            wait: true,
             timeoutMs: 30_000,
+            leaseMs: RECORD_EVENT_WORK_LEASE_MS,
             signal: controller.signal,
-            invalidPayload: "throw",
           });
-          if (delivery) await processDelivery(baseId, delivery);
+          if (delivery) await processDelivery(delivery, lock);
         } catch (error) {
           if (controller.signal.aborted) return;
-          if (error instanceof TopicPayloadError) {
-            await recordInvalidRecordEventDelivery({
-              baseId,
-              consumerGroup: CONSUMER_GROUP,
-              eventId: error.eventId,
-              payload: error.rawPayload,
-              error: error.message,
-            });
-          } else {
-            log.warn("Workflow record event reader failed", { baseId, error: error instanceof Error ? error.message : String(error) });
-          }
+          log.warn("Workflow record event reader failed", {
+            partition,
+            error: error instanceof Error ? error.message : String(error),
+          });
           await Bun.sleep(RETRY_DELAY_MS);
+        } finally {
+          await recordEventWorkMutex.release(lock).catch(() => undefined);
         }
       }
     })();
-    readers.set(baseId, { controller, task });
+    readers.set(partition, { controller, task });
   };
 
-  const stopReader = async (baseId: string): Promise<void> => {
-    const active = readers.get(baseId);
+  const stopReader = async (partition: number): Promise<void> => {
+    const active = readers.get(partition);
     if (!active) return;
-    readers.delete(baseId);
+    readers.delete(partition);
     active.controller.abort();
     await active.task;
   };
@@ -281,9 +414,7 @@ export const createWorkflowRecordEventRuntime = (invoke: InvokeWorkflow) => {
   return {
     dispatch,
     reconcile: async (): Promise<void> => {
-      const active = new Set(await listRecordEventBaseIds());
-      await Promise.all([...readers.keys()].filter((baseId) => !active.has(baseId)).map(stopReader));
-      for (const baseId of active) startReader(baseId);
+      for (let partition = 0; partition < RECORD_EVENT_WORK_PARTITIONS; partition += 1) startReader(partition);
     },
     stop: async (): Promise<void> => Promise.all([...readers.keys()].map(stopReader)).then(() => undefined),
   };

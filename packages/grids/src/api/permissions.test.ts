@@ -20,9 +20,15 @@ mock.module("../service", () => ({
   },
 }));
 
-const { currentActorUserId, currentActorViewer, currentResourceBoundBaseId, gateAt, gateCredentialScope, resolveWithGrants } = await import(
-  "./permissions"
-);
+const {
+  currentActorUserId,
+  currentActorViewer,
+  currentResourceBoundBaseId,
+  currentWorkflowPrincipal,
+  gateAt,
+  gateCredentialScope,
+  resolveWithGrants,
+} = await import("./permissions");
 
 const user = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -54,7 +60,14 @@ const userContext = {
 const serviceAccountContext = {
   get: (key: string) => {
     if (key === "actor")
-      return { kind: "service_account", serviceAccount: resourceServiceAccount, delegatedUser: null, scopes: ["grids:*"] };
+      return {
+        kind: "service_account",
+        serviceAccount: resourceServiceAccount,
+        delegatedUser: null,
+        scopes: ["grids:*"],
+        credentialId: "77777777-7777-4777-8777-777777777777",
+        credentialExpiresAt: "2027-01-01T00:00:00.000Z",
+      };
     if (key === "accessSubject") return { type: "service_account", serviceAccountId: resourceServiceAccount.id };
     return undefined;
   },
@@ -110,9 +123,18 @@ describe("Grids API permissions", () => {
       userGroups: [],
       serviceAccountId: resourceServiceAccount.id,
     });
+    expect(currentWorkflowPrincipal(serviceAccountContext as never)).toMatchObject({
+      serviceAccountId: resourceServiceAccount.id,
+      actorServiceAccountId: resourceServiceAccount.id,
+      credential: {
+        kind: "api_token",
+        id: "77777777-7777-4777-8777-777777777777",
+        permissionCap: "admin",
+        resourceBinding: { appId: "grids", resourceType: "base", resourceId: resourceServiceAccount.resourceId },
+      },
+    });
     expect(lastLoadGrantsParams).toEqual({
       userId: null,
-      userGroups: [],
       serviceAccountId: resourceServiceAccount.id,
       baseId: "22222222-2222-4222-8222-222222222222",
       tableId: null,

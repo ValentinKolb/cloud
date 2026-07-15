@@ -68,6 +68,11 @@ type Props = {
 
 type VideoBox = { x: number; y: number; width: number; height: number };
 
+type ScanAnnouncement = {
+  id: number;
+  text: string;
+};
+
 const MAX_ACTIVE_SCAN_RUNS = 8;
 
 const isTerminal = (run: WorkflowRunEventSummary): boolean =>
@@ -156,9 +161,11 @@ export default function WorkflowScannerSurface(props: Props) {
   const [cameraError, setCameraError] = createSignal<string | null>(null);
   const [detections, setDetections] = createSignal<ScannerDetection[]>([]);
   const [logs, setLogs] = createSignal<ScanLogItem[]>([]);
+  const [announcements, setAnnouncements] = createSignal<ScanAnnouncement[]>([]);
   const [manualCode, setManualCode] = createSignal("");
   const [videoBox, setVideoBox] = createSignal<VideoBox>({ x: 0, y: 0, width: 1, height: 1 });
   const recentCodes = new Map<string, number>();
+  let announcementId = 0;
 
   const counts = createMemo(() => {
     const items = logs();
@@ -169,9 +176,25 @@ export default function WorkflowScannerSurface(props: Props) {
       active: items.filter((item) => item.status === "queued" || item.status === "running").length,
     };
   });
+  const announceLog = (item: ScanLogItem) => {
+    const announcement = {
+      id: ++announcementId,
+      text: `Scan ${item.code}: ${item.message}. Status ${item.status}.`,
+    };
+    setAnnouncements((items) => [...items.slice(-9), announcement]);
+  };
+
+  const prependLog = (item: ScanLogItem) => {
+    setLogs((items) => [item, ...items.slice(0, 99)]);
+    announceLog(item);
+  };
 
   const updateLog = (id: string, patch: Partial<ScanLogItem>) => {
-    setLogs((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    const current = logs().find((item) => item.id === id);
+    if (!current) return;
+    const next = { ...current, ...patch };
+    setLogs((items) => items.map((item) => (item.id === id ? next : item)));
+    if (next.status !== current.status || next.message !== current.message) announceLog(next);
   };
 
   const fetchSteps = async (runId: string): Promise<WorkflowRunStepSummary[]> => {
@@ -268,11 +291,15 @@ export default function WorkflowScannerSurface(props: Props) {
       stopFallback();
       stopWatchdog();
       setCameraError(error.message);
+      const revoked = logs()
+        .filter((item) => item.status === "queued" || item.status === "running")
+        .map((item) => ({ ...item, status: "failed" as const, message: error.message }));
       setLogs((items) =>
         items.map((item) =>
           item.status === "queued" || item.status === "running" ? { ...item, status: "failed", message: error.message } : item,
         ),
       );
+      for (const item of revoked) announceLog(item);
     },
     onFatal: () => {
       streamReady = false;
@@ -290,27 +317,21 @@ export default function WorkflowScannerSurface(props: Props) {
 
     const id = crypto.randomUUID();
     if (counts().active >= MAX_ACTIVE_SCAN_RUNS) {
-      setLogs((items) => [
-        {
-          id,
-          code: trimmed,
-          format,
-          status: "failed",
-          message: "Scanner is busy. Wait for active workflow runs to finish.",
-          runId: null,
-          run: null,
-          steps: [],
-          createdAt: now,
-        },
-        ...items.slice(0, 99),
-      ]);
+      prependLog({
+        id,
+        code: trimmed,
+        format,
+        status: "failed",
+        message: "Scanner is busy. Wait for active workflow runs to finish.",
+        runId: null,
+        run: null,
+        steps: [],
+        createdAt: now,
+      });
       return;
     }
 
-    setLogs((items) => [
-      { id, code: trimmed, format, status: "queued", message: "Queued", runId: null, run: null, steps: [], createdAt: now },
-      ...items.slice(0, 99),
-    ]);
+    prependLog({ id, code: trimmed, format, status: "queued", message: "Queued", runId: null, run: null, steps: [], createdAt: now });
 
     try {
       const operationId = id;
@@ -336,7 +357,10 @@ export default function WorkflowScannerSurface(props: Props) {
       if (!runId) throw new Error("Scanner workflow did not return a run ID.");
       const pending = pendingRunEvents.take(runId);
       if (pending) applyRun(id, pending.run, pending.steps);
-      else updateLog(id, { runId, status: receipt.status === "queued" ? "queued" : "running", message: "Queued" });
+      else {
+        const status = receipt.status === "queued" ? "queued" : "running";
+        updateLog(id, { runId, status, message: status === "queued" ? "Queued" : "Running" });
+      }
       setTimeout(() => {
         if (!disposed) void refreshRun(id, runId).catch(() => !streamReady && startFallback());
       }, 1500);
@@ -468,8 +492,12 @@ export default function WorkflowScannerSurface(props: Props) {
 
   const shellClass =
     props.mode === "page"
-      ? "flex min-h-screen flex-col bg-zinc-950 text-zinc-50"
-      : "flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950 text-zinc-50";
+      ? "flex h-[100dvh] min-h-0 flex-col bg-zinc-950 text-zinc-50"
+      : "flex h-full min-h-0 flex-1 flex-col bg-zinc-950 text-zinc-50";
+  const mainClass =
+    props.mode === "page"
+      ? "grid min-h-0 flex-1 grid-rows-[minmax(14rem,45dvh)_minmax(0,1fr)] gap-2 p-2 md:p-3"
+      : "grid min-h-0 flex-1 grid-rows-2 gap-2 p-2 md:p-3";
 
   return (
     <div class={shellClass}>
@@ -492,7 +520,10 @@ export default function WorkflowScannerSurface(props: Props) {
         </header>
       </Show>
 
-      <main class="grid min-h-0 flex-1 grid-rows-[minmax(18rem,55%)_minmax(16rem,1fr)] gap-2 p-2 md:p-3">
+      <main class={mainClass}>
+        <div class="sr-only" aria-live="polite" aria-relevant="additions text">
+          <For each={announcements()}>{(announcement) => <p>{announcement.text}</p>}</For>
+        </div>
         <section ref={cameraFrame} class="paper relative min-h-0 overflow-hidden border-zinc-800 bg-black">
           <video ref={video} class="h-full w-full object-contain" playsinline autoplay muted />
           <div class="pointer-events-none absolute inset-0">
@@ -514,7 +545,9 @@ export default function WorkflowScannerSurface(props: Props) {
               {cameraRunning() ? "Scanning" : "Camera off"}
             </span>
             <Show when={cameraError()}>
-              <span class="rounded-full bg-red-600/90 px-2 py-1 text-xs font-medium text-white">{cameraError()}</span>
+              <span class="rounded-full bg-red-600/90 px-2 py-1 text-xs font-medium text-white" role="alert">
+                {cameraError()}
+              </span>
             </Show>
           </div>
           <div class="absolute right-3 top-3 flex items-center gap-2">
@@ -548,15 +581,21 @@ export default function WorkflowScannerSurface(props: Props) {
               <p class="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Errors</p>
             </div>
           </div>
-          <form class="shrink-0 border-b border-zinc-800 p-2" onSubmit={submitManual}>
-            <TextInput
-              value={manualCode}
-              onInput={setManualCode}
-              placeholder="Enter scan code..."
-              icon="ti ti-keyboard"
-              name="manual-scan-code"
-              autocomplete="off"
-            />
+          <form class="flex shrink-0 items-center gap-2 border-b border-zinc-800 p-2" onSubmit={submitManual}>
+            <div class="min-w-0 flex-1">
+              <TextInput
+                value={manualCode}
+                onInput={setManualCode}
+                placeholder="Enter scan code..."
+                ariaLabel="Scan code"
+                icon="ti ti-keyboard"
+                name="manual-scan-code"
+                autocomplete="off"
+              />
+            </div>
+            <button type="submit" class="btn-input btn-sm shrink-0" disabled={!manualCode().trim()}>
+              <i class="ti ti-scan" aria-hidden="true" /> Scan
+            </button>
           </form>
           <div class="min-h-0 flex-1 overflow-y-auto">
             <Show
