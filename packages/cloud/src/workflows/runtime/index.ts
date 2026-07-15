@@ -19,5 +19,6 @@ export type {
   WorkflowRuntimeStepResult,
   WorkflowTraceEvent,
   WorkflowTracePort,
+  WorkflowValueResolverPort,
   WorkflowVariableScope,
 } from "./ports";

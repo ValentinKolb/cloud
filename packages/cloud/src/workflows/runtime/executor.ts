@@ -79,6 +79,7 @@ type Halt =
   | { state: "needs_attention"; error: WorkflowExecutionError; step: WorkflowRuntimeStepIdentity }
   | { state: "canceled"; message?: string; step?: WorkflowRuntimeStepIdentity }
   | { state: "terminal_succeeded"; message?: string }
+  | { state: "terminal_planned"; status: "succeeded" | "failed"; message?: string; step: WorkflowRuntimeStepIdentity }
   | { state: "unsupported"; reason: string; step: WorkflowRuntimeStepIdentity }
   | { state: "indeterminate"; reason: string; step: WorkflowRuntimeStepIdentity };
 type Flow = Continue | Halt;
@@ -134,7 +135,7 @@ const readPath = (value: WorkflowJsonValue, path: string[]): WorkflowJsonValue |
   return current;
 };
 
-const resolveReference = (state: RuntimeState, scope: RuntimeVariableScope, reference: string): WorkflowJsonValue | undefined => {
+const resolveLocalReference = (state: RuntimeState, scope: RuntimeVariableScope, reference: string): WorkflowJsonValue | undefined => {
   const segments = reference.split(".");
   const rootName = segments.shift() ?? "";
   let root: WorkflowJsonValue | undefined;
@@ -145,19 +146,47 @@ const resolveReference = (state: RuntimeState, scope: RuntimeVariableScope, refe
   return root === undefined || segments.length === 0 ? root : readPath(root, segments);
 };
 
-const evaluateValue = (state: RuntimeState, scope: RuntimeVariableScope, value: WorkflowJsonValue): WorkflowJsonValue => {
+const resolveReference = async (
+  state: RuntimeState,
+  scope: RuntimeVariableScope,
+  reference: string,
+  path: Array<string | number> = [],
+): Promise<WorkflowJsonValue | undefined> => {
+  const fallback = () => resolveLocalReference(state, scope, reference);
+  return state.options.values
+    ? state.options.values.resolve({
+        reference,
+        path,
+        plan: state.options.plan,
+        invocation: state.options.invocation,
+        variables: scope,
+        fallback,
+      })
+    : fallback();
+};
+
+const evaluateValue = async (
+  state: RuntimeState,
+  scope: RuntimeVariableScope,
+  value: WorkflowJsonValue,
+  path: Array<string | number> = [],
+): Promise<WorkflowJsonValue> => {
   if (typeof value === "string") {
     const match = EXACT_EXPRESSION.exec(value);
     if (!match) return value;
     const expression = match[1]?.trim() ?? "";
     if (expression === "now()") return state.options.invocation.occurredAt;
-    const resolved = resolveReference(state, scope, expression);
+    const resolved = await resolveReference(state, scope, expression, path);
     if (resolved === undefined) throw new WorkflowValueError(`workflow reference "${expression}" is unavailable`);
     return resolved;
   }
-  if (Array.isArray(value)) return value.map((item) => evaluateValue(state, scope, item));
+  if (Array.isArray(value)) return Promise.all(value.map((item, index) => evaluateValue(state, scope, item, [...path, index])));
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, evaluateValue(state, scope, item)]));
+    return Object.fromEntries(
+      await Promise.all(
+        Object.entries(value).map(async ([key, item]) => [key, await evaluateValue(state, scope, item, [...path, key])] as const),
+      ),
+    );
   }
   return value;
 };
@@ -180,13 +209,18 @@ const jsonEqual = (left: WorkflowJsonValue, right: WorkflowJsonValue): boolean =
   );
 };
 
-const evaluateCondition = (state: RuntimeState, scope: RuntimeVariableScope, condition: WorkflowCondition): boolean => {
+const evaluateCondition = async (
+  state: RuntimeState,
+  scope: RuntimeVariableScope,
+  condition: WorkflowCondition,
+  path: Array<string | number>,
+): Promise<boolean> => {
   if (condition.operator === "exists") {
-    const value = resolveReference(state, scope, condition.reference);
+    const value = await resolveReference(state, scope, condition.reference, [...path, "exists"]);
     return value !== undefined && value !== null && value !== "";
   }
-  const left = evaluateValue(state, scope, condition.operands[0]);
-  const right = evaluateValue(state, scope, condition.operands[1]);
+  const left = await evaluateValue(state, scope, condition.operands[0], [...path, condition.operator, 0]);
+  const right = await evaluateValue(state, scope, condition.operands[1], [...path, condition.operator, 1]);
   return condition.operator === "equals" ? jsonEqual(left, right) : !jsonEqual(left, right);
 };
 
@@ -217,8 +251,9 @@ const actionContext = (
     plan: state.options.plan,
     invocation: state.options.invocation,
     variables: scope,
-    evaluate: (value: WorkflowJsonValue) => evaluateValue(state, scope, value),
-    resolveReference: (reference: string) => resolveReference(state, scope, reference),
+    evaluate: (value: WorkflowJsonValue, path?: Array<string | number>) => evaluateValue(state, scope, value, path ?? step.sourcePath),
+    resolveReference: (reference: string, path?: Array<string | number>) =>
+      resolveReference(state, scope, reference, path ?? step.sourcePath),
     heartbeat: async () => {
       const cancellation = await heartbeat(state);
       if (cancellation) throw new WorkflowCancellation(cancellation);
@@ -246,11 +281,11 @@ const restoreStep = async (
   }
   try {
     if (irStep.kind === "action") {
-      if (state.options.mode === "execute" && restored.mode === "execute") {
+      if (state.options.mode === "execute" && restored.mode === "execute" && restored.outcome.state === "completed") {
         const handler = state.options.actions.get(irStep.action);
         if (!handler) return invalidRestoration(state, step, `action "${irStep.action}" is unavailable while restoring step "${step.key}"`);
         await handler.restoreCompleted?.(actionContext(state, scope, step) as WorkflowExecuteActionContext, irStep, restored.outcome);
-      } else if (state.options.mode === "dryRun" && restored.mode === "dryRun") {
+      } else if (state.options.mode === "dryRun" && restored.mode === "dryRun" && restored.outcome.state === "planned") {
         const handler = state.options.actions.get(irStep.action);
         if (!handler)
           return invalidRestoration(state, step, `planner for action "${irStep.action}" is unavailable while restoring step "${step.key}"`);
@@ -264,11 +299,13 @@ const restoreStep = async (
     }
     return invalidRestoration(state, step, `restoring step "${step.key}" failed: ${errorMessage(error)}`);
   }
-  if (restored.mode === "dryRun") state.effects.push(...restored.outcome.effects);
+  if (restored.mode === "dryRun" && (restored.outcome.state === "planned" || restored.outcome.state === "terminal")) {
+    state.effects.push(...restored.outcome.effects);
+  }
   await emit(state, { type: "step.restored", step, restored });
   const cancellation = await heartbeat(state);
   if (cancellation) return { state: "canceled", ...optionalMessage(cancellation.message), step };
-  return { state: "continue", ...optionalOutput(restored.outcome.output) };
+  return restored.mode === "execute" ? flowFromExecutionOutcome(restored.outcome, step) : flowFromPlanningOutcome(restored.outcome, step);
 };
 
 const flowFromExecutionOutcome = (outcome: WorkflowStepOutcome, step: WorkflowRuntimeStepIdentity): Flow => {
@@ -283,6 +320,9 @@ const flowFromExecutionOutcome = (outcome: WorkflowStepOutcome, step: WorkflowRu
 
 const flowFromPlanningOutcome = (outcome: WorkflowPlanningOutcome, step: WorkflowRuntimeStepIdentity): Flow => {
   if (outcome.state === "planned") return { state: "continue", ...optionalOutput(outcome.output) };
+  if (outcome.state === "terminal") {
+    return { state: "terminal_planned", status: outcome.status, ...optionalMessage(outcome.message), step };
+  }
   return outcome.state === "unsupported"
     ? { state: "unsupported", reason: outcome.reason, step }
     : { state: "indeterminate", reason: outcome.reason, step };
@@ -308,7 +348,7 @@ const evaluateAction = async (
   const outcome: WorkflowPlanningOutcome = handler
     ? await handler.plan(actionContext(state, scope, step) as WorkflowDryRunActionContext, irStep)
     : { state: "unsupported", reason: `action "${irStep.action}" has no dry-run handler` };
-  if (outcome.state === "planned") state.effects.push(...outcome.effects);
+  if (outcome.state === "planned" || outcome.state === "terminal") state.effects.push(...outcome.effects);
   return { flow: flowFromPlanningOutcome(outcome, step), result: { mode: "dryRun", outcome } };
 };
 
@@ -333,14 +373,20 @@ const evaluateControl = async (
   const effectsStart = state.effects.length;
   let flow: Flow;
   if (irStep.kind === "if") {
-    const matched = evaluateCondition(state, scope, irStep.condition);
+    const matched = await evaluateCondition(state, scope, irStep.condition, [...irStep.sourcePath, "if"]);
     flow = await runSteps(state, matched ? irStep.then : irStep.else, scope.child(), iterationPath);
   } else if (irStep.kind === "switch") {
-    const value = evaluateValue(state, scope, irStep.value);
-    const matched = irStep.cases.find((candidate) => jsonEqual(value, evaluateValue(state, scope, candidate.when)));
+    const value = await evaluateValue(state, scope, irStep.value, [...irStep.sourcePath, "switch"]);
+    let matched: (typeof irStep.cases)[number] | undefined;
+    for (const [index, candidate] of irStep.cases.entries()) {
+      if (jsonEqual(value, await evaluateValue(state, scope, candidate.when, [...irStep.sourcePath, "cases", index, "when"]))) {
+        matched = candidate;
+        break;
+      }
+    }
     flow = await runSteps(state, matched?.steps ?? irStep.default, scope.child(), iterationPath);
   } else {
-    const value = resolveReference(state, scope, irStep.reference);
+    const value = await resolveReference(state, scope, irStep.reference, [...irStep.sourcePath, "forEach"]);
     if (!Array.isArray(value)) throw new WorkflowValueError(`forEach reference "${irStep.reference}" must resolve to a JSON array`);
     const limit = state.options.maxLoopItems ?? DEFAULT_MAX_LOOP_ITEMS;
     if (!Number.isSafeInteger(limit) || limit < 0) throw new WorkflowValueError("maxLoopItems must be a non-negative safe integer");
@@ -406,7 +452,7 @@ const runStep = async (
   const step = stepIdentity(state, irStep, iterationPath);
   const cancellation = await heartbeat(state);
   if (cancellation) return { state: "canceled", ...optionalMessage(cancellation.message), step };
-  const restored = await state.options.repository.restoreCompletedStep(step);
+  const restored = await state.options.repository.restoreStepOutcome(step);
   if (restored) return restoreStep(state, scope, irStep, step, restored);
 
   await state.options.repository.startStep(step);
@@ -455,10 +501,13 @@ export const executeWorkflowPlan = async (options: WorkflowExecuteOptions): Prom
   const flow = await runSteps(state, state.options.plan.steps, new RuntimeVariableScope(options.initialVariables), []);
   if (flow.state === "continue") return { state: "succeeded", ...optionalOutput(flow.output) };
   if (flow.state === "terminal_succeeded") return { state: "succeeded", ...optionalMessage(flow.message) };
-  if (flow.state === "unsupported" || flow.state === "indeterminate") {
+  if (flow.state === "unsupported" || flow.state === "indeterminate" || flow.state === "terminal_planned") {
     return {
       state: "failed",
-      error: executionError("WORKFLOW_RUNTIME_INVALID", flow.reason),
+      error: executionError(
+        "WORKFLOW_RUNTIME_INVALID",
+        flow.state === "terminal_planned" ? "execute traversal produced a dry-run terminal outcome" : flow.reason,
+      ),
       step: flow.step,
     };
   }
@@ -469,6 +518,9 @@ export const dryRunWorkflowPlan = async (options: WorkflowDryRunOptions): Promis
   const state = createState({ ...options, mode: "dryRun" });
   const flow = await runSteps(state, state.options.plan.steps, new RuntimeVariableScope(options.initialVariables), []);
   if (flow.state === "continue") return { state: "planned", ...optionalOutput(flow.output), effects: state.effects };
+  if (flow.state === "terminal_planned") {
+    return { state: "terminal", status: flow.status, ...optionalMessage(flow.message), effects: state.effects };
+  }
   if (flow.state === "unsupported" || flow.state === "indeterminate") {
     return { state: flow.state, reason: flow.reason, effects: state.effects, step: flow.step };
   }

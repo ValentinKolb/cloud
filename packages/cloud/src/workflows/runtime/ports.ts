@@ -31,8 +31,8 @@ export type WorkflowRuntimeStepIdentity = WorkflowRuntimeRunIdentity & {
 export type WorkflowHeartbeatOutcome = { state: "active" } | { state: "canceled"; message?: string };
 
 export type WorkflowRestoredStep =
-  | { mode: "execute"; outcome: Extract<WorkflowStepOutcome, { state: "completed" }> }
-  | { mode: "dryRun"; outcome: Extract<WorkflowPlanningOutcome, { state: "planned" }> };
+  | { mode: "execute"; outcome: Exclude<WorkflowStepOutcome, { state: "waiting" }> }
+  | { mode: "dryRun"; outcome: WorkflowPlanningOutcome };
 
 export type WorkflowRuntimeStepResult =
   | { mode: "execute"; outcome: WorkflowStepOutcome }
@@ -40,7 +40,7 @@ export type WorkflowRuntimeStepResult =
 
 export interface WorkflowRuntimeRepositoryPort {
   heartbeat(run: WorkflowRuntimeRunIdentity): Promise<WorkflowHeartbeatOutcome>;
-  restoreCompletedStep(step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null>;
+  restoreStepOutcome(step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null>;
   startStep(step: WorkflowRuntimeStepIdentity): Promise<void>;
   finishStep(step: WorkflowRuntimeStepIdentity, result: WorkflowRuntimeStepResult): Promise<void>;
 }
@@ -58,8 +58,8 @@ type WorkflowActionContextBase<Mode extends WorkflowInvocationMode> = {
   plan: WorkflowBoundPlan;
   invocation: WorkflowInvocation & { mode: Mode };
   variables: WorkflowVariableScope;
-  evaluate(value: WorkflowJsonValue): WorkflowJsonValue;
-  resolveReference(reference: string): WorkflowJsonValue | undefined;
+  evaluate(value: WorkflowJsonValue, path?: Array<string | number>): Promise<WorkflowJsonValue>;
+  resolveReference(reference: string, path?: Array<string | number>): Promise<WorkflowJsonValue | undefined>;
   heartbeat(): Promise<void>;
 };
 
@@ -102,6 +102,17 @@ export interface WorkflowTracePort {
   emit(event: WorkflowTraceEvent): Promise<void> | void;
 }
 
+export interface WorkflowValueResolverPort {
+  resolve(input: {
+    reference: string;
+    path: Array<string | number>;
+    plan: WorkflowBoundPlan;
+    invocation: WorkflowInvocation;
+    variables: WorkflowVariableScope;
+    fallback: () => WorkflowJsonValue | undefined;
+  }): Promise<WorkflowJsonValue | undefined>;
+}
+
 type WorkflowRuntimeOptionsBase = {
   runId: string;
   executionGeneration: number;
@@ -109,6 +120,7 @@ type WorkflowRuntimeOptionsBase = {
   invocation: WorkflowInvocation;
   repository: WorkflowRuntimeRepositoryPort;
   trace?: WorkflowTracePort;
+  values?: WorkflowValueResolverPort;
   maxLoopItems?: number;
   initialVariables?: Record<string, WorkflowJsonValue>;
 };
@@ -136,6 +148,7 @@ export type WorkflowExecutionResult =
 
 export type WorkflowDryRunResult =
   | { state: "planned"; output?: WorkflowJsonValue; effects: WorkflowJsonValue[] }
+  | { state: "terminal"; status: "succeeded" | "failed"; message?: string; effects: WorkflowJsonValue[] }
   | { state: "unsupported"; reason: string; effects: WorkflowJsonValue[]; step: WorkflowRuntimeStepIdentity }
   | { state: "indeterminate"; reason: string; effects: WorkflowJsonValue[]; step: WorkflowRuntimeStepIdentity }
   | { state: "canceled"; message?: string; effects: WorkflowJsonValue[]; step?: WorkflowRuntimeStepIdentity };

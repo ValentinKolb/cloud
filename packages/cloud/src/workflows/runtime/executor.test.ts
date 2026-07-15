@@ -54,7 +54,7 @@ class FakeRepository implements WorkflowRuntimeRepositoryPort {
     return this.heartbeats.shift() ?? { state: "active" };
   }
 
-  async restoreCompletedStep(step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null> {
+  async restoreStepOutcome(step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null> {
     return this.completed.get(this.key(step)) ?? null;
   }
 
@@ -64,10 +64,10 @@ class FakeRepository implements WorkflowRuntimeRepositoryPort {
 
   async finishStep(step: WorkflowRuntimeStepIdentity, result: WorkflowRuntimeStepResult): Promise<void> {
     this.finished.push({ step, result });
-    if (result.mode === "execute" && result.outcome.state === "completed") {
+    if (result.mode === "execute" && result.outcome.state !== "waiting") {
       this.completed.set(this.key(step), { mode: "execute", outcome: result.outcome });
     }
-    if (result.mode === "dryRun" && result.outcome.state === "planned") {
+    if (result.mode === "dryRun") {
       this.completed.set(this.key(step), { mode: "dryRun", outcome: result.outcome });
     }
   }
@@ -126,7 +126,7 @@ describe("workflow runtime executor", () => {
     const actions = executeActions({
       capture: {
         execute: async (context) => {
-          const name = context.resolveReference("item.name");
+          const name = await context.resolveReference("item.name");
           observations.push(`capture:${name}:${context.step.key}`);
           context.variables.set("iterationValue", name ?? null);
           return { state: "completed", output: name };
@@ -164,6 +164,37 @@ describe("workflow runtime executor", () => {
     expect(repository.started.some((step) => step.key === "steps.8.then.0")).toBe(true);
     expect(repository.started.some((step) => step.key === "steps.12.cases.0.do.0")).toBe(true);
     expect(repository.started.some((step) => step.action === "else" || step.action === "default")).toBe(false);
+  });
+
+  test("delegates app-owned references while preserving local fallback values", async () => {
+    const repository = new FakeRepository();
+    const resolved: string[] = [];
+    const result = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: { operator: "equals", operands: ["${{ inputs.item.Status }}", "Ready"] },
+          then: [{ kind: "action", action: "capture", config: { value: "${{ inputs.label }}" }, sourcePath: ["steps", 0, "then", 0] }],
+          else: [],
+          sourcePath: ["steps", 0],
+        },
+      ]),
+      invocation: invocation("execute", { item: "record-1", label: "checked" }),
+      repository,
+      values: {
+        resolve: async ({ reference, fallback }) => {
+          resolved.push(reference);
+          return reference === "inputs.item.Status" ? "Ready" : fallback();
+        },
+      },
+      actions: executeActions({
+        capture: { execute: async (context, step) => ({ state: "completed", output: await context.evaluate(step.config.value!) }) },
+      }),
+    });
+
+    expect(result).toEqual({ state: "succeeded", output: "checked" });
+    expect(resolved).toEqual(["inputs.item.Status", "inputs.label"]);
   });
 
   test("keeps dry-run structurally isolated from execute handlers", async () => {
@@ -219,7 +250,7 @@ describe("workflow runtime executor", () => {
         },
       },
       consume: {
-        execute: async (context) => ({ state: "completed", output: context.evaluate("${{ saved }}") }),
+        execute: async (context) => ({ state: "completed", output: await context.evaluate("${{ saved }}") }),
       },
     });
 
@@ -330,6 +361,58 @@ describe("workflow runtime executor", () => {
       actions: executeActions({ ambiguous: { execute: async () => ({ state: "needs_attention", error }) } }),
     });
     expect(attention).toMatchObject({ state: "needs_attention", error, step: { key: "steps.7" } });
+  });
+
+  test("restores terminal and failed steps without executing them again", async () => {
+    for (const outcome of [
+      { state: "terminal", status: "succeeded", message: "done" } as const,
+      { state: "failed", error: { code: "FAILED", message: "stopped", retryable: false } } as const,
+    ]) {
+      const repository = new FakeRepository();
+      repository.completed.set("execute:steps.0", { mode: "execute", outcome });
+      let executions = 0;
+      const result = await executeWorkflowPlan({
+        ...runtime,
+        plan: plan([{ kind: "action", action: "stop", config: {}, sourcePath: ["steps", 0] }]),
+        invocation: invocation("execute"),
+        repository,
+        actions: executeActions({
+          stop: {
+            execute: async () => {
+              executions += 1;
+              return { state: "completed" };
+            },
+          },
+        }),
+      });
+      expect(executions).toBe(0);
+      expect(result.state).toBe(outcome.state === "terminal" ? "succeeded" : "failed");
+    }
+  });
+
+  test("halts dry-run traversal on explicit terminal planning outcomes", async () => {
+    const repository = new FakeRepository();
+    let skippedCalls = 0;
+    const result = await dryRunWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        { kind: "action", action: "stop", config: {}, sourcePath: ["steps", 0] },
+        { kind: "action", action: "skipped", config: {}, sourcePath: ["steps", 1] },
+      ]),
+      invocation: invocation("dryRun"),
+      repository,
+      actions: dryRunActions({
+        stop: { plan: async () => ({ state: "terminal", status: "failed", message: "would fail", effects: [] }) },
+        skipped: {
+          plan: async () => {
+            skippedCalls += 1;
+            return { state: "planned", effects: [] };
+          },
+        },
+      }),
+    });
+    expect(result).toEqual({ state: "terminal", status: "failed", message: "would fail", effects: [] });
+    expect(skippedCalls).toBe(0);
   });
 
   test("reports unsupported and indeterminate dry-run plans without execution", async () => {

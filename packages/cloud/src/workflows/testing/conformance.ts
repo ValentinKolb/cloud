@@ -17,7 +17,7 @@ class FixtureRepository implements WorkflowRuntimeRepositoryPort {
     return { state: "active" } as const;
   }
 
-  async restoreCompletedStep(_step: WorkflowRuntimeStepIdentity) {
+  async restoreStepOutcome(_step: WorkflowRuntimeStepIdentity) {
     return null;
   }
 
@@ -57,7 +57,7 @@ export const runWorkflowProcessFixture = async (fixture: WorkflowProcessFixture)
           ? {
               execute: async (context, step) => ({
                 state: "completed",
-                output: context.evaluate(step.config.value ?? null),
+                output: await context.evaluate(step.config.value ?? null),
               }),
             }
           : undefined,

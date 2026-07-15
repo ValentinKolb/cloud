@@ -219,6 +219,7 @@ export type WorkflowStepOutcome =
 
 export type WorkflowPlanningOutcome =
   | { state: "planned"; output?: WorkflowJsonValue; effects: WorkflowJsonValue[] }
+  | { state: "terminal"; status: "succeeded" | "failed"; message?: string; effects: WorkflowJsonValue[] }
   | { state: "unsupported"; reason: string }
   | { state: "indeterminate"; reason: string };
 
