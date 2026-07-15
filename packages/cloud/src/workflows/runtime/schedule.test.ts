@@ -97,6 +97,9 @@ describe("workflow schedules", () => {
       update: mock(async (_current: typeof create, desired: typeof create) => {
         calls.push(`update:${desired.workflowId}`);
       }),
+      register: mock(async (item: typeof create) => {
+        calls.push(`register:${item.workflowId}`);
+      }),
       remove: mock(async (item: typeof create) => {
         calls.push(`remove:${item.workflowId}`);
       }),
@@ -111,7 +114,7 @@ describe("workflow schedules", () => {
     expect(result.create).toEqual([create]);
     expect(result.update).toEqual([{ current: currentUpdate, desired: desiredUpdate }]);
     expect(result.remove).toEqual([remove]);
-    expect(calls).toEqual(["create:create", "update:update", "remove:remove"]);
+    expect(calls).toEqual(["create:create", "update:update", "register:unchanged", "remove:remove"]);
   });
 
   test("removes automatic registrations when none are desired", async () => {
@@ -121,7 +124,7 @@ describe("workflow schedules", () => {
     const result = await reconcileWorkflowSchedules({
       desired: [],
       current: [current],
-      port: { create: async () => undefined, update: async () => undefined, remove },
+      port: { create: async () => undefined, update: async () => undefined, register: async () => undefined, remove },
     });
 
     expect(result.remove).toEqual([current]);

@@ -640,8 +640,8 @@ export const startWorkflowKernelRuntime = async (): Promise<void> => {
     log.warn("Could not initialize workflow runtime event reader", { error: errorMessage(error) });
     return null;
   });
-  workflowScheduler.start();
   await reconcileWorkflowKernelRuntime();
+  workflowScheduler.start();
   startRuntimeEventReader(eventCursor);
   reconcileTimer = setInterval(() => {
     void reconcileWorkflowKernelRuntime().catch((error) => log.warn("Workflow runtime reconcile failed", { error: errorMessage(error) }));

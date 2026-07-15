@@ -182,6 +182,7 @@ export const planWorkflowScheduleReconciliation = (
 export interface WorkflowScheduleReconciliationPort {
   create(registration: WorkflowScheduleRegistration): Promise<void>;
   update(current: WorkflowScheduleRegistration, desired: WorkflowScheduleRegistration): Promise<void>;
+  register(registration: WorkflowScheduleRegistration): Promise<void>;
   remove(registration: WorkflowScheduleRegistration): Promise<void>;
 }
 
@@ -191,8 +192,12 @@ export const reconcileWorkflowSchedules = async (input: {
   port: WorkflowScheduleReconciliationPort;
 }): Promise<WorkflowScheduleReconciliation> => {
   const plan = planWorkflowScheduleReconciliation(input.desired, input.current);
+  const changed = new Set([...plan.create.map((registration) => registration.id), ...plan.update.map((item) => item.desired.id)]);
   for (const registration of plan.create) await input.port.create(registration);
   for (const item of plan.update) await input.port.update(item.current, item.desired);
+  for (const registration of input.desired.filter((item) => !changed.has(item.id)).sort((a, b) => a.id.localeCompare(b.id))) {
+    await input.port.register(registration);
+  }
   for (const registration of plan.remove) await input.port.remove(registration);
   return plan;
 };

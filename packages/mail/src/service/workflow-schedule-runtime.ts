@@ -137,17 +137,14 @@ const loadCurrentScheduleActivation = async (
   return row ? mapScheduleActivation(row) : null;
 };
 
-const currentRegistration = (
-  item: Awaited<ReturnType<Scheduler["list"]>>[number],
-  desiredById: ReadonlyMap<string, WorkflowScheduleRegistration>,
-): WorkflowScheduleRegistration => {
-  const desired = desiredById.get(item.id);
+const currentRegistration = (item: Awaited<ReturnType<Scheduler["list"]>>[number]): WorkflowScheduleRegistration => {
+  const metadata = item.meta;
   return {
     id: item.id,
-    namespace: desired?.namespace ?? "mail",
-    workflowId: desired?.workflowId ?? item.id,
-    triggerId: desired?.triggerId ?? "stale",
-    revision: desired?.revision ?? "stale",
+    namespace: typeof metadata?.namespace === "string" ? metadata.namespace : "mail",
+    workflowId: typeof metadata?.workflowId === "string" ? metadata.workflowId : item.id,
+    triggerId: typeof metadata?.triggerId === "string" ? metadata.triggerId : "stale",
+    revision: typeof metadata?.revision === "string" ? metadata.revision : "stale",
     schedule: { cron: item.cron, timezone: item.tz },
   };
 };
@@ -190,6 +187,7 @@ export const createMailWorkflowScheduleRuntime = (dependencies: MailWorkflowSche
         appId: "mail",
         family: MAIL_WORKFLOW_SCHEDULER_ID,
         label: `Workflow: ${activation.workflowName}`,
+        namespace: registration.namespace,
         source: MAIL_WORKFLOW_SCHEDULER_ID,
         resourceLabel: activation.workflowName,
         workflowId: registration.workflowId,
@@ -215,21 +213,21 @@ export const createMailWorkflowScheduleRuntime = (dependencies: MailWorkflowSche
     });
   };
 
-  const reconcile = async (): Promise<void> => {
+  const reconcile = async () => {
     const activations = await dependencies.listActive();
     const desired = activations.map((activation) => activation.registration);
     const activationById = new Map(activations.map((activation) => [activation.registration.id, activation]));
-    const desiredById = new Map(desired.map((registration) => [registration.id, registration]));
     const current = (await dependencies.transport.list())
       .filter((item) => item.id.startsWith(MAIL_WORKFLOW_SCHEDULE_PREFIX))
-      .map((item) => currentRegistration(item, desiredById));
+      .map(currentRegistration);
 
-    await reconcileWorkflowSchedules({
+    return await reconcileWorkflowSchedules({
       desired,
       current,
       port: {
         create: async (registration) => await register(registration, activationById.get(registration.id)!),
         update: async (_current, registration) => await register(registration, activationById.get(registration.id)!),
+        register: async (registration) => await register(registration, activationById.get(registration.id)!),
         remove: async (registration) => await dependencies.transport.delete({ id: registration.id }),
       },
     });
@@ -259,6 +257,8 @@ const mailWorkflowScheduleRuntime = createMailWorkflowScheduleRuntime({
   materialize: materializeAutomaticWorkflowRun,
 });
 
-export const reconcileMailWorkflowSchedules = async (): Promise<void> => await mailWorkflowScheduleRuntime.reconcile();
+export const reconcileMailWorkflowSchedules = async (): Promise<void> => {
+  await mailWorkflowScheduleRuntime.reconcile();
+};
 export const startMailWorkflowScheduleRuntime = async (): Promise<void> => await mailWorkflowScheduleRuntime.start();
 export const stopMailWorkflowScheduleRuntime = async (): Promise<void> => await mailWorkflowScheduleRuntime.stop();
