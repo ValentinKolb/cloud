@@ -29,6 +29,7 @@ import GridToolbar from "../toolbar/GridToolbar";
 // serialize the callback props used by these controls.
 import SearchBar from "../toolbar/SearchBar";
 import { errorMessage } from "../utils/api-helpers";
+import { workspaceMainClass } from "../workspace/workspace-layout";
 import type { WorkspaceBulkLauncher } from "../workspace/workspace-state-model";
 import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
@@ -738,7 +739,7 @@ export default function RecordsView(props: Props) {
   // ── Render ─────────────────────────────────────────────────────────
   return (
     <AppWorkspace.Content>
-      <AppWorkspace.Main>
+      <AppWorkspace.Main class={workspaceMainClass("records")}>
         <div class="flex flex-1 min-w-0 min-h-0 overflow-hidden" data-route-key={props.workspaceRouteKey}>
           {/* Records workbench splits into two zones:
           - header (search + toolbar) — fixed, never scrolls

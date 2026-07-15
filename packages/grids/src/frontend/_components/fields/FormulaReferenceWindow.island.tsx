@@ -220,8 +220,8 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
 
   return (
     <main class="flex h-screen overflow-hidden bg-[var(--ui-canvas)] p-[var(--ui-space-shell)]">
-      <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-4">
-        <header class="flex flex-wrap items-start justify-between gap-3">
+      <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-[var(--ui-space-section)]">
+        <header class="flex flex-wrap items-start justify-between gap-[var(--ui-space-section)]">
           <div>
             <h1 class="text-2xl font-semibold tracking-normal">Formula reference</h1>
             <p class="text-sm text-dimmed">{props.tableName}</p>
@@ -231,7 +231,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
           </div>
         </header>
 
-        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
+        <div class="grid min-h-0 flex-1 grid-cols-1 gap-[var(--ui-space-section)] lg:grid-cols-2">
           <section class="flex min-h-0 flex-col gap-2">
             <h2 class="flex items-center gap-2 text-sm font-semibold text-secondary">
               <i class="ti ti-columns" /> Fields <span class="text-dimmed">{fieldsCount()}</span>

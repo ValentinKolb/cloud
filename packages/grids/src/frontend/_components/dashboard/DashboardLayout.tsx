@@ -157,7 +157,7 @@ export default function DashboardLayout(props: Props) {
   });
 
   return (
-    <div class="flex flex-col gap-3 w-full h-full">
+    <div class="flex h-full w-full flex-col gap-[var(--ui-space-section)]">
       <header class="flex flex-col gap-1">
         <div class="flex items-start gap-2">
           <div class="min-w-0 flex-1">
@@ -265,7 +265,7 @@ function DashboardRowGrid(props: {
             disabled: !props.edit,
           }));
         }}
-        class="relative flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:flex-nowrap"
+        class="relative flex min-w-0 flex-1 flex-col gap-[var(--ui-space-section)] md:flex-row md:flex-nowrap"
         style={props.edit && props.row.cells.length === 0 ? emptyRowMinHeightStyle(props.row) : undefined}
       >
         <For each={props.row.cells}>
