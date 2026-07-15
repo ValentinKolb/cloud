@@ -1,4 +1,5 @@
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
+import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
 import apiRoutes from "./api";
@@ -17,6 +18,14 @@ const router = new Hono<AuthContext>()
   .route("/admin/grids", adminRoutes)
   .route("/share/grids", publicRoutes);
 
+const gridsRuntimeLifecycle = createRuntimeLifecycle({
+  start: async () => {
+    await startRecordEventOutbox();
+    await startWorkflowKernelRuntime();
+  },
+  stop: () => stopRuntimeResources([stopWorkflowKernelRuntime, stopRecordEventOutbox]),
+});
+
 const result = await app.start({
   fetch: router.fetch,
   openapi: apiRoutes,
@@ -24,14 +33,8 @@ const result = await app.start({
     setup: async () => {
       await migrate();
     },
-    start: async () => {
-      await startRecordEventOutbox();
-      await startWorkflowKernelRuntime();
-    },
-    stop: async () => {
-      await stopWorkflowKernelRuntime();
-      await stopRecordEventOutbox();
-    },
+    start: gridsRuntimeLifecycle.start,
+    stop: gridsRuntimeLifecycle.stop,
   },
 });
 

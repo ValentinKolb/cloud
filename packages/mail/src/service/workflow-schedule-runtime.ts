@@ -1,4 +1,4 @@
-import { trace } from "@valentinkolb/cloud/services";
+import { createRuntimeLifecycle, trace } from "@valentinkolb/cloud/services";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import {
   createWorkflowScheduleRegistration,
@@ -8,7 +8,6 @@ import {
 } from "@valentinkolb/cloud/workflows/runtime";
 import { type Scheduler, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
-import { createRuntimeLifecycle } from "./runtime-lifecycle";
 import {
   type AutomaticWorkflowMaterialization,
   type AutomaticWorkflowMaterializationInput,

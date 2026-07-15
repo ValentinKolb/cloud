@@ -1,4 +1,4 @@
-import { logger } from "@valentinkolb/cloud/services";
+import { createRuntimeLifecycle, logger } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
@@ -16,7 +16,6 @@ import type {
 import type { MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveMailExecution } from "./execution";
-import { createRuntimeLifecycle } from "./runtime-lifecycle";
 import type { SqlClient } from "./workflow-data";
 import { loadWorkflowVersion, mapWorkflowVersion } from "./workflow-definition-service";
 import {

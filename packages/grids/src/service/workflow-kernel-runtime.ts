@@ -1,4 +1,11 @@
-import { logger, trace } from "@valentinkolb/cloud/services";
+import {
+  createRuntimeLifecycle,
+  createRuntimeTaskTracker,
+  logger,
+  stopRuntimeJobs,
+  stopRuntimeResources,
+  trace,
+} from "@valentinkolb/cloud/services";
 import type {
   WorkflowExecutionError,
   WorkflowInvocation,
@@ -619,6 +626,7 @@ export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
 let reconcileTimer: ReturnType<typeof setInterval> | null = null;
 let runtimeEventController: AbortController | null = null;
 let runtimeEventTask: Promise<void> | null = null;
+const workflowRuntimeTasks = createRuntimeTaskTracker();
 
 export const applyWorkflowRuntimeEvent = async <T>(
   event: { cursor: string; data: T },
@@ -632,7 +640,7 @@ const startRuntimeEventReader = (after: string | null): void => {
   if (runtimeEventTask) return;
   runtimeEventController = new AbortController();
   const signal = runtimeEventController.signal;
-  runtimeEventTask = (async () => {
+  runtimeEventTask = workflowRuntimeTasks.run(async () => {
     let cursor = after ?? "0-0";
     while (!signal.aborted) {
       try {
@@ -647,31 +655,41 @@ const startRuntimeEventReader = (after: string | null): void => {
         await Bun.sleep(1_000);
       }
     }
-  })();
-};
-
-export const startWorkflowKernelRuntime = async (): Promise<void> => {
-  if (reconcileTimer) return;
-  const eventCursor = await latestWorkflowRuntimeEventCursor().catch((error) => {
-    log.warn("Could not initialize workflow runtime event reader", { error: errorMessage(error) });
-    return null;
   });
-  await reconcileWorkflowKernelRuntime();
-  workflowScheduler.start();
-  startRuntimeEventReader(eventCursor);
-  reconcileTimer = setInterval(() => {
-    void reconcileWorkflowKernelRuntime().catch((error) => log.warn("Workflow runtime reconcile failed", { error: errorMessage(error) }));
-  }, RECONCILE_INTERVAL_MS);
+  if (!runtimeEventTask) throw new Error("Workflow runtime is not accepting event readers");
 };
 
-export const stopWorkflowKernelRuntime = async (): Promise<void> => {
-  if (reconcileTimer) clearInterval(reconcileTimer);
-  reconcileTimer = null;
-  runtimeEventController?.abort();
-  if (runtimeEventTask) await runtimeEventTask;
-  runtimeEventController = null;
-  runtimeEventTask = null;
-  await workflowRecordEvents.stop();
-  workflowJob.stop();
-  await workflowScheduler.stop();
-};
+const workflowRuntimeLifecycle = createRuntimeLifecycle({
+  start: async () => {
+    workflowRuntimeTasks.open();
+    const eventCursor = await latestWorkflowRuntimeEventCursor().catch((error) => {
+      log.warn("Could not initialize workflow runtime event reader", { error: errorMessage(error) });
+      return null;
+    });
+    await reconcileWorkflowKernelRuntime();
+    workflowScheduler.start();
+    startRuntimeEventReader(eventCursor);
+    reconcileTimer = setInterval(() => {
+      workflowRuntimeTasks.run(async () => {
+        await reconcileWorkflowKernelRuntime().catch((error) =>
+          log.warn("Workflow runtime reconcile failed", { error: errorMessage(error) }),
+        );
+      });
+    }, RECONCILE_INTERVAL_MS);
+  },
+  stop: async () => {
+    if (reconcileTimer) clearInterval(reconcileTimer);
+    reconcileTimer = null;
+    runtimeEventController?.abort();
+    await stopRuntimeResources([
+      () => stopRuntimeJobs(workflowRuntimeTasks, [workflowJob]),
+      () => workflowRecordEvents.stop(),
+      () => workflowScheduler.stop(),
+    ]);
+    runtimeEventController = null;
+    runtimeEventTask = null;
+  },
+});
+
+export const startWorkflowKernelRuntime = workflowRuntimeLifecycle.start;
+export const stopWorkflowKernelRuntime = workflowRuntimeLifecycle.stop;

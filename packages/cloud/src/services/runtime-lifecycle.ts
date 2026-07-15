@@ -1,11 +1,9 @@
-type RuntimeLifecycleHooks = {
-  start(): Promise<void>;
-  stop(): Promise<void>;
-};
+export type RuntimeTaskTracker = ReturnType<typeof createRuntimeTaskTracker>;
 
 export const createRuntimeTaskTracker = () => {
   const tasks = new Set<Promise<unknown>>();
   let accepting = false;
+
   return {
     open: (): void => {
       accepting = true;
@@ -28,14 +26,19 @@ export const createRuntimeTaskTracker = () => {
 };
 
 export const stopRuntimeJobs = async (
-  tracker: Pick<ReturnType<typeof createRuntimeTaskTracker>, "close" | "drain">,
+  tracker: Pick<RuntimeTaskTracker, "close" | "drain">,
   jobs: ReadonlyArray<{ stop(): void }>,
 ): Promise<void> => {
   tracker.close();
   for (const job of jobs) job.stop();
   await tracker.drain();
-  // An accepted submit may have restarted its worker before the drain completed.
+  // An accepted task may restart its worker before the drain completes.
   for (const job of jobs) job.stop();
+};
+
+type RuntimeLifecycleHooks = {
+  start(): Promise<void>;
+  stop(): Promise<void>;
 };
 
 export const createRuntimeLifecycle = (hooks: RuntimeLifecycleHooks) => {

@@ -1,5 +1,5 @@
 import type { WorkflowRevision } from "../contracts";
-import { normalizeWorkflowInstant } from "./dependency";
+import { normalizeWorkflowInstant } from "./instant";
 
 const opaqueKey = (prefix: string, parts: readonly string[]): string =>
   `${prefix}:${parts.map((part) => `${part.length}:${part}`).join("")}`;

@@ -1,3 +1,4 @@
+import { createRuntimeTaskTracker, stopRuntimeJobs } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
@@ -5,7 +6,6 @@ import { z } from "zod";
 import type { CommandState, MaintenanceCommandInput } from "../contracts";
 import { commandStillAuthorized, type StoredCommandAuthorization } from "./command-authorization";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
-import { createRuntimeTaskTracker, stopRuntimeJobs } from "./runtime-lifecycle";
 import { enqueueFolderSync, enqueueMailboxSync, enqueueMessageHydration, executeBindingRediscovery } from "./sync-runtime";
 
 const MAINTENANCE_JOB_LEASE_MS = 6 * 60_000;

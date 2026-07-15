@@ -1,8 +1,7 @@
-import { trace } from "@valentinkolb/cloud/services";
+import { createRuntimeTaskTracker, stopRuntimeJobs, trace } from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
-import { createRuntimeTaskTracker, stopRuntimeJobs } from "./runtime-lifecycle";
 import {
   type AutomaticWorkflowActivationSnapshot,
   type AutomaticWorkflowMaterializationInput,
