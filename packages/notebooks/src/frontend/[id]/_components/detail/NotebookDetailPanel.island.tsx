@@ -19,6 +19,7 @@ import {
   NAMED_BLOCK_SCROLL_EVENT,
   NAMED_BLOCKS_UPDATE_EVENT,
   NOTE_SOFT_NAVIGATED_EVENT,
+  NOTE_TITLE_CHANGED_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   TASKS_UPDATE_EVENT,
@@ -253,6 +254,10 @@ export default function NotebookDetailPanel(props: Props) {
       setAttachmentIds(detail.attachments.map((a) => a.shortId));
       setNamedBlocks(detail.namedBlocks);
     };
+    const onTitleChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ noteId?: string; title?: string }>).detail;
+      if (detail?.noteId === noteId() && detail.title) setNoteTitle(detail.title);
+    };
 
     window.addEventListener(TOC_UPDATE_EVENT, onTocUpdate);
     window.addEventListener(TASKS_UPDATE_EVENT, onTasksUpdate);
@@ -262,6 +267,7 @@ export default function NotebookDetailPanel(props: Props) {
     window.addEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
     window.addEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
     window.addEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
+    window.addEventListener(NOTE_TITLE_CHANGED_EVENT, onTitleChanged);
 
     onCleanup(() => {
       window.removeEventListener(TOC_UPDATE_EVENT, onTocUpdate);
@@ -272,6 +278,7 @@ export default function NotebookDetailPanel(props: Props) {
       window.removeEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
       window.removeEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
       window.removeEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
+      window.removeEventListener(NOTE_TITLE_CHANGED_EVENT, onTitleChanged);
     });
   });
 

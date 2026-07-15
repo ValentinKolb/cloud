@@ -12,10 +12,11 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { apiClient } from "@/api/client";
 import { extractNamedBlockSummaries, type NamedBlockSummary } from "../../../../lib/named-blocks";
+import { deriveNoteTitle } from "../../../../lib/note-title";
 import type { Backlink } from "../../../../service/links";
 import { editor } from "../../../lib/editor";
 import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
-import { handleSoftNoteNavigationRequests } from "../../../lib/soft-navigation";
+import { consumeInitialTitleSelection, handleSoftNoteNavigationRequests } from "../../../lib/soft-navigation";
 import { getNotebookPresenceColor, yjs } from "../../../lib/yjs";
 import {
   ATTACHMENTS_UPDATE_EVENT,
@@ -25,6 +26,7 @@ import {
   NAMED_BLOCK_SCROLL_EVENT,
   NAMED_BLOCKS_UPDATE_EVENT,
   NOTE_SOFT_NAVIGATED_EVENT,
+  NOTE_TITLE_CHANGED_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   TASKS_UPDATE_EVENT,
@@ -36,13 +38,14 @@ import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
 import { writeSettings } from "../settings/NotebookSettingsStore";
 import { WORKSPACE_EVENT } from "../sidebar/workspace-events";
+import { hasOnlyNavigatorQuery } from "../../../../lib/navigator-url";
 import type { Attachment, AttachmentRef } from "./attachments-client";
 import { formatBytes, insertAttachment, MAX_ATTACHMENT_SIZE_BYTES, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
 import { slashCommandsExtension } from "./slash-commands";
 
 const TOC_DEBOUNCE_MS = 300;
-const NOTE_NAV_LOADING_MIN_MS = 150;
+const NOTE_NAV_LOADING_DELAY_MS = 150;
 
 type Props = {
   noteId: string;
@@ -117,13 +120,12 @@ const parseSameNotebookEditNoteUrl = (href: string, notebookId: string): SameNot
 
   try {
     const url = new URL(href, window.location.href);
-    if (url.origin !== window.location.origin) return null;
-    if (url.search || url.hash) return null;
+    if (url.origin !== window.location.origin || url.hash || !hasOnlyNavigatorQuery(url.searchParams)) return null;
     const match = url.pathname.match(/^\/app\/notebooks\/([^/]+)\/notes\/([^/]+)$/);
     if (!match || match[1] !== notebookId) return null;
     return {
       noteShortId: decodeURIComponent(match[2]!),
-      canonicalHref: url.pathname,
+      canonicalHref: `${url.pathname}${url.search}`,
     };
   } catch {
     return null;
@@ -134,27 +136,20 @@ export default function NoteEditor(props: Props) {
   const [current, setCurrent] = createSignal<Props>(props);
   const [isNavigating, setIsNavigating] = createSignal(false);
   let navigationSeq = 0;
+  let navigationLoadingTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const finishMinimumLoading = async (startedAt: number, seq: number) => {
-    const remainingMs = NOTE_NAV_LOADING_MIN_MS - (performance.now() - startedAt);
-    if (remainingMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, remainingMs));
-    }
-    if (seq === navigationSeq) setIsNavigating(false);
-  };
-
-  const loadNote = async (noteShortId: string): Promise<LoadedNote | null> => {
+  const loadNote = async (href: string): Promise<LoadedNote | null> => {
     const res = await apiClient[":id"]["route-state"].$get({
       param: { id: props.notebookId },
-      query: { href: `/app/notebooks/${encodeURIComponent(props.notebookId)}/notes/${encodeURIComponent(noteShortId)}` },
+      query: { href },
     });
     if (!res.ok) throw new Error(`Request failed: ${res.status}`);
     const payload = await res.json();
     if (payload.kind !== "ok") return null;
-    const { note, detail, href } = payload.state;
+    const { note, detail, href: canonicalHref } = payload.state;
 
     return {
-      href,
+      href: canonicalHref,
       props: {
         ...current(),
         noteId: note.id,
@@ -175,10 +170,13 @@ export default function NoteEditor(props: Props) {
     if (!target) return false;
     if (target.noteShortId === current().noteShortId) return true;
     const seq = ++navigationSeq;
-    const startedAt = performance.now();
-    setIsNavigating(true);
+    clearTimeout(navigationLoadingTimer);
+    setIsNavigating(false);
+    navigationLoadingTimer = setTimeout(() => {
+      if (seq === navigationSeq) setIsNavigating(true);
+    }, NOTE_NAV_LOADING_DELAY_MS);
     try {
-      const loaded = await loadNote(target.noteShortId);
+      const loaded = await loadNote(target.canonicalHref);
       if (seq !== navigationSeq) return true;
       if (!loaded) return false;
       setCurrent(loaded.props);
@@ -198,7 +196,8 @@ export default function NoteEditor(props: Props) {
       if (seq !== navigationSeq) return true;
       return false;
     } finally {
-      await finishMinimumLoading(startedAt, seq);
+      clearTimeout(navigationLoadingTimer);
+      if (seq === navigationSeq) setIsNavigating(false);
     }
   };
 
@@ -229,6 +228,7 @@ export default function NoteEditor(props: Props) {
       document.removeEventListener("click", onClick);
       window.removeEventListener("popstate", onPopState);
       offSoftRequests();
+      clearTimeout(navigationLoadingTimer);
     });
   });
 
@@ -386,7 +386,7 @@ function EditorInstance(props: Props) {
             notebookId: props.notebookId,
             noteSnapshot: () => ({
               shortId: props.noteShortId,
-              title: props.noteTitle,
+              title: deriveNoteTitle(ytext.toString()),
               // Live content snapshot — kit's `note.content` getter
               // re-reads ytext on every access, but the snapshot
               // here covers any code path that bypasses the getter.
@@ -472,6 +472,7 @@ function EditorInstance(props: Props) {
   let tocDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   const pendingFocusFrames = new Set<number>();
   let disposed = false;
+  let lastDerivedTitle = props.noteTitle;
 
   // Both `emitToc` and the task-progress emitter share the same debounced
   // doc-change trigger, so we walk the markdown once and dispatch both
@@ -479,6 +480,20 @@ function EditorInstance(props: Props) {
   // twice would scan a large note twice per debounce tick.)
   const emitDerivedDocState = () => {
     const md = ytext.toString();
+    const title = deriveNoteTitle(md);
+    if (title !== lastDerivedTitle) {
+      lastDerivedTitle = title;
+      layout.update({
+        breadcrumbs: [
+          { title: "Start", href: "/" },
+          { title: "Notebooks", href: "/app/notebooks" },
+          { title: props.notebookName, href: `/app/notebooks/${props.notebookId}` },
+          { title },
+        ],
+        title,
+      });
+      window.dispatchEvent(new CustomEvent(NOTE_TITLE_CHANGED_EVENT, { detail: { noteId: props.noteId, title } }));
+    }
     window.dispatchEvent(new CustomEvent(TOC_UPDATE_EVENT, { detail: extractTocFromMarkdown(md) }));
     window.dispatchEvent(new CustomEvent(TASKS_UPDATE_EVENT, { detail: extractTaskProgress(md) }));
     window.dispatchEvent(new CustomEvent(ATTACHMENTS_UPDATE_EVENT, { detail: extractAttachmentIds(md) }));
@@ -510,7 +525,7 @@ function EditorInstance(props: Props) {
   const onCopy = () => void clipboard.copy(ytext.toString());
 
   const onDownload = () => {
-    const filename = `${(props.noteTitle || "note").trim() || "note"}.md`;
+    const filename = `${deriveNoteTitle(ytext.toString())}.md`;
     files.downloadFileFromContent(ytext.toString(), filename, "text/markdown");
   };
 
@@ -581,6 +596,27 @@ function EditorInstance(props: Props) {
     return true;
   };
 
+  const selectInitialTitle = (attempts = 0): boolean => {
+    if (disposed) return false;
+    const view = editorView();
+    if (!view) {
+      if (attempts < 8) {
+        const frame = requestAnimationFrame(() => {
+          pendingFocusFrames.delete(frame);
+          selectInitialTitle(attempts + 1);
+        });
+        pendingFocusFrames.add(frame);
+      }
+      return false;
+    }
+    const firstLine = view.state.doc.line(1);
+    const marker = /^#\s+/.exec(firstLine.text);
+    const from = firstLine.from + (marker?.[0].length ?? 0);
+    view.dispatch({ selection: { anchor: from, head: firstLine.to }, scrollIntoView: true });
+    view.focus();
+    return true;
+  };
+
   // ── Attachment upload pipeline ───────────────────────────────────────
   // Three trigger paths converge on the same `uploadAndInsert`:
   //   1. Picker modal (slash /file, footer button) — dispatches
@@ -631,7 +667,8 @@ function EditorInstance(props: Props) {
     writeSettings(props.notebookId, { lastNoteId: props.noteId });
     provider?.connect();
     if (!props.readOnly) {
-      focusEditor();
+      if (consumeInitialTitleSelection(props.noteShortId)) selectInitialTitle();
+      else focusEditor();
       scheduleCursorIdleHide();
     }
     // First emit so the panel reflects the current doc immediately on mount,

@@ -168,7 +168,7 @@ const ensureNote = async (title, parent, content) => {
   const parentId = parent?.id ?? null;
   const existing = findNote(title, parentId);
   if (existing) return existing;
-  return remember(await nb.create({ title, parentId: parent?.id, content }));
+  return remember(await nb.create({ parentId: parent?.id, content }));
 };
 
 // ── Read notebook data ──────────────────────────────────────────
@@ -293,7 +293,6 @@ export const dailyNotesTemplate: NotebookTemplate = {
     return [
       {
         key: "home",
-        title: "Home",
         content: (c) => `# Daily Journal
 
 :::success
@@ -323,7 +322,6 @@ ${dailyDashboardScript}
       },
       {
         key: "inbox",
-        title: "Inbox",
         content: `# Inbox
 
 #inbox
@@ -349,7 +347,6 @@ Inbox entries should be cheap. Review decides what survives.
       },
       {
         key: "year.current",
-        title: String(year),
         content: `# ${year}
 
 #year
@@ -379,7 +376,6 @@ ${dailyYearScript}
         children: [
           {
             key: "month.current",
-            title: month,
             content: `# ${month}
 
 #month
@@ -403,12 +399,10 @@ ${dailyMonthScript}
             children: [
               {
                 key: "day.yesterday",
-                title: localDate(yesterday),
                 content: dayContent(yesterday, 4, 3, 7, 2, 2),
               },
               {
                 key: "day.today",
-                title: localDate(today),
                 content: dayContent(today, 3, 4, 6.5, 1, 1),
               },
             ],

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { materializeTemplate, templates, type TemplateNoteContentContext } from ".";
 import type { Notebook } from "../service/notebooks";
 import type { Note } from "../service/notes";
+import { deriveNoteTitle } from "../lib/note-title";
 
 const assertUnique = (values: string[], label: string) => {
   expect(new Set(values).size, `${label} must be unique`).toBe(values.length);
@@ -16,6 +17,7 @@ const fakeNotebook: Notebook = {
   homepageNoteId: null,
   homepageNoteShortId: null,
   scriptsEnabled: false,
+  defaultNoteTitleTemplate: "New Document",
   createdBy: null,
   createdAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString(),
@@ -67,7 +69,7 @@ describe("built-in notebook templates", () => {
       const notes = new Map<string, Note>();
       for (const [index, note] of materialized.notes.entries()) {
         const parent = note.parentKey ? notes.get(note.parentKey) : null;
-        notes.set(note.key, fakeNote(note.title, `n${String(index).padStart(5, "0")}`, parent?.id ?? null));
+        notes.set(note.key, fakeNote("New Document", `n${String(index).padStart(5, "0")}`, parent?.id ?? null));
       }
 
       const ctx: TemplateNoteContentContext = {
@@ -77,7 +79,7 @@ describe("built-in notebook templates", () => {
         link: (key, label) => {
           const note = notes.get(key);
           if (!note) throw new Error(`missing note ${key}`);
-          return `[${label ?? note.title}](note://${note.shortId})`;
+          return `[${label}](note://${note.shortId})`;
         },
         noteId: (key) => {
           const note = notes.get(key);
@@ -107,7 +109,8 @@ describe("built-in notebook templates", () => {
 
   test("daily template uses the instantiation year dynamically", () => {
     const materialized = materializeTemplate(templates.find((template) => template.id === "daily-notes")!, new Date(2031, 0, 5));
-    expect(materialized.notes.some((note) => note.title === "2031")).toBe(true);
-    expect(materialized.notes.some((note) => note.title === "2026")).toBe(false);
+    const titles = materialized.notes.map((note) => (typeof note.content === "string" ? deriveNoteTitle(note.content) : null));
+    expect(titles).toContain("2031");
+    expect(titles).not.toContain("2026");
   });
 });

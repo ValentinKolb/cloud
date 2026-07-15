@@ -24,7 +24,7 @@ Use `cld notebooks` to discover knowledge, maintain notes safely, manage noteboo
 ## Core model
 
 - A **notebook** is the access and organization boundary. It has a name, optional description and icon, settings, and a tree of notes.
-- A **note** has a title, Markdown content, tags, an optional parent, timestamps, and an optional permanent lock. Notes are addressed by a short id and can link to each other.
+- A **note** has Markdown content, tags, an optional parent, timestamps, and an optional permanent lock. Its displayed title is a stored projection of the first H1 or, when no H1 exists, the first visible content line. Notes are addressed by a short id and can link to each other.
 - A **named block** is a stable region inside Markdown, such as a table, list, data object, section, or script. Block-aware edits avoid replacing unrelated note content.
 - An **attachment** belongs to a notebook and can be referenced from notes with an `attach://<short-id>` link.
 - A **version** is a historical note snapshot. Restoration writes a version into an existing empty target note rather than overwriting arbitrary current content.
@@ -115,6 +115,8 @@ cld notebooks get --notebook "Engineering handbook" --json
 
 A note can be resolved by UUID, short id, exact title, or a notebook-relative path. Path segments resolve by exact title or short id in the note tree.
 
+Titles are not edited separately. Change the first H1 or first visible line through `edit`; reads, search results, paths, and navigation then use the updated projected title.
+
 ```bash
 cld notebooks note --notebook 8nP4x --note runbook-2 --json
 cld notebooks note --notebook 8nP4x --note "Operations/Database/Recovery" --json
@@ -180,20 +182,21 @@ Use `note` for metadata, `content` for raw Markdown, and `read --json` for edit 
 ### Create and organize notes
 
 ```bash
-cld notebooks create-note --notebook <notebook-id> "Incident review" --stdin <<'MD'
+cld notebooks create-note --notebook <notebook-id> --stdin <<'MD'
 # Incident review
 
 ## Summary
 
 MD
 
-cld notebooks update-note --notebook <notebook-id> --note <note-id> --title "Incident review: API"
 cld notebooks move-note --notebook <notebook-id> --note <note-id> --parent "Operations/Incidents"
 cld notebooks move-note --notebook <notebook-id> --note <note-id> --position 0
 cld notebooks copy-note --notebook <notebook-id> --note <note-id> --target-notebook <target-id>
 ```
 
-Exactly one of `--content`, `--file`, or `--stdin` can supply initial content.
+Exactly one of `--content`, `--file`, or `--stdin` can supply initial content. Without content, Notebooks creates an H1 from the notebook's default note title template. To rename a note safely, edit its first H1 with the same hash or timestamp preconditions used for any other content change.
+
+The default is `New Document`. Change it with `cld notebooks update --notebook <ref> --default-note-title-template '<liquid>'`. The template receives `notebook.id`, `notebook.short_id`, `notebook.name`, `note.short_id`, `note.depth`, `parent.exists`, `parent.id`, `parent.short_id`, `parent.title`, `parent.path`, `date`, `time`, `datetime`, and `timezone`. Its first non-empty rendered line becomes the initial H1.
 
 ### Safe edit operations
 
@@ -369,7 +372,7 @@ All commands support the global Cloud CLI options, including `--json`, `--profil
 | `templates` | `cld notebooks templates` | List built-in notebook templates. |
 | `create-from-template` | `cld notebooks create-from-template <template-id> [--name name] [--use]` | Create a notebook from a built-in template. |
 
-`update` accepts `--name`, `--description`, `--clear-description`, `--icon`, `--clear-icon`, `--homepage <note-ref>`, `--clear-homepage`, and `--scripts-enabled true|false`.
+`update` accepts `--name`, `--description`, `--clear-description`, `--icon`, `--clear-icon`, `--homepage <note-ref>`, `--clear-homepage`, `--scripts-enabled true|false`, and `--default-note-title-template <liquid>`.
 
 ### Notes and navigation
 
@@ -381,8 +384,7 @@ All commands support the global Cloud CLI options, including `--json`, `--profil
 | `note` | `cld notebooks note --notebook <ref> --note <ref> [--content]` | Show note metadata. |
 | `content` | `cld notebooks content --notebook <ref> --note <ref>` | Print raw Markdown. |
 | `read` | `cld notebooks read --notebook <ref> --note <ref> [--number-lines] [--blocks]` | Read content and edit metadata. |
-| `create-note` | `cld notebooks create-note --notebook <ref> <title> [content source] [--parent note]` | Create a note. |
-| `update-note` | `cld notebooks update-note --notebook <ref> --note <ref> [--title text] [--parent note|--root] [--position N]` | Update note metadata or location. |
+| `create-note` | `cld notebooks create-note --notebook <ref> [content source] [--parent note]` | Create a note; its title is derived from content or the notebook default template. |
 | `move-note` | `cld notebooks move-note --notebook <ref> --note <ref> [--parent note] [--position N]` | Move a note; omit `--parent` to move it to the root. |
 | `copy-note` | `cld notebooks copy-note --notebook <ref> --note <ref> --target-notebook <ref> [--parent note]` | Copy a note to another notebook. |
 | `delete-note` | `cld notebooks delete-note --notebook <ref> --note <ref> --yes` | Delete a note and its children. |

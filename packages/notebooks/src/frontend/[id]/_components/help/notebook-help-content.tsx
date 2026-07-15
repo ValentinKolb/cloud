@@ -144,7 +144,7 @@ const scriptCreate = code(
   '    const title = await ui.prompt.text("Idea title", "", { title: "New idea" });',
   "    if (!title) return;",
   "",
-  '    const note = await nb.create({ title, content: "# " + title + "\\n\\n#idea" });',
+  '    const note = await nb.create({ content: "# " + title + "\\n\\n#idea" });',
   '    await current.table("ideas")?.add(title, note, ["#idea"], "new");',
   '    ui.toast("Idea added", { variant: "success" });',
   "  }),",
@@ -370,7 +370,8 @@ export const NotebookWriteOrganizeHelp = () => (
             icon: "ti-heading",
             text: (
               <>
-                Use <DocInlineCode>#</DocInlineCode>, <DocInlineCode>##</DocInlineCode>, and deeper headings to create sections.
+                Use <DocInlineCode>#</DocInlineCode>, <DocInlineCode>##</DocInlineCode>, and deeper headings to create sections. The first H1,
+                or otherwise the first visible line, is also the note title used by navigation and search.
               </>
             ),
           },
@@ -588,7 +589,11 @@ export const NotebookSettingsHelp = () => (
     <DocSection title="Settings tabs" eyebrow="Admin and workspace settings">
       <DocRows
         items={[
-          { title: "General", icon: "ti-id", text: "Name, icon, description, and default start page." },
+          {
+            title: "General",
+            icon: "ti-id",
+            text: "Name, icon, description, default start page, and the Liquid template used to initialize the H1 of empty new notes.",
+          },
           { title: "View & features", icon: "ti-toggle-right", text: "Sidebar mode and notebook-level behavior such as script blocks." },
           {
             title: "Export",
@@ -662,7 +667,7 @@ export const NotebookOperationsHelp = () => (
           {
             title: "A script writes the wrong place",
             icon: "ti-pencil-off",
-            text: "current writes update the note containing the script. nb.update changes note metadata, not another note body.",
+            text: "current writes update the note containing the script. nb.update only moves another note in the current notebook tree.",
           },
         ]}
       />

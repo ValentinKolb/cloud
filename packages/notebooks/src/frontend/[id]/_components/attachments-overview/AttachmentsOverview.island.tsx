@@ -11,7 +11,7 @@
  * Delete is the only path that wipes a blob. After delete, broken refs in
  * other notes stay broken by design (KISS — see dex task `vnzej6v5`).
  */
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { createSignal, For, Show } from "solid-js";
@@ -38,12 +38,7 @@ const AttachmentsOverview = (props: Props) => {
 
   const onCopy = async (att: Attachment) => {
     await clipboard.copy(attachmentMarkdown({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename }));
-    // Lightweight feedback — `prompts.alert` is the platform-standard
-    // confirmation surface (used by oauth/contacts/core etc.).
-    await prompts.alert(`Markdown for "${att.filename}" copied to clipboard.`, {
-      title: "Copied",
-      icon: "ti ti-clipboard-check",
-    });
+    toast.success("Markdown copied");
   };
 
   const onDelete = async (att: Attachment) => {
@@ -139,7 +134,7 @@ const AttachmentsOverview = (props: Props) => {
 
                 {/* Hover overlay: download / copy / delete. Sits on the
                       preview so meta row stays clean (filename + size). */}
-                <div class="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <div class="absolute right-1 top-1 flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
                   <button
                     type="button"
                     onClick={() => onDownload(att)}

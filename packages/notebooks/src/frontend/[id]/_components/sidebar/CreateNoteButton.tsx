@@ -15,36 +15,22 @@ type CreateNoteResult = {
 };
 
 const CreateNoteButton = (props: Props) => {
-  const mutation = mutations.create<CreateNoteResult, { title: string }>({
-    mutation: async (data: { title: string }) => {
+  const mutation = mutations.create<CreateNoteResult, void>({
+    mutation: async () => {
       const res = await apiClient[":id"].notes.$post({
         param: { id: props.notebookId },
-        json: data,
+        json: {},
       });
       if (!res.ok) throw new Error("Failed to create note");
       return (await res.json()) as CreateNoteResult;
     },
     onSuccess: (data) => {
-      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.shortId));
+      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.shortId), { selectInitialTitle: data.shortId });
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const handleCreate = async () => {
-    const result = await prompts.form({
-      title: "New Note",
-      icon: "ti ti-file-plus",
-      fields: {
-        title: {
-          type: "text" as const,
-          label: "Title",
-          required: true,
-          placeholder: "Note title",
-        },
-      },
-    });
-    if (result) mutation.mutate(result);
-  };
+  const handleCreate = () => mutation.mutate();
 
   if (props.variant === "compact") {
     return (

@@ -34,8 +34,8 @@ type Props = {
 // =============================================================================
 
 export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
-  const createNoteMut = mutations.create<{ id: string; shortId: string }, { title: string; parentId?: string }>({
-    mutation: async (data: { title: string; parentId?: string }) => {
+  const createNoteMut = mutations.create<{ id: string; shortId: string }, { parentId?: string }>({
+    mutation: async (data: { parentId?: string }) => {
       const res = await apiClient[":id"].notes.$post({
         param: { id: notebookId },
         json: data,
@@ -44,21 +44,8 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
       return (await res.json()) as { id: string; shortId: string };
     },
     onSuccess: (data) => {
-      void navigateToNotebookNote(buildNoteUrl(notebookId, data.shortId));
+      void navigateToNotebookNote(buildNoteUrl(notebookId, data.shortId), { selectInitialTitle: data.shortId });
     },
-    onError: (err) => prompts.error(err.message),
-  });
-
-  const updateNoteMut = mutations.create({
-    mutation: async (data: { noteId: string; patch: { title?: string } }) => {
-      const res = await apiClient[":id"].notes[":noteId"].$patch({
-        param: { id: notebookId, noteId: data.noteId },
-        json: data.patch,
-      });
-      if (!res.ok) throw new Error("Failed to update note");
-      return res.json();
-    },
-    onSuccess: () => refreshCurrentPath(),
     onError: (err) => prompts.error(err.message),
   });
 
@@ -131,46 +118,7 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const handleCreateNote = async (parentId?: string) => {
-    const result = await prompts.form({
-      title: parentId ? "New Subnote" : "New Note",
-      icon: "ti ti-file-plus",
-      fields: {
-        title: {
-          type: "text" as const,
-          label: "Title",
-          required: true,
-          placeholder: "Note title",
-        },
-      },
-    });
-    if (result) {
-      createNoteMut.mutate({ title: result.title, parentId });
-    }
-  };
-
-  const handleEdit = async (node: NoteTreeNode) => {
-    const result = await prompts.form({
-      title: "Edit Note",
-      icon: "ti ti-pencil",
-      fields: {
-        title: {
-          type: "text" as const,
-          label: "Title",
-          required: true,
-          default: node.title,
-        },
-      },
-    });
-    if (result) {
-      updateNoteMut.mutate({
-        noteId: node.id,
-        patch: {
-          title: result.title,
-        },
-      });
-    }
-  };
+  const handleCreateNote = (parentId?: string) => createNoteMut.mutate({ parentId });
 
   const handleMove = async (node: NoteTreeNode) => {
     const allFlat = flattenTree(tree(), node.id);
@@ -311,14 +259,12 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
 
   return {
     handleCreateNote,
-    handleEdit,
     handleMove,
     handleCopy,
     handleDelete,
     handleLock,
     loading: () =>
       createNoteMut.loading() ||
-      updateNoteMut.loading() ||
       moveNoteMut.loading() ||
       copyNoteMut.loading() ||
       deleteNoteMut.loading() ||
@@ -338,11 +284,6 @@ export const noteActionItems = (node: NoteTreeNode, actions: ReturnType<typeof u
       ...(node.lockedAt
         ? []
         : [
-            {
-              icon: "ti ti-pencil",
-              label: "Edit Title",
-              action: () => actions.handleEdit(node),
-            },
             {
               icon: "ti ti-arrow-move-right",
               label: "Move",

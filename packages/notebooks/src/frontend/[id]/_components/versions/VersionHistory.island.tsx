@@ -1,8 +1,8 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { MarkdownView, openSpotlightSearch, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import dayjs from "dayjs";
 import { diffLines } from "diff";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -35,6 +35,9 @@ type Props = {
   noteTitle: string;
   isLocked?: boolean;
   currentContentMd: string | null;
+  dateConfig: DateContext;
+  initialVersions?: NoteVersion[];
+  initialTotal?: number;
 };
 
 type PreviewMode = "content" | "changes";
@@ -56,11 +59,22 @@ const CURRENT_TARGET: ComparisonTarget = {
 };
 
 export default function VersionHistory(props: Props) {
-  const [versions, setVersions] = createSignal<NoteVersion[]>([]);
-  const [loading, setLoading] = createSignal(true);
+  const hasInitialVersions = props.initialVersions !== undefined;
+  const [versions, setVersions] = createSignal<NoteVersion[]>(props.initialVersions ?? []);
+  const [loading, setLoading] = createSignal(!hasInitialVersions);
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [loadError, setLoadError] = createSignal(false);
-  const [pagination, setPagination] = createSignal<PaginationInfo | null>(null);
+  const [pagination, setPagination] = createSignal<PaginationInfo | null>(
+    hasInitialVersions
+      ? {
+          page: 1,
+          per_page: PER_PAGE,
+          total: props.initialTotal ?? props.initialVersions!.length,
+          total_pages: Math.ceil((props.initialTotal ?? props.initialVersions!.length) / PER_PAGE),
+          has_next: (props.initialTotal ?? props.initialVersions!.length) > PER_PAGE,
+        }
+      : null,
+  );
 
   const [selectedVersionId, setSelectedVersionId] = createSignal<string | null>(null);
   const [selectedVersionData, setSelectedVersionData] = createSignal<VersionData | null>(null);
@@ -223,6 +237,7 @@ export default function VersionHistory(props: Props) {
   // ── Init ──
 
   onMount(async () => {
+    if (hasInitialVersions) return;
     await fetchVersions(1);
     if (!disposed) setLoading(false);
   });
@@ -247,18 +262,18 @@ export default function VersionHistory(props: Props) {
     return versionCache.get(selectedId)?.yjsSnapshot ?? null;
   };
 
-  const restoreAsNewMut = mutations.create<{ id: string; shortId: string }, { title: string; snapshot: string }>({
-    mutation: async (data: { title: string; snapshot: string }) => {
+  const restoreAsNewMut = mutations.create<{ id: string; shortId: string }, string>({
+    mutation: async (snapshot) => {
       const createRes = await apiClient[":id"].notes.$post({
         param: { id: props.notebookId },
-        json: { title: data.title },
+        json: {},
       });
       if (!createRes.ok) throw new Error("Failed to create note");
       const newNote = (await createRes.json()) as { id: string; shortId: string };
 
       const restoreRes = await apiClient[":id"].notes[":noteId"].restore.$post({
         param: { id: props.notebookId, noteId: newNote.id },
-        json: { yjsSnapshot: data.snapshot },
+        json: { yjsSnapshot: snapshot },
       });
       if (!restoreRes.ok) {
         await apiClient[":id"].notes[":noteId"].$delete({
@@ -277,24 +292,12 @@ export default function VersionHistory(props: Props) {
   const handleRestoreAsNew = async () => {
     const snapshot = getRestoreSnapshot();
     if (!snapshot) return;
-    const result = await prompts.form({
-      title: "Create Note from Version",
-      icon: "ti ti-file-plus",
-      fields: {
-        title: {
-          type: "text" as const,
-          label: "Title",
-          required: true,
-          default: `${props.noteTitle} (version copy)`,
-        },
-      },
-    });
-    if (result) restoreAsNewMut.mutate({ title: result.title, snapshot });
+    restoreAsNewMut.mutate(snapshot);
   };
 
   // ── Helpers ──
 
-  const formatDate = (iso: string) => dayjs(iso).format("DD.MM.YYYY HH:mm");
+  const formatDate = (iso: string) => dates.formatDateTime(iso, props.dateConfig);
 
   const isWorking = () => restoreAsNewMut.loading();
 

@@ -116,7 +116,6 @@ export const readingListTemplate: NotebookTemplate = {
   notes: (ctx: TemplateContext) => [
     {
       key: "dashboard",
-      title: "Reading Dashboard",
       content: (c) => `# Reading Dashboard
 
 #reading
@@ -148,7 +147,6 @@ ${readingDashboardScript}
     },
     {
       key: "books",
-      title: "Books",
       content: (c) => `# Books
 
 #books
@@ -173,7 +171,6 @@ Keep this table small. If a book needs real notes, create a page and link it fro
     },
     {
       key: "creative-act",
-      title: "The Creative Act",
       content: bookContent(
         "The Creative Act",
         "Rick Rubin",
@@ -192,7 +189,6 @@ Keep this table small. If a book needs real notes, create a page and link it fro
     },
     {
       key: "braiding-sweetgrass",
-      title: "Braiding Sweetgrass",
       content: bookContent(
         "Braiding Sweetgrass",
         "Robin Wall Kimmerer",

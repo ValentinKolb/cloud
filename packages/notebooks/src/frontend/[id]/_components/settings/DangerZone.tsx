@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -18,13 +18,18 @@ export function DangerZone(props: { notebook: Notebook }) {
   });
 
   const handleDelete = async () => {
-    const confirmed = await prompts.confirm(`Delete "${props.notebook.name}" and all its notes? This cannot be undone.`, {
+    const enteredName = await prompts.prompt(`Type "${props.notebook.name}" to permanently delete this notebook and all its data.`, "", {
       title: "Delete notebook",
       icon: "ti ti-trash",
       variant: "danger",
       confirmText: "Delete",
     });
-    if (confirmed) mutation.mutate(undefined);
+    if (enteredName === null) return;
+    if (enteredName !== props.notebook.name) {
+      toast.error("Notebook name does not match");
+      return;
+    }
+    mutation.mutate(undefined);
   };
 
   return (

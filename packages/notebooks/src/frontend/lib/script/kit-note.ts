@@ -8,6 +8,7 @@
  * the user sees in the UI.
  */
 import { apiClient } from "../../../api/client";
+import { deriveNoteTitle } from "../../../lib/note-title";
 import { extractTags } from "../tag-extract";
 import { createWritableNoteBlocks } from "./kit-blocks";
 import type { KitContext, KitCurrentNote } from "./kit-types";
@@ -106,18 +107,6 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
 
   // ----- writes -----
 
-  const setTitle = async (title: string) => {
-    requireWrite();
-    const res = await apiClient[":id"].notes[":noteId"].$patch({
-      param: { id: ctx.notebookId, noteId: ctx.note.shortId },
-      json: { title },
-    });
-    if (!res.ok) throw new Error("Failed to update note title");
-    // The title change won't be reflected in `current.title` until
-    // the script re-runs — the snapshot is captured at run time.
-    // Phase 3+ may wire a live notebook-meta channel.
-  };
-
   const setContent = async (content: string) => {
     requireWrite();
     const ytext = ctx.ytext!;
@@ -184,7 +173,7 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
       return ctx.note.shortId;
     },
     get title() {
-      return ctx.note.title;
+      return deriveNoteTitle(liveContent());
     },
     get content() {
       return liveContent();
@@ -204,7 +193,6 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
     get lockedAt() {
       return ctx.note.lockedAt;
     },
-    setTitle,
     setContent,
     appendContent,
     prependContent,

@@ -111,7 +111,6 @@ const currentGroups: ApiGroup[] = [
     title: "current writes",
     intro: "These methods update the note that hosts the script. Write methods are edit-mode APIs.",
     entries: [
-      entry("setTitle", "await current.setTitle(title)", "void", "Rename the current note."),
       entry("setContent", "await current.setContent(markdown)", "void", "Replace the entire Markdown body."),
       entry("appendContent", "await current.appendContent(markdown)", "void", "Append Markdown and keep paragraph spacing readable."),
       entry("prependContent", "await current.prependContent(markdown)", "void", "Prepend Markdown at the start of the note."),
@@ -177,8 +176,13 @@ const notebookGroups: ApiGroup[] = [
       entry("get", "await nb.get(shortId)", "note | null", "Fetch one note by short id."),
       entry("search", "await nb.search(query)", "note[]", "Search by string or structured query."),
       entry("searchTags", "await nb.searchTags(tagOrTags, options?)", "note[]", "Find notes containing all provided tags."),
-      entry("create", "await nb.create({ title, parentId?, content? })", "note", "Create a note. parentId is a short note id."),
-      entry("update", "await nb.update(shortId, { title?, parentId? })", "note", "Update note title or parent."),
+      entry(
+        "create",
+        "await nb.create({ parentId?, content? })",
+        "note",
+        "Create a note. Its title comes from content; without content the notebook default title template is used.",
+      ),
+      entry("update", "await nb.update(shortId, { parentId })", "note", "Move a note below another note or to the root with null."),
       entry("remove", "await nb.remove(shortId)", "void", "Remove a note by short id."),
     ],
   },

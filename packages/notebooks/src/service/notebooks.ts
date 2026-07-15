@@ -1,7 +1,9 @@
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { deleteAccess, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { buildNoteTitleTemplateContext, renderNoteTitleTemplate, validateNoteTitleTemplate } from "../lib/note-title-template";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
 import {
   buildNotebookVisibleAccessCondition,
@@ -31,6 +33,7 @@ export type Notebook = {
    *  Only notebook admins can flip this; the editor consults this flag
    *  before evaluating any `\`\`\`script` blocks. */
   scriptsEnabled: boolean;
+  defaultNoteTitleTemplate: string;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -48,6 +51,7 @@ export type UpdateNotebook = {
   icon?: string | null;
   homepageNoteId?: string | null;
   scriptsEnabled?: boolean;
+  defaultNoteTitleTemplate?: string;
 };
 
 type DbNotebook = {
@@ -59,6 +63,7 @@ type DbNotebook = {
   homepage_note_id: string | null;
   homepage_note_short_id: string | null;
   scripts_enabled: boolean;
+  default_note_title_template: string;
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
@@ -90,6 +95,7 @@ const mapToNotebook = (row: DbNotebook): Notebook => ({
   homepageNoteId: row.homepage_note_id,
   homepageNoteShortId: row.homepage_note_short_id,
   scriptsEnabled: row.scripts_enabled,
+  defaultNoteTitleTemplate: row.default_note_title_template,
   createdBy: row.created_by,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -186,6 +192,7 @@ export const list = async (params: {
             n.homepage_note_id,
             h.short_id AS homepage_note_short_id,
             n.scripts_enabled,
+            n.default_note_title_template,
             n.created_by,
             n.created_at,
             n.updated_at
@@ -216,6 +223,7 @@ export const list = async (params: {
             n.homepage_note_id,
             h.short_id AS homepage_note_short_id,
             n.scripts_enabled,
+            n.default_note_title_template,
             n.created_by,
             n.created_at,
             n.updated_at
@@ -283,6 +291,7 @@ export const listAdmin = async (params: {
       n.homepage_note_id,
       h.short_id AS homepage_note_short_id,
       n.scripts_enabled,
+      n.default_note_title_template,
       n.created_by,
       n.created_at,
       n.updated_at,
@@ -294,7 +303,8 @@ export const listAdmin = async (params: {
       ${pattern}::text IS NULL
       OR LOWER(n.name) LIKE ${pattern}
     )
-    GROUP BY n.id, n.short_id, n.name, n.description, n.icon, n.homepage_note_id, h.short_id, n.scripts_enabled, n.created_by, n.created_at, n.updated_at
+    GROUP BY n.id, n.short_id, n.name, n.description, n.icon, n.homepage_note_id, h.short_id, n.scripts_enabled,
+             n.default_note_title_template, n.created_by, n.created_at, n.updated_at
     ORDER BY LOWER(n.name) ASC, n.created_at ASC
     LIMIT ${params.pagination.limit}
     OFFSET ${params.pagination.offset}
@@ -365,6 +375,7 @@ export const get = async (params: { id: string }): Promise<Notebook | null> => {
       n.homepage_note_id,
       h.short_id AS homepage_note_short_id,
       n.scripts_enabled,
+      n.default_note_title_template,
       n.created_by,
       n.created_at,
       n.updated_at
@@ -395,6 +406,7 @@ export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise
         n.homepage_note_id,
         h.short_id AS homepage_note_short_id,
         n.scripts_enabled,
+        n.default_note_title_template,
         n.created_by,
         n.created_at,
         n.updated_at
@@ -433,6 +445,7 @@ export const create = async (params: {
       homepage_note_id,
       NULL::text AS homepage_note_short_id,
       scripts_enabled,
+      default_note_title_template,
       created_by,
       created_at,
       updated_at
@@ -456,7 +469,6 @@ export const create = async (params: {
     const noteResult = await notes.create({
       data: {
         notebookId: row.id,
-        title: "Welcome",
         contentMd: helloMd,
       },
       creatorId,
@@ -475,7 +487,7 @@ export const create = async (params: {
 /**
  * Update a notebook.
  */
-export const update = async (params: { id: string; data: UpdateNotebook }): Promise<MutationResult<Notebook>> => {
+export const update = async (params: { id: string; data: UpdateNotebook; dateConfig?: DateContext }): Promise<MutationResult<Notebook>> => {
   const { id, data } = params;
 
   const existing = await get({ id });
@@ -488,6 +500,22 @@ export const update = async (params: { id: string; data: UpdateNotebook }): Prom
   const icon = data.icon === undefined ? existing.icon : data.icon;
   const homepageNoteId = data.homepageNoteId === undefined ? existing.homepageNoteId : data.homepageNoteId;
   const scriptsEnabled = data.scriptsEnabled ?? existing.scriptsEnabled;
+  const defaultNoteTitleTemplate = data.defaultNoteTitleTemplate ?? existing.defaultNoteTitleTemplate;
+
+  const syntax = validateNoteTitleTemplate(defaultNoteTitleTemplate);
+  if (!syntax.ok) return { ok: false, error: syntax.error, status: 400 };
+  try {
+    renderNoteTitleTemplate(
+      defaultNoteTitleTemplate,
+      buildNoteTitleTemplateContext({
+        notebook: { id: existing.id, short_id: existing.shortId, name },
+        note: { short_id: "preview", depth: 0 },
+        dateConfig: params.dateConfig ?? { timeZone: "UTC", locale: "en", firstDayOfWeek: 1 },
+      }),
+    );
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Invalid default note title template", status: 400 };
+  }
 
   if (homepageNoteId && !(await noteExistsInNotebook(homepageNoteId, id))) {
     return { ok: false, error: "Homepage note not found", status: 404 };
@@ -500,6 +528,7 @@ export const update = async (params: { id: string; data: UpdateNotebook }): Prom
         icon = ${icon},
         homepage_note_id = ${homepageNoteId}::uuid,
         scripts_enabled = ${scriptsEnabled},
+        default_note_title_template = ${defaultNoteTitleTemplate},
         updated_at = now()
     WHERE id = ${id}::uuid
     RETURNING
@@ -511,6 +540,7 @@ export const update = async (params: { id: string; data: UpdateNotebook }): Prom
       homepage_note_id,
       NULL::text AS homepage_note_short_id,
       scripts_enabled,
+      default_note_title_template,
       created_by,
       created_at,
       updated_at

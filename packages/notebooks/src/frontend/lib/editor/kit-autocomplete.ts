@@ -163,12 +163,6 @@ const noteCompletions: Completion[] = [
     info: "Read all matching named heading sections. Omit the name to read every named section.",
   }),
   // Writes
-  snippetCompletion("setTitle(${1:'new title'})", {
-    label: "setTitle",
-    type: "method",
-    detail: "(title) → Promise<void>",
-    info: "Update the note title via PATCH. Visible to all collaborators after sync.",
-  }),
   snippetCompletion("setContent(${1:'markdown'})", {
     label: "setContent",
     type: "method",
@@ -230,17 +224,17 @@ const notesCompletions: Completion[] = [
     detail: "(tag | tags, options?) → Promise<KitNote[]>",
     info: "Find notes that contain all given tags. `search('#garden')` also takes this path.",
   }),
-  snippetCompletion("create({ title: ${1:'New note'} })", {
+  snippetCompletion("create({ content: ${1:'# New note'} })", {
     label: "create",
     type: "method",
-    detail: "({ title, parentId?, content? }) → Promise<KitNote>",
-    info: "Create a new note. `parentId` is a note short-id; optional `content` seeds initial markdown.",
+    detail: "({ parentId?, content? }?) → Promise<KitNote>",
+    info: "Create a note. Its title comes from content; without content the notebook default title template is used.",
   }),
-  snippetCompletion("update(${1:'shortId'}, { title: ${2:'updated'} })", {
+  snippetCompletion("update(${1:'shortId'}, { parentId: ${2:null} })", {
     label: "update",
     type: "method",
-    detail: "(shortId, { title?, parentId? }) → Promise<KitNote>",
-    info: "Update title / parent on an existing note.",
+    detail: "(shortId, { parentId }) → Promise<KitNote>",
+    info: "Move an existing note below another note or to the notebook root.",
   }),
   snippetCompletion("remove(${1:'shortId'})", {
     label: "remove",

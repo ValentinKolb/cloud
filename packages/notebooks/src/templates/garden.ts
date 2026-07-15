@@ -92,7 +92,6 @@ export const gardenPlannerTemplate: NotebookTemplate = {
   notes: (ctx: TemplateContext) => [
     {
       key: "dashboard",
-      title: "Garden Dashboard",
       content: (c) => `# Garden Dashboard
 
 #garden
@@ -124,7 +123,6 @@ ${gardenDashboardScript}
     },
     {
       key: "plants",
-      title: "Plants",
       content: `# Plants
 
 #garden #plants
@@ -151,7 +149,6 @@ The starter favors Central Europe and Franconia: robust vegetables, kitchen herb
     },
     {
       key: "beds",
-      title: "Beds & Native Hedge",
       content: `# Beds & Native Hedge
 
 #garden #beds
@@ -180,7 +177,6 @@ A useful native hedge has staggered bloom, fruit, thorns, and structure. Do not 
     },
     {
       key: "harvest",
-      title: "Harvest",
       content: `# Harvest
 
 #garden #harvest

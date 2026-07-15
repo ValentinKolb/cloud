@@ -17,6 +17,21 @@ const runCli = async (server: string, args: string[]) => {
   return { exitCode, stdout, stderr };
 };
 
+const notebookFixture = {
+  id: "00000000-0000-4000-8000-000000000002",
+  shortId: "wiki",
+  name: "Wiki",
+  description: null,
+  icon: null,
+  homepageNoteId: null,
+  homepageNoteShortId: null,
+  scriptsEnabled: false,
+  defaultNoteTitleTemplate: "New Document",
+  createdBy: null,
+  createdAt: "2026-07-01T00:00:00.000Z",
+  updatedAt: "2026-07-10T00:00:00.000Z",
+};
+
 test("global search forwards full-text and structured filters", async () => {
   const requestUrls: string[] = [];
   const server = Bun.serve({
@@ -85,4 +100,79 @@ test("destructive notebook deletion requires explicit confirmation", async () =>
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("without --yes");
+});
+
+test("create-note sends markdown without a separate title", async () => {
+  const createBodies: Record<string, unknown>[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (request) => {
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/api/notebooks/wiki") return Response.json(notebookFixture);
+      if (request.method === "POST" && url.pathname === "/api/notebooks/wiki/notes") {
+        createBodies.push((await request.json()) as Record<string, unknown>);
+        return Response.json({
+          id: "00000000-0000-4000-8000-000000000003",
+          shortId: "note01",
+          notebookId: notebookFixture.id,
+          parentId: null,
+          title: "Incident review",
+          position: 0,
+          hasChildren: false,
+          yjsSnapshotAt: null,
+          contentMd: "# Incident review\n",
+          createdBy: null,
+          createdAt: notebookFixture.createdAt,
+          updatedAt: notebookFixture.updatedAt,
+          lockedAt: null,
+        });
+      }
+      return Response.json({ error: "not found" }, { status: 404 });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "notebooks",
+    "create-note",
+    "--notebook",
+    "wiki",
+    "--content",
+    "# Incident review\n",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(createBodies).toEqual([{ contentMd: "# Incident review\n" }]);
+});
+
+test("update forwards the default note title template", async () => {
+  const updateBodies: Record<string, unknown>[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (request) => {
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/api/notebooks/wiki") return Response.json(notebookFixture);
+      if (request.method === "PATCH" && url.pathname === "/api/notebooks/wiki") {
+        const body = (await request.json()) as Record<string, unknown>;
+        updateBodies.push(body);
+        return Response.json({ ...notebookFixture, ...body });
+      }
+      return Response.json({ error: "not found" }, { status: 404 });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "notebooks",
+    "update",
+    "--notebook",
+    "wiki",
+    "--default-note-title-template",
+    "{{ date }} Journal",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(updateBodies).toEqual([{ defaultNoteTitleTemplate: "{{ date }} Journal" }]);
 });

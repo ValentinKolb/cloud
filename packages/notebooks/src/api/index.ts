@@ -12,7 +12,7 @@ import {
   ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, hasPermission, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, getDateConfig, hasPermission, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
 import { settings, settingsService } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
@@ -35,6 +35,7 @@ const NotebookSchema = z.object({
   homepageNoteId: z.uuid().nullable(),
   homepageNoteShortId: z.string().nullable().describe("Homepage note short-id"),
   scriptsEnabled: z.boolean().describe("Per-notebook opt-in for `\`\`\`script` block execution"),
+  defaultNoteTitleTemplate: z.string().describe("Liquid template used to initialize the H1 of new notes"),
   createdBy: z.uuid().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -54,6 +55,7 @@ const UpdateNotebookSchema = z.object({
   // Toggling scripts_enabled is admin-only — see the PATCH handler
   // for the role check. Schema-level it's just a boolean field.
   scriptsEnabled: z.boolean().optional(),
+  defaultNoteTitleTemplate: z.string().min(1).max(2_000).optional(),
 });
 
 const NotebookApiKeySchema = ServiceAccountCredentialSchema.extend({
@@ -76,7 +78,7 @@ const NoteSchema = z.object({
   shortId: z.string().describe("6-char base62 alias for URLs and `note://` schemes"),
   notebookId: z.uuid(),
   parentId: z.uuid().nullable(),
-  title: z.string(),
+  title: z.string().describe("Read-only title derived from note Markdown"),
   position: z.number().int(),
   hasChildren: z.boolean(),
   yjsSnapshotAt: z.string().nullable(),
@@ -161,13 +163,11 @@ const NoteTreeNodeSchema: z.ZodType<unknown> = NoteSchema.extend({
 
 const CreateNoteSchema = z.object({
   parentId: z.string().min(1).optional().describe("Parent note UUID or short-id"),
-  title: z.string().min(1).max(200),
   position: z.number().int().min(0).optional(),
   contentMd: z.string().optional(),
 });
 
 const UpdateNoteSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
   parentId: z.uuid().nullable().optional(),
   position: z.number().int().min(0).optional(),
 });
@@ -185,7 +185,6 @@ const CopyNoteSchema = z.object({
 const NoteVersionSchema = z.object({
   id: z.uuid(),
   noteId: z.uuid(),
-  title: z.string().nullable(),
   createdBy: z.uuid().nullable(),
   createdAt: z.string(),
 });
@@ -770,7 +769,14 @@ const app = new Hono<AuthContext>()
         homepageNoteId = homepage.data.id;
       }
 
-      return respond(c, notebooksService.notebook.update({ id: notebook!.id, data: { ...data, homepageNoteId } }));
+      return respond(
+        c,
+        notebooksService.notebook.update({
+          id: notebook!.id,
+          data: { ...data, homepageNoteId },
+          dateConfig: getDateConfig(c),
+        }),
+      );
     },
   )
 
@@ -970,6 +976,7 @@ const app = new Hono<AuthContext>()
         notebooksService.note.create({
           data: { ...data, notebookId, parentId },
           creatorId: user?.id ?? null,
+          dateConfig: getDateConfig(c),
         }),
       );
     },
@@ -1117,7 +1124,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Notebooks"],
       summary: "Update note",
-      description: "Update note metadata (title, position).",
+      description: "Update note position or parent. The title is derived from Markdown content.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(NoteSchema, "Updated note"),

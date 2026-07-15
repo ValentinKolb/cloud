@@ -228,18 +228,18 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     return search({ tags: normalized, limit: options?.limit, offset: options?.offset });
   };
 
-  const create = async (data: { title: string; parentId?: string; content?: string }): Promise<KitNote> => {
+  const create = async (data: { parentId?: string; content?: string } = {}): Promise<KitNote> => {
     assertActive(ctx);
     const res = await apiClient[":id"].notes.$post({
       param: { id: ctx.notebookId },
-      json: { title: data.title, parentId: data.parentId, contentMd: data.content },
+      json: { parentId: data.parentId, contentMd: data.content },
     });
     if (!res.ok) throw new Error("nb.create: API call failed");
     const note = (await res.json()) as ApiNote;
     return toKitNote(note, data.parentId ?? null);
   };
 
-  const update = async (shortId: string, data: { title?: string; parentId?: string | null }): Promise<KitNote> => {
+  const update = async (shortId: string, data: { parentId: string | null }): Promise<KitNote> => {
     assertActive(ctx);
     const res = await apiClient[":id"].notes[":noteId"].$patch({
       param: { id: ctx.notebookId, noteId: shortId },
@@ -247,8 +247,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     });
     if (!res.ok) throw new Error("nb.update: API call failed");
     const note = (await res.json()) as ApiNote;
-    const parentId = data.parentId === undefined ? (note.parentId ? ((await get(note.shortId))?.parentId ?? null) : null) : data.parentId;
-    return toKitNote(note, parentId);
+    return toKitNote(note, data.parentId);
   };
 
   const remove = async (shortId: string): Promise<void> => {

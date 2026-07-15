@@ -8,7 +8,7 @@ export type TemplateContext = {
 export type TemplateNoteContentContext = TemplateContext & {
   notebook: Notebook;
   notes: Map<string, Note>;
-  link: (key: string, label?: string) => string;
+  link: (key: string, label: string) => string;
   noteId: (key: string) => string;
 };
 
@@ -16,7 +16,6 @@ export type TemplateContent = string | ((ctx: TemplateNoteContentContext) => str
 
 export type TemplateNote = {
   key: string;
-  title: string | ((ctx: TemplateContext) => string);
   content?: TemplateContent;
   children?: TemplateNote[];
 };
@@ -35,7 +34,6 @@ export type NotebookTemplate = {
 
 export type MaterializedTemplateNote = {
   key: string;
-  title: string;
   content?: TemplateContent;
   parentKey: string | null;
   position: number;
@@ -48,7 +46,6 @@ const walkNotes = (notes: TemplateNote[], ctx: TemplateContext, parentKey: strin
   notes.forEach((note, position) => {
     out.push({
       key: note.key,
-      title: resolveText(note.title, ctx) ?? "Untitled",
       content: note.content,
       parentKey,
       position,
@@ -75,8 +72,8 @@ export const materializeTemplate = (template: NotebookTemplate, now = new Date()
   };
 };
 
-export const noteLink = (ctx: TemplateNoteContentContext, key: string, label?: string): string => {
+export const noteLink = (ctx: TemplateNoteContentContext, key: string, label: string): string => {
   const note = ctx.notes.get(key);
   if (!note) throw new Error(`template note not found: ${key}`);
-  return `[${label ?? note.title}](note://${note.shortId})`;
+  return `[${label}](note://${note.shortId})`;
 };

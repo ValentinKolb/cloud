@@ -1,10 +1,11 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, getDateConfig } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
 import { expectUserBackedActor } from "@/actor";
 import { extractNamedBlockSummaries } from "@/lib/named-blocks";
+import { parseNavigatorQuery } from "@/lib/navigator-url";
 import { notebooksService } from "@/service";
 import { loadSelectedNoteRouteState, type SelectedNoteRouteState } from "@/service/route-state";
 import { buildNoteUrl, buildVersionsUrl } from "../params";
@@ -82,6 +83,15 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
 
   const readonlyMode = selected.routeState?.readonlyMode ?? (!canWrite || !!selected.note?.lockedAt);
   const graph = isGraphMode ? await notebooksService.notebook.graph({ notebookId }) : null;
+  const versionHistory =
+    isVersionsMode && selected.note
+      ? await notebooksService.note.versions
+          .list({
+            noteId: selected.note.id,
+            pagination: { page: 1, perPage: 20, offset: 0 },
+          })
+          .catch(() => null)
+      : null;
   const [attachmentCount, tags, favoriteRows] = await Promise.all([
     notebooksService.attachment.count({ notebookId }),
     notebooksService.tag.listForNotebook({ notebookId }),
@@ -99,6 +109,8 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
     tagCount: tags.length,
     favoriteNoteIds: favoriteRows.map((row) => row.noteId),
     tags,
+    dateConfig: getDateConfig(c),
+    navigatorQuery: parseNavigatorQuery(new URL(c.req.url).searchParams),
   };
 
   const appUrl = await get<string>("app.url");
@@ -125,12 +137,14 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
     namedBlocks: selected.namedBlocks,
     readonlyMode,
     graph,
+    versionHistory,
     ctx,
     appUrl,
     detailPanelOpen,
     showDetailPanel: !!selected.note && !isSettingsMode && !isVersionsMode && !isGraphMode,
     panelAttachments: selected.routeState?.panelAttachments ?? [],
     backlinks: selected.routeState?.backlinks ?? [],
+    dateConfig: ctx.dateConfig,
   };
 }
 

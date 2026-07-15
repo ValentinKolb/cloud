@@ -89,7 +89,6 @@ const createNotes = async (
         data: {
           notebookId: notebook.id,
           parentId: parent?.id,
-          title: item.title,
           position: item.position,
         },
         creatorId: actorId,
@@ -102,7 +101,7 @@ const createNotes = async (
     now,
     notebook,
     notes: created,
-    link: (key: string, label?: string) => noteLink(contentCtx, key, label),
+    link: (key: string, label: string) => noteLink(contentCtx, key, label),
     noteId: (key: string) => {
       const note = created.get(key);
       if (!note) throw new TemplateError(err.badInput(`template note not found: ${key}`));
@@ -123,6 +122,9 @@ const createNotes = async (
         createdBy: actorId,
       }),
     );
+    const saved = await notes.get({ id: note.id });
+    if (!saved) throw new TemplateError(err.internal(`template note disappeared after save: ${item.key}`));
+    created.set(item.key, saved);
   }
 
   return created;

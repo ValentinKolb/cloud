@@ -17,6 +17,7 @@ export type NotebookWorkspaceNotebook = {
   homepageNoteId: string | null;
   homepageNoteShortId: string | null;
   scriptsEnabled: boolean;
+  defaultNoteTitleTemplate: string;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;

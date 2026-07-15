@@ -31,6 +31,7 @@ type Notebook = {
   homepageNoteId: string | null;
   homepageNoteShortId: string | null;
   scriptsEnabled: boolean;
+  defaultNoteTitleTemplate: string;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -72,7 +73,6 @@ type NoteTreeNode = Note & {
 type NoteVersion = {
   id: string;
   noteId: string;
-  title: string | null;
   createdBy: string | null;
   createdAt: string;
 };
@@ -512,6 +512,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const icon = stringFlag(ctx.flags, "icon");
     const homepageRef = stringFlag(ctx.flags, "homepage");
     const scriptsEnabled = optionalBooleanFlag(ctx.flags, "scripts-enabled");
+    const defaultNoteTitleTemplate = stringFlag(ctx.flags, "default-note-title-template");
     if (name !== undefined) body.name = name;
     if (description !== undefined || booleanFlag(ctx.flags, "clear-description")) body.description = description ?? null;
     if (icon !== undefined || booleanFlag(ctx.flags, "clear-icon")) body.icon = icon ?? null;
@@ -519,6 +520,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       body.homepageNoteId = homepageRef ? (await resolveNoteRef(ctx, api, notebook.shortId, homepageRef)).shortId : null;
     }
     if (scriptsEnabled !== undefined) body.scriptsEnabled = scriptsEnabled;
+    if (defaultNoteTitleTemplate !== undefined) body.defaultNoteTitleTemplate = defaultNoteTitleTemplate;
     if (Object.keys(body).length === 0) throw new Error("No notebook updates supplied.");
     const payload = await ctx.readJson<Notebook>(
       await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}`, {
@@ -804,32 +806,6 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     return 0;
   }
 
-  if (command === "update-note") {
-    const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
-    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
-    const body: Record<string, unknown> = {};
-    const title = stringFlag(ctx.flags, "title");
-    const position = numberFlag(ctx.flags, "position");
-    const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
-    if (title !== undefined) body.title = title;
-    if (position !== undefined) body.position = position;
-    if (parentRef || booleanFlag(ctx.flags, "root")) {
-      body.parentId = parentRef ? (await resolveNoteRef(ctx, api, notebook.shortId, parentRef)).id : null;
-    }
-    if (Object.keys(body).length === 0) throw new Error("No note updates supplied.");
-    const payload = await ctx.readJson<Note>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Updated ${payload.title} (${payload.shortId}).`);
-    return 0;
-  }
-
   if (command === "move-note") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
@@ -956,8 +932,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   }
 
   if (command === "create-note") {
-    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
-    const title = requireArg(rest, 0, "note title");
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
     const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.shortId, parentRef) : null;
@@ -966,7 +941,6 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        title,
         parentId: parent?.shortId,
         contentMd: content || undefined,
       }),
@@ -989,10 +963,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     printJsonOrTable(
       ctx,
       payload,
-      payload.data.map((version) => ({ id: version.id, title: version.title ?? "", createdAt: version.createdAt })),
+      payload.data,
       [
         { key: "createdAt", label: "CREATED" },
-        { key: "title", label: "TITLE" },
         { key: "id", label: "ID" },
       ],
     );
@@ -1449,6 +1422,10 @@ export default defineCliCommands({
         homepage: flag.string({ description: "Homepage note id, short id, exact title, or path" }),
         clearHomepage: flag.boolean({ name: "clear-homepage", description: "Clear the homepage note" }),
         scriptsEnabled: flag.string({ name: "scripts-enabled", description: "Enable or disable scripts: true|false" }),
+        defaultNoteTitleTemplate: flag.string({
+          name: "default-note-title-template",
+          description: "Liquid template used for the initial H1 of empty notes",
+        }),
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "update", args.args),
     }),
@@ -1555,19 +1532,6 @@ export default defineCliCommands({
         ...noteFlag,
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "content", args.args),
-    }),
-    command("update-note", {
-      summary: "Update a note title, parent, or position",
-      args: noteArgs,
-      flags: {
-        ...notebookFlag,
-        ...noteFlag,
-        title: flag.string({ description: "New note title" }),
-        parent: flag.string({ aliases: ["parent-id"], description: "Parent note id, short id, exact title, or path" }),
-        root: flag.boolean({ description: "Move the note to the notebook root" }),
-        position: flag.int({ min: 0, description: "0-based sibling position" }),
-      },
-      run: ({ ctx, args }) => runNotebooksCommand(ctx, "update-note", args.args),
     }),
     command("move-note", {
       summary: "Move a note to another parent or the notebook root",

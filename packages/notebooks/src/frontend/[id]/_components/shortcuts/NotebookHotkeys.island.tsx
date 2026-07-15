@@ -20,17 +20,17 @@ type CreateNoteResult = {
 
 /** Note-level notebook shortcuts to avoid duplicate registrations from responsive sidebars. */
 export default function NotebookHotkeys(props: Props) {
-  const createNoteMutation = mutations.create<CreateNoteResult, { title: string }>({
-    mutation: async (data) => {
+  const createNoteMutation = mutations.create<CreateNoteResult, void>({
+    mutation: async () => {
       const res = await apiClient[":id"].notes.$post({
         param: { id: props.notebookId },
-        json: data,
+        json: {},
       });
       if (!res.ok) throw new Error("Failed to create note");
       return (await res.json()) as CreateNoteResult;
     },
     onSuccess: (data) => {
-      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.shortId));
+      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.shortId), { selectInitialTitle: data.shortId });
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -44,21 +44,7 @@ export default function NotebookHotkeys(props: Props) {
 
   const createNote = async () => {
     if (!props.canWrite || createNoteMutation.loading()) return;
-    const result = await prompts.form({
-      title: "New Note",
-      icon: "ti ti-file-plus",
-      fields: {
-        title: {
-          type: "text" as const,
-          label: "Title",
-          required: true,
-          placeholder: "Note title",
-        },
-      },
-    });
-    if (result) {
-      await createNoteMutation.mutate(result);
-    }
+    await createNoteMutation.mutate();
   };
 
   onMount(() => {

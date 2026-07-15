@@ -4,7 +4,8 @@ import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { requestSoftNoteNavigation } from "../../../lib/soft-navigation";
 import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
-import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
+import { NOTE_SOFT_NAVIGATED_EVENT, NOTE_TITLE_CHANGED_EVENT } from "../detail/events";
+import { hasOnlyNavigatorQuery } from "../../../../lib/navigator-url";
 import SearchButton from "../search/SearchButton";
 import NotebookSettingsButton from "../settings/NotebookSettingsButton";
 import CreateNoteButton from "./CreateNoteButton";
@@ -64,11 +65,23 @@ const insertNoteIntoTree = (nodes: NoteTreeNode[], note: NoteTreeNode) => {
   }
 };
 
+const updateNoteTitle = (nodes: NoteTreeNode[], noteId: string, title: string): boolean => {
+  for (const node of nodes) {
+    if (node.id === noteId) {
+      node.title = title;
+      sortNodes(nodes);
+      return true;
+    }
+    if (updateNoteTitle(node.children, noteId, title)) return true;
+  }
+  return false;
+};
+
 const resolveSameNotebookNoteHref = (url: URL, notebookShortId: string): string | null => {
-  if (url.origin !== window.location.origin || url.search || url.hash) return null;
+  if (url.origin !== window.location.origin || url.hash || !hasOnlyNavigatorQuery(url.searchParams)) return null;
   const match = url.pathname.match(/^\/app\/notebooks\/([^/]+)\/notes\/([^/]+)$/);
   if (!match || decodeURIComponent(match[1]!) !== notebookShortId) return null;
-  return `/app/notebooks/${encodeURIComponent(notebookShortId)}/notes/${encodeURIComponent(decodeURIComponent(match[2]!))}`;
+  return `${url.pathname}${url.search}`;
 };
 
 export default function NotebookSidebar(props: Props) {
@@ -167,11 +180,22 @@ export default function NotebookSidebar(props: Props) {
       const detail = (raw as CustomEvent<{ canonicalNoteId?: string }>).detail;
       if (detail?.canonicalNoteId) setSelectedNoteId(detail.canonicalNoteId);
     };
+    const onTitleChanged = (raw: Event) => {
+      const detail = (raw as CustomEvent<{ noteId?: string; title?: string }>).detail;
+      if (!detail?.noteId || !detail.title) return;
+      setNoteTree((current) => {
+        const next = cloneTree(current);
+        updateNoteTitle(next, detail.noteId!, detail.title!);
+        return next;
+      });
+    };
     window.addEventListener(WORKSPACE_EVENT, handler);
     window.addEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
+    window.addEventListener(NOTE_TITLE_CHANGED_EVENT, onTitleChanged);
     onCleanup(() => {
       window.removeEventListener(WORKSPACE_EVENT, handler);
       window.removeEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
+      window.removeEventListener(NOTE_TITLE_CHANGED_EVENT, onTitleChanged);
     });
   });
 
@@ -190,7 +214,7 @@ export default function NotebookSidebar(props: Props) {
   );
 
   return (
-    <AppWorkspace.Sidebar class={navigatorMode() ? "lg:!w-[35rem] [&>.paper>div:first-child]:lg:hidden" : ""}>
+    <AppWorkspace.Sidebar resizable={!navigatorMode()} class={navigatorMode() ? "lg:!w-[35rem] [&>.paper>div:first-child]:lg:hidden" : ""}>
       <AppWorkspace.SidebarHeader
         title={notebook().name}
         icon={notebook().icon || "ti-notebook"}
@@ -200,6 +224,7 @@ export default function NotebookSidebar(props: Props) {
             tree={noteTree()}
             permission={props.ctx.permission}
             variant="desktop"
+            dateConfig={props.ctx.dateConfig}
             viewTransitionName={vt("settings-desktop")}
           />
         }
@@ -212,6 +237,7 @@ export default function NotebookSidebar(props: Props) {
             tree={noteTree()}
             permission={props.ctx.permission}
             variant="mobile"
+            dateConfig={props.ctx.dateConfig}
             viewTransitionName={vt("settings-mobile")}
           />
           {canWrite && (
@@ -327,6 +353,8 @@ export default function NotebookSidebar(props: Props) {
             favoriteNoteIds={[...favoriteNoteIds()]}
             tags={props.ctx.tags}
             initialSortMode={props.ctx.settings.navigatorSort}
+            dateConfig={props.ctx.dateConfig}
+            initialQuery={props.ctx.navigatorQuery}
           />
         </Show>
       </AppWorkspace.SidebarDesktop>

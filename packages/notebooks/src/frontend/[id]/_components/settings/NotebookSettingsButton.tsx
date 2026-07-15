@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { prompts, type ResourceApiKey } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
 import { openNotebookSettingsDialog } from "./NotebookSettingsPanel";
@@ -10,6 +11,7 @@ type Props = {
   permission: string;
   variant: "desktop" | "mobile";
   viewTransitionName?: string;
+  dateConfig: DateContext;
 };
 
 const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
@@ -57,6 +59,7 @@ export default function NotebookSettingsButton(props: Props) {
       apiKeys,
       isAdmin: isAdmin(),
       canWrite: canWrite(),
+      dateConfig: props.dateConfig,
     });
   };
 

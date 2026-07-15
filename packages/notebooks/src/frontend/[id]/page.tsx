@@ -64,12 +64,14 @@ export default ssr<AuthContext>(async (c) => {
     namedBlocks,
     readonlyMode,
     graph,
+    versionHistory,
     ctx,
     appUrl,
     detailPanelOpen,
     showDetailPanel,
     panelAttachments,
     backlinks,
+    dateConfig,
   } = data;
 
   return () => (
@@ -99,6 +101,7 @@ export default ssr<AuthContext>(async (c) => {
               apiKeys={apiKeys}
               isAdmin={isAdmin}
               canWrite={canWrite}
+              dateConfig={dateConfig}
             />
           ) : isVersionsMode && selectedNoteId ? (
             <VersionHistory
@@ -107,6 +110,9 @@ export default ssr<AuthContext>(async (c) => {
               noteTitle={selectedNote?.title ?? ""}
               isLocked={!!selectedNote?.lockedAt}
               currentContentMd={selectedNote?.contentMd ?? null}
+              dateConfig={dateConfig}
+              initialVersions={versionHistory?.versions}
+              initialTotal={versionHistory?.total}
             />
           ) : isGraphMode && graph ? (
             <NotebookGraph notebookId={notebook.shortId} selectedNoteId={selectedNoteId} graph={graph} />

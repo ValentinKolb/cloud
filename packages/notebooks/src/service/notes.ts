@@ -1,6 +1,6 @@
 import type { MutationResult, PaginationParams } from "@valentinkolb/cloud/contracts";
-import { logger, toPgTextArray } from "@valentinkolb/cloud/services";
-import { fromBase64Strict } from "@valentinkolb/stdlib";
+import { get as settingsGet, logger, toPgTextArray } from "@valentinkolb/cloud/services";
+import { dates, fromBase64Strict, type DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import * as Y from "yjs";
 import {
@@ -12,6 +12,8 @@ import {
   noteContentHash,
   summarizeNoteEditBlocks,
 } from "../lib/note-edit";
+import { createInitialNoteMarkdown, deriveNoteTitle, hasUsableNoteTitle } from "../lib/note-title";
+import { buildNoteTitleTemplateContext, renderNoteTitleTemplate } from "../lib/note-title-template";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
 import { buildNotebookVisibleAccessCondition } from "./access";
 import { reindexNoteRefsSafe } from "./note-refs";
@@ -50,13 +52,11 @@ export type NoteTreeNode = Note & {
 export type CreateNote = {
   notebookId: string;
   parentId?: string;
-  title: string;
   position?: number;
   contentMd?: string;
 };
 
 export type UpdateNote = {
-  title?: string;
   parentId?: string | null;
   position?: number;
 };
@@ -64,7 +64,6 @@ export type UpdateNote = {
 export type NoteVersion = {
   id: string;
   noteId: string;
-  title: string | null;
   createdBy: string | null;
   createdAt: string;
 };
@@ -108,9 +107,22 @@ type DbYjsState = {
 type DbNoteVersion = {
   id: string;
   note_id: string;
-  title: string | null;
   created_by: string | null;
   created_at: Date;
+};
+
+type DbNotebookTitleTemplate = {
+  id: string;
+  short_id: string;
+  name: string;
+  default_note_title_template: string;
+};
+
+type DbParentTitleContext = {
+  id: string;
+  short_id: string;
+  title: string;
+  depth: number;
 };
 
 const VERSION_MIN_INTERVAL = "5 minutes";
@@ -176,10 +188,66 @@ const cleanupFailedCreate = async (noteId: string): Promise<void> => {
 const mapToNoteVersion = (row: DbNoteVersion): NoteVersion => ({
   id: row.id,
   noteId: row.note_id,
-  title: row.title,
   createdBy: row.created_by,
   createdAt: row.created_at.toISOString(),
 });
+
+const defaultDateConfig = async (): Promise<DateContext> => ({
+  timeZone: dates.normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
+  locale: "en",
+  firstDayOfWeek: 1,
+});
+
+const initialContentForNote = async (params: {
+  notebookId: string;
+  parentId?: string;
+  noteShortId: string;
+  contentMd?: string;
+  dateConfig?: DateContext;
+}): Promise<string> => {
+  if (hasUsableNoteTitle(params.contentMd)) return params.contentMd!;
+
+  const [notebook] = await sql<DbNotebookTitleTemplate[]>`
+    SELECT id, short_id, name, default_note_title_template
+    FROM notebooks.notebooks
+    WHERE id = ${params.notebookId}::uuid
+  `;
+  if (!notebook) throw new Error("Notebook not found");
+
+  const ancestors = params.parentId
+    ? await sql<DbParentTitleContext[]>`
+        WITH RECURSIVE chain AS (
+          SELECT id, short_id, parent_id, title, 0 AS depth
+          FROM notebooks.notes
+          WHERE id = ${params.parentId}::uuid
+            AND notebook_id = ${params.notebookId}::uuid
+          UNION ALL
+          SELECT parent.id, parent.short_id, parent.parent_id, parent.title, chain.depth + 1
+          FROM notebooks.notes parent
+          INNER JOIN chain ON parent.id = chain.parent_id
+        )
+        SELECT id, short_id, title, depth
+        FROM chain
+        ORDER BY depth ASC
+      `
+    : [];
+  const parent = ancestors[0];
+  const context = buildNoteTitleTemplateContext({
+    notebook: { id: notebook.id, short_id: notebook.short_id, name: notebook.name },
+    note: { short_id: params.noteShortId, depth: ancestors.length },
+    parent: parent
+      ? {
+          exists: true,
+          id: parent.id,
+          short_id: parent.short_id,
+          title: parent.title,
+          path: [...ancestors].reverse().map((ancestor) => ancestor.title).join(" / "),
+        }
+      : undefined,
+    dateConfig: params.dateConfig ?? (await defaultDateConfig()),
+  });
+  return createInitialNoteMarkdown(renderNoteTitleTemplate(notebook.default_note_title_template, context), params.contentMd);
+};
 
 const compareTreeNodes = (left: NoteTreeNode, right: NoteTreeNode): number => {
   const leftTitle = left.title.trim().toLocaleLowerCase();
@@ -582,7 +650,7 @@ export const getWithContentByIdOrShortId = async (params: { idOrShortId: string 
 /**
  * Create a new note.
  */
-export const create = async (params: { data: CreateNote; creatorId: string | null }): Promise<MutationResult<Note>> => {
+export const create = async (params: { data: CreateNote; creatorId: string | null; dateConfig?: DateContext }): Promise<MutationResult<Note>> => {
   const { data, creatorId } = params;
   let createdNoteId: string | null = null;
 
@@ -604,44 +672,44 @@ export const create = async (params: { data: CreateNote; creatorId: string | nul
 
   try {
     const shortId = await generateUniqueShortId("note");
+    const contentMd = await initialContentForNote({
+      notebookId: data.notebookId,
+      parentId: data.parentId,
+      noteShortId: shortId,
+      contentMd: data.contentMd,
+      dateConfig: params.dateConfig,
+    });
+    const title = deriveNoteTitle(contentMd);
+    const doc = createDocFromState(null, contentMd);
+    const snapshot = Buffer.from(Y.encodeStateAsUpdate(doc));
+    doc.destroy();
     const [row] = await sql<DbNote[]>`
-      INSERT INTO notebooks.notes (short_id, notebook_id, parent_id, title, position, created_by)
+      INSERT INTO notebooks.notes (
+        short_id, notebook_id, parent_id, title, title_projection_version, position,
+        yjs_snapshot, yjs_snapshot_at, content_md, created_by
+      )
       VALUES (
         ${shortId},
         ${data.notebookId}::uuid,
         ${data.parentId ?? null}::uuid,
-        ${data.title},
+        ${title},
+        1,
         ${position},
+        ${snapshot},
+        now(),
+        ${contentMd},
         ${creatorId}::uuid
       )
       RETURNING id, short_id, notebook_id, parent_id, title, position,
-                yjs_snapshot_at, content_md, created_by, created_at, updated_at
+                yjs_snapshot_at, content_md, created_by, created_at, updated_at, locked_at
     `;
 
     if (!row) {
       return { ok: false, error: "Failed to create note", status: 500 };
     }
     createdNoteId = row.id;
-
-    if (data.contentMd !== undefined) {
-      const doc = new Y.Doc();
-      doc.getText("codemirror").insert(0, data.contentMd);
-      const snapshot = Y.encodeStateAsUpdate(doc);
-      doc.destroy();
-
-      const saveResult = await save({
-        noteId: row.id,
-        yjsState: snapshot,
-        contentMd: data.contentMd,
-        createdBy: creatorId,
-      });
-      if (!saveResult.ok) {
-        await cleanupFailedCreate(row.id);
-        return { ok: false, error: saveResult.error, status: saveResult.status };
-      }
-    }
-
-    const note = (await get({ id: row.id })) ?? mapToNote({ ...row, content_md: data.contentMd ?? null, has_children: false });
+    await reindexNoteRefsSafe({ noteId: row.id, notebookId: data.notebookId, contentMd });
+    const note = (await get({ id: row.id })) ?? mapToNote({ ...row, has_children: false });
     await noteCreated(note);
     return { ok: true, data: note };
   } catch (e: unknown) {
@@ -674,7 +742,6 @@ export const update = async (params: { id: string; data: UpdateNote }): Promise<
     return { ok: false, error: "Cannot modify locked note", status: 403 };
   }
 
-  const title = data.title ?? existing.title;
   const parentId = data.parentId === undefined ? existing.parentId : data.parentId;
   const position = data.position ?? existing.position;
 
@@ -696,8 +763,7 @@ export const update = async (params: { id: string; data: UpdateNote }): Promise<
 
   const [row] = await sql<DbNote[]>`
     UPDATE notebooks.notes
-    SET title = ${title},
-        parent_id = ${parentId}::uuid, position = ${position}, updated_at = now()
+    SET parent_id = ${parentId}::uuid, position = ${position}, updated_at = now()
     WHERE id = ${id}::uuid
       AND locked_at IS NULL
     RETURNING id, notebook_id, parent_id, title, position,
@@ -770,7 +836,7 @@ export const move = async (params: { id: string; parentId: string | null; positi
 export const save = async (params: {
   noteId: string;
   yjsState: Uint8Array;
-  contentMd?: string;
+  contentMd: string;
   createdBy: string | null;
   createVersion?: boolean;
   streamCursor?: string | null;
@@ -778,13 +844,12 @@ export const save = async (params: {
 }): Promise<MutationResult<void>> => {
   const { noteId, yjsState, contentMd, createdBy, createVersion = false, streamCursor = null, requestedAt } = params;
 
-  // Check if note is locked
-  const locked = await isLocked({ id: noteId });
-  if (locked) {
-    return { ok: false, error: "Cannot modify locked note", status: 403 };
-  }
+  const existing = await get({ id: noteId });
+  if (!existing) return { ok: false, error: "Note not found", status: 404 };
+  if (existing.lockedAt) return { ok: false, error: "Cannot modify locked note", status: 403 };
 
   const yjsBuffer = Buffer.from(yjsState);
+  const title = deriveNoteTitle(contentMd);
 
   const parsedCursor = parseStreamCursor(streamCursor);
   const requestedAtSeconds = (requestedAt ?? Date.now()) / 1000;
@@ -796,7 +861,9 @@ export const save = async (params: {
             yjs_stream_ms = ${parsedCursor.ms},
             yjs_stream_seq = ${parsedCursor.seq},
             yjs_snapshot_at = now(),
-            content_md = ${contentMd ?? null},
+            content_md = ${contentMd},
+            title = ${title},
+            title_projection_version = 1,
             updated_at = now()
         WHERE id = ${noteId}::uuid
           AND locked_at IS NULL
@@ -810,7 +877,9 @@ export const save = async (params: {
         UPDATE notebooks.notes
         SET yjs_snapshot = ${yjsBuffer},
             yjs_snapshot_at = now(),
-            content_md = ${contentMd ?? null},
+            content_md = ${contentMd},
+            title = ${title},
+            title_projection_version = 1,
             updated_at = now()
         WHERE id = ${noteId}::uuid
           AND locked_at IS NULL
@@ -843,14 +912,14 @@ export const save = async (params: {
         ORDER BY created_at DESC
         LIMIT 1
       )
-      INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, title, created_by)
-      SELECT ${noteId}::uuid, ${yjsBuffer}, ${contentMd ?? null}, n.title, ${createdBy}::uuid
+      INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, created_by)
+      SELECT ${noteId}::uuid, ${yjsBuffer}, ${contentMd}, ${createdBy}::uuid
       FROM notebooks.notes n
       WHERE n.id = ${noteId}::uuid
         AND (
           NOT EXISTS (SELECT 1 FROM latest)
           OR (
-            (SELECT content_md FROM latest) IS DISTINCT FROM ${contentMd ?? null}
+            (SELECT content_md FROM latest) IS DISTINCT FROM ${contentMd}
             AND (SELECT created_at FROM latest) <= now() - ${VERSION_MIN_INTERVAL}::interval
           )
         )
@@ -915,11 +984,10 @@ export const save = async (params: {
   // Refresh the three note-ref indexes (links, tags, attachments) after
   // every successful content write. Cheap and best-effort — a failure
   // here never aborts the save (the periodic scheduler reconciles drift).
-  const [refRow] = await sql<{ notebook_id: string }[]>`
-    SELECT notebook_id FROM notebooks.notes WHERE id = ${noteId}::uuid
-  `;
-  if (refRow) {
-    await reindexNoteRefsSafe({ noteId, notebookId: refRow.notebook_id, contentMd: contentMd ?? null });
+  const note = await get({ id: noteId });
+  if (note) {
+    await reindexNoteRefsSafe({ noteId, notebookId: note.notebookId, contentMd });
+    if (existing.title !== note.title || existing.contentMd !== note.contentMd) await noteUpdated(note);
   }
 
   return { ok: true, data: undefined };
@@ -1041,7 +1109,6 @@ export const editContent = async (params: {
 
   const note = await get({ id: params.noteId });
   if (!note) return { ok: false, error: "Note not found", status: 404 };
-  await noteUpdated(note);
   return {
     ok: true,
     data: {
@@ -1089,7 +1156,7 @@ export const listVersions = async (params: {
   `;
 
   const rows = await sql<DbNoteVersion[]>`
-    SELECT id, note_id, title, created_by, created_at
+    SELECT id, note_id, created_by, created_at
     FROM notebooks.note_versions
     WHERE note_id = ${noteId}::uuid
     ORDER BY created_at DESC
@@ -1173,6 +1240,7 @@ export const restoreFromSnapshot = async (params: {
   const restoreStreamMs = Date.now();
   // Keep restore cursor dominant even on same-ms collisions with stream entries.
   const restoreStreamSeq = Number.MAX_SAFE_INTEGER;
+  const restoredTitle = deriveNoteTitle(restoredContentMd);
 
   const restored = await sql.begin(async (tx): Promise<boolean> => {
     const result = await tx`
@@ -1182,6 +1250,8 @@ export const restoreFromSnapshot = async (params: {
           yjs_stream_seq = ${restoreStreamSeq},
           yjs_snapshot_at = now(),
           content_md = ${restoredContentMd},
+          title = ${restoredTitle},
+          title_projection_version = 1,
           updated_at = now()
       WHERE id = ${noteId}::uuid
         AND locked_at IS NULL
@@ -1190,8 +1260,8 @@ export const restoreFromSnapshot = async (params: {
 
     // Keep the restored row and its history entry atomic.
     await tx`
-      INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, title, created_by)
-      VALUES (${noteId}::uuid, ${snapshotBuffer}, ${restoredContentMd}, ${existing.title}, ${createdBy}::uuid)
+      INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, created_by)
+      VALUES (${noteId}::uuid, ${snapshotBuffer}, ${restoredContentMd}, ${createdBy}::uuid)
     `;
     return true;
   });
@@ -1208,6 +1278,7 @@ export const restoreFromSnapshot = async (params: {
   await reindexNoteRefsSafe({ noteId, notebookId: existing.notebookId, contentMd: restoredContentMd });
 
   const updated = await get({ id: noteId });
+  if (updated) await noteUpdated(updated);
   return { ok: true, data: updated! };
 };
 
@@ -1248,53 +1319,26 @@ export const copyToNotebook = async (params: {
     return { ok: false, error: "Source note not found", status: 404 };
   }
 
-  // Create the copy
-  const result = await create({
-    data: {
-      notebookId: targetNotebookId,
-      parentId: targetParentId ?? undefined,
-      title: source.title,
-    },
-    creatorId,
-  });
-
-  if (!result.ok) {
-    return result;
-  }
-
-  if (!source.yjsSnapshot && source.contentMd === null) return result;
-
-  let yjsState: Uint8Array;
+  let contentMd = source.contentMd;
   try {
-    if (source.yjsSnapshot) {
-      yjsState = fromBase64Strict(source.yjsSnapshot);
-    } else {
-      const doc = createDocFromState(null, source.contentMd);
-      yjsState = Y.encodeStateAsUpdate(doc);
+    if (contentMd === null && source.yjsSnapshot) {
+      const doc = createDocFromState(fromBase64Strict(source.yjsSnapshot), null);
+      contentMd = doc.getText(NOTE_TEXT_NAME).toString();
       doc.destroy();
     }
   } catch (error) {
-    await cleanupFailedCreate(result.data.id);
     log.error("Failed to decode copied note content", {
       sourceNoteId: noteId,
       error: error instanceof Error ? error.message : String(error),
     });
     return { ok: false, error: "Failed to copy note content", status: 500 };
   }
-
-  const saveResult = await save({
-    noteId: result.data.id,
-    yjsState,
-    contentMd: source.contentMd ?? undefined,
-    createdBy: creatorId,
+  return create({
+    data: {
+      notebookId: targetNotebookId,
+      parentId: targetParentId ?? undefined,
+      contentMd: contentMd ?? undefined,
+    },
+    creatorId,
   });
-  if (!saveResult.ok) {
-    await cleanupFailedCreate(result.data.id);
-    return { ok: false, error: saveResult.error, status: saveResult.status };
-  }
-
-  const copied = await get({ id: result.data.id });
-  if (!copied) return { ok: false, error: "Copied note not found", status: 500 };
-  await noteUpdated(copied);
-  return { ok: true, data: copied };
 };

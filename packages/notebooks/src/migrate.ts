@@ -1,4 +1,6 @@
 import { sql } from "bun";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { deriveNoteTitle } from "./lib/note-title";
 import { backfillShortIds, type ShortIdTable } from "./lib/short-id";
 
 export const migrate = async (): Promise<void> => {
@@ -11,6 +13,7 @@ export const migrate = async (): Promise<void> => {
       name TEXT NOT NULL,
       description TEXT,
       icon TEXT,
+      default_note_title_template TEXT NOT NULL DEFAULT 'New Document',
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -28,6 +31,10 @@ export const migrate = async (): Promise<void> => {
   // Without this gate the scripting engine renders the source as an
   // inert code-fence so legacy notebooks can't execute anything new.
   await sql`ALTER TABLE notebooks.notebooks ADD COLUMN IF NOT EXISTS scripts_enabled BOOLEAN NOT NULL DEFAULT FALSE`.simple();
+  await sql`
+    ALTER TABLE notebooks.notebooks
+    ADD COLUMN IF NOT EXISTS default_note_title_template TEXT NOT NULL DEFAULT 'New Document'
+  `.simple();
   console.log("  ✓ notebooks.notebooks table");
 
   await sql`
@@ -49,6 +56,7 @@ export const migrate = async (): Promise<void> => {
       notebook_id UUID NOT NULL REFERENCES notebooks.notebooks(id) ON DELETE CASCADE,
       parent_id UUID REFERENCES notebooks.notes(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
+      title_projection_version SMALLINT NOT NULL DEFAULT 1,
       position INT NOT NULL DEFAULT 0,
       yjs_snapshot BYTEA,
       yjs_stream_ms BIGINT,
@@ -74,6 +82,10 @@ export const migrate = async (): Promise<void> => {
     ON notebooks.notes(notebook_id, parent_id, position)
   `.simple();
   await sql`ALTER TABLE notebooks.notes ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`
+    ALTER TABLE notebooks.notes
+    ADD COLUMN IF NOT EXISTS title_projection_version SMALLINT NOT NULL DEFAULT 0
+  `.simple();
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_short_id ON notebooks.notes(short_id)`.simple();
 
   // Canonical search projection. `simple` keeps mixed-language notebooks
@@ -154,11 +166,11 @@ export const migrate = async (): Promise<void> => {
       note_id UUID NOT NULL REFERENCES notebooks.notes(id) ON DELETE CASCADE,
       yjs_snapshot BYTEA NOT NULL,
       content_md TEXT,
-      title TEXT,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  await sql`ALTER TABLE notebooks.note_versions DROP COLUMN IF EXISTS title`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_note_versions_note
     ON notebooks.note_versions(note_id, created_at DESC)
@@ -295,4 +307,29 @@ export const migrate = async (): Promise<void> => {
     const filled = await backfillShortIds(table);
     if (filled > 0) console.log(`  ✓ short_id backfill: ${filled} ${table}(s)`);
   }
+
+  let projectedTitles = 0;
+  while (true) {
+    const rows = await sql<{ id: string; content_md: string | null }[]>`
+      SELECT id, content_md
+      FROM notebooks.notes
+      WHERE title_projection_version < 1
+      ORDER BY id
+      LIMIT 500
+    `;
+    if (rows.length === 0) break;
+
+    const ids = toPgUuidArray(rows.map((row) => row.id));
+    const titles = toPgTextArray(rows.map((row) => deriveNoteTitle(row.content_md)));
+    await sql`
+      UPDATE notebooks.notes AS note
+      SET title = projected.title,
+          title_projection_version = 1
+      FROM unnest(${ids}::uuid[], ${titles}::text[]) AS projected(id, title)
+      WHERE note.id = projected.id
+    `;
+    projectedTitles += rows.length;
+  }
+  await sql`ALTER TABLE notebooks.notes ALTER COLUMN title_projection_version SET DEFAULT 1`.simple();
+  if (projectedTitles > 0) console.log(`  ✓ derived title backfill: ${projectedTitles} note(s)`);
 };

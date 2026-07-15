@@ -1,4 +1,5 @@
 import { extractNamedBlockSummaries, type NamedBlockSummary } from "../lib/named-blocks";
+import { hasOnlyNavigatorQuery, parseNavigatorQuery, withNavigatorQuery } from "../lib/navigator-url";
 import { extractTaskProgress, extractTocFromMarkdown, type TaskProgress, type TocItem } from "../lib/note-insights";
 import type { Attachment } from "./attachments";
 import type { Backlink } from "./links";
@@ -119,27 +120,35 @@ type ResolveEditableRouteParams = Omit<LoadSelectedNoteParams, "noteIdOrShortId"
   origin: string;
 };
 
-const parseSameNotebookNoteHref = (params: ResolveEditableRouteParams): string | null => {
+const parseSameNotebookNoteHref = (
+  params: ResolveEditableRouteParams,
+): { noteIdOrShortId: string; hrefQuery: ReturnType<typeof parseNavigatorQuery> } | null => {
   try {
     const url = new URL(params.href, params.origin);
-    if (url.origin !== params.origin || url.search || url.hash) return null;
+    if (url.origin !== params.origin || url.hash || !hasOnlyNavigatorQuery(url.searchParams)) return null;
     const match = url.pathname.match(/^\/app\/notebooks\/([^/]+)\/notes\/([^/]+)$/);
     if (!match || decodeURIComponent(match[1]!) !== params.notebookShortId) return null;
-    return decodeURIComponent(match[2]!);
+    return {
+      noteIdOrShortId: decodeURIComponent(match[2]!),
+      hrefQuery: parseNavigatorQuery(url.searchParams),
+    };
   } catch {
     return null;
   }
 };
 
 export const loadEditableNoteRouteData = async (params: ResolveEditableRouteParams): Promise<NotebookRouteStateResponse> => {
-  const noteIdOrShortId = parseSameNotebookNoteHref(params);
-  if (!noteIdOrShortId) return { kind: "fallback", reason: "invalid-target" };
+  const target = parseSameNotebookNoteHref(params);
+  if (!target) return { kind: "fallback", reason: "invalid-target" };
 
-  const state = await loadSelectedNoteRouteState({ ...params, noteIdOrShortId });
+  const state = await loadSelectedNoteRouteState({ ...params, noteIdOrShortId: target.noteIdOrShortId });
   if (!state) return { kind: "fallback", reason: "not-found" };
   if (state.readonlyMode) return { kind: "fallback", reason: "readonly" };
 
-  const href = `/app/notebooks/${encodeURIComponent(params.notebookShortId)}/notes/${encodeURIComponent(state.note.shortId)}`;
+  const href = withNavigatorQuery(
+    `/app/notebooks/${encodeURIComponent(params.notebookShortId)}/notes/${encodeURIComponent(state.note.shortId)}`,
+    target.hrefQuery,
+  );
   return {
     kind: "ok",
     state: {

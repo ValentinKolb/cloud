@@ -28,7 +28,13 @@ function NotebookSettingsBody(props: NotebookSettingsProps & { bare?: boolean; c
           closeLabel="Close settings"
         >
           <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, icon, description, and default start page.">
-            <GeneralSection notebook={notebook()} tree={props.tree} canWrite={props.canWrite} onNotebookChange={setNotebook} />
+            <GeneralSection
+              notebook={notebook()}
+              tree={props.tree}
+              canWrite={props.canWrite}
+              dateConfig={props.dateConfig}
+              onNotebookChange={setNotebook}
+            />
           </SettingsModal.Tab>
           <SettingsModal.Tab
             id="features"

@@ -1,4 +1,6 @@
 import type { NotebookSettings } from "../settings/NotebookSettingsStore";
+import type { DateContext } from "@valentinkolb/stdlib";
+import type { NavigatorQuery } from "../../../../lib/navigator-url";
 
 /** Notebook metadata (matches backend NotebookSchema) */
 export type Notebook = {
@@ -11,6 +13,7 @@ export type Notebook = {
   homepageNoteShortId: string | null;
   /** Per-notebook opt-in for `\`\`\`script` block execution. */
   scriptsEnabled: boolean;
+  defaultNoteTitleTemplate: string;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -55,4 +58,6 @@ export type NotebookContext = {
   favoriteNoteIds: string[];
   /** Tag summaries for the navigator sidebar. */
   tags: TagSummary[];
+  dateConfig: DateContext;
+  navigatorQuery: NavigatorQuery;
 };

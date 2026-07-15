@@ -55,7 +55,7 @@ const runNotePrompt = async (notebookId: string, dressing: PromptDressing): Prom
         },
         { init: { signal: abortSignal } },
       );
-      if (!response.ok) return [];
+      if (!response.ok) throw new Error("Notes could not be searched. Try again.");
 
       const payload = await response.json();
       return (payload as SearchResponse).data.map((hit) => ({

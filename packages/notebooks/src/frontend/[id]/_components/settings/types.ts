@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import type { LogTableEntry, ResourceApiKey } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
 
 export type NotebookSettingsProps = {
@@ -9,6 +10,7 @@ export type NotebookSettingsProps = {
   apiKeys: ResourceApiKey[];
   isAdmin: boolean;
   canWrite: boolean;
+  dateConfig: DateContext;
 };
 
 export type NoteSelectOption = {

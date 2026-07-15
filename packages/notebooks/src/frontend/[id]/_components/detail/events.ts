@@ -46,3 +46,5 @@ export const NAMED_BLOCK_SCROLL_EVENT = "notebooks.namedBlocks.scrollTo";
  * metadata plus SSR-equivalent sidebar/detail data.
  */
 export const NOTE_SOFT_NAVIGATED_EVENT = "notebooks.note.softNavigated";
+/** Editor → local workspace surfaces while the persisted projection catches up. */
+export const NOTE_TITLE_CHANGED_EVENT = "notebooks.note.titleChanged";

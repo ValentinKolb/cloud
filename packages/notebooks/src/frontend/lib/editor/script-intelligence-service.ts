@@ -112,7 +112,6 @@ type KitChartOptions<K extends KitChartKind> = Omit<Parameters<(typeof stdCharts
   readonly updatedAt: string;
   readonly lockedAt: string | null;
   readonly kv: KitStateAPI;
-  setTitle(title: string): Promise<void>;
   setContent(content: string): Promise<void>;
   appendContent(markdown: string): Promise<void>;
 	  prependContent(markdown: string): Promise<void>;
@@ -124,8 +123,8 @@ type KitChartOptions<K extends KitChartKind> = Omit<Parameters<(typeof stdCharts
   get(shortId: string): Promise<KitNote | null>;
   search(query: string | KitQuery): Promise<KitNote[] & { __truncated?: boolean }>;
   searchTags(tags: string | string[], options?: { limit?: number; offset?: number }): Promise<KitNote[] & { __truncated?: boolean }>;
-  create(data: { title: string; parentId?: string; content?: string }): Promise<KitNote>;
-  update(shortId: string, data: { title?: string; parentId?: string | null }): Promise<KitNote>;
+  create(data?: { parentId?: string; content?: string }): Promise<KitNote>;
+  update(shortId: string, data: { parentId: string | null }): Promise<KitNote>;
 	  remove(shortId: string): Promise<void>;
 	}
 interface KitAttachmentsAPI {

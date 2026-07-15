@@ -7,7 +7,7 @@
  * handler re-renders, no client-side filtering.
  */
 
-import type { AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { AppWorkspace, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
@@ -108,6 +108,8 @@ export default ssr<AuthContext>(async (c) => {
     tagCount,
     favoriteNoteIds: favoriteRows.map((row) => row.noteId),
     tags,
+    dateConfig: getDateConfig(c),
+    navigatorQuery: {},
   };
 
   return () => (

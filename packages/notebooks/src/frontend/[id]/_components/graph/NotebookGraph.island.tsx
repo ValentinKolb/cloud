@@ -1,4 +1,5 @@
 import { Tooltip } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import { forceCenter, forceLink, forceManyBody, forceSimulation, type Simulation } from "d3-force";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { NoteGraph } from "../../../../service/links";
@@ -57,6 +58,7 @@ const radiusFor = (inDegree: number): number => Math.min(NODE_MAX_RADIUS, NODE_B
 
 export default function NotebookGraph(props: Props) {
   const [hoveredId, setHoveredId] = createSignal<string | null>(null);
+  const [focusedId, setFocusedId] = createSignal<string | null>(null);
   const [zoom, setZoom] = createSignal(1);
   const [pan, setPan] = createSignal({ x: 0, y: 0 });
 
@@ -95,6 +97,12 @@ export default function NotebookGraph(props: Props) {
   };
 
   const setClampedZoom = (next: number) => setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next)));
+
+  const openNode = (node: SimNode) => {
+    node.fx = null;
+    node.fy = null;
+    navigateTo(buildNoteUrl(props.notebookId, node.shortId));
+  };
 
   const fitGraph = () => {
     const positioned = simNodes.filter((node) => node.x !== undefined && node.y !== undefined);
@@ -223,10 +231,7 @@ export default function NotebookGraph(props: Props) {
       clearPointerGesture = undefined;
       simulation?.alphaTarget(0);
       if (navigate && !didMove) {
-        // Pure click → unpin and navigate to the note.
-        node.fx = null;
-        node.fy = null;
-        window.location.assign(buildNoteUrl(props.notebookId, node.shortId));
+        openNode(node);
       }
       // If the user dragged, keep `fx`/`fy` so the node stays where they
       // dropped it. The simulation will re-settle the rest around it.
@@ -327,13 +332,25 @@ export default function NotebookGraph(props: Props) {
                   <g
                     ref={(el) => nodeGroups.set(node.id, el)}
                     class={`cursor-pointer transition-opacity ${isDimmed(node.id) ? "opacity-25" : "opacity-100"}`}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open ${node.title || "Untitled"}`}
                     onPointerDown={(e) => onNodePointerDown(node, e)}
                     onPointerEnter={() => setHoveredId(node.id)}
                     onPointerLeave={() => setHoveredId(null)}
+                    onFocus={() => setFocusedId(node.id)}
+                    onBlur={() => setFocusedId(null)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      openNode(node);
+                    }}
                   >
                     <circle
                       r={radius}
-                      class={isSelected(node.id) ? "fill-blue-200 dark:fill-blue-900" : "fill-zinc-400 dark:fill-zinc-600"}
+                      class={`${isSelected(node.id) ? "fill-blue-200 dark:fill-blue-900" : "fill-zinc-400 dark:fill-zinc-600"} ${
+                        focusedId() === node.id ? "stroke-blue-500 stroke-2" : ""
+                      }`}
                     />
                     <text
                       y={radius + 12}

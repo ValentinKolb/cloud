@@ -263,9 +263,6 @@ export type KitCurrentNote = KitWritableNoteBlocks & {
 
   // ----- write methods (edit-mode only — throw in read-mode) -----
 
-  /** Update the note's title. Persists via PATCH; visible to all
-   *  collaborators after sync. */
-  setTitle(title: string): Promise<void>;
   /** Replace the entire markdown content. Diff-based at the Y.Text
    *  level so collaborators' cursors jump as little as possible. */
   setContent(content: string): Promise<void>;
@@ -347,8 +344,8 @@ export type KitNotesAPI = {
   /** Convenience tag search. `searchTags("garden")` and
    *  `search("#garden")` use the same current-notebook filter. */
   searchTags(tags: string | string[], options?: { limit?: number; offset?: number }): Promise<KitNote[] & { __truncated?: boolean }>;
-  create(data: { title: string; parentId?: string; content?: string }): Promise<KitNote>;
-  update(shortId: string, data: { title?: string; parentId?: string | null }): Promise<KitNote>;
+  create(data?: { parentId?: string; content?: string }): Promise<KitNote>;
+  update(shortId: string, data: { parentId: string | null }): Promise<KitNote>;
   remove(shortId: string): Promise<void>;
 };
 

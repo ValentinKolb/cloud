@@ -190,7 +190,6 @@ export const recipeCollectorTemplate: NotebookTemplate = {
   notes: () => [
     {
       key: "dashboard",
-      title: "Kitchen Dashboard",
       content: (c) => `# Kitchen Dashboard
 
 #kitchen
@@ -221,7 +220,6 @@ ${recipeDashboardScript}
     },
     {
       key: "pantry",
-      title: "Pantry",
       content: `# Pantry
 
 #pantry
@@ -250,7 +248,6 @@ The first column is the lookup key used by scripts. Exact names keep the app pre
     },
     {
       key: "recipes",
-      title: "Recipes",
       content: `# Recipes
 
 #recipes
@@ -268,7 +265,6 @@ ${recipesIndexScript}
     },
     {
       key: "obazda",
-      title: "Obazda with Radish and Brezn",
       content: recipeContent(
         "Obazda with Radish and Brezn",
         "brotzeit",
@@ -288,7 +284,6 @@ ${recipesIndexScript}
     },
     {
       key: "kaesespaetzle",
-      title: "Kaesespaetzle with Fried Onions",
       content: recipeContent(
         "Kaesespaetzle with Fried Onions",
         "main",
@@ -308,7 +303,6 @@ ${recipesIndexScript}
     },
     {
       key: "blaue-zipfel",
-      title: "Franconian Blaue Zipfel",
       content: recipeContent(
         "Franconian Blaue Zipfel",
         "main",
