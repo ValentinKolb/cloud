@@ -7,8 +7,18 @@ import pageRoutes from "./frontend";
 import { migrate } from "./migrate";
 import { createMailNotificationService } from "./notifications";
 import { commandRuntime, mailRuntime, workflowMaterializationRuntime, workflowRuntime } from "./service";
+import { stopRuntimeResources } from "./service/runtime-lifecycle";
 
 const mailNotifications = createMailNotificationService(app.notifications);
+
+const stopMailRuntimes = (): Promise<void> =>
+  stopRuntimeResources([
+    () => mailRuntime.stop(),
+    () => workflowMaterializationRuntime.stop(),
+    () => workflowRuntime.stop(),
+    () => commandRuntime.stop(),
+    () => mailNotifications.stop(),
+  ]);
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -23,31 +33,22 @@ export default await app.start({
   lifecycle: {
     setup: migrate,
     start: async () => {
-      await mailNotifications.start();
       try {
+        await mailNotifications.start();
         await mailRuntime.start();
         await commandRuntime.start();
         await workflowMaterializationRuntime.start();
         await workflowRuntime.start();
-      } catch (error) {
-        await workflowRuntime.stop().catch(() => undefined);
-        await workflowMaterializationRuntime.stop().catch(() => undefined);
-        await commandRuntime.stop().catch(() => undefined);
-        await mailRuntime.stop().catch(() => undefined);
-        await mailNotifications.stop().catch(() => undefined);
-        throw error;
+      } catch (startError) {
+        try {
+          await stopMailRuntimes();
+        } catch (cleanupError) {
+          throw new AggregateError([startError, cleanupError], "Mail startup and cleanup failed");
+        }
+        throw startError;
       }
     },
-    stop: async () => {
-      try {
-        await workflowRuntime.stop();
-        await workflowMaterializationRuntime.stop();
-        await commandRuntime.stop();
-        await mailRuntime.stop();
-      } finally {
-        await mailNotifications.stop();
-      }
-    },
+    stop: stopMailRuntimes,
   },
 });
 

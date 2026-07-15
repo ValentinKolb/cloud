@@ -6,6 +6,7 @@ import { z } from "zod";
 import { hasCurrentMailboxUserPermission } from "./service/collaborators";
 import type { CollaborationNotificationKind } from "./service/notification-outbox";
 import { mailNotificationTargetHref } from "./service/notification-targets";
+import { createRuntimeLifecycle, createRuntimeTaskTracker, stopRuntimeJobs, stopRuntimeResources } from "./service/runtime-lifecycle";
 
 const RECOVERY_SCHEDULE_ID = "mail:collaboration-notifications:recover";
 const RECOVERY_BATCH_SIZE = 100;
@@ -395,43 +396,55 @@ export const createMailNotificationService = (
 ) => {
   const recoveryScheduler = scheduler({ id: "mail-collaboration-notifications" });
   const send = options.sender ?? defaultSender(definitions);
-  const deliveryJob = job<DeliveryJobInput, { outcome: "sent" | "skipped" }>({
+  const deliveryTasks = createRuntimeTaskTracker();
+  const deliveryJob = job<DeliveryJobInput, { outcome: "sent" | "skipped" } | null>({
     id: options.jobId ?? "mail:collaboration-notification-delivery",
     defaults: { leaseMs: 120_000, keyTtlMs: 24 * 60 * 60 * 1_000 },
-    trace: trace.fromSyncJob<DeliveryJobInput, { outcome: "sent" | "skipped" }>({
+    trace: trace.fromSyncJob<DeliveryJobInput, { outcome: "sent" | "skipped" } | null>({
       name: "Mail collaboration notification delivery",
       source: "mail:collaboration-notification-delivery",
       appId: "mail",
       attributes: (event) =>
         "input" in event && event.input?.kind === "delivery" ? { "cloud.mail.notification_delivery_id": event.input.deliveryId } : {},
-      summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+      summarize: (event) => (event.type === "succeeded" ? (event.data ?? undefined) : undefined),
     }),
-    process: async ({ ctx }) => {
-      if (ctx.input.kind === "bootstrap") return { outcome: "skipped" };
-      const claimed = await claimReservedDelivery(ctx.input.deliveryId);
-      if (!claimed) return { outcome: "skipped" };
-      try {
-        return {
-          outcome: await deliverClaimedNotification({
-            delivery: claimed.delivery,
-            claimId: claimed.claimId,
-            send,
-          }),
-        };
-      } catch (error) {
-        await retryClaimedDelivery(claimed.delivery, claimed.claimId, error);
-        throw error;
-      }
+    process: ({ ctx }) =>
+      deliveryTasks.run(async () => {
+        if (ctx.input.kind === "bootstrap") return { outcome: "skipped" };
+        const claimed = await claimReservedDelivery(ctx.input.deliveryId);
+        if (!claimed) return { outcome: "skipped" };
+        try {
+          return {
+            outcome: await deliverClaimedNotification({
+              delivery: claimed.delivery,
+              claimId: claimed.claimId,
+              send,
+            }),
+          };
+        } catch (error) {
+          await retryClaimedDelivery(claimed.delivery, claimed.claimId, error);
+          throw error;
+        }
+      }) ?? Promise.resolve(null),
+  });
+
+  const deliveryLifecycle = createRuntimeLifecycle({
+    start: async () => {
+      deliveryTasks.open();
+      const bootstrap = deliveryTasks.run(() =>
+        deliveryJob.submit({
+          key: `worker-bootstrap:${crypto.randomUUID()}`,
+          keyTtlMs: 1_000,
+          input: { kind: "bootstrap" },
+        }),
+      );
+      if (!bootstrap) throw new Error("Mail notification delivery runtime is closed");
+      await bootstrap;
+    },
+    stop: async () => {
+      await stopRuntimeJobs(deliveryTasks, [deliveryJob]);
     },
   });
-  let started = false;
-  let lifecycleTransition = Promise.resolve();
-
-  const serializeLifecycle = (run: () => Promise<void>): Promise<void> => {
-    const result = lifecycleTransition.then(run, run);
-    lifecycleTransition = result.catch(() => undefined);
-    return result;
-  };
 
   const recover = async (input: { limit?: number } = {}): Promise<MailNotificationRecoverySummary> => {
     const limit = Math.min(Math.max(Math.floor(input.limit ?? RECOVERY_BATCH_SIZE), 1), 1_000);
@@ -460,6 +473,7 @@ export const createMailNotificationService = (
   };
 
   const dispatch = async (input: { limit?: number } = {}): Promise<{ reserved: number; enqueued: number }> => {
+    await deliveryLifecycle.start();
     const limit = Math.min(Math.max(Math.floor(input.limit ?? RUNTIME_DISPATCH_BATCH_SIZE), 1), RUNTIME_DISPATCH_BATCH_SIZE);
     const deliveryIds = await reserveDueDeliveryIds(limit);
     let enqueued = 0;
@@ -467,10 +481,17 @@ export const createMailNotificationService = (
     await Promise.all(
       deliveryIds.map(async (deliveryId) => {
         try {
-          await deliveryJob.submit({
-            key: `delivery:${deliveryId}`,
-            input: { kind: "delivery", deliveryId },
-          });
+          const submitted = deliveryTasks.run(() =>
+            deliveryJob.submit({
+              key: `delivery:${deliveryId}`,
+              input: { kind: "delivery", deliveryId },
+            }),
+          );
+          if (!submitted) {
+            await releaseReservedDelivery(deliveryId);
+            return;
+          }
+          await submitted;
           enqueued += 1;
         } catch (error) {
           await releaseReservedDelivery(deliveryId);
@@ -482,72 +503,56 @@ export const createMailNotificationService = (
     return { reserved: deliveryIds.length, enqueued };
   };
 
+  const lifecycle = createRuntimeLifecycle({
+    start: async () => {
+      await deliveryLifecycle.start();
+
+      const timezone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "Europe/Berlin";
+      await recoveryScheduler.create({
+        id: RECOVERY_SCHEDULE_ID,
+        cron: "* * * * *",
+        tz: timezone,
+        meta: {
+          appId: "mail",
+          family: "mail:collaboration",
+          label: "Mail collaboration notifications",
+          source: RECOVERY_SCHEDULE_ID,
+          resourceKind: "notification-recovery",
+          resourceId: "collaboration",
+          resourceLabel: "Mail collaboration",
+          detailHref: "/me/notifications",
+        },
+        trace: trace.fromSyncSchedule<{ reserved: number; enqueued: number }>({
+          name: "Mail collaboration notification recovery",
+          source: RECOVERY_SCHEDULE_ID,
+          appId: "mail",
+          summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+        }),
+        process: () => dispatch(),
+        after: ({ ctx }) => {
+          if (ctx.error && ctx.failureCount < 3) {
+            ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 60_000 }) });
+          }
+        },
+      });
+      recoveryScheduler.start();
+      await recoveryScheduler.runNow({ id: RECOVERY_SCHEDULE_ID }).catch((error) => {
+        log.warn("Initial Mail collaboration notification recovery failed", {
+          error: error instanceof Error ? error.message : "Notification recovery failed",
+        });
+      });
+    },
+    stop: async () => {
+      await stopRuntimeResources([() => recoveryScheduler.stop(), () => deliveryLifecycle.stop()]);
+    },
+  });
+
   return {
     recover,
     dispatch,
-    start: (): Promise<void> =>
-      serializeLifecycle(async () => {
-        if (started) return;
-        started = true;
-        try {
-          await deliveryJob.submit({
-            key: `worker-bootstrap:${crypto.randomUUID()}`,
-            keyTtlMs: 1_000,
-            input: { kind: "bootstrap" },
-          });
-          recoveryScheduler.start();
-          const timezone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "Europe/Berlin";
-          await recoveryScheduler.create({
-            id: RECOVERY_SCHEDULE_ID,
-            cron: "* * * * *",
-            tz: timezone,
-            meta: {
-              appId: "mail",
-              family: "mail:collaboration",
-              label: "Mail collaboration notifications",
-              source: RECOVERY_SCHEDULE_ID,
-              resourceKind: "notification-recovery",
-              resourceId: "collaboration",
-              resourceLabel: "Mail collaboration",
-              detailHref: "/me/notifications",
-            },
-            trace: trace.fromSyncSchedule<{ reserved: number; enqueued: number }>({
-              name: "Mail collaboration notification recovery",
-              source: RECOVERY_SCHEDULE_ID,
-              appId: "mail",
-              summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
-            }),
-            process: () => dispatch(),
-            after: ({ ctx }) => {
-              if (ctx.error) {
-                if (ctx.failureCount < 3) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 60_000 }) });
-              }
-            },
-          });
-          await recoveryScheduler.runNow({ id: RECOVERY_SCHEDULE_ID }).catch((error) => {
-            log.warn("Initial Mail collaboration notification recovery failed", {
-              error: error instanceof Error ? error.message : "Notification recovery failed",
-            });
-          });
-        } catch (error) {
-          deliveryJob.stop();
-          await recoveryScheduler.stop().catch(() => undefined);
-          started = false;
-          throw error;
-        }
-      }),
-    stop: (): Promise<void> =>
-      serializeLifecycle(async () => {
-        if (!started) {
-          deliveryJob.stop();
-          return;
-        }
-        started = false;
-        try {
-          await recoveryScheduler.stop();
-        } finally {
-          deliveryJob.stop();
-        }
-      }),
+    start: lifecycle.start,
+    stop: async () => {
+      await stopRuntimeResources([lifecycle.stop, deliveryLifecycle.stop]);
+    },
   } as const;
 };

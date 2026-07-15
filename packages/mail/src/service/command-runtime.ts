@@ -12,10 +12,16 @@ import { rediscoverProviderBinding } from "./bindings";
 import { commandStillAuthorized } from "./command-authorization";
 import { imapSmtpConnector, type RemoteMessageState, type RemoteMutationTarget } from "./connectors";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
-import { enqueueMaintenanceCommand, stopMaintenanceRuntime, submitDueMaintenanceCommands } from "./maintenance-runtime";
+import {
+  enqueueMaintenanceCommand,
+  startMaintenanceRuntime,
+  stopMaintenanceRuntime,
+  submitDueMaintenanceCommands,
+} from "./maintenance-runtime";
 import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
 import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
+import { createRuntimeLifecycle, createRuntimeTaskTracker, stopRuntimeJobs, stopRuntimeResources } from "./runtime-lifecycle";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
 const log = logger("mail:commands");
@@ -24,6 +30,7 @@ const MUTATION_JOB_LEASE_MS = 3 * 60_000;
 const OUTBOX_JOB_LEASE_MS = 4 * 60_000;
 const JOB_HEARTBEAT_INTERVAL_MS = 30_000;
 const PROVIDER_OPERATION_LEASE_MS = 5 * 60_000;
+const commandTasks = createRuntimeTaskTracker();
 const providerOperationMutex = mutex({ id: "mail:remote-resource-sync", defaultTtl: PROVIDER_OPERATION_LEASE_MS, retryCount: 0 });
 
 type JsonRecord = Record<string, unknown>;
@@ -2259,38 +2266,40 @@ const recoverStaleExecutions = async (): Promise<number> => {
   return result;
 };
 
-const mutationJob = job<{ commandId: string }, { state: CommandState | null }>({
+const mutationJob = job<{ commandId: string }, { state: CommandState | null } | null>({
   id: "mail:execute-command",
   defaults: { leaseMs: MUTATION_JOB_LEASE_MS, keyTtlMs: 7 * 24 * 60 * 60_000 },
-  process: async ({ ctx }) => ({
-    state: await executeMutationCommandWithHeartbeat(ctx.input.commandId, async (fence) => {
-      try {
-        await ctx.heartbeat({ leaseMs: MUTATION_JOB_LEASE_MS });
-      } catch (cause) {
-        throw Object.assign(new Error("Mail command job lease was lost"), { code: "COMMAND_JOB_LEASE_LOST", cause });
-      }
-      await heartbeatCommandFence(fence);
-    }),
-  }),
+  process: ({ ctx }) =>
+    commandTasks.run(async () => ({
+      state: await executeMutationCommandWithHeartbeat(ctx.input.commandId, async (fence) => {
+        try {
+          await ctx.heartbeat({ leaseMs: MUTATION_JOB_LEASE_MS });
+        } catch (cause) {
+          throw Object.assign(new Error("Mail command job lease was lost"), { code: "COMMAND_JOB_LEASE_LOST", cause });
+        }
+        await heartbeatCommandFence(fence);
+      }),
+    })) ?? Promise.resolve(null),
   after: ({ ctx }) => {
     if (ctx.data?.state === "ambiguous" || ctx.data?.state === "queued") ctx.reschedule({ delayMs: 2_000 });
     else if (ctx.error && ctx.failureCount < 5) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
   },
 });
 
-const outboxJob = job<{ outboxId: string }, { state: string | null; delayMs: number | null }>({
+const outboxJob = job<{ outboxId: string }, { state: string | null; delayMs: number | null } | null>({
   id: "mail:execute-outbox",
   defaults: { leaseMs: OUTBOX_JOB_LEASE_MS, keyTtlMs: 7 * 24 * 60 * 60_000 },
-  process: async ({ ctx }) => {
-    const state = await executeOutboxSubmissionWithHeartbeat(ctx.input.outboxId, async (loaded) => {
-      try {
-        await ctx.heartbeat({ leaseMs: OUTBOX_JOB_LEASE_MS });
-      } catch (cause) {
-        throw Object.assign(new Error("Mail outbox job lease was lost"), { code: "COMMAND_JOB_LEASE_LOST", cause });
-      }
-      await heartbeatOutboxFence(loaded);
-    });
-    const [pending] = await sql<{ state: string; delay_ms: string | number }[]>`
+  process: ({ ctx }) =>
+    commandTasks.run(async () => {
+      const state = await executeOutboxSubmissionWithHeartbeat(ctx.input.outboxId, async (loaded) => {
+        try {
+          await ctx.heartbeat({ leaseMs: OUTBOX_JOB_LEASE_MS });
+        } catch (cause) {
+          throw Object.assign(new Error("Mail outbox job lease was lost"), { code: "COMMAND_JOB_LEASE_LOST", cause });
+        }
+        await heartbeatOutboxFence(loaded);
+      });
+      const [pending] = await sql<{ state: string; delay_ms: string | number }[]>`
       SELECT
         state,
         GREATEST(
@@ -2300,12 +2309,12 @@ const outboxJob = job<{ outboxId: string }, { state: string | null; delayMs: num
       FROM mail.outbox_submissions
       WHERE id = ${ctx.input.outboxId}::uuid
         AND state IN ('scheduled', 'undo_window')
-    `;
-    return {
-      state: state ?? pending?.state ?? null,
-      delayMs: pending ? Math.max(1_000, Math.min(Number(pending.delay_ms), 60_000)) : null,
-    };
-  },
+      `;
+      return {
+        state: state ?? pending?.state ?? null,
+        delayMs: pending ? Math.max(1_000, Math.min(Number(pending.delay_ms), 60_000)) : null,
+      };
+    }) ?? Promise.resolve(null),
   after: ({ ctx }) => {
     if (ctx.data?.delayMs != null) ctx.reschedule({ delayMs: ctx.data.delayMs });
     else if (ctx.data?.state === "unknown") ctx.reschedule({ delayMs: 2_000 });
@@ -2313,6 +2322,20 @@ const outboxJob = job<{ outboxId: string }, { state: string | null; delayMs: num
     else if (ctx.error && ctx.failureCount < 5) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
   },
 });
+
+const submitMutationJob = async (commandId: string): Promise<void> => {
+  await (commandTasks.run(() => mutationJob.submit({ key: `command:${commandId}`, input: { commandId } })) ?? Promise.resolve());
+};
+
+const submitOutboxJob = async (outboxId: string, at?: number): Promise<void> => {
+  await (commandTasks.run(() =>
+    outboxJob.submit({
+      key: `outbox:${outboxId}`,
+      input: { outboxId },
+      ...(at === undefined ? {} : { at }),
+    }),
+  ) ?? Promise.resolve());
+};
 
 export const enqueueMailCommand = async (commandId: string, kind: MailCommand["kind"]): Promise<void> => {
   if (kind === "send") {
@@ -2322,16 +2345,12 @@ export const enqueueMailCommand = async (commandId: string, kind: MailCommand["k
       WHERE command_id = ${commandId}::uuid
     `;
     if (outbox) {
-      await outboxJob.submit({
-        key: `outbox:${outbox.id}`,
-        input: { outboxId: outbox.id },
-        at: new Date(outbox.due_at).getTime(),
-      });
+      await submitOutboxJob(outbox.id, new Date(outbox.due_at).getTime());
     }
     return;
   }
   if (["set_flags", "change_message_state", "move", "copy", "delete", ...FOLDER_COMMAND_KINDS].includes(kind)) {
-    await mutationJob.submit({ key: `command:${commandId}`, input: { commandId } });
+    await submitMutationJob(commandId);
     return;
   }
   if (["sync_mailbox", "sync_folder", "discover_folders", "verify_binding", "rebuild_folder", "hydrate_missing"].includes(kind)) {
@@ -2354,7 +2373,7 @@ const submitDueCommands = async (): Promise<{ commands: number; maintenance: num
     LIMIT 500
   `;
   for (const command of commands) {
-    await mutationJob.submit({ key: `command:${command.id}`, input: { commandId: command.id } });
+    await submitMutationJob(command.id);
   }
   const outboxes = await sql<{ id: string }[]>`
     SELECT id
@@ -2367,7 +2386,7 @@ const submitDueCommands = async (): Promise<{ commands: number; maintenance: num
     LIMIT 500
   `;
   for (const outbox of outboxes) {
-    await outboxJob.submit({ key: `outbox:${outbox.id}`, input: { outboxId: outbox.id } });
+    await submitOutboxJob(outbox.id);
   }
   return {
     commands: commands.length,
@@ -2378,11 +2397,15 @@ const submitDueCommands = async (): Promise<{ commands: number; maintenance: num
 };
 
 const commandScheduler = scheduler({ id: "mail-commands" });
-let commandRuntimeStarted = false;
 
-export const commandRuntime = {
-  start: async (): Promise<void> => {
-    if (commandRuntimeStarted) return;
+const stopCommandJobs = async (): Promise<void> => {
+  await stopRuntimeJobs(commandTasks, [mutationJob, outboxJob]);
+};
+
+const commandRuntimeLifecycle = createRuntimeLifecycle({
+  start: async () => {
+    commandTasks.open();
+    startMaintenanceRuntime();
     await commandScheduler.create({
       id: "mail:commands-due",
       cron: "* * * * *",
@@ -2391,13 +2414,14 @@ export const commandRuntime = {
     });
     commandScheduler.start();
     await submitDueCommands();
-    commandRuntimeStarted = true;
   },
-  stop: async (): Promise<void> => {
-    if (commandRuntimeStarted) await commandScheduler.stop();
-    stopMaintenanceRuntime();
-    mutationJob.stop();
-    outboxJob.stop();
-    commandRuntimeStarted = false;
+  stop: async () => {
+    commandTasks.close();
+    await stopRuntimeResources([() => commandScheduler.stop(), stopMaintenanceRuntime, stopCommandJobs]);
   },
+});
+
+export const commandRuntime = {
+  start: commandRuntimeLifecycle.start,
+  stop: commandRuntimeLifecycle.stop,
 };

@@ -13,7 +13,12 @@ import { imapSmtpConnector } from "./connectors";
 import { clearFolderRole, resolveRoleFolder, setFolderRole } from "./folders";
 import { getMailboxOperationalHealth } from "./health";
 import { createMailbox, updateMailbox } from "./mailboxes";
-import { executeMaintenanceCommand, stopMaintenanceRuntime, submitDueMaintenanceCommands } from "./maintenance-runtime";
+import {
+  executeMaintenanceCommand,
+  startMaintenanceRuntime,
+  stopMaintenanceRuntime,
+  submitDueMaintenanceCommands,
+} from "./maintenance-runtime";
 import { createProviderConnection } from "./provider-connections";
 import { claimFence, commitSyncBatch, executeBindingRediscovery, hydrateMessageBatch } from "./sync-runtime";
 import { createConversationTriageCommands } from "./triage";
@@ -735,6 +740,7 @@ suite("mail lifecycle control plane", () => {
         worker_heartbeat_at = now() - interval '20 minutes'
       WHERE id = ${command.data.id}::uuid
     `;
+    startMaintenanceRuntime();
     try {
       const submitted = await submitDueMaintenanceCommands();
       expect(submitted.recovered).toBeGreaterThanOrEqual(1);
@@ -746,7 +752,7 @@ suite("mail lifecycle control plane", () => {
       }
       expect(state).toBe("confirmed");
     } finally {
-      stopMaintenanceRuntime();
+      await stopMaintenanceRuntime();
     }
   });
 

@@ -1,15 +1,17 @@
 import { trace } from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
-import { getWorkflowSnapshot } from "./workflow-data";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
-import { materializeAutomaticWorkflowRun } from "./workflow-materialization-service";
+import { createRuntimeTaskTracker, stopRuntimeJobs } from "./runtime-lifecycle";
+import { materializeAutomaticWorkflowRun } from "./workflow-automatic-materialization";
+import { getWorkflowSnapshot } from "./workflow-data";
 
 const TRIGGER_EVENT_JOB_ID = "mail:workflow-trigger-events:v1";
 const TRIGGER_EVENT_LEASE_MS = 120_000;
 const TRIGGER_EVENT_MAX_RETRIES = 5;
 const TRIGGER_EVENT_HEARTBEAT_MS = Math.floor(TRIGGER_EVENT_LEASE_MS / 3);
 const RECONCILE_LIMIT = 500;
+const triggerEventTasks = createRuntimeTaskTracker();
 
 type TriggerEventPayload = {
   remoteMessageRefId: string;
@@ -229,19 +231,26 @@ const triggerEventJob = job<{ eventId: string }>({
     appId: "mail",
     attributes: (event) => ("input" in event && event.input ? { "cloud.mail.workflow_trigger_event_id": event.input.eventId } : {}),
   }),
-  process: async ({ ctx }) => processMailWorkflowTriggerEvent(ctx.input.eventId, ctx.jobId, () => ctx.heartbeat()),
-  after: async ({ ctx }) => {
-    if (!ctx.error) return;
-    if (ctx.failureCount < TRIGGER_EVENT_MAX_RETRIES) {
+  process: ({ ctx }) =>
+    triggerEventTasks.run(async () => {
+      try {
+        await processMailWorkflowTriggerEvent(ctx.input.eventId, ctx.jobId, () => ctx.heartbeat());
+      } catch (error) {
+        if (ctx.failureCount >= TRIGGER_EVENT_MAX_RETRIES) await failTriggerEvent(ctx.input.eventId, error);
+        throw error;
+      }
+    }) ?? Promise.resolve(),
+  after: ({ ctx }) => {
+    if (ctx.error && ctx.failureCount < TRIGGER_EVENT_MAX_RETRIES) {
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 2_000, maxMs: 60_000 }) });
-      return;
     }
-    await failTriggerEvent(ctx.input.eventId, ctx.error);
   },
 });
 
 export const enqueueMailWorkflowTriggerEvent = async (eventId: string): Promise<void> => {
-  await triggerEventJob.submit({ key: `event:${eventId}`, input: { eventId }, leaseMs: TRIGGER_EVENT_LEASE_MS });
+  await (triggerEventTasks.run(() =>
+    triggerEventJob.submit({ key: `event:${eventId}`, input: { eventId }, leaseMs: TRIGGER_EVENT_LEASE_MS }),
+  ) ?? Promise.resolve());
 };
 
 export const reconcileMailWorkflowTriggerEvents = async (): Promise<number> => {
@@ -257,4 +266,10 @@ export const reconcileMailWorkflowTriggerEvents = async (): Promise<number> => {
   return rows.length;
 };
 
-export const stopMailWorkflowTriggerRuntime = (): void => triggerEventJob.stop();
+export const startMailWorkflowTriggerRuntime = (): void => {
+  triggerEventTasks.open();
+};
+
+export const stopMailWorkflowTriggerRuntime = async (): Promise<void> => {
+  await stopRuntimeJobs(triggerEventTasks, [triggerEventJob]);
+};

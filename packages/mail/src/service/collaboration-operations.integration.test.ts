@@ -298,7 +298,14 @@ suite("mail collaboration operations", () => {
       expect(claimedInWorker).toEqual({ state: "sending", claimed: true });
     }
     expect(await dispatchService.dispatch({ limit: 1 })).toEqual({ reserved: 0, enqueued: 0 });
+    let stopped = false;
+    const stopping = dispatchService.stop().then(() => {
+      stopped = true;
+    });
+    await Bun.sleep(10);
+    expect(stopped).toBe(false);
     releaseWorker();
+    await stopping;
     if (queuedComment.ok) {
       for (let attempt = 0; attempt < 100; attempt += 1) {
         const [delivery] = await sql<{ state: string }[]>`
@@ -316,7 +323,6 @@ suite("mail collaboration operations", () => {
       `;
       expect(completedInWorker?.state).toBe("sent");
     }
-    await dispatchService.stop();
 
     const removedMention = await createConversationComment({
       context: writerContext,

@@ -11,12 +11,9 @@ export {
 } from "./workflow-definition-service";
 export {
   backfillWorkflow,
-  cancelWorkflowRun,
   dryRunWorkflow,
-  getWorkflowRun,
   invokeWorkflow,
-  listWorkflowRuns,
-  listWorkflowRunTargets,
   oneShotWorkflow,
 } from "./workflow-materialization-service";
 export { preflightWorkflow } from "./workflow-preflight-service";
+export { cancelWorkflowRun, getWorkflowRun, listWorkflowRuns, listWorkflowRunTargets } from "./workflow-run-service";

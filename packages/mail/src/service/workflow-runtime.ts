@@ -10,6 +10,7 @@ import {
 import { job, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { requireMailboxPermission } from "./access";
+import { createRuntimeLifecycle, createRuntimeTaskTracker, stopRuntimeJobs, stopRuntimeResources } from "./runtime-lifecycle";
 import { latestMailWorkflowDependencyCursor, liveMailWorkflowDependencies } from "./workflow-dependencies";
 import { createMailWorkflowActionPorts } from "./workflow-runtime-actions";
 import { resolveMailWorkflowExecutionAuthority } from "./workflow-runtime-context";
@@ -27,13 +28,18 @@ import {
   startMailWorkflowScheduleRuntime,
   stopMailWorkflowScheduleRuntime,
 } from "./workflow-schedule-runtime";
-import { reconcileMailWorkflowTriggerEvents, stopMailWorkflowTriggerRuntime } from "./workflow-trigger-runtime";
+import {
+  reconcileMailWorkflowTriggerEvents,
+  startMailWorkflowTriggerRuntime,
+  stopMailWorkflowTriggerRuntime,
+} from "./workflow-trigger-runtime";
 
 const log = logger("mail:workflow-runtime");
 const WORKFLOW_JOB_ID = "mail:workflow-targets:v1";
 const WORKFLOW_JOB_MAX_RETRIES = 3;
 const WORKFLOW_HEARTBEAT_MS = Math.floor(MAIL_WORKFLOW_TARGET_LEASE_MS / 3);
 const RECONCILE_LIMIT = 500;
+const workflowTargetTasks = createRuntimeTaskTracker();
 
 const isObject = (value: WorkflowJsonValue): value is Record<string, WorkflowJsonValue> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -141,7 +147,7 @@ export const processMailWorkflowTarget = async (params: {
   return { state: coordinated.state };
 };
 
-const workflowTargetJob = job<{ targetId: string }, { state: string }>({
+const workflowTargetJob = job<{ targetId: string }, { state: string } | null>({
   id: WORKFLOW_JOB_ID,
   defaults: { leaseMs: MAIL_WORKFLOW_TARGET_LEASE_MS, keyTtlMs: 7 * 24 * 60 * 60_000 },
   trace: trace.fromSyncJob({
@@ -150,10 +156,12 @@ const workflowTargetJob = job<{ targetId: string }, { state: string }>({
     appId: "mail",
     attributes: (event) => ("input" in event && event.input ? { "cloud.mail.workflow_target_id": event.input.targetId } : {}),
   }),
-  process: async ({ ctx }) => {
-    const result = await processMailWorkflowTarget({ targetId: ctx.input.targetId, workerId: ctx.jobId, jobId: ctx.jobId });
-    return { state: result.state };
-  },
+  process: ({ ctx }) =>
+    workflowTargetTasks.run(() =>
+      processMailWorkflowTarget({ targetId: ctx.input.targetId, workerId: ctx.jobId, jobId: ctx.jobId }).then((result) => ({
+        state: result.state,
+      })),
+    ) ?? Promise.resolve(null),
   after: ({ ctx }) => {
     if (ctx.error && ctx.failureCount < WORKFLOW_JOB_MAX_RETRIES) {
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 2_000, maxMs: 60_000 }) });
@@ -161,12 +169,14 @@ const workflowTargetJob = job<{ targetId: string }, { state: string }>({
   },
 });
 
-export const enqueueWorkflowTarget = async (targetId: string): Promise<void> => {
-  await workflowTargetJob.submit({
-    key: `target:${targetId}`,
-    input: { targetId },
-    leaseMs: MAIL_WORKFLOW_TARGET_LEASE_MS,
-  });
+const enqueueWorkflowTarget = async (targetId: string): Promise<void> => {
+  await (workflowTargetTasks.run(() =>
+    workflowTargetJob.submit({
+      key: `target:${targetId}`,
+      input: { targetId },
+      leaseMs: MAIL_WORKFLOW_TARGET_LEASE_MS,
+    }),
+  ) ?? Promise.resolve());
 };
 
 const submitTargetIds = async (targetIds: readonly string[]): Promise<void> => {
@@ -237,30 +247,40 @@ const reconcileWorkflowTargets = async (): Promise<number> => {
 
 const workflowRuntimeScheduler = scheduler({ id: "mail:workflow-runtime" });
 const dependencyReaders = new Map<string, { abort: AbortController; task: Promise<void> }>();
-let runtimeStarted = false;
+const dependencyReaderStarts = new Map<string, Promise<void>>();
+let dependencyReadersAccepting = false;
 
-const startDependencyReader = async (mailboxId: string): Promise<void> => {
-  if (dependencyReaders.has(mailboxId)) return;
-  const after = await latestMailWorkflowDependencyCursor(mailboxId);
-  const abort = new AbortController();
-  const task = (async () => {
-    try {
-      for await (const event of liveMailWorkflowDependencies({ mailboxId, after, signal: abort.signal })) {
-        const targetIds = await resumeMailWorkflowDependency({ kind: event.data.kind, key: event.data.key });
-        await submitTargetIds(targetIds);
+const startDependencyReader = (mailboxId: string): Promise<void> => {
+  if (!dependencyReadersAccepting || dependencyReaders.has(mailboxId) || dependencyReaderStarts.has(mailboxId)) {
+    return Promise.resolve();
+  }
+  const start = (async () => {
+    const after = await latestMailWorkflowDependencyCursor(mailboxId);
+    if (!dependencyReadersAccepting || dependencyReaders.has(mailboxId)) return;
+    const abort = new AbortController();
+    const task = (async () => {
+      try {
+        for await (const event of liveMailWorkflowDependencies({ mailboxId, after, signal: abort.signal })) {
+          const targetIds = await resumeMailWorkflowDependency({ kind: event.data.kind, key: event.data.key });
+          await submitTargetIds(targetIds);
+        }
+      } catch (error) {
+        if (!abort.signal.aborted) {
+          log.error("Mail workflow dependency reader stopped", {
+            mailboxId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } finally {
+        dependencyReaders.delete(mailboxId);
       }
-    } catch (error) {
-      if (!abort.signal.aborted) {
-        log.error("Mail workflow dependency reader stopped", {
-          mailboxId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    } finally {
-      dependencyReaders.delete(mailboxId);
-    }
+    })();
+    dependencyReaders.set(mailboxId, { abort, task });
   })();
-  dependencyReaders.set(mailboxId, { abort, task });
+  dependencyReaderStarts.set(mailboxId, start);
+  return start.finally(() => {
+    if (dependencyReaderStarts.get(mailboxId) === start) dependencyReaderStarts.delete(mailboxId);
+  });
 };
 
 const ensureDependencyReaders = async (): Promise<void> => {
@@ -284,9 +304,23 @@ const reconcileRuntime = async (): Promise<{ targets: number; dependencies: numb
   return result;
 };
 
-export const workflowRuntime = {
-  start: async (): Promise<void> => {
-    if (runtimeStarted) return;
+const stopDependencyReaders = async (): Promise<void> => {
+  dependencyReadersAccepting = false;
+  await Promise.allSettled([...dependencyReaderStarts.values()]);
+  for (const reader of dependencyReaders.values()) reader.abort.abort();
+  await Promise.all([...dependencyReaders.values()].map((reader) => reader.task.catch(() => undefined)));
+  dependencyReaders.clear();
+};
+
+const stopWorkflowTargetRuntime = async (): Promise<void> => {
+  await stopRuntimeJobs(workflowTargetTasks, [workflowTargetJob]);
+};
+
+const runtimeLifecycle = createRuntimeLifecycle({
+  start: async () => {
+    workflowTargetTasks.open();
+    dependencyReadersAccepting = true;
+    startMailWorkflowTriggerRuntime();
     await workflowRuntimeScheduler.create({
       id: "mail:workflow-runtime:reconcile",
       cron: "* * * * *",
@@ -294,18 +328,23 @@ export const workflowRuntime = {
       process: reconcileRuntime,
     });
     await startMailWorkflowScheduleRuntime();
-    workflowRuntimeScheduler.start();
     await reconcileRuntime();
-    runtimeStarted = true;
+    workflowRuntimeScheduler.start();
   },
-  stop: async (): Promise<void> => {
-    for (const reader of dependencyReaders.values()) reader.abort.abort();
-    await Promise.all([...dependencyReaders.values()].map((reader) => reader.task.catch(() => undefined)));
-    dependencyReaders.clear();
-    if (runtimeStarted) await workflowRuntimeScheduler.stop();
-    await stopMailWorkflowScheduleRuntime();
-    workflowTargetJob.stop();
-    stopMailWorkflowTriggerRuntime();
-    runtimeStarted = false;
+  stop: async () => {
+    workflowTargetTasks.close();
+    dependencyReadersAccepting = false;
+    await stopRuntimeResources([
+      () => workflowRuntimeScheduler.stop(),
+      stopMailWorkflowScheduleRuntime,
+      stopMailWorkflowTriggerRuntime,
+      stopDependencyReaders,
+      stopWorkflowTargetRuntime,
+    ]);
   },
+});
+
+export const workflowRuntime = {
+  start: runtimeLifecycle.start,
+  stop: runtimeLifecycle.stop,
 };

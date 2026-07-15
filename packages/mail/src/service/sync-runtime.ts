@@ -13,6 +13,7 @@ import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs
 import { hydrateMessageFromSource } from "./message-hydration";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
+import { createRuntimeLifecycle, createRuntimeTaskTracker, stopRuntimeJobs, stopRuntimeResources } from "./runtime-lifecycle";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 import { enqueueMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
 
@@ -22,6 +23,7 @@ const FLAG_WINDOW_SIZE = 5_000;
 const RECONCILE_WINDOW_SIZE = 5_000;
 const HYDRATION_BATCH_SIZE = 20;
 const SYNC_LEASE_MS = 2 * 60_000;
+const syncTasks = createRuntimeTaskTracker();
 
 type EnvelopeCursor = {
   version: 1;
@@ -1114,7 +1116,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         });
 
         for (const messageId of result.hydratedIds) {
-          await hydrationJob.submit({ key: `message:${messageId}`, input: { messageId } });
+          await submitHydrationJob(messageId);
         }
         await Promise.all(result.workflowTriggerEventIds.map((eventId) => enqueueMailWorkflowTriggerEvent(eventId)));
         const hasMore =
@@ -1150,10 +1152,29 @@ const normalizeSyncErrorCode = (error: unknown): string => {
   return providerErrorCode(error, "MAIL_SYNC_FAILED");
 };
 
-const syncFolderJob = job<{ folderId: string }, SyncBatchResult>({
+const syncFolderJob = job<{ folderId: string }, SyncBatchResult | null>({
   id: "mail:sync-folder",
   defaults: { leaseMs: 3 * 60_000, keyTtlMs: 24 * 60 * 60_000 },
-  process: async ({ ctx }) => syncFolderBatch(ctx.input.folderId, () => ctx.heartbeat({ leaseMs: 3 * 60_000 })),
+  process: ({ ctx }) =>
+    syncTasks.run(async () => {
+      try {
+        return await syncFolderBatch(ctx.input.folderId, () => ctx.heartbeat({ leaseMs: 3 * 60_000 }));
+      } catch (error) {
+        if (normalizeSyncErrorCode(error) !== "MAIL_RATE_LIMITED" && ctx.failureCount >= 5) {
+          log.error("Mail folder sync exhausted retries", {
+            folderId: ctx.input.folderId,
+            failureCount: ctx.failureCount,
+            code: normalizeSyncErrorCode(error),
+          });
+          await sql`
+            UPDATE mail.folders
+            SET sync_status = 'degraded'
+            WHERE id = ${ctx.input.folderId}::uuid
+          `.catch(() => undefined);
+        }
+        throw error;
+      }
+    }) ?? Promise.resolve(null),
   after: async ({ ctx }) => {
     if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
       ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 5_000) });
@@ -1166,18 +1187,6 @@ const syncFolderJob = job<{ folderId: string }, SyncBatchResult>({
     if (ctx.data?.hasMore) {
       ctx.reschedule({ delayMs: 0 });
       return;
-    }
-    if (ctx.error) {
-      log.error("Mail folder sync exhausted retries", {
-        folderId: ctx.input.folderId,
-        failureCount: ctx.failureCount,
-        code: normalizeSyncErrorCode(ctx.error),
-      });
-      await sql`
-        UPDATE mail.folders
-        SET sync_status = 'degraded'
-        WHERE id = ${ctx.input.folderId}::uuid
-      `.catch(() => undefined);
     }
   },
 });
@@ -1304,10 +1313,24 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
   });
 };
 
-const hydrationJob = job<{ messageId: string }, { hydrated: boolean }>({
+const hydrationJob = job<{ messageId: string }, { hydrated: boolean } | null>({
   id: "mail:hydrate-message",
   defaults: { leaseMs: 5 * 60_000, keyTtlMs: 24 * 60 * 60_000 },
-  process: async ({ ctx }) => hydrateMessageBatch(ctx),
+  process: ({ ctx }) =>
+    syncTasks.run(async () => {
+      try {
+        return await hydrateMessageBatch(ctx);
+      } catch (error) {
+        if (normalizeSyncErrorCode(error) !== "MAIL_RATE_LIMITED" && ctx.failureCount >= 5) {
+          log.error("Mail message hydration exhausted retries", {
+            messageId: ctx.input.messageId,
+            failureCount: ctx.failureCount,
+            code: normalizeSyncErrorCode(error),
+          });
+        }
+        throw error;
+      }
+    }) ?? Promise.resolve(null),
   after: async ({ ctx }) => {
     if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
       ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 10_000) });
@@ -1317,18 +1340,11 @@ const hydrationJob = job<{ messageId: string }, { hydrated: boolean }>({
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 10_000, maxMs: 10 * 60_000 }) });
       return;
     }
-    if (ctx.error) {
-      log.error("Mail message hydration exhausted retries", {
-        messageId: ctx.input.messageId,
-        failureCount: ctx.failureCount,
-        code: normalizeSyncErrorCode(ctx.error),
-      });
-    }
   },
 });
 
 export const enqueueMessageHydration = async (messageId: string): Promise<void> => {
-  await hydrationJob.submit({ key: `message:${messageId}`, input: { messageId } });
+  await submitHydrationJob(messageId);
 };
 
 export const executeBindingRediscovery = async (
@@ -1362,11 +1378,26 @@ export const executeBindingRediscovery = async (
   }
 };
 
-const rediscoveryJob = job<{ bindingId: string; allowCredentialRevision: boolean }, BindingRediscoveryResult>({
+const rediscoveryJob = job<{ bindingId: string; allowCredentialRevision: boolean }, BindingRediscoveryResult | null>({
   id: "mail:rediscover-binding",
   defaults: { leaseMs: 5 * 60_000, keyTtlMs: 24 * 60 * 60_000 },
   process: ({ ctx }) =>
-    executeBindingRediscovery(ctx.input.bindingId, ctx.input.allowCredentialRevision, () => ctx.heartbeat({ leaseMs: 5 * 60_000 })),
+    syncTasks.run(async () => {
+      try {
+        return await executeBindingRediscovery(ctx.input.bindingId, ctx.input.allowCredentialRevision, () =>
+          ctx.heartbeat({ leaseMs: 5 * 60_000 }),
+        );
+      } catch (error) {
+        if (normalizeSyncErrorCode(error) !== "MAIL_RATE_LIMITED" && ctx.failureCount >= 5) {
+          log.error("Mail provider rediscovery exhausted retries", {
+            bindingId: ctx.input.bindingId,
+            failureCount: ctx.failureCount,
+            code: normalizeSyncErrorCode(error),
+          });
+        }
+        throw error;
+      }
+    }) ?? Promise.resolve(null),
   after: ({ ctx }) => {
     if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
       ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 15_000) });
@@ -1376,18 +1407,27 @@ const rediscoveryJob = job<{ bindingId: string; allowCredentialRevision: boolean
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 15_000, maxMs: 15 * 60_000 }) });
       return;
     }
-    if (ctx.error) {
-      log.error("Mail provider rediscovery exhausted retries", {
-        bindingId: ctx.input.bindingId,
-        failureCount: ctx.failureCount,
-        code: normalizeSyncErrorCode(ctx.error),
-      });
-    }
   },
 });
 
+const submitSyncFolderJob = async (folderId: string): Promise<void> => {
+  await (syncTasks.run(() => syncFolderJob.submit({ key: `folder:${folderId}`, input: { folderId } })) ?? Promise.resolve());
+};
+
+const submitHydrationJob = async (messageId: string): Promise<void> => {
+  await (syncTasks.run(() => hydrationJob.submit({ key: `message:${messageId}`, input: { messageId } })) ?? Promise.resolve());
+};
+
+const submitRediscoveryJob = async (bindingId: string, allowCredentialRevision: boolean): Promise<void> => {
+  await (syncTasks.run(() =>
+    rediscoveryJob.submit({
+      key: `binding:${bindingId}`,
+      input: { bindingId, allowCredentialRevision },
+    }),
+  ) ?? Promise.resolve());
+};
+
 const mailScheduler = scheduler({ id: "mail" });
-let started = false;
 
 const submitDueWork = async (): Promise<{ bindings: number; folders: number; messages: number }> => {
   const bindings = await sql<{ id: string }[]>`
@@ -1413,10 +1453,7 @@ const submitDueWork = async (): Promise<{ bindings: number; folders: number; mes
     LIMIT 100
   `;
   for (const binding of bindings) {
-    await rediscoveryJob.submit({
-      key: `binding:${binding.id}`,
-      input: { bindingId: binding.id, allowCredentialRevision: false },
-    });
+    await submitRediscoveryJob(binding.id, false);
   }
 
   const folders = await sql<{ id: string }[]>`
@@ -1447,7 +1484,7 @@ const submitDueWork = async (): Promise<{ bindings: number; folders: number; mes
     LIMIT 500
   `;
   for (const folder of folders) {
-    await syncFolderJob.submit({ key: `folder:${folder.id}`, input: { folderId: folder.id } });
+    await submitSyncFolderJob(folder.id);
   }
 
   const messages = await sql<{ id: string }[]>`
@@ -1462,7 +1499,7 @@ const submitDueWork = async (): Promise<{ bindings: number; folders: number; mes
     LIMIT 500
   `;
   for (const message of messages) {
-    await hydrationJob.submit({ key: `message:${message.id}`, input: { messageId: message.id } });
+    await submitHydrationJob(message.id);
   }
   return { bindings: bindings.length, folders: folders.length, messages: messages.length };
 };
@@ -1482,18 +1519,18 @@ export const enqueueMailboxSync = async (mailboxId: string): Promise<number> => 
     ORDER BY CASE f.role WHEN 'inbox' THEN 0 ELSE 1 END, f.id
   `;
   for (const folder of folders) {
-    await syncFolderJob.submit({ key: `folder:${folder.id}`, input: { folderId: folder.id } });
+    await submitSyncFolderJob(folder.id);
   }
   return folders.length;
 };
 
 export const enqueueFolderSync = async (folderId: string): Promise<void> => {
-  await syncFolderJob.submit({ key: `folder:${folderId}`, input: { folderId } });
+  await submitSyncFolderJob(folderId);
 };
 
-export const mailRuntime = {
-  start: async (): Promise<void> => {
-    if (started) return;
+const mailRuntimeLifecycle = createRuntimeLifecycle({
+  start: async () => {
+    syncTasks.open();
     await mailScheduler.create({
       id: "mail:sync-due",
       cron: "* * * * *",
@@ -1518,13 +1555,17 @@ export const mailRuntime = {
     });
     mailScheduler.start();
     await submitDueWork();
-    started = true;
   },
-  stop: async (): Promise<void> => {
-    if (started) await mailScheduler.stop();
-    rediscoveryJob.stop();
-    syncFolderJob.stop();
-    hydrationJob.stop();
-    started = false;
+  stop: async () => {
+    syncTasks.close();
+    await stopRuntimeResources([
+      () => mailScheduler.stop(),
+      () => stopRuntimeJobs(syncTasks, [rediscoveryJob, syncFolderJob, hydrationJob]),
+    ]);
   },
+});
+
+export const mailRuntime = {
+  start: mailRuntimeLifecycle.start,
+  stop: mailRuntimeLifecycle.stop,
 };

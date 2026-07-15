@@ -1,4 +1,3 @@
-import { logger } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
@@ -6,16 +5,12 @@ import { z } from "zod";
 import type { CommandState, MaintenanceCommandInput } from "../contracts";
 import { commandStillAuthorized, type StoredCommandAuthorization } from "./command-authorization";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
-import {
-  enqueueFolderSync,
-  enqueueMailboxSync,
-  enqueueMessageHydration,
-  executeBindingRediscovery,
-} from "./sync-runtime";
+import { createRuntimeTaskTracker, stopRuntimeJobs } from "./runtime-lifecycle";
+import { enqueueFolderSync, enqueueMailboxSync, enqueueMessageHydration, executeBindingRediscovery } from "./sync-runtime";
 
-const log = logger("mail:maintenance");
 const MAINTENANCE_JOB_LEASE_MS = 6 * 60_000;
 const STALE_EXECUTION_MINUTES = 10;
+const maintenanceTasks = createRuntimeTaskTracker();
 
 type JsonRecord = Record<string, unknown>;
 type MaintenanceKind = MaintenanceCommandInput["kind"];
@@ -256,7 +251,8 @@ const executeMaintenanceWork = async (
           ORDER BY binding.id
         `
       ).map((binding) => binding.id);
-  if (bindingIds.length === 0) throw Object.assign(new Error("Mailbox has no binding available for rediscovery"), { code: "BINDING_UNAVAILABLE" });
+  if (bindingIds.length === 0)
+    throw Object.assign(new Error("Mailbox has no binding available for rediscovery"), { code: "BINDING_UNAVAILABLE" });
   const discoveries = [];
   for (const currentBindingId of bindingIds) {
     discoveries.push(await executeBindingRediscovery(currentBindingId, command.kind === "verify_binding", heartbeat));
@@ -314,19 +310,20 @@ export const executeMaintenanceCommand = async (
   }
 };
 
-const maintenanceJob = job<{ commandId: string }, { state: CommandState | null }>({
+const maintenanceJob = job<{ commandId: string }, { state: CommandState | null } | null>({
   id: "mail:execute-maintenance-command",
   defaults: { leaseMs: MAINTENANCE_JOB_LEASE_MS, keyTtlMs: 7 * 24 * 60 * 60_000 },
-  process: async ({ ctx }) => ({
-    state: await executeMaintenanceCommand(ctx.input.commandId, () => ctx.heartbeat({ leaseMs: MAINTENANCE_JOB_LEASE_MS })),
-  }),
+  process: ({ ctx }) =>
+    maintenanceTasks.run(async () => ({
+      state: await executeMaintenanceCommand(ctx.input.commandId, () => ctx.heartbeat({ leaseMs: MAINTENANCE_JOB_LEASE_MS })),
+    })) ?? Promise.resolve(null),
   after: ({ ctx }) => {
     if (ctx.data?.state === "queued") ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 2_000, maxMs: 60_000 }) });
   },
 });
 
 export const enqueueMaintenanceCommand = async (commandId: string): Promise<void> => {
-  await maintenanceJob.submit({ key: `maintenance:${commandId}`, input: { commandId } });
+  await (maintenanceTasks.run(() => maintenanceJob.submit({ key: `maintenance:${commandId}`, input: { commandId } })) ?? Promise.resolve());
 };
 
 export const submitDueMaintenanceCommands = async (): Promise<{ queued: number; recovered: number }> => {
@@ -354,4 +351,8 @@ export const submitDueMaintenanceCommands = async (): Promise<{ queued: number; 
   return { queued: queued.length, recovered: recovered.length };
 };
 
-export const stopMaintenanceRuntime = (): void => maintenanceJob.stop();
+export const startMaintenanceRuntime = (): void => maintenanceTasks.open();
+
+export const stopMaintenanceRuntime = async (): Promise<void> => {
+  await stopRuntimeJobs(maintenanceTasks, [maintenanceJob]);
+};

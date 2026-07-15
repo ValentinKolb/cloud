@@ -370,39 +370,51 @@ const bindInputs = (context: BindingContext): void => {
 const typesCompatible = (expected: string, actual: string): boolean =>
   expected === actual || expected === "core.value" || (expected === "core.dateTime" && actual === "core.text");
 
+const resolveTriggerBindingType = (
+  value: WorkflowJsonValue,
+  bindingPath: Array<string | number>,
+  eventValues: ReadonlyMap<string, ValueInfo>,
+  context: BindingContext,
+): ValueInfo | null => {
+  if (typeof value !== "string") return { type: "core.value" };
+  const parsed = parseWorkflowValueString(value);
+  if (parsed.kind === "invalid") {
+    addDiagnostic(context, "reference.invalid", "Invalid trigger binding expression", bindingPath);
+    return null;
+  }
+  if (parsed.kind !== "expression") return { type: "core.text" };
+  if (parsed.expression.kind !== "reference") return { type: "core.dateTime" };
+  return resolveReference(parsed.expression.reference, bindingPath, new Map(), context, eventValues);
+};
+
+const bindTrigger = (
+  trigger: WorkflowIr["triggers"][number],
+  descriptor: (typeof mailWorkflowManifest.triggers)[number],
+  context: BindingContext,
+): void => {
+  const path = ["triggers", trigger.kind] as Array<string | number>;
+  const eventValues = new Map(Object.entries(descriptor.eventValues).map(([name, type]) => [name, { type }]));
+  for (const input of context.ir.inputs) {
+    if (input.config.required === true && trigger.with[input.name] === undefined) {
+      addDiagnostic(context, "trigger.required", `Trigger must bind required input "${input.name}"`, [...path, "with", input.name]);
+    }
+  }
+  for (const [inputName, value] of Object.entries(trigger.with)) {
+    const input = context.inputs.get(inputName);
+    if (!input) continue;
+    const bindingPath = [...path, "with", inputName];
+    const actual = resolveTriggerBindingType(value, bindingPath, eventValues, context);
+    if (actual && !typesCompatible(input.type, actual.type)) {
+      addDiagnostic(context, "trigger.type", `Trigger value has type ${actual.type}, expected ${input.type}`, bindingPath);
+    }
+  }
+};
+
 const bindTriggers = (context: BindingContext): void => {
   const descriptors = new Map(mailWorkflowManifest.triggers.map((trigger) => [trigger.kind, trigger]));
   for (const trigger of context.ir.triggers) {
-    const path = ["triggers", trigger.kind] as Array<string | number>;
     const descriptor = descriptors.get(trigger.kind);
-    if (!descriptor) continue;
-    const eventValues = new Map(Object.entries(descriptor.eventValues).map(([name, type]) => [name, { type }]));
-    for (const input of context.ir.inputs) {
-      if (input.config.required === true && trigger.with[input.name] === undefined) {
-        addDiagnostic(context, "trigger.required", `Trigger must bind required input "${input.name}"`, [...path, "with", input.name]);
-      }
-    }
-    for (const [inputName, value] of Object.entries(trigger.with)) {
-      const input = context.inputs.get(inputName);
-      if (!input) continue;
-      const bindingPath = [...path, "with", inputName];
-      let actual: ValueInfo;
-      if (typeof value === "string") {
-        const parsed = parseWorkflowValueString(value);
-        if (parsed.kind === "expression" && parsed.expression.kind === "reference") {
-          const resolved = resolveReference(parsed.expression.reference, bindingPath, new Map(), context, eventValues);
-          if (!resolved) continue;
-          actual = resolved;
-        } else if (parsed.kind === "expression") actual = { type: "core.dateTime" };
-        else if (parsed.kind === "invalid") {
-          addDiagnostic(context, "reference.invalid", "Invalid trigger binding expression", bindingPath);
-          continue;
-        } else actual = { type: "core.text" };
-      } else actual = { type: "core.value" };
-      if (!typesCompatible(input.type, actual.type)) {
-        addDiagnostic(context, "trigger.type", `Trigger value has type ${actual.type}, expected ${input.type}`, bindingPath);
-      }
-    }
+    if (descriptor) bindTrigger(trigger, descriptor, context);
   }
 };
 

@@ -8,7 +8,12 @@ import {
 } from "@valentinkolb/cloud/workflows/runtime";
 import { type Scheduler, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
-import type { AutomaticWorkflowMaterialization } from "./workflow-materialization-service";
+import { createRuntimeLifecycle } from "./runtime-lifecycle";
+import {
+  type AutomaticWorkflowMaterialization,
+  type AutomaticWorkflowMaterializationInput,
+  materializeAutomaticWorkflowRun,
+} from "./workflow-automatic-materialization";
 
 const MAIL_WORKFLOW_SCHEDULER_ID = "mail:workflow-schedules";
 const MAIL_WORKFLOW_SCHEDULE_PREFIX = "mail:workflow-schedule:";
@@ -35,8 +40,7 @@ export type MailWorkflowScheduleResult =
   | AutomaticWorkflowMaterialization
   | { state: "stale"; reason: "activation" | "revision" | "schedule" };
 
-type AutomaticMaterializer = typeof import("./workflow-materialization-service").materializeAutomaticWorkflowRun;
-type ScheduleMaterialization = (input: Parameters<AutomaticMaterializer>[0]) => ReturnType<AutomaticMaterializer>;
+type ScheduleMaterialization = (input: AutomaticWorkflowMaterializationInput) => Promise<AutomaticWorkflowMaterialization>;
 
 export type MailWorkflowScheduleRuntimeDependencies = {
   transport: Scheduler;
@@ -152,8 +156,6 @@ const sameSchedule = (left: WorkflowScheduleRegistration, right: WorkflowSchedul
   left.schedule.cron === right.schedule.cron && left.schedule.timezone === right.schedule.timezone;
 
 export const createMailWorkflowScheduleRuntime = (dependencies: MailWorkflowScheduleRuntimeDependencies) => {
-  let started = false;
-
   const processSlot = async (registration: WorkflowScheduleRegistration, slotTs: number): Promise<MailWorkflowScheduleResult> => {
     const current = await dependencies.loadCurrent(registration);
     if (!current) return { state: "stale", reason: "activation" };
@@ -233,19 +235,20 @@ export const createMailWorkflowScheduleRuntime = (dependencies: MailWorkflowSche
     });
   };
 
-  return {
-    reconcile,
-    start: async (): Promise<void> => {
-      if (started) return;
+  const lifecycle = createRuntimeLifecycle({
+    start: async () => {
       await reconcile();
       dependencies.transport.start();
-      started = true;
     },
-    stop: async (): Promise<void> => {
-      if (!started) return;
+    stop: async () => {
       await dependencies.transport.stop();
-      started = false;
     },
+  });
+
+  return {
+    reconcile,
+    start: lifecycle.start,
+    stop: lifecycle.stop,
   };
 };
 
@@ -253,10 +256,7 @@ const mailWorkflowScheduleRuntime = createMailWorkflowScheduleRuntime({
   transport: scheduler({ id: MAIL_WORKFLOW_SCHEDULER_ID }),
   listActive: listActiveScheduleActivations,
   loadCurrent: loadCurrentScheduleActivation,
-  materialize: async (input) => {
-    const { materializeAutomaticWorkflowRun } = await import("./workflow-materialization-service");
-    return materializeAutomaticWorkflowRun(input);
-  },
+  materialize: materializeAutomaticWorkflowRun,
 });
 
 export const reconcileMailWorkflowSchedules = async (): Promise<void> => await mailWorkflowScheduleRuntime.reconcile();
