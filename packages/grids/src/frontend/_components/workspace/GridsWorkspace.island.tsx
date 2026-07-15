@@ -511,7 +511,7 @@ export default function GridsWorkspace(props: Props) {
   return (
     <>
       <RememberGridsPath path={state().rememberPath} />
-      <AppWorkspace class="flex-1 min-h-0">
+      <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
         <GridsLayoutHelp />
         <AppWorkspace.Sidebar>
           <AppWorkspace.SidebarHeader

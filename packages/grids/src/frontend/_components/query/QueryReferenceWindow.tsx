@@ -782,9 +782,9 @@ export default function QueryReferenceWindow(props: Props) {
   };
 
   return (
-    <AppWorkspace class="h-screen bg-surface">
+    <AppWorkspace class="cloud-ui-soft h-screen">
       <ReferenceSidebar activeTab={activeTab()} baseShortId={props.baseShortId} baseName={props.baseName} />
-      <AppWorkspace.Main class="bg-surface p-[var(--ui-space-shell)]">
+      <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
         <div class="flex min-h-0 flex-1 flex-col overflow-auto">{content()}</div>
       </AppWorkspace.Main>
     </AppWorkspace>
