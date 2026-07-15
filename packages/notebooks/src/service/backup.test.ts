@@ -102,4 +102,11 @@ describe("notebook S3 backup", () => {
     expect(valid.ok).toBe(true);
     if (!invalid.ok) expect(invalid.error.message).toContain("https://nbg1.your-objectstorage.com");
   });
+
+  test("rejects non-HTTP S3 endpoints", () => {
+    const result = validateSnapshotEndpoint("file:///tmp/notebooks", "local");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("http or https");
+  });
 });

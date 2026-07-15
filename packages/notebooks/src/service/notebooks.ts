@@ -1,12 +1,13 @@
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
-import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
-import { serviceAccounts } from "@valentinkolb/cloud/services";
+import { deleteAccess, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
+import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
 import {
   buildNotebookVisibleAccessCondition,
   getNotebookPermission,
   grantNotebookAccess,
+  listNotebookAccess,
   NOTEBOOK_RESOURCE_TYPE,
   NOTEBOOKS_APP_ID,
 } from "./access";
@@ -67,6 +68,8 @@ type DbNotebookAdmin = DbNotebook & {
   permission_count: number;
 };
 
+const log = logger("notebooks:notebooks");
+
 export type NotebookAdminListItem = Notebook & {
   permissionCount: number;
 };
@@ -107,6 +110,18 @@ const noteExistsInNotebook = async (noteId: string, notebookId: string): Promise
     ) AS exists
   `;
   return row?.exists ?? false;
+};
+
+const cleanupFailedCreate = async (notebookId: string, accessId?: string): Promise<void> => {
+  try {
+    await sql`DELETE FROM notebooks.notebooks WHERE id = ${notebookId}::uuid`;
+    if (accessId) await deleteAccess({ id: accessId });
+  } catch (error) {
+    log.error("Failed to remove partially created notebook", {
+      notebookId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 };
 
 // ==========================
@@ -427,15 +442,18 @@ export const create = async (params: {
     return { ok: false, error: "Failed to create notebook", status: 500 };
   }
 
-  // Grant admin access to the creator
-  await grantNotebookAccess({
+  const accessResult = await grantNotebookAccess({
     notebookId: row.id,
     principal: { type: "user", userId: creatorId },
     permission: "admin",
   });
+  if (!accessResult.ok) {
+    await cleanupFailedCreate(row.id);
+    return { ok: false, error: accessResult.error.message, status: accessResult.error.status };
+  }
 
   if (seedWelcome) {
-    await notes.create({
+    const noteResult = await notes.create({
       data: {
         notebookId: row.id,
         title: "Welcome",
@@ -443,6 +461,10 @@ export const create = async (params: {
       },
       creatorId,
     });
+    if (!noteResult.ok) {
+      await cleanupFailedCreate(row.id, accessResult.data.id);
+      return noteResult;
+    }
   }
 
   const notebook = mapToNotebook(row);
@@ -507,6 +529,7 @@ export const update = async (params: { id: string; data: UpdateNotebook }): Prom
  * Delete a notebook.
  */
 export const remove = async (params: { id: string }): Promise<MutationResult<void>> => {
+  const accessEntries = await listNotebookAccess(params.id);
   const result = await sql`
     DELETE FROM notebooks.notebooks
     WHERE id = ${params.id}::uuid
@@ -514,6 +537,17 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
 
   if (result.count === 0) {
     return { ok: false, error: "Notebook not found", status: 404 };
+  }
+
+  for (const entry of accessEntries) {
+    const deleted = await deleteAccess({ id: entry.id });
+    if (!deleted.ok && deleted.error.status !== 404) {
+      log.error("Failed to remove notebook access entry", {
+        notebookId: params.id,
+        accessId: entry.id,
+        error: deleted.error.message,
+      });
+    }
   }
 
   await serviceAccounts.deleteForResource({

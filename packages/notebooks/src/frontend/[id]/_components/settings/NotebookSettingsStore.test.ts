@@ -50,11 +50,13 @@ describe("NotebookSettingsStore", () => {
 
   test("preserves preferences for other notebooks and when changing the last notebook", () => {
     writeSettings("first", { richMode: "source" });
-    writeSettings("second", { lastNoteId: "note-2" });
+    writeSettings("second", { lastNoteId: "note-2", navigatorSort: "title" });
     setLastNotebookId("second");
 
     expect(parseSettings(cookieHeader(), "first").richMode).toBe("source");
     expect(parseSettings(cookieHeader(), "second").lastNoteId).toBe("note-2");
+    expect(parseSettings(cookieHeader(), "second").navigatorSort).toBe("title");
+    expect(parseSettings(cookieHeader(), "first").navigatorSort).toBe("updated");
   });
 
   test("persists detail-panel visibility for server rendering", () => {
@@ -64,5 +66,32 @@ describe("NotebookSettingsStore", () => {
     setDetailPanelOpen(false);
     expect(parseDetailPanelOpen(cookieHeader())).toBe(false);
     expect(decodeURIComponent(cookie)).toContain(COOKIE_NAME);
+  });
+
+  test("ignores malformed preference values", () => {
+    cookie = `${COOKIE_NAME}=${encodeURIComponent(
+      JSON.stringify({
+        sidebarMode: "broken",
+        detailPanelOpen: "yes",
+        notebooks: { first: { richMode: "broken", navigatorSort: 42, lastNoteId: false } },
+      }),
+    )}`;
+
+    expect(readSettings("first")).toEqual({
+      lastNoteId: null,
+      richMode: "rich",
+      sidebarMode: "simple",
+      navigatorSort: "updated",
+    });
+    expect(parseDetailPanelOpen(cookieHeader())).toBe(false);
+  });
+
+  test("bounds notebook-specific preferences", () => {
+    for (let index = 0; index < 30; index++) {
+      writeSettings(`notebook-${index}`, { lastNoteId: `note-${index}` });
+    }
+
+    expect(parseSettings(cookieHeader(), "notebook-0").lastNoteId).toBeNull();
+    expect(parseSettings(cookieHeader(), "notebook-29").lastNoteId).toBe("note-29");
   });
 });

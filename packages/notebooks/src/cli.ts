@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import {
   arg,
@@ -1127,7 +1127,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       `/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(metadata.shortId)}/content`,
     );
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
-    await writeFile(output, new Uint8Array(await response.arrayBuffer()));
+    await Bun.write(output, response);
     if (ctx.options.output === "json") ctx.json({ attachment: metadata, output });
     else ctx.print(`Saved ${metadata.filename} to ${output}.`);
     return 0;
@@ -1166,7 +1166,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const output = stringFlag(ctx.flags, "output-file", "out") ?? `${notebook.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}.zip`;
     const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/export.zip`);
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
-    await writeFile(output, new Uint8Array(await response.arrayBuffer()));
+    await Bun.write(output, response);
     if (ctx.options.output === "json") ctx.json({ notebook, output });
     else ctx.print(`Exported ${notebook.name} to ${output}.`);
     return 0;

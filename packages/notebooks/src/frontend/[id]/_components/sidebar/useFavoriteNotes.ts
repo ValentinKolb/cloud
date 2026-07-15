@@ -5,12 +5,15 @@ import type { NoteTreeNode } from "./types";
 
 export function useFavoriteNotes(params: { notebookId: string; initialFavoriteNoteIds: () => string[] }) {
   const [favoriteNoteIds, setFavoriteNoteIds] = createSignal(new Set(params.initialFavoriteNoteIds()));
+  const pendingNoteIds = new Set<string>();
 
   createEffect(() => setFavoriteNoteIds(new Set(params.initialFavoriteNoteIds())));
 
   const toggleFavorite = async (note: NoteTreeNode, event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
+    if (pendingNoteIds.has(note.id)) return;
+    pendingNoteIds.add(note.id);
     const next = !favoriteNoteIds().has(note.id);
     setFavoriteNoteIds((current) => {
       const copy = new Set(current);
@@ -19,11 +22,14 @@ export function useFavoriteNotes(params: { notebookId: string; initialFavoriteNo
       return copy;
     });
 
-    const response = await apiClient[":id"].notes[":noteId"].favorite.$put({
-      param: { id: params.notebookId, noteId: note.shortId },
-      json: { favorite: next },
-    });
-    if (!response.ok) {
+    try {
+      const response = await apiClient[":id"].notes[":noteId"].favorite.$put({
+        param: { id: params.notebookId, noteId: note.shortId },
+        json: { favorite: next },
+      });
+      if (response.ok) return;
+      throw new Error("Favorite request failed");
+    } catch {
       setFavoriteNoteIds((current) => {
         const copy = new Set(current);
         if (next) copy.delete(note.id);
@@ -31,6 +37,8 @@ export function useFavoriteNotes(params: { notebookId: string; initialFavoriteNo
         return copy;
       });
       void prompts.error("Failed to update favorite.");
+    } finally {
+      pendingNoteIds.delete(note.id);
     }
   };
 

@@ -48,7 +48,10 @@ export const reindexNoteRefsSafe = async (params: { noteId: string; notebookId: 
  * applies the three reindex primitives. Returns counts so the scheduler
  * can log a summary.
  */
-export const reindexNotebook = async (params: { notebookId: string }): Promise<{ notes: number; failed: number }> => {
+export const reindexNotebook = async (params: {
+  notebookId: string;
+  onProgress?: () => Promise<void>;
+}): Promise<{ notes: number; failed: number }> => {
   const { sql } = await import("bun");
   const notes = await sql<{ id: string; content_md: string | null }[]>`
     SELECT id, content_md FROM notebooks.notes WHERE notebook_id = ${params.notebookId}
@@ -65,6 +68,7 @@ export const reindexNotebook = async (params: { notebookId: string }): Promise<{
         error: error instanceof Error ? error.message : String(error),
       });
     }
+    await params.onProgress?.();
   }
   return { notes: notes.length, failed };
 };
@@ -73,15 +77,18 @@ export const reindexNotebook = async (params: { notebookId: string }): Promise<{
  * Full reindex — every notebook. Used as the periodic scheduler job AND
  * as a one-shot backfill at app startup (see `reindex-scheduler.ts`).
  */
-export const reindexAll = async (): Promise<{ notebooks: number; notes: number; failed: number }> => {
+export const reindexAll = async (
+  params: { onProgress?: () => Promise<void> } = {},
+): Promise<{ notebooks: number; notes: number; failed: number }> => {
   const { sql } = await import("bun");
   const notebooks = await sql<{ id: string }[]>`SELECT id FROM notebooks.notebooks`;
   let totalNotes = 0;
   let totalFailed = 0;
   for (const notebook of notebooks) {
-    const result = await reindexNotebook({ notebookId: notebook.id });
+    const result = await reindexNotebook({ notebookId: notebook.id, onProgress: params.onProgress });
     totalNotes += result.notes;
     totalFailed += result.failed;
+    await params.onProgress?.();
   }
   return { notebooks: notebooks.length, notes: totalNotes, failed: totalFailed };
 };

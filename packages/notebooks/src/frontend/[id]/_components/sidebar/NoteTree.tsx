@@ -498,9 +498,6 @@ export default function NoteTree(props: Props) {
       const detail = (event as CustomEvent<{ canonicalNoteId?: string }>).detail;
       if (!detail?.canonicalNoteId) return;
       setSelectedNoteId(detail.canonicalNoteId);
-      document.querySelectorAll<HTMLElement>("[data-notebooks-homepage-note-id]").forEach((el) => {
-        el.classList.toggle("sidebar-item-active", el.dataset.notebooksHomepageNoteId === detail.canonicalNoteId);
-      });
     };
     window.addEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
     onCleanup(() => window.removeEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated));

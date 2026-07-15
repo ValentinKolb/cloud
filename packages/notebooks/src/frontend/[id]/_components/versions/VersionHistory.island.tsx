@@ -1,10 +1,10 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, Placeholder, prompts, SelectInput } from "@valentinkolb/cloud/ui";
+import { MarkdownView, openSpotlightSearch, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import dayjs from "dayjs";
 import { diffLines } from "diff";
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildNoteUrl } from "../../../params";
 import { buildDiffRows, type DiffRow, orderComparison, summarizeDiff } from "./version-history";
@@ -39,20 +39,32 @@ type Props = {
 
 type PreviewMode = "content" | "changes";
 
+type ComparisonTarget = {
+  id: string;
+  label: string;
+  createdAt: string | null;
+};
+
 const PER_PAGE = 20;
 
 /** Pseudo-ID for "Current version" */
 const CURRENT_ID = "__current__";
+const CURRENT_TARGET: ComparisonTarget = {
+  id: CURRENT_ID,
+  label: "Current note",
+  createdAt: null,
+};
 
 export default function VersionHistory(props: Props) {
   const [versions, setVersions] = createSignal<NoteVersion[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [loadingMore, setLoadingMore] = createSignal(false);
+  const [loadError, setLoadError] = createSignal(false);
   const [pagination, setPagination] = createSignal<PaginationInfo | null>(null);
 
   const [selectedVersionId, setSelectedVersionId] = createSignal<string | null>(null);
   const [selectedVersionData, setSelectedVersionData] = createSignal<VersionData | null>(null);
-  const [comparisonVersionId, setComparisonVersionId] = createSignal(CURRENT_ID);
+  const [comparisonTarget, setComparisonTarget] = createSignal<ComparisonTarget>(CURRENT_TARGET);
   const [previewMode, setPreviewMode] = createSignal<PreviewMode>("content");
   const [diffRows, setDiffRows] = createSignal<DiffRow[]>([]);
   const [previewLoading, setPreviewLoading] = createSignal(false);
@@ -61,6 +73,7 @@ export default function VersionHistory(props: Props) {
   // Cache loaded version data to avoid re-fetching
   const versionCache = new Map<string, VersionData>();
   let previewRequestId = 0;
+  let disposed = false;
 
   const backUrl = buildNoteUrl(props.notebookId, props.noteId);
 
@@ -79,10 +92,14 @@ export default function VersionHistory(props: Props) {
         };
         setVersions(append ? [...versions(), ...data.data] : data.data);
         setPagination(data.pagination);
+        setLoadError(false);
+        return true;
       }
     } catch {
-      /* ignore */
+      // Render a retryable error state below.
     }
+    if (!append) setLoadError(true);
+    return false;
   };
 
   const fetchVersionData = async (versionId: string): Promise<VersionData | null> => {
@@ -119,7 +136,12 @@ export default function VersionHistory(props: Props) {
 
   const computeDiff = async (selectedId: string, comparisonId: string) => {
     const requestId = ++previewRequestId;
-    const { fromId, toId } = orderComparison(selectedId, comparisonId, versions(), CURRENT_ID);
+    const target = comparisonTarget();
+    const orderVersions =
+      target.createdAt && !versions().some((version) => version.id === target.id)
+        ? [...versions(), { id: target.id, createdAt: target.createdAt }]
+        : versions();
+    const { fromId, toId } = orderComparison(selectedId, comparisonId, orderVersions, CURRENT_ID);
     setPreviewLoading(true);
     setPreviewError(false);
     setDiffRows([]);
@@ -143,25 +165,70 @@ export default function VersionHistory(props: Props) {
   // ── Selection logic ──
 
   const selectVersion = (versionId: string) => {
+    const target = comparisonTarget().id === versionId ? CURRENT_TARGET : comparisonTarget();
     setSelectedVersionId(versionId);
     setSelectedVersionData(null);
-    setComparisonVersionId(CURRENT_ID);
-    void computeDiff(versionId, CURRENT_ID);
+    setComparisonTarget(target);
+    void computeDiff(versionId, target.id);
   };
 
-  const changeComparison = (versionId: string) => {
+  const changeComparison = (target: ComparisonTarget) => {
     const selectedId = selectedVersionId();
-    if (!selectedId || versionId === selectedId) return;
-    setComparisonVersionId(versionId);
+    if (!selectedId || target.id === selectedId) return;
+    setComparisonTarget(target);
     setPreviewMode("changes");
-    void computeDiff(selectedId, versionId);
+    void computeDiff(selectedId, target.id);
+  };
+
+  const openComparisonPicker = async () => {
+    let data: { data: NoteVersion[] };
+    try {
+      const res = await apiClient[":id"].notes[":noteId"].versions.$get({
+        param: { id: props.notebookId, noteId: props.noteId },
+        query: { page: "1", per_page: "100" },
+      });
+      if (!res.ok) throw new Error();
+      data = (await res.json()) as { data: NoteVersion[] };
+    } catch {
+      await prompts.error("Failed to load saved versions.");
+      return;
+    }
+
+    const targets: ComparisonTarget[] = [
+      CURRENT_TARGET,
+      ...data.data
+        .filter((version) => version.id !== selectedVersionId())
+        .map((version) => ({ id: version.id, label: formatDate(version.createdAt), createdAt: version.createdAt })),
+    ];
+    const selected = await openSpotlightSearch<ComparisonTarget>({
+      title: "Compare with",
+      icon: "ti ti-git-compare",
+      placeholder: "Search saved versions...",
+      noResultsText: "No matching versions.",
+      resolve: ({ query }) => {
+        const needle = query.trim().toLowerCase();
+        return targets
+          .filter((target) => needle.length === 0 || target.label.toLowerCase().includes(needle))
+          .map((target) => ({
+            value: target,
+            label: target.label,
+            desc: target.id === CURRENT_ID ? "Live content" : "Saved version",
+            icon: target.id === CURRENT_ID ? "ti ti-file-text" : "ti ti-history",
+          }));
+      },
+    });
+    if (selected?.value) changeComparison(selected.value);
   };
 
   // ── Init ──
 
   onMount(async () => {
     await fetchVersions(1);
-    setLoading(false);
+    if (!disposed) setLoading(false);
+  });
+  onCleanup(() => {
+    disposed = true;
+    previewRequestId++;
   });
 
   const loadMore = async () => {
@@ -193,7 +260,12 @@ export default function VersionHistory(props: Props) {
         param: { id: props.notebookId, noteId: newNote.id },
         json: { yjsSnapshot: data.snapshot },
       });
-      if (!restoreRes.ok) throw new Error("Failed to restore content");
+      if (!restoreRes.ok) {
+        await apiClient[":id"].notes[":noteId"].$delete({
+          param: { id: props.notebookId, noteId: newNote.id },
+        });
+        throw new Error("Failed to restore content");
+      }
       return newNote;
     },
     onSuccess: (data) => {
@@ -226,24 +298,22 @@ export default function VersionHistory(props: Props) {
 
   const isWorking = () => restoreAsNewMut.loading();
 
-  const comparisonOptions = createMemo(() => [
-    { id: CURRENT_ID, label: "Current note", icon: "ti ti-file-text" },
-    ...versions()
-      .filter((version) => version.id !== selectedVersionId())
-      .map((version) => ({ id: version.id, label: formatDate(version.createdAt), icon: "ti ti-history" })),
-  ]);
-
-  const comparisonLabel = createMemo((): { from: string; to: string } | null => {
+  const comparisonLabel = createMemo((): { from: string; fromId: string; to: string; toId: string } | null => {
     const selectedId = selectedVersionId();
     if (!selectedId) return null;
-    const comparisonId = comparisonVersionId();
-    const { fromId, toId } = orderComparison(selectedId, comparisonId, versions(), CURRENT_ID);
+    const target = comparisonTarget();
+    const orderVersions =
+      target.createdAt && !versions().some((version) => version.id === target.id)
+        ? [...versions(), { id: target.id, createdAt: target.createdAt }]
+        : versions();
+    const { fromId, toId } = orderComparison(selectedId, target.id, orderVersions, CURRENT_ID);
     const labelFor = (id: string) => {
       if (id === CURRENT_ID) return "Current note";
+      if (id === target.id) return target.label;
       const version = versions().find((entry) => entry.id === id);
       return version ? formatDate(version.createdAt) : "Unknown version";
     };
-    return { from: labelFor(fromId), to: labelFor(toId) };
+    return { from: labelFor(fromId), fromId, to: labelFor(toId), toId };
   });
 
   const diffSummary = createMemo(() => summarizeDiff(diffRows()));
@@ -253,7 +323,7 @@ export default function VersionHistory(props: Props) {
   return (
     <div class="flex min-h-0 flex-1 flex-col gap-2">
       {/* Header */}
-      <div class="flex shrink-0 items-center justify-between px-2 pt-2">
+      <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 px-2 pt-2">
         <div class="flex items-center gap-2">
           <a href={backUrl} class="icon-btn h-8 w-8 text-dimmed" title="Back to editor" aria-label="Back to editor">
             <i class="ti ti-arrow-left" />
@@ -265,7 +335,7 @@ export default function VersionHistory(props: Props) {
         </div>
 
         <Show when={selectedVersionId()}>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center justify-end gap-2">
             <div class="flex items-center gap-1" role="group" aria-label="Version preview">
               <button
                 type="button"
@@ -322,7 +392,14 @@ export default function VersionHistory(props: Props) {
       {/* Empty */}
       <Show when={!loading() && versions().length === 0}>
         <div class="flex-1 flex items-center justify-center">
-          <Placeholder icon="ti ti-history">No versions yet</Placeholder>
+          <Show
+            when={!loadError()}
+            fallback={
+              <Placeholder icon="ti ti-alert-circle" title="Versions could not be loaded" description="Reload this page to try again." />
+            }
+          >
+            <Placeholder icon="ti ti-history">No versions yet</Placeholder>
+          </Show>
         </div>
       </Show>
 
@@ -370,30 +447,45 @@ export default function VersionHistory(props: Props) {
           {/* Right: saved content and optional comparison */}
           <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
             <Show when={selectedVersionId() && previewMode() === "changes" && comparisonLabel()}>
-              <div class="flex shrink-0 flex-wrap items-end gap-3 px-3 pb-2">
+              <div class="flex shrink-0 flex-wrap items-center gap-3 px-3 pb-2">
                 <div class="min-w-0 flex-1">
                   <p class="text-[10px] font-semibold uppercase text-dimmed">Comparing</p>
                   <p class="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
-                    <span class="truncate font-medium text-primary">{comparisonLabel()!.from}</span>
+                    <span class="flex min-w-0 items-center gap-1">
+                      <span class="truncate font-medium text-primary">{comparisonLabel()!.from}</span>
+                      <Show when={comparisonLabel()!.fromId === comparisonTarget().id}>
+                        <button
+                          type="button"
+                          class="shrink-0 p-0 font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                          onClick={openComparisonPicker}
+                          aria-label="Change comparison version"
+                        >
+                          (change)
+                        </button>
+                      </Show>
+                    </span>
                     <i class="ti ti-arrow-right shrink-0 text-dimmed" />
-                    <span class="truncate font-medium text-primary">{comparisonLabel()!.to}</span>
+                    <span class="flex min-w-0 items-center gap-1">
+                      <span class="truncate font-medium text-primary">{comparisonLabel()!.to}</span>
+                      <Show when={comparisonLabel()!.toId === comparisonTarget().id}>
+                        <button
+                          type="button"
+                          class="shrink-0 p-0 font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                          onClick={openComparisonPicker}
+                          aria-label="Change comparison version"
+                        >
+                          (change)
+                        </button>
+                      </Show>
+                    </span>
                   </p>
                 </div>
                 <Show when={!previewLoading() && diffSummary().hasChanges}>
-                  <div class="flex items-center gap-2 pb-2 font-mono text-[11px] tabular-nums">
+                  <div class="flex items-center gap-2 font-mono text-[11px] tabular-nums">
                     <span class="text-green-700 dark:text-green-300">+{diffSummary().added}</span>
                     <span class="text-red-700 dark:text-red-300">-{diffSummary().removed}</span>
                   </div>
                 </Show>
-                <div class="w-full sm:w-52">
-                  <SelectInput
-                    label="Compare with"
-                    icon="ti ti-git-compare"
-                    value={comparisonVersionId}
-                    onChange={changeComparison}
-                    options={comparisonOptions()}
-                  />
-                </div>
               </div>
             </Show>
 

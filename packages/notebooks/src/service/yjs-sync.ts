@@ -1,9 +1,14 @@
+import { fromBase64Strict } from "@valentinkolb/stdlib";
 import { topic } from "@valentinkolb/sync";
 import * as Y from "yjs";
 import { notebooksYjs } from "../lib/yjs";
 
 export const TOPIC_PREFIX = "cloud:notebooks:yjs";
 export const TOPIC_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const AWARENESS_TOPIC_PREFIX = "cloud:notebooks:yjs-awareness";
+const AWARENESS_RETENTION_MS = 60_000;
+const MAX_SYNC_TOPIC_PAYLOAD_BYTES = 8_100_000;
+const MAX_AWARENESS_TOPIC_PAYLOAD_BYTES = 300_000;
 export const NODE_ID = crypto.randomUUID();
 
 /**
@@ -17,17 +22,29 @@ export type YjsTopicEvent = {
   originPeerId: string | null;
 };
 
+export type YjsSyncEvent = YjsTopicEvent & { kind: "sync" };
+export type YjsAwarenessEvent = YjsTopicEvent & { kind: "awareness" };
+
 const STREAM_CURSOR_REGEX = new RegExp(notebooksYjs.streamCursorPattern);
 
 export const createYjsTopic = (noteId: string) =>
-  topic<YjsTopicEvent>({
+  topic<YjsSyncEvent>({
     id: noteId,
     prefix: TOPIC_PREFIX,
     retentionMs: TOPIC_RETENTION_MS,
+    limits: { payloadBytes: MAX_SYNC_TOPIC_PAYLOAD_BYTES },
+  });
+
+export const createYjsAwarenessTopic = (noteId: string) =>
+  topic<YjsAwarenessEvent>({
+    id: noteId,
+    prefix: AWARENESS_TOPIC_PREFIX,
+    retentionMs: AWARENESS_RETENTION_MS,
+    limits: { payloadBytes: MAX_AWARENESS_TOPIC_PAYLOAD_BYTES },
   });
 
 export const toBase64 = (data: Uint8Array): string => Buffer.from(data).toString("base64");
-export const fromBase64 = (value: string): Uint8Array => new Uint8Array(Buffer.from(value, "base64"));
+export const fromBase64 = fromBase64Strict;
 
 export const parseStreamCursor = (cursor: string | null | undefined): { ms: number; seq: number } | null => {
   if (!cursor) return null;
@@ -79,7 +96,6 @@ export const replayYjsTopicToCursor = async (config: {
   config.signal?.addEventListener("abort", onAbort, { once: true });
 
   let reachedTarget = false;
-  let passedTarget = false;
   try {
     const noteTopic = createYjsTopic(config.noteId);
     for await (const event of noteTopic.live({
@@ -89,7 +105,6 @@ export const replayYjsTopicToCursor = async (config: {
     })) {
       const comparison = compareStreamCursor(event.cursor, config.targetCursor);
       if (comparison > 0) {
-        passedTarget = true;
         break;
       }
       applyYjsTopicEvent(config.doc, event, config.noteId);
@@ -103,7 +118,7 @@ export const replayYjsTopicToCursor = async (config: {
     config.signal?.removeEventListener("abort", onAbort);
   }
 
-  if (!reachedTarget && !passedTarget) {
+  if (!reachedTarget) {
     throw new Error(`Target cursor "${config.targetCursor}" was not reached during replay`);
   }
 };

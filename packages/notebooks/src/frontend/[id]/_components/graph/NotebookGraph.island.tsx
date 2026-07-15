@@ -87,6 +87,7 @@ export default function NotebookGraph(props: Props) {
 
   let svgRef: SVGSVGElement | undefined;
   let simulation: Simulation<SimNode, SimLink> | undefined;
+  let clearPointerGesture: (() => void) | undefined;
 
   const closeHref = () => {
     const selected = simNodes.find((node) => node.id === props.selectedNoteId);
@@ -167,12 +168,17 @@ export default function NotebookGraph(props: Props) {
     const move = (e: PointerEvent) => {
       setPan({ x: startPan.x + (e.clientX - startX), y: startPan.y + (e.clientY - startY) });
     };
-    const up = () => {
+    clearPointerGesture?.();
+    const finish = () => {
       window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      clearPointerGesture = undefined;
     };
+    clearPointerGesture = finish;
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
   };
 
   // ── Node drag ───────────────────────────────────────────
@@ -209,11 +215,14 @@ export default function NotebookGraph(props: Props) {
       node.fy = origY + dy;
     };
 
-    const up = () => {
+    clearPointerGesture?.();
+    const finish = (navigate: boolean) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      clearPointerGesture = undefined;
       simulation?.alphaTarget(0);
-      if (!didMove) {
+      if (navigate && !didMove) {
         // Pure click → unpin and navigate to the note.
         node.fx = null;
         node.fy = null;
@@ -222,9 +231,13 @@ export default function NotebookGraph(props: Props) {
       // If the user dragged, keep `fx`/`fy` so the node stays where they
       // dropped it. The simulation will re-settle the rest around it.
     };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    clearPointerGesture = cancel;
 
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
   };
 
   // ── Hover dimming ───────────────────────────────────────
@@ -269,6 +282,7 @@ export default function NotebookGraph(props: Props) {
   });
 
   onCleanup(() => {
+    clearPointerGesture?.();
     simulation?.stop();
   });
 

@@ -25,16 +25,20 @@ const result = await app.start({
     },
     start: async () => {
       yjsSnapshotWorker.start();
-      // Periodic note-refs reindex (links + tags + attachments). Also
-      // kicks off a one-shot startup backfill so newly-deployed schema
-      // changes get picked up without waiting for the next cron tick.
-      await reindexRuntime.start();
-      await snapshotRuntime.start();
+      try {
+        await reindexRuntime.start();
+        await snapshotRuntime.start();
+      } catch (error) {
+        await snapshotRuntime.stop();
+        await reindexRuntime.stop();
+        await yjsSnapshotWorker.stop();
+        throw error;
+      }
     },
     stop: async () => {
-      await yjsSnapshotWorker.stop();
-      await reindexRuntime.stop();
       await snapshotRuntime.stop();
+      await reindexRuntime.stop();
+      await yjsSnapshotWorker.stop();
     },
   },
 });

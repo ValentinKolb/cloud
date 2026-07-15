@@ -3,8 +3,8 @@ import { topic } from "@valentinkolb/sync";
 import type {
   NotebookWorkspaceEvent,
   NotebookWorkspaceInvalidationScope,
-  NotebookWorkspaceNotebook,
   NotebookWorkspaceNote,
+  NotebookWorkspaceNotebook,
 } from "../lib/workspace-events";
 
 const log = logger("notebooks:workspace-events");
@@ -45,15 +45,12 @@ export const live = (config: { notebookId: string; after?: string | null; signal
   });
 
 export const notebookUpdated = (notebook: NotebookWorkspaceNotebook): Promise<void> =>
-  publish(
-    {
-      v: 1,
-      type: "notebook.updated",
-      notebookId: notebook.id,
-      notebook,
-    },
-    `notebook:${notebook.id}:updated:${notebook.updatedAt}`,
-  );
+  publish({
+    v: 1,
+    type: "notebook.updated",
+    notebookId: notebook.id,
+    notebook,
+  });
 
 export const noteCreated = (note: NotebookWorkspaceNote): Promise<void> =>
   publish(
@@ -67,15 +64,12 @@ export const noteCreated = (note: NotebookWorkspaceNote): Promise<void> =>
   );
 
 export const noteUpdated = (note: NotebookWorkspaceNote): Promise<void> =>
-  publish(
-    {
-      v: 1,
-      type: "note.updated",
-      notebookId: note.notebookId,
-      note,
-    },
-    `note:${note.id}:updated:${note.updatedAt}`,
-  );
+  publish({
+    v: 1,
+    type: "note.updated",
+    notebookId: note.notebookId,
+    note,
+  });
 
 export const noteDeleted = (config: { notebookId: string; noteId: string; shortId: string }): Promise<void> =>
   publish(
@@ -90,17 +84,14 @@ export const noteDeleted = (config: { notebookId: string; noteId: string; shortI
   );
 
 export const noteFavoriteChanged = (config: { notebookId: string; noteId: string; userId: string; favorite: boolean }): Promise<void> =>
-  publish(
-    {
-      v: 1,
-      type: "note.favorite.changed",
-      notebookId: config.notebookId,
-      noteId: config.noteId,
-      userId: config.userId,
-      favorite: config.favorite,
-    },
-    `note:${config.noteId}:favorite:${config.userId}:${config.favorite}`,
-  );
+  publish({
+    v: 1,
+    type: "note.favorite.changed",
+    notebookId: config.notebookId,
+    noteId: config.noteId,
+    userId: config.userId,
+    favorite: config.favorite,
+  });
 
 export const invalidated = (config: {
   notebookId: string;

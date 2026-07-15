@@ -1,18 +1,18 @@
 import type { NotebookPresenceParticipant, User } from "@valentinkolb/cloud/contracts";
-import { accounts, logger } from "@valentinkolb/cloud/services";
 import { auth } from "@valentinkolb/cloud/server";
-import { notebooksWorkspace } from "./lib/workspace-events";
-import { notebooksYjs } from "./lib/yjs";
+import { accounts, logger } from "@valentinkolb/cloud/services";
 import type { TopicLiveEvent } from "@valentinkolb/sync";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
+import { notebooksWorkspace } from "./lib/workspace-events";
+import { notebooksYjs } from "./lib/yjs";
 import { notebooksService } from "./service";
 import { PRESENCE_HEARTBEAT_INTERVAL_MS } from "./service/presence";
 import { yjsSnapshotWorker } from "./service/yjs-snapshot-worker";
 import type { YjsTopicEvent } from "./service/yjs-sync";
-import { createYjsTopic, maxStreamCursor, NODE_ID, toBase64 } from "./service/yjs-sync";
+import { createYjsAwarenessTopic, createYjsTopic, maxStreamCursor, NODE_ID, toBase64 } from "./service/yjs-sync";
 
 /**
  * Notebooks realtime websocket (chat-style declarative flow):
@@ -42,6 +42,9 @@ const NOTIFY_BATCH_SIZE = 100;
 const NOTIFY_BATCH_MAX_BYTES = 256_000;
 const NOTIFY_FLUSH_DELAY_MS = 25;
 const MAX_PENDING_MESSAGES = 200;
+const MAX_SYNC_PAYLOAD_LENGTH = 8_000_000;
+const MAX_AWARENESS_PAYLOAD_LENGTH = 256_000;
+const MAX_CLIENT_MESSAGE_LENGTH = MAX_SYNC_PAYLOAD_LENGTH + 1_000;
 const BASE64_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 const ReplayRequestMessageSchema = z.object({
@@ -63,7 +66,7 @@ const SyncPublishMessageSchema = z.object({
     // resolves the form against `notebooks.notes` and stores the
     // canonical UUID in `WsContext.noteId` for everything downstream.
     noteId: z.string().min(6).max(36),
-    payload: z.string().min(1),
+    payload: z.string().min(1).max(MAX_SYNC_PAYLOAD_LENGTH),
   }),
 });
 
@@ -74,7 +77,7 @@ const AwarenessPublishMessageSchema = z.object({
     // resolves the form against `notebooks.notes` and stores the
     // canonical UUID in `WsContext.noteId` for everything downstream.
     noteId: z.string().min(6).max(36),
-    payload: z.string().min(1),
+    payload: z.string().min(1).max(MAX_AWARENESS_PAYLOAD_LENGTH),
   }),
 });
 
@@ -725,6 +728,29 @@ const startLiveStream = (
   const abort = new AbortController();
   ctx.streamAbort = abort;
 
+  // Awareness is transient collaboration state. Keep it off the retained
+  // document stream so cursor movement never bloats snapshot replay.
+  void (async () => {
+    const awarenessTopic = createYjsAwarenessTopic(noteId);
+    try {
+      for await (const event of awarenessTopic.live({ signal: abort.signal })) {
+        if (ctx.phase !== "joined" || ctx.noteId !== noteId) break;
+        send(ctx.socket, WS_TYPE.awarenessPush, {
+          noteId,
+          updates: [toPushUpdate(event)],
+        });
+      }
+    } catch (error) {
+      if (!abort.signal.aborted) {
+        log.error("Yjs awareness stream failed", {
+          noteId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await fatal(ctx, ERROR_CODE.internalError, "Live awareness stream failed", noteId);
+      }
+    }
+  })();
+
   void (async () => {
     const noteTopic = createYjsTopic(noteId);
     const pending: PushMessage[] = [];
@@ -828,26 +854,10 @@ const startLiveStream = (
       })) {
         if (ctx.phase !== "joined" || ctx.noteId !== noteId) break;
 
-        // Phase 1 — catch-up: replay retained sync history into the
-        // client's Y.Doc but DROP retained awareness events.
-        // Awareness (cursor positions, user presence) is ephemeral
-        // by design; resurrecting awareness from past sessions
-        // paints "ghost" remote cursors at stale positions until
-        // the next awareness timeout. Once `caughtUp` flips
-        // (drain-quiet timer fires after silence on the stream, OR
-        // hard-cap fallback), retained-feel awareness flows again.
-        //
-        // Re-arm the drain-quiet timer for SKIPPED events too.
-        // A retained stream may interleave awareness and sync —
-        // not re-arming on awareness skips would let the timer
-        // fire while we're still pulling skipped events with sync
-        // entries queued behind them, sending `replayReady`
-        // before the sync history actually reaches the client
-        // (codex review on commit 3a121e0, finding 2). The
-        // hard-cap timer is the safety net for streams that are
-        // genuinely stuck on stale-awareness floods.
-        if (!caughtUp && event.data.kind === "awareness") {
-          armDrainQuietTimer();
+        // Ignore awareness entries written by pre-split deployments. New
+        // awareness updates use the short-lived awareness topic above.
+        if ((event.data as YjsTopicEvent).kind !== "sync") {
+          if (!caughtUp) armDrainQuietTimer();
           continue;
         }
 
@@ -1080,8 +1090,8 @@ const handleAwarenessPublish = async (ctx: WsContext, payload: z.infer<typeof Aw
     return;
   }
 
-  const noteTopic = createYjsTopic(ctx.noteId!);
-  await noteTopic.pub({
+  const awarenessTopic = createYjsAwarenessTopic(ctx.noteId!);
+  await awarenessTopic.pub({
     data: {
       kind: "awareness",
       payload: payload.payload,
@@ -1187,6 +1197,10 @@ const app = new Hono().get(
         if (ctx.phase === "closing") return;
         if (typeof event.data !== "string") {
           warn(ctx.socket, ERROR_CODE.invalidMessage, "Only JSON text messages are supported");
+          return;
+        }
+        if (event.data.length > MAX_CLIENT_MESSAGE_LENGTH) {
+          await fatal(ctx, ERROR_CODE.invalidPayload, "Websocket message is too large", ctx.noteId ?? undefined);
           return;
         }
 

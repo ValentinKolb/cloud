@@ -39,15 +39,15 @@ const getTimezone = async (): Promise<string> => {
 };
 
 /** Run a single reindex pass with start/end logging + duration metric. */
-const runReindex = async (trigger: "scheduler" | "startup"): Promise<void> => {
+const runReindex = async (params: { trigger: "scheduler" | "startup"; onProgress?: () => Promise<void> }): Promise<void> => {
   const startedAt = Date.now();
-  log.info("Note-refs reindex started", { trigger });
+  log.info("Note-refs reindex started", { trigger: params.trigger });
   try {
-    const summary = await reindexAll();
+    const summary = await reindexAll({ onProgress: params.onProgress });
     const durationMs = Date.now() - startedAt;
     if (summary.failed > 0) {
       log.warn("Note-refs reindex finished with partial failures", {
-        trigger,
+        trigger: params.trigger,
         durationMs,
         notebooks: summary.notebooks,
         notes: summary.notes,
@@ -55,7 +55,7 @@ const runReindex = async (trigger: "scheduler" | "startup"): Promise<void> => {
       });
     } else {
       log.info("Note-refs reindex finished", {
-        trigger,
+        trigger: params.trigger,
         durationMs,
         notebooks: summary.notebooks,
         notes: summary.notes,
@@ -63,7 +63,7 @@ const runReindex = async (trigger: "scheduler" | "startup"): Promise<void> => {
     }
   } catch (error) {
     log.error("Note-refs reindex crashed", {
-      trigger,
+      trigger: params.trigger,
       durationMs: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -75,9 +75,6 @@ type ReindexTrigger = "scheduler" | "startup";
 
 const reindexJob = job<{ trigger: ReindexTrigger }, void>({
   id: "notebooks:reindex",
-  // Reindex of a sizable workspace (~1k notes) takes a couple of seconds.
-  // 5-minute lease leaves comfortable headroom; the scheduler renews
-  // automatically while the job is running.
   defaults: { leaseMs: 300_000 },
   trace: trace.fromSyncJob<{ trigger: ReindexTrigger }, void>({
     name: "Notebook references reindex",
@@ -87,7 +84,15 @@ const reindexJob = job<{ trigger: ReindexTrigger }, void>({
   }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return;
-    await runReindex(ctx.input.trigger);
+    let lastHeartbeatAt = Date.now();
+    await runReindex({
+      trigger: ctx.input.trigger,
+      onProgress: async () => {
+        if (Date.now() - lastHeartbeatAt < 60_000) return;
+        await ctx.heartbeat({ leaseMs: 300_000 });
+        lastHeartbeatAt = Date.now();
+      },
+    });
   },
   after: async ({ ctx }) => {
     if (!ctx.error) return;

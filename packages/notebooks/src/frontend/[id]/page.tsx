@@ -129,6 +129,7 @@ export default ssr<AuthContext>(async (c) => {
               initialSnapshot={selectedNote.yjsSnapshot}
               initialContent={selectedNote.contentMd}
               initialPanelOpen={detailPanelOpen}
+              initialRichMode={ctx.settings.richMode}
               readOnly={readonlyMode}
             />
           ) : (

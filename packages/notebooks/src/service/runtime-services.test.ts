@@ -3,6 +3,11 @@ import type { PermissionLevel, User } from "@valentinkolb/cloud/contracts";
 import type { ServiceAccount } from "@valentinkolb/cloud/services";
 import { ok } from "@valentinkolb/stdlib";
 
+const cloudServices = await import("@valentinkolb/cloud/services");
+const sync = await import("@valentinkolb/sync");
+const accessModule = await import("./access");
+const noteRefsModule = await import("./note-refs");
+
 const existingServiceAccount: ServiceAccount = {
   id: "11111111-1111-4111-8111-111111111111",
   name: "Notebook API keys",
@@ -56,10 +61,10 @@ let existingKeyPermission: Extract<PermissionLevel, "read" | "write" | "admin"> 
 let submittedJobs: SubmittedJob[] = [];
 let createdSchedules: CreatedSchedule[] = [];
 let schedulerStarts = 0;
-let schedulerStops = 0;
 let reindexRuns = 0;
 
 mock.module("@valentinkolb/cloud/services", () => ({
+  ...cloudServices,
   get: async (key: string) => {
     if (key === "app.timezone") return "Europe/Berlin";
     if (key === "notebooks.reindex_cron") return "0 */12 * * *";
@@ -109,6 +114,7 @@ mock.module("@valentinkolb/cloud/services", () => ({
 }));
 
 mock.module("@valentinkolb/sync", () => ({
+  ...sync,
   SchedulerControlNotFoundError: class SchedulerControlNotFoundError extends Error {},
   SchedulerControlTimeoutError: class SchedulerControlTimeoutError extends Error {},
   SchedulerControlUnavailableError: class SchedulerControlUnavailableError extends Error {},
@@ -126,9 +132,7 @@ mock.module("@valentinkolb/sync", () => ({
     start: () => {
       schedulerStarts += 1;
     },
-    stop: async () => {
-      schedulerStops += 1;
-    },
+    stop: async () => {},
     create: async (config: CreatedSchedule) => {
       createdSchedules.push(config);
     },
@@ -136,6 +140,7 @@ mock.module("@valentinkolb/sync", () => ({
 }));
 
 mock.module("./access", () => ({
+  ...accessModule,
   NOTEBOOKS_APP_ID: "notebooks",
   NOTEBOOK_RESOURCE_TYPE: "notebook",
   ensureNotebookServiceAccountAccess: async (config: unknown) => {
@@ -159,6 +164,7 @@ mock.module("./access", () => ({
 }));
 
 mock.module("./note-refs", () => ({
+  ...noteRefsModule,
   reindexAll: async () => {
     reindexRuns += 1;
     return { notebooks: 0, notes: 0, failed: 0 };
@@ -178,7 +184,6 @@ beforeEach(async () => {
   submittedJobs = [];
   createdSchedules = [];
   schedulerStarts = 0;
-  schedulerStops = 0;
   reindexRuns = 0;
 });
 
@@ -247,5 +252,4 @@ describe("notebook reindex runtime", () => {
     expect(submittedJobs).toContainEqual({ key: "slot:12345", input: { trigger: "scheduler" } });
     expect(reindexRuns).toBe(0);
   });
-
 });

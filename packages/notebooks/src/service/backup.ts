@@ -206,6 +206,10 @@ export const validateSnapshotEndpoint = (endpoint: string, region: string): Resu
     return fail(err.badInput("S3 endpoint must be a valid URL, for example https://nbg1.your-objectstorage.com."));
   }
 
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return fail(err.badInput("S3 endpoint must use http or https."));
+  }
+
   if (url.hostname === "your-objectstorage.com") {
     const expectedRegion = normalizeRegion(region);
     return fail(
@@ -603,7 +607,7 @@ const listEnabledNotebookIds = async (): Promise<string[]> => {
   return rows.map((row) => row.notebook_id);
 };
 
-const runScheduledSnapshots = async (): Promise<void> => {
+const runScheduledSnapshots = async (onProgress?: () => Promise<void>): Promise<void> => {
   const notebookIds = await listEnabledNotebookIds();
   log.info("Scheduled S3 snapshots started", { notebooks: notebookIds.length });
   let succeeded = 0;
@@ -612,6 +616,7 @@ const runScheduledSnapshots = async (): Promise<void> => {
     const result = await runNotebookS3Backup({ notebookId, trigger: "scheduler" });
     if (result.ok) succeeded += 1;
     else failed += 1;
+    await onProgress?.();
   }
   log.info("Scheduled S3 snapshots finished", { notebooks: notebookIds.length, succeeded, failed });
 };
@@ -626,7 +631,7 @@ const snapshotJob = job<void, void>({
   }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return;
-    await runScheduledSnapshots();
+    await runScheduledSnapshots(() => ctx.heartbeat({ leaseMs: 900_000 }));
   },
   after: async ({ ctx }) => {
     if (!ctx.error || ctx.failureCount >= 3) return;

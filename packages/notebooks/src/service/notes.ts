@@ -1,5 +1,6 @@
 import type { MutationResult, PaginationParams } from "@valentinkolb/cloud/contracts";
-import { toPgTextArray } from "@valentinkolb/cloud/services";
+import { logger, toPgTextArray } from "@valentinkolb/cloud/services";
+import { fromBase64Strict } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import * as Y from "yjs";
 import {
@@ -113,6 +114,7 @@ type DbNoteVersion = {
 };
 
 const VERSION_MIN_INTERVAL = "5 minutes";
+const log = logger("notebooks:notes");
 
 // ==========================
 // Helpers
@@ -155,6 +157,17 @@ const parentExistsInNotebook = async (parentId: string, notebookId: string): Pro
     ) AS exists
   `;
   return row?.exists ?? false;
+};
+
+const cleanupFailedCreate = async (noteId: string): Promise<void> => {
+  try {
+    await sql`DELETE FROM notebooks.notes WHERE id = ${noteId}::uuid`;
+  } catch (error) {
+    log.error("Failed to remove partially created note", {
+      noteId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 };
 
 /**
@@ -236,11 +249,15 @@ export const lock = async (params: { id: string }): Promise<MutationResult<Note>
     UPDATE notebooks.notes
     SET locked_at = now(), updated_at = now()
     WHERE id = ${id}::uuid
+      AND locked_at IS NULL
     RETURNING id, short_id, notebook_id, parent_id, title, position,
               yjs_snapshot_at, content_md, created_by, created_at, updated_at, locked_at
   `;
 
   if (!row) {
+    const current = await get({ id });
+    if (!current) return { ok: false, error: "Note not found", status: 404 };
+    if (current.lockedAt) return { ok: false, error: "Note is already locked", status: 400 };
     return { ok: false, error: "Failed to lock note", status: 500 };
   }
 
@@ -567,6 +584,7 @@ export const getWithContentByIdOrShortId = async (params: { idOrShortId: string 
  */
 export const create = async (params: { data: CreateNote; creatorId: string | null }): Promise<MutationResult<Note>> => {
   const { data, creatorId } = params;
+  let createdNoteId: string | null = null;
 
   if (data.parentId && !(await parentExistsInNotebook(data.parentId, data.notebookId))) {
     return { ok: false, error: "Parent note not found in notebook", status: 404 };
@@ -603,6 +621,7 @@ export const create = async (params: { data: CreateNote; creatorId: string | nul
     if (!row) {
       return { ok: false, error: "Failed to create note", status: 500 };
     }
+    createdNoteId = row.id;
 
     if (data.contentMd !== undefined) {
       const doc = new Y.Doc();
@@ -616,13 +635,17 @@ export const create = async (params: { data: CreateNote; creatorId: string | nul
         contentMd: data.contentMd,
         createdBy: creatorId,
       });
-      if (!saveResult.ok) return { ok: false, error: saveResult.error, status: saveResult.status };
+      if (!saveResult.ok) {
+        await cleanupFailedCreate(row.id);
+        return { ok: false, error: saveResult.error, status: saveResult.status };
+      }
     }
 
     const note = (await get({ id: row.id })) ?? mapToNote({ ...row, content_md: data.contentMd ?? null, has_children: false });
     await noteCreated(note);
     return { ok: true, data: note };
   } catch (e: unknown) {
+    if (createdNoteId) await cleanupFailedCreate(createdNoteId);
     const error = e as { code?: string };
     if (error.code === "23503") {
       return {
@@ -676,11 +699,15 @@ export const update = async (params: { id: string; data: UpdateNote }): Promise<
     SET title = ${title},
         parent_id = ${parentId}::uuid, position = ${position}, updated_at = now()
     WHERE id = ${id}::uuid
+      AND locked_at IS NULL
     RETURNING id, notebook_id, parent_id, title, position,
               yjs_snapshot_at, content_md, created_by, created_at, updated_at
   `;
 
   if (!row) {
+    const current = await get({ id });
+    if (!current) return { ok: false, error: "Note not found", status: 404 };
+    if (current.lockedAt) return { ok: false, error: "Cannot modify locked note", status: 403 };
     return { ok: false, error: "Failed to update note", status: 500 };
   }
 
@@ -1131,41 +1158,50 @@ export const restoreFromSnapshot = async (params: {
   }
 
   // Decode new snapshot and extract markdown for note row + version history.
-  const snapshotBuffer = Buffer.from(yjsSnapshot, "base64");
+  let snapshotBuffer: Buffer;
+  let restoredContentMd: string;
+  const restoredDoc = new Y.Doc();
+  try {
+    snapshotBuffer = Buffer.from(fromBase64Strict(yjsSnapshot));
+    Y.applyUpdate(restoredDoc, new Uint8Array(snapshotBuffer));
+    restoredContentMd = restoredDoc.getText(NOTE_TEXT_NAME).toString();
+  } catch {
+    return { ok: false, error: "Invalid Yjs snapshot", status: 400 };
+  } finally {
+    restoredDoc.destroy();
+  }
   const restoreStreamMs = Date.now();
   // Keep restore cursor dominant even on same-ms collisions with stream entries.
   const restoreStreamSeq = Number.MAX_SAFE_INTEGER;
-  let restoredContentMd: string | null = null;
-  try {
-    const doc = new Y.Doc();
-    Y.applyUpdate(doc, new Uint8Array(snapshotBuffer));
-    restoredContentMd = doc.getText("codemirror").toString();
-    doc.destroy();
-  } catch {
-    restoredContentMd = null;
-  }
 
-  const result = await sql`
-    UPDATE notebooks.notes
-    SET yjs_snapshot = ${snapshotBuffer},
-        yjs_stream_ms = ${restoreStreamMs},
-        yjs_stream_seq = ${restoreStreamSeq},
-        yjs_snapshot_at = now(),
-        content_md = ${restoredContentMd},
-        updated_at = now()
-    WHERE id = ${noteId}::uuid
-  `;
+  const restored = await sql.begin(async (tx): Promise<boolean> => {
+    const result = await tx`
+      UPDATE notebooks.notes
+      SET yjs_snapshot = ${snapshotBuffer},
+          yjs_stream_ms = ${restoreStreamMs},
+          yjs_stream_seq = ${restoreStreamSeq},
+          yjs_snapshot_at = now(),
+          content_md = ${restoredContentMd},
+          updated_at = now()
+      WHERE id = ${noteId}::uuid
+        AND locked_at IS NULL
+    `;
+    if (result.count === 0) return false;
 
-  if (result.count === 0) {
+    // Keep the restored row and its history entry atomic.
+    await tx`
+      INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, title, created_by)
+      VALUES (${noteId}::uuid, ${snapshotBuffer}, ${restoredContentMd}, ${existing.title}, ${createdBy}::uuid)
+    `;
+    return true;
+  });
+
+  if (!restored) {
+    const current = await get({ id: noteId });
+    if (!current) return { ok: false, error: "Note not found", status: 404 };
+    if (current.lockedAt) return { ok: false, error: "Cannot restore locked note", status: 403 };
     return { ok: false, error: "Failed to restore snapshot", status: 500 };
   }
-
-  // Record the restored state as a fresh version entry so restore actions
-  // appear explicitly in version history.
-  await sql`
-    INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, title, created_by)
-    VALUES (${noteId}::uuid, ${snapshotBuffer}, ${restoredContentMd}, ${existing.title}, ${createdBy}::uuid)
-  `;
 
   // Restored content can carry a different set of refs (links, tags,
   // attachments) than was previously indexed — refresh all three.
@@ -1226,24 +1262,39 @@ export const copyToNotebook = async (params: {
     return result;
   }
 
-  // Copy the content if exists
-  if (source.yjsSnapshot) {
-    const snapshotBuffer = Buffer.from(source.yjsSnapshot, "base64");
-    await sql`
-      UPDATE notebooks.notes
-      SET yjs_snapshot = ${snapshotBuffer}, yjs_snapshot_at = now(),
-          content_md = ${source.contentMd ?? null}
-      WHERE id = ${result.data.id}::uuid
-    `;
-    // The copy carries the source's refs (outgoing links + tags +
-    // attachment URLs) — index them so the new note shows up where
-    // appropriate. `targetNotebookId` is the destination notebook.
-    await reindexNoteRefsSafe({
-      noteId: result.data.id,
-      notebookId: params.targetNotebookId,
-      contentMd: source.contentMd ?? null,
+  if (!source.yjsSnapshot && source.contentMd === null) return result;
+
+  let yjsState: Uint8Array;
+  try {
+    if (source.yjsSnapshot) {
+      yjsState = fromBase64Strict(source.yjsSnapshot);
+    } else {
+      const doc = createDocFromState(null, source.contentMd);
+      yjsState = Y.encodeStateAsUpdate(doc);
+      doc.destroy();
+    }
+  } catch (error) {
+    await cleanupFailedCreate(result.data.id);
+    log.error("Failed to decode copied note content", {
+      sourceNoteId: noteId,
+      error: error instanceof Error ? error.message : String(error),
     });
+    return { ok: false, error: "Failed to copy note content", status: 500 };
   }
 
-  return result;
+  const saveResult = await save({
+    noteId: result.data.id,
+    yjsState,
+    contentMd: source.contentMd ?? undefined,
+    createdBy: creatorId,
+  });
+  if (!saveResult.ok) {
+    await cleanupFailedCreate(result.data.id);
+    return { ok: false, error: saveResult.error, status: saveResult.status };
+  }
+
+  const copied = await get({ id: result.data.id });
+  if (!copied) return { ok: false, error: "Copied note not found", status: 500 };
+  await noteUpdated(copied);
+  return { ok: true, data: copied };
 };

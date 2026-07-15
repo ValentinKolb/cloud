@@ -1,8 +1,8 @@
-import * as Y from "yjs";
-import { mutex, queue, type QueueReceived } from "@valentinkolb/sync";
 import { logger } from "@valentinkolb/cloud/services";
+import { mutex, type QueueReceived, queue } from "@valentinkolb/sync";
+import * as Y from "yjs";
 import * as notes from "./notes";
-import { NODE_ID, TOPIC_RETENTION_MS, compareStreamCursor, createYjsTopic, fromBase64, parseStreamCursor } from "./yjs-sync";
+import { compareStreamCursor, createYjsTopic, fromBase64, NODE_ID, parseStreamCursor, TOPIC_RETENTION_MS } from "./yjs-sync";
 
 /**
  * Snapshot worker responsibilities:
@@ -17,6 +17,7 @@ const log = logger("yjs-snapshot-worker");
 
 const QUEUE_LEASE_MS = 120_000;
 const LEASE_TOUCH_INTERVAL_MS = 15_000;
+const LOCK_EXTEND_INTERVAL_MS = 15_000;
 const WORKER_RECV_TIMEOUT_MS = 30_000;
 const LOCK_TTL_MS = 120_000;
 const RETRY_DELAY_MS = 5_000;
@@ -127,7 +128,6 @@ const waitUntilTargetCursor = async (config: {
   config.signal.addEventListener("abort", onAbort, { once: true });
 
   let reachedTarget = false;
-  let passedTarget = false;
   let processedEvents = 0;
   let lastProgressAt = Date.now();
 
@@ -140,7 +140,6 @@ const waitUntilTargetCursor = async (config: {
     })) {
       const comparison = compareStreamCursor(event.cursor, config.targetCursor);
       if (comparison > 0) {
-        passedTarget = true;
         break;
       }
 
@@ -168,7 +167,6 @@ const waitUntilTargetCursor = async (config: {
   }
 
   if (reachedTarget) return;
-  if (passedTarget) return;
   throw new Error(`Target cursor "${config.targetCursor}" was not reached before replay timeout`);
 };
 
@@ -269,7 +267,31 @@ const processMessage = async (message: QueueReceived<SnapshotSaveJob>, signal: A
 
     const outcome = await snapshotMutex.withLock(
       `note:${message.data.noteId}`,
-      async () => persistSnapshotJob(message.data, message, signal),
+      async (lock) => {
+        const lockKeepAlive = setInterval(() => {
+          void snapshotMutex
+            .extend(lock, LOCK_TTL_MS)
+            .then((extended) => {
+              if (extended) return;
+              log.warn("Snapshot lock keepalive lost ownership", {
+                messageId: message.messageId,
+                noteId: message.data.noteId,
+              });
+            })
+            .catch((error) => {
+              log.warn("Snapshot lock keepalive failed", {
+                messageId: message.messageId,
+                noteId: message.data.noteId,
+                error: toErrorMessage(error),
+              });
+            });
+        }, LOCK_EXTEND_INTERVAL_MS);
+        try {
+          return await persistSnapshotJob(message.data, message, signal);
+        } finally {
+          clearInterval(lockKeepAlive);
+        }
+      },
       LOCK_TTL_MS,
     );
 
@@ -348,14 +370,15 @@ const start = (): void => {
   const abort = new AbortController();
   workerAbort = abort;
   const task = runWorker(abort);
-  workerTask = task.finally(() => {
+  const trackedTask = task.finally(() => {
     if (workerAbort === abort) {
       workerAbort = null;
     }
-    if (workerTask === task) {
+    if (workerTask === trackedTask) {
       workerTask = null;
     }
   });
+  workerTask = trackedTask;
 
   log.debug("Snapshot worker started", { nodeId: NODE_ID });
 };

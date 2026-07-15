@@ -34,7 +34,7 @@ import {
 } from "../detail/events";
 import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
-import { readSettings, writeSettings } from "../settings/NotebookSettingsStore";
+import { writeSettings } from "../settings/NotebookSettingsStore";
 import { WORKSPACE_EVENT } from "../sidebar/workspace-events";
 import type { Attachment, AttachmentRef } from "./attachments-client";
 import { formatBytes, insertAttachment, MAX_ATTACHMENT_SIZE_BYTES, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
@@ -72,6 +72,7 @@ type Props = {
   initialSnapshot: string | null;
   initialContent?: string | null;
   initialPanelOpen: boolean;
+  initialRichMode: "rich" | "source";
   readOnly?: boolean;
 };
 
@@ -194,6 +195,7 @@ export default function NoteEditor(props: Props) {
       if (push) window.history.pushState({}, "", loaded.href);
       return true;
     } catch {
+      if (seq !== navigationSeq) return true;
       return false;
     } finally {
       await finishMinimumLoading(startedAt, seq);
@@ -250,7 +252,7 @@ export default function NoteEditor(props: Props) {
 function EditorInstance(props: Props) {
   const [connected, setConnected] = createSignal(false);
   const [isDark, setIsDark] = createSignal(document.documentElement.classList.contains("dark"));
-  const [richMode, setRichMode] = createSignal(readSettings(props.notebookId).richMode !== "source");
+  const [richMode, setRichMode] = createSignal(props.initialRichMode !== "source");
 
   const doc = new Y.Doc({ gc: true });
   if (props.initialSnapshot) {
@@ -468,6 +470,8 @@ function EditorInstance(props: Props) {
 
   let themeObserver: MutationObserver | undefined;
   let tocDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  const pendingFocusFrames = new Set<number>();
+  let disposed = false;
 
   // Both `emitToc` and the task-progress emitter share the same debounced
   // doc-change trigger, so we walk the markdown once and dispatch both
@@ -555,12 +559,15 @@ function EditorInstance(props: Props) {
   };
 
   const focusEditor = (attempts = 0, target: "start" | "end" = "start"): boolean => {
+    if (disposed) return false;
     const view = editorView();
     if (!view) {
       if (attempts < 8) {
-        requestAnimationFrame(() => {
+        const frame = requestAnimationFrame(() => {
+          pendingFocusFrames.delete(frame);
           focusEditor(attempts + 1, target);
         });
+        pendingFocusFrames.add(frame);
       }
       return false;
     }
@@ -649,6 +656,9 @@ function EditorInstance(props: Props) {
   });
 
   onCleanup(() => {
+    disposed = true;
+    for (const frame of pendingFocusFrames) cancelAnimationFrame(frame);
+    pendingFocusFrames.clear();
     if (cursorIdleTimer) {
       clearTimeout(cursorIdleTimer);
     }

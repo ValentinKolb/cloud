@@ -1,13 +1,12 @@
-import { sql } from "bun";
-import * as Y from "yjs";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import * as Y from "yjs";
 import {
   getTemplate,
   materializeTemplate,
-  noteLink,
-  templates,
   type NotebookTemplate,
+  noteLink,
   type TemplateNoteContentContext,
+  templates,
 } from "../templates";
 import type { Notebook } from "./notebooks";
 import * as notebooks from "./notebooks";
@@ -162,7 +161,7 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
     await invalidated({ notebookId: finalNotebook.id, reason: "template", scopes: ["notebook", "tree", "tags", "references"] });
     return ok(finalNotebook);
   } catch (error) {
-    await sql`DELETE FROM notebooks.notebooks WHERE id = ${notebook.id}::uuid`.catch(() => {});
+    await notebooks.remove({ id: notebook.id });
     if (error instanceof TemplateError) return fail(error.resultError);
     const message = error instanceof Error ? error.message : "unknown error";
     return fail(err.internal(`template instantiation failed: ${message}`));

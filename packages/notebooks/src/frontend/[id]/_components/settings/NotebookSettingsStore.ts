@@ -7,24 +7,27 @@
 import { cookies } from "@valentinkolb/stdlib/browser";
 
 const COOKIE_NAME = "settings-app-notebooks";
+const MAX_NOTEBOOK_SETTINGS = 25;
 
 export type NotebookSettings = {
   lastNoteId: string | null;
   richMode: "rich" | "source";
   sidebarMode: "simple" | "navigator";
+  navigatorSort: "updated" | "created" | "title";
 };
 
 type AllNotebookSettings = {
   lastNotebookId: string | null;
   sidebarMode: NotebookSettings["sidebarMode"];
   detailPanelOpen: boolean;
-  notebooks: Record<string, Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">>>;
+  notebooks: Record<string, Partial<Pick<NotebookSettings, "lastNoteId" | "richMode" | "navigatorSort">>>;
 };
 
 const DEFAULT_SETTINGS: NotebookSettings = {
   lastNoteId: null,
   richMode: "rich",
   sidebarMode: "simple",
+  navigatorSort: "updated",
 };
 
 const DEFAULT_ALL: AllNotebookSettings = {
@@ -38,31 +41,65 @@ const DEFAULT_ALL: AllNotebookSettings = {
 
 const writeCookie = (data: AllNotebookSettings) => cookies.writeJsonCookie(COOKIE_NAME, data);
 
-const readCookie = (): AllNotebookSettings => cookies.readJsonCookie(COOKIE_NAME, DEFAULT_ALL);
-
 const isSidebarMode = (value: unknown): value is NotebookSettings["sidebarMode"] => value === "simple" || value === "navigator";
+
+const isNavigatorSort = (value: unknown): value is NotebookSettings["navigatorSort"] =>
+  value === "updated" || value === "created" || value === "title";
+
+const normalizeSettings = (value: unknown): AllNotebookSettings => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return DEFAULT_ALL;
+  const parsed = value as Partial<AllNotebookSettings>;
+  const rawNotebooks = parsed.notebooks;
+  const notebooks =
+    rawNotebooks && typeof rawNotebooks === "object" && !Array.isArray(rawNotebooks)
+      ? Object.fromEntries(
+          Object.entries(rawNotebooks)
+            .filter(([id, entry]) => id.length > 0 && entry && typeof entry === "object" && !Array.isArray(entry))
+            .slice(-MAX_NOTEBOOK_SETTINGS),
+        )
+      : {};
+
+  return {
+    lastNotebookId: typeof parsed.lastNotebookId === "string" ? parsed.lastNotebookId : null,
+    sidebarMode: isSidebarMode(parsed.sidebarMode) ? parsed.sidebarMode : DEFAULT_ALL.sidebarMode,
+    detailPanelOpen: parsed.detailPanelOpen === true,
+    notebooks,
+  };
+};
+
+const readCookie = (): AllNotebookSettings => normalizeSettings(cookies.readJsonCookie(COOKIE_NAME, DEFAULT_ALL));
 
 const parseCookieHeader = (cookieHeader: string | undefined): AllNotebookSettings => {
   if (!cookieHeader) return DEFAULT_ALL;
   try {
     const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
     if (!match) return DEFAULT_ALL;
-    const parsed = JSON.parse(decodeURIComponent(match[1]!)) as Partial<AllNotebookSettings>;
-    return {
-      ...DEFAULT_ALL,
-      ...parsed,
-      notebooks: parsed.notebooks ?? {},
-    };
+    return normalizeSettings(JSON.parse(decodeURIComponent(match[1]!)));
   } catch {
     return DEFAULT_ALL;
   }
 };
 
-const compactNotebookSettings = (settings: Partial<NotebookSettings>): Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">> => {
-  const compact: Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">> = {};
+const compactNotebookSettings = (
+  settings: Partial<NotebookSettings>,
+): Partial<Pick<NotebookSettings, "lastNoteId" | "richMode" | "navigatorSort">> => {
+  const compact: Partial<Pick<NotebookSettings, "lastNoteId" | "richMode" | "navigatorSort">> = {};
   if (typeof settings.lastNoteId === "string" && settings.lastNoteId.length > 0) compact.lastNoteId = settings.lastNoteId;
   if (settings.richMode && settings.richMode !== DEFAULT_SETTINGS.richMode) compact.richMode = settings.richMode;
+  if (isNavigatorSort(settings.navigatorSort) && settings.navigatorSort !== DEFAULT_SETTINGS.navigatorSort) {
+    compact.navigatorSort = settings.navigatorSort;
+  }
   return compact;
+};
+
+const notebookSettingsFor = (all: AllNotebookSettings, notebookId: string): Partial<NotebookSettings> => {
+  const value = all.notebooks[notebookId];
+  if (!value || typeof value !== "object") return {};
+  const result: Partial<NotebookSettings> = {};
+  if (typeof value.lastNoteId === "string") result.lastNoteId = value.lastNoteId;
+  if (value.richMode === "source" || value.richMode === "rich") result.richMode = value.richMode;
+  if (isNavigatorSort(value.navigatorSort)) result.navigatorSort = value.navigatorSort;
+  return result;
 };
 
 // --- Client-side ---
@@ -72,10 +109,12 @@ const compactNotebookSettings = (settings: Partial<NotebookSettings>): Partial<P
  */
 export const readSettings = (notebookId: string): NotebookSettings => {
   const all = readCookie();
+  const notebook = notebookSettingsFor(all, notebookId);
   return {
     ...DEFAULT_SETTINGS,
-    ...(all.notebooks[notebookId] ?? {}),
+    ...notebook,
     sidebarMode: isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode,
+    navigatorSort: isNavigatorSort(notebook.navigatorSort) ? notebook.navigatorSort : DEFAULT_SETTINGS.navigatorSort,
   };
 };
 
@@ -83,20 +122,22 @@ export const readSettings = (notebookId: string): NotebookSettings => {
  * Merges and writes notebook-specific UI settings for the current notebook id.
  */
 export const writeSettings = (notebookId: string, patch: Partial<NotebookSettings>) => {
-  const hasCookieBackedPatch = "lastNoteId" in patch || "richMode" in patch || "sidebarMode" in patch;
+  const hasCookieBackedPatch = "lastNoteId" in patch || "richMode" in patch || "sidebarMode" in patch || "navigatorSort" in patch;
   if (!hasCookieBackedPatch) return;
   const all = readCookie();
   const current = readSettings(notebookId);
   const next = { ...current, ...patch };
   const notebookSettings = compactNotebookSettings(next);
   const notebooks = { ...all.notebooks };
+  delete notebooks[notebookId];
   if (Object.keys(notebookSettings).length > 0) notebooks[notebookId] = notebookSettings;
-  else delete notebooks[notebookId];
+
+  const boundedNotebooks = Object.fromEntries(Object.entries(notebooks).slice(-MAX_NOTEBOOK_SETTINGS));
 
   writeCookie({
     ...all,
     sidebarMode: next.sidebarMode,
-    notebooks,
+    notebooks: boundedNotebooks,
   });
 };
 
@@ -126,10 +167,12 @@ export const setDetailPanelOpen = (open: boolean) => {
  */
 export const parseSettings = (cookieHeader: string | undefined, notebookId: string): NotebookSettings => {
   const all = parseCookieHeader(cookieHeader);
+  const notebook = notebookSettingsFor(all, notebookId);
   return {
     ...DEFAULT_SETTINGS,
-    ...(all.notebooks[notebookId] ?? {}),
+    ...notebook,
     sidebarMode: isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode,
+    navigatorSort: isNavigatorSort(notebook.navigatorSort) ? notebook.navigatorSort : DEFAULT_SETTINGS.navigatorSort,
   };
 };
 

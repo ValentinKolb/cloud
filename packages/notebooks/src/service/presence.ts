@@ -1,6 +1,6 @@
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
-import { getNotebookPresenceColor } from "../lib/yjs";
 import { ephemeral } from "@valentinkolb/sync";
+import { getNotebookPresenceColor } from "../lib/yjs";
 import { NODE_ID } from "./yjs-sync";
 
 const PRESENCE_TTL_MS = 30_000;
@@ -22,6 +22,7 @@ type PresenceEntry = {
 const presenceStore = ephemeral<PresenceEntry>({
   id: "notebooks.presence",
   ttlMs: PRESENCE_TTL_MS,
+  limits: { maxEntries: 250, maxPayloadBytes: 4_000 },
 });
 
 export type NotebookPresenceSnapshot = {

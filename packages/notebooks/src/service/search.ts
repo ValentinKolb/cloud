@@ -1,5 +1,5 @@
 import type { PaginationParams } from "@valentinkolb/cloud/contracts";
-import { toPgTextArray } from "@valentinkolb/cloud/services";
+import { logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { buildNotebookVisibleAccessCondition } from "./access";
 import type { Note } from "./notes";
@@ -49,6 +49,7 @@ type SearchBackend = "native" | "bm25";
 const BM25_INDEX = "notebooks.notes_search_bm25_idx";
 const HEADLINE_OPTIONS = "StartSel=\uE000, StopSel=\uE001, MaxWords=32, MinWords=12, MaxFragments=2, FragmentDelimiter= … ";
 const BM25_CAPABILITY_ERROR_CODES = new Set(["0A000", "42704", "42883", "55000"]);
+const log = logger("notebooks:search");
 
 let backendPromise: Promise<SearchBackend> | null = null;
 
@@ -59,13 +60,15 @@ const detectBackend = async (): Promise<SearchBackend> => {
       AND to_regclass(${BM25_INDEX}) IS NOT NULL AS available
   `;
   const backend = row?.available ? "bm25" : "native";
-  console.info(`[notebooks:search] ${backend === "bm25" ? "pg_textsearch BM25 ranking" : "native PostgreSQL FTS"} active`);
+  log.info("Search backend active", { backend });
   return backend;
 };
 
 export const getSearchBackend = (): Promise<SearchBackend> => {
   backendPromise ??= detectBackend().catch((error) => {
-    console.warn("Notebooks search backend detection failed; using native PostgreSQL FTS.", error);
+    log.warn("Search backend detection failed; using native PostgreSQL FTS", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return "native";
   });
   return backendPromise;
@@ -221,7 +224,9 @@ export const searchInNotebook = async (params: {
   const backend = await getSearchBackend();
   const rowsPromise = searchInNotebookRows({ ...params, backend }).catch((error) => {
     if (backend !== "bm25" || !isBm25CapabilityError(error)) throw error;
-    console.warn("Notebooks BM25 query failed; falling back to native PostgreSQL FTS.", error);
+    log.warn("BM25 query failed; falling back to native PostgreSQL FTS", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     backendPromise = Promise.resolve("native");
     return searchInNotebookRows({ ...params, backend: "native" });
   });
@@ -345,7 +350,9 @@ export const searchAcross = async (params: {
     rows = await select;
   } catch (error) {
     if (backend !== "bm25" || !isBm25CapabilityError(error)) throw error;
-    console.warn("Notebooks BM25 query failed; falling back to native PostgreSQL FTS.", error);
+    log.warn("BM25 query failed; falling back to native PostgreSQL FTS", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     backendPromise = Promise.resolve("native");
     return searchAcross(params);
   }

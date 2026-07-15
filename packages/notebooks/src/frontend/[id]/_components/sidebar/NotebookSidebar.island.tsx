@@ -326,6 +326,7 @@ export default function NotebookSidebar(props: Props) {
             canWrite={canWrite}
             favoriteNoteIds={[...favoriteNoteIds()]}
             tags={props.ctx.tags}
+            initialSortMode={props.ctx.settings.navigatorSort}
           />
         </Show>
       </AppWorkspace.SidebarDesktop>

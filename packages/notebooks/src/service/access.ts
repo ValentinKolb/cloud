@@ -40,10 +40,7 @@ export type NotebookApiKey = ServiceAccountCredential & {
   permission: PermissionLevel;
 };
 
-export const buildNotebookVisibleAccessCondition = (params: {
-  userId?: string | null;
-  serviceAccountId?: string | null;
-}) => {
+export const buildNotebookVisibleAccessCondition = (params: { userId?: string | null; serviceAccountId?: string | null }) => {
   const subject: AccessSubject | null = params.userId
     ? { type: "user", userId: params.userId }
     : params.serviceAccountId
@@ -383,6 +380,7 @@ export const grantNotebookAccess = async (params: {
   const created = entries.find((e) => e.id === createResult.data.id);
 
   if (!created) {
+    await deleteAccess({ id: createResult.data.id });
     return fail(err.internal("Failed to retrieve created access entry"));
   }
 
@@ -421,16 +419,29 @@ export const ensureNotebookServiceAccountAccess = async (params: {
 
 export const listNotebookApiKeys = async (notebookId: string): Promise<NotebookApiKey[]> => {
   const [keys, accessEntries] = await Promise.all([
-    serviceAccountCredentials.listOverview({
-      pagination: { page: 1, perPage: 500 },
-      filter: {
-        serviceAccountKind: "resource_bound",
-        credentialStatus: "active",
-        appId: NOTEBOOKS_APP_ID,
-        resourceType: NOTEBOOK_RESOURCE_TYPE,
-        resourceId: notebookId,
-      },
-    }),
+    (async () => {
+      const items: Awaited<ReturnType<typeof serviceAccountCredentials.listOverview>>["items"] = [];
+      let page = 1;
+      let hasNext = true;
+
+      while (hasNext) {
+        const result = await serviceAccountCredentials.listOverview({
+          pagination: { page, perPage: 500 },
+          filter: {
+            serviceAccountKind: "resource_bound",
+            credentialStatus: "active",
+            appId: NOTEBOOKS_APP_ID,
+            resourceType: NOTEBOOK_RESOURCE_TYPE,
+            resourceId: notebookId,
+          },
+        });
+        items.push(...result.items);
+        hasNext = result.hasNext;
+        page += 1;
+      }
+
+      return items;
+    })(),
     listNotebookAccess(notebookId),
   ]);
 
@@ -440,7 +451,7 @@ export const listNotebookApiKeys = async (notebookId: string): Promise<NotebookA
       .map((entry) => [(entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId, entry.permission]),
   );
 
-  return keys.items.map((item) => {
+  return keys.map((item) => {
     const accessPermission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
     const permission = resolveNotebookApiKeyPermission(accessPermission, item.scopes);
     const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
