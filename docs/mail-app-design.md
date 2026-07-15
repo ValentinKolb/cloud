@@ -67,12 +67,12 @@ This snapshot records the verified Mail backend, CLI, and core application exper
 | 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; repair and health operations; field-specific structured search with keyset pagination, native FTS, optional `pg_textsearch`, and explicit 20,000- and 100,000-message performance gates. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, and setup UX. |
 | 3. Core mail operations | Backend, CLI, and core UI substantially implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split, and compose/reply/forward with frontend attachments. | Message-operation UI and quote collapsing. |
 | 4. Collaboration | Backend feature set implemented; UI integration in progress | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory reply leases; mailbox-scoped live invalidation; permission-safe API and CLI; responsive queue, detail, collaboration, and comment UI. | Saved-view, reminder, presence, and reply-lease UI integration plus shared-draft conflict UX. |
-| 5. Deterministic workflows | Backend and CLI foundation implemented | Immutable V1 definitions and saved versions; typed conditions and actions; mailbox-aware validation; dry preview with frozen source hashes, representative samples, and effect budgets; saved and one-shot manual/backfill runs; permission rechecks; fenced horizontally scalable execution through the durable command journal; workflow actor audit; typed API and CLI. | Visual editor, live triggers, pause/resume/cancel controls, conversation references, schedules, guarded automatic replies, and AI decision nodes. |
+| 5. Deterministic workflows | Shared-kernel backend and CLI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable effect budgets; permission and credential rechecks; durable command waiting; fenced recovery; typed API and CLI. | Visual editor, richer Mail actions, guarded automatic replies, and AI decision nodes. |
 | 6. AI decisions and agents | Not started | Mail is exposed through typed API and CLI operations suitable for later tools. | Mail AI resource, tools, approvals, workflow decision nodes, summaries, classification, suggested drafts, and bulk-plan generation. |
 | 7. Product-speed pass | Core workspace implemented | Cloud-native mailbox overview; responsive queue, folder, list, and conversation workspace; scan-oriented rows; URL-backed navigation and search; contained compose; permission-aware settings; shared empty and error states; desktop/mobile and light/dark verification. | Message-operation commands, keyboard shortcuts, advanced focus behavior, prefetch, saved views, and explicit frontend performance gates. |
 | 8-9. Enhanced connectors | Not started | Provider-neutral connector, capability, identity, and command boundaries are established. | JMAP, Microsoft Graph, and Gmail API connectors and their conformance suites. |
 
-Current verification covers Cloud and Mail type checking, 95 passing default Mail tests, and 121 passing tests in the PostgreSQL-enabled suite with 8 opt-in performance and connector tests skipped. It also covers the transactional recursive-access helper, cross-instance topic replay, and four explicit 20,000-message performance scenarios. In the current fixture, structured search stayed below 26 ms per warm query, conversation lists below 20 ms, collaboration views below 26 ms, and a deterministic preview across all 20,000 messages completed in about 2 seconds. Targeted 100,000-message runs keep structured search, conversation lists, and collaboration views within their release budgets; workflow previews retain their separate 50,000-target contract ceiling. Live generic IMAP/SMTP smoke tests against two INWX mailboxes created, subscribed, renamed, and deleted a provider folder; delivered mail with an attachment whose downloaded SHA-256 matched the source; and confirmed additive read, star, and keyword state through IMAP. Authenticated browser smokes cover the mailbox overview, workspace, conversation detail, collaboration, compose, and settings on desktop and mobile in light and dark modes without console errors or horizontal overflow.
+Verification consists of package type checks, default tests, PostgreSQL integration tests, explicit large-mailbox performance gates, connector conformance, and authenticated browser smokes. The workflow suite covers immutable versions, preflight commitments, idempotent materialization, waiting, cancellation, recovery, authorization changes, event deduplication, and schedule fencing. The exact test counts are intentionally not duplicated here; the package scripts and CI output are authoritative.
 
 ## Product direction
 
@@ -732,259 +732,102 @@ Credential changes, binding changes, mailbox sharing, sender-identity changes, w
 
 ## Workflow automation
 
-Mail workflows are deterministic decision trees with optional schema-valid AI decisions. Rules handle ordinary automation without models.
+Mail workflows are deterministic programs compiled from canonical YAML by the shared Cloud workflow kernel. Mail owns authoring metadata, immutable versions, mailbox permissions, target selection, preflight commitments, persistence, trigger delivery, domain actions, and audit. The shared kernel owns strict YAML parsing, diagnostics, expressions, recursive control flow, bound plans, dry-run traversal, step execution, waiting, and restoration.
 
-### Why a mail-owned runtime
+### Canonical source and metadata
 
-The existing Grids workflow runtime demonstrates useful patterns: schema validation, immutable definitions, trigger-specific authorization, durable runs, step runs, leases, and heartbeats. It is also intentionally tied to Grids records, tables, documents, and permissions.
-
-The Mail app should implement its own typed runtime and reuse Cloud/sync primitives. A shared workflow kernel should be extracted only when another real consumer proves the common abstraction.
-
-### Triggers
-
-Initial triggers:
-
-- `message.received`: a newly mirrored inbound message;
-- `conversation.reopened`: a new inbound message reopened completed work;
-- `manual`: a user, CLI, or agent runs a workflow against selected conversations;
-- `backfill`: a resumable historical run over a permission-scoped query.
-
-Potential later triggers include sent message, reminder due, assignment changed, schedule, and webhook.
-
-### Node types
-
-The first schema stays tree-shaped and acyclic.
-
-1. **Match node.** Evaluates the same structured search clauses used by mail search plus typed trigger and response-schedule predicates against one message or conversation snapshot.
-2. **AI decision node.** Calls `nessi.structured()` with a bounded input and an enum, boolean, or object output schema. It has no tools and no side effects.
-3. **Action node.** Calls a typed mail domain command.
-4. **Stop node.** Stops the current workflow or lower-priority workflows explicitly.
-
-Nested `then`, `else`, and named AI branches express decision trees without a general graph, loops, or arbitrary code.
-
-### Example
+YAML contains only `inputs`, optional automatic `triggers`, and `steps`. Name, description, numeric ordering priority, activation state, immutable version IDs, and effect budgets are stored outside source.
 
 ```yaml
-version: 1
-name: Route incoming requests
-priority: 100
-trigger:
-  type: message.received
+inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+
+triggers:
+  messageReceived:
+    with:
+      message: "${{ trigger.message }}"
+      conversation: "${{ trigger.conversation }}"
 
 steps:
-  - when:
-      any:
-        - field: subject
-          operator: contains
-          value: invoice
-        - field: attachmentName
-          operator: endsWith
-          value: .pdf
+  - if:
+      all:
+        - contains:
+            - "${{ inputs.message.subject }}"
+            - invoice
+        - not:
+            equals:
+              - "${{ inputs.conversation.workStatus }}"
+              - done
     then:
-      - action: localTag.add
-        tag: Finance
-      - action: remote.move
-        folder: Invoices
-      - stop: lowerPriorityWorkflows
-    else:
-      - decide:
-          id: classify-request
-          ai:
-            prompt: Classify this request by the team that should handle it.
-            input: [subject, sender, body]
-            output:
-              type: enum
-              values: [support, membership, event, other]
-        branches:
-          support:
-            - action: assign
-              user: support-on-call
-            - action: localTag.add
-              tag: Support
-          membership:
-            - action: remote.move
-              folder: Membership
-          event:
-            - action: localTag.add
-              tag: Events
-          other:
-            - action: status.set
-              status: open
-        onError:
-          - action: localTag.add
-            tag: Needs review
+      - addKeyword:
+          message: "${{ inputs.message }}"
+          keyword: Finance
+      - moveMessage:
+          message: "${{ inputs.message }}"
+          folder: Invoices
+      - setConversationStatus:
+          conversation: "${{ inputs.conversation }}"
+          status: waiting
 ```
 
-The deterministic branch runs without AI. The AI branch returns only a validated decision. Actions still pass through normal permissions, command journaling, and audit.
+Source is preserved exactly, while the immutable version also stores source, manifest, catalog, and compiler hashes plus the compiled IR and bound plan. Literal accessible folder and user references bind to stable IDs. Creating new source creates a new immutable version and does not rewrite the active version or historical runs.
 
-### Conditions
+### Inputs, conditions, and actions
 
-Match conditions cover:
+The current inputs are `mailMessage` and `mailConversation`. Message fields include subject, sender/recipients, hydrated bodies and attachments, folder, flags, keywords, direction, and timestamps. Conversation fields include assignment, open/waiting/done state, response-needed state, and latest-message time. The binder checks reference roots, paths, and value kinds before a version is stored.
 
-- subject, body, sender, recipients, and attachment names;
-- exact address, sender domain, contains, prefix, and suffix;
-- folder, remote keyword, local tag, and standard flags;
-- attachment presence and MIME type;
-- date, size, direction, and conversation state;
-- assignment and response-needed state;
-- whether a named mailbox response schedule is active or inactive.
+Conditions use the shared recursive operators `equals`, `notEquals`, `contains`, `startsWith`, `endsWith`, `exists`, `all`, `any`, and `not`. Steps support actions, `if`/`then`/`else`, and `switch`/`cases`/`default`. The shared parser understands bounded `forEach`, but Mail rejects it because mailbox target batches belong in the durable target coordinator.
 
-The workflow planner derives required data. A body condition requests body hydration before evaluation. Missing data produces `waiting_data`, not false.
+The implemented action vocabulary is deliberately small:
 
-### Actions
+- `addKeyword` and `removeKeyword` create durable provider commands;
+- `moveMessage` creates a durable provider move command against a bound accessible folder;
+- `assignConversation` performs a revision-checked collaboration transaction and accepts `null` to unassign;
+- `setConversationStatus` sets `open`, `waiting`, or `done` transactionally;
+- `succeed` and `fail` stop the current target with an operator-facing message.
 
-Portable actions use IMAP where possible:
+Copy/archive/trash, standard flags, local tags, comments, drafts, references, automatic replies, notifications, lower-priority pipeline control, and AI decisions are not current workflow actions.
 
-- add or remove a remote keyword;
-- move or copy to a remote folder;
-- mark read/unread, flagged, answered, junk, or not junk;
-- archive or trash according to mailbox policy.
+### Invocation and triggers
 
-Cloud actions include:
+Omitting `triggers` creates a direct-only workflow. Any saved workflow, including one with automatic triggers, can be invoked manually through UI/API/CLI channels. Mail exposes `invoke`, `oneShot`, and `backfill` run kinds; they currently share the same version-pinned query, preflight, frozen-target, and execution path, with the kind retained for audit and caller intent.
 
-- add or remove a local tag;
-- assign or unassign;
-- set open, waiting, or done;
-- snooze or create a conditional reminder;
-- add an internal comment;
-- ensure a stable conversation reference from a configured scheme;
-- create a draft from a snippet or AI suggestion;
-- notify a user or group;
-- stop lower-priority workflow processing.
+`messageReceived` is the implemented automatic path. Live incremental sync records one deduplicated event only after a stable inbound message is linked to a conversation. Historical sync/backfill does not emit the trigger. Dispatch selects active registrations by mailbox and trigger kind, ordered by ascending numeric priority and stable IDs, and materializes at most one run per activation and delivery key.
 
-Sending is intentionally not a generic unattended rule action. A workflow may create a draft. The specialized automatic-reply action below requires an explicit mailbox automation policy and additional external-side-effect safeguards.
+The language manifest accepts `schedule` with a five-field cron and optional IANA timezone. Activation reconciles stable Mail-prefixed scheduler registrations. Every due slot revalidates the active revision and schedule, derives a deterministic slot key, and enters the same authorization-aware materialization path as event triggers. Scheduler delivery is transport; PostgreSQL activation and run state remain authoritative.
 
-### Conversation references
+### Preflight, dry-run, and effect budgets
 
-The `conversation.reference.ensure` action atomically allocates a mailbox-scoped value once. A uniqueness constraint and locked allocator make retries and concurrent workflows return the same reference rather than consume or assign several values.
+Mail preflight is the supported no-effects review contract. It runs in a repeatable-read, read-only transaction and uses the shared dry-run traversal against frozen message and conversation snapshots. It keyset-pages the mailbox-scoped target query, rejects required body/attachment data that is not hydrated, counts only planned changes, and enforces the immutable version's effect budget.
 
-The retained inbound headers, MIME structure, and parts remain immutable. The reference is Cloud metadata shown on the conversation and each grouped message. Search exposes it as an exact field. Outgoing templates may include `{{conversation.reference}}` in the subject or body and may add an optional `X-Cloud-Conversation-Reference` header.
+The response contains the version ID and identity, source and query hashes, effect budget, action counts, target count, and a `preflightHash`. Execution repeats preflight before creating the run and rejects a stale hash. Large backfills then keyset-page the same target query in bounded transactions, persist the cursor and rolling digest after every batch, and publish targets only after the final count and digest match the commitment. The hash commits the caller to the version, bound catalog, inputs, query, target identities, source preconditions, planned action counts, and budget.
 
-Threading continues to rely primarily on provider IDs and RFC reply headers. An exact visible reference may auto-match only inside the same mailbox when participant evidence also agrees. Otherwise the UI offers a possible-match action instead of silently merging conversations.
+Default version budgets are 1,000 targets, 1,000 moves, 2,000 keyword changes, and 2,000 collaboration changes. Schema ceilings are 50,000 targets and moves and 100,000 keyword or collaboration changes; preflight also caps total planned effects at 50,000. The API accepts an explicit complete budget object. The CLI exposes the same bounds on workflow and version creation.
 
-References support customer-service cases, applications, orders, projects, or any other mailbox workflow. They do not enable ticket-only statuses, screens, or permissions. Reference allocation is opt-in; when enabled, the initial default format is `{prefix}-{year}-{sequence:6}` with an admin-configured prefix and an annual sequence reset. Existing references remain immutable when the format changes.
+The shared runtime `dryRun` mode is exposed through the Mail API and CLI. It creates a durable run with frozen targets and per-target planning results, but action planners receive no effect-capable ports. Preflight remains the stateless execution commitment; a durable dry run is the auditable no-effects record.
 
-### Automatic replies
+### Authorization and activation
 
-`reply.sendAutomatic` is a guarded live-message workflow action for acknowledgements, holiday notices, and out-of-office responses. It renders a versioned Markdown/Liquid snippet through the normal compose pipeline and uses the execution resolver to select a transport binding that is currently verified for the configured sender identity.
+Reading and validation require mailbox `read`. Creating versions and activating or deactivating require `admin`. Preflight, execution, and cancellation require mutation access. Creation and execution require a durable current user or service-account credential.
 
-The template controls only the rendered subject and body. It cannot override recipients, sender binding, envelope addresses, `Message-ID`, reply-thread headers, or reserved automatic-response headers.
+Activation requires the expected current version ID, replaces the workflow's trigger registrations, records who activated it, and grants the active version mailbox-owned automation authority. Deactivation requires the expected active version ID, clears the active pointer, and disables its registrations without changing existing runs. Manual runs retain actor-bound durable credentials and recheck current mailbox access. Automatic runs do not depend on the activating administrator retaining personal access; they remain authorized only while the exact workflow version is active. Each provider or collaboration effect rechecks mailbox identity, active-version fencing, capabilities, and mutable preconditions.
 
-The action declares:
+### Waiting, recovery, and audit
 
-- the sender identity and reply template;
-- whether a conversation reference must be allocated first;
-- a deduplication policy such as once per conversation, once per sender per schedule window, or a bounded cooldown;
-- an optional named response schedule and timezone;
-- maximum replies per sender and conversation;
-- explicit suppression behavior for mailing lists and automated senders.
+Provider actions create idempotent commands keyed by target and step. A non-terminal command parks the step on a `mail.command` dependency. Body, HTML, and attachment references can park automatic runs on `mail.hydration`. Completion events wake parked targets quickly; PostgreSQL reconciliation remains authoritative when an event is missed.
 
-Before queuing a reply, the runtime suppresses messages from the mailbox's own identities, messages with a missing or null Return-Path, messages marked with `Auto-Submitted` other than `no`, recognized list or bulk traffic, spam, and already handled trigger messages. Personal and group responders also require the selected mailbox identity to appear as a delivered recipient or equivalent trusted delivery metadata. Configurable `no-reply` address heuristics may suppress additional senders but never replace the protocol checks.
+Targets and trigger events use leases and monotonically increasing execution generations. Stale workers cannot finish a step after losing a lease. Completed outcomes are restored instead of repeated. Periodic recovery resumes stale keyset materialization checkpoints, requeues queued targets and expired claims, and resolves terminal command or hydration dependencies. Revoked actors or mailbox permissions cancel unfinished materialization. Failed commands fail the step; ambiguous provider outcomes become `needs_attention` and are not blindly retried.
 
-An automatic response has exactly one recipient derived from the delivered message's Return-Path, never a human-oriented `Reply-To` heuristic. It sets `Auto-Submitted: auto-replied`, preserves normal `In-Reply-To` and `References` headers, visibly identifies itself as automatic in the subject, uses a null or dedicated non-responding envelope sender where the provider permits it, contains no copied attachments, and keeps the response brief. The subject marker is not used for machine detection.
+Runs retain pinned source identity, target progress, inputs/query, actor authorization snapshot, outcomes, and error state. Activity and platform audit record lifecycle requests and effects with workflow, version, trigger, run, and action attribution.
 
-Core settings define hard ceilings that mailbox admins may only lower: one automatic response per inbound message, 20 per normalized recipient in 24 hours across conversations, 100 per mailbox per hour, and 1,000 per mailbox per day. Acknowledgement presets default to once per conversation. Out-of-office presets default to once per sender per active absence window and never more than once per sender in seven days.
+### Current product gaps
 
-Acknowledgements normally send once per conversation and may allocate a reference before rendering, for example `We received your request {{conversation.reference}}`. Out-of-office rules normally send once per sender during the active absence window. Both are ordinary deterministic workflows with different conditions and deduplication policies.
-
-Automatic replies are disabled for backfill, manual bulk plans, and agent-generated historical runs. Activation requires mailbox administration permission, at least one eligible verified sender transport, and an explicit automatic-send policy. Individual sends do not require interactive approval after that policy is active, but every suppression, enqueue, send, ambiguous result, and failure is attributable to the workflow version, trigger message, and selected provider binding.
-
-### AI decisions
-
-An AI node declares:
-
-- selected input fields and maximum content size;
-- output schema and allowed branches;
-- model policy or required model tags/capabilities;
-- timeout and terminal error branch;
-- whether historical results may be cached;
-- optional short explanation field for audit and review.
-
-The runtime caches a result by workflow version, node ID, model profile, prompt hash, and source content hash. Backfill therefore does not repeatedly classify unchanged mail.
-
-Model-provided confidence is treated as metadata, not a calibrated probability. Policies may require a human-review branch for uncertain or unrecognized outputs.
-
-### Ordering and conflicts
-
-Enabled workflow versions run by descending priority and stable ID. One placement/conversation pipeline runs at a time.
-
-Message content and trigger facts are immutable for one run. Confirmed actions update the workflow context so lower-priority workflows see current folder, tags, assignment, and state. A workflow can stop lower-priority processing.
-
-Preview reports potentially conflicting actions, such as two reachable move targets. Activation requires resolving hard conflicts or explicitly ordering them.
-
-### Idempotency
-
-Every run key includes workflow version, trigger event, and target identity. Every action key also includes step path. At-least-once job delivery may repeat evaluation, but it cannot duplicate a durable action.
-
-Workflow states are:
-
-```text
-queued -> running -> succeeded
-            |  |-> waiting_data -> running
-            |  |-> waiting_command -> running
-            |  |-> failed
-            |  |-> canceled
-            |  +-> needs_attention
-```
-
-### Backfill
-
-Backfill uses the same workflow version and evaluator as live mail.
-
-1. Select a mailbox-scoped structured query.
-2. Produce a dry-run count, representative samples, action distribution, conflicts, and estimated AI calls.
-3. Freeze the workflow version and query snapshot.
-4. Process messages in keyset-paginated batches with a durable cursor.
-5. Apply the same idempotency and command journal as live execution.
-6. Allow pause, resume, cancellation, and retry of failed items.
-
-Changing a workflow creates a new version. It never changes the meaning of an active or completed backfill.
-
-### Agent-planned bulk actions
-
-A request such as "reorganize this mailbox" is planning input, not permission to run thousands of direct tool calls. The agent converts it into the same typed workflow definition used by ordinary rules.
-
-The lifecycle is:
-
-1. Inspect permission-scoped folder structure, search facets, counts, and bounded representative samples.
-2. Produce a draft workflow and explicit target query.
-3. Validate fields, folders, identities, action capabilities, conflicts, and effect budgets.
-4. Run a dry preview with counts, sample paths, proposed folder creation, AI-call estimate, and irreversible effects.
-5. Bind approval to the immutable workflow version, target-query snapshot, mailbox, approver, and maximum effect counts.
-6. Execute as a resumable one-shot `manual` or `backfill` run through normal domain commands.
-7. Optionally save a reviewed variant as a recurring `message.received` rule. This is a separate explicit action.
-
-Plan generation and preview are read operations. Execution requires every underlying mutation permission. Activating a recurring rule requires mailbox administration permission because it creates future autonomous behavior.
-
-Every plan has effect budgets such as maximum targets, moves, folder creations, AI calls, and estimated model input. Send, permanent delete, ACL administration, and arbitrary sender changes are excluded from generated bulk plans by default.
-
-If mailbox state changes materially between preview and approval, the run returns to `needs_attention` instead of silently widening its target. The user may approve a refreshed preview. Broad approval never means "whatever currently matches."
-
-Undo is best effort, not a database rollback over IMAP. For reversible commands the run stores origin state and can generate an inverse plan. It only applies an inverse action when the target still has the expected post-run state; concurrent user changes are preserved and reported.
-
-This design gives agents three useful outcomes from one request:
-
-- a one-time cleanup over existing mail;
-- a reusable deterministic rule for future mail;
-- a mixed rule where only the semantically difficult branch uses an AI decision node.
-
-The model proposes structure, but the workflow engine owns validation, authorization, execution, recovery, and audit.
-
-### Workflow editor
-
-The primary UI is a visual decision-tree editor using compact rows, indentation, and branch connectors rather than nested cards. Each node has one obvious action: choose a condition, configure a decision, or configure an action.
-
-The editor provides:
-
-- schema and reference validation before activation;
-- sample-message path preview;
-- dry-run preview for historical mail;
-- cost and data-hydration warnings for AI/body nodes;
-- explicit branch and error behavior;
-- run history and per-step diagnostics;
-- import/export as canonical YAML for CLI and agents.
-
-The canonical stored form is validated structured data, not executable YAML. YAML is a serialization and editing format.
+The backend and CLI are ahead of the Mail UI. There is no visual workflow editor, in-app workflow help, pause/resume, or per-target retry UI. Guarded automatic replies, AI decisions, temporal windows, richer actions, conflict analysis, and generated bulk-plan UX remain product work and must not be presented as available behavior.
 
 ## Agents and AI
 
@@ -1203,16 +1046,16 @@ cloud mail comment add --mailbox support --conversation ... --file comment.md
 cloud mail reference ensure --mailbox support --conversation ... --scheme default
 cloud mail draft create --mailbox support --conversation ... --file reply.md
 cloud mail send --mailbox support --draft ... --confirm
-cloud mail workflow validate route-mail.yaml
-cloud mail workflow preview route-mail.yaml --mailbox support --query query.json
-cloud mail workflow backfill route-mail.yaml --mailbox support --query query.json
-cloud mail organize plan --mailbox support "Sort historical invoices by year and vendor"
-cloud mail organize preview --plan ...
-cloud mail organize apply --plan ... --approval ...
-cloud mail organize save-rule --plan ...
+cld mail workflow validate --source-file route-mail.yml --mailbox support
+cld --json mail workflow preflight <workflow-id> --version-id <version-id> --mailbox support --query-file query.yml
+cld --json mail workflow run backfill <workflow-id> --version-id <version-id> --mailbox support --query-file query.yml --yes
 ```
 
 Human output is concise; `--json` returns stable machine-readable contracts. Commands never print credentials or unrestricted message bodies by default.
+
+Natural-language organization commands and generated bulk-plan approval are future AI/product surfaces, not shipped CLI commands.
+
+The authoritative workflow command reference is `skills/cloud-cli/references/mail.md`; executable help from `cld mail workflow help` defines the shipped command grammar.
 
 ## Permissions and security
 
@@ -1479,28 +1322,16 @@ The matrix is cumulative. Only generic IMAP/SMTP behavior gates the first comple
 
 ### Workflow scenarios
 
-- Deterministic match with nested then/else branches.
-- Multiple priorities and explicit stop behavior.
-- Body-dependent rule before hydration.
-- AI decision success, invalid output, timeout, and provider failure.
-- Backfill pause/resume and workflow version change.
-- Repeated at-least-once delivery without duplicate actions.
-- Concurrent reference allocation returns one stable unique value.
-- An acknowledgement allocates its reference before rendering subject and body.
-- An acknowledgement sends once per conversation despite duplicate trigger delivery.
-- An out-of-office workflow sends once per sender per active absence window and resets for a later window.
-- The default out-of-office policy sends at most once per sender in seven days.
-- Automatic replies enforce the Core per-normalized-recipient ceiling across distinct conversations and forged Return-Paths.
-- Own-address, missing or null Return-Path, invalid recipient evidence, `Auto-Submitted`, mailing-list, bulk, spam, and already-handled messages are suppressed.
-- Automatic replies target one Return-Path recipient, carry `Auto-Submitted: auto-replied`, and never copy inbound attachments.
-- An automatic-reply template cannot override recipients, sender binding, envelope, or reserved headers.
-- Automatic replies are rejected during backfill, manual bulk actions, and agent-authored historical runs.
-- Automatic sending fails closed when its sender identity, eligible transport pool, schedule, or mailbox policy becomes invalid.
-- Conflicting move preview and stale expected revision.
-- Prompt injection inside subject, body, and attachment text.
-- Agent-generated one-shot plan validation, dry preview, immutable approval, and resumable execution.
-- Target drift after preview, effect-budget exhaustion, cancellation, and best-effort inverse plan.
-- Explicit conversion of a one-shot plan into a recurring rule without silently changing the reviewed version.
+Implemented verification covers:
+
+- strict canonical YAML, source diagnostics, catalog binding, recursive conditions, `if`, `switch`, and Mail rejection of `forEach`;
+- immutable version creation, expected-version activation/deactivation, metadata outside YAML, and authorization snapshots;
+- read-only preflight, hydration requirements, frozen source preconditions, stale preflight rejection, target/effect budgets, keyset materialization, and automatic restart recovery;
+- direct, one-shot, backfill, and durable dry-run records with paginated target progress, API/CLI cancellation, permission revocation, and restored step outcomes;
+- durable keyword/move commands, transactional assignment/status actions, waiting, dependency wakeup, lease fencing, recovery, and `needs_attention`;
+- deduplicated live incremental `messageReceived` delivery, historical-import suppression, revoked-actor skips, expired-trigger-claim recovery, and revision-fenced schedule slots.
+
+Remaining product scenarios include pause/resume and targeted retry, workflow UI, richer action coverage, automatic replies, temporal policies, AI decisions, and generated bulk plans.
 
 ### Scale scenarios
 
@@ -1565,11 +1396,11 @@ Success: two users can triage, comment, mention, draft, and reply without silent
 
 ### 5. Deterministic workflows
 
-- Versioned decision-tree schema, validation, visual editor, run history, preview, and deterministic actions.
-- Live triggers, one-shot bulk-action execution, effect budgets, and resumable dry-run-first backfill.
-- Generic conversation references, response schedules, and guarded automatic acknowledgements or out-of-office replies.
+- Canonical shared-kernel YAML, validation/binding, immutable Mail versions, run history, preflight, and deterministic actions.
+- Live `messageReceived`, revision-fenced schedules, direct/one-shot/backfill/dry-run execution, effect budgets, durable waiting, and fenced recovery.
+- Next: richer run controls, visual editor, temporal policies, and guarded automatic replies.
 
-Success: a non-AI workflow tags and moves live and historical mail idempotently, while live-only reply workflows allocate one reference and send at most the configured safe response with per-step audit.
+Current success: a non-AI workflow can add/remove keywords, move mail, assign conversations, and change work state for live or historical targets with version-pinned preflight, current authorization, idempotent effects, recovery, and audit. The broader automatic-reply success criterion remains future scope.
 
 ### 6. AI decisions and agents
 

@@ -6,7 +6,7 @@ import { app } from "./config";
 import pageRoutes from "./frontend";
 import { migrate } from "./migrate";
 import { createMailNotificationService } from "./notifications";
-import { commandRuntime, mailRuntime, workflowRuntime } from "./service";
+import { commandRuntime, mailRuntime, workflowMaterializationRuntime, workflowRuntime } from "./service";
 
 const mailNotifications = createMailNotificationService(app.notifications);
 
@@ -27,9 +27,11 @@ export default await app.start({
       try {
         await mailRuntime.start();
         await commandRuntime.start();
+        await workflowMaterializationRuntime.start();
         await workflowRuntime.start();
       } catch (error) {
         await workflowRuntime.stop().catch(() => undefined);
+        await workflowMaterializationRuntime.stop().catch(() => undefined);
         await commandRuntime.stop().catch(() => undefined);
         await mailRuntime.stop().catch(() => undefined);
         await mailNotifications.stop().catch(() => undefined);
@@ -39,6 +41,7 @@ export default await app.start({
     stop: async () => {
       try {
         await workflowRuntime.stop();
+        await workflowMaterializationRuntime.stop();
         await commandRuntime.stop();
         await mailRuntime.stop();
       } finally {

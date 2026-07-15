@@ -177,6 +177,284 @@ cld --json mail conversation merge <target-id> <source-id> --target-revision <re
 
 Live presence, reply-composer leases, and SSE heartbeats are intentionally browser transport concerns rather than durable CLI operations.
 
+## Automate mail with workflows
+
+Mail workflows use the shared Cloud workflow language: strict YAML with top-level `inputs`, optional automatic `triggers`, and `steps`. Workflow metadata is not part of the YAML. Mail lifecycle records store the name, description, ordering priority, activation state, immutable version IDs, and effect budget. The CLI and API both manage that lifecycle and its budgets.
+
+### Write canonical YAML
+
+This workflow runs for each newly imported inbound message, adds a provider keyword, moves the message, and updates its conversation:
+
+```yaml
+inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+
+triggers:
+  messageReceived:
+    with:
+      message: "${{ trigger.message }}"
+      conversation: "${{ trigger.conversation }}"
+
+steps:
+  - if:
+      all:
+        - contains:
+            - "${{ inputs.message.subject }}"
+            - invoice
+        - not:
+            equals:
+              - "${{ inputs.conversation.workStatus }}"
+              - done
+    then:
+      - addKeyword:
+          message: "${{ inputs.message }}"
+          keyword: Finance
+      - moveMessage:
+          message: "${{ inputs.message }}"
+          folder: Invoices
+      - setConversationStatus:
+          conversation: "${{ inputs.conversation }}"
+          status: waiting
+```
+
+`messageReceived` is emitted once for a stable inbound message imported by live incremental sync. Historical backfill does not emit it. Activation records who enabled the workflow and grants the active version mailbox-owned automation authority. Deactivation stops new automatic runs without changing existing versions or runs.
+
+Omit `triggers` for a direct-only workflow. An empty `triggers: {}` is invalid. Direct-only and automatically triggered workflows can both be run manually through the CLI or API.
+
+The language also accepts a five-field cron schedule and an optional IANA timezone:
+
+```yaml
+triggers:
+  schedule:
+    cron: "0 8 * * *"
+    timezone: Europe/Berlin
+    with: {}
+
+steps:
+  - succeed:
+      message: Scheduled check completed
+```
+
+Activation reconciles each schedule into the shared scheduler. Every due slot has a deterministic key, revalidates the active workflow version and schedule before materialization, and uses the same authorization-aware, idempotent run path as event triggers. PostgreSQL activation state remains authoritative when scheduler delivery is repeated or missed.
+
+### Use inputs, conditions, and actions
+
+Mail exposes two input types:
+
+- `mailMessage`: one mailbox message. Supported references include `id`, `conversationId`, `subject`, `sender`, `recipients`, `body`, `bodyText`, `bodyHtml`, `attachments`, `hasAttachments`, `folderId`, `flags`, `keywords`, `direction`, `internalDate`, and `receivedAt`.
+- `mailConversation`: the message's conversation. Supported references include `id`, `subject`, `assigneeUserId`, `status`, `workStatus`, `responseNeeded`, and `latestMessageAt`.
+
+Use `${{ inputs.<name> }}` for a whole input and `${{ inputs.<name>.<field> }}` for a field. `${{ now() }}` resolves from the run clock. `context.mailboxId` is also available.
+
+Conditions are recursive and contain exactly one operator:
+
+- `equals` and `notEquals` compare two values.
+- `contains`, `startsWith`, and `endsWith` compare two text values.
+- `exists` accepts one reference such as `inputs.conversation.assigneeUserId`.
+- `all` and `any` contain one or more conditions; `not` contains one condition.
+
+Steps may use `if`/`then`/`else` and `switch`/`cases`/`default`. The shared parser understands `forEach`, but the Mail binder rejects it; Mail target sets are processed by the durable batch runtime instead.
+
+The current Mail action vocabulary is:
+
+| Action | Required configuration | Effect |
+| --- | --- | --- |
+| `addKeyword` | `message`, `keyword` | Durable provider command |
+| `removeKeyword` | `message`, `keyword` | Durable provider command |
+| `moveMessage` | `message`, accessible folder name, ID, or expression in `folder` | Durable provider command |
+| `assignConversation` | `conversation`, assignable user name, ID, expression, or `null` in `user` | Transactional collaboration change |
+| `setConversationStatus` | `conversation`, `open`, `waiting`, or `done` in `status` | Transactional collaboration change |
+| `succeed` | Operator-facing `message` | Stop successfully |
+| `fail` | Operator-facing `message` | Stop with failure |
+
+Literal folder and user names are bound to accessible stable IDs when a version is created. Unknown, inaccessible, or ambiguous names fail validation.
+
+### Validate, save, and activate
+
+Keep YAML in a file so the exact source can be reviewed and versioned:
+
+```bash
+cld mail workflow validate --source-file route-mail.yml
+
+cld --json mail workflow create \
+  --name "Route invoices" \
+  --description "Move new invoices into the team folder" \
+  --priority 100 \
+  --source-file route-mail.yml
+```
+
+Creation stores one immutable version but does not activate it. Use the returned `id` as `<workflow-id>` and `currentVersion.id` as `<version-id>`:
+
+```bash
+cld --json mail workflow get <workflow-id>
+cld --json mail workflow version list <workflow-id>
+cld --json mail workflow activate <workflow-id> --version-id <version-id>
+```
+
+Changing YAML creates another immutable version. It does not mutate the active version or historical runs:
+
+```bash
+cld --json mail workflow version create <workflow-id> --source-file route-mail.yml
+cld --json mail workflow activate <workflow-id> --version-id <new-version-id>
+cld --json mail workflow deactivate <workflow-id> --version-id <active-version-id>
+```
+
+Activation and deactivation require the expected current or active version ID, so a concurrent edit fails instead of activating the wrong source. Manual execution may target any saved immutable version; activation controls automatic triggers only.
+
+### Preflight and run manually
+
+Manual runs use a mailbox-scoped target query. Omit `--query-file` to select all current messages, or provide JSON or YAML such as:
+
+```yaml
+type: search
+expression:
+  and:
+    - field: subject
+      query: invoice
+      match: contains
+    - not:
+        field: from
+        query: bot@example.com
+        match: exact
+```
+
+Preflight is read-only. It runs the shared dry-run traversal over frozen message and conversation snapshots, counts planned effects, enforces the immutable version's effect budget, and returns a version-bound `preflightHash` and target count:
+
+```bash
+cld --json mail workflow preflight <workflow-id> \
+  --version-id <version-id> \
+  --query-file invoice-query.yml
+```
+
+The CLI run commands preflight again immediately before execution. Without `--yes`, they print the preflight and stop. With `--yes`, they submit the returned hash and queue the durable run:
+
+```bash
+cld --json mail workflow run invoke <workflow-id> \
+  --version-id <version-id> \
+  --query-file invoice-query.yml \
+  --idempotency-key invoice-run-2026-07-15 \
+  --yes --wait
+
+cld --json mail workflow run one-shot <workflow-id> \
+  --version-id <version-id> \
+  --query-file invoice-query.yml \
+  --yes
+
+cld --json mail workflow run backfill <workflow-id> \
+  --version-id <version-id> \
+  --query-file invoice-query.yml \
+  --yes
+```
+
+`invoke`, `one-shot`, and `backfill` currently share the same version-pinned query, preflight, and execution path. Their stored run kind records caller intent. Use a stable `--idempotency-key` when a caller may retry; reusing it with different inputs, query, version, or run kind fails with a conflict.
+
+Use a durable dry run when you need an auditable per-target plan without applying effects:
+
+```bash
+cld --json mail workflow run dry-run <workflow-id> \
+  --version-id <version-id> \
+  --query-file invoice-query.yml \
+  --idempotency-key invoice-review-2026-07-15 \
+  --wait
+```
+
+Dry runs use the same frozen targets, leases, recovery, and result history as execution, but action planners receive no effect-capable ports. They do not create Mail provider commands or collaboration mutations.
+
+Inspect durable progress separately for long runs:
+
+```bash
+cld --json mail workflow run list --workflow <workflow-id>
+cld --json mail workflow run get <run-id>
+cld --json mail workflow run targets <run-id> --after -1 --limit 100
+cld --json mail workflow run wait <run-id> --timeout-seconds 300
+cld --json mail workflow run cancel <run-id> --reason "Superseded" --yes
+```
+
+### Understand safety and recovery
+
+Every saved version carries an effect budget. CLI creation uses defaults of 1,000 targets, 1,000 moves, 2,000 keyword changes, and 2,000 collaboration changes. Override them with `--max-targets`, `--max-moves`, `--max-keyword-changes`, and `--max-collaboration-changes` on `workflow create` or `workflow version create`. The API and CLI accept values up to 50,000 targets and moves and 100,000 keyword or collaboration changes. Preflight rejects work above the saved budget or the hard 50,000-target/50,000-total-effect planning ceilings.
+
+Creating versions and activating or deactivating workflows requires mailbox `admin`; validation and inspection require `read`; preflight, manual execution, and cancellation require current mutation access. Manual runs snapshot the initiating user or service-account credential and recheck it during execution. Automatic runs use the active version's mailbox-owned authority, so removing the activating administrator's later personal access does not silently disable approved automation. Deactivation or replacement of that version prevents new automatic runs and fences unfinished effects. Provider commands and collaboration actions still perform current mailbox, capability, revision, and active-version checks before changing mail.
+
+Provider actions create idempotent Mail commands. The workflow step enters `waiting` until the command is confirmed, failed, reconciled, canceled, or marked `needs_attention`. Body, HTML, or attachment references can similarly wait for hydration during automatic execution. Large backfills materialize frozen targets in bounded keyset batches and persist a restart cursor and rolling digest before any target is executable. Durable step outcomes are restored after retries; lease generations fence stale workers; dependency events reduce wake-up latency; and PostgreSQL reconciliation recovers interrupted materialization, missed events, expired claims, and terminal dependencies. Ambiguous provider outcomes become `needs_attention` rather than being blindly repeated.
+
+### Call the workflow API
+
+Mail workflow routes are under `/api/mail/mailboxes/{mailboxId}`. Use `cld api-docs operations mail` for the live OpenAPI contract. The following request creates a workflow with an explicit effect budget:
+
+```bash
+jq -n --rawfile source route-mail.yml '{
+  name: "Route invoices",
+  description: "Move new invoices into the team folder",
+  priority: 100,
+  source: $source,
+  effectBudget: {
+    maxTargets: 500,
+    maxMoves: 500,
+    maxKeywordChanges: 500,
+    maxCollaborationChanges: 500
+  }
+}' > create-workflow.json
+
+curl -fsS -X POST \
+  "$CLOUD_URL/api/mail/mailboxes/$MAILBOX_ID/workflows" \
+  -H "Authorization: Bearer $CLD_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @create-workflow.json
+```
+
+Execution is an explicit two-request commitment. First create a preflight:
+
+```json
+{
+  "expectedVersionId": "<version-id>",
+  "inputs": {},
+  "query": {
+    "type": "search",
+    "expression": {
+      "field": "subject",
+      "query": "invoice",
+      "match": "contains"
+    }
+  }
+}
+```
+
+```bash
+curl -fsS -X POST \
+  "$CLOUD_URL/api/mail/mailboxes/$MAILBOX_ID/workflows/$WORKFLOW_ID/preflight" \
+  -H "Authorization: Bearer $CLD_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @preflight-request.json
+```
+
+Then send the same version, occurrence time, inputs, and query to `/invoke`, `/one-shot`, or `/backfill`, together with the returned hash:
+
+```json
+{
+  "expectedVersionId": "<version-id>",
+  "inputs": {},
+  "query": {
+    "type": "search",
+    "expression": {
+      "field": "subject",
+      "query": "invoice",
+      "match": "contains"
+    }
+  },
+  "occurredAt": "<preflight-occurred-at>",
+  "preflightHash": "<preflight-hash>",
+  "idempotencyKey": "invoice-run-2026-07-15"
+}
+```
+
+The server recomputes the preflight in the execution transaction. A changed target snapshot, precondition, query, input, catalog binding, version, or budget makes the hash stale and prevents the run from being created.
+
 ## Draft and send
 
 Create or replace a revision-checked shared draft:

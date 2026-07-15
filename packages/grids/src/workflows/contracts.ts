@@ -178,7 +178,7 @@ export const WorkflowDiagnosticSchema = z.object({
 
 export const WorkflowPlanSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     languageId: z.string(),
     languageVersion: z.number().int().positive(),
     sourceHash: z.string(),

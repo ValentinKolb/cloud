@@ -21,8 +21,12 @@ import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
 import { enqueueMailboxSync, mailRuntime } from "./sync-runtime";
 import * as triage from "./triage";
-import { workflowRuntime } from "./workflow-runtime";
+import { workflowMaterializationRuntime } from "./workflow-materialization-service";
+import { bindMailWorkflowRunDispatcher } from "./workflow-run-dispatch";
+import { enqueueWorkflowRun, workflowRuntime } from "./workflow-runtime";
 import * as workflows from "./workflows";
+
+bindMailWorkflowRunDispatcher(enqueueWorkflowRun);
 
 export type { MailRequestContext } from "./auth";
 export {
@@ -49,6 +53,7 @@ export {
   search,
   senderIdentities,
   triage,
+  workflowMaterializationRuntime,
   workflowRuntime,
   workflows,
 };

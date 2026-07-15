@@ -1,8 +1,8 @@
 # Shared workflow kernel design
 
-The shared workflow kernel uses the current Grids implementation as design input while defining one concentrated language and runtime for Grids, Mail, Assistant, and later Cloud apps.
+The shared workflow kernel provides one concentrated language and runtime for Grids and Mail while defining the extension boundary for Assistant and later Cloud apps.
 
-Status: The Grids migration is implemented. The cross-app author SDK, reusable action packs, Mail migration, and Assistant integration remain target design rather than current APIs. Last updated: 2026-07-15. Grids workflows are local alpha: their source, schema, runtime, and data were replaced directly without backward compatibility or a legacy runtime.
+Status: The Grids and Mail migrations are implemented for their current deterministic vocabularies. The shared pure built-ins, executor, coordinator, dependency protocol, schedule coordination, and bounded batch utilities are current APIs. The cross-app author SDK, external-effect action packs, broader Mail vocabulary, and Assistant integration remain target design. Last updated: 2026-07-15. Both workflow surfaces are local alpha and were replaced directly without compatibility readers or parallel runtimes.
 
 ## Contents
 
@@ -30,16 +30,16 @@ Status: The Grids migration is implemented. The cross-app author SDK, reusable a
 
 1. **Grids informs the language semantics without constraining them.** The canonical top-level structure is `inputs`, optional automatic `triggers`, and `steps`. The existing implementation contributes proven concepts and product workflows, but no current Grids YAML, database row, API shape, or runtime path is a compatibility contract.
 2. **One grammar, app-specific vocabulary.** Consumers share parsing, expressions, control flow, diagnostics, execution semantics, and editor contracts. Each app registers its own resource types, triggers, conditions, and actions.
-3. **Mail's provisional JSON workflow DSL is not a second public language.** New Mail workflows use the Grids-shaped YAML language. Existing Mail definitions and runs remain immutable audit records while active definitions are migrated before the unified editor becomes public.
-4. **Extraction is language-first, but the target is one complete runtime.** The implementation starts with a versioned language manifest, compiler IR, catalog binder, diagnostics, and author SDK. It then delivers one shared deterministic executor and durable coordinator. Grids is the first complete consumer and is migrated with an alpha hard cut. Mail follows in a separate work unit after Grids proves the kernel; neither app keeps a parallel workflow runtime afterward.
+3. **Mail uses the canonical YAML language.** Mail accepts the same top-level `inputs`, optional automatic `triggers`, and `steps` shape as Grids, with Mail-specific descriptors and bindings. Metadata, activation, immutable version IDs, and effect budgets stay outside YAML.
+4. **Extraction is language-first, but the target is one complete runtime.** The implemented kernel provides a versioned language manifest, compiler IR, catalog binder, diagnostics, deterministic executor, dry-run traversal, dependency protocol, and coordination utilities. Grids and Mail use those shared paths with app-owned persistence and domain ports; neither keeps a parallel evaluator.
 5. **Persistence remains app-owned.** Grids may replace its alpha workflow and run schema directly. Mail keeps immutable versions, target runs, command journal integration, and mailbox-scoped indexes. The kernel consumes repository ports instead of introducing generic workflow tables.
 6. **Existing primitives are reused before new syntax is added.** `if` is the common "only run when" construct. `triggers.schedule` starts scheduled workflows. A shared temporal condition may be added for work-hour checks. A generic delayed-action primitive is deferred until a second app needs the same durable behavior.
 7. **Side-effect hardening is an extraction gate.** Existing Grids actions reveal the required effects, but their current retry behavior is not frozen. Every action must be deliberately classified and implemented with a production-safe transactional, durable-command, or fail-after-unknown contract before the shared runtime executes it.
 8. **One kernel is not one global workflow service.** The shared package provides language and execution mechanics. Workflow ownership, APIs, UI, tables, permissions, retention, and product lifecycle stay in the consuming app.
 9. **Agent execution remains a separate runtime.** Assistant may register actions that start or await an AI run, but the workflow kernel does not absorb conversations, model loops, streaming, steering, approvals, memory, or AI usage accounting.
 10. **Event transport remains a separate platform primitive.** The kernel consumes a materialized, idempotent trigger delivery. Transactional outboxes, Cloud event envelopes, subscriptions, and consumer groups are designed and operated independently.
-11. **Mail safety is a compatibility requirement.** Immutable versions, preview hashes, frozen target sets, source preconditions, effect budgets, command reconciliation, and `needs_attention` must survive the language migration. They are not implementation details that a generic executor may discard.
-12. **The migration is a clean cut.** Mail retains historical definitions and run snapshots where audit requires them. Grids alpha workflow source, rows, runs, and runtime paths may be replaced or discarded; no Grids legacy reader, converter, or dual executor is required.
+11. **Mail safety is an adapter requirement.** Immutable versions, preflight hashes, frozen target sets, source preconditions, effect budgets, command reconciliation, and `needs_attention` are app-owned contracts that the shared executor must preserve.
+12. **The alpha migrations are clean cuts.** Grids and Mail replaced their earlier source, rows, and runtime paths directly. Neither app has a compatibility reader, converter, or dual executor.
 13. **Direct invocation is universal.** Every workflow can be invoked through an authorized UI, API, CLI, dashboard, scanner, bulk-selection, or agent surface. Those are invocation channels, not YAML triggers. Omitting `triggers` creates a direct-only workflow.
 14. **Dry-run is a first-class run mode.** It uses the same source, binding, inputs, permissions, conditions, and step traversal without committing domain effects. Unsupported simulation is explicit and may make dependent steps indeterminate; the kernel never silently pretends a skipped action succeeded.
 
@@ -107,17 +107,18 @@ Grids YAML has only three top-level concepts: typed `inputs`, optional automatic
 
 The alpha migration removes the former Grids workflow grammar, executor, trigger runtime, and data tables. Generated document records survive that reset, but references to removed workflow runs are cleared because the referenced audit record no longer exists. Grids does not carry a legacy parser, converter, or dual execution path.
 
-### Mail has a strong domain runtime but a provisional language
+### Mail uses the shared language and executor
 
-Mail currently has an immutable workflow/version model, preview and effect budgets, per-message target runs, durable command integration, and a bounded evaluator. Its provisional definition in `packages/mail/src/contracts.ts` differs from Grids in several ways:
+Mail now compiles and executes workflows through the shared Cloud workflow package while retaining its domain safety and persistence:
 
-- metadata and priority are embedded in the definition;
-- there is one `manual` or `backfill` trigger;
-- conditions use a Mail-specific `field`/`operator` form with `all`, `any`, and `not`;
-- actions use discriminated `action` strings;
-- steps use `when`/`then`/`else` rather than Grids `if`/`then`/`else`.
+- `packages/mail/src/workflows/manifest.ts` declares `mailMessage` and `mailConversation`, `messageReceived` and `schedule`, and the current Mail action vocabulary.
+- `packages/mail/src/workflows/binder.ts` validates typed references and binds accessible folders and assignable users to stable catalog IDs.
+- `packages/mail/src/service/workflow-definition-service.ts` owns metadata, exact YAML source, immutable versions, activation registrations, authorization snapshots, and compiler/catalog identities.
+- `packages/mail/src/service/workflow-preflight-service.ts` uses shared dry-run traversal to freeze target snapshots, count effects, enforce budgets, and produce an execution commitment hash.
+- `packages/mail/src/service/workflow-runtime.ts` and its repository/action/value adapters use the shared executor, coordinator, waiting protocol, step restoration, leases, and execution-generation fencing.
+- `packages/mail/src/service/workflow-trigger-runtime.ts` dispatches deduplicated live `messageReceived` events, and `workflow-schedule-runtime.ts` reconciles revision-fenced due-slot registrations.
 
-Those differences should not become a second user-facing workflow dialect. Mail should retain its domain safety, preview, target batching, and immutable versions while compiling new authoring source through the Grids-shaped language.
+Mail exposes both stateless preflight commitments and durable dry-run records. Dry-run action planners receive no effect-capable ports.
 
 ## Consumer fit
 
@@ -158,7 +159,7 @@ The design is evaluated against concrete workflows rather than abstract extensib
 | A user runs one workflow over 8,000 selected records | child keys, cursors, progress, pause/resume, budget accounting | target discovery, frozen record IDs, per-record authorization |
 | A cron workflow starts in a configured timezone | normalized schedule, deterministic slot key, DST and misfire policy, reconciliation | activation policy and execution principal |
 | Mail classifies and moves an inbound message | typed conditions, waiting result, control flow | message hydration, folder resolution, provider command and Mail policy |
-| A Mail backfill changes thousands of messages | batch coordination, target idempotency, restart recovery | preview hash, query cursor, frozen targets, effect budgets, provider preconditions |
+| A Mail backfill changes thousands of messages | batch coordination, target idempotency, restart recovery | preflight hash, query cursor, frozen targets, effect budgets, provider preconditions |
 | A workflow starts an AI agent and consumes structured output | typed action output, durable child dependency, schema validation | agent grants, tools, prompt, model, cost and time budgets |
 | A destructive action waits for human approval | persisted dependency, timeout, cancellation, deduplicated wakeup | approver policy, approval UI and audit details |
 | An HTTP request crashes after the remote service may have accepted it | explicit ambiguous outcome and no blind retry | URL policy, credentials, reconciliation capability |
@@ -177,7 +178,7 @@ These stories establish three boundaries:
 The following rules are hard constraints for the extraction:
 
 - Existing Grids action, condition, and expression semantics remain stable.
-- Existing active definitions are migrated in one controlled cut; the target language does not retain obsolete invocation-trigger aliases.
+- Both alpha consumers use the canonical source directly; the language does not retain obsolete invocation-trigger aliases.
 - Unknown keys remain validation errors. Extensibility comes from an app's explicit registry, not permissive schemas.
 - `name`, `description`, ordering, activation state, and revision/version metadata remain outside YAML.
 - `triggers` is optional. If present, it contains one or more automatic event subscriptions. An empty `triggers: {}` is invalid so omission remains the one obvious direct-only form.
@@ -244,19 +245,24 @@ const mailWorkflowLanguage = defineWorkflowLanguage({
 
 This is an API direction, not a frozen TypeScript signature. The Grids review should validate the smallest registry shape that can be extracted from the existing code without duplicating schema, validator, runtime, and editor metadata.
 
-### Proposed Mail source
+### Current Mail source
 
-Mail authoring should look like Grids, with Mail-specific vocabulary only where the domain requires it:
+Mail authoring uses the common grammar with Mail-specific vocabulary:
 
 ```yaml
 inputs:
   message:
     type: mailMessage
     required: true
+  conversation:
+    type: mailConversation
+    required: true
 
 triggers:
   messageReceived:
-    input: message
+    with:
+      message: "${{ trigger.message }}"
+      conversation: "${{ trigger.conversation }}"
 
 steps:
   - if:
@@ -270,14 +276,14 @@ steps:
               - example.invalid
     then:
       - addKeyword:
-          message: inputs.message
+          message: "${{ inputs.message }}"
           keyword: Finance
       - moveMessage:
-          message: inputs.message
+          message: "${{ inputs.message }}"
           folder: Invoices
 ```
 
-The `all`, `not`, `contains`, `mailMessage`, and Mail action names above are proposed vocabulary. Their exact names and value typing are settled against the concentrated cross-app model, not against legacy Grids syntax.
+The `all`, `not`, `contains`, `mailMessage`, and Mail action names above are implemented vocabulary. Required trigger inputs use explicit `with` bindings from typed trigger values.
 
 Human-readable catalog references in source must compile to stable app-owned identities or be frozen in the run snapshot. A folder or table display name must never be the runtime authority after it is renamed or becomes ambiguous.
 
@@ -309,7 +315,7 @@ YAML source + language manifest
      triggers, permissions, actions, audit, UI, repositories
 ```
 
-Layers 1 and 2 own no workflow database, queue, scheduler, or provider service. Binding may read an app catalog snapshot through a narrow port, but only the bound plan contains stable IDs. Layers 3 and 4 are the single execution path for every migrated app. Grids is the first complete runtime consumer and proves the shared state-machine contracts before Mail migration starts. The final app-integration layer is always app-owned. The event bus and AI turn runtime sit beside these layers, not inside them.
+Layers 1 and 2 own no workflow database, queue, scheduler, or provider service. Binding may read an app catalog snapshot through a narrow port, but only the bound plan contains stable IDs. Layers 3 and 4 are the single execution path for every migrated app. Grids was the first complete runtime consumer; Mail is the second. The final app-integration layer is always app-owned. The event bus and AI turn runtime sit beside these layers, not inside them.
 
 The recommended home remains `@valentinkolb/cloud/workflows` with explicit, non-overlapping exports:
 
@@ -380,7 +386,7 @@ Moving scanner configuration out of `triggers` is a language cleanup, not a redu
 
 The scanner session is app-owned orchestration over the common invocation API. It groups run IDs and presentation state but does not become a second executor. Labels remain record labels: the same item code can be used by return, checkout, inventory, or maintenance workflows without generating a workflow-specific label.
 
-A Mail backfill is a durable batch invocation mode. It resolves a bounded target query and invokes the same executable plan for each frozen target. Target-level progress, effect budgets, preview hashes, cancellation, and resumability remain app policy over the shared Batch SDK.
+A Mail backfill is a durable batch invocation mode. It resolves a bounded target query and invokes the same executable plan for each frozen target. Target-level progress, effect budgets, preflight hashes, cancellation, and resumability remain app policy over the shared Batch SDK.
 
 Every invocation has one explicit contract. Automatic trigger adapters may record additional audit context, but workflow logic should receive required domain values through `inputs` so direct invocation never needs to fabricate an event:
 
@@ -412,7 +418,7 @@ await workflows.invoke({
 });
 ```
 
-The kernel atomically pins the active revision while materializing the run. `expectedRevisionId` lets UI and API callers reject an invocation if activation changed after the user reviewed it. The unique idempotency domain includes app, workflow, mode, channel, and caller key. The request fingerprint additionally includes the pinned revision, actor, and normalized inputs: reusing a key with a different fingerprint is a conflict rather than a second run. Dry-run and execution therefore never collide, while a retry cannot create a second run merely because activation changed. Automatic triggers derive deterministic keys; UI and API clients receive or provide request keys.
+The app adapter atomically pins the active revision while materializing the run. `expectedRevisionId` lets UI and API callers reject an invocation if activation changed after the user reviewed it. The idempotency domain always separates app, workflow, mode, and caller key. An adapter may additionally partition by channel only when that channel comes from trusted server routing; client-supplied provenance must not create a second effect domain. The request fingerprint includes the pinned revision, actor, normalized inputs, and trusted invocation metadata. Reusing a key with a different fingerprint is a conflict rather than a second run. Dry-run and execution therefore never collide, while a retry cannot create a second run merely because activation changed. Automatic triggers derive deterministic keys; UI and API clients receive or provide request keys.
 
 Normal execution requires an active workflow and app authorization. Deactivation prevents new runs but does not silently cancel already materialized runs. Editors may validate or dry-run an unsaved or inactive draft through a separate endpoint, but a draft cannot create an effectful run.
 
@@ -456,7 +462,7 @@ flowchart LR
 - step lifecycle and the rules for restoring completed work after restart;
 - trigger idempotency keys and generic schedule registration through scheduler ports;
 - durable dependency parking and at-least-once wakeup with deduplicated, fenced state transition;
-- reusable schedule and batch coordination after two consumers prove the same semantics.
+- reusable schedule coordination and a bounded batch SDK; app adapters retain durable target discovery, budgets, and progress persistence.
 
 The kernel's execution outcome must be able to represent more than a boolean result:
 
@@ -482,7 +488,7 @@ type StepOutcome<T> =
 - durable command creation, reconciliation, and provider interaction;
 - audit details, actor representation, and sensitive-value redaction;
 - bulk target discovery and target snapshot policy;
-- preview hashes, effect budgets, resource preconditions, and app-specific approvals;
+- app-specific execution commitments such as Mail preflight hashes, effect budgets, resource preconditions, and approvals;
 - app tables, migrations, retention, and public API shapes;
 - mapping common run outcomes to app-specific lifecycle states and user-facing activity.
 
@@ -531,7 +537,7 @@ Every language includes these implementations directly from the kernel:
 - `if`, `switch`, and bounded `forEach`;
 - `succeed` and `fail`;
 - common value expressions and functions;
-- common conditions such as `equals`, `notEquals`, `exists`, and later additive boolean composition.
+- recursive conditions `equals`, `notEquals`, `exists`, `contains`, `startsWith`, `endsWith`, `all`, `any`, and `not`.
 
 These actions are deterministic and have no app or network dependencies. Apps may configure limits, but they must not replace their semantics.
 
@@ -574,7 +580,7 @@ Composition rejects duplicate names and incompatible descriptor versions. The re
 
 ## Action and trigger author SDK
 
-The APIs in this section are proposed. Current Grids adapters use the implemented shared language and runtime contracts without exposing these authoring factories as a public SDK.
+The factory APIs in this section are proposed. Current Grids and Mail adapters use the implemented shared descriptors, pure built-ins, and runtime ports without exposing these authoring factories as a public SDK.
 
 Shared implementations are needed at two levels: ready-to-enable action packs for users and lower-level helpers for developers who add app actions. The author SDK should make the reliable path the shortest path without hiding authority or side effects.
 
@@ -636,7 +642,7 @@ An unknown condition causes both branches to be statically validated while the r
 
 Dry-runs use the current bound plan, real input resolution, current authorization, resource preconditions, whole-program analyzers, and app effect budgets. They create an auditable run record with `mode: "dryRun"`, but never a domain side effect. A dry-run result is advisory: execution rechecks permissions and mutable preconditions.
 
-Mail preview and preflight remain a separate execution-safety contract. Their preview hash commits a later execution to the reviewed immutable version, frozen target set, source preconditions, and effect budget. A workflow dry-run is advisory and must never be accepted as that commitment token. Mail may build its preview by reusing planners, but execute still requires its app-owned preview/preflight checks.
+Mail preflight remains a separate execution-safety contract. Its hash commits a later execution to the reviewed immutable version, frozen target set, source preconditions, and effect budget. A workflow dry-run is advisory and must never be accepted as that commitment token. Mail builds preflight by reusing planners, but execute still requires its app-owned preflight checks.
 
 ### Runtime context
 
@@ -753,9 +759,13 @@ The clock used by temporal conditions must be injected. `${{ now() }}` represent
 
 ## Mail adapter requirements
 
+The first deterministic Mail adapter is implemented. The lists below distinguish its current contract from the broader product vocabulary that still needs concrete actions and tests.
+
 ### Inputs and values
 
-Mail needs typed references for at least:
+Mail currently provides typed message and conversation inputs plus mailbox and trigger values. Hydrated body and attachment fields resolve through the app-owned value port. Folder and assignable-user literals bind through the Mail catalog. Authorization snapshots remain runtime authority and are not exposed as workflow source data.
+
+Later vocabulary may add typed references for:
 
 - mailbox;
 - message and hydrated message content;
@@ -767,12 +777,14 @@ The compiler should understand which properties are available and which require 
 
 ### Triggers
 
-The initial Mail adapter needs:
+The current Mail adapter provides:
 
 - `messageReceived`, emitted once for a stable imported provider message;
 - direct invocation for UI, API, CLI, and agents;
 - backfill as a bounded target execution mode;
-- `schedule` for periodic mailbox work and time-based rules.
+- `schedule` source validation and activation registration.
+
+Activation connects those registrations to the shared schedule reconciler. Due slots are revision-fenced and enter the same Mail materialization path as manual and event invocations.
 
 Later triggers may include collaboration state changes. A conversation reopening caused by new inbound mail should normally be part of the `messageReceived` trigger facts rather than a second competing event.
 
@@ -780,26 +792,27 @@ For live mail, trigger dispatch performs one indexed lookup by mailbox and trigg
 
 ### Conditions
 
-Mail conditions need to cover:
+Current Mail conditions use the shared equality, text, existence, and boolean operators over the implemented message and conversation fields. Missing body or attachment data can wait through the shared dependency result during automatic execution; manual preflight requires those snapshots to be hydrated first.
 
-- subject, body, sender, recipient, and attachment name;
-- folder, standard flags, and portable provider keywords;
-- attachment presence and MIME metadata;
-- Cloud-local tags, assignee, work status, watchers, and reference state;
-- message direction, automated-message indicators, list headers, and sender identity;
+Later Mail condition work needs to cover:
+
+- individual recipient, attachment-name, and MIME fields beyond the current aggregate values;
+- Cloud-local tags, watchers, and reference state once those workflow snapshots exist;
+- automated-message indicators, list headers, and sender identity;
 - temporal windows;
-- missing hydration through the shared `waiting` result.
 
 Generic string and boolean composition belongs in the kernel registry. Mail-specific field projection, MIME semantics, and auto-reply safety facts belong in the Mail adapter.
 
 ### Actions
 
-The Mail adapter should expose small, composable actions rather than one large "process message" action:
+The Mail adapter exposes small, composable actions rather than one large "process message" action. The current actions add/remove provider keywords, move messages, assign/unassign conversations, set work status, and terminate successfully or with failure.
 
-- add or remove provider keywords and standard flags;
-- move, copy, archive, trash, or delete remote messages where capabilities permit;
+Later actions may add:
+
+- add or remove standard flags;
+- copy, archive, trash, or delete remote messages where capabilities permit;
 - add or remove Cloud-local tags;
-- assign a conversation, change work status, manage watchers, or snooze;
+- manage watchers or snooze conversations;
 - create an internal comment or durable notification;
 - ensure a conversation reference;
 - create or update a shared draft;
@@ -848,9 +861,9 @@ Every run must resolve to immutable executable bytes. An adapter may embed the c
 - trigger identity and idempotency key;
 - resolved input or immutable input reference;
 - domain catalog/resource snapshot where required;
-- execution actor and authorization context needed for audit.
+- effective execution authority and attribution context needed for audit.
 
-Current authorization is still rechecked before delayed or external work. A snapshot proves what was requested; it does not grant perpetual access.
+The app rechecks the current effective authority before delayed or external work. Actor-bound runs stop after relevant user, service-account, credential, or resource access is revoked. An app may instead grant an activated version a domain-owned automation authority, as Mail does; that authority remains valid only while the exact version is active and is fenced again before each effect. A snapshot alone never grants perpetual access.
 
 ### Repository port
 
@@ -886,8 +899,8 @@ The shared runtime must provide these production properties, using the current G
 
 Authorization has two mandatory layers:
 
-1. The app verifies that the actor may invoke the workflow through the requested channel and launcher.
-2. Before each domain action, the app verifies that the run's effective principal still has permission for the current resource and effect.
+1. The app verifies the invocation authority: an actor may use the requested direct channel and launcher, or an authorized activation may create an automatic run.
+2. Before each domain action, the app verifies that the run's effective actor or app-owned automation authority is still valid for the current resource and effect.
 
 The first check does not grant durable authority to later steps. Waiting, delayed, batch, and external actions repeat the second check immediately before their effect. A permission revocation may therefore stop an already materialized run at its next protected action.
 
@@ -920,18 +933,18 @@ The first shared UI should be a small `WorkflowSourceEditor` extracted from the 
 
 ## Extraction plan
 
-This is the historical and forward-looking extraction plan. Completion of the Grids migration does not mark every cross-app SDK, Mail, Assistant, action-pack, or verification item below as implemented.
+This section records both completed migration stages and the remaining forward plan. The status paragraphs and explicit "current" or "future" labels are authoritative; checklist wording alone does not imply that every proposed SDK or product action exists.
 
 ### 0. Record existing invariants
 
 - Classify every Grids and Mail action as pure, same-transaction, durable-intent, or ambiguous external effect.
-- Record Mail's immutable versions, preview hashes, frozen targets, source preconditions, effect budgets, command reconciliation, and `needs_attention` as migration invariants.
+- Record Mail's immutable versions, preflight hashes, frozen targets, source preconditions, effect budgets, command reconciliation, and `needs_attention` as migration invariants.
 - Finish or explicitly scope the active Grids external-effect hardening. Do not broaden retry behavior during extraction.
 
 ### 1. Define target contracts and process fixtures
 
 - Add new-contract Grids fixtures for required processes, diagnostics quality, completion behavior, scanner and bulk UX outcomes, and runtime safety. Do not preserve old YAML or compiled snapshots for compatibility.
-- Add Mail fixtures for planning, target materialization, provider preconditions, collaboration conflicts, waiting data, command reconciliation, and required historical readability.
+- Add Mail fixtures for planning, target materialization, provider preconditions, collaboration conflicts, waiting data, command reconciliation, and the explicit pre-alpha hard cut.
 - Include direct invocation, trigger input binding, launcher revalidation, active-revision races, schedules, nested control flow, saved outputs, dry-run, interruption, permission revocation, and ambiguous external outcomes.
 
 ### 2. Extract the language core
@@ -964,7 +977,7 @@ Recommended home: `@valentinkolb/cloud/workflows`, because the consumers already
 
 - Implement deterministic control-flow traversal, value scopes, output restoration, and bounded iteration against the new contracts, reusing Grids code only where it already fits cleanly.
 - Implement atomic active-revision pinning at run materialization plus atomic claim, step, park, wakeup, cancellation, `needs_attention`, and terminal transitions with execution-generation fencing.
-- Define invocation uniqueness over app, workflow, mode, channel, and caller key, with pinned revision, actor, and normalized inputs in the conflict fingerprint. Support `expectedRevisionId` so reviewed UI/API state cannot silently run a newer revision.
+- Define invocation uniqueness over app, workflow, mode, and caller key, with pinned revision, actor, normalized inputs, and trusted provenance in the conflict fingerprint. A trusted server-owned channel may further partition the domain; a client-controlled header may not. Support `expectedRevisionId` so reviewed UI/API state cannot silently run a newer revision.
 - Implement `execute` and `dryRun` as explicit run modes over the same plan, inputs, permission checks, conditions, and step paths.
 - **Dependency SDK:** durable parking, deadlines, cancellation, at-least-once wakeups, duplicate suppression, fenced resume, and reconciliation.
 - **Schedule SDK:** cron, timezone, DST, deterministic slots, overlap, catch-up/misfire policy, manual invocation, and stale-registration reconciliation.
@@ -982,22 +995,19 @@ Recommended home: `@valentinkolb/cloud/workflows`, because the consumers already
 - Remove the old Grids executor, coordinator, duplicated validators, and duplicated intelligence switches in the same migration.
 - Prove parity across the complete Grids workflow suite, database integration tests, multi-worker recovery, schedules, scanner flows, bulk execution, and permission revocation.
 
-After this phase, Grids uses the shared language and runtime exclusively. Mail remains unchanged until its separate migration starts.
+Mail is the second runtime adapter. It contributes mailbox permissions, immutable workflow versions, message and conversation snapshots, provider commands, collaboration actions, hydration dependencies, inbound event capture, and schedule registrations without duplicating the shared compiler or executor.
 
-### 7. Migrate Mail completely
+### 7. Migrate Mail to the shared kernel
 
-Mail migration is intentionally deferred until the shared library and Grids cutover are complete and verified.
+The current deterministic Mail foundation is migrated:
 
-- Register the complete Mail vocabulary and bind folders, identities, tags, users, templates, and mailbox resources to stable IDs.
-- Port live triggers, manual execution, backfills, hydration waiting, collaboration mutations, provider commands, schedules, recovery, cancellation, audit, and observability to the shared executor.
-- Expose manual execute and dry-run for every Mail workflow, including workflows with automatic triggers.
-- Preserve Mail's immutable versions, preview hashes, frozen target sets, source preconditions, effect budgets, provider reconciliation, and `needs_attention` through app-owned ports.
-- Keep Mail preview/preflight as an execution commitment distinct from advisory workflow dry-run; dry-run output is never accepted as a preview hash.
-- Migrate active definitions to the canonical YAML and stop accepting the provisional JSON dialect.
-- Remove the old Mail evaluator and workflow coordinator in the same migration. Retain historical source and run snapshots only for audit; do not keep a dual executor.
-- Prove parity with inbound classification, large backfill, permission revocation, worker crash, ambiguous provider outcome, and horizontal-worker tests.
+- Mail registers typed message/conversation inputs, `messageReceived` and `schedule` descriptors, and its initial provider, collaboration, and terminal actions.
+- Exact YAML source compiles and binds through the shared language; folders and assignable users resolve to stable IDs.
+- Manual invoke, one-shot, backfill, live inbound dispatch, hydration waiting, collaboration mutations, provider commands, recovery, cancellation, audit, and observability use shared runtime contracts.
+- Immutable versions, preflight hashes, frozen targets, source preconditions, effect budgets, provider reconciliation, and `needs_attention` remain app-owned ports and persistence.
+- The former Mail evaluator and source shape are removed; there is no compatibility parser or dual executor.
 
-After this phase, Mail and Grids have one language core and one runtime implementation. Only domain adapters, app storage, permissions, catalogs, actions, and product UI remain app-owned.
+Remaining work is product-specific: broader Mail actions and product UI. Mail and Grids share the language compiler, deterministic executor, coordinator, and dependency contracts. Mail also uses the shared schedule reconciliation planner; Grids retains its established sync scheduler adapter while following the same stable-ID and revision-fencing invariants. App storage, permissions, catalogs, actions, trigger producers, transport integration, and product UI remain app-owned.
 
 ### 8. Add the Assistant walking skeleton
 
@@ -1039,21 +1049,17 @@ The extraction is complete only when all of the following are demonstrated:
 - A Mail backfill can restart without repeating completed target effects.
 - Automatic replies cannot loop, duplicate per policy key, or bypass sender authorization.
 - Mail and Grids active runs use the same shared executor and coordinator; no legacy app executor remains reachable.
-- Historical definitions and snapshots remain readable without requiring a legacy runtime.
+- Every persisted canonical definition and snapshot remains readable by the shared runtime.
 - At least two runtime instances process concurrent Grids and Mail runs without process affinity.
 - A fixture with 500 mailboxes and 100 active workflows each performs mailbox-local trigger selection without a global scan.
 - Fallow and focused architecture checks show no app-to-app imports, registry cycles, or duplicated language/compiler implementations. Any remaining app-runtime duplication is documented by a concrete semantic difference.
 
-## Questions for the cross-app review
+## Remaining cross-app review questions
 
 1. Can the current Grids schema, semantic validator, documentation, and intelligence metadata be generated from one manifest without reducing diagnostic or completion quality?
-2. Which exact additive condition syntax represents `all`, `any`, `not`, and generic text comparison while preserving current `equals`, `notEquals`, and `exists`?
-3. Which name and value kind exposes immutable trigger time alongside `${{ now() }}`? The current recommendation is `trigger.occurredAt`.
-4. Is a generic `TemporalWindow` useful in the first language release, and which timezone/date semantics does Grids already expect?
-5. What is the final status and intended contract of Grids external-effect hardening, especially for email and HTTP actions?
-6. Does `@valentinkolb/cloud/workflows` fit the package boundary, or should the language core be a private workspace package?
-7. Which editor pieces are genuinely domain-neutral after manifest extraction, and which remain app-owned?
-8. Should workflow descriptors reference the emerging Cloud operation catalog for bounded app actions, or remain independent until that catalog is implemented and proven?
+2. Is a generic `TemporalWindow` useful in the first language release, and which timezone/date semantics do two consumers actually share?
+3. Which editor pieces are genuinely domain-neutral after manifest extraction, and which remain app-owned?
+4. Should workflow descriptors reference the emerging Cloud operation catalog for bounded app actions, or remain independent until that catalog is implemented and proven?
 
 ## Relationship to the Assistant design
 
@@ -1063,18 +1069,8 @@ The shared kernel may later reuse the same operation and event descriptors, but 
 
 ## Relationship to the Mail design
 
-If accepted, this document replaces the Mail design's technical assumptions about a Mail-owned workflow language/runtime and a separately persisted named response-schedule entity. It does not turn the kernel into the general-purpose cross-app automation platform excluded by the Mail non-goals.
+This document defines the shared technical boundary used by `docs/mail-app-design.md`: canonical `inputs`/optional `triggers`/`steps` YAML, metadata outside source, one shared compiler and executor, and Mail-owned domain ports and persistence. It does not turn the kernel into the general-purpose cross-app automation platform excluded by the Mail non-goals.
 
-The follow-up reconciliation in `docs/mail-app-design.md` should make these changes:
+Mail implements `messageReceived` as the inbound event trigger, direct invocation as a channel rather than YAML syntax, and `schedule` through stable revision-fenced registrations in the shared scheduler adapter. Temporal-window conditions and guarded delayed delivery remain separate future capabilities.
 
-| Current Mail design text | Accepted replacement after Grids review |
-| --- | --- |
-| Mail-owned language and runtime | Complete migration to the shared compiler, executor, coordinator, and SDK with Mail-owned domain ports |
-| Top-level `version`, `name`, `priority`, singular `trigger`, and `when`/`action` steps | Metadata outside source and canonical `inputs`/`triggers`/`steps` YAML |
-| Separate `message.received` and `conversation.reopened` triggers for the same inbound event | `messageReceived` with explicit reopening facts unless a later independent event needs its own trigger |
-| Named persisted response schedules | Inline explicit temporal windows for conditions; `schedule` for workflow starts; existing durable send scheduling for delayed delivery |
-| Mail-specific visual workflow editor direction | Shared Grids-derived YAML source editor with Mail registry intelligence |
-
-All Mail product requirements, permission rules, immutable versions, preview/effect budgets, command safety, collaboration actions, references, time-window behavior, guarded automatic replies, and AI direction remain in force. Mail migrates completely to the shared runtime; those guarantees become explicit adapter and conformance requirements rather than reasons to keep a second executor.
-
-The Mail design should be updated after the cross-app contract questions above are resolved.
+All Mail product requirements, permission rules, immutable versions, preflight/effect budgets, command safety, collaboration actions, references, time-window behavior, guarded automatic replies, and AI direction remain in force. The Mail design is reconciled with the shared runtime; those guarantees are app adapter and conformance requirements rather than reasons to keep a second executor. A future visual editor should reuse the shared source editor with Mail registry intelligence.

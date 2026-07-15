@@ -54,6 +54,15 @@ export interface WorkflowVariableScope {
   set(name: string, value: WorkflowJsonValue): void;
 }
 
+export type WorkflowValueResolution =
+  | { state: "resolved"; value: WorkflowJsonValue }
+  | { state: "missing" }
+  | { state: "waiting"; dependency: WorkflowDependency };
+
+export interface WorkflowExecutionClock {
+  now(): string;
+}
+
 type WorkflowActionContextBase<Mode extends WorkflowInvocationMode> = {
   mode: Mode;
   run: WorkflowRuntimeRunIdentity & { mode: Mode };
@@ -98,6 +107,7 @@ export interface WorkflowDryRunActionPort {
 export type WorkflowTraceEvent =
   | { type: "step.started"; step: WorkflowRuntimeStepIdentity }
   | { type: "step.restored"; step: WorkflowRuntimeStepIdentity; restored: WorkflowRestoredStep }
+  | { type: "step.waiting"; step: WorkflowRuntimeStepIdentity; dependency: WorkflowDependency }
   | { type: "step.finished"; step: WorkflowRuntimeStepIdentity; result: WorkflowRuntimeStepResult }
   | { type: "run.canceled"; run: WorkflowRuntimeRunIdentity; message?: string };
 
@@ -113,7 +123,7 @@ export interface WorkflowValueResolverPort {
     invocation: WorkflowInvocation;
     variables: WorkflowVariableScope;
     fallback: () => WorkflowJsonValue | undefined;
-  }): Promise<WorkflowJsonValue | undefined>;
+  }): Promise<WorkflowValueResolution>;
 }
 
 type WorkflowRuntimeOptionsBase = {
@@ -122,6 +132,7 @@ type WorkflowRuntimeOptionsBase = {
   plan: WorkflowBoundPlan;
   invocation: WorkflowInvocation;
   repository: WorkflowRuntimeRepositoryPort;
+  clock: WorkflowExecutionClock;
   trace?: WorkflowTracePort;
   values?: WorkflowValueResolverPort;
   maxLoopItems?: number;

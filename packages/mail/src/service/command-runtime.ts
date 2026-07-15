@@ -16,6 +16,7 @@ import { enqueueMaintenanceCommand, stopMaintenanceRuntime, submitDueMaintenance
 import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
 import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
+import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
 const log = logger("mail:commands");
 const STALE_EXECUTION_MINUTES = 10;
@@ -220,7 +221,7 @@ const commandState = async (
 ): Promise<boolean> => {
   const code = error ? normalizeCode(error, "MAIL_COMMAND_FAILED") : null;
   const message = error ? errorMessage(error, "Mail command failed") : null;
-  return sql.begin(async (tx) => {
+  const updated = await sql.begin(async (tx) => {
     const [updated] = await tx<{ mailbox_id: string; actor_kind: string; actor_id: string | null }[]>`
       UPDATE mail.commands
       SET
@@ -235,7 +236,7 @@ const commandState = async (
         AND state = 'executing'
       RETURNING mailbox_id, actor_kind, actor_id
     `;
-    if (!updated) return false;
+    if (!updated) return null;
     await tx`
       INSERT INTO mail.activity_events (
         mailbox_id, command_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
@@ -252,8 +253,16 @@ const commandState = async (
         ${{ state, code }}::jsonb
       )
     `;
-    return true;
+    return updated;
   });
+  if (!updated) return false;
+  if (["confirmed", "failed", "cancelled", "reconciled", "needs_attention"].includes(state)) {
+    await publishMailWorkflowDependency({
+      mailboxId: updated.mailbox_id,
+      dependency: { kind: "mail.command", key: command.id },
+    });
+  }
+  return true;
 };
 
 const claimCommand = async (
@@ -272,6 +281,31 @@ const claimCommand = async (
       FOR UPDATE
     `;
     if (!current || !allowedKinds.includes(current.kind) || !["queued", "ambiguous"].includes(current.state)) return null;
+    if (current.actor_kind === "workflow") {
+      const [target] = await tx<{ id: string }[]>`
+        SELECT target.id
+        FROM mail.workflow_step_runs step
+        JOIN mail.workflow_run_targets target ON target.id = step.target_id
+        WHERE step.command_id = ${current.id}::uuid
+          AND step.execution_generation = target.execution_generation
+          AND target.state IN ('running', 'waiting')
+          AND target.cancel_requested_at IS NULL
+        FOR UPDATE OF target
+      `;
+      if (!target) {
+        await tx`
+          UPDATE mail.commands
+          SET
+            state = 'cancelled',
+            finished_at = now(),
+            last_error_code = 'WORKFLOW_CANCELED',
+            last_error_message = 'The workflow target was canceled before command execution',
+            updated_at = now()
+          WHERE id = ${current.id}::uuid AND state IN ('queued', 'ambiguous')
+        `;
+        return null;
+      }
+    }
     const previousState = current.state;
     const [claimed] = await tx<DbCommandExecution[]>`
       UPDATE mail.commands

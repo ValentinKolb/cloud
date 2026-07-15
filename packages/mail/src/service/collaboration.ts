@@ -191,8 +191,12 @@ const actorIdentity = (context: MailRequestContext): { kind: CommentActorKind; i
   throw new Error("Request actor cannot author Mail collaboration changes");
 };
 
-const activityActorIdentity = (context: MailRequestContext, actorOverride?: ActorRef): { kind: ActorRef["kind"]; id: string | null } => {
-  const actor = actorOverride ?? actorRefFromRequest(context);
+const activityActorIdentity = (
+  context: MailRequestContext | null,
+  actorOverride?: ActorRef,
+): { kind: ActorRef["kind"]; id: string | null } => {
+  if (!actorOverride && !context) throw new Error("Mail activity requires an actor");
+  const actor = actorOverride ?? actorRefFromRequest(context as MailRequestContext);
   if (actor.kind === "user") return { kind: actor.kind, id: actor.userId };
   if (actor.kind === "service_account") return { kind: actor.kind, id: actor.serviceAccountId };
   if (actor.kind === "workflow") return { kind: actor.kind, id: actor.workflowVersionId };
@@ -319,7 +323,7 @@ export const insertActivity = async (params: {
   db: SqlClient;
   mailboxId: string;
   conversationId: string;
-  context: MailRequestContext;
+  context: MailRequestContext | null;
   actorOverride?: ActorRef;
   action: string;
   targetType: string;
@@ -402,8 +406,8 @@ export const getConversationCollaboration = async (params: {
   return state ? ok(state) : fail(err.notFound("Conversation"));
 };
 
-export const updateConversationCollaborationInTransaction = async (params: {
-  context: MailRequestContext;
+const applyConversationCollaborationInTransaction = async (params: {
+  context: MailRequestContext | null;
   mailboxId: string;
   conversationId: string;
   input: UpdateConversationCollaboration;
@@ -411,8 +415,6 @@ export const updateConversationCollaborationInTransaction = async (params: {
   actorOverride?: ActorRef;
   activityMetadata?: Record<string, unknown>;
 }): Promise<Result<CollaborationMutation<ConversationCollaboration>>> => {
-  const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "write", params.db);
-  if (!allowed.ok) return allowed;
   const [current] = await params.db<CollaborationRow[]>`
     SELECT
       c.id,
@@ -520,6 +522,40 @@ export const updateConversationCollaborationInTransaction = async (params: {
       targetId: params.conversationId,
       activityId,
     },
+  });
+};
+
+export const updateConversationCollaborationInTransaction = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+  input: UpdateConversationCollaboration;
+  db: SqlClient;
+  actorOverride?: ActorRef;
+  activityMetadata?: Record<string, unknown>;
+}): Promise<Result<CollaborationMutation<ConversationCollaboration>>> => {
+  const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "write", params.db);
+  return allowed.ok ? applyConversationCollaborationInTransaction(params) : allowed;
+};
+
+export const updateWorkflowConversationCollaborationInTransaction = async (params: {
+  mailboxId: string;
+  workflowVersionId: string;
+  conversationId: string;
+  input: UpdateConversationCollaboration;
+  db: SqlClient;
+  activityMetadata?: Record<string, unknown>;
+}): Promise<Result<CollaborationMutation<ConversationCollaboration>>> => {
+  const [mailbox] = await params.db<{ id: string }[]>`
+    SELECT id FROM mail.mailboxes
+    WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
+    FOR SHARE
+  `;
+  if (!mailbox) return fail(err.notFound("Mailbox"));
+  return applyConversationCollaborationInTransaction({
+    ...params,
+    context: null,
+    actorOverride: { kind: "workflow", workflowVersionId: params.workflowVersionId },
   });
 };
 

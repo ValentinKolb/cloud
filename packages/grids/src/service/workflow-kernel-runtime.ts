@@ -69,8 +69,7 @@ const WORKFLOW_SCHEDULE_MAX_RETRIES = 3;
 const RECONCILE_INTERVAL_MS = 60_000;
 const SCHEDULE_PREFIX = "grids:workflow:";
 
-export const workflowScheduleId = (workflow: Pick<GridsWorkflow, "id" | "revision">): string =>
-  `${SCHEDULE_PREFIX}${workflow.id}:revision:${workflow.revision}`;
+export const workflowScheduleId = (workflow: Pick<GridsWorkflow, "id" | "revision">): string => `${SCHEDULE_PREFIX}${workflow.id}`;
 
 const workflowScheduleIdPrefix = (workflowId: string): string => `${SCHEDULE_PREFIX}${workflowId}:revision:`;
 

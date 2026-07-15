@@ -24,7 +24,9 @@ import {
   type MailSearchExpression,
   type MailWorkflow,
   type MailWorkflowDetail,
+  type MailWorkflowPreflight,
   type MailWorkflowRun,
+  type MailWorkflowRunTarget,
   type MailWorkflowVersion,
   mailSearchExpressionSchema,
   type ProviderBinding,
@@ -32,10 +34,9 @@ import {
   type SavedConversationViewFilter,
   type SenderIdentity,
   savedConversationViewFilterSchema,
-  type WorkflowDefinition,
-  type WorkflowPreview,
+  type WorkflowEffectBudget,
   type WorkflowTargetQuery,
-  workflowDefinitionSchema,
+  type WorkflowValidation,
   workflowTargetQuerySchema,
 } from "./contracts";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
@@ -74,6 +75,7 @@ const jsonRequest = (method: string, value: unknown): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(value),
 });
+const workflowRunRequest = (value: unknown): RequestInit => jsonRequest("POST", value);
 const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const offsetDateTimeSchema = z.iso.datetime({ offset: true });
 const parseOffsetDateTime = (value: string, flagName: string): string => {
@@ -117,6 +119,37 @@ const waitFlags = {
     description: "Maximum wait time in seconds",
   }),
 };
+
+const workflowEffectBudgetFlags = {
+  maxTargets: flag.int({ name: "max-targets", min: 1, max: 50_000, default: 1_000, description: "Maximum targets per run" }),
+  maxMoves: flag.int({ name: "max-moves", min: 0, max: 50_000, default: 1_000, description: "Maximum move effects per run" }),
+  maxKeywordChanges: flag.int({
+    name: "max-keyword-changes",
+    min: 0,
+    max: 100_000,
+    default: 2_000,
+    description: "Maximum keyword changes per run",
+  }),
+  maxCollaborationChanges: flag.int({
+    name: "max-collaboration-changes",
+    min: 0,
+    max: 100_000,
+    default: 2_000,
+    description: "Maximum collaboration changes per run",
+  }),
+};
+
+const workflowEffectBudget = (flags: {
+  maxTargets?: number;
+  maxMoves?: number;
+  maxKeywordChanges?: number;
+  maxCollaborationChanges?: number;
+}): WorkflowEffectBudget => ({
+  maxTargets: flags.maxTargets ?? 1_000,
+  maxMoves: flags.maxMoves ?? 1_000,
+  maxKeywordChanges: flags.maxKeywordChanges ?? 2_000,
+  maxCollaborationChanges: flags.maxCollaborationChanges ?? 2_000,
+});
 
 const pollUntil = async <T>(params: {
   load: (signal: AbortSignal) => Promise<T>;
@@ -178,16 +211,21 @@ const resolveMailbox = async (ctx: CloudCliContext, ref?: string): Promise<Mailb
 
 const mailboxFlag = { mailbox: flag.string({ description: "Mailbox id or exact name; defaults to `cld mail use`" }) };
 
-const workflowDefinitionInput = flag.input({
+const workflowSourceInput = flag.input({
   required: true,
-  fileName: "definition-file",
-  stdinName: "definition-stdin",
-  description: "Workflow definition as JSON or YAML",
+  fileName: "source-file",
+  stdinName: "source-stdin",
+  description: "Exact canonical workflow YAML source",
 });
 const workflowQueryInput = flag.input({
   fileName: "query-file",
   stdinName: "query-stdin",
   description: "Optional target query as JSON or YAML; defaults to all messages",
+});
+const workflowInputsInput = flag.input({
+  fileName: "inputs-file",
+  stdinName: "inputs-stdin",
+  description: "Optional invocation inputs as JSON or YAML; defaults to an empty object",
 });
 const savedViewFilterInput = flag.input({
   fileName: "filter-file",
@@ -207,21 +245,10 @@ const parseStructuredDocument = (value: string, label: string): unknown => {
   }
 };
 
-const readWorkflowDefinitionDocument = async (input: Parameters<typeof readCliInput>[0]): Promise<unknown> => {
-  const raw = await readCliInput(input, { label: "workflow definition", required: true });
-  return parseStructuredDocument(raw ?? "", "Workflow definition");
-};
-
-const readWorkflowDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<WorkflowDefinition> => {
-  const parsed = workflowDefinitionSchema.safeParse(await readWorkflowDefinitionDocument(input));
-  if (!parsed.success) throw new Error(`Invalid workflow definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
-  return parsed.data;
-};
-
-const readWorkflowValidationDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<unknown> => {
-  const definition = await readWorkflowDefinitionDocument(input);
-  const parsed = workflowDefinitionSchema.safeParse(definition);
-  return parsed.success ? parsed.data : definition;
+const readWorkflowSource = async (input: Parameters<typeof readCliInput>[0]): Promise<string> => {
+  const source = await readCliInput(input, { label: "workflow source", required: true });
+  if (source === undefined || source.trim().length === 0) throw new Error("Workflow source cannot be empty.");
+  return source;
 };
 
 const readWorkflowQuery = async (input: Parameters<typeof readCliInput>[0]): Promise<WorkflowTargetQuery> => {
@@ -230,6 +257,15 @@ const readWorkflowQuery = async (input: Parameters<typeof readCliInput>[0]): Pro
   if (raw.trim().length === 0) throw new Error("Workflow target query cannot be empty.");
   const parsed = workflowTargetQuerySchema.safeParse(parseStructuredDocument(raw, "Workflow target query"));
   if (!parsed.success) throw new Error(`Invalid workflow target query: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
+  return parsed.data;
+};
+
+const readWorkflowInputs = async (input: Parameters<typeof readCliInput>[0]): Promise<Record<string, unknown>> => {
+  const raw = await readCliInput(input, { label: "workflow inputs", required: false });
+  if (raw === undefined) return {};
+  if (raw.trim().length === 0) throw new Error("Workflow inputs cannot be empty.");
+  const parsed = z.record(z.string(), z.json()).safeParse(parseStructuredDocument(raw, "Workflow inputs"));
+  if (!parsed.success) throw new Error(`Invalid workflow inputs: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
 };
 
@@ -245,24 +281,19 @@ const readSavedViewFilter = async (
   return parsed.data;
 };
 
-const printWorkflowPreview = (ctx: CloudCliContext, preview: WorkflowPreview): void => {
+const printWorkflowPreflight = (ctx: CloudCliContext, preflight: MailWorkflowPreflight): void => {
   if (ctx.options.output === "json") {
-    ctx.json(preview);
+    ctx.json(preflight);
     return;
   }
-  ctx.print(`Targets: ${preview.targetCount}; actions on ${preview.actionTargetCount}; waiting data: ${preview.waitingDataCount}`);
-  const actions = Object.entries(preview.actionCounts)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([action, count]) => `${action}=${count}`)
-    .join(", ");
-  ctx.print(`Actions: ${actions || "none"}`);
-  if (preview.truncated) ctx.print("Target scan exceeded the configured target budget.");
-  if (preview.budgetExceeded) ctx.print("Effect budget exceeded.");
-  if (!preview.validation.valid) {
-    for (const diagnostic of preview.validation.diagnostics) ctx.print(`${diagnostic.severity}: ${diagnostic.path}: ${diagnostic.message}`);
-  }
-  ctx.print(`Executable: ${preview.previewHash ? "yes" : "no"}`);
+  ctx.print(`Version: ${preflight.workflowVersionId}; source hash: ${preflight.sourceHash}`);
+  ctx.print(`Targets: ${preflight.targetCount}; preflight hash: ${preflight.preflightHash}`);
 };
+
+const workflowProgressText = (run: MailWorkflowRun): string =>
+  `${run.targetProgress.succeeded}/${run.targetProgress.total} succeeded; ${run.targetProgress.failed} failed; ${run.targetProgress.needs_attention} need attention`;
+
+const workflowLastErrorText = (run: MailWorkflowRun): string => (run.lastError ? ` - ${run.lastError.code}: ${run.lastError.message}` : "");
 
 const waitForWorkflowRun = async (
   ctx: CloudCliContext,
@@ -276,7 +307,7 @@ const waitForWorkflowRun = async (
     timeoutSeconds,
     description: `workflow run ${runId}`,
   });
-  if (run.state !== "succeeded") throw new Error(`Workflow run ended in ${run.state}${run.lastError ? `: ${run.lastError}` : "."}`);
+  if (run.state !== "succeeded") throw new Error(`Workflow run ended in ${run.state}${workflowLastErrorText(run) || "."}`);
   return run;
 };
 
@@ -2471,14 +2502,14 @@ export default defineCliCommands({
       },
     }),
     command("workflow validate", {
-      summary: "Validate a deterministic workflow definition",
-      flags: { ...mailboxFlag, definition: workflowDefinitionInput },
+      summary: "Validate exact canonical workflow YAML source",
+      flags: { ...mailboxFlag, source: workflowSourceInput },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const validation = await readApi<WorkflowPreview["validation"]>(
+        const validation = await readApi<WorkflowValidation>(
           ctx,
           `/mailboxes/${mailbox.id}/workflows/validate`,
-          jsonRequest("POST", { definition: await readWorkflowValidationDefinition(flags.definition) }),
+          jsonRequest("POST", { source: await readWorkflowSource(flags.source) }),
         );
         if (ctx.options.output === "json") ctx.json(validation);
         else {
@@ -2489,20 +2520,27 @@ export default defineCliCommands({
         }
       },
     }),
-    command("workflow preview", {
-      summary: "Preview targets and effects without changing mail",
-      flags: { ...mailboxFlag, definition: workflowDefinitionInput, query: workflowQueryInput },
-      run: async ({ ctx, flags }) => {
+    command("workflow preflight", {
+      summary: "Create a version-pinned execution preflight without changing mail",
+      args: { workflowId: arg.required({ description: "Workflow id" }) },
+      flags: {
+        ...mailboxFlag,
+        versionId: flag.string({ name: "version-id", required: true, description: "Immutable workflow version id to preflight" }),
+        query: workflowQueryInput,
+        inputs: workflowInputsInput,
+      },
+      run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const preview = await readApi<WorkflowPreview>(
+        const preflight = await readApi<MailWorkflowPreflight>(
           ctx,
-          `/mailboxes/${mailbox.id}/workflows/preview`,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/preflight`,
           jsonRequest("POST", {
-            definition: await readWorkflowDefinition(flags.definition),
+            expectedVersionId: flags.versionId,
+            inputs: await readWorkflowInputs(flags.inputs),
             query: await readWorkflowQuery(flags.query),
           }),
         );
-        printWorkflowPreview(ctx, preview);
+        printWorkflowPreflight(ctx, preflight);
       },
     }),
     command("workflow list", {
@@ -2516,13 +2554,17 @@ export default defineCliCommands({
           workflows,
           workflows.map((workflow) => ({
             name: workflow.name,
-            version: workflow.currentVersion,
+            enabled: workflow.enabled ? "yes" : "no",
+            current: workflow.currentVersionId,
+            active: workflow.activeVersionId ?? "",
             updated: workflow.updatedAt,
             id: workflow.id,
           })),
           [
             { key: "name", label: "NAME" },
-            { key: "version", label: "VERSION" },
+            { key: "enabled", label: "ENABLED" },
+            { key: "current", label: "CURRENT VERSION ID" },
+            { key: "active", label: "ACTIVE VERSION ID" },
             { key: "updated", label: "UPDATED" },
             { key: "id", label: "WORKFLOW ID" },
           ],
@@ -2539,23 +2581,37 @@ export default defineCliCommands({
         if (ctx.options.output === "json") ctx.json(workflow);
         else {
           ctx.print(`${workflow.name} (${workflow.id})`);
-          ctx.print(`Version: ${workflow.version.version}; hash: ${workflow.version.definitionHash}`);
-          ctx.print(JSON.stringify(workflow.version.definition, null, 2));
+          ctx.print(`Current version: ${workflow.currentVersion.id}; source hash: ${workflow.currentVersion.sourceHash}`);
+          ctx.print(`Active version: ${workflow.activeVersionId ?? "none"}`);
+          ctx.print(workflow.currentVersion.source);
         }
       },
     }),
     command("workflow create", {
-      summary: "Create a saved workflow at version 1",
-      flags: { ...mailboxFlag, definition: workflowDefinitionInput },
+      summary: "Create a saved workflow from exact YAML source",
+      flags: {
+        ...mailboxFlag,
+        ...workflowEffectBudgetFlags,
+        source: workflowSourceInput,
+        name: flag.string({ required: true, description: "Workflow name stored outside YAML source" }),
+        description: flag.string({ description: "Workflow description stored outside YAML source" }),
+        priority: flag.int({ min: -1_000, max: 1_000, default: 100, description: "Mail ordering priority stored outside YAML source" }),
+      },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const workflow = await readApi<MailWorkflowDetail>(
           ctx,
           `/mailboxes/${mailbox.id}/workflows`,
-          jsonRequest("POST", { definition: await readWorkflowDefinition(flags.definition) }),
+          jsonRequest("POST", {
+            name: flags.name,
+            description: flags.description ?? null,
+            priority: flags.priority ?? 100,
+            source: await readWorkflowSource(flags.source),
+            effectBudget: workflowEffectBudget(flags),
+          }),
         );
         if (ctx.options.output === "json") ctx.json(workflow);
-        else ctx.print(`Created ${workflow.name} (${workflow.id}) at version ${workflow.currentVersion}.`);
+        else ctx.print(`Created ${workflow.name} (${workflow.id}) at version ${workflow.currentVersion.id}.`);
       },
     }),
     command("workflow version list", {
@@ -2569,15 +2625,15 @@ export default defineCliCommands({
           ctx,
           versions,
           versions.map((version) => ({
-            version: version.version,
+            identity: version.identity,
             created: version.createdAt,
-            hash: version.definitionHash,
+            hash: version.sourceHash,
             id: version.id,
           })),
           [
-            { key: "version", label: "VERSION" },
+            { key: "identity", label: "IDENTITY" },
             { key: "created", label: "CREATED" },
-            { key: "hash", label: "HASH" },
+            { key: "hash", label: "SOURCE HASH" },
             { key: "id", label: "VERSION ID" },
           ],
         );
@@ -2586,89 +2642,82 @@ export default defineCliCommands({
     command("workflow version create", {
       summary: "Create the next immutable version of a saved workflow",
       args: { workflowId: arg.required({ description: "Workflow id" }) },
-      flags: { ...mailboxFlag, definition: workflowDefinitionInput },
+      flags: { ...mailboxFlag, ...workflowEffectBudgetFlags, source: workflowSourceInput },
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const workflow = await readApi<MailWorkflowDetail>(
           ctx,
           `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions`,
-          jsonRequest("POST", { definition: await readWorkflowDefinition(flags.definition) }),
+          jsonRequest("POST", { source: await readWorkflowSource(flags.source), effectBudget: workflowEffectBudget(flags) }),
         );
         if (ctx.options.output === "json") ctx.json(workflow);
-        else ctx.print(`Created ${workflow.name} version ${workflow.currentVersion}.`);
+        else ctx.print(`Created ${workflow.name} version ${workflow.currentVersion.id}.`);
       },
     }),
     command("workflow version get", {
       summary: "Show one immutable workflow version",
       args: {
         workflowId: arg.required({ description: "Workflow id" }),
-        version: arg.required({ description: "Immutable version number" }),
+        versionId: arg.required({ description: "Immutable version id" }),
       },
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const versionNumber = Number(args.version);
-        if (!Number.isInteger(versionNumber) || versionNumber < 1 || versionNumber > 2_147_483_647) {
-          throw new Error("Workflow version must be a positive 32-bit integer.");
-        }
         const version = await readApi<MailWorkflowVersion>(
           ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${versionNumber}`,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${args.versionId}`,
         );
         if (ctx.options.output === "json") ctx.json(version);
         else {
-          ctx.print(`Version: ${version.version}; hash: ${version.definitionHash}`);
-          ctx.print(JSON.stringify(version.definition, null, 2));
+          ctx.print(`Version: ${version.id}; source hash: ${version.sourceHash}`);
+          ctx.print(version.source);
         }
       },
     }),
-    command("workflow run one-shot", {
-      summary: "Preview and execute one workflow definition once",
-      flags: {
-        ...mailboxFlag,
-        definition: workflowDefinitionInput,
-        query: workflowQueryInput,
-        idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
-        yes: confirmFlag("Confirm workflow effects"),
-        wait: flag.boolean({ description: "Wait for the workflow run to finish" }),
-        ...waitFlags,
-      },
-      run: async ({ ctx, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const definition = await readWorkflowDefinition(flags.definition);
-        const query = await readWorkflowQuery(flags.query);
-        const preview = await readApi<WorkflowPreview>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/preview`,
-          jsonRequest("POST", { definition, query }),
-        );
-        if (!flags.yes) {
-          printWorkflowPreview(ctx, preview);
-          throw new Error("Pass --yes to execute the previewed workflow effects.");
-        }
-        if (!preview.previewHash) throw new Error("Workflow preview is not executable; inspect it with `cld mail workflow preview`.");
-        const queued = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflow-runs/one-shot`,
-          jsonRequest("POST", {
-            definition,
-            query,
-            previewHash: preview.previewHash,
-            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
-          }),
-        );
-        const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
-        if (ctx.options.output === "json") ctx.json({ preview, run });
-        else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
-      },
-    }),
-    command("workflow run saved", {
-      summary: "Preview and execute a saved workflow version",
+    command("workflow activate", {
+      summary: "Activate the current workflow version and register its automatic triggers",
       args: { workflowId: arg.required({ description: "Workflow id" }) },
       flags: {
         ...mailboxFlag,
+        versionId: flag.string({ name: "version-id", required: true, description: "Current workflow version id expected by activation" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const workflow = await readApi<MailWorkflowDetail>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/activate`,
+          jsonRequest("POST", { expectedVersionId: flags.versionId }),
+        );
+        if (ctx.options.output === "json") ctx.json(workflow);
+        else ctx.print(`Activated ${workflow.name} at version ${workflow.activeVersionId}.`);
+      },
+    }),
+    command("workflow deactivate", {
+      summary: "Deactivate the active workflow version without mutating historical runs",
+      args: { workflowId: arg.required({ description: "Workflow id" }) },
+      flags: {
+        ...mailboxFlag,
+        versionId: flag.string({ name: "version-id", required: true, description: "Active workflow version id expected by deactivation" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const workflow = await readApi<MailWorkflowDetail>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/deactivate`,
+          jsonRequest("POST", { expectedVersionId: flags.versionId }),
+        );
+        if (ctx.options.output === "json") ctx.json(workflow);
+        else ctx.print(`Deactivated ${workflow.name}.`);
+      },
+    }),
+    command("workflow run one-shot", {
+      summary: "Preflight and execute a saved workflow as a one-shot run",
+      args: { workflowId: arg.required({ description: "Workflow id" }) },
+      flags: {
+        ...mailboxFlag,
+        versionId: flag.string({ name: "version-id", required: true, description: "Immutable workflow version id to execute" }),
         query: workflowQueryInput,
-        version: flag.int({ min: 1, max: 2_147_483_647, description: "Immutable version; defaults to current" }),
+        inputs: workflowInputsInput,
         idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
         yes: confirmFlag("Confirm workflow effects"),
         wait: flag.boolean({ description: "Wait for the workflow run to finish" }),
@@ -2676,37 +2725,146 @@ export default defineCliCommands({
       },
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const workflow = await readApi<MailWorkflowDetail>(ctx, `/mailboxes/${mailbox.id}/workflows/${args.workflowId}`);
-        let version = workflow.version;
-        if (flags.version !== undefined && flags.version !== workflow.version.version) {
-          version = await readApi<MailWorkflowVersion>(
-            ctx,
-            `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${flags.version}`,
-          );
-        }
         const query = await readWorkflowQuery(flags.query);
-        const preview = await readApi<WorkflowPreview>(
+        const inputs = await readWorkflowInputs(flags.inputs);
+        const preflight = await readApi<MailWorkflowPreflight>(
           ctx,
-          `/mailboxes/${mailbox.id}/workflows/preview`,
-          jsonRequest("POST", { definition: version.definition, query }),
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/preflight`,
+          jsonRequest("POST", { expectedVersionId: flags.versionId, inputs, query }),
         );
         if (!flags.yes) {
-          printWorkflowPreview(ctx, preview);
-          throw new Error("Pass --yes to execute the previewed workflow effects.");
+          printWorkflowPreflight(ctx, preflight);
+          throw new Error("Pass --yes to execute the preflighted workflow effects.");
         }
-        if (!preview.previewHash) throw new Error("Workflow preview is not executable; inspect it with `cld mail workflow preview`.");
         const queued = await readApi<MailWorkflowRun>(
           ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/runs`,
-          jsonRequest("POST", {
-            version: version.version,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/one-shot`,
+          workflowRunRequest({
+            expectedVersionId: flags.versionId,
+            inputs,
             query,
-            previewHash: preview.previewHash,
+            preflightHash: preflight.preflightHash,
+            occurredAt: preflight.occurredAt,
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           }),
         );
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
-        if (ctx.options.output === "json") ctx.json({ preview, run });
+        if (ctx.options.output === "json") ctx.json({ preflight, run });
+        else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
+      },
+    }),
+    command("workflow run dry-run", {
+      summary: "Plan a saved workflow without applying effects",
+      args: { workflowId: arg.required({ description: "Workflow id" }) },
+      flags: {
+        ...mailboxFlag,
+        versionId: flag.string({ name: "version-id", required: true, description: "Immutable workflow version id to plan" }),
+        query: workflowQueryInput,
+        inputs: workflowInputsInput,
+        idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
+        wait: flag.boolean({ description: "Wait for planning to finish" }),
+        ...waitFlags,
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const run = await readApi<MailWorkflowRun>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/dry-run`,
+          workflowRunRequest({
+            expectedVersionId: flags.versionId,
+            inputs: await readWorkflowInputs(flags.inputs),
+            query: await readWorkflowQuery(flags.query),
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+          }),
+        );
+        const result = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, run.id, flags.timeoutSeconds) : run;
+        if (ctx.options.output === "json") ctx.json(result);
+        else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow dry run ${result.id} (${result.state}).`);
+      },
+    }),
+    command("workflow run invoke", {
+      summary: "Preflight and execute a saved workflow through the direct invocation channel",
+      args: { workflowId: arg.required({ description: "Workflow id" }) },
+      flags: {
+        ...mailboxFlag,
+        versionId: flag.string({ name: "version-id", required: true, description: "Immutable workflow version id to execute" }),
+        query: workflowQueryInput,
+        inputs: workflowInputsInput,
+        idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
+        yes: confirmFlag("Confirm workflow effects"),
+        wait: flag.boolean({ description: "Wait for the workflow run to finish" }),
+        ...waitFlags,
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = await readWorkflowQuery(flags.query);
+        const inputs = await readWorkflowInputs(flags.inputs);
+        const preflight = await readApi<MailWorkflowPreflight>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/preflight`,
+          jsonRequest("POST", { expectedVersionId: flags.versionId, inputs, query }),
+        );
+        if (!flags.yes) {
+          printWorkflowPreflight(ctx, preflight);
+          throw new Error("Pass --yes to execute the preflighted workflow effects.");
+        }
+        const queued = await readApi<MailWorkflowRun>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/invoke`,
+          workflowRunRequest({
+            expectedVersionId: flags.versionId,
+            inputs,
+            query,
+            preflightHash: preflight.preflightHash,
+            occurredAt: preflight.occurredAt,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+          }),
+        );
+        const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
+        if (ctx.options.output === "json") ctx.json({ preflight, run });
+        else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
+      },
+    }),
+    command("workflow run backfill", {
+      summary: "Preflight and execute a saved workflow over a backfill target set",
+      args: { workflowId: arg.required({ description: "Workflow id" }) },
+      flags: {
+        ...mailboxFlag,
+        versionId: flag.string({ name: "version-id", required: true, description: "Immutable workflow version id to execute" }),
+        query: workflowQueryInput,
+        inputs: workflowInputsInput,
+        idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
+        yes: confirmFlag("Confirm workflow effects"),
+        wait: flag.boolean({ description: "Wait for the workflow run to finish" }),
+        ...waitFlags,
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = await readWorkflowQuery(flags.query);
+        const inputs = await readWorkflowInputs(flags.inputs);
+        const preflight = await readApi<MailWorkflowPreflight>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/preflight`,
+          jsonRequest("POST", { expectedVersionId: flags.versionId, inputs, query }),
+        );
+        if (!flags.yes) {
+          printWorkflowPreflight(ctx, preflight);
+          throw new Error("Pass --yes to execute the preflighted workflow effects.");
+        }
+        const queued = await readApi<MailWorkflowRun>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/backfill`,
+          workflowRunRequest({
+            expectedVersionId: flags.versionId,
+            inputs,
+            query,
+            preflightHash: preflight.preflightHash,
+            occurredAt: preflight.occurredAt,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+          }),
+        );
+        const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
+        if (ctx.options.output === "json") ctx.json({ preflight, run });
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
     }),
@@ -2728,7 +2886,7 @@ export default defineCliCommands({
           runs.map((run) => ({
             created: run.createdAt,
             state: run.state,
-            targets: `${run.completedTargets}/${run.targetCount}`,
+            targets: workflowProgressText(run),
             workflow: run.workflowId,
             id: run.id,
           })),
@@ -2750,7 +2908,45 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const run = await readApi<MailWorkflowRun>(ctx, `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}`);
         if (ctx.options.output === "json") ctx.json(run);
-        else ctx.print(`${run.state}: ${run.completedTargets}/${run.targetCount} targets${run.lastError ? ` - ${run.lastError}` : ""}`);
+        else ctx.print(`${run.state}: ${workflowProgressText(run)}${workflowLastErrorText(run)}`);
+      },
+    }),
+    command("workflow run targets", {
+      summary: "Inspect workflow run targets using an ordinal cursor",
+      args: { runId: arg.required({ description: "Workflow run id" }) },
+      flags: {
+        ...mailboxFlag,
+        after: flag.int({ min: -1, default: -1, description: "Return targets after this ordinal" }),
+        limit: flag.int({ min: 1, max: 200, default: 100 }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({
+          afterOrdinal: String(flags.after ?? -1),
+          limit: String(flags.limit ?? 100),
+        });
+        const targets = await readApi<MailWorkflowRunTarget[]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}/targets?${query}`,
+        );
+        printTable(
+          ctx,
+          targets,
+          targets.map((target) => ({
+            ordinal: target.ordinal,
+            state: target.state,
+            key: target.targetKey,
+            error: target.lastError?.message ?? "",
+            id: target.id,
+          })),
+          [
+            { key: "ordinal", label: "ORDINAL" },
+            { key: "state", label: "STATE" },
+            { key: "key", label: "TARGET" },
+            { key: "error", label: "ERROR" },
+            { key: "id", label: "TARGET ID" },
+          ],
+        );
       },
     }),
     command("workflow run wait", {
@@ -2761,7 +2957,27 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const run = await waitForWorkflowRun(ctx, mailbox.id, args.runId, flags.timeoutSeconds);
         if (ctx.options.output === "json") ctx.json(run);
-        else ctx.print(`Workflow run ${run.id} succeeded (${run.completedTargets}/${run.targetCount}).`);
+        else ctx.print(`Workflow run ${run.id} succeeded (${workflowProgressText(run)}).`);
+      },
+    }),
+    command("workflow run cancel", {
+      summary: "Cancel queued, running, or waiting workflow targets",
+      args: { runId: arg.required({ description: "Workflow run id" }) },
+      flags: {
+        ...mailboxFlag,
+        reason: flag.string({ description: "Optional operator-visible cancellation reason" }),
+        yes: confirmFlag("Confirm workflow run cancellation"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to cancel the workflow run.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const run = await readApi<MailWorkflowRun>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}/cancel`,
+          jsonRequest("POST", { reason: flags.reason }),
+        );
+        if (ctx.options.output === "json") ctx.json(run);
+        else ctx.print(`Workflow run ${run.id} is ${run.state}.`);
       },
     }),
     command("command list", {

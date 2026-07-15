@@ -1249,15 +1249,94 @@ test("default sender setup preserves an existing display name when no name is pa
   expect(JSON.parse(result.stdout)).toMatchObject({ displayName: "Existing sender", status: "verified" });
 });
 
-test("workflow validate accepts YAML and sends the normalized typed definition", async () => {
+const workflowSource = `inputs:
+  message:
+    type: mailMessage
+    required: true
+steps:
+  - addKeyword:
+      message: \${{ inputs.message }}
+      keyword: Finance
+`;
+
+const workflowPreflight = (preflightHash = "b".repeat(64)) => ({
+  workflowVersionId: WORKFLOW_VERSION_ID,
+  versionIdentity: "workflow-version-identity",
+  sourceHash: "a".repeat(64),
+  queryHash: "c".repeat(64),
+  preflightHash,
+  occurredAt: "2026-07-15T12:00:00.000Z",
+  effectBudget: {
+    maxTargets: 1_000,
+    maxMoves: 1_000,
+    maxKeywordChanges: 2_000,
+    maxCollaborationChanges: 2_000,
+  },
+  targetCount: 2,
+});
+
+const workflowRun = (preflightHash: string | null = "b".repeat(64)) => ({
+  id: WORKFLOW_RUN_ID,
+  mailboxId: MAILBOX_ID,
+  workflowId: WORKFLOW_ID,
+  workflowVersionId: WORKFLOW_VERSION_ID,
+  versionIdentity: "workflow-version-identity",
+  sourceHash: "a".repeat(64),
+  kind: "oneShot",
+  mode: "execute",
+  channel: "api",
+  state: "queued",
+  inputs: {},
+  query: { type: "all" },
+  preflightHash,
+  targetProgress: {
+    total: 2,
+    queued: 2,
+    running: 0,
+    waiting: 0,
+    succeeded: 0,
+    failed: 0,
+    canceled: 0,
+    needs_attention: 0,
+  },
+  result: null,
+  lastError: null,
+  createdAt: "2026-07-13T00:00:00.000Z",
+  startedAt: null,
+  finishedAt: null,
+  updatedAt: "2026-07-13T00:00:00.000Z",
+});
+
+const workflowRunTarget = {
+  id: "88888888-8888-4888-8888-888888888888",
+  parentRunId: WORKFLOW_RUN_ID,
+  ordinal: 7,
+  targetKey: "message:example",
+  state: "succeeded",
+  executionGeneration: 1,
+  inputs: {},
+  source: {},
+  preconditions: {},
+  result: { state: "planned" },
+  lastError: null,
+  cancelRequestedAt: null,
+  createdAt: "2026-07-13T00:00:00.000Z",
+  startedAt: "2026-07-13T00:00:01.000Z",
+  finishedAt: "2026-07-13T00:00:02.000Z",
+  updatedAt: "2026-07-13T00:00:02.000Z",
+};
+
+test("workflow validate accepts YAML and sends exact canonical source", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
     if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/validate`) {
       requestBody = await request.json();
       return api({
         valid: true,
-        definition: (requestBody as { definition: unknown }).definition,
-        definitionHash: "a".repeat(64),
+        source: (requestBody as { source: string }).source,
+        sourceHash: "a".repeat(64),
+        ir: null,
+        boundPlan: null,
         diagnostics: [],
       });
     }
@@ -1267,86 +1346,26 @@ test("workflow validate accepts YAML and sends the normalized typed definition",
 
   const result = await runCli(
     `http://127.0.0.1:${server.port}`,
-    ["--json", "mail", "workflow", "validate", "--mailbox", MAILBOX_ID, "--definition-stdin"],
-    `version: 1
-name: Route invoices
-trigger:
-  type: backfill
-steps:
-  - action: remote.keyword.add
-    keyword: Finance
-`,
+    ["--json", "mail", "workflow", "validate", "--mailbox", MAILBOX_ID, "--source-stdin"],
+    workflowSource,
   );
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(requestBody).toEqual({
-    definition: {
-      version: 1,
-      name: "Route invoices",
-      priority: 100,
-      trigger: { type: "backfill" },
-      effectBudget: {
-        maxTargets: 1_000,
-        maxMoves: 1_000,
-        maxKeywordChanges: 2_000,
-        maxCollaborationChanges: 2_000,
-      },
-      steps: [{ action: "remote.keyword.add", keyword: "Finance" }],
-    },
-  });
-  expect(JSON.parse(result.stdout)).toMatchObject({ valid: true, definitionHash: "a".repeat(64) });
+  expect(requestBody).toEqual({ source: workflowSource });
+  expect(JSON.parse(result.stdout)).toMatchObject({ valid: true, sourceHash: "a".repeat(64) });
 });
 
-test("workflow one-shot previews before submitting the exact approved run", async () => {
-  const requests: Array<{ path: string; body: unknown }> = [];
-  const previewHash = "b".repeat(64);
+test("workflow create forwards explicit effect budgets", async () => {
+  let requestBody: Record<string, unknown> | null = null;
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
-    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/preview`) {
-      const body = await request.json();
-      requests.push({ path: url.pathname, body });
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows`) {
+      requestBody = (await request.json()) as Record<string, unknown>;
       return api({
-        validation: {
-          valid: true,
-          definition: (body as { definition: unknown }).definition,
-          definitionHash: "a".repeat(64),
-          diagnostics: [],
-        },
-        queryHash: "c".repeat(64),
-        previewHash,
-        targetCount: 2,
-        actionTargetCount: 2,
-        waitingDataCount: 0,
-        truncated: false,
-        budgetExceeded: false,
-        actionCounts: { "remote.keyword.add": 2 },
-        samples: [],
-      });
-    }
-    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/one-shot`) {
-      const body = await request.json();
-      requests.push({ path: url.pathname, body });
-      return api({
-        id: WORKFLOW_RUN_ID,
-        mailboxId: MAILBOX_ID,
-        workflowId: WORKFLOW_ID,
-        workflowVersionId: WORKFLOW_VERSION_ID,
-        workflowVersion: 1,
-        triggerType: "backfill",
-        state: "queued",
-        query: { type: "all" },
-        previewHash,
-        targetCount: 2,
-        actionTargetCount: 2,
-        completedTargets: 0,
-        failedTargets: 0,
-        actionCounts: { "remote.keyword.add": 2 },
-        lastError: null,
-        createdAt: "2026-07-13T00:00:00.000Z",
-        startedAt: null,
-        finishedAt: null,
-        updatedAt: "2026-07-13T00:00:00.000Z",
+        id: WORKFLOW_ID,
+        name: "Budgeted workflow",
+        currentVersion: { id: WORKFLOW_VERSION_ID },
       });
     }
     return api({ message: "unexpected" }, { status: 500 });
@@ -1359,153 +1378,46 @@ test("workflow one-shot previews before submitting the exact approved run", asyn
       "--json",
       "mail",
       "workflow",
-      "run",
-      "one-shot",
+      "create",
       "--mailbox",
       MAILBOX_ID,
-      "--definition-stdin",
-      "--idempotency-key",
-      "workflow-cli-test",
-      "--yes",
+      "--name",
+      "Budgeted workflow",
+      "--source-stdin",
+      "--max-targets",
+      "25",
+      "--max-moves",
+      "10",
+      "--max-keyword-changes",
+      "20",
+      "--max-collaboration-changes",
+      "15",
     ],
-    JSON.stringify({
-      version: 1,
-      name: "Route invoices",
-      trigger: { type: "backfill" },
-      steps: [{ action: "remote.keyword.add", keyword: "Finance" }],
-    }),
+    workflowSource,
   );
 
   expect(result.exitCode).toBe(0);
-  expect(result.stderr).toBe("");
-  expect(requests).toHaveLength(2);
-  expect(requests[0]).toMatchObject({ path: `/api/mail/mailboxes/${MAILBOX_ID}/workflows/preview`, body: { query: { type: "all" } } });
-  expect(requests[1]).toMatchObject({
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/one-shot`,
-    body: { query: { type: "all" }, previewHash, idempotencyKey: "workflow-cli-test" },
+  expect(requestBody as Record<string, unknown> | null).toMatchObject({
+    name: "Budgeted workflow",
+    source: workflowSource,
+    effectBudget: { maxTargets: 25, maxMoves: 10, maxKeywordChanges: 20, maxCollaborationChanges: 15 },
   });
-  expect((requests[1]!.body as { definition: unknown }).definition).toEqual((requests[0]!.body as { definition: unknown }).definition);
-  expect(JSON.parse(result.stdout)).toMatchObject({ preview: { previewHash }, run: { id: WORKFLOW_RUN_ID, state: "queued" } });
 });
 
-test("workflow run shows its preview before requiring confirmation", async () => {
-  let runRequested = false;
+test("workflow one-shot preflights before submitting the exact approved run", async () => {
+  const requests: Array<{ path: string; body: unknown }> = [];
+  const preflightHash = "b".repeat(64);
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
-    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/preview`) {
-      return api({
-        validation: {
-          valid: true,
-          definition: ((await request.json()) as { definition: unknown }).definition,
-          definitionHash: "a".repeat(64),
-          diagnostics: [],
-        },
-        queryHash: "c".repeat(64),
-        previewHash: "b".repeat(64),
-        targetCount: 2,
-        actionTargetCount: 2,
-        waitingDataCount: 0,
-        truncated: false,
-        budgetExceeded: false,
-        actionCounts: { "remote.keyword.add": 2 },
-        samples: [],
-      });
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/preflight`) {
+      const body = await request.json();
+      requests.push({ path: url.pathname, body });
+      return api(workflowPreflight(preflightHash));
     }
-    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/one-shot`) runRequested = true;
-    return api({ message: "unexpected" }, { status: 500 });
-  });
-  servers.push(server);
-
-  const result = await runCli(
-    `http://127.0.0.1:${server.port}`,
-    ["mail", "workflow", "run", "one-shot", "--mailbox", MAILBOX_ID, "--definition-stdin"],
-    JSON.stringify({
-      version: 1,
-      name: "Route invoices",
-      trigger: { type: "backfill" },
-      steps: [{ action: "remote.keyword.add", keyword: "Finance" }],
-    }),
-  );
-
-  expect(result.exitCode).toBe(1);
-  expect(result.stdout).toContain("Targets: 2; actions on 2; waiting data: 0");
-  expect(result.stderr).toContain("Pass --yes to execute the previewed workflow effects");
-  expect(runRequested).toBe(false);
-});
-
-test("workflow query input cannot silently turn an empty explicit file into all messages", async () => {
-  const queryPath = `/tmp/cloud-mail-empty-query-${crypto.randomUUID()}.yaml`;
-  await writeFile(queryPath, "");
-  temporaryFiles.push(queryPath);
-  let previewRequested = false;
-  const server = withMailbox((request) => {
-    if (new URL(request.url).pathname.endsWith("/workflows/preview")) previewRequested = true;
-    return api({ message: "unexpected" }, { status: 500 });
-  });
-  servers.push(server);
-
-  const result = await runCli(
-    `http://127.0.0.1:${server.port}`,
-    ["mail", "workflow", "preview", "--mailbox", MAILBOX_ID, "--definition-stdin", "--query-file", queryPath],
-    JSON.stringify({
-      version: 1,
-      name: "Route invoices",
-      trigger: { type: "backfill" },
-      steps: [{ action: "remote.keyword.add", keyword: "Finance" }],
-    }),
-  );
-
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("Workflow target query cannot be empty");
-  expect(previewRequested).toBe(false);
-});
-
-test("saved workflow runs load and submit the requested immutable version", async () => {
-  const oldDefinition = {
-    version: 1,
-    name: "Old routing",
-    priority: 100,
-    trigger: { type: "backfill" },
-    effectBudget: { maxTargets: 100, maxMoves: 100, maxKeywordChanges: 100, maxCollaborationChanges: 100 },
-    steps: [{ action: "remote.keyword.add", keyword: "Old" }],
-  };
-  const currentDefinition = { ...oldDefinition, name: "Current routing", steps: [{ action: "remote.keyword.add", keyword: "Current" }] };
-  const previewHash = "b".repeat(64);
-  let submittedBody: Record<string, unknown> | null = null;
-  const requestedPaths: string[] = [];
-  const server = withMailbox(async (request) => {
-    const url = new URL(request.url);
-    requestedPaths.push(url.pathname);
-    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}`) {
-      return api({
-        id: WORKFLOW_ID,
-        name: "Routing",
-        currentVersion: 2,
-        version: { id: WORKFLOW_VERSION_ID, version: 2, definition: currentDefinition, definitionHash: "2".repeat(64) },
-      });
-    }
-    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/versions/1`) {
-      return api({ id: "00000000-0000-4000-8000-000000000016", version: 1, definition: oldDefinition, definitionHash: "1".repeat(64) });
-    }
-    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/preview`) {
-      const body = (await request.json()) as { definition: unknown };
-      expect(body.definition).toEqual(oldDefinition);
-      return api({
-        validation: { valid: true, definition: oldDefinition, definitionHash: "1".repeat(64), diagnostics: [] },
-        queryHash: "c".repeat(64),
-        previewHash,
-        targetCount: 1,
-        actionTargetCount: 1,
-        waitingDataCount: 0,
-        truncated: false,
-        budgetExceeded: false,
-        actionCounts: { "remote.keyword.add": 1 },
-        samples: [],
-      });
-    }
-    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/runs`) {
-      submittedBody = (await request.json()) as Record<string, unknown>;
-      return api({ id: WORKFLOW_RUN_ID, state: "queued" });
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/one-shot`) {
+      const body = await request.json();
+      requests.push({ path: url.pathname, body });
+      return api(workflowRun(preflightHash));
     }
     return api({ message: "unexpected" }, { status: 500 });
   });
@@ -1516,18 +1428,236 @@ test("saved workflow runs load and submit the requested immutable version", asyn
     "mail",
     "workflow",
     "run",
-    "saved",
+    "one-shot",
     WORKFLOW_ID,
     "--mailbox",
     MAILBOX_ID,
-    "--version",
-    "1",
+    "--version-id",
+    WORKFLOW_VERSION_ID,
     "--idempotency-key",
-    "saved-version-one",
+    "workflow-cli-test",
     "--yes",
   ]);
 
   expect(result.exitCode).toBe(0);
-  expect(requestedPaths).toContain(`/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/versions/1`);
-  expect(submittedBody).toMatchObject({ version: 1, previewHash, idempotencyKey: "saved-version-one" });
+  expect(result.stderr).toBe("");
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toMatchObject({
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/preflight`,
+    body: { expectedVersionId: WORKFLOW_VERSION_ID, inputs: {}, query: { type: "all" } },
+  });
+  expect(requests[1]).toMatchObject({
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/one-shot`,
+    body: {
+      expectedVersionId: WORKFLOW_VERSION_ID,
+      inputs: {},
+      query: { type: "all" },
+      preflightHash,
+      idempotencyKey: "workflow-cli-test",
+    },
+  });
+  expect(JSON.parse(result.stdout)).toMatchObject({ preflight: { preflightHash }, run: { id: WORKFLOW_RUN_ID, state: "queued" } });
+});
+
+test("workflow run shows its preflight before requiring confirmation", async () => {
+  let runRequested = false;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/preflight`) {
+      return api(workflowPreflight());
+    }
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/one-shot`) runRequested = true;
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "mail",
+    "workflow",
+    "run",
+    "one-shot",
+    WORKFLOW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--version-id",
+    WORKFLOW_VERSION_ID,
+  ]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toContain(`Targets: 2; preflight hash: ${"b".repeat(64)}`);
+  expect(result.stderr).toContain("Pass --yes to execute the preflighted workflow effects");
+  expect(runRequested).toBe(false);
+});
+
+test("workflow query input cannot silently turn an empty explicit file into all messages", async () => {
+  const queryPath = `/tmp/cloud-mail-empty-query-${crypto.randomUUID()}.yaml`;
+  await writeFile(queryPath, "");
+  temporaryFiles.push(queryPath);
+  let preflightRequested = false;
+  const server = withMailbox((request) => {
+    if (new URL(request.url).pathname.endsWith("/preflight")) preflightRequested = true;
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "mail",
+    "workflow",
+    "preflight",
+    WORKFLOW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--version-id",
+    WORKFLOW_VERSION_ID,
+    "--query-file",
+    queryPath,
+  ]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("Workflow target query cannot be empty");
+  expect(preflightRequested).toBe(false);
+});
+
+test("saved workflow invocation submits the requested immutable version id", async () => {
+  const preflightHash = "b".repeat(64);
+  let submittedBody: Record<string, unknown> | null = null;
+  const requestedPaths: string[] = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    requestedPaths.push(url.pathname);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/preflight`) {
+      return api(workflowPreflight(preflightHash));
+    }
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/invoke`) {
+      submittedBody = (await request.json()) as Record<string, unknown>;
+      return api(workflowRun(preflightHash));
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "workflow",
+    "run",
+    "invoke",
+    WORKFLOW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--version-id",
+    WORKFLOW_VERSION_ID,
+    "--idempotency-key",
+    "saved-version-id",
+    "--yes",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(requestedPaths).toEqual([
+    `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/preflight`,
+    `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/invoke`,
+  ]);
+  expect(submittedBody).toMatchObject({
+    expectedVersionId: WORKFLOW_VERSION_ID,
+    inputs: {},
+    query: { type: "all" },
+    preflightHash,
+    idempotencyKey: "saved-version-id",
+  });
+});
+
+test("workflow dry-run submits no preflight hash or confirmation", async () => {
+  let submittedBody: Record<string, unknown> | null = null;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/dry-run`) {
+      submittedBody = (await request.json()) as Record<string, unknown>;
+      return api({ ...workflowRun(null), kind: "invoke", mode: "dryRun" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "workflow",
+    "run",
+    "dry-run",
+    WORKFLOW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--version-id",
+    WORKFLOW_VERSION_ID,
+    "--idempotency-key",
+    "dry-run-cli-test",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(submittedBody as Record<string, unknown> | null).toEqual({
+    expectedVersionId: WORKFLOW_VERSION_ID,
+    inputs: {},
+    query: { type: "all" },
+    idempotencyKey: "dry-run-cli-test",
+  });
+  expect(JSON.parse(result.stdout)).toMatchObject({ id: WORKFLOW_RUN_ID, mode: "dryRun", preflightHash: null });
+});
+
+test("workflow run targets forwards the ordinal cursor", async () => {
+  let requestedUrl = "";
+  const server = withMailbox((request) => {
+    requestedUrl = request.url;
+    return api([workflowRunTarget]);
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "workflow",
+    "run",
+    "targets",
+    WORKFLOW_RUN_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--after",
+    "6",
+    "--limit",
+    "1",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(new URL(requestedUrl).searchParams).toEqual(new URLSearchParams({ afterOrdinal: "6", limit: "1" }));
+  expect(JSON.parse(result.stdout)).toEqual([workflowRunTarget]);
+});
+
+test("workflow run cancel requires confirmation and forwards the reason", async () => {
+  let requestBody: Record<string, unknown> | null = null;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/${WORKFLOW_RUN_ID}/cancel`) {
+      requestBody = (await request.json()) as Record<string, unknown>;
+      return api({ ...workflowRun(), state: "canceled" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "workflow",
+    "run",
+    "cancel",
+    WORKFLOW_RUN_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--reason",
+    "Operator canceled",
+    "--yes",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(requestBody as Record<string, unknown> | null).toEqual({ reason: "Operator canceled" });
+  expect(JSON.parse(result.stdout)).toMatchObject({ id: WORKFLOW_RUN_ID, state: "canceled" });
 });

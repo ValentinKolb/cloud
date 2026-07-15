@@ -1,6 +1,6 @@
 import type { SQL } from "bun";
 
-const WORKFLOW_KERNEL_SCHEMA_VERSION = 1;
+const WORKFLOW_KERNEL_SCHEMA_VERSION = 2;
 
 const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
   await sql`

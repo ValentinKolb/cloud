@@ -176,6 +176,7 @@ export default function WorkflowScannerSurface(props: Props) {
   const [pauseReason, setPauseReason] = createSignal<string | null>(null);
   const [detections, setDetections] = createSignal<ScannerDetection[]>([]);
   const [logs, setLogs] = createSignal<ScanLogItem[]>([]);
+  const [activeScanIds, setActiveScanIds] = createSignal<Set<string>>(new Set());
   const [announcements, setAnnouncements] = createSignal<ScanAnnouncement[]>([]);
   const [manualCode, setManualCode] = createSignal("");
   const [videoBox, setVideoBox] = createSignal<VideoBox>({ x: 0, y: 0, width: 1, height: 1 });
@@ -192,7 +193,7 @@ export default function WorkflowScannerSurface(props: Props) {
       total: items.length,
       ok: items.filter((item) => item.status === "succeeded").length,
       failed: items.filter((item) => item.status === "failed").length,
-      active: items.filter((item) => item.status === "queued" || item.status === "running").length,
+      active: activeScanIds().size,
     };
   });
   const announceLog = (item: ScanLogItem) => {
@@ -209,6 +210,15 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const updateLog = (id: string, patch: Partial<ScanLogItem>) => {
+    if (patch.status === "queued" || patch.status === "running") {
+      setActiveScanIds((ids) => new Set(ids).add(id));
+    } else if (patch.status) {
+      setActiveScanIds((ids) => {
+        const next = new Set(ids);
+        next.delete(id);
+        return next;
+      });
+    }
     const current = logs().find((item) => item.id === id);
     if (!current) return;
     const next = { ...current, ...patch };
@@ -375,23 +385,25 @@ export default function WorkflowScannerSurface(props: Props) {
     if (now - last < 2500) return;
     recentCodes.set(trimmed, now);
 
+    const busy = activeScanIds().size >= MAX_ACTIVE_SCAN_RUNS;
     const item: ScanLogItem = {
       id: crypto.randomUUID(),
       code: trimmed,
       format,
-      status: counts().active >= MAX_ACTIVE_SCAN_RUNS ? "failed" : "queued",
-      message: counts().active >= MAX_ACTIVE_SCAN_RUNS ? "Scanner is busy. Wait for active workflow runs to finish." : "Queued",
+      status: busy ? "failed" : "queued",
+      message: busy ? "Scanner is busy. Wait for active workflow runs to finish." : "Queued",
       runId: null,
       run: null,
       steps: [],
       createdAt: now,
     };
+    if (!busy) setActiveScanIds((ids) => new Set(ids).add(item.id));
     prependLog(item);
     if (item.status === "queued") await submitScan(item);
   };
 
   const retryScan = (item: ScanLogItem) => {
-    if (pauseReason() || item.runId || counts().active >= MAX_ACTIVE_SCAN_RUNS) return;
+    if (pauseReason() || item.runId || activeScanIds().size >= MAX_ACTIVE_SCAN_RUNS) return;
     updateLog(item.id, { status: "queued", message: "Retrying" });
     void submitScan(item);
   };

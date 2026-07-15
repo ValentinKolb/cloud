@@ -52,6 +52,7 @@ export const runWorkflowProcessFixture = async (fixture: WorkflowProcessFixture)
   const execution = await executeWorkflowPlan({
     runId: `fixture:${fixture.id}`,
     executionGeneration: 1,
+    clock: { now: () => fixture.invocation.occurredAt },
     plan,
     invocation: fixture.invocation,
     repository,

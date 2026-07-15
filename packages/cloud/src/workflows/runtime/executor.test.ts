@@ -14,14 +14,33 @@ import type {
   WorkflowRuntimeStepResult,
 } from "./ports";
 
+const actionPolicies = (steps: WorkflowBoundPlan["steps"]): WorkflowBoundPlan["actionPolicies"] => {
+  const policies: WorkflowBoundPlan["actionPolicies"] = {};
+  const visit = (items: WorkflowBoundPlan["steps"]): void => {
+    for (const step of items) {
+      if (step.kind === "action") policies[step.action] = { effect: "pure", dryRun: "full" };
+      else if (step.kind === "if") {
+        visit(step.then);
+        visit(step.else);
+      } else if (step.kind === "switch") {
+        for (const candidate of step.cases) visit(candidate.steps);
+        visit(step.default);
+      } else visit(step.steps);
+    }
+  };
+  visit(steps);
+  return policies;
+};
+
 const plan = (steps: WorkflowBoundPlan["steps"], maxLoopItems?: number): WorkflowBoundPlan => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   languageId: "test",
   languageVersion: 1,
   sourceHash: "source-1",
   manifestHash: "manifest-1",
   catalogHash: "catalog-1",
   ...(maxLoopItems === undefined ? {} : { maxLoopItems }),
+  actionPolicies: actionPolicies(steps),
   inputs: [],
   triggers: [],
   steps,
@@ -90,6 +109,7 @@ const dryRunActions = (handlers: Record<string, WorkflowDryRunActionHandler>): W
 const runtime = {
   runId: "run-1",
   executionGeneration: 3,
+  clock: { now: () => "2026-07-15T09:00:00.000Z" },
 };
 
 describe("workflow runtime executor", () => {
@@ -191,7 +211,8 @@ describe("workflow runtime executor", () => {
       values: {
         resolve: async ({ reference, fallback }) => {
           resolved.push(reference);
-          return reference === "inputs.item.Status" ? "Ready" : fallback();
+          const value = reference === "inputs.item.Status" ? "Ready" : fallback();
+          return value === undefined ? { state: "missing" } : { state: "resolved", value };
         },
       },
       actions: executeActions({
@@ -201,6 +222,227 @@ describe("workflow runtime executor", () => {
 
     expect(result).toEqual({ state: "succeeded", output: "checked" });
     expect(resolved).toEqual(["inputs.item.Status", "inputs.label"]);
+  });
+
+  test("evaluates recursive text conditions with normalized case-insensitive text and exact structural equality", async () => {
+    const result = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: {
+            operator: "all",
+            conditions: [
+              { operator: "contains", operands: ["\uFF26\uFF4F\uFF4F B\u00C4R", "foo"] },
+              {
+                operator: "any",
+                conditions: [
+                  { operator: "startsWith", operands: ["No match", "yes"] },
+                  { operator: "endsWith", operands: ["Inbox/ARCHIVE", "archive"] },
+                ],
+              },
+              {
+                operator: "not",
+                condition: { operator: "equals", operands: ["\u0065\u0301", "\u00E9"] },
+              },
+              {
+                operator: "equals",
+                operands: [
+                  { second: 2, first: 1 },
+                  { first: 1, second: 2 },
+                ],
+              },
+            ],
+          },
+          then: [{ kind: "action", action: "matched", config: {}, sourcePath: ["steps", 0, "then", 0] }],
+          else: [{ kind: "action", action: "missed", config: {}, sourcePath: ["steps", 0, "else", 0] }],
+          sourcePath: ["steps", 0],
+        },
+      ]),
+      invocation: invocation("execute"),
+      repository: new FakeRepository(),
+      actions: executeActions({
+        matched: { execute: async () => ({ state: "completed", output: "matched" }) },
+        missed: { execute: async () => ({ state: "completed", output: "missed" }) },
+      }),
+    });
+
+    expect(result).toEqual({ state: "succeeded", output: "matched" });
+  });
+
+  test("uses the execution clock for now() instead of the invocation event time", async () => {
+    const result = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "action",
+          action: "capture",
+          config: { eventTime: "${{ inputs.eventTime }}", executionTime: "${{ now() }}" },
+          sourcePath: ["steps", 0],
+        },
+      ]),
+      invocation: invocation("execute", { eventTime: "2026-07-14T12:00:00.000Z" }),
+      clock: { now: () => "2026-07-15T09:30:00.000Z" },
+      repository: new FakeRepository(),
+      actions: executeActions({
+        capture: { execute: async (context, step) => ({ state: "completed", output: await context.evaluate(step.config) }) },
+      }),
+    });
+
+    expect(result).toEqual({
+      state: "succeeded",
+      output: { eventTime: "2026-07-14T12:00:00.000Z", executionTime: "2026-07-15T09:30:00.000Z" },
+    });
+  });
+
+  test("parks execute steps when action configuration resolution is waiting and traces the transition", async () => {
+    const repository = new FakeRepository();
+    const dependency = { kind: "mail.body", key: "message-1" };
+    const traceTypes: string[] = [];
+    let resolutions = 0;
+    const result = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([{ kind: "action", action: "capture", config: { value: "${{ inputs.body }}" }, sourcePath: ["steps", 2] }]),
+      invocation: invocation("execute"),
+      repository,
+      values: {
+        resolve: async () => {
+          resolutions += 1;
+          return { state: "waiting", dependency };
+        },
+      },
+      trace: {
+        emit: (event) => {
+          traceTypes.push(event.type);
+        },
+      },
+      actions: executeActions({
+        capture: { execute: async (context, step) => ({ state: "completed", output: await context.evaluate(step.config.value!) }) },
+      }),
+    });
+
+    expect(result).toMatchObject({ state: "waiting", dependency, step: { key: "steps.2" } });
+    expect(resolutions).toBe(1);
+    expect(repository.parked).toEqual([{ step: expect.objectContaining({ key: "steps.2" }), dependency }]);
+    expect(traceTypes).toEqual(["step.started", "step.waiting", "step.finished"]);
+  });
+
+  test("makes dry-run action configuration indeterminate when a reference is waiting", async () => {
+    const repository = new FakeRepository();
+    const dependency = { kind: "mail.attachments", key: "message-1" };
+    const result = await dryRunWorkflowPlan({
+      ...runtime,
+      plan: plan([{ kind: "action", action: "capture", config: { value: "${{ inputs.attachments }}" }, sourcePath: ["steps", 3] }]),
+      invocation: invocation("dryRun"),
+      repository,
+      values: { resolve: async () => ({ state: "waiting", dependency }) },
+      actions: dryRunActions({
+        capture: { plan: async (context, step) => ({ state: "planned", effects: [], output: await context.evaluate(step.config.value!) }) },
+      }),
+    });
+
+    expect(result).toMatchObject({
+      state: "indeterminate",
+      reason: 'workflow reference "inputs.attachments" is waiting',
+      step: { key: "steps.3" },
+    });
+    expect(repository.parked).toEqual([]);
+  });
+
+  test("uses order-independent three-valued waiting semantics for recursive conditions", async () => {
+    const dependency = { kind: "mail.body", key: "message-2" };
+    let branchCalls = 0;
+    let resolutions = 0;
+    const waitingResult = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: { operator: "not", condition: { operator: "exists", reference: "inputs.body" } },
+          then: [{ kind: "action", action: "branch", config: {}, sourcePath: ["steps", 4, "then", 0] }],
+          else: [],
+          sourcePath: ["steps", 4],
+        },
+      ]),
+      invocation: invocation("execute"),
+      repository: new FakeRepository(),
+      values: {
+        resolve: async () => {
+          resolutions += 1;
+          return { state: "waiting", dependency };
+        },
+      },
+      actions: executeActions({
+        branch: {
+          execute: async () => {
+            branchCalls += 1;
+            return { state: "completed" };
+          },
+        },
+      }),
+    });
+
+    const decisiveAll = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: {
+            operator: "all",
+            conditions: [
+              { operator: "exists", reference: "inputs.body" },
+              { operator: "equals", operands: [false, true] },
+            ],
+          },
+          then: [],
+          else: [{ kind: "action", action: "else", config: {}, sourcePath: ["steps", 5, "else", 0] }],
+          sourcePath: ["steps", 5],
+        },
+      ]),
+      invocation: invocation("execute"),
+      repository: new FakeRepository(),
+      values: {
+        resolve: async () => {
+          resolutions += 1;
+          return { state: "waiting", dependency };
+        },
+      },
+      actions: executeActions({ else: { execute: async () => ({ state: "completed", output: "else" }) } }),
+    });
+
+    const decisiveAny = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: {
+            operator: "any",
+            conditions: [
+              { operator: "exists", reference: "inputs.body" },
+              { operator: "equals", operands: [true, true] },
+            ],
+          },
+          then: [{ kind: "action", action: "then", config: {}, sourcePath: ["steps", 6, "then", 0] }],
+          else: [],
+          sourcePath: ["steps", 6],
+        },
+      ]),
+      invocation: invocation("execute"),
+      repository: new FakeRepository(),
+      values: {
+        resolve: async () => {
+          resolutions += 1;
+          return { state: "waiting", dependency };
+        },
+      },
+      actions: executeActions({ then: { execute: async () => ({ state: "completed", output: "then" }) } }),
+    });
+
+    expect(waitingResult).toMatchObject({ state: "waiting", dependency, step: { key: "steps.4" } });
+    expect(branchCalls).toBe(0);
+    expect(decisiveAll).toEqual({ state: "succeeded", output: "else" });
+    expect(decisiveAny).toEqual({ state: "succeeded", output: "then" });
+    expect(resolutions).toBe(3);
   });
 
   test("keeps dry-run structurally isolated from execute handlers", async () => {
@@ -538,6 +780,35 @@ describe("workflow runtime executor", () => {
     });
   });
 
+  test("validates a forEach body once when the collection is unavailable", async () => {
+    let plannerCalls = 0;
+    const result = await dryRunWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "forEach",
+          reference: "inputs.unknown",
+          alias: "item",
+          steps: [{ kind: "action", action: "inspect", config: {}, sourcePath: ["steps", 0, "do", 0] }],
+          sourcePath: ["steps", 0],
+        },
+      ]),
+      invocation: invocation("dryRun"),
+      repository: new FakeRepository(),
+      actions: dryRunActions({
+        inspect: {
+          plan: async () => {
+            plannerCalls += 1;
+            return { state: "planned", effects: [] };
+          },
+        },
+      }),
+    });
+
+    expect(plannerCalls).toBe(1);
+    expect(result).toMatchObject({ state: "indeterminate", issues: [{ step: { key: "steps.0" } }] });
+  });
+
   test("continues dry-run analysis after unsupported actions and reports every gap", async () => {
     const repository = new FakeRepository();
     let laterCalls = 0;
@@ -685,6 +956,100 @@ describe("workflow runtime executor", () => {
       }),
     ).rejects.toMatchObject({ name: "WorkflowRetryableStepError", executionError: error, step: { key: "steps.0" } });
     expect(repository.finished).toEqual([]);
+  });
+
+  test("propagates retryable failures through every control step", async () => {
+    const nestedSteps: WorkflowBoundPlan["steps"][] = [
+      [
+        {
+          kind: "if",
+          condition: { operator: "equals", operands: [true, true] },
+          then: [{ kind: "action", action: "retry", config: {}, sourcePath: ["steps", 0, "then", 0] }],
+          else: [],
+          sourcePath: ["steps", 0],
+        },
+      ],
+      [
+        {
+          kind: "switch",
+          value: "match",
+          cases: [
+            {
+              when: "match",
+              steps: [{ kind: "action", action: "retry", config: {}, sourcePath: ["steps", 0, "cases", 0, "do", 0] }],
+            },
+          ],
+          default: [],
+          sourcePath: ["steps", 0],
+        },
+      ],
+      [
+        {
+          kind: "forEach",
+          reference: "inputs.items",
+          alias: "item",
+          steps: [{ kind: "action", action: "retry", config: {}, sourcePath: ["steps", 0, "do", 0] }],
+          sourcePath: ["steps", 0],
+        },
+      ],
+    ];
+    const error = { code: "UPSTREAM_UNAVAILABLE", message: "try again", retryable: true } as const;
+
+    for (const steps of nestedSteps) {
+      const repository = new FakeRepository();
+      await expect(
+        executeWorkflowPlan({
+          ...runtime,
+          plan: plan(steps),
+          invocation: invocation("execute", { items: [1] }),
+          repository,
+          actions: executeActions({ retry: { execute: async () => ({ state: "failed", error }) } }),
+        }),
+      ).rejects.toMatchObject({ name: "WorkflowRetryableStepError", executionError: error });
+      expect(repository.finished).toEqual([]);
+    }
+  });
+
+  test("enforces bound effect and dry-run policies", async () => {
+    const ambiguousPlan = plan([{ kind: "action", action: "external", config: {}, sourcePath: ["steps", 0] }]);
+    ambiguousPlan.actionPolicies.external = { effect: "ambiguous-external", dryRun: "unsupported" };
+    await expect(
+      executeWorkflowPlan({
+        ...runtime,
+        plan: ambiguousPlan,
+        invocation: invocation("execute"),
+        repository: new FakeRepository(),
+        actions: executeActions({
+          external: {
+            execute: async () => ({
+              state: "failed",
+              error: { code: "NETWORK_TIMEOUT", message: "request failed before the effect", retryable: true },
+            }),
+          },
+        }),
+      }),
+    ).rejects.toMatchObject({
+      name: "WorkflowRetryableStepError",
+      executionError: { code: "NETWORK_TIMEOUT", retryable: true },
+    });
+
+    let plannerCalls = 0;
+    const planning = await dryRunWorkflowPlan({
+      ...runtime,
+      plan: ambiguousPlan,
+      invocation: invocation("dryRun"),
+      repository: new FakeRepository(),
+      actions: dryRunActions({
+        external: {
+          plan: async () => {
+            plannerCalls += 1;
+            return { state: "planned", effects: [] };
+          },
+        },
+      }),
+    });
+    expect(plannerCalls).toBe(0);
+    expect(planning).toMatchObject({ state: "unsupported", reason: 'action "external" does not support dry-run' });
   });
 
   test("rejects arrays beyond the configured loop bound", async () => {

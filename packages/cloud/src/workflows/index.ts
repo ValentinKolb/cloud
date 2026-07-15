@@ -1,6 +1,13 @@
+export {
+  createWorkflowBuiltinActionPorts,
+  type WorkflowBuiltinActionAuthorize,
+  type WorkflowBuiltinActionPorts,
+  workflowBuiltinActionDescriptors,
+} from "./builtins";
 export type {
   WorkflowActionDescriptor,
   WorkflowActionEffect,
+  WorkflowActionPolicy,
   WorkflowActor,
   WorkflowBoundPlan,
   WorkflowCondition,
@@ -23,6 +30,7 @@ export type {
   WorkflowLauncher,
   WorkflowPlanningIssue,
   WorkflowPlanningOutcome,
+  WorkflowRevision,
   WorkflowRunState,
   WorkflowSourceLocation,
   WorkflowStepOutcome,

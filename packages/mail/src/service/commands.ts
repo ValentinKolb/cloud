@@ -440,31 +440,40 @@ type CreateActorCommandParams = {
   enqueue?: boolean;
 };
 
-type CreateActorCommandInternalParams = CreateActorCommandParams & {
+type CreateActorCommandInternalParams = Omit<CreateActorCommandParams, "context"> & {
+  context: MailRequestContext | null;
   actorOverride?: ActorRef;
+  beforeCreate?: (tx: typeof sql) => Promise<void>;
+  afterCreate?: (tx: typeof sql, command: MailCommand) => Promise<void>;
 };
 
-const createActorCommandInTransaction = async (
-  params: CreateActorCommandInternalParams,
-  tx: typeof sql,
-): Promise<Result<MailCommand>> => {
+const createActorCommandInTransaction = async (params: CreateActorCommandInternalParams, tx: typeof sql): Promise<Result<MailCommand>> => {
   const parsed = actorCommandInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail command"));
   const preparedResult = prepareActorCommand(parsed.data);
   if (!preparedResult.ok) return preparedResult;
   const prepared = preparedResult.data;
   const requestHash = sha256Json({ kind: prepared.kind, target: prepared.target, payload: prepared.payload });
-  const initiator = actorRefFromRequest(params.context);
+  if (!params.context && params.actorOverride?.kind !== "workflow") {
+    return fail(err.forbidden("Only an activated workflow may create a mailbox-owned command"));
+  }
+  const initiator = params.context ? actorRefFromRequest(params.context) : null;
   const actor = params.actorOverride ?? initiator;
-  const credential = durableCredentialSnapshot(params.context);
+  if (!actor) return fail(err.unauthenticated());
+  const credential = params.context
+    ? durableCredentialSnapshot(params.context)
+    : { scopes: [], credentialId: null, credentialExpiresAt: null };
   if (!credential) return fail(err.forbidden("Durable Mail work requires a current service credential"));
 
   const [mailbox] = await tx<{ id: string }[]>`
     SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
   `;
   if (!mailbox) return fail(err.notFound("Mailbox"));
-  const permission = await requireMailboxPermission(params.context, params.mailboxId, prepared.requiredPermission, tx);
-  if (!permission.ok) return permission;
+  if (params.context) {
+    const permission = await requireMailboxPermission(params.context, params.mailboxId, prepared.requiredPermission, tx);
+    if (!permission.ok) return permission;
+  }
+  await params.beforeCreate?.(tx);
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:${prepared.kind}:${stableTargetKey(prepared.target)}`}, 0))`;
 
   const [existing] = await tx<DbCommand[]>`
@@ -484,7 +493,7 @@ const createActorCommandInTransaction = async (
   if (!targets.ok) return targets;
   const execution = await resolveMailExecution({
     mailboxId: params.mailboxId,
-    operation: prepared.kind === "send" ? "actorSend" : "actorMutation",
+    operation: params.context ? (prepared.kind === "send" ? "actorSend" : "actorMutation") : "automation",
     context: params.context,
     folderRequirements: prepared.folderRequirements,
     senderIdentityId: prepared.senderIdentityId,
@@ -532,10 +541,10 @@ const createActorCommandInTransaction = async (
       ${execution.data.secretRevision},
       ${execution.data.rightsSnapshot}::jsonb,
       ${{ sentDelivery: execution.data.sentDelivery }}::jsonb,
-      ${initiator.kind},
-      ${actorDatabaseId(initiator)}::uuid,
-      ${params.context.accessSubject.type},
-      ${accessSubjectDatabaseId(params.context)}::uuid,
+      ${initiator?.kind ?? null},
+      ${initiator ? actorDatabaseId(initiator) : null}::uuid,
+      ${params.context?.accessSubject.type ?? "system"},
+      ${params.context ? accessSubjectDatabaseId(params.context) : null}::uuid,
       ${toPgTextArray(credential.scopes)}::text[],
       ${credential.credentialId}::uuid,
       ${credential.credentialExpiresAt}::timestamptz
@@ -543,6 +552,8 @@ const createActorCommandInTransaction = async (
     RETURNING ${commandColumns}
   `;
   if (!row) throw new Error("Mail command insert returned no row");
+  const command = mapCommand(row);
+  await params.afterCreate?.(tx, command);
   await createSendOutbox({
     db: tx,
     mailboxId: params.mailboxId,
@@ -570,9 +581,9 @@ const createActorCommandInTransaction = async (
     {
       action: `mail.command.${prepared.kind}.request`,
       outcome: "allowed",
-      actor: auditActorFromRequest(params.context),
+      actor: params.context ? auditActorFromRequest(params.context) : null,
       target: { type: "mailbox", id: params.mailboxId },
-      requestId: params.context.requestId,
+      requestId: params.context?.requestId ?? `mail-workflow:${actor.kind === "workflow" ? actor.workflowVersionId : row.id}`,
       metadata: {
         commandId: row.id,
         selectedBindingId: execution.data.bindingId,
@@ -582,7 +593,7 @@ const createActorCommandInTransaction = async (
     },
     tx,
   );
-  return ok(mapCommand(row));
+  return ok(command);
 };
 
 const enqueueActorCommands = async (commands: MailCommand[]): Promise<void> => {
@@ -603,11 +614,13 @@ const createActorCommandWithActor = async (params: CreateActorCommandInternalPar
 export const createActorCommand = (params: CreateActorCommandParams): Promise<Result<MailCommand>> => createActorCommandWithActor(params);
 
 export const createWorkflowCommand = (params: {
-  context: MailRequestContext;
+  context: MailRequestContext | null;
   mailboxId: string;
   workflowVersionId: string;
   input: ActorCommandInput;
   enqueue?: boolean;
+  beforeCreate?: (tx: typeof sql) => Promise<void>;
+  afterCreate?: (tx: typeof sql, command: MailCommand) => Promise<void>;
 }): Promise<Result<MailCommand>> =>
   createActorCommandWithActor({
     ...params,

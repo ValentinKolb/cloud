@@ -1,5 +1,6 @@
 export type WorkflowJsonPrimitive = string | number | boolean | null;
 export type WorkflowJsonValue = WorkflowJsonPrimitive | WorkflowJsonValue[] | { [key: string]: WorkflowJsonValue };
+export type WorkflowRevision = string;
 
 export type WorkflowSourceLocation = {
   offset: number;
@@ -74,6 +75,8 @@ export type WorkflowActionDescriptor = WorkflowDescriptorDocs & {
   dryRun: "full" | "validate" | "unsupported";
 };
 
+export type WorkflowActionPolicy = Pick<WorkflowActionDescriptor, "effect" | "dryRun">;
+
 export type WorkflowLanguageManifest = {
   id: string;
   version: number;
@@ -84,6 +87,8 @@ export type WorkflowLanguageManifest = {
     maxInputs?: number;
     maxSteps?: number;
     maxDepth?: number;
+    maxConditions?: number;
+    maxConditionDepth?: number;
     maxLoopItems?: number;
   };
 };
@@ -102,7 +107,11 @@ export type WorkflowIrTrigger = {
 
 export type WorkflowCondition =
   | { operator: "equals" | "notEquals"; operands: [WorkflowJsonValue, WorkflowJsonValue] }
-  | { operator: "exists"; reference: string };
+  | { operator: "contains" | "startsWith" | "endsWith"; operands: [WorkflowJsonValue, WorkflowJsonValue] }
+  | { operator: "exists"; reference: string }
+  | { operator: "all"; conditions: WorkflowCondition[] }
+  | { operator: "any"; conditions: WorkflowCondition[] }
+  | { operator: "not"; condition: WorkflowCondition };
 
 export type WorkflowIrStep =
   | { kind: "action"; action: string; config: Record<string, WorkflowJsonValue>; sourcePath: Array<string | number> }
@@ -141,13 +150,14 @@ export type WorkflowIr = {
 };
 
 export type WorkflowBoundPlan = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   languageId: string;
   languageVersion: number;
   sourceHash: string;
   manifestHash: string;
   catalogHash: string;
   maxLoopItems?: number;
+  actionPolicies: Record<string, WorkflowActionPolicy>;
   inputs: WorkflowIrInput[];
   triggers: WorkflowIrTrigger[];
   steps: WorkflowIrStep[];
@@ -164,7 +174,7 @@ export type WorkflowInvocationMode = "execute" | "dryRun";
 
 export type WorkflowInvocation<Channel extends string = string> = {
   workflowId: string;
-  expectedRevision?: number;
+  expectedRevision?: WorkflowRevision;
   mode: WorkflowInvocationMode;
   channel: Channel;
   actor: WorkflowActor;
@@ -181,14 +191,14 @@ export type WorkflowLauncher<Config extends WorkflowJsonValue = WorkflowJsonValu
   name: string;
   enabled: boolean;
   config: Config;
-  validatedRevision?: number;
+  validatedRevision?: WorkflowRevision;
   diagnostics: WorkflowDiagnostic[];
 };
 
 export type WorkflowInvocationReceipt = {
   runId: string;
   workflowId: string;
-  revision: number;
+  revision: WorkflowRevision;
   mode: WorkflowInvocationMode;
   channel: string;
   created: boolean;

@@ -27,13 +27,14 @@ export const bindWorkflow = async (
   const binding = await bindCatalog(ir);
   const catalogHash = await hashWorkflowJson(binding.catalog);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     languageId: ir.languageId,
     languageVersion: ir.languageVersion,
     sourceHash: ir.sourceHash,
     manifestHash,
     catalogHash,
     ...(manifest.limits?.maxLoopItems !== undefined ? { maxLoopItems: manifest.limits.maxLoopItems } : {}),
+    actionPolicies: Object.fromEntries(manifest.actions.map((action) => [action.kind, { effect: action.effect, dryRun: action.dryRun }])),
     inputs: ir.inputs,
     triggers: ir.triggers,
     steps: ir.steps,

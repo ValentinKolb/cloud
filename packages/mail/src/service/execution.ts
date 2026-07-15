@@ -37,7 +37,9 @@ const mailboxOwnsCandidate = (mailboxId: string, candidate: BindingCandidate): b
   candidate.owner.type === "mailbox" && candidate.owner.id === mailboxId;
 
 const automationOwnerAllowed = (input: BindingSelectionInput, candidate: BindingCandidate): boolean => {
-  if (!input.senderPolicy) return false;
+  if (!input.senderPolicy) {
+    return input.connectionPolicy === "shared_connection" ? mailboxOwnsCandidate(input.mailboxId, candidate) : true;
+  }
   if (input.senderPolicy.automation === "disabled") return false;
   return input.senderPolicy.automation === "pool" || mailboxOwnsCandidate(input.mailboxId, candidate);
 };
@@ -179,7 +181,7 @@ const loadSenderSelection = async (params: {
   db: SqlClient;
 }): Promise<Result<SenderSelection>> => {
   if (!params.senderIdentityId) {
-    return params.operation === "actorSend" || params.operation === "automation"
+    return params.operation === "actorSend"
       ? fail(err.badInput("A verified sender identity is required"))
       : ok({ policy: null, sentFolderId: null });
   }

@@ -30,10 +30,7 @@ const scopeRank = (scopes: readonly string[]): number => {
   return 0;
 };
 
-const serviceAccountActorAllowed = async (
-  command: StoredCommandAuthorization,
-  permission: "write" | "admin",
-): Promise<boolean> => {
+const serviceAccountActorAllowed = async (command: StoredCommandAuthorization, permission: "write" | "admin"): Promise<boolean> => {
   const actorKind = command.initiator_actor_kind ?? command.actor_kind;
   const actorId = command.initiator_actor_id ?? command.actor_id;
   if (actorKind !== "service_account") return true;
@@ -126,11 +123,20 @@ const loadMailboxGrant = async (command: StoredCommandAuthorization): Promise<st
   return grant?.permission ?? null;
 };
 
-export const commandStillAuthorized = async (
-  command: StoredCommandAuthorization,
-  permission: "write" | "admin",
-): Promise<boolean> => {
-  if (command.access_subject_kind === "system") return command.actor_kind === "system";
+export const commandStillAuthorized = async (command: StoredCommandAuthorization, permission: "write" | "admin"): Promise<boolean> => {
+  if (command.access_subject_kind === "system") {
+    if (command.actor_kind === "system") return true;
+    if (command.actor_kind !== "workflow" || !command.actor_id) return false;
+    const [workflow] = await sql<{ active: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM mail.workflows workflow
+        WHERE workflow.mailbox_id = ${command.mailbox_id}::uuid
+          AND workflow.active_version_id = ${command.actor_id}::uuid
+      ) AS active
+    `;
+    return workflow?.active === true;
+  }
   if (!(await serviceAccountActorAllowed(command, permission))) return false;
   const subject = await loadAccessSubjectState(command);
   if (!subject.active) return false;

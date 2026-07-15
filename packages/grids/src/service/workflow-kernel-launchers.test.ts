@@ -34,7 +34,7 @@ const workflow = (inputName = "record", inputType = "record"): GridsWorkflow =>
     description: null,
     source: "steps: []",
     plan: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       languageId: "grids",
       languageVersion: 1,
       sourceHash: "source",

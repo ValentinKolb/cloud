@@ -1,14 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import {
-  createSavedWorkflowRunInputSchema,
+  activateWorkflowInputSchema,
+  backfillWorkflowInputSchema,
   createConversationCommentSchema,
+  createWorkflowInputSchema,
+  createWorkflowVersionInputSchema,
+  deactivateWorkflowInputSchema,
+  dryRunWorkflowInputSchema,
+  invokeWorkflowInputSchema,
   mailSearchExpressionSchema,
   mergeConversationsInputSchema,
   messageStateChangeSchema,
+  oneShotWorkflowInputSchema,
+  preflightWorkflowInputSchema,
   splitConversationInputSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
-  workflowDefinitionSchema,
+  validateWorkflowInputSchema,
+  workflowRunStateSchema,
+  workflowTargetStateSchema,
 } from "./contracts";
 
 describe("mail message state contracts", () => {
@@ -101,48 +111,54 @@ describe("mail workflow contracts", () => {
     expect(mailSearchExpressionSchema.safeParse(cyclic).success).toBe(false);
   });
 
-  test("rejects deeply nested workflow trees without overflowing the stack", () => {
-    let step: unknown = { action: "status.set", status: "done" };
-    for (let depth = 0; depth < 10_000; depth += 1) {
-      step = {
-        when: { field: "subject", operator: "contains", value: "invoice" },
-        then: [step],
-      };
-    }
-    const definition = {
-      version: 1,
-      name: "Deep workflow",
-      trigger: { type: "manual" },
-      effectBudget: { maxTargets: 1, maxMoves: 0, maxKeywordChanges: 0, maxCollaborationChanges: 1 },
-      steps: [step],
-    };
+  test("keeps exact YAML source and rejects the provisional JSON definition envelope", () => {
+    const source = "steps:\n  - succeed:\n      message: Done\n";
+    expect(validateWorkflowInputSchema.parse({ source })).toEqual({ source });
+    expect(validateWorkflowInputSchema.safeParse({ source: "  \n" }).success).toBe(false);
+    expect(validateWorkflowInputSchema.safeParse({ source, definition: { steps: [] } }).success).toBe(false);
 
-    expect(() => workflowDefinitionSchema.safeParse(definition)).not.toThrow();
-    expect(workflowDefinitionSchema.safeParse(definition).success).toBe(false);
+    const created = createWorkflowInputSchema.parse({ name: "Route mail", source });
+    expect(created).toMatchObject({ name: "Route mail", source, priority: 100 });
+    expect(created.effectBudget.maxTargets).toBe(1_000);
+    expect(createWorkflowInputSchema.safeParse({ name: "Route mail", source, enabled: true }).success).toBe(false);
+    expect(createWorkflowVersionInputSchema.safeParse({ name: "Not version metadata", source }).success).toBe(false);
   });
 
-  test("rejects blank text conditions and out-of-range database versions", () => {
-    expect(
-      workflowDefinitionSchema.safeParse({
-        version: 1,
-        name: "Blank condition",
-        trigger: { type: "manual" },
-        effectBudget: { maxTargets: 1, maxMoves: 0, maxKeywordChanges: 0, maxCollaborationChanges: 1 },
-        steps: [
-          {
-            when: { field: "subject", operator: "contains", value: "   " },
-            then: [{ action: "status.set", status: "done" }],
-          },
-        ],
-      }).success,
-    ).toBe(false);
-    expect(
-      createSavedWorkflowRunInputSchema.safeParse({
-        query: { type: "all" },
-        previewHash: "a".repeat(64),
-        idempotencyKey: "version-overflow",
-        version: 2_147_483_648,
-      }).success,
-    ).toBe(false);
+  test("keeps activation metadata outside YAML and trigger registrations inside it", () => {
+    const expectedVersionId = "00000000-0000-4000-8000-000000000001";
+    expect(activateWorkflowInputSchema.parse({ expectedVersionId })).toEqual({ expectedVersionId });
+    expect(activateWorkflowInputSchema.safeParse({ expectedVersionId, triggers: [] }).success).toBe(false);
+    expect(activateWorkflowInputSchema.safeParse({ expectedVersionId, enabled: true }).success).toBe(false);
+    expect(deactivateWorkflowInputSchema.safeParse({ expectedVersionId }).success).toBe(true);
+    expect(deactivateWorkflowInputSchema.safeParse({ expectedVersionId, reason: "legacy" }).success).toBe(false);
+  });
+
+  test("separates advisory dry runs from effectful preflight-bound runs", () => {
+    const expectedVersionId = "00000000-0000-4000-8000-000000000001";
+    const base = {
+      expectedVersionId,
+      inputs: { threshold: 3 },
+      query: { type: "all" as const },
+    };
+    const effectful = {
+      ...base,
+      occurredAt: "2026-07-15T12:00:00.000Z",
+      preflightHash: "a".repeat(64),
+      idempotencyKey: "route-mail-1",
+    };
+
+    expect(preflightWorkflowInputSchema.safeParse(base).success).toBe(true);
+    expect(preflightWorkflowInputSchema.safeParse({ expectedVersionId, inputs: {} }).success).toBe(false);
+    expect(dryRunWorkflowInputSchema.safeParse({ ...base, idempotencyKey: "dry-run-1" }).success).toBe(true);
+    expect(dryRunWorkflowInputSchema.safeParse(effectful).success).toBe(false);
+    expect(invokeWorkflowInputSchema.safeParse(effectful).success).toBe(true);
+    expect(backfillWorkflowInputSchema.safeParse(effectful).success).toBe(true);
+    expect(oneShotWorkflowInputSchema.safeParse(effectful).success).toBe(true);
+    expect(invokeWorkflowInputSchema.safeParse({ ...base, idempotencyKey: "missing-preflight" }).success).toBe(false);
+  });
+
+  test("exposes materialization only as a parent run state", () => {
+    expect(workflowRunStateSchema.parse("materializing")).toBe("materializing");
+    expect(workflowTargetStateSchema.safeParse("materializing").success).toBe(false);
   });
 });

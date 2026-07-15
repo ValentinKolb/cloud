@@ -29,6 +29,8 @@ type CompileContext = {
   actions: Map<string, WorkflowActionDescriptor>;
   stepCount: number;
   stepLimitReported: boolean;
+  conditionCount: number;
+  conditionLimitReported: boolean;
 };
 
 const addDiagnostic = (context: CompileContext, code: string, message: string, path: Array<string | number>): void => {
@@ -185,19 +187,52 @@ const compileTriggers = (
 const compileCondition = (
   value: WorkflowJsonValue | undefined,
   path: Array<string | number>,
+  depth: number,
   context: CompileContext,
 ): WorkflowCondition | undefined => {
+  context.conditionCount += 1;
+  const maxConditions = context.manifest.limits?.maxConditions;
+  if (maxConditions !== undefined && context.conditionCount > maxConditions) {
+    if (!context.conditionLimitReported) {
+      addDiagnostic(context, "limit.conditions", `Workflow defines more than ${maxConditions} conditions`, path);
+      context.conditionLimitReported = true;
+    }
+    return undefined;
+  }
+  const maxDepth = context.manifest.limits?.maxConditionDepth;
+  if (maxDepth !== undefined && depth > maxDepth) {
+    addDiagnostic(context, "limit.conditionDepth", `Workflow condition depth exceeds ${maxDepth}`, path);
+    return undefined;
+  }
   if (!workflowRecord(value)) {
     addDiagnostic(context, "condition.type", "Condition must be an object", path);
     return undefined;
   }
   const operators = Object.keys(value);
-  if (operators.length !== 1 || !["equals", "notEquals", "exists"].includes(operators[0]!)) {
+  if (
+    operators.length !== 1 ||
+    !["equals", "notEquals", "contains", "startsWith", "endsWith", "exists", "all", "any", "not"].includes(operators[0]!)
+  ) {
     addDiagnostic(context, "condition.operator", "Condition must contain exactly one supported operator", path);
     return undefined;
   }
   const operator = operators[0]!;
   const operand = value[operator];
+  if (operator === "all" || operator === "any") {
+    if (!Array.isArray(operand) || operand.length === 0) {
+      addDiagnostic(context, "condition.conditions", `${operator} requires at least one condition`, [...path, operator]);
+      return undefined;
+    }
+    const conditions = operand
+      .map((condition, index) => compileCondition(condition, [...path, operator, index], depth + 1, context))
+      .filter((condition): condition is WorkflowCondition => condition !== undefined);
+    if (conditions.length !== operand.length) return undefined;
+    return operator === "all" ? { operator: "all", conditions } : { operator: "any", conditions };
+  }
+  if (operator === "not") {
+    const condition = compileCondition(operand, [...path, operator], depth + 1, context);
+    return condition ? { operator, condition } : undefined;
+  }
   if (operator === "exists") {
     if (typeof operand !== "string" || operand.length === 0) {
       addDiagnostic(context, "condition.exists", "exists requires a non-empty reference", [...path, operator]);
@@ -210,7 +245,7 @@ const compileCondition = (
     return undefined;
   }
   return {
-    operator: operator === "equals" ? "equals" : "notEquals",
+    operator: operator as "equals" | "notEquals" | "contains" | "startsWith" | "endsWith",
     operands: [normalizeWorkflowJson(operand[0]!), normalizeWorkflowJson(operand[1]!)],
   };
 };
@@ -245,7 +280,7 @@ const compileSteps = (
     }
     if (hasOwn(step, "if")) {
       validateExactKeys(step, ["if", "then", "else"], stepPath, context);
-      const condition = compileCondition(step.if, [...stepPath, "if"], context);
+      const condition = compileCondition(step.if, [...stepPath, "if"], 1, context);
       const thenSteps = compileSteps(step.then, [...stepPath, "then"], depth + 1, context);
       const elseSteps = step.else === undefined ? [] : compileSteps(step.else, [...stepPath, "else"], depth + 1, context);
       if (condition) result.push({ kind: "if", condition, then: thenSteps, else: elseSteps, sourcePath: stepPath });
@@ -328,6 +363,8 @@ export const compileWorkflow = async (source: string, manifest: WorkflowLanguage
     actions,
     stepCount: 0,
     stepLimitReported: false,
+    conditionCount: 0,
+    conditionLimitReported: false,
   };
   const root = parsed.parsed.value as Record<string, WorkflowJsonValue>;
   validateExactKeys(root, ["inputs", "triggers", "steps"], [], context);

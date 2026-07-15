@@ -78,8 +78,8 @@ describe("workflow kernel runtime boundaries", () => {
   test("fences schedule persistence by workflow revision", () => {
     const workflow = { id: receipt().workflowId, revision: 3 };
 
-    expect(workflowScheduleId(workflow)).toBe(`grids:workflow:${workflow.id}:revision:3`);
-    expect(workflowScheduleId({ ...workflow, revision: 4 })).not.toBe(workflowScheduleId(workflow));
+    expect(workflowScheduleId(workflow)).toBe(`grids:workflow:${workflow.id}`);
+    expect(workflowScheduleId({ ...workflow, revision: 4 })).toBe(workflowScheduleId(workflow));
   });
 
   test("rejects claimed slots after cron or timezone changes", () => {

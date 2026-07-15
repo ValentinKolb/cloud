@@ -258,7 +258,7 @@ const workflow = {
   description: null,
   source: "steps:\n  - setVariable:\n      name: ok\n      value: true",
   plan: {
-    schemaVersion: 1,
+          schemaVersion: 2,
     languageId: "grids",
     languageVersion: 1,
     sourceHash: "source",

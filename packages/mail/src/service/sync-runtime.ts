@@ -13,6 +13,8 @@ import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs
 import { hydrateMessageFromSource } from "./message-hydration";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
+import { publishMailWorkflowDependency } from "./workflow-dependencies";
+import { enqueueMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
 
 const log = logger("mail:sync");
 const ENVELOPE_BATCH_SIZE = 200;
@@ -285,6 +287,8 @@ export const ingestEnvelope = async (params: {
   remoteResourceId: string;
   folderId: string;
   message: ConnectorEnvelope;
+  captureWorkflowTriggers?: boolean;
+  workflowTriggerEventIds?: string[];
 }): Promise<string> => {
   const contentHash = sha256Json({
     remoteResourceId: params.remoteResourceId,
@@ -500,6 +504,38 @@ export const ingestEnvelope = async (params: {
     RETURNING message_id
   `;
   if (!linked) return messageContentId;
+  if (params.captureWorkflowTriggers && !outbound[0]?.outbound) {
+    const deliveryKey = `message:${remoteRef.id}`;
+    const [event] = await params.db<{ id: string }[]>`
+      INSERT INTO mail.workflow_trigger_events (
+        mailbox_id, trigger_kind, delivery_key, occurred_at, payload
+      )
+      SELECT
+        ${params.mailboxId}::uuid,
+        'messageReceived',
+        ${deliveryKey},
+        ${params.message.internalDate}::timestamptz,
+        ${{
+          remoteMessageRefId: remoteRef.id,
+          messageContentId,
+          conversationId,
+        }}::jsonb
+      WHERE EXISTS (
+        SELECT 1
+        FROM mail.workflow_activations activation
+        JOIN mail.workflows workflow
+          ON workflow.id = activation.workflow_id
+         AND workflow.mailbox_id = activation.mailbox_id
+         AND workflow.active_version_id = activation.workflow_version_id
+        WHERE activation.mailbox_id = ${params.mailboxId}::uuid
+          AND activation.trigger_kind = 'messageReceived'
+          AND activation.enabled
+      )
+      ON CONFLICT (mailbox_id, trigger_kind, delivery_key) DO NOTHING
+      RETURNING id
+    `;
+    if (event) params.workflowTriggerEventIds?.push(event.id);
+  }
   return messageContentId;
 };
 
@@ -822,7 +858,7 @@ export const commitSyncBatch = async (params: {
   envelopeKind: "incremental" | "backfill" | null;
   flagChanges: FlagChange[];
   reconcileWindow: ReconcileWindow | null;
-}): Promise<{ hydratedIds: string[]; flagsUpdated: number; removed: number }> => {
+}): Promise<{ hydratedIds: string[]; workflowTriggerEventIds: string[]; flagsUpdated: number; removed: number }> => {
   const result = await sql.begin(async (tx) => {
     const [resource] = await tx<{ id: string }[]>`
       SELECT id
@@ -860,6 +896,7 @@ export const commitSyncBatch = async (params: {
     }
 
     const hydratedIds: string[] = [];
+    const workflowTriggerEventIds: string[] = [];
     for (const message of params.envelopeBatch?.messages ?? []) {
       hydratedIds.push(
         await ingestEnvelope({
@@ -868,6 +905,8 @@ export const commitSyncBatch = async (params: {
           remoteResourceId: params.folder.remote_resource_id,
           folderId: params.folderId,
           message,
+          captureWorkflowTriggers: params.envelopeKind === "incremental",
+          workflowTriggerEventIds,
         }),
       );
     }
@@ -970,7 +1009,7 @@ export const commitSyncBatch = async (params: {
         finished_at = now()
       WHERE id = ${params.fence.runId}::uuid
     `;
-    return { hydratedIds, flagsUpdated, removed };
+    return { hydratedIds, workflowTriggerEventIds, flagsUpdated, removed };
   });
   return result;
 };
@@ -1077,6 +1116,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         for (const messageId of result.hydratedIds) {
           await hydrationJob.submit({ key: `message:${messageId}`, input: { messageId } });
         }
+        await Promise.all(result.workflowTriggerEventIds.map((eventId) => enqueueMailWorkflowTriggerEvent(eventId)));
         const hasMore =
           cursor.incrementalNextHigh != null || !cursor.backfillComplete || cursor.flagNextLow != null || cursor.reconcileNextLow != null;
         return { hasMore, imported: result.hydratedIds.length, flagsUpdated: result.flagsUpdated, removed: result.removed };
@@ -1239,7 +1279,14 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
               expectedSize: source.expectedSize,
               claimId,
             });
-            hydrated ||= result.status === "hydrated" || result.status === "already_complete" || result.status === "deduplicated";
+            const available = result.status === "hydrated" || result.status === "already_complete" || result.status === "deduplicated";
+            hydrated ||= available;
+            if (available) {
+              await publishMailWorkflowDependency({
+                mailboxId: message.mailbox_id,
+                dependency: { kind: "mail.hydration", key: source.key },
+              });
+            }
           } catch (error) {
             const code = normalizeSyncErrorCode(error);
             if (code !== "HYDRATION_NOT_CLAIMED") {

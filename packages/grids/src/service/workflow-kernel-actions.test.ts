@@ -52,7 +52,7 @@ class Variables implements WorkflowVariableScope {
 
 const boundPlan = (bindings: Record<string, WorkflowJsonValue> = {}): WorkflowBoundPlan =>
   ({
-    schemaVersion: 1,
+    schemaVersion: 2,
     languageId: "grids",
     languageVersion: 1,
     sourceHash: "source",

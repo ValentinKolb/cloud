@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import type { WorkflowDefinition } from "../contracts";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
 import { getConversationViewCounts, listConversations } from "./messages";
 import { searchMessages } from "./search";
-import { previewWorkflow } from "./workflows";
+import { reconcileMailWorkflowMaterializations } from "./workflow-materialization-service";
+import { backfillWorkflow, createWorkflow, preflightWorkflow } from "./workflows";
 
 const enabled = process.env.MAIL_PERFORMANCE_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -62,6 +62,27 @@ suite("mail large-mailbox performance", () => {
       ) VALUES (
         ${mailbox.data.id}::uuid, '{}'::jsonb, '{}'::jsonb, ${"f".repeat(64)}, 'active'
       ) RETURNING id
+    `;
+    const [connection] = await sql<{ id: string }[]>`
+      INSERT INTO mail.provider_connections (
+        owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
+        smtp_host, smtp_port, smtp_tls_mode, secret_kind, encrypted_secret,
+        authenticated_principal, capabilities, server_identity, last_verified_at
+      ) VALUES (
+        ${mailbox.data.id}::uuid, 'Performance fixture', 'performance@example.com', 'performance@example.com',
+        'imap.example.com', 993, 'implicit', 'smtp.example.com', 587, 'starttls',
+        'password', 'fixture-ciphertext', 'performance@example.com', '{}'::jsonb, '{}'::jsonb, now()
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.provider_bindings (
+        remote_resource_id, connection_id, state, remote_locator, capabilities, rights,
+        verification_evidence, verified_scope_fingerprint, verified_secret_revision, last_verified_at
+      ) VALUES (
+        ${resource!.id}::uuid, ${connection!.id}::uuid, 'active', '{}'::jsonb, '{}'::jsonb,
+        '{}'::jsonb, '{}'::jsonb, ${"f".repeat(64)}, 1, now()
+      )
     `;
     const [folder] = await sql<{ id: string }[]>`
       INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
@@ -290,40 +311,181 @@ suite("mail large-mailbox performance", () => {
     `previews a deterministic workflow across ${MESSAGE_COUNT.toLocaleString("en-US")} messages`,
     async () => {
       if (!ids.mailboxId) throw new Error("Performance mailbox is unavailable");
-      const definition: WorkflowDefinition = {
-        version: 1,
-        name: "Performance preview",
-        priority: 100,
-        trigger: { type: "backfill" },
-        effectBudget: {
-          maxTargets: MESSAGE_COUNT,
-          maxMoves: 0,
-          maxKeywordChanges: 0,
-          maxCollaborationChanges: 0,
-        },
-        steps: [{ action: "status.set", status: "open" }],
-      };
-      const startedAt = performance.now();
-      const result = await previewWorkflow({
+      const source = `inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+steps:
+  - setConversationStatus:
+      conversation: "\${{ inputs.conversation }}"
+      status: open
+`;
+      const workflow = await createWorkflow({
         context,
         mailboxId: ids.mailboxId,
-        input: { definition, query: { type: "all" } },
+        input: {
+          name: `Performance preview ${suffix}`,
+          priority: 100,
+          source,
+          effectBudget: {
+            maxTargets: MESSAGE_COUNT,
+            maxMoves: 0,
+            maxKeywordChanges: 0,
+            maxCollaborationChanges: 0,
+          },
+        },
+      });
+      expect(workflow.ok).toBe(true);
+      if (!workflow.ok) return;
+
+      const startedAt = performance.now();
+      const result = await preflightWorkflow({
+        context,
+        mailboxId: ids.mailboxId,
+        workflowId: workflow.data.id,
+        input: {
+          expectedVersionId: workflow.data.currentVersionId,
+          inputs: {},
+          query: { type: "all" },
+        },
       });
       const duration = performance.now() - startedAt;
-      console.info(`Mail ${MESSAGE_COUNT} workflow preview: ${duration.toFixed(1)} ms`);
+      console.info(`Mail ${MESSAGE_COUNT} workflow preflight: ${duration.toFixed(1)} ms`);
+      if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data).toMatchObject({
+          workflowVersionId: workflow.data.currentVersionId,
           targetCount: MESSAGE_COUNT,
-          actionTargetCount: 0,
-          waitingDataCount: 0,
-          truncated: false,
-          budgetExceeded: false,
+          effectBudget: {
+            maxTargets: MESSAGE_COUNT,
+            maxMoves: 0,
+            maxKeywordChanges: 0,
+            maxCollaborationChanges: 0,
+          },
         });
-        expect(result.data.previewHash).not.toBeNull();
+        expect(result.data.preflightHash).toMatch(/^[a-f0-9]{64}$/);
+
+        const input = {
+          expectedVersionId: workflow.data.currentVersionId,
+          inputs: {},
+          query: { type: "all" as const },
+          preflightHash: result.data.preflightHash,
+          occurredAt: result.data.occurredAt,
+          idempotencyKey: `performance-backfill-${suffix}`,
+        };
+        await sql`
+          CREATE OR REPLACE FUNCTION mail.fail_large_workflow_materialization_test()
+          RETURNS trigger AS $$
+          BEGIN
+            IF NEW.ordinal >= 1000 THEN
+              RAISE EXCEPTION 'simulated workflow materialization crash';
+            END IF;
+            RETURN NEW;
+          END;
+          $$ LANGUAGE plpgsql
+        `;
+        await sql`
+          CREATE TRIGGER fail_large_workflow_materialization_test
+          BEFORE INSERT ON mail.workflow_run_targets
+          FOR EACH ROW EXECUTE FUNCTION mail.fail_large_workflow_materialization_test()
+        `;
+        let interrupted: Awaited<ReturnType<typeof backfillWorkflow>> | undefined;
+        try {
+          interrupted = await backfillWorkflow({
+            context,
+            mailboxId: ids.mailboxId,
+            workflowId: workflow.data.id,
+            channel: "bulk",
+            input,
+            enqueue: false,
+          });
+        } finally {
+          await sql`DROP TRIGGER IF EXISTS fail_large_workflow_materialization_test ON mail.workflow_run_targets`;
+          await sql`DROP FUNCTION IF EXISTS mail.fail_large_workflow_materialization_test()`;
+        }
+        expect(interrupted?.ok).toBe(false);
+        const [checkpoint] = await sql<
+          {
+            id: string;
+            state: string;
+            target_count: number;
+            queued_targets: number;
+            materialization_cursor_target_key: string | null;
+            targets: number;
+          }[]
+        >`
+          SELECT
+            run.id,
+            run.state,
+            run.target_count,
+            run.queued_targets,
+            run.materialization_cursor_target_key,
+            (SELECT COUNT(*)::int FROM mail.workflow_run_targets target WHERE target.parent_run_id = run.id) AS targets
+          FROM mail.workflow_runs run
+          WHERE run.mailbox_id = ${ids.mailboxId}::uuid
+            AND run.mode = 'execute'
+            AND run.idempotency_key = ${input.idempotencyKey}
+        `;
+        expect(checkpoint).toMatchObject({
+          state: "materializing",
+          target_count: MESSAGE_COUNT,
+          queued_targets: 1_000,
+          targets: 1_000,
+        });
+        if (!checkpoint) throw new Error("Interrupted workflow materialization checkpoint is unavailable");
+        expect(checkpoint?.materialization_cursor_target_key).not.toBeNull();
+
+        const materializationStartedAt = performance.now();
+        const recovery = await reconcileMailWorkflowMaterializations({ enqueue: false, limit: 1, staleAfterMs: 0 });
+        const materializationDuration = performance.now() - materializationStartedAt;
+        console.info(`Mail ${MESSAGE_COUNT} workflow materialization resume: ${materializationDuration.toFixed(1)} ms`);
+        expect(recovery).toMatchObject({ scanned: 1, recovered: 1, canceled: 0, failed: 0 });
+        const resumed = await backfillWorkflow({
+          context,
+          mailboxId: ids.mailboxId,
+          workflowId: workflow.data.id,
+          channel: "bulk",
+          input,
+          enqueue: false,
+        });
+        expect(resumed.ok).toBe(true);
+        if (resumed.ok) {
+          expect(resumed.data.id).toBe(checkpoint.id);
+          expect(resumed.data.state).toBe("queued");
+          expect(resumed.data.targetProgress).toMatchObject({ total: MESSAGE_COUNT, queued: MESSAGE_COUNT });
+          const [persisted] = await sql<
+            {
+              targets: number;
+              insert_transactions: number;
+              materialization_digest: string | null;
+              materialization_expected_digest: string | null;
+            }[]
+          >`
+            SELECT
+              COUNT(target.id)::int AS targets,
+              COUNT(DISTINCT target.xmin::text)::int AS insert_transactions,
+              run.materialization_digest,
+              run.materialization_expected_digest
+            FROM mail.workflow_runs run
+            JOIN mail.workflow_run_targets target ON target.parent_run_id = run.id
+            WHERE run.id = ${resumed.data.id}::uuid
+            GROUP BY run.id
+          `;
+          expect(persisted).toMatchObject({
+            targets: MESSAGE_COUNT,
+            materialization_digest: null,
+            materialization_expected_digest: null,
+          });
+          expect(persisted!.insert_transactions).toBeGreaterThan(1);
+        }
+        expect(materializationDuration).toBeLessThan(60_000);
       }
       expect(duration).toBeLessThan(5_000);
     },
-    30_000,
+    120_000,
   );
 });

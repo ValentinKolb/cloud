@@ -74,7 +74,7 @@ const manifest: WorkflowLanguageManifest = {
       },
     },
   ],
-  limits: { maxInputs: 5, maxSteps: 20, maxDepth: 4, maxLoopItems: 100 },
+  limits: { maxInputs: 5, maxSteps: 20, maxDepth: 4, maxConditions: 20, maxConditionDepth: 4, maxLoopItems: 100 },
 };
 
 const directSource = `inputs:
@@ -217,6 +217,75 @@ steps:
     expect(ir.steps[2]).toMatchObject({ kind: "forEach", reference: "inputs.items", alias: "item", steps: [{}] });
   });
 
+  test("compiles recursive boolean and text conditions", async () => {
+    const ir = await compileOk(`steps:
+  - if:
+      all:
+        - contains: ["\${{ inputs.subject }}", "STRASSE"]
+        - not:
+            any:
+              - startsWith: ["\${{ inputs.subject }}", spam]
+              - endsWith: ["\${{ inputs.subject }}", trash]
+    then:
+      - setVariable: { name: matched, value: true }
+`);
+
+    expect(ir.steps[0]).toMatchObject({
+      kind: "if",
+      condition: {
+        operator: "all",
+        conditions: [
+          { operator: "contains", operands: ["${{ inputs.subject }}", "STRASSE"] },
+          {
+            operator: "not",
+            condition: {
+              operator: "any",
+              conditions: [
+                { operator: "startsWith", operands: ["${{ inputs.subject }}", "spam"] },
+                { operator: "endsWith", operands: ["${{ inputs.subject }}", "trash"] },
+              ],
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  test("rejects empty recursive condition groups", async () => {
+    const result = await compileWorkflow(
+      "steps:\n  - if: { all: [] }\n    then:\n      - setVariable: { name: matched, value: true }\n",
+      manifest,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "condition.conditions" }));
+  });
+
+  test("bounds recursive condition count and depth", async () => {
+    const source = `steps:
+  - if:
+      all:
+        - equals: [true, true]
+        - not:
+            equals: [false, true]
+    then:
+      - setVariable: { name: matched, value: true }
+`;
+    const countResult = await compileWorkflow(source, {
+      ...manifest,
+      limits: { ...manifest.limits, maxConditions: 2, maxConditionDepth: 10 },
+    });
+    const depthResult = await compileWorkflow(source, {
+      ...manifest,
+      limits: { ...manifest.limits, maxConditions: 10, maxConditionDepth: 2 },
+    });
+
+    expect(countResult.ok).toBe(false);
+    if (!countResult.ok) expect(countResult.diagnostics).toContainEqual(expect.objectContaining({ code: "limit.conditions" }));
+    expect(depthResult.ok).toBe(false);
+    if (!depthResult.ok) expect(depthResult.diagnostics).toContainEqual(expect.objectContaining({ code: "limit.conditionDepth" }));
+  });
+
   test("is deterministic while hashing the exact source", async () => {
     const first = await compileOk(directSource);
     const repeated = await compileOk(directSource);
@@ -258,13 +327,17 @@ describe("workflow catalog binding", () => {
     expect(repeated).toEqual(first);
     expect(Object.keys(first.bindings)).toEqual(["action", "target"]);
     expect(first).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       languageId: "test-workflows",
       languageVersion: 1,
       sourceHash: ir.sourceHash,
       inputs: ir.inputs,
       triggers: ir.triggers,
       steps: ir.steps,
+      actionPolicies: {
+        setVariable: { effect: "pure", dryRun: "full" },
+        notify: { effect: "durable-intent", dryRun: "validate" },
+      },
     });
     expect(first.manifestHash).toHaveLength(64);
     expect(first.catalogHash).toHaveLength(64);
