@@ -98,6 +98,41 @@ steps:
       keyword: ${JSON.stringify(keyword)}
 `;
 
+const nestedKeywordSource = (keyword: string) => `inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+steps:
+  - if:
+      equals: [true, true]
+    then:
+      - addKeyword:
+          message: "\${{ inputs.message }}"
+          keyword: ${JSON.stringify(keyword)}
+`;
+
+const nestedCollaborationSource = (userId: string) => `inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+steps:
+  - if:
+      equals: [true, true]
+    then:
+      - assignConversation:
+          conversation: "\${{ inputs.conversation }}"
+          user: ${JSON.stringify(userId)}
+  - setConversationStatus:
+      conversation: "\${{ inputs.conversation }}"
+      status: waiting
+`;
+
 const hydratedKeywordSource = () => `inputs:
   message:
     type: mailMessage
@@ -628,8 +663,56 @@ suite("mail canonical workflow runtime", () => {
     expect(activity?.count).toBe(0);
   }, 20_000);
 
+  test("restores completed collaboration descendants after a control-step crash", async () => {
+    const baselineRevision = await resetConversation();
+    const workflow = await createWorkflowFixture(nestedCollaborationSource(writer.id), "Nested collaboration recovery");
+    const run = await oneShot(workflow, `nested-collaboration-${suffix}`);
+    const target = (await targetRows(run.id))[0]!;
+    const claim = await claimMailWorkflowTarget({ targetId: target.id, workerId: `nested-crash-${suffix}` });
+    expect(claim).not.toBeNull();
+    if (!claim) return;
+
+    const repository = new MailWorkflowRuntimeRepository(claim);
+    let simulatedCrash = false;
+    const crashRepository: WorkflowRuntimeRepositoryPort = {
+      heartbeat: (identity) => repository.heartbeat(identity),
+      restoreStepOutcome: (step) => repository.restoreStepOutcome(step),
+      startStep: (step) => repository.startStep(step),
+      finishStep: async (step, result) => {
+        await repository.finishStep(step, result);
+        if (!simulatedCrash && step.kind === "if" && result.mode === "execute" && result.outcome.state === "completed") {
+          simulatedCrash = true;
+          throw new Error("Simulated crash after control-step commit");
+        }
+      },
+      parkStep: (step, dependency) => repository.parkStep(step, dependency),
+    };
+    await expect(executeClaim(claim, crashRepository)).rejects.toThrow("Simulated crash after control-step commit");
+
+    const [afterCrash] = await sql<{ assignee_user_id: string | null; work_status: string; revision: number }[]>`
+      SELECT assignee_user_id, work_status, revision::int
+      FROM mail.conversations
+      WHERE id = ${conversationId}::uuid
+    `;
+    expect(afterCrash).toEqual({ assignee_user_id: writer.id, work_status: "open", revision: baselineRevision + 1 });
+
+    await sql`
+      UPDATE mail.workflow_run_targets
+      SET lease_expires_at = now() - interval '1 second'
+      WHERE id = ${target.id}::uuid
+    `;
+    expect(await processTarget(target.id, "nested-takeover")).toMatchObject({ state: "succeeded" });
+
+    const [recovered] = await sql<{ assignee_user_id: string | null; work_status: string; revision: number }[]>`
+      SELECT assignee_user_id, work_status, revision::int
+      FROM mail.conversations
+      WHERE id = ${conversationId}::uuid
+    `;
+    expect(recovered).toEqual({ assignee_user_id: writer.id, work_status: "waiting", revision: baselineRevision + 2 });
+  }, 20_000);
+
   test("claims one target once and resumes provider commands through the shared executor", async () => {
-    const workflow = await createWorkflowFixture(keywordSource("Priority"), "Provider command flow");
+    const workflow = await createWorkflowFixture(nestedKeywordSource("Priority"), "Provider command flow");
     const run = await oneShot(workflow, `provider-${suffix}`);
     const targets = await targetRows(run.id);
     expect(targets).toHaveLength(2);
@@ -664,6 +747,16 @@ suite("mail canonical workflow runtime", () => {
     const commandTarget = typeof parked!.target === "string" ? JSON.parse(parked!.target) : parked!.target;
     expect(dependency).toEqual({ kind: "mail.command", key: parked!.command_id });
     expect(commandTarget.expectedRemoteState).toEqual({ modseq: "1", flags: [], keywords: [] });
+    const parkedSteps = await sql<{ step_key: string; state: string }[]>`
+      SELECT step_key, state
+      FROM mail.workflow_step_runs
+      WHERE target_id = ${targets[0]!.id}::uuid
+      ORDER BY step_key
+    `;
+    expect(parkedSteps).toEqual([
+      { step_key: "steps.0", state: "running" },
+      { step_key: "steps.0.then.0", state: "waiting" },
+    ]);
 
     await sql`
       UPDATE mail.commands
@@ -677,7 +770,7 @@ suite("mail canonical workflow runtime", () => {
     const [failedCommand] = await sql<{ command_id: string }[]>`
       SELECT command_id
       FROM mail.workflow_step_runs
-      WHERE target_id = ${targets[1]!.id}::uuid
+      WHERE target_id = ${targets[1]!.id}::uuid AND command_id IS NOT NULL
     `;
     await sql`
       UPDATE mail.commands

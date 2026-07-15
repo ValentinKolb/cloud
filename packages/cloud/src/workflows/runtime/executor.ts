@@ -359,6 +359,61 @@ const invalidRestoration = (state: RuntimeState, step: WorkflowRuntimeStepIdenti
     ? { state: "needs_attention", error: executionError("WORKFLOW_RESTORE_INVALID", message), step }
     : { state: "indeterminate", reason: message, step };
 
+const restoreCompletedSteps = async (
+  state: RuntimeState,
+  scope: RuntimeVariableScope,
+  steps: WorkflowIrStep[],
+  iterationPath: number[],
+): Promise<Flow> => {
+  for (const irStep of steps) {
+    const step = stepIdentity(state, irStep, iterationPath);
+    const restored = await state.options.repository.restoreStepOutcome(step);
+    if (!restored) return invalidRestoration(state, step, `completed control step is missing descendant "${step.key}"`);
+    const flow = await restoreStep(state, scope, irStep, step, restored);
+    if (flow.state !== "continue") return flow;
+  }
+  return { state: "continue" };
+};
+
+const restoreCompletedControlDescendants = async (
+  state: RuntimeState,
+  scope: RuntimeVariableScope,
+  irStep: Exclude<WorkflowIrStep, { kind: "action" }>,
+  iterationPath: number[],
+): Promise<Flow> => {
+  if (irStep.kind === "if") {
+    const matched = await evaluateCondition(state, scope, irStep.condition, [...irStep.sourcePath, "if"]);
+    return restoreCompletedSteps(state, scope.child(), matched ? irStep.then : irStep.else, iterationPath);
+  }
+  if (irStep.kind === "switch") {
+    const value = await evaluateValue(state, scope, irStep.value, [...irStep.sourcePath, "switch"]);
+    for (const [index, candidate] of irStep.cases.entries()) {
+      const when = await evaluateValue(state, scope, candidate.when, [...irStep.sourcePath, "cases", index, "when"]);
+      if (jsonEqual(value, when)) return restoreCompletedSteps(state, scope.child(), candidate.steps, iterationPath);
+    }
+    return restoreCompletedSteps(state, scope.child(), irStep.default, iterationPath);
+  }
+
+  const resolved = await resolveReference(state, scope, irStep.reference, [...irStep.sourcePath, "forEach"]);
+  if (resolved.state !== "resolved" || !Array.isArray(resolved.value)) {
+    throw new WorkflowValueError(`completed forEach reference "${irStep.reference}" is unavailable while restoring`);
+  }
+  const limit = loopItemLimit(state);
+  if (resolved.value.length > limit) {
+    throw new WorkflowValueError(`forEach reference "${irStep.reference}" has ${resolved.value.length} items; limit is ${limit}`);
+  }
+  for (let index = 0; index < resolved.value.length; index += 1) {
+    const flow = await restoreCompletedSteps(
+      state,
+      scope.child({ [irStep.alias]: resolved.value[index]! }),
+      irStep.steps,
+      [...iterationPath, index],
+    );
+    if (flow.state !== "continue") return flow;
+  }
+  return { state: "continue" };
+};
+
 const restoreStep = async (
   state: RuntimeState,
   scope: RuntimeVariableScope,
@@ -381,6 +436,9 @@ const restoreStep = async (
           return invalidRestoration(state, step, `planner for action "${irStep.action}" is unavailable while restoring step "${step.key}"`);
         await handler.restoreCompleted?.(actionContext(state, scope, step) as WorkflowDryRunActionContext, irStep, restored.outcome);
       }
+    } else if (state.options.mode === "execute" && restored.mode === "execute" && restored.outcome.state === "completed") {
+      const descendants = await restoreCompletedControlDescendants(state, scope, irStep, step.iterationPath);
+      if (descendants.state !== "continue") return descendants;
     }
   } catch (error) {
     if (error instanceof WorkflowCancellation) {
@@ -700,12 +758,9 @@ const runStep = async (
   ) {
     throw new WorkflowRetryableStepError(step, evaluated.result.outcome.error);
   }
-  const ownsWaitingDependency =
-    evaluated.result?.mode === "execute" &&
-    evaluated.result.outcome.state === "waiting" &&
-    evaluated.flow.state === "waiting" &&
-    evaluated.flow.step.key === step.key;
-  if (evaluated.result && !ownsWaitingDependency) {
+  const waitingForDependency =
+    evaluated.result?.mode === "execute" && evaluated.result.outcome.state === "waiting" && evaluated.flow.state === "waiting";
+  if (evaluated.result && !waitingForDependency) {
     await state.options.repository.finishStep(step, evaluated.result);
     await emit(state, { type: "step.finished", step, result: evaluated.result });
   }

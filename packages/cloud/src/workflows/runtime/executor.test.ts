@@ -518,6 +518,52 @@ describe("workflow runtime executor", () => {
     expect(repository.started.map((step) => step.key)).toEqual(["steps.1"]);
   });
 
+  test("restores completed descendant actions before returning a completed control step", async () => {
+    const repository = new FakeRepository();
+    repository.completed.set("execute:steps.0", { mode: "execute", outcome: { state: "completed", output: "persisted" } });
+    repository.completed.set("execute:steps.0.then.0", {
+      mode: "execute",
+      outcome: { state: "completed", output: "restored-child" },
+    });
+    let executed = 0;
+    let restoredValue: WorkflowJsonValue | undefined;
+    const actions = executeActions({
+      produce: {
+        execute: async () => {
+          executed += 1;
+          return { state: "completed", output: "new" };
+        },
+        restoreCompleted: (_context, _step, outcome) => {
+          restoredValue = outcome.output;
+        },
+      },
+      consume: {
+        execute: async () => ({ state: "completed", output: restoredValue }),
+      },
+    });
+
+    const result = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: { operator: "equals", operands: [true, true] },
+          then: [{ kind: "action", action: "produce", config: {}, sourcePath: ["steps", 0, "then", 0] }],
+          else: [],
+          sourcePath: ["steps", 0],
+        },
+        { kind: "action", action: "consume", config: {}, sourcePath: ["steps", 1] },
+      ]),
+      invocation: invocation("execute"),
+      repository,
+      actions,
+    });
+
+    expect(result).toEqual({ state: "succeeded", output: "restored-child" });
+    expect(executed).toBe(0);
+    expect(repository.started.map((step) => step.key)).toEqual(["steps.1"]);
+  });
+
   test("returns and persists an opaque waiting dependency", async () => {
     const repository = new FakeRepository();
     const dependency = { kind: "approval", key: "approval-1", deadline: "2026-07-15T12:00:00.000Z" };
@@ -534,7 +580,7 @@ describe("workflow runtime executor", () => {
     expect(repository.parked).toEqual([{ step: expect.objectContaining({ key: "steps.2" }), dependency }]);
   });
 
-  test("closes enclosing control steps before atomically parking the waiting action", async () => {
+  test("leaves enclosing control steps resumable while atomically parking the waiting action", async () => {
     const repository = new FakeRepository();
     const dependency = { kind: "approval", key: "approval-nested" };
     const result = await executeWorkflowPlan({
@@ -554,10 +600,7 @@ describe("workflow runtime executor", () => {
     });
 
     expect(result).toMatchObject({ state: "waiting", step: { key: "steps.0.then.0" } });
-    expect(repository.finished).toContainEqual({
-      step: expect.objectContaining({ key: "steps.0" }),
-      result: { mode: "execute", outcome: { state: "waiting", dependency } },
-    });
+    expect(repository.finished).toEqual([]);
     expect(repository.parked).toEqual([{ step: expect.objectContaining({ key: "steps.0.then.0" }), dependency }]);
   });
 
