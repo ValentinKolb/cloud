@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type { Field, Form } from "../../../service";
@@ -37,8 +37,7 @@ const chooseEditModeAction = (formName: string) =>
 
 /**
  * Sidebar row for a single form. Click opens the authenticated submit
- * modal — visually a regular `sidebar-item` so it lines up with the
- * Tables / Views rows above it.
+ * modal.
  *
  * Lives as its own island file because the records-page is SSR and
  * can't carry an onClick handler directly. We hydrate just this small
@@ -73,14 +72,13 @@ export default function FormSidebarEntry(props: Props) {
   };
 
   return (
-    <button
-      type="button"
-      class={`sidebar-item w-full text-left ${props.editMode ? "text-secondary" : ""}`}
-      onClick={handleClick}
+    <AppWorkspace.SidebarItem
+      class={props.editMode ? "text-secondary" : undefined}
+      onClick={() => void handleClick()}
       title={props.editMode ? `Edit ${props.form.name}` : `Submit ${props.form.name}`}
     >
-      <i class="ti ti-forms text-sm shrink-0" />
-      <span class="truncate min-w-0 flex-1">{props.form.name}</span>
-    </button>
+      <AppWorkspace.SidebarItemIcon icon="ti ti-forms" />
+      <AppWorkspace.SidebarItemLabel>{props.form.name}</AppWorkspace.SidebarItemLabel>
+    </AppWorkspace.SidebarItem>
   );
 }

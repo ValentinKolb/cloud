@@ -262,11 +262,11 @@ function ReferenceSidebar(props: { activeTab: GqlReferenceTab; baseShortId: stri
           <AppWorkspace.SidebarItem
             href={referenceTabHref(props.baseShortId, tab.value)}
             navigation="document"
-            icon={tab.icon}
             active={props.activeTab === tab.value}
             title={tab.description}
           >
-            {tab.label}
+            <AppWorkspace.SidebarItemIcon icon={tab.icon} />
+            <AppWorkspace.SidebarItemLabel>{tab.label}</AppWorkspace.SidebarItemLabel>
           </AppWorkspace.SidebarItem>
         )}
       </For>

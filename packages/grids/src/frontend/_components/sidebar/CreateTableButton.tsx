@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -33,18 +33,9 @@ export default function CreateTableButton(props: { baseId: string; baseShortId: 
   };
 
   return (
-    <button
-      type="button"
-      // Match the rest of the sidebar — `sidebar-item` sets the right
-      // text-xs / text-dimmed / hover-bg defaults so this row sits
-      // visually alongside Tables. Same pattern as contacts'
-      // CreateBookButton.
-      class="sidebar-item w-full"
-      onClick={handleClick}
-      disabled={createMutation.loading()}
-    >
-      {createMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-plus" />}
-      New table
-    </button>
+    <AppWorkspace.SidebarItem disabled={createMutation.loading()} onClick={() => void handleClick()}>
+      <AppWorkspace.SidebarItemIcon icon={createMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
+      <AppWorkspace.SidebarItemLabel>New table</AppWorkspace.SidebarItemLabel>
+    </AppWorkspace.SidebarItem>
   );
 }

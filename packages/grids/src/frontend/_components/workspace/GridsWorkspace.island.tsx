@@ -329,13 +329,13 @@ export default function GridsWorkspace(props: Props) {
       <AppWorkspace.SidebarSection title="Workflows">
         <AppWorkspace.SidebarItem
           href={keepEdit(`/app/grids/${state().base.shortId}/workflows`, state().adminModeRequested)}
-          icon="ti ti-route"
           onNavigate={handleNavigate}
           active={state().route.kind === "workflows" && !(state().route as WorkspaceWorkflowsRoute).activeWorkflow}
           activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
           class={state().route.kind === "workflows" ? undefined : sidebarStateClass(false, state().adminModeRequested)}
         >
-          Overview
+          <AppWorkspace.SidebarItemIcon icon="ti ti-route" />
+          <AppWorkspace.SidebarItemLabel>Overview</AppWorkspace.SidebarItemLabel>
         </AppWorkspace.SidebarItem>
         {state().catalog.workflows.map((workflow) => {
           const route = state().route;
@@ -343,14 +343,19 @@ export default function GridsWorkspace(props: Props) {
           return (
             <AppWorkspace.SidebarItem
               href={keepEdit(`/app/grids/${state().base.shortId}/workflows/${workflow.shortId}`, state().adminModeRequested)}
-              icon="ti ti-route"
               onNavigate={handleNavigate}
               active={active}
               activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
               class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-              meta={workflow.enabled ? undefined : <span class="text-[9px] uppercase tracking-wider text-dimmed">off</span>}
+              title={workflow.name}
             >
-              {workflow.name}
+              <AppWorkspace.SidebarItemIcon icon="ti ti-route" />
+              <AppWorkspace.SidebarItemLabel>{workflow.name}</AppWorkspace.SidebarItemLabel>
+              {!workflow.enabled && (
+                <AppWorkspace.SidebarItemMeta>
+                  <span class="text-[9px] uppercase tracking-wider text-dimmed">off</span>
+                </AppWorkspace.SidebarItemMeta>
+              )}
             </AppWorkspace.SidebarItem>
           );
         })}
@@ -362,11 +367,11 @@ export default function GridsWorkspace(props: Props) {
     state().canUseQueryWorkspace ? (
       <AppWorkspace.SidebarItem
         href={`/app/grids/${state().base.shortId}/query`}
-        icon="ti ti-code"
         onNavigate={handleNavigate}
         active={isUnsavedQueryRoute()}
       >
-        Query
+        <AppWorkspace.SidebarItemIcon icon="ti ti-code" />
+        <AppWorkspace.SidebarItemLabel>Query</AppWorkspace.SidebarItemLabel>
       </AppWorkspace.SidebarItem>
     ) : null;
 
@@ -382,16 +387,19 @@ export default function GridsWorkspace(props: Props) {
               return (
                 <AppWorkspace.SidebarItem
                   href={keepEdit(`/app/grids/${state().base.shortId}/dashboard/${d.shortId}`, state().adminModeRequested)}
-                  icon={d.icon ?? "ti ti-layout-dashboard"}
                   onNavigate={handleNavigate}
                   active={active}
                   activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
                   class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                  meta={
-                    state().base.defaultDashboardId === d.id ? <span class="text-[9px] uppercase tracking-wider">default</span> : undefined
-                  }
+                  title={d.name}
                 >
-                  {d.name}
+                  <AppWorkspace.SidebarItemIcon icon={d.icon ?? "ti ti-layout-dashboard"} />
+                  <AppWorkspace.SidebarItemLabel>{d.name}</AppWorkspace.SidebarItemLabel>
+                  {state().base.defaultDashboardId === d.id && (
+                    <AppWorkspace.SidebarItemMeta>
+                      <span class="text-[9px] uppercase tracking-wider">default</span>
+                    </AppWorkspace.SidebarItemMeta>
+                  )}
                 </AppWorkspace.SidebarItem>
               );
             })}
@@ -427,14 +435,17 @@ export default function GridsWorkspace(props: Props) {
                   `/app/grids/${state().base.shortId}/document/${table.shortId}/${template.shortId}`,
                   state().adminModeRequested,
                 )}
-                icon="ti ti-file-type-pdf"
                 onNavigate={handleNavigate}
                 active={active}
                 activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
                 class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                meta={<span class="truncate text-[9px] uppercase tracking-wider">{table.name}</span>}
+                title={template.name}
               >
-                {template.name}
+                <AppWorkspace.SidebarItemIcon icon="ti ti-file-type-pdf" />
+                <AppWorkspace.SidebarItemLabel>{template.name}</AppWorkspace.SidebarItemLabel>
+                <AppWorkspace.SidebarItemMeta>
+                  <span class="truncate text-[9px] uppercase tracking-wider">{table.name}</span>
+                </AppWorkspace.SidebarItemMeta>
               </AppWorkspace.SidebarItem>
             );
           })}
@@ -457,13 +468,14 @@ export default function GridsWorkspace(props: Props) {
             return (
               <AppWorkspace.SidebarItem
                 href={keepEdit(`/app/grids/${state().base.shortId}/table/${t.shortId}`, state().adminModeRequested)}
-                icon={t.icon ?? "ti ti-table"}
                 onNavigate={handleNavigate}
                 active={active}
                 activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
                 class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+                title={t.name}
               >
-                {t.name}
+                <AppWorkspace.SidebarItemIcon icon={t.icon ?? "ti ti-table"} />
+                <AppWorkspace.SidebarItemLabel>{t.name}</AppWorkspace.SidebarItemLabel>
               </AppWorkspace.SidebarItem>
             );
           })
@@ -479,13 +491,14 @@ export default function GridsWorkspace(props: Props) {
             return (
               <AppWorkspace.SidebarItem
                 href={keepEdit(`/app/grids/${state().base.shortId}/table/${t.shortId}/view/${view.shortId}`, state().adminModeRequested)}
-                icon={view.icon ?? "ti ti-table-spark"}
                 onNavigate={handleNavigate}
                 active={active}
                 activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
                 class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+                title={view.name}
               >
-                {view.name}
+                <AppWorkspace.SidebarItemIcon icon={view.icon ?? "ti ti-table-spark"} />
+                <AppWorkspace.SidebarItemLabel>{view.name}</AppWorkspace.SidebarItemLabel>
               </AppWorkspace.SidebarItem>
             );
           }),
@@ -509,7 +522,7 @@ export default function GridsWorkspace(props: Props) {
                 <button
                   type="button"
                   onClick={() => void openSettingsDialog()}
-                  class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
+                  class="inline-flex h-6 w-6 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-primary"
                   title="Settings"
                   aria-label={`Settings for ${state().base.name}`}
                 >
@@ -521,21 +534,20 @@ export default function GridsWorkspace(props: Props) {
           <AppWorkspace.SidebarMobile>
             <AppWorkspace.SidebarMobileItems scrollPreserveKey={`grids-sidebar-mobile-${state().base.id}`}>
               {state().canUseEditMode && (
-                <AppWorkspace.SidebarItem
-                  href={state().editModeToggleHref}
-                  icon={state().adminModeRequested ? "ti ti-check" : "ti ti-tool"}
-                  onNavigate={handleNavigate}
-                >
-                  {state().adminModeRequested ? "Done editing" : "Edit mode"}
+                <AppWorkspace.SidebarItem href={state().editModeToggleHref} onNavigate={handleNavigate}>
+                  <AppWorkspace.SidebarItemIcon icon={state().adminModeRequested ? "ti ti-check" : "ti ti-tool"} />
+                  <AppWorkspace.SidebarItemLabel>{state().adminModeRequested ? "Done editing" : "Edit mode"}</AppWorkspace.SidebarItemLabel>
                 </AppWorkspace.SidebarItem>
               )}
               {state().canManageBase && (
-                <AppWorkspace.SidebarItem onClick={() => void openSettingsDialog()} icon="ti ti-settings">
-                  Settings
+                <AppWorkspace.SidebarItem onClick={() => void openSettingsDialog()}>
+                  <AppWorkspace.SidebarItemIcon icon="ti ti-settings" />
+                  <AppWorkspace.SidebarItemLabel>Settings</AppWorkspace.SidebarItemLabel>
                 </AppWorkspace.SidebarItem>
               )}
-              <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid" navigation="document">
-                All grids
+              <AppWorkspace.SidebarItem href="/app/grids" navigation="document">
+                <AppWorkspace.SidebarItemIcon icon="ti ti-layout-grid" />
+                <AppWorkspace.SidebarItemLabel>All grids</AppWorkspace.SidebarItemLabel>
               </AppWorkspace.SidebarItem>
               {renderQuerySidebarItem()}
             </AppWorkspace.SidebarMobileItems>
@@ -545,26 +557,25 @@ export default function GridsWorkspace(props: Props) {
           </AppWorkspace.SidebarMobile>
 
           <AppWorkspace.SidebarDesktop>
-            <div class="flex flex-col gap-3">
-              <AppWorkspace.SidebarSection>
-                <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid" navigation="document">
-                  All Grids
-                </AppWorkspace.SidebarItem>
-                {renderQuerySidebarItem()}
-              </AppWorkspace.SidebarSection>
-            </div>
+            <AppWorkspace.SidebarSection>
+              <AppWorkspace.SidebarItem href="/app/grids" navigation="document">
+                <AppWorkspace.SidebarItemIcon icon="ti ti-layout-grid" />
+                <AppWorkspace.SidebarItemLabel>All Grids</AppWorkspace.SidebarItemLabel>
+              </AppWorkspace.SidebarItem>
+              {renderQuerySidebarItem()}
+            </AppWorkspace.SidebarSection>
 
             <AppWorkspace.SidebarBody scrollPreserveKey="grids-sidebar">{renderWorkspaceNavigationSections()}</AppWorkspace.SidebarBody>
 
             {state().canUseEditMode && (
-              <AppWorkspace.SidebarFooter class="pt-2">
+              <AppWorkspace.SidebarFooter>
                 <AppWorkspace.SidebarItem
                   href={state().editModeToggleHref}
-                  icon={state().adminModeRequested ? "ti ti-check" : "ti ti-tool"}
                   onNavigate={handleNavigate}
                   class={state().adminModeRequested ? "grids-sidebar-edit-active" : undefined}
                 >
-                  {state().adminModeRequested ? "Done editing" : "Edit mode"}
+                  <AppWorkspace.SidebarItemIcon icon={state().adminModeRequested ? "ti ti-check" : "ti ti-tool"} />
+                  <AppWorkspace.SidebarItemLabel>{state().adminModeRequested ? "Done editing" : "Edit mode"}</AppWorkspace.SidebarItemLabel>
                 </AppWorkspace.SidebarItem>
               </AppWorkspace.SidebarFooter>
             )}

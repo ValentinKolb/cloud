@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -56,9 +56,9 @@ export default function CreateDashboardButton(props: { baseId: string; baseShort
   };
 
   return (
-    <button type="button" class="sidebar-item w-full" onClick={handleClick} disabled={createMutation.loading()}>
-      {createMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-plus" />}
-      New dashboard
-    </button>
+    <AppWorkspace.SidebarItem disabled={createMutation.loading()} onClick={() => void handleClick()}>
+      <AppWorkspace.SidebarItemIcon icon={createMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
+      <AppWorkspace.SidebarItemLabel>New dashboard</AppWorkspace.SidebarItemLabel>
+    </AppWorkspace.SidebarItem>
   );
 }
