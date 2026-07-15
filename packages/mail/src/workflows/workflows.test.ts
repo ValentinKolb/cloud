@@ -101,9 +101,6 @@ steps:
               - "\${{ inputs.conversation.status }}"
               - done
     then:
-      - addKeyword:
-          message: "\${{ inputs.message }}"
-          keyword: "\${{ inputs.message.subject }}"
       - moveMessage:
           message: inputs.message
           folder: Invoices
@@ -121,8 +118,8 @@ steps:
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.plan.bindings).toEqual({
-      "steps.0.then.1.moveMessage.folder": ids.invoices,
-      "steps.0.then.2.assignConversation.user": ids.alice,
+      "steps.0.then.0.moveMessage.folder": ids.invoices,
+      "steps.0.then.1.assignConversation.user": ids.alice,
     });
     expect(result.plan.steps).toEqual(ir.steps);
     expect(result.plan.steps[0]).toEqual(expect.objectContaining({ kind: "if" }));
@@ -309,8 +306,8 @@ steps:
     ]);
   });
 
-  test("binds folder and user IDs while leaving dynamic catalog expressions unchanged", async () => {
-    const source = `inputs:
+  test("binds literal catalog IDs and rejects dynamic folder and user expressions", async () => {
+    const literalSource = `inputs:
   message:
     type: mailMessage
   conversation:
@@ -321,15 +318,168 @@ steps:
       folder: ${ids.inbox}
   - assignConversation:
       conversation: inputs.conversation
-      user: "\${{ inputs.conversation.assigneeUserId }}"
-  - assignConversation:
-      conversation: inputs.conversation
       user: null
 `;
-    const result = await bindMailWorkflow(await compile(source), catalog());
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.plan.bindings).toEqual({ "steps.0.moveMessage.folder": ids.inbox });
-    expect(result.plan.steps).toEqual((await compile(source)).steps);
+    const literal = await bindMailWorkflow(await compile(literalSource), catalog());
+    expect(literal.ok).toBe(true);
+    if (literal.ok) expect(literal.plan.bindings).toEqual({ "steps.0.moveMessage.folder": ids.inbox });
+
+    const dynamicSource = `inputs:
+  message:
+    type: mailMessage
+  conversation:
+    type: mailConversation
+steps:
+  - moveMessage:
+      message: inputs.message
+      folder: "\${{ inputs.message.folderId }}"
+  - assignConversation:
+      conversation: inputs.conversation
+      user: "\${{ inputs.conversation.assigneeUserId }}"
+`;
+    const result = await bindMailWorkflow(await compile(dynamicSource), catalog());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics.map(({ code, path }) => ({ code, path }))).toEqual([
+      { code: "binding.dynamic", path: ["steps", 0, "moveMessage", "folder"] },
+      { code: "binding.dynamic", path: ["steps", 1, "assignConversation", "user"] },
+    ]);
+  });
+
+  test("accepts complete object and array paths and rejects invalid continuations", async () => {
+    const accepted = await bindMailWorkflow(
+      await compile(`inputs:
+  message:
+    type: mailMessage
+steps:
+  - setVariable:
+      name: sender
+      value: "\${{ inputs.message.sender.0.email }}"
+  - setVariable:
+      name: keyword
+      value: "\${{ inputs.message.keywords.0 }}"
+  - succeed:
+      message: "Actor \${{ context.actor.userId }}"
+`),
+      catalog(),
+    );
+    expect(accepted.ok).toBe(true);
+
+    const rejected = await bindMailWorkflow(
+      await compile(`inputs:
+  message:
+    type: mailMessage
+steps:
+  - setVariable:
+      name: first
+      value: "\${{ inputs.message.attachments.0.filename }}"
+  - setVariable:
+      name: second
+      value: "\${{ inputs.message.attachments.01.filename }}"
+  - setVariable:
+      name: third
+      value: "\${{ inputs.message.attachments.0.filename.extra }}"
+  - setVariable:
+      name: fourth
+      value: "\${{ inputs.message.sender.0.constructor }}"
+`),
+      catalog(),
+    );
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) {
+      expect(rejected.diagnostics.map(({ code, path }) => ({ code, path }))).toEqual([
+        { code: "reference.path", path: ["steps", 0, "setVariable", "value"] },
+        { code: "reference.path", path: ["steps", 1, "setVariable", "value"] },
+        { code: "reference.path", path: ["steps", 2, "setVariable", "value"] },
+        { code: "reference.path", path: ["steps", 3, "setVariable", "value"] },
+      ]);
+    }
+  });
+
+  test("reserves runtime roots for variables", async () => {
+    const result = await bindMailWorkflow(
+      await compile(`steps:
+  - setVariable: { name: bindings, value: one }
+  - setVariable: { name: context, value: two }
+`),
+      catalog(),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.diagnostics.map(({ code, path }) => ({ code, path }))).toEqual([
+        { code: "scope.duplicate", path: ["steps", 0, "setVariable", "name"] },
+        { code: "scope.duplicate", path: ["steps", 1, "setVariable", "name"] },
+      ]);
+    }
+  });
+
+  test("rejects repeated same-message provider mutations on reachable paths only", async () => {
+    const repeated = await bindMailWorkflow(
+      await compile(`inputs:
+  message:
+    type: mailMessage
+steps:
+  - setVariable: { name: selected, value: "\${{ inputs.message }}" }
+  - addKeyword: { message: selected, keyword: first }
+  - moveMessage: { message: inputs.message, folder: Inbox }
+`),
+      catalog(),
+    );
+    expect(repeated.ok).toBe(false);
+    if (!repeated.ok) {
+      expect(repeated.diagnostics).toContainEqual(expect.objectContaining({ code: "action.sequence", path: ["steps", 2, "moveMessage"] }));
+    }
+
+    const exclusiveIf = await bindMailWorkflow(
+      await compile(`inputs:
+  message:
+    type: mailMessage
+steps:
+  - if: { equals: [one, one] }
+    then:
+      - addKeyword: { message: inputs.message, keyword: branch }
+    else:
+      - moveMessage: { message: inputs.message, folder: Inbox }
+`),
+      catalog(),
+    );
+    expect(exclusiveIf.ok).toBe(true);
+
+    const exclusiveSwitch = await bindMailWorkflow(
+      await compile(`inputs:
+  message:
+    type: mailMessage
+steps:
+  - switch: one
+    cases:
+      - when: one
+        do:
+          - addKeyword: { message: inputs.message, keyword: case }
+    default:
+      - moveMessage: { message: inputs.message, folder: Inbox }
+`),
+      catalog(),
+    );
+    expect(exclusiveSwitch.ok).toBe(true);
+
+    const afterBranch = await bindMailWorkflow(
+      await compile(`inputs:
+  message:
+    type: mailMessage
+steps:
+  - if: { equals: [one, one] }
+    then:
+      - addKeyword: { message: inputs.message, keyword: branch }
+  - moveMessage: { message: inputs.message, folder: Inbox }
+`),
+      catalog(),
+    );
+    expect(afterBranch.ok).toBe(false);
+    if (!afterBranch.ok) {
+      expect(afterBranch.diagnostics).toContainEqual(
+        expect.objectContaining({ code: "action.sequence", path: ["steps", 1, "moveMessage"] }),
+      );
+    }
   });
 });

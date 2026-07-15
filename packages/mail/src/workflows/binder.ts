@@ -8,7 +8,14 @@ import type {
   WorkflowSourceLocation,
 } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
-import { bindWorkflow, parseWorkflowValueString, workflowMessageExpressions } from "@valentinkolb/cloud/workflows/language";
+import {
+  bindWorkflow,
+  isWorkflowReservedReferenceRoot,
+  parseWorkflowValueString,
+  resolveWorkflowValuePathDescriptor,
+  type WorkflowValuePathDescriptor,
+  workflowMessageExpressions,
+} from "@valentinkolb/cloud/workflows/language";
 import {
   getMailWorkflowCatalogRef,
   type MailWorkflowCatalog,
@@ -20,7 +27,7 @@ import { mailWorkflowManifest } from "./manifest";
 
 export type BindMailWorkflowResult = { ok: true; plan: WorkflowBoundPlan } | { ok: false; diagnostics: WorkflowDiagnostic[] };
 
-type ValueInfo = { type: string };
+type ValueInfo = WorkflowValuePathDescriptor & { providerTarget?: string };
 
 type BindingContext = {
   ir: WorkflowIr;
@@ -32,40 +39,70 @@ type BindingContext = {
 
 const inputTypes = new Map(mailWorkflowManifest.inputs.map((input) => [input.kind, input.valueType]));
 
-const valueFields: Record<string, ReadonlyMap<string, string>> = {
-  "mail.message": new Map([
-    ["id", "core.text"],
-    ["conversationId", "core.text"],
-    ["subject", "core.text"],
-    ["sender", "core.value"],
-    ["recipients", "core.value"],
-    ["body", "core.text"],
-    ["bodyText", "core.text"],
-    ["bodyHtml", "core.text"],
-    ["attachments", "core.value"],
-    ["hasAttachments", "core.boolean"],
-    ["folderId", "core.text"],
-    ["flags", "core.value"],
-    ["keywords", "core.value"],
-    ["direction", "core.text"],
-    ["internalDate", "core.dateTime"],
-    ["receivedAt", "core.dateTime"],
-  ]),
-  "mail.conversation": new Map([
-    ["id", "core.text"],
-    ["subject", "core.text"],
-    ["assigneeUserId", "core.text"],
-    ["status", "core.text"],
-    ["workStatus", "core.text"],
-    ["responseNeeded", "core.boolean"],
-    ["latestMessageAt", "core.dateTime"],
-  ]),
-  "mail.context": new Map([
-    ["mailboxId", "core.text"],
-    ["actor", "core.value"],
-    ["occurredAt", "core.dateTime"],
-  ]),
+const textValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.text" };
+const booleanValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.boolean" };
+const dateTimeValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.dateTime" };
+const mailAddress: WorkflowValuePathDescriptor = {
+  kind: "object",
+  type: "mail.address",
+  properties: { role: textValue, name: textValue, email: textValue },
 };
+const mailValueDescriptors: Record<string, WorkflowValuePathDescriptor> = {
+  "mail.message": {
+    kind: "object",
+    type: "mail.message",
+    properties: {
+      id: textValue,
+      conversationId: textValue,
+      subject: textValue,
+      sender: { kind: "array", type: "core.array", items: mailAddress },
+      recipients: { kind: "array", type: "core.array", items: mailAddress },
+      body: textValue,
+      bodyText: textValue,
+      bodyHtml: textValue,
+      attachments: { kind: "scalar", type: "core.array" },
+      hasAttachments: booleanValue,
+      folderId: textValue,
+      flags: { kind: "array", type: "core.array", items: textValue },
+      keywords: { kind: "array", type: "core.array", items: textValue },
+      direction: textValue,
+      internalDate: dateTimeValue,
+      receivedAt: dateTimeValue,
+    },
+  },
+  "mail.conversation": {
+    kind: "object",
+    type: "mail.conversation",
+    properties: {
+      id: textValue,
+      subject: textValue,
+      assigneeUserId: textValue,
+      status: textValue,
+      workStatus: textValue,
+      responseNeeded: booleanValue,
+      latestMessageAt: dateTimeValue,
+    },
+  },
+  "mail.context": {
+    kind: "object",
+    type: "mail.context",
+    properties: {
+      mailboxId: textValue,
+      actor: {
+        kind: "object",
+        type: "workflow.actor",
+        properties: {
+          userId: textValue,
+          groupIds: { kind: "array", type: "core.array", items: textValue },
+          serviceAccountId: textValue,
+        },
+      },
+      occurredAt: dateTimeValue,
+    },
+  },
+};
+
+const valueDescriptor = (type: string): WorkflowValuePathDescriptor => mailValueDescriptors[type] ?? { kind: "scalar", type };
 
 const locationForPath = (
   path: Array<string | number>,
@@ -114,17 +151,11 @@ const resolveTypedPath = (
   path: Array<string | number>,
   context: BindingContext,
 ): ValueInfo | null => {
-  let current = value.type;
-  for (const part of parts) {
-    if (current === "core.value") return { type: current };
-    const next = valueFields[current]?.get(part);
-    if (!next) {
-      addDiagnostic(context, "reference.path", `Reference "${reference}" does not expose "${part}"`, path);
-      return null;
-    }
-    current = next;
-  }
-  return { type: current };
+  if (parts.length === 0) return value;
+  const resolved = resolveWorkflowValuePathDescriptor(value, parts);
+  if (resolved) return resolved;
+  addDiagnostic(context, "reference.path", `Reference "${reference}" does not expose path "${parts.join(".")}"`, path);
+  return null;
 };
 
 const resolveReference = (
@@ -158,7 +189,7 @@ const resolveReference = (
       return null;
     }
   } else if (root === "context") {
-    value = { type: "mail.context" };
+    value = mailValueDescriptors["mail.context"]!;
   } else {
     value = root ? scope.get(root) : undefined;
     if (!value) {
@@ -189,19 +220,19 @@ const bindValue = (
     const parsed = parseWorkflowValueString(value);
     if (parsed.kind === "invalid") addDiagnostic(context, "reference.invalid", "Invalid workflow value expression", path);
     else if (parsed.kind === "expression" && parsed.expression.kind === "reference") {
-      return resolveReference(parsed.expression.reference, path, scope, context) ?? { type: "core.value" };
-    } else if (parsed.kind === "expression") return { type: "core.dateTime" };
-    return { type: "core.text" };
+      return resolveReference(parsed.expression.reference, path, scope, context) ?? valueDescriptor("core.value");
+    } else if (parsed.kind === "expression") return dateTimeValue;
+    return textValue;
   }
-  if (typeof value === "number") return { type: "core.number" };
-  if (typeof value === "boolean") return { type: "core.boolean" };
-  if (value === null) return { type: "core.null" };
+  if (typeof value === "number") return valueDescriptor("core.number");
+  if (typeof value === "boolean") return booleanValue;
+  if (value === null) return valueDescriptor("core.null");
   if (Array.isArray(value)) {
-    value.forEach((item, index) => bindValue(item, [...path, index], scope, context));
-    return { type: "core.array" };
+    const elements = value.map((item, index) => bindValue(item, [...path, index], scope, context));
+    return { kind: "array", type: "core.array", items: valueDescriptor("core.value"), elements };
   }
-  for (const [key, item] of Object.entries(value)) bindValue(item, [...path, key], scope, context);
-  return { type: "core.object" };
+  const properties = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, bindValue(item, [...path, key], scope, context)]));
+  return { kind: "object", type: "core.object", properties };
 };
 
 const expectReference = (
@@ -211,17 +242,19 @@ const expectReference = (
   path: Array<string | number>,
   scope: ReadonlyMap<string, ValueInfo>,
   context: BindingContext,
-): void => {
-  if (typeof value !== "string") return;
+): ValueInfo | null => {
+  if (typeof value !== "string") return null;
   const source = expressionReference(value);
   if (!source) {
     addDiagnostic(context, "reference.invalid", `${label} must be a value reference`, path);
-    return;
+    return null;
   }
   const actual = resolveReference(source.value, path, scope, context);
   if (actual && actual.type !== expectedType) {
     addDiagnostic(context, "reference.type", `${label} references ${actual.type}, expected ${expectedType}`, path);
+    return null;
   }
+  return actual;
 };
 
 const bindCatalogValue = <T extends MailWorkflowCatalogEntry>(
@@ -243,11 +276,8 @@ const bindCatalogValue = <T extends MailWorkflowCatalogEntry>(
     addDiagnostic(context, "reference.invalid", `Invalid ${label} expression`, path);
   } else if (source.kind === "literal") {
     resolveCatalogRef(context, index, source.value, label, path);
-  } else {
-    const resolved = resolveReference(source.value, path, scope, context);
-    if (resolved && resolved.type !== "core.text") {
-      addDiagnostic(context, "reference.type", `${label} expression resolves to ${resolved.type}, expected core.text`, path);
-    }
+  } else if (resolveReference(source.value, path, scope, context)) {
+    addDiagnostic(context, "binding.dynamic", `${label} must be a literal accessible name or ID`, path);
   }
 };
 
@@ -279,7 +309,7 @@ const defineValue = (
   context: BindingContext,
 ): void => {
   if (typeof name !== "string") return;
-  if (name === "inputs" || name === "trigger" || scope.has(name)) {
+  if (isWorkflowReservedReferenceRoot(name) || scope.has(name)) {
     addDiagnostic(context, "scope.duplicate", `Value name "${name}" is already defined in this scope`, path);
     return;
   }
@@ -318,14 +348,31 @@ const bindCondition = (
   }
 };
 
-const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Map<string, ValueInfo>, context: BindingContext): void => {
+const bindAction = (
+  step: Extract<WorkflowIrStep, { kind: "action" }>,
+  scope: Map<string, ValueInfo>,
+  providerTargets: Set<string>,
+  context: BindingContext,
+): void => {
   const path = [...step.sourcePath, step.action];
   const config = step.config;
   if (step.action === "addKeyword" || step.action === "removeKeyword") {
-    expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
+    const message = expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
+    if (message?.providerTarget) {
+      if (providerTargets.has(message.providerTarget)) {
+        addDiagnostic(context, "action.sequence", "Multiple provider mutations of the same message are not supported", path);
+      }
+      providerTargets.add(message.providerTarget);
+    }
     if (config.keyword !== undefined) bindValue(config.keyword, [...path, "keyword"], scope, context);
   } else if (step.action === "moveMessage") {
-    expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
+    const message = expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
+    if (message?.providerTarget) {
+      if (providerTargets.has(message.providerTarget)) {
+        addDiagnostic(context, "action.sequence", "Multiple provider mutations of the same message are not supported", path);
+      }
+      providerTargets.add(message.providerTarget);
+    }
     bindCatalogValue(config.folder, context.catalog.folders, "folder", [...path, "folder"], scope, context);
   } else if (step.action === "assignConversation") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
@@ -340,20 +387,28 @@ const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Ma
   }
 };
 
-const bindSteps = (steps: WorkflowIrStep[], scope: Map<string, ValueInfo>, context: BindingContext): void => {
+const bindSteps = (steps: WorkflowIrStep[], scope: Map<string, ValueInfo>, providerTargets: Set<string>, context: BindingContext): void => {
   for (const step of steps) {
-    if (step.kind === "action") bindAction(step, scope, context);
+    if (step.kind === "action") bindAction(step, scope, providerTargets, context);
     else if (step.kind === "if") {
       bindCondition(step.condition, [...step.sourcePath, "if"], scope, context);
-      bindSteps(step.then, new Map(scope), context);
-      bindSteps(step.else, new Map(scope), context);
+      const thenTargets = new Set(providerTargets);
+      const elseTargets = new Set(providerTargets);
+      bindSteps(step.then, new Map(scope), thenTargets, context);
+      bindSteps(step.else, new Map(scope), elseTargets, context);
+      for (const target of [...thenTargets, ...elseTargets]) providerTargets.add(target);
     } else if (step.kind === "switch") {
       bindValue(step.value, [...step.sourcePath, "switch"], scope, context);
+      const branchTargets: Set<string>[] = [];
       step.cases.forEach((item, index) => {
         bindValue(item.when, [...step.sourcePath, "cases", index, "when"], scope, context);
-        bindSteps(item.steps, new Map(scope), context);
+        const caseTargets = new Set(providerTargets);
+        bindSteps(item.steps, new Map(scope), caseTargets, context);
+        branchTargets.push(caseTargets);
       });
-      bindSteps(step.default, new Map(scope), context);
+      const defaultTargets = new Set(providerTargets);
+      bindSteps(step.default, new Map(scope), defaultTargets, context);
+      for (const target of [...defaultTargets, ...branchTargets.flatMap((targets) => [...targets])]) providerTargets.add(target);
     } else {
       addDiagnostic(context, "step.unsupported", "forEach is not supported by the Mail workflow vocabulary", [
         ...step.sourcePath,
@@ -364,7 +419,13 @@ const bindSteps = (steps: WorkflowIrStep[], scope: Map<string, ValueInfo>, conte
 };
 
 const bindInputs = (context: BindingContext): void => {
-  for (const input of context.ir.inputs) context.inputs.set(input.name, { type: inputTypes.get(input.type) ?? "core.value" });
+  for (const input of context.ir.inputs) {
+    const descriptor = valueDescriptor(inputTypes.get(input.type) ?? "core.value");
+    context.inputs.set(input.name, {
+      ...descriptor,
+      ...(descriptor.type === "mail.message" ? { providerTarget: "mail.target.message" } : {}),
+    });
+  }
 };
 
 const typesCompatible = (expected: string, actual: string): boolean =>
@@ -376,14 +437,14 @@ const resolveTriggerBindingType = (
   eventValues: ReadonlyMap<string, ValueInfo>,
   context: BindingContext,
 ): ValueInfo | null => {
-  if (typeof value !== "string") return { type: "core.value" };
+  if (typeof value !== "string") return valueDescriptor("core.value");
   const parsed = parseWorkflowValueString(value);
   if (parsed.kind === "invalid") {
     addDiagnostic(context, "reference.invalid", "Invalid trigger binding expression", bindingPath);
     return null;
   }
-  if (parsed.kind !== "expression") return { type: "core.text" };
-  if (parsed.expression.kind !== "reference") return { type: "core.dateTime" };
+  if (parsed.kind !== "expression") return textValue;
+  if (parsed.expression.kind !== "reference") return dateTimeValue;
   return resolveReference(parsed.expression.reference, bindingPath, new Map(), context, eventValues);
 };
 
@@ -393,7 +454,7 @@ const bindTrigger = (
   context: BindingContext,
 ): void => {
   const path = ["triggers", trigger.kind] as Array<string | number>;
-  const eventValues = new Map(Object.entries(descriptor.eventValues).map(([name, type]) => [name, { type }]));
+  const eventValues = new Map(Object.entries(descriptor.eventValues).map(([name, type]) => [name, valueDescriptor(type)]));
   for (const input of context.ir.inputs) {
     if (input.config.required === true && trigger.with[input.name] === undefined) {
       addDiagnostic(context, "trigger.required", `Trigger must bind required input "${input.name}"`, [...path, "with", input.name]);
@@ -435,7 +496,7 @@ export const bindMailWorkflow = async (ir: WorkflowIr, catalog: MailWorkflowCata
   const context: BindingContext = { ir, catalog, inputs: new Map(), bindings: {}, diagnostics: [] };
   bindInputs(context);
   bindTriggers(context);
-  bindSteps(ir.steps, new Map(), context);
+  bindSteps(ir.steps, new Map(), new Set(), context);
   if (context.diagnostics.length > 0) return { ok: false, diagnostics: context.diagnostics };
 
   const plan = await bindWorkflow(ir, mailWorkflowManifest, () => ({

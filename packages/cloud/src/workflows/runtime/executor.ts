@@ -9,6 +9,7 @@ import type {
   WorkflowStepOutcome,
 } from "../contracts";
 import { workflowPathKey } from "../contracts";
+import { readWorkflowValuePath } from "../language/references";
 import type {
   WorkflowActionStep,
   WorkflowDryRunActionContext,
@@ -161,21 +162,6 @@ const stepIdentity = (state: RuntimeState, step: WorkflowIrStep, iterationPath: 
   };
 };
 
-const readPath = (value: WorkflowJsonValue, path: string[]): WorkflowJsonValue | undefined => {
-  let current: WorkflowJsonValue | undefined = value;
-  for (const segment of path) {
-    if (Array.isArray(current)) {
-      const index = Number(segment);
-      if (!Number.isInteger(index) || index < 0 || index >= current.length) return undefined;
-      current = current[index];
-      continue;
-    }
-    if (current === null || typeof current !== "object" || !Object.prototype.hasOwnProperty.call(current, segment)) return undefined;
-    current = current[segment];
-  }
-  return current;
-};
-
 const resolveLocalReference = (state: RuntimeState, scope: RuntimeVariableScope, reference: string): WorkflowValueResolution => {
   const segments = reference.split(".");
   const rootName = segments.shift() ?? "";
@@ -184,7 +170,7 @@ const resolveLocalReference = (state: RuntimeState, scope: RuntimeVariableScope,
   else if (rootName === "bindings") root = state.options.plan.bindings;
   else if (rootName === "context") root = state.options.invocation.context ?? {};
   else root = scope.get(rootName);
-  const value = root === undefined || segments.length === 0 ? root : readPath(root, segments);
+  const value = root === undefined || segments.length === 0 ? root : readWorkflowValuePath(root, segments);
   return value === undefined ? { state: "missing" } : { state: "resolved", value };
 };
 
@@ -403,12 +389,10 @@ const restoreCompletedControlDescendants = async (
     throw new WorkflowValueError(`forEach reference "${irStep.reference}" has ${resolved.value.length} items; limit is ${limit}`);
   }
   for (let index = 0; index < resolved.value.length; index += 1) {
-    const flow = await restoreCompletedSteps(
-      state,
-      scope.child({ [irStep.alias]: resolved.value[index]! }),
-      irStep.steps,
-      [...iterationPath, index],
-    );
+    const flow = await restoreCompletedSteps(state, scope.child({ [irStep.alias]: resolved.value[index]! }), irStep.steps, [
+      ...iterationPath,
+      index,
+    ]);
     if (flow.state !== "continue") return flow;
   }
   return { state: "continue" };

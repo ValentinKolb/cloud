@@ -9,4 +9,11 @@ export {
   workflowMessageExpressions,
   workflowValueExpression,
 } from "./expressions";
+export {
+  isWorkflowReservedReferenceRoot,
+  readWorkflowValuePath,
+  resolveWorkflowValuePathDescriptor,
+  WORKFLOW_RESERVED_REFERENCE_ROOTS,
+  type WorkflowValuePathDescriptor,
+} from "./references";
 export { type ParsedWorkflowYaml, type ParseWorkflowYamlResult, parseWorkflowYaml } from "./strict-yaml";

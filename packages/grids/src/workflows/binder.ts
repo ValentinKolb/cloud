@@ -8,7 +8,14 @@ import type {
   WorkflowSourceLocation,
 } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
-import { bindWorkflow, parseWorkflowValueString, workflowMessageExpressions } from "@valentinkolb/cloud/workflows/language";
+import {
+  bindWorkflow,
+  isWorkflowReservedReferenceRoot,
+  parseWorkflowValueString,
+  resolveWorkflowValuePathDescriptor,
+  type WorkflowValuePathDescriptor,
+  workflowMessageExpressions,
+} from "@valentinkolb/cloud/workflows/language";
 import { normalizeWorkflowSchedule } from "@valentinkolb/cloud/workflows/runtime";
 import {
   getWorkflowCatalogRef,
@@ -21,27 +28,58 @@ import { gridsWorkflowManifest } from "./manifest";
 
 export type BindGridsWorkflowResult = { ok: true; plan: WorkflowBoundPlan } | { ok: false; diagnostics: WorkflowDiagnostic[] };
 
-type ValueInfo = { type: string; tableId?: string };
+type ValueInfo = WorkflowValuePathDescriptor & { tableId?: string };
 
-const STRUCTURED_PATHS: Partial<Record<string, ReadonlySet<string>>> = {
-  "grids.document": new Set([
-    "id",
-    "shortId",
-    "templateId",
-    "workflowRunId",
-    "snapshotId",
-    "baseId",
-    "tableId",
-    "recordId",
-    "documentNumber",
-    "filename",
-    "tags",
-    "generatedBy",
-    "generatedAt",
-  ]),
-  "grids.documentLink": new Set(["kind", "id", "documentRunId", "url", "expiresAt"]),
-  "grids.emailDelivery": new Set(["templateId", "subject", "recipients"]),
+const textValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.text" };
+const dateTimeValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.dateTime" };
+const recordValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "grids.record" };
+const gridsValueDescriptors: Record<string, WorkflowValuePathDescriptor> = {
+  "grids.record": recordValue,
+  "grids.recordList": { kind: "array", type: "grids.recordList", items: recordValue },
+  "grids.document": {
+    kind: "object",
+    type: "grids.document",
+    properties: {
+      id: textValue,
+      shortId: textValue,
+      templateId: textValue,
+      workflowRunId: textValue,
+      snapshotId: textValue,
+      baseId: textValue,
+      tableId: textValue,
+      recordId: textValue,
+      documentNumber: textValue,
+      filename: textValue,
+      tags: { kind: "array", type: "core.array", items: textValue },
+      generatedBy: textValue,
+      generatedAt: dateTimeValue,
+    },
+  },
+  "grids.documentLink": {
+    kind: "object",
+    type: "grids.documentLink",
+    properties: { kind: textValue, id: textValue, documentRunId: textValue, url: textValue, expiresAt: dateTimeValue },
+  },
+  "grids.emailDelivery": {
+    kind: "object",
+    type: "grids.emailDelivery",
+    properties: {
+      templateId: textValue,
+      subject: textValue,
+      recipients: {
+        kind: "array",
+        type: "core.array",
+        items: {
+          kind: "object",
+          type: "grids.emailRecipient",
+          properties: { id: textValue, deliveryId: textValue, kind: textValue, recipient: textValue, status: textValue },
+        },
+      },
+    },
+  },
 };
+
+const valueDescriptor = (type: string): WorkflowValuePathDescriptor => gridsValueDescriptors[type] ?? { kind: "scalar", type };
 
 type BindingContext = {
   ir: WorkflowIr;
@@ -157,9 +195,12 @@ const resolveReference = (
   if (fieldParts.length === 0) return value;
   if (value.type === "grids.record") {
     if (value.tableId) bindField(context, value.tableId, fieldParts.join("."), path);
-    return { type: "core.value" };
+    return valueDescriptor("core.value");
   }
-  if (value.type === "core.value" || STRUCTURED_PATHS[value.type]?.has(fieldParts[0]!)) return { type: "core.value" };
+  const resolved = resolveWorkflowValuePathDescriptor(value, fieldParts);
+  if (resolved) {
+    return resolved.type === "grids.record" && value.tableId ? { ...resolved, tableId: value.tableId } : resolved;
+  }
   addDiagnostic(context, "reference.path", `Reference "${reference}" does not support field path "${fieldParts.join(".")}"`, path);
   return null;
 };
@@ -175,20 +216,21 @@ const bindValue = (
     if (parsed.kind === "invalid") {
       addDiagnostic(context, "reference.invalid", "Invalid workflow value expression", path);
     } else if (parsed.kind === "expression" && parsed.expression.kind === "reference") {
-      return resolveReference(parsed.expression.reference, path, scope, context) ?? { type: "core.value" };
+      return resolveReference(parsed.expression.reference, path, scope, context) ?? valueDescriptor("core.value");
     } else if (parsed.kind === "expression" && parsed.expression.kind === "now") {
-      return { type: "core.dateTime" };
+      return dateTimeValue;
     }
-    return { type: "core.text" };
+    return textValue;
   }
-  if (typeof value === "number") return { type: "core.number" };
-  if (typeof value === "boolean") return { type: "core.boolean" };
+  if (typeof value === "number") return valueDescriptor("core.number");
+  if (typeof value === "boolean") return valueDescriptor("core.boolean");
+  if (value === null) return valueDescriptor("core.null");
   if (Array.isArray(value)) {
-    value.forEach((item, index) => bindValue(item, [...path, index], scope, context));
-  } else if (value) {
-    for (const [key, item] of Object.entries(value)) bindValue(item, [...path, key], scope, context);
+    const elements = value.map((item, index) => bindValue(item, [...path, index], scope, context));
+    return { kind: "array", type: "core.array", items: valueDescriptor("core.value"), elements };
   }
-  return { type: "core.value" };
+  const properties = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, bindValue(item, [...path, key], scope, context)]));
+  return { kind: "object", type: "core.object", properties };
 };
 
 const expectReference = (
@@ -221,7 +263,7 @@ const defineValue = (
   context: BindingContext,
 ): void => {
   if (typeof name !== "string") return;
-  if (name === "inputs" || name === "trigger" || scope.has(name)) {
+  if (isWorkflowReservedReferenceRoot(name) || scope.has(name)) {
     addDiagnostic(context, "scope.duplicate", `Value name "${name}" is already defined in this scope`, path);
     return;
   }
@@ -282,7 +324,7 @@ const bindMessage = (
 const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Map<string, ValueInfo>, context: BindingContext): void => {
   const config = step.config;
   const path = [...step.sourcePath, step.action];
-  let output: ValueInfo | undefined = actionTypes.get(step.action) ? { type: actionTypes.get(step.action)! } : undefined;
+  let output: ValueInfo | undefined = actionTypes.get(step.action) ? valueDescriptor(actionTypes.get(step.action)!) : undefined;
 
   if (step.action === "updateRecord") {
     const record = expectReference(config.record, "grids.record", "record", [...path, "record"], scope, context);
@@ -293,7 +335,7 @@ const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Ma
         ? resolveCatalogRef(context, context.catalog.tables, config.table, "table", [...path, "table"])
         : null;
     bindFieldMap(config.values, table?.id, [...path, "values"], scope, context);
-    output = { type: "grids.record", ...(table ? { tableId: table.id } : {}) };
+    output = { ...recordValue, ...(table ? { tableId: table.id } : {}) };
   } else if (step.action === "generateDocument") {
     const template =
       typeof config.template === "string"
@@ -380,7 +422,7 @@ const bindSteps = (steps: WorkflowIrStep[], scope: Map<string, ValueInfo>, conte
       const loopScope = new Map(scope);
       defineValue(
         step.alias,
-        { type: "grids.record", ...(iterable?.tableId ? { tableId: iterable.tableId } : {}) },
+        { ...recordValue, ...(iterable?.tableId ? { tableId: iterable.tableId } : {}) },
         [...step.sourcePath, "as"],
         loopScope,
         context,
@@ -429,7 +471,7 @@ const bindTriggers = (context: BindingContext): void => {
     const eventValues = new Map(
       Object.entries(descriptor.eventValues).map(([name, type]) => [
         name,
-        { type, ...(type === "grids.record" && triggerTableId ? { tableId: triggerTableId } : {}) },
+        { ...valueDescriptor(type), ...(type === "grids.record" && triggerTableId ? { tableId: triggerTableId } : {}) },
       ]),
     );
     if (trigger.kind === "recordEvent") bindFilterFields(trigger.config.filter, triggerTableId, [...path, "filter"], context);
@@ -451,16 +493,16 @@ const bindTriggers = (context: BindingContext): void => {
           if (!resolved) continue;
           actual = resolved;
         } else if (parsed.kind === "expression" && parsed.expression.kind === "now") {
-          actual = { type: "core.dateTime" };
+          actual = dateTimeValue;
         } else if (parsed.kind === "invalid") {
           addDiagnostic(context, "reference.invalid", "Invalid trigger binding expression", bindingPath);
           continue;
         } else {
-          actual = { type: "core.text" };
+          actual = textValue;
         }
-      } else if (typeof value === "number") actual = { type: "core.number" };
-      else if (typeof value === "boolean") actual = { type: "core.boolean" };
-      else actual = { type: "core.value" };
+      } else if (typeof value === "number") actual = valueDescriptor("core.number");
+      else if (typeof value === "boolean") actual = valueDescriptor("core.boolean");
+      else actual = valueDescriptor("core.value");
 
       if (!typesCompatible(input.type, actual.type)) {
         addDiagnostic(context, "trigger.type", `Trigger value has type ${actual.type}, expected ${input.type}`, bindingPath);
@@ -480,7 +522,7 @@ const bindInputs = (context: BindingContext): void => {
       const table = resolveCatalogRef(context, context.catalog.tables, input.config.table, "table", ["inputs", input.name, "table"]);
       tableId = table?.id;
     }
-    context.inputs.set(input.name, { type, ...(tableId ? { tableId } : {}) });
+    context.inputs.set(input.name, { ...valueDescriptor(type), ...(tableId ? { tableId } : {}) });
   }
 };
 

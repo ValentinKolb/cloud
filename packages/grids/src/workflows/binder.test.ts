@@ -365,4 +365,116 @@ steps:
     );
     expect(result.diagnostics).not.toContainEqual(expect.objectContaining({ code: "reference.unknown" }));
   });
+
+  test("reserves runtime roots for variables, action outputs, and loop aliases", async () => {
+    const result = await bindGridsWorkflow(
+      await compile(`inputs:
+  item:
+    type: record
+    table: Items
+  items:
+    type: recordList
+    table: Items
+steps:
+  - setVariable: { name: bindings, value: one }
+  - setVariable: { name: inputs, value: two }
+  - generateDocument:
+      template: Item sheet
+      record: inputs.item
+      saveAs: context
+  - forEach: inputs.items
+    as: trigger
+    do:
+      - succeed: { message: unreachable }
+`),
+      catalog(),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.diagnostics.map(({ code, path }) => ({ code, path }))).toEqual(
+        expect.arrayContaining([
+          { code: "scope.duplicate", path: ["steps", 0, "setVariable", "name"] },
+          { code: "scope.duplicate", path: ["steps", 1, "setVariable", "name"] },
+          { code: "scope.duplicate", path: ["steps", 2, "generateDocument", "saveAs"] },
+          { code: "scope.duplicate", path: ["steps", 3, "as"] },
+        ]),
+      );
+    }
+  });
+
+  test("accepts complete structured and literal value paths", async () => {
+    const result = await bindGridsWorkflow(
+      await compile(`inputs:
+  item:
+    type: record
+    table: Items
+  items:
+    type: recordList
+    table: Items
+steps:
+  - updateRecord:
+      record: inputs.items.0
+      set: { Status: Ready }
+  - generateDocument:
+      template: Item sheet
+      record: inputs.item
+      saveAs: sheet
+  - setVariable: { name: tag, value: "\${{ sheet.tags.0 }}" }
+  - createDocumentLink:
+      document: sheet
+      saveAs: link
+  - setVariable: { name: url, value: "\${{ link.url }}" }
+  - sendEmail:
+      template: Ready notice
+      to: [{ email: user@example.test }]
+      saveAs: delivery
+  - setVariable: { name: status, value: "\${{ delivery.recipients.0.status }}" }
+  - setVariable:
+      name: payload
+      value: { rows: [{ name: Ada }] }
+  - setVariable: { name: nested, value: "\${{ payload.rows.0.name }}" }
+`),
+      catalog(),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects invalid structured and literal value-path continuations", async () => {
+    const result = await bindGridsWorkflow(
+      await compile(`inputs:
+  item:
+    type: record
+    table: Items
+steps:
+  - generateDocument:
+      template: Item sheet
+      record: inputs.item
+      saveAs: sheet
+  - setVariable: { name: badTag, value: "\${{ sheet.tags.name }}" }
+  - setVariable: { name: badFilename, value: "\${{ sheet.filename.extra }}" }
+  - sendEmail:
+      template: Ready notice
+      to: [{ email: user@example.test }]
+      saveAs: delivery
+  - setVariable: { name: badRecipient, value: "\${{ delivery.recipients.status }}" }
+  - setVariable:
+      name: payload
+      value: { rows: [{ name: Ada }] }
+  - setVariable: { name: badLiteral, value: "\${{ payload.rows.01.name }}" }
+`),
+      catalog(),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.diagnostics.map(({ code, path }) => ({ code, path }))).toEqual([
+        { code: "reference.path", path: ["steps", 1, "setVariable", "value"] },
+        { code: "reference.path", path: ["steps", 2, "setVariable", "value"] },
+        { code: "reference.path", path: ["steps", 4, "setVariable", "value"] },
+        { code: "reference.path", path: ["steps", 6, "setVariable", "value"] },
+      ]);
+    }
+  });
 });
