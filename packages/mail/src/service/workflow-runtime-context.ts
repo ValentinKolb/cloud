@@ -2,8 +2,11 @@ import type { RequestActor } from "@valentinkolb/cloud/server";
 import { accounts, serviceAccounts, toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { ActorRef } from "../contracts";
+import { requireMailboxPermission } from "./access";
 import type { MailRequestContext } from "./auth";
 import { actorRefFromRequest, durableCredentialSnapshot } from "./auth";
+
+type SqlClient = typeof sql;
 
 type MailWorkflowActorAuthorization = {
   version: 2;
@@ -77,12 +80,13 @@ export const snapshotMailboxWorkflowAuthorization = (
 
 const serviceCredentialActive = async (
   actor: Extract<MailWorkflowActorAuthorization["actor"], { kind: "service_account" }>,
+  db: SqlClient = sql,
 ): Promise<boolean> => {
   if (!actor.credentialId) {
     const expiresAt = actor.credentialExpiresAt ? Date.parse(actor.credentialExpiresAt) : Number.NaN;
     return Number.isFinite(expiresAt) && expiresAt > Date.now();
   }
-  const [row] = await sql<{ active: boolean }[]>`
+  const [row] = await db<{ active: boolean }[]>`
     SELECT EXISTS (
       SELECT 1
       FROM auth.service_account_credentials credential
@@ -147,13 +151,51 @@ export const resolveMailWorkflowExecutionAuthority = async (params: {
     return context ? { kind: "actor", context } : null;
   }
   if (params.snapshot.mailboxId !== params.mailboxId) return null;
-  const [workflow] = await sql<{ active: boolean }[]>`
+  const [workflow] = await sql<{ authorized: boolean }[]>`
     SELECT EXISTS (
       SELECT 1
-      FROM mail.workflows workflow
-      WHERE workflow.mailbox_id = ${params.mailboxId}::uuid
-        AND workflow.active_version_id = ${params.workflowVersionId}::uuid
-    ) AS active
+      FROM mail.workflow_versions version
+      WHERE version.mailbox_id = ${params.mailboxId}::uuid
+        AND version.id = ${params.workflowVersionId}::uuid
+    ) AS authorized
   `;
-  return workflow?.active === true ? { kind: "mailbox", mailboxId: params.mailboxId, workflowVersionId: params.workflowVersionId } : null;
+  return workflow?.authorized === true
+    ? { kind: "mailbox", mailboxId: params.mailboxId, workflowVersionId: params.workflowVersionId }
+    : null;
+};
+
+export const mailWorkflowExecutionAuthorityActive = async (
+  authority: MailWorkflowExecutionAuthority,
+  mailboxId: string,
+  workflowVersionId: string,
+  db: SqlClient = sql,
+): Promise<boolean> => {
+  if (authority.kind === "mailbox") {
+    if (authority.mailboxId !== mailboxId || authority.workflowVersionId !== workflowVersionId) return false;
+    const [version] = await db<{ authorized: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM mail.workflow_versions version
+        WHERE version.mailbox_id = ${mailboxId}::uuid
+          AND version.id = ${workflowVersionId}::uuid
+      ) AS authorized
+    `;
+    return version?.authorized === true;
+  }
+  const permission = await requireMailboxPermission(authority.context, mailboxId, "write", db);
+  if (!permission.ok) return false;
+  if (authority.context.actor.kind === "user") return true;
+  const credential = durableCredentialSnapshot(authority.context);
+  if (!credential) return false;
+  return serviceCredentialActive(
+    {
+      kind: "service_account",
+      serviceAccountId: authority.context.actor.serviceAccount.id,
+      delegatedUserId: authority.context.actor.delegatedUser?.id ?? null,
+      scopes: credential.scopes,
+      credentialId: credential.credentialId,
+      credentialExpiresAt: credential.credentialExpiresAt,
+    },
+    db,
+  );
 };

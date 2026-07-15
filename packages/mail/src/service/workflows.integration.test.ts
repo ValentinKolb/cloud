@@ -911,6 +911,48 @@ suite("mail canonical workflow runtime", () => {
     expect(await resumeMailWorkflowDependency({ kind: "mail.command", key: step.command_id })).toEqual([]);
   });
 
+  test("does not let cancellation overtake a provider effect", async () => {
+    const workflow = await createWorkflowFixture(keywordSource("CancellationFence"), "Provider cancellation fence");
+    const run = await oneShot(workflow, `provider-cancel-fence-${suffix}`);
+    const target = (await targetRows(run.id))[0]!;
+    expect(await processTarget(target.id, "provider-cancel-fence")).toMatchObject({ state: "waiting" });
+    const [step] = await sql<{ command_id: string }[]>`
+      SELECT command_id
+      FROM mail.workflow_step_runs
+      WHERE target_id = ${target.id}::uuid
+    `;
+    if (!step) throw new Error("Provider command was not linked to its workflow step");
+    await sql`
+      UPDATE mail.commands
+      SET
+        state = 'executing',
+        attempt = 1,
+        provider_effect_started_at = now(),
+        provider_effect_attempt = 1
+      WHERE id = ${step.command_id}::uuid
+    `;
+
+    const blocked = await cancelWorkflowRun({ context: writerContext, mailboxId, runId: run.id, reason: "race" });
+    expect(blocked).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    expect(unwrap(await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id }))).toMatchObject({
+      state: "queued",
+      targetProgress: { queued: 1, waiting: 1, canceled: 0 },
+    });
+
+    await sql`
+      UPDATE mail.commands
+      SET
+        state = 'queued',
+        provider_effect_started_at = NULL,
+        provider_effect_attempt = NULL
+      WHERE id = ${step.command_id}::uuid
+    `;
+    expect(unwrap(await cancelWorkflowRun({ context: writerContext, mailboxId, runId: run.id, reason: "retry" }))).toMatchObject({
+      state: "canceled",
+      targetProgress: { canceled: 2 },
+    });
+  });
+
   test("executes from frozen body data after live hydration changes", async () => {
     const workflow = await createWorkflowFixture(hydratedKeywordSource(), "Frozen hydration");
     const query = {

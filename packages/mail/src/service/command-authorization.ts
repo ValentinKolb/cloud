@@ -1,5 +1,7 @@
-import { accounts, toPgTextArray } from "@valentinkolb/cloud/services";
+import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+
+type SqlClient = typeof sql;
 
 export type StoredCommandAuthorization = {
   mailbox_id: string;
@@ -30,13 +32,17 @@ const scopeRank = (scopes: readonly string[]): number => {
   return 0;
 };
 
-const serviceAccountActorAllowed = async (command: StoredCommandAuthorization, permission: "write" | "admin"): Promise<boolean> => {
+const serviceAccountActorAllowed = async (
+  command: StoredCommandAuthorization,
+  permission: "write" | "admin",
+  db: SqlClient,
+): Promise<boolean> => {
   const actorKind = command.initiator_actor_kind ?? command.actor_kind;
   const actorId = command.initiator_actor_id ?? command.actor_id;
   if (actorKind !== "service_account") return true;
   if (!actorId || scopeRank(command.credential_scopes ?? []) < requiredRank(permission)) return false;
   if (command.credential_id) {
-    const [credential] = await sql<{ active: boolean }[]>`
+    const [credential] = await db<{ active: boolean }[]>`
       SELECT EXISTS (
         SELECT 1
         FROM auth.service_account_credentials credential
@@ -54,7 +60,7 @@ const serviceAccountActorAllowed = async (command: StoredCommandAuthorization, p
     const expiresAt = command.credential_expires_at ? new Date(command.credential_expires_at).getTime() : Number.NaN;
     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
   }
-  const [serviceAccount] = await sql<
+  const [serviceAccount] = await db<
     {
       status: string;
       kind: string;
@@ -74,23 +80,26 @@ const serviceAccountActorAllowed = async (command: StoredCommandAuthorization, p
   );
 };
 
-const loadAccessSubjectState = async (command: StoredCommandAuthorization): Promise<{ active: boolean; admin: boolean }> => {
+const loadAccessSubjectState = async (command: StoredCommandAuthorization, db: SqlClient): Promise<{ active: boolean; admin: boolean }> => {
   if (!command.access_subject_id) return { active: false, admin: false };
   if (command.access_subject_kind === "user") {
-    const user = await accounts.users.get({ id: command.access_subject_id });
-    const active = Boolean(user && (user.accountExpires === null || Date.parse(user.accountExpires) > Date.now()));
-    return { active, admin: active && user?.roles.includes("admin") === true };
+    const [user] = await db<{ active: boolean; admin: boolean }[]>`
+      SELECT (account_expires IS NULL OR account_expires > now()) AS active, admin
+      FROM auth.users
+      WHERE id = ${command.access_subject_id}::uuid
+    `;
+    return { active: user?.active === true, admin: user?.active === true && user.admin };
   }
-  const [serviceAccount] = await sql<{ status: string }[]>`
+  const [serviceAccount] = await db<{ status: string }[]>`
     SELECT status FROM auth.service_accounts WHERE id = ${command.access_subject_id}::uuid
   `;
   return { active: serviceAccount?.status === "active", admin: false };
 };
 
-const loadMailboxGrant = async (command: StoredCommandAuthorization): Promise<string | null> => {
+const loadMailboxGrant = async (command: StoredCommandAuthorization, db: SqlClient): Promise<string | null> => {
   const userId = command.access_subject_kind === "user" ? command.access_subject_id : null;
   const serviceAccountId = command.access_subject_kind === "service_account" ? command.access_subject_id : null;
-  const [grant] = await sql<{ permission: string }[]>`
+  const [grant] = await db<{ permission: string }[]>`
     WITH RECURSIVE subject_groups(group_id, path) AS (
       SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
       FROM auth.user_groups_v2 ug
@@ -123,22 +132,26 @@ const loadMailboxGrant = async (command: StoredCommandAuthorization): Promise<st
   return grant?.permission ?? null;
 };
 
-export const commandStillAuthorized = async (command: StoredCommandAuthorization, permission: "write" | "admin"): Promise<boolean> => {
+export const commandStillAuthorized = async (
+  command: StoredCommandAuthorization,
+  permission: "write" | "admin",
+  db: SqlClient = sql,
+): Promise<boolean> => {
   if (command.access_subject_kind === "system") {
     if (command.actor_kind === "system") return true;
     if (command.actor_kind !== "workflow" || !command.actor_id) return false;
-    const [workflow] = await sql<{ active: boolean }[]>`
+    const [workflow] = await db<{ authorized: boolean }[]>`
       SELECT EXISTS (
         SELECT 1
-        FROM mail.workflows workflow
-        WHERE workflow.mailbox_id = ${command.mailbox_id}::uuid
-          AND workflow.active_version_id = ${command.actor_id}::uuid
-      ) AS active
+        FROM mail.workflow_versions version
+        WHERE version.mailbox_id = ${command.mailbox_id}::uuid
+          AND version.id = ${command.actor_id}::uuid
+      ) AS authorized
     `;
-    return workflow?.active === true;
+    return workflow?.authorized === true;
   }
-  if (!(await serviceAccountActorAllowed(command, permission))) return false;
-  const subject = await loadAccessSubjectState(command);
+  if (!(await serviceAccountActorAllowed(command, permission, db))) return false;
+  const subject = await loadAccessSubjectState(command, db);
   if (!subject.active) return false;
-  return subject.admin || permissionRank(await loadMailboxGrant(command)) >= requiredRank(permission);
+  return subject.admin || permissionRank(await loadMailboxGrant(command, db)) >= requiredRank(permission);
 };

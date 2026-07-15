@@ -130,6 +130,28 @@ export const cancelWorkflowRun = async (params: {
         return ok(mapWorkflowRun(canceled));
       }
       await tx`
+        SELECT id
+        FROM mail.workflow_run_targets
+        WHERE parent_run_id = ${params.runId}::uuid
+          AND state IN ('queued', 'running', 'waiting')
+        FOR UPDATE
+      `;
+      const [providerEffect] = await tx<{ active: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM mail.workflow_run_targets target
+          JOIN mail.workflow_step_runs step ON step.target_id = target.id
+          JOIN mail.commands command ON command.id = step.command_id
+          WHERE target.parent_run_id = ${params.runId}::uuid
+            AND target.state IN ('running', 'waiting')
+            AND step.state IN ('running', 'waiting')
+            AND command.provider_effect_started_at IS NOT NULL
+        ) AS active
+      `;
+      if (providerEffect?.active === true) {
+        return fail(err.conflict("Workflow cancellation cannot overtake an in-flight provider effect"));
+      }
+      await tx`
         UPDATE mail.workflow_run_targets
         SET
           state = CASE WHEN state IN ('queued', 'waiting') THEN 'canceled' ELSE state END,

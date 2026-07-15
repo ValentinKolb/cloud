@@ -1944,6 +1944,18 @@ const freezeWorkflowExecutionInputs = async (db: SqlClient): Promise<void> => {
   await db`ALTER TABLE mail.workflow_run_targets ALTER COLUMN execution_clock_at SET NOT NULL`;
 };
 
+const fenceWorkflowProviderEffects = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.commands
+      ADD COLUMN provider_effect_started_at TIMESTAMPTZ,
+      ADD COLUMN provider_effect_attempt INTEGER,
+      ADD CONSTRAINT commands_provider_effect_check CHECK (
+        (provider_effect_started_at IS NULL AND provider_effect_attempt IS NULL)
+        OR (provider_effect_started_at IS NOT NULL AND provider_effect_attempt IS NOT NULL AND provider_effect_attempt > 0)
+      )
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -1976,6 +1988,7 @@ const migrations = [
   { version: 29, name: "workflow_scoped_idempotency", run: scopeWorkflowRunIdempotency },
   { version: 30, name: "pinned_workflow_trigger_deliveries", run: pinWorkflowTriggerDeliveries },
   { version: 31, name: "frozen_workflow_execution_inputs", run: freezeWorkflowExecutionInputs },
+  { version: 32, name: "fenced_workflow_provider_effects", run: fenceWorkflowProviderEffects },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

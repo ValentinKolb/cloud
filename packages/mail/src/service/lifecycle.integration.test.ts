@@ -1136,8 +1136,16 @@ suite("mail lifecycle control plane", () => {
       messageId: `<state-${suffix}@example.com>`,
       modseq: "1",
     });
+    let effectCommandId: string | null = null;
     const changeState = spyOn(imapSmtpConnector, "changeMessageState").mockImplementation(async (_runtime, _target, change) => {
       expect(change).toEqual({ addFlags: ["\\Seen"], removeFlags: [], addKeywords: ["CloudTest"], removeKeywords: [] });
+      if (!effectCommandId) throw new Error("Provider effect command fixture is unavailable");
+      const [effect] = await sql<{ started: boolean; attempt: number | null }[]>`
+        SELECT provider_effect_started_at IS NOT NULL AS started, provider_effect_attempt AS attempt
+        FROM mail.commands
+        WHERE id = ${effectCommandId}::uuid
+      `;
+      expect(effect).toEqual({ started: true, attempt: 2 });
       return {
         exists: true,
         flags: ["\\Answered", "\\Seen"],
@@ -1206,6 +1214,7 @@ suite("mail lifecycle control plane", () => {
       } finally {
         await syncLock.release(heldSyncLock);
       }
+      effectCommandId = command.data.id;
       expect(await executeMutationCommand(command.data.id)).toBe("confirmed");
       const [placement] = await sql<{ flags: string[]; keywords: string[] }[]>`
         SELECT flags, keywords FROM mail.message_placements WHERE remote_message_ref_id = ${remoteRef!.id}::uuid

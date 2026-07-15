@@ -9,7 +9,6 @@ import type {
 } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
 import type { ActorCommandInput, MailCommand, RemoteMessagePrecondition, UpdateConversationCollaboration } from "../contracts";
-import { requireMailboxPermission } from "./access";
 import { sha256Text } from "./canonical";
 import { updateConversationCollaborationInTransaction, updateWorkflowConversationCollaborationInTransaction } from "./collaboration";
 import { createWorkflowCommand } from "./commands";
@@ -21,7 +20,7 @@ import {
   mailConversationTransitionChanges,
   mailMessageTransitionChanges,
 } from "./workflow-projected-state";
-import type { MailWorkflowExecutionAuthority } from "./workflow-runtime-context";
+import { type MailWorkflowExecutionAuthority, mailWorkflowExecutionAuthorityActive } from "./workflow-runtime-context";
 
 type JsonObject = Record<string, WorkflowJsonValue>;
 type SqlClient = typeof sql;
@@ -34,20 +33,8 @@ export type MailWorkflowRuntimeActionOptions = {
   preconditions: WorkflowJsonValue;
 };
 
-const activeWorkflowAuthority = async (options: MailWorkflowRuntimeActionOptions): Promise<boolean> => {
-  if (options.authority.kind === "actor") {
-    return (await requireMailboxPermission(options.authority.context, options.mailboxId, "write")).ok;
-  }
-  const [workflow] = await sql<{ active: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1
-      FROM mail.workflows workflow
-      WHERE workflow.mailbox_id = ${options.mailboxId}::uuid
-        AND workflow.active_version_id = ${options.workflowVersionId}::uuid
-    ) AS active
-  `;
-  return workflow?.active === true;
-};
+const activeWorkflowAuthority = (options: MailWorkflowRuntimeActionOptions, db: SqlClient = sql): Promise<boolean> =>
+  mailWorkflowExecutionAuthorityActive(options.authority, options.mailboxId, options.workflowVersionId, db);
 
 const isJsonObject = (value: WorkflowJsonValue | undefined): value is JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -296,7 +283,12 @@ export const createMailWorkflowActionPorts = (
           mailboxId: options.mailboxId,
           workflowVersionId: options.workflowVersionId,
           input: await commandInput(context, step, options),
-          beforeCreate: async (tx) => await lockCollaborationActionFence(tx, context),
+          beforeCreate: async (tx) => {
+            await lockCollaborationActionFence(tx, context);
+            if (!(await activeWorkflowAuthority(options, tx))) {
+              throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+            }
+          },
           afterCreate: async (tx, created) => {
             const linked = await tx<{ step_key: string }[]>`
               UPDATE mail.workflow_step_runs
@@ -346,6 +338,9 @@ export const createMailWorkflowActionPorts = (
       })();
       const completed = await sql.begin(async (tx) => {
         await lockCollaborationActionFence(tx, context);
+        if (!(await activeWorkflowAuthority(options, tx))) {
+          throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+        }
         const activityMetadata = { workflowTargetId: options.targetId, workflowStepKey: context.step.key };
         const mutation =
           options.authority.kind === "actor"

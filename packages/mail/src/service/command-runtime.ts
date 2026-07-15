@@ -496,6 +496,52 @@ const persistMutationOutcome = async <T>(work: () => Promise<T>): Promise<T> => 
 type LeaseAssertion = () => Promise<void>;
 const noLeaseAssertion: LeaseAssertion = async () => undefined;
 
+const beginProviderEffect = async (command: DbCommandExecution): Promise<void> =>
+  sql.begin(async (tx) => {
+    const [current] = await tx<{ id: string }[]>`
+      SELECT id
+      FROM mail.commands
+      WHERE id = ${command.id}::uuid
+        AND state = 'executing'
+        AND attempt = ${command.attempt}
+      FOR UPDATE
+    `;
+    if (!current) {
+      throw Object.assign(new Error("Mail command lease was lost before the provider effect"), { code: "COMMAND_JOB_LEASE_LOST" });
+    }
+    if (command.actor_kind === "workflow") {
+      const [target] = await tx<{ id: string }[]>`
+        SELECT target.id
+        FROM mail.workflow_step_runs step
+        JOIN mail.workflow_run_targets target ON target.id = step.target_id
+        WHERE step.command_id = ${command.id}::uuid
+          AND step.execution_generation = target.execution_generation
+          AND target.state IN ('running', 'waiting')
+          AND target.cancel_requested_at IS NULL
+        FOR UPDATE OF target
+      `;
+      if (!target) {
+        throw Object.assign(new Error("Workflow target was canceled before the provider effect"), { code: "WORKFLOW_CANCELED" });
+      }
+    }
+    if (!(await commandStillAuthorized(command, "write", tx))) {
+      throw Object.assign(new Error("Mailbox write access was revoked before the provider effect"), { code: "ACCESS_REVOKED" });
+    }
+    const updated = await tx`
+      UPDATE mail.commands
+      SET
+        provider_effect_started_at = COALESCE(provider_effect_started_at, now()),
+        provider_effect_attempt = ${command.attempt}
+      WHERE id = ${command.id}::uuid
+        AND state = 'executing'
+        AND attempt = ${command.attempt}
+      RETURNING id
+    `;
+    if (updated.length === 0) {
+      throw Object.assign(new Error("Mail command lease was lost before the provider effect"), { code: "COMMAND_JOB_LEASE_LOST" });
+    }
+  });
+
 const recordCommandTransportMetadata = async (command: DbCommandExecution, metadata: JsonRecord): Promise<void> => {
   await sql`
     UPDATE mail.commands
@@ -594,10 +640,12 @@ const executeSetFlagsMutation = async (params: {
   target: RemoteMutationTarget;
   assertLeaseActive: LeaseAssertion;
   assertAuthorized: LeaseAssertion;
+  beginEffect: LeaseAssertion;
 }): Promise<void> => {
   requireRights(params.source.effective_rights, ["write_flags"]);
   const payload = flagsPayloadSchema.parse(parseJsonRecord(params.command.payload));
   await params.assertAuthorized();
+  await params.beginEffect();
   await imapSmtpConnector.setFlags(params.runtime, params.target, payload.flags);
   await params.assertLeaseActive();
   const verified = await imapSmtpConnector.getMessageState(params.runtime, params.target);
@@ -619,11 +667,13 @@ const executeMessageStateMutation = async (params: {
   target: RemoteMutationTarget;
   assertLeaseActive: LeaseAssertion;
   assertAuthorized: LeaseAssertion;
+  beginEffect: LeaseAssertion;
 }): Promise<void> => {
   requireRights(params.source.effective_rights, ["write_flags"]);
   const payload = messageStatePayloadSchema.parse(parseJsonRecord(params.command.payload));
   const change = remoteStateChange(payload);
   await params.assertAuthorized();
+  await params.beginEffect();
   const state = await imapSmtpConnector.changeMessageState(params.runtime, params.target, change);
   await params.assertLeaseActive();
   if (!stateChangeMatches(state, change)) {
@@ -643,9 +693,11 @@ const executeDeleteMutation = async (params: {
   target: RemoteMutationTarget;
   assertLeaseActive: LeaseAssertion;
   assertAuthorized: LeaseAssertion;
+  beginEffect: LeaseAssertion;
 }): Promise<void> => {
   requireRights(params.source.effective_rights, ["delete_messages"]);
   await params.assertAuthorized();
+  await params.beginEffect();
   await imapSmtpConnector.delete(params.runtime, params.target);
   await params.assertLeaseActive();
   const verified = await imapSmtpConnector.getMessageState(params.runtime, params.target);
@@ -702,6 +754,7 @@ const executeTransferMutation = async (params: {
   remoteTarget: RemoteMutationTarget;
   assertLeaseActive: LeaseAssertion;
   assertAuthorized: LeaseAssertion;
+  beginEffect: LeaseAssertion;
 }): Promise<void> => {
   const { command, runtime, source, target } = params;
   if (command.kind !== "copy" && command.kind !== "move") {
@@ -716,6 +769,7 @@ const executeTransferMutation = async (params: {
   const baseline = source.message_id ? await imapSmtpConnector.findMessageById(runtime, destination.folder_path, source.message_id) : [];
   await storeMutationBaseline(command, baseline);
   await params.assertAuthorized();
+  await params.beginEffect();
   const result =
     command.kind === "copy"
       ? await imapSmtpConnector.copy(runtime, params.remoteTarget, destination.folder_path)
@@ -770,11 +824,19 @@ const executeFreshMutation = async (command: DbCommandExecution, assertLeaseActi
       throw Object.assign(new Error("Mailbox write access was revoked before provider execution"), { code: "ACCESS_REVOKED" });
     }
   };
-  const params = { command, runtime, source, target: remote, assertLeaseActive, assertAuthorized };
+  const params = {
+    command,
+    runtime,
+    source,
+    target: remote,
+    assertLeaseActive,
+    assertAuthorized,
+    beginEffect: () => beginProviderEffect(command),
+  };
   if (command.kind === "set_flags") return executeSetFlagsMutation(params);
   if (command.kind === "change_message_state") return executeMessageStateMutation(params);
   if (command.kind === "delete") return executeDeleteMutation(params);
-  return executeTransferMutation({ command, runtime, source, target, remoteTarget: remote, assertLeaseActive, assertAuthorized });
+  return executeTransferMutation({ ...params, target, remoteTarget: remote });
 };
 
 const loadReconciliationSource = async (command: DbCommandExecution, target: MutationTarget): Promise<DbRemoteMessage> => {

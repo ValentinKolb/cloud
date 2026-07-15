@@ -6,7 +6,7 @@ import type { MailRequestContext } from "./auth";
 import type { ConnectorEnvelope } from "./connectors";
 import { createMailbox } from "./mailboxes";
 import { claimFence, commitSyncBatch } from "./sync-runtime";
-import { workflowRuntime } from "./workflow-runtime";
+import { processMailWorkflowTarget, workflowRuntime } from "./workflow-runtime";
 import { processMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
 import { activateWorkflow, createWorkflow, createWorkflowVersion, deactivateWorkflow } from "./workflows";
 
@@ -524,14 +524,25 @@ suite("mail workflow trigger event runtime", () => {
       }),
     );
     await processMailWorkflowTriggerEvent(deactivationPendingEventId, "trigger-worker-after-deactivation");
-    const [deactivationPinnedRun] = await sql<{ workflow_version_id: string; inputs: Record<string, unknown> | string }[]>`
-      SELECT workflow_version_id, inputs
+    const [deactivationPinnedRun] = await sql<{ id: string; workflow_version_id: string; inputs: Record<string, unknown> | string }[]>`
+      SELECT id, workflow_version_id, inputs
       FROM mail.workflow_runs
       WHERE mailbox_id = ${mailboxId}::uuid
         AND target_query->>'deliveryKey' = ${deactivationPendingEvent!.delivery_key}
     `;
     expect(deactivationPinnedRun?.workflow_version_id).toBe(replacementVersionId);
     expect(parseJson(deactivationPinnedRun!.inputs)).toMatchObject({ message: { subject: "Receipt before deactivation" } });
+    const [deactivationPinnedTarget] = await sql<{ id: string }[]>`
+      SELECT id
+      FROM mail.workflow_run_targets
+      WHERE parent_run_id = ${deactivationPinnedRun!.id}::uuid
+    `;
+    expect(
+      await processMailWorkflowTarget({
+        targetId: deactivationPinnedTarget!.id,
+        workerId: "trigger-worker-execute-after-deactivation",
+      }),
+    ).toMatchObject({ state: "succeeded" });
 
     const deactivated = await commitEnvelope(envelope(7, "Deactivated workflow message"), "incremental");
     expect(deactivated.workflowTriggerEventIds).toEqual([]);
