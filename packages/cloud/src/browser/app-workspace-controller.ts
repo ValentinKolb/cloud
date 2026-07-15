@@ -46,6 +46,8 @@ const resizeKind = (handle: HTMLElement): ResizeKind | null => {
 
 const workspaceRoot = (handle: HTMLElement): HTMLElement | null => handle.closest<HTMLElement>(".app-workspace");
 
+const workspaceResizable = (root: HTMLElement): boolean => root.dataset.workspaceResizable !== "false";
+
 const workspaceCanvas = (root: HTMLElement): HTMLElement => root.closest<HTMLElement>(".cloud-app-canvas") ?? root;
 
 const rootElements = (root: HTMLElement, selector: string): HTMLElement[] =>
@@ -231,7 +233,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     const handle = resizeHandle(event);
     const kind = handle ? resizeKind(handle) : null;
     const root = handle ? workspaceRoot(handle) : null;
-    if (!handle || !kind || !root || event.button !== 0) return;
+    if (!handle || !kind || !root || !workspaceResizable(root) || event.button !== 0) return;
 
     event.preventDefault();
     stopResize();
@@ -257,7 +259,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     const handle = resizeHandle(event);
     const kind = handle ? resizeKind(handle) : null;
     const root = handle ? workspaceRoot(handle) : null;
-    if (!handle || !kind || !root) return;
+    if (!handle || !kind || !root || !workspaceResizable(root)) return;
 
     const current = currentSize(root, handle, kind);
     const { min, max } = sizeLimits(root, handle, kind);
@@ -317,7 +319,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     );
 
   const rootHandles = (root: HTMLElement): HTMLElement[] =>
-    rootElements(root, HANDLE_SELECTOR).filter((handle) => resizeKind(handle) !== null);
+    workspaceResizable(root) ? rootElements(root, HANDLE_SELECTOR).filter((handle) => resizeKind(handle) !== null) : [];
 
   const reconcilePersistedSizes = () => {
     workspaceRoots().forEach((root) => {

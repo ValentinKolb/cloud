@@ -400,6 +400,13 @@
   transform: translateX(-50%);
 }
 
+.app-workspace[data-workspace-resizable="false"] > .workspace-resize-handle,
+.app-workspace[data-workspace-resizable="false"] > :is(solid-island, solid-client) > .workspace-resize-handle,
+.app-workspace[data-workspace-resizable="false"] > .workspace-content > .workspace-resize-handle,
+.app-workspace[data-workspace-resizable="false"] > .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle {
+  display: none;
+}
+
 .workspace-resize-handle-sidebar {
   left: var(--workspace-sidebar-width, 13rem);
 }
@@ -470,12 +477,17 @@
     transition: none;
   }
 
+  /* SSR island hosts remain real DOM parents even though they use
+     display: contents, so detail regions support both compositions. */
   .app-workspace > .workspace-detail[data-workspace-resizable="true"],
-  .app-workspace > .workspace-content > .workspace-detail[data-workspace-resizable="true"] {
+  .app-workspace > :is(solid-island, solid-client) > .workspace-detail[data-workspace-resizable="true"],
+  .app-workspace > .workspace-content > .workspace-detail[data-workspace-resizable="true"],
+  .app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-detail[data-workspace-resizable="true"] {
     width: var(--workspace-panel-size, var(--workspace-detail-width, 24rem));
   }
 
-  .app-workspace > .workspace-content > .workspace-resize-handle-detail {
+  .app-workspace > .workspace-content > .workspace-resize-handle-detail,
+  .app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle-detail {
     position: relative;
     inset: auto;
     order: 3;
@@ -490,7 +502,9 @@
   }
 
   .app-workspace > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
+  .app-workspace > :is(solid-island, solid-client) > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
   .app-workspace > .workspace-content > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
+  .app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
   .app-workspace > .workspace-resize-handle-drawer:has(+ .workspace-bottom-drawer.hidden) {
     display: none;
   }
@@ -501,11 +515,17 @@
 }
 
 @media (max-width: 1023px) {
-  .app-workspace > .workspace-content:has(> .workspace-detail:not(.hidden)) > .workspace-main {
+  .app-workspace:has(> .workspace-detail:not(.hidden)) > .workspace-main,
+  .app-workspace > :is(solid-island, solid-client):has(> .workspace-detail:not(.hidden)) > .workspace-main,
+  .app-workspace > .workspace-content:has(> .workspace-detail:not(.hidden)) > .workspace-main,
+  .app-workspace > .workspace-content > :is(solid-island, solid-client):has(> .workspace-detail:not(.hidden)) > .workspace-main {
     display: none;
   }
 
-  .app-workspace > .workspace-content > .workspace-detail:not(.hidden) {
+  .app-workspace > .workspace-detail:not(.hidden),
+  .app-workspace > :is(solid-island, solid-client) > .workspace-detail:not(.hidden),
+  .app-workspace > .workspace-content > .workspace-detail:not(.hidden),
+  .app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-detail:not(.hidden) {
     min-height: 0;
     flex: 1 1 auto;
   }

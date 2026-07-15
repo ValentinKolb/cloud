@@ -983,7 +983,11 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
 
 const AppWorkspace = ((props: AppWorkspaceProps) => (
   <AppWorkspaceResizeContext.Provider value={props.resizable !== false}>
-    <div class={`app-workspace app-cols relative h-full ${props.class ?? ""}`} data-app-workspace>
+    <div
+      class={`app-workspace app-cols relative h-full ${props.class ?? ""}`}
+      data-app-workspace
+      data-workspace-resizable={props.resizable === false ? "false" : "true"}
+    >
       {props.children}
     </div>
   </AppWorkspaceResizeContext.Provider>
