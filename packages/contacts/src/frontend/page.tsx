@@ -56,51 +56,53 @@ export default ssr<AuthContext>(async (c) => {
   const hasDesktopDetailSelection = Boolean(selectedContact);
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts" }]}>
+      <ContactsLayoutHelp />
       <AppWorkspace class="cloud-ui-soft">
-        <ContactsLayoutHelp />
         <ContactsSidebar books={books} active="all" adminBookIds={adminBookIds} />
 
-        <ContactsWorkspaceMain
-          title="All contacts"
-          description="Across your manual contact books"
-          total={contactsResult.total}
-          search={search}
-          resultHref={resultHref}
-          perPage={perPage}
-          searchPlaceholder="Filter by name, company, email, or phone..."
-          contacts={contacts}
-          bookNames={bookNames}
-          showBookNames
-          initialSelectedContactId={initialSelectedContactId}
-          initialSelectedBookId={initialSelectedBookId}
-          writableBooks={writableBooks}
-          defaultCreateBookId={writableBooks[0]?.id ?? null}
-          chooseBookOnCreate
-          currentPage={contactsResult.page}
-          totalPages={totalPages}
-        />
-
-        <AppWorkspace.Detail
-          id="contacts-detail-panel"
-          open={hasDesktopDetailSelection}
-          width="lg"
-          viewTransitionName="contacts-detail-panel-shell"
-        >
-          <ContactDetailPanel
-            initialContact={selectedContact}
-            initialContactId={initialSelectedContactId}
-            initialBookId={initialSelectedBookId}
-            initialNotes={initialNotes}
+        <AppWorkspace.Content>
+          <ContactsWorkspaceMain
+            title="All contacts"
+            description="Across your manual contact books"
+            total={contactsResult.total}
+            search={search}
+            resultHref={resultHref}
+            perPage={perPage}
+            searchPlaceholder="Filter by name, company, email, or phone..."
             contacts={contacts}
             bookNames={bookNames}
+            showBookNames
+            initialSelectedContactId={initialSelectedContactId}
+            initialSelectedBookId={initialSelectedBookId}
             writableBooks={writableBooks}
-            adminBookIds={adminBookIds}
-            currentUserId={user.id}
-            showEmpty={false}
+            defaultCreateBookId={writableBooks[0]?.id ?? null}
+            chooseBookOnCreate
+            currentPage={contactsResult.page}
+            totalPages={totalPages}
           />
-        </AppWorkspace.Detail>
-        <DesktopDetailLayoutSync detailContainerId="contacts-detail-panel" />
+
+          <AppWorkspace.Detail
+            id="contacts-detail-panel"
+            open={hasDesktopDetailSelection}
+            width="lg"
+            viewTransitionName="contacts-detail-panel-shell"
+          >
+            <ContactDetailPanel
+              initialContact={selectedContact}
+              initialContactId={initialSelectedContactId}
+              initialBookId={initialSelectedBookId}
+              initialNotes={initialNotes}
+              contacts={contacts}
+              bookNames={bookNames}
+              writableBooks={writableBooks}
+              adminBookIds={adminBookIds}
+              currentUserId={user.id}
+              showEmpty={false}
+            />
+          </AppWorkspace.Detail>
+        </AppWorkspace.Content>
       </AppWorkspace>
+      <DesktopDetailLayoutSync detailContainerId="contacts-detail-panel" />
     </Layout>
   );
 });

@@ -8,7 +8,15 @@ import {
   restoreScroll,
   startViewTransition,
 } from "@valentinkolb/ssr/nav";
-import { children, createContext, createMemo, type JSX, Show, useContext } from "solid-js";
+import { children, createContext, createMemo, createUniqueId, type JSX, Show, useContext } from "solid-js";
+import {
+  APP_WORKSPACE_DETAIL_MAX,
+  APP_WORKSPACE_DETAIL_MIN,
+  APP_WORKSPACE_DRAWER_MAX,
+  APP_WORKSPACE_DRAWER_MIN,
+  appWorkspacePanelVariable,
+  safeAppWorkspacePanelId,
+} from "./app-workspace-state";
 
 const SIDEBAR_HEADER = Symbol("AppWorkspace.SidebarHeader");
 const SIDEBAR_MOBILE = Symbol("AppWorkspace.SidebarMobile");
@@ -90,6 +98,11 @@ export type AppWorkspaceMainProps = {
   children: JSX.Element;
 };
 
+export type AppWorkspaceContentProps = {
+  class?: string;
+  children: JSX.Element;
+};
+
 export type AppWorkspaceDetailWidth = "sm" | "md" | "lg" | "xl";
 
 export type AppWorkspaceDetailProps = {
@@ -97,6 +110,22 @@ export type AppWorkspaceDetailProps = {
   open: boolean;
   width?: AppWorkspaceDetailWidth;
   widthClass?: string;
+  viewTransitionName?: string;
+  class?: string;
+  resizable?: boolean;
+  minWidth?: number;
+  maxWidth?: number;
+  children: JSX.Element;
+};
+
+export type AppWorkspaceBottomDrawerHeight = "sm" | "md" | "lg";
+
+export type AppWorkspaceBottomDrawerProps = {
+  id?: string;
+  open: boolean;
+  height?: AppWorkspaceBottomDrawerHeight;
+  minHeight?: number;
+  maxHeight?: number;
   viewTransitionName?: string;
   class?: string;
   resizable?: boolean;
@@ -220,8 +249,10 @@ export type AppWorkspaceSidebarItemActionProps = {
 };
 
 type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
+  Content: (props: AppWorkspaceContentProps) => JSX.Element;
   Main: (props: AppWorkspaceMainProps) => JSX.Element;
   Detail: (props: AppWorkspaceDetailProps) => JSX.Element;
+  BottomDrawer: (props: AppWorkspaceBottomDrawerProps) => JSX.Element;
   Sidebar: (props: AppWorkspaceSidebarProps) => JSX.Element;
   SidebarHeader: (props: AppWorkspaceSidebarHeaderProps) => JSX.Element;
   SidebarMobile: (props: AppWorkspaceSidebarMobileProps) => JSX.Element;
@@ -366,21 +397,51 @@ const detailDefaultWidth = (props: AppWorkspaceDetailProps): number => {
   }
 };
 
-const AppWorkspaceResizeHandle = (props: { kind: "sidebar" | "detail"; defaultWidth: number; collapsible?: boolean }) => (
+const drawerDefaultHeight = (props: AppWorkspaceBottomDrawerProps): number => {
+  switch (props.height ?? "md") {
+    case "sm":
+      return 192;
+    case "lg":
+      return 320;
+    case "md":
+    default:
+      return 240;
+  }
+};
+
+const AppWorkspaceResizeHandle = (props: {
+  kind: "sidebar" | "detail" | "drawer";
+  defaultSize: number;
+  minSize: number;
+  maxSize: number;
+  panelId?: string;
+  controls?: string;
+  style?: string;
+}) => (
   <button
     type="button"
     role="separator"
-    aria-label={props.kind === "sidebar" ? "Resize navigation" : "Resize detail panel"}
-    aria-orientation="vertical"
-    aria-valuemin={props.kind === "sidebar" ? (props.collapsible ? 64 : 176) : 288}
-    aria-valuemax={props.kind === "sidebar" ? 360 : 640}
-    aria-valuenow={props.defaultWidth}
+    aria-label={props.kind === "sidebar" ? "Resize navigation" : props.kind === "detail" ? "Resize detail panel" : "Resize bottom drawer"}
+    aria-controls={props.controls}
+    aria-orientation={props.kind === "drawer" ? "horizontal" : "vertical"}
+    aria-valuemin={props.minSize}
+    aria-valuemax={props.maxSize}
+    aria-valuenow={props.defaultSize}
     data-app-workspace-resize={props.kind}
+    data-workspace-panel-id={props.panelId}
+    data-workspace-min-size={props.minSize}
+    data-workspace-max-size={props.maxSize}
     class={`workspace-resize-handle workspace-resize-handle-${props.kind}`}
-    style={props.kind === "detail" ? `--workspace-detail-default:${props.defaultWidth}px` : undefined}
+    style={props.style}
   >
     <span aria-hidden="true" />
   </button>
+);
+
+const AppWorkspaceContent = (props: AppWorkspaceContentProps) => (
+  <div class={`workspace-content order-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row ${props.class ?? ""}`}>
+    {props.children}
+  </div>
 );
 
 const AppWorkspaceMain = (props: AppWorkspaceMainProps) => (
@@ -393,19 +454,68 @@ const AppWorkspaceDetail = (props: AppWorkspaceDetailProps) => {
   const rootResizable = useContext(AppWorkspaceResizeContext);
   const resizable = () => props.resizable ?? (props.widthClass ? false : rootResizable);
   const defaultWidth = () => detailDefaultWidth(props);
+  const panelId = () => safeAppWorkspacePanelId(props.id ?? "primary") || "primary";
+  const generatedId = createUniqueId();
+  const domId = () => props.id ?? `workspace-detail-${generatedId}`;
+  const minWidth = () => props.minWidth ?? APP_WORKSPACE_DETAIL_MIN;
+  const maxWidth = () => Math.max(minWidth(), props.maxWidth ?? APP_WORKSPACE_DETAIL_MAX);
   return (
     <>
+      <Show when={resizable()}>
+        <AppWorkspaceResizeHandle
+          kind="detail"
+          panelId={panelId()}
+          controls={domId()}
+          defaultSize={defaultWidth()}
+          minSize={minWidth()}
+          maxSize={maxWidth()}
+          style={`--workspace-panel-size:var(${appWorkspacePanelVariable("detail", panelId())},${defaultWidth()}px)`}
+        />
+      </Show>
       <aside
-        id={props.id}
+        id={domId()}
+        data-workspace-panel-id={panelId()}
         data-workspace-resizable={resizable() ? "true" : "false"}
         class={`workspace-detail ${props.open ? "flex" : "hidden"} order-2 min-h-0 w-full shrink-0 flex-col overflow-hidden lg:order-3 lg:h-full ${detailWidthClass(props)} ${props.class ?? ""}`}
-        style={`${props.viewTransitionName ? `view-transition-name:${props.viewTransitionName};` : ""}--workspace-detail-default:${defaultWidth()}px`}
+        style={`${props.viewTransitionName ? `view-transition-name:${props.viewTransitionName};` : ""}--workspace-panel-size:var(${appWorkspacePanelVariable("detail", panelId())},${defaultWidth()}px)`}
       >
         {props.children}
       </aside>
+    </>
+  );
+};
+
+const AppWorkspaceBottomDrawer = (props: AppWorkspaceBottomDrawerProps) => {
+  const rootResizable = useContext(AppWorkspaceResizeContext);
+  const resizable = () => props.resizable ?? rootResizable;
+  const defaultHeight = () => drawerDefaultHeight(props);
+  const panelId = () => safeAppWorkspacePanelId(props.id ?? "primary") || "primary";
+  const generatedId = createUniqueId();
+  const domId = () => props.id ?? `workspace-drawer-${generatedId}`;
+  const minHeight = () => props.minHeight ?? APP_WORKSPACE_DRAWER_MIN;
+  const maxHeight = () => Math.max(minHeight(), props.maxHeight ?? APP_WORKSPACE_DRAWER_MAX);
+  return (
+    <>
       <Show when={resizable()}>
-        <AppWorkspaceResizeHandle kind="detail" defaultWidth={defaultWidth()} />
+        <AppWorkspaceResizeHandle
+          kind="drawer"
+          panelId={panelId()}
+          controls={domId()}
+          defaultSize={defaultHeight()}
+          minSize={minHeight()}
+          maxSize={maxHeight()}
+          style={`--workspace-panel-size:var(${appWorkspacePanelVariable("drawer", panelId())},${defaultHeight()}px)`}
+        />
       </Show>
+      <aside
+        id={domId()}
+        data-workspace-panel-id={panelId()}
+        data-workspace-resizable={resizable() ? "true" : "false"}
+        class={`workspace-bottom-drawer ${props.open ? "flex" : "hidden"} min-h-0 min-w-0 shrink-0 flex-col overflow-hidden ${props.class ?? ""}`}
+        style={`${props.viewTransitionName ? `view-transition-name:${props.viewTransitionName};` : ""}--workspace-panel-size:var(${appWorkspacePanelVariable("drawer", panelId())},${defaultHeight()}px)`}
+      >
+        {props.children}
+      </aside>
     </>
   );
 };
@@ -512,7 +622,7 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
         </div>
       </aside>
       <Show when={resizable()}>
-        <AppWorkspaceResizeHandle kind="sidebar" defaultWidth={208} collapsible={props.collapsible} />
+        <AppWorkspaceResizeHandle kind="sidebar" defaultSize={208} minSize={props.collapsible ? 64 : 176} maxSize={360} />
       </Show>
     </>
   );
@@ -880,7 +990,9 @@ const AppWorkspace = ((props: AppWorkspaceProps) => (
 )) as AppWorkspaceComponent;
 
 AppWorkspace.Main = AppWorkspaceMain;
+AppWorkspace.Content = AppWorkspaceContent;
 AppWorkspace.Detail = AppWorkspaceDetail;
+AppWorkspace.BottomDrawer = AppWorkspaceBottomDrawer;
 AppWorkspace.Sidebar = AppWorkspaceSidebar;
 AppWorkspace.SidebarHeader = AppWorkspaceSidebarHeader;
 AppWorkspace.SidebarMobile = AppWorkspaceSidebarMobile;

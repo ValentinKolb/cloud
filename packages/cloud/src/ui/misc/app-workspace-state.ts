@@ -1,8 +1,9 @@
 export type AppWorkspaceLayoutState = {
-  version: 1;
+  version: 2;
   sidebarWidth?: number;
   sidebarCollapsed?: boolean;
-  detailWidth?: number;
+  detailWidths?: Record<string, number>;
+  drawerHeights?: Record<string, number>;
 };
 
 export const APP_WORKSPACE_SIDEBAR_DEFAULT = 208;
@@ -13,35 +14,52 @@ export const APP_WORKSPACE_SIDEBAR_MAX = 360;
 export const APP_WORKSPACE_DETAIL_DEFAULT = 384;
 export const APP_WORKSPACE_DETAIL_MIN = 288;
 export const APP_WORKSPACE_DETAIL_MAX = 640;
+export const APP_WORKSPACE_DRAWER_DEFAULT = 240;
+export const APP_WORKSPACE_DRAWER_MIN = 160;
+export const APP_WORKSPACE_DRAWER_MAX = 560;
 export const APP_WORKSPACE_MAIN_MIN = 320;
+export const APP_WORKSPACE_MAIN_MIN_HEIGHT = 240;
 
-export type AppWorkspaceResizeKind = "sidebar" | "detail";
+export type AppWorkspaceResizeKind = "sidebar" | "detail" | "drawer";
 
 export const appWorkspaceResizeLimits = (options: {
   kind: AppWorkspaceResizeKind;
-  workspaceWidth: number;
-  sidebarWidth: number;
-  detailWidth: number;
+  workspaceSize: number;
+  reservedSize: number;
+  min?: number;
+  max?: number;
   sidebarCollapsible?: boolean;
 }): { min: number; max: number } => {
-  const min =
+  const defaultMin =
     options.kind === "sidebar"
       ? options.sidebarCollapsible
         ? APP_WORKSPACE_SIDEBAR_COLLAPSED
         : APP_WORKSPACE_SIDEBAR_MIN
-      : APP_WORKSPACE_DETAIL_MIN;
-  const configuredMax = options.kind === "sidebar" ? APP_WORKSPACE_SIDEBAR_MAX : APP_WORKSPACE_DETAIL_MAX;
-  const otherPanelWidth = options.kind === "sidebar" ? options.detailWidth : options.sidebarWidth;
-  const availableMax = options.workspaceWidth - otherPanelWidth - APP_WORKSPACE_MAIN_MIN;
+      : options.kind === "detail"
+        ? APP_WORKSPACE_DETAIL_MIN
+        : APP_WORKSPACE_DRAWER_MIN;
+  const defaultMax =
+    options.kind === "sidebar"
+      ? APP_WORKSPACE_SIDEBAR_MAX
+      : options.kind === "detail"
+        ? APP_WORKSPACE_DETAIL_MAX
+        : APP_WORKSPACE_DRAWER_MAX;
+  const min = options.min ?? defaultMin;
+  const configuredMax = options.max ?? defaultMax;
+  const mainMinimum = options.kind === "drawer" ? APP_WORKSPACE_MAIN_MIN_HEIGHT : APP_WORKSPACE_MAIN_MIN;
+  const availableMax = options.workspaceSize - options.reservedSize - mainMinimum;
   return { min, max: Math.max(min, Math.min(configuredMax, availableMax)) };
 };
+
+export const shouldCollapseAppWorkspaceSidebar = (requestedWidth: number, collapsible: boolean): boolean =>
+  collapsible && requestedWidth < APP_WORKSPACE_SIDEBAR_COLLAPSE_THRESHOLD;
 
 export const resolveAppWorkspaceSidebarWidth = (
   requestedWidth: number,
   maxWidth: number,
   collapsible: boolean,
 ): { width: number; collapsed: boolean } => {
-  if (collapsible && requestedWidth < APP_WORKSPACE_SIDEBAR_COLLAPSE_THRESHOLD) {
+  if (shouldCollapseAppWorkspaceSidebar(requestedWidth, collapsible)) {
     return { width: APP_WORKSPACE_SIDEBAR_COLLAPSED, collapsed: true };
   }
   return {
@@ -50,26 +68,60 @@ export const resolveAppWorkspaceSidebarWidth = (
   };
 };
 
-const finiteWidth = (value: unknown, min: number, max: number): number | undefined => {
+const finiteSize = (value: unknown, min: number, max: number): number | undefined => {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
   return Math.round(Math.min(max, Math.max(min, value)));
+};
+
+export const safeAppWorkspacePanelId = (panelId: string): string => panelId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+
+const normalizePanelSizes = (value: unknown, min: number, max: number): Record<string, number> | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value)
+    .slice(0, 16)
+    .flatMap(([key, size]) => {
+      const safeKey = safeAppWorkspacePanelId(key);
+      const normalized = finiteSize(size, min, max);
+      return safeKey && normalized !== undefined ? ([[safeKey, normalized]] as const) : [];
+    });
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 };
 
 const safeAppId = (appId: string): string => appId.replace(/[^A-Za-z0-9_-]/g, "_");
 
 export const appWorkspaceCookieName = (appId: string): string => `cloud_workspace_${safeAppId(appId)}`;
 
+export const appWorkspacePanelVariable = (kind: "detail" | "drawer", panelId: string): string =>
+  `--workspace-${kind}-${safeAppWorkspacePanelId(panelId)}-${kind === "detail" ? "width" : "height"}`;
+
 export const normalizeAppWorkspaceLayoutState = (value: unknown): AppWorkspaceLayoutState | null => {
   if (!value || typeof value !== "object") return null;
-  const candidate = value as Partial<AppWorkspaceLayoutState>;
-  if (candidate.version !== 1) return null;
+  const candidate = value as {
+    version?: unknown;
+    sidebarWidth?: unknown;
+    sidebarCollapsed?: unknown;
+    detailWidth?: unknown;
+    detailWidths?: unknown;
+    drawerHeights?: unknown;
+  };
+  if (candidate.version !== 1 && candidate.version !== 2) return null;
 
-  const sidebarWidth = finiteWidth(candidate.sidebarWidth, APP_WORKSPACE_SIDEBAR_MIN, APP_WORKSPACE_SIDEBAR_MAX);
+  const sidebarWidth = finiteSize(candidate.sidebarWidth, APP_WORKSPACE_SIDEBAR_MIN, APP_WORKSPACE_SIDEBAR_MAX);
   const sidebarCollapsed = typeof candidate.sidebarCollapsed === "boolean" ? candidate.sidebarCollapsed : undefined;
-  const detailWidth = finiteWidth(candidate.detailWidth, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
-  if (sidebarWidth === undefined && sidebarCollapsed === undefined && detailWidth === undefined) return null;
+  const legacyDetailWidth =
+    candidate.version === 1 ? finiteSize(candidate.detailWidth, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX) : undefined;
+  const detailWidths =
+    candidate.version === 1
+      ? legacyDetailWidth === undefined
+        ? undefined
+        : { primary: legacyDetailWidth }
+      : normalizePanelSizes(candidate.detailWidths, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
+  const drawerHeights =
+    candidate.version === 2 ? normalizePanelSizes(candidate.drawerHeights, APP_WORKSPACE_DRAWER_MIN, APP_WORKSPACE_DRAWER_MAX) : undefined;
+  if (sidebarWidth === undefined && sidebarCollapsed === undefined && detailWidths === undefined && drawerHeights === undefined)
+    return null;
 
-  return { version: 1, sidebarWidth, sidebarCollapsed, detailWidth };
+  return { version: 2, sidebarWidth, sidebarCollapsed, detailWidths, drawerHeights };
 };
 
 export const parseAppWorkspaceLayoutState = (value: string | null | undefined): AppWorkspaceLayoutState | null => {
@@ -82,7 +134,7 @@ export const parseAppWorkspaceLayoutState = (value: string | null | undefined): 
 };
 
 export const serializeAppWorkspaceLayoutState = (state: AppWorkspaceLayoutState): string =>
-  encodeURIComponent(JSON.stringify(normalizeAppWorkspaceLayoutState(state) ?? { version: 1 }));
+  encodeURIComponent(JSON.stringify(normalizeAppWorkspaceLayoutState(state) ?? { version: 2 }));
 
 export const readAppWorkspaceLayoutCookie = (
   cookieHeader: string | null | undefined,
@@ -106,7 +158,11 @@ export const appWorkspaceLayoutStyle = (state: AppWorkspaceLayoutState | null | 
       : state.sidebarWidth === undefined
         ? null
         : `--workspace-sidebar-width:${state.sidebarWidth}px`,
-    state.detailWidth === undefined ? null : `--workspace-detail-width:${state.detailWidth}px`,
+    ...Object.entries(state.detailWidths ?? {}).flatMap(([panelId, width]) => [
+      `${appWorkspacePanelVariable("detail", panelId)}:${width}px`,
+      panelId === "primary" ? `--workspace-detail-width:${width}px` : null,
+    ]),
+    ...Object.entries(state.drawerHeights ?? {}).map(([panelId, height]) => `${appWorkspacePanelVariable("drawer", panelId)}:${height}px`),
   ].filter(Boolean);
   return declarations.length > 0 ? declarations.join(";") : undefined;
 };

@@ -1,23 +1,32 @@
 import {
+  APP_WORKSPACE_DETAIL_MAX,
+  APP_WORKSPACE_DETAIL_MIN,
+  APP_WORKSPACE_DRAWER_MAX,
+  APP_WORKSPACE_DRAWER_MIN,
   APP_WORKSPACE_SIDEBAR_COLLAPSED,
+  APP_WORKSPACE_SIDEBAR_MAX,
   APP_WORKSPACE_SIDEBAR_MIN,
   type AppWorkspaceLayoutState,
+  type AppWorkspaceResizeKind,
   appWorkspaceCookieName,
+  appWorkspacePanelVariable,
   appWorkspaceResizeLimits,
   readAppWorkspaceLayoutCookie,
   resolveAppWorkspaceSidebarWidth,
+  safeAppWorkspacePanelId,
   serializeAppWorkspaceLayoutState,
+  shouldCollapseAppWorkspaceSidebar,
 } from "../ui/misc/app-workspace-state";
 
-type ResizeKind = "sidebar" | "detail";
+type ResizeKind = AppWorkspaceResizeKind;
 
 type ActiveResize = {
   handle: HTMLElement;
   root: HTMLElement;
   kind: ResizeKind;
   pointerId: number;
-  startX: number;
-  startWidth: number;
+  startClient: number;
+  startSize: number;
   previousUserSelect: string;
 };
 
@@ -32,43 +41,73 @@ const resizeHandle = (event: Event): HTMLElement | null => eventElement(event)?.
 
 const resizeKind = (handle: HTMLElement): ResizeKind | null => {
   const value = handle.dataset.appWorkspaceResize;
-  return value === "sidebar" || value === "detail" ? value : null;
+  return value === "sidebar" || value === "detail" || value === "drawer" ? value : null;
 };
 
 const workspaceRoot = (handle: HTMLElement): HTMLElement | null => handle.closest<HTMLElement>(".app-workspace");
 
 const workspaceCanvas = (root: HTMLElement): HTMLElement => root.closest<HTMLElement>(".cloud-app-canvas") ?? root;
 
-const sidebarCollapsible = (root: HTMLElement): boolean =>
-  root.querySelector<HTMLElement>(":scope > .workspace-sidebar")?.dataset.workspaceCollapsible === "true";
+const rootElements = (root: HTMLElement, selector: string): HTMLElement[] =>
+  Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((element) => element.closest(".app-workspace") === root);
 
-const visibleWidth = (root: HTMLElement, selector: string): number => {
-  const element = root.querySelector<HTMLElement>(selector);
-  if (!element || getComputedStyle(element).display === "none") return 0;
-  return element.getBoundingClientRect().width;
+const sidebarElement = (root: HTMLElement): HTMLElement | null => rootElements(root, ".workspace-sidebar")[0] ?? null;
+
+const sidebarCollapsible = (root: HTMLElement): boolean => sidebarElement(root)?.dataset.workspaceCollapsible === "true";
+
+const isVisible = (element: HTMLElement | null): element is HTMLElement =>
+  !!element && getComputedStyle(element).display !== "none" && !element.hidden;
+
+const elementSize = (element: HTMLElement | null, kind: ResizeKind): number => {
+  if (!isVisible(element)) return 0;
+  const rect = element.getBoundingClientRect();
+  return kind === "drawer" ? rect.height : rect.width;
 };
 
-const widthLimits = (root: HTMLElement, kind: ResizeKind): { min: number; max: number } => {
+const controlledPanel = (root: HTMLElement, handle: HTMLElement): HTMLElement | null => {
+  const controls = handle.getAttribute("aria-controls");
+  if (!controls) return null;
+  const panel = document.getElementById(controls);
+  return panel?.closest(".app-workspace") === root ? panel : null;
+};
+
+const panelId = (handle: HTMLElement): string => safeAppWorkspacePanelId(handle.dataset.workspacePanelId ?? "primary") || "primary";
+
+const numberData = (handle: HTMLElement, key: "workspaceMinSize" | "workspaceMaxSize", fallback: number): number => {
+  const value = Number(handle.dataset[key]);
+  return Number.isFinite(value) ? value : fallback;
+};
+
+const sizeLimits = (root: HTMLElement, handle: HTMLElement, kind: ResizeKind): { min: number; max: number } => {
+  const controlled = controlledPanel(root, handle);
+  const details = rootElements(root, ".workspace-detail").filter(isVisible);
+  const sidebarWidth = elementSize(sidebarElement(root), "sidebar");
+  const otherDetailWidth = details.reduce((total, detail) => total + (detail === controlled ? 0 : elementSize(detail, "detail")), 0);
+  const defaultMin =
+    kind === "sidebar" ? APP_WORKSPACE_SIDEBAR_MIN : kind === "detail" ? APP_WORKSPACE_DETAIL_MIN : APP_WORKSPACE_DRAWER_MIN;
+  const defaultMax =
+    kind === "sidebar" ? APP_WORKSPACE_SIDEBAR_MAX : kind === "detail" ? APP_WORKSPACE_DETAIL_MAX : APP_WORKSPACE_DRAWER_MAX;
   return appWorkspaceResizeLimits({
     kind,
-    workspaceWidth: root.getBoundingClientRect().width,
-    sidebarWidth: visibleWidth(root, ".workspace-sidebar"),
-    detailWidth: visibleWidth(root, ".workspace-detail"),
+    workspaceSize: kind === "drawer" ? root.getBoundingClientRect().height : root.getBoundingClientRect().width,
+    reservedSize: kind === "sidebar" ? otherDetailWidth : kind === "detail" ? sidebarWidth + otherDetailWidth : 0,
+    min: numberData(handle, "workspaceMinSize", defaultMin),
+    max: numberData(handle, "workspaceMaxSize", defaultMax),
     sidebarCollapsible: kind === "sidebar" && sidebarCollapsible(root),
   });
 };
 
-const currentWidth = (root: HTMLElement, kind: ResizeKind): number =>
-  visibleWidth(root, kind === "sidebar" ? ".workspace-sidebar" : ".workspace-detail");
+const currentSize = (root: HTMLElement, handle: HTMLElement, kind: ResizeKind): number =>
+  kind === "sidebar" ? elementSize(sidebarElement(root), kind) : elementSize(controlledPanel(root, handle), kind);
 
-const updateHandleValue = (root: HTMLElement, handle: HTMLElement, kind: ResizeKind, width: number) => {
-  const { min, max } = widthLimits(root, kind);
+const updateHandleValue = (root: HTMLElement, handle: HTMLElement, kind: ResizeKind, size: number) => {
+  const { min, max } = sizeLimits(root, handle, kind);
   handle.setAttribute("aria-valuemin", String(min));
   handle.setAttribute("aria-valuemax", String(max));
-  handle.setAttribute("aria-valuenow", String(clamp(width, min, max)));
+  handle.setAttribute("aria-valuenow", String(clamp(size, min, max)));
 };
 
-const sidebarSnapTimers = new WeakMap<HTMLElement, number>();
+const sidebarSnapTimers = new Map<HTMLElement, number>();
 
 const markSidebarSnap = (root: HTMLElement) => {
   const previous = sidebarSnapTimers.get(root);
@@ -83,25 +122,41 @@ const markSidebarSnap = (root: HTMLElement) => {
   );
 };
 
-const applyWidth = (root: HTMLElement, handle: HTMLElement, kind: ResizeKind, requestedWidth: number): number => {
-  const { min, max } = widthLimits(root, kind);
-  const canvas = workspaceCanvas(root);
-  const previousCollapsed = canvas.dataset.workspaceSidebarCollapsed === "true";
-  const sidebar = kind === "sidebar" ? resolveAppWorkspaceSidebarWidth(requestedWidth, max, sidebarCollapsible(root)) : null;
-  const width = sidebar?.width ?? clamp(requestedWidth, min, max);
-  if (sidebar) {
+const applySize = (
+  root: HTMLElement,
+  handle: HTMLElement,
+  kind: ResizeKind,
+  requestedSize: number,
+  options: { snapSidebar?: boolean; animateSidebar?: boolean } = {},
+): number => {
+  const { min, max } = sizeLimits(root, handle, kind);
+  if (kind === "sidebar") {
+    const canvas = workspaceCanvas(root);
+    const previousCollapsed = canvas.dataset.workspaceSidebarCollapsed === "true";
+    const shouldSnap = options.snapSidebar ?? true;
+    const sidebar = shouldSnap
+      ? resolveAppWorkspaceSidebarWidth(requestedSize, max, sidebarCollapsible(root))
+      : {
+          width: clamp(requestedSize, min, max),
+          collapsed: shouldCollapseAppWorkspaceSidebar(requestedSize, sidebarCollapsible(root)),
+        };
     if (sidebar.collapsed) canvas.dataset.workspaceSidebarCollapsed = "true";
     else delete canvas.dataset.workspaceSidebarCollapsed;
-    if (sidebar.collapsed !== previousCollapsed) markSidebarSnap(root);
+    if (options.animateSidebar !== false && sidebar.collapsed !== previousCollapsed) markSidebarSnap(root);
+    canvas.style.setProperty("--workspace-sidebar-width", `${sidebar.width}px`);
+    updateHandleValue(root, handle, kind, sidebar.width);
+    return sidebar.width;
   }
-  canvas.style.setProperty(kind === "sidebar" ? "--workspace-sidebar-width" : "--workspace-detail-width", `${width}px`);
-  updateHandleValue(root, handle, kind, width);
-  return width;
+
+  const size = clamp(requestedSize, min, max);
+  workspaceCanvas(root).style.setProperty(appWorkspacePanelVariable(kind, panelId(handle)), `${size}px`);
+  updateHandleValue(root, handle, kind, size);
+  return size;
 };
 
 const readClientState = (appId: string | null): AppWorkspaceLayoutState => {
-  if (!appId) return { version: 1 };
-  return readAppWorkspaceLayoutCookie(document.cookie, appId) ?? { version: 1 };
+  if (!appId) return { version: 2 };
+  return readAppWorkspaceLayoutCookie(document.cookie, appId) ?? { version: 2 };
 };
 
 const writeClientState = (appId: string | null, state: AppWorkspaceLayoutState) => {
@@ -124,15 +179,28 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
   let layoutState = readClientState(appId);
   let active: ActiveResize | null = null;
 
-  const persistWidth = (kind: ResizeKind, width: number) => {
-    const collapsed = kind === "sidebar" && width === APP_WORKSPACE_SIDEBAR_COLLAPSED;
-    layoutState = {
-      ...layoutState,
-      version: 1,
-      ...(kind === "sidebar"
-        ? { sidebarWidth: collapsed ? layoutState.sidebarWidth : width, sidebarCollapsed: collapsed }
-        : { detailWidth: width }),
-    };
+  const persistSize = (handle: HTMLElement, kind: ResizeKind, size: number) => {
+    if (kind === "sidebar") {
+      const collapsed = size === APP_WORKSPACE_SIDEBAR_COLLAPSED;
+      layoutState = {
+        ...layoutState,
+        version: 2,
+        sidebarWidth: collapsed ? layoutState.sidebarWidth : size,
+        sidebarCollapsed: collapsed,
+      };
+    } else if (kind === "detail") {
+      layoutState = {
+        ...layoutState,
+        version: 2,
+        detailWidths: { ...layoutState.detailWidths, [panelId(handle)]: size },
+      };
+    } else {
+      layoutState = {
+        ...layoutState,
+        version: 2,
+        drawerHeights: { ...layoutState.drawerHeights, [panelId(handle)]: size },
+      };
+    }
     writeClientState(appId, layoutState);
   };
 
@@ -140,9 +208,10 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     if (!active || (event instanceof PointerEvent && event.pointerId !== active.pointerId)) return;
     const finished = active;
     active = null;
-    const width = applyWidth(finished.root, finished.handle, finished.kind, currentWidth(finished.root, finished.kind));
-    persistWidth(finished.kind, width);
     delete finished.root.dataset.workspaceResizeActive;
+    const size = applySize(finished.root, finished.handle, finished.kind, currentSize(finished.root, finished.handle, finished.kind));
+    persistSize(finished.handle, finished.kind, size);
+    if (finished.handle.hasPointerCapture?.(finished.pointerId)) finished.handle.releasePointerCapture(finished.pointerId);
     document.body.style.userSelect = finished.previousUserSelect;
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", stopResize);
@@ -152,9 +221,10 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
 
   const onPointerMove = (event: PointerEvent) => {
     if (!active || event.pointerId !== active.pointerId) return;
-    const delta = event.clientX - active.startX;
-    const requested = active.kind === "sidebar" ? active.startWidth + delta : active.startWidth - delta;
-    applyWidth(active.root, active.handle, active.kind, requested);
+    const currentClient = active.kind === "drawer" ? event.clientY : event.clientX;
+    const delta = currentClient - active.startClient;
+    const requested = active.kind === "sidebar" ? active.startSize + delta : active.startSize - delta;
+    applySize(active.root, active.handle, active.kind, requested, { snapSidebar: active.kind !== "sidebar" });
   };
 
   const onPointerDown = (event: PointerEvent) => {
@@ -170,8 +240,8 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
       root,
       kind,
       pointerId: event.pointerId,
-      startX: event.clientX,
-      startWidth: currentWidth(root, kind),
+      startClient: kind === "drawer" ? event.clientY : event.clientX,
+      startSize: currentSize(root, handle, kind),
       previousUserSelect: document.body.style.userSelect,
     };
     root.dataset.workspaceResizeActive = kind;
@@ -189,20 +259,22 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     const root = handle ? workspaceRoot(handle) : null;
     if (!handle || !kind || !root) return;
 
-    const current = currentWidth(root, kind);
-    const { min, max } = widthLimits(root, kind);
+    const current = currentSize(root, handle, kind);
+    const { min, max } = sizeLimits(root, handle, kind);
     const step = event.shiftKey ? 32 : 8;
     let requested: number | null = null;
     if (event.key === "Home") requested = min;
     else if (event.key === "End") requested = max;
-    else if (event.key === "ArrowLeft") {
+    else if (kind === "drawer" && event.key === "ArrowUp") requested = current + step;
+    else if (kind === "drawer" && event.key === "ArrowDown") requested = current - step;
+    else if (kind !== "drawer" && event.key === "ArrowLeft") {
       requested =
         kind === "sidebar" && sidebarCollapsible(root) && current <= APP_WORKSPACE_SIDEBAR_MIN
           ? APP_WORKSPACE_SIDEBAR_COLLAPSED
           : kind === "sidebar"
             ? current - step
             : current + step;
-    } else if (event.key === "ArrowRight") {
+    } else if (kind !== "drawer" && event.key === "ArrowRight") {
       requested =
         kind === "sidebar" && sidebarCollapsible(root) && current <= APP_WORKSPACE_SIDEBAR_COLLAPSED
           ? (layoutState.sidebarWidth ?? APP_WORKSPACE_SIDEBAR_MIN)
@@ -213,7 +285,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     if (requested === null) return;
 
     event.preventDefault();
-    persistWidth(kind, applyWidth(root, handle, kind, requested));
+    persistSize(handle, kind, applySize(root, handle, kind, requested));
   };
 
   const onPointerOver = (event: PointerEvent) => {
@@ -226,7 +298,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     const handle = resizeHandle(event);
     const kind = handle ? resizeKind(handle) : null;
     const root = handle ? workspaceRoot(handle) : null;
-    if (handle && kind && root) updateHandleValue(root, handle, kind, currentWidth(root, kind));
+    if (handle && kind && root) updateHandleValue(root, handle, kind, currentSize(root, handle, kind));
 
     const label = eventElement(event)?.closest<HTMLElement>("[data-app-workspace-item]")?.querySelector<HTMLElement>(LABEL_SELECTOR);
     if (label) requestAnimationFrame(() => measureLabel(label));
@@ -239,40 +311,30 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     });
   };
 
-  const primaryWorkspaceRoot = (): HTMLElement | null => {
-    const roots = Array.from(document.querySelectorAll<HTMLElement>(".app-workspace")).filter(
+  const workspaceRoots = (): HTMLElement[] =>
+    Array.from(document.querySelectorAll<HTMLElement>(".app-workspace")).filter(
       (root) => getComputedStyle(root).display !== "none" && root.getBoundingClientRect().width > 0,
     );
-    return roots.reduce<HTMLElement | null>(
-      (largest, root) => (!largest || root.getBoundingClientRect().width > largest.getBoundingClientRect().width ? root : largest),
-      null,
-    );
-  };
 
-  const directHandle = (root: HTMLElement, kind: ResizeKind): HTMLElement | null =>
-    root.querySelector<HTMLElement>(`:scope > [data-app-workspace-resize="${kind}"]`);
+  const rootHandles = (root: HTMLElement): HTMLElement[] =>
+    rootElements(root, HANDLE_SELECTOR).filter((handle) => resizeKind(handle) !== null);
 
-  const reconcilePersistedWidths = () => {
-    const root = primaryWorkspaceRoot();
-    if (!root) return;
-    if (layoutState.sidebarWidth !== undefined) {
-      const handle = directHandle(root, "sidebar");
-      if (handle) {
-        applyWidth(
-          root,
-          handle,
-          "sidebar",
-          layoutState.sidebarCollapsed && sidebarCollapsible(root) ? APP_WORKSPACE_SIDEBAR_COLLAPSED : layoutState.sidebarWidth,
-        );
-      }
-    } else if (layoutState.sidebarCollapsed && sidebarCollapsible(root)) {
-      const handle = directHandle(root, "sidebar");
-      if (handle) applyWidth(root, handle, "sidebar", APP_WORKSPACE_SIDEBAR_COLLAPSED);
-    }
-    if (layoutState.detailWidth !== undefined) {
-      const handle = directHandle(root, "detail");
-      if (handle) applyWidth(root, handle, "detail", layoutState.detailWidth);
-    }
+  const reconcilePersistedSizes = () => {
+    workspaceRoots().forEach((root) => {
+      rootHandles(root).forEach((handle) => {
+        const kind = resizeKind(handle)!;
+        let persisted: number | undefined;
+        if (kind === "sidebar") {
+          persisted = layoutState.sidebarCollapsed && sidebarCollapsible(root) ? APP_WORKSPACE_SIDEBAR_COLLAPSED : layoutState.sidebarWidth;
+        } else if (kind === "detail") {
+          persisted = layoutState.detailWidths?.[panelId(handle)];
+        } else {
+          persisted = layoutState.drawerHeights?.[panelId(handle)];
+        }
+        if (persisted !== undefined) applySize(root, handle, kind, persisted, { animateSidebar: false });
+        else updateHandleValue(root, handle, kind, currentSize(root, handle, kind));
+      });
+    });
   };
 
   let resizeFrame: number | null = null;
@@ -281,7 +343,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = null;
-      reconcilePersistedWidths();
+      reconcilePersistedSizes();
     });
   };
 
@@ -290,19 +352,14 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
   document.addEventListener("pointerover", onPointerOver);
   document.addEventListener("focusin", onFocusIn);
   window.addEventListener("resize", onWindowResize);
-  const initialSyncFrame = requestAnimationFrame(() => {
-    reconcilePersistedWidths();
-    document.querySelectorAll<HTMLElement>(HANDLE_SELECTOR).forEach((handle) => {
-      const kind = resizeKind(handle);
-      const root = workspaceRoot(handle);
-      if (kind && root) updateHandleValue(root, handle, kind, currentWidth(root, kind));
-    });
-  });
+  const initialSyncFrame = requestAnimationFrame(reconcilePersistedSizes);
 
   return () => {
     cancelAnimationFrame(initialSyncFrame);
     if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
     stopResize();
+    sidebarSnapTimers.forEach((timer) => window.clearTimeout(timer));
+    sidebarSnapTimers.clear();
     document.removeEventListener("pointerdown", onPointerDown);
     document.removeEventListener("keydown", onKeyDown);
     document.removeEventListener("pointerover", onPointerOver);

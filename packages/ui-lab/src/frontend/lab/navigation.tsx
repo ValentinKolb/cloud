@@ -208,6 +208,8 @@ export const FilterChipDemo = () => {
 export const AppWorkspaceDemo = () => {
   const [selectedId, setSelectedId] = createSignal("launch");
   const [detailOpen, setDetailOpen] = createSignal(true);
+  const [inspectorOpen, setInspectorOpen] = createSignal(false);
+  const [drawerOpen, setDrawerOpen] = createSignal(true);
 
   return (
     <DemoCard
@@ -232,13 +234,15 @@ export const AppWorkspaceDemo = () => {
       </AppWorkspace.SidebarSection>
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
-  <AppWorkspace.Main><button onClick={() => setDetailOpen(true)}>View details</button></AppWorkspace.Main>
-  <AppWorkspace.Detail open={detailOpen()} width="sm">
-    <button aria-label="Close details" onClick={() => setDetailOpen(false)}>…</button>
-  </AppWorkspace.Detail>
+  <AppWorkspace.Content>
+    <AppWorkspace.Main><button onClick={() => setDetailOpen(true)}>View details</button></AppWorkspace.Main>
+    <AppWorkspace.Detail id="record" open={detailOpen()} width="sm">…</AppWorkspace.Detail>
+    <AppWorkspace.Detail id="inspector" open={inspectorOpen()} width="sm">…</AppWorkspace.Detail>
+  </AppWorkspace.Content>
+  <AppWorkspace.BottomDrawer id="activity" open={drawerOpen()} height="sm">…</AppWorkspace.BottomDrawer>
 </AppWorkspace>`}
     >
-      <div class="h-80 overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--ui-canvas)] p-2">
+      <div class="h-96 overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--ui-canvas)] p-2">
         <AppWorkspace class="cloud-ui-soft">
           <AppWorkspace.Sidebar collapsible>
             <AppWorkspace.SidebarHeader title="Project" subtitle="Q2 sprint" icon="ti ti-folder" />
@@ -325,33 +329,79 @@ export const AppWorkspaceDemo = () => {
             </AppWorkspace.SidebarDesktop>
           </AppWorkspace.Sidebar>
 
-          <AppWorkspace.Main>
-            <div class="flex h-full min-h-0 flex-col p-4">
-              <div class="flex min-w-0 items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <p class="text-sm font-semibold text-primary">Workspace content</p>
-                  <p class="mt-1 text-xs text-dimmed">Current selection: {selectedId()}</p>
+          <AppWorkspace.Content>
+            <AppWorkspace.Main>
+              <div class="flex h-full min-h-0 flex-col p-4">
+                <div class="flex min-w-0 items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-sm font-semibold text-primary">Workspace content</p>
+                    <p class="mt-1 text-xs text-dimmed">Current selection: {selectedId()}</p>
+                  </div>
+                  <div class="flex flex-wrap justify-end gap-2">
+                    <Show when={!detailOpen()}>
+                      <button type="button" class="btn-secondary btn-sm" onClick={() => setDetailOpen(true)}>
+                        Details
+                      </button>
+                    </Show>
+                    <button type="button" class="btn-secondary btn-sm" onClick={() => setInspectorOpen((open) => !open)}>
+                      Inspector
+                    </button>
+                    <button type="button" class="btn-secondary btn-sm" onClick={() => setDrawerOpen((open) => !open)}>
+                      Activity
+                    </button>
+                  </div>
                 </div>
-                <Show when={!detailOpen()}>
-                  <button type="button" class="btn-secondary btn-sm" onClick={() => setDetailOpen(true)}>
-                    View details
-                  </button>
-                </Show>
               </div>
-            </div>
-          </AppWorkspace.Main>
+            </AppWorkspace.Main>
 
-          <AppWorkspace.Detail open={detailOpen()} width="sm" class="detail-stack">
-            <div class="detail-section">
-              <div class="mb-3 flex items-center justify-between gap-2">
-                <h3 class="detail-section-label mb-0">Details</h3>
-                <button type="button" class="btn-simple btn-sm" aria-label="Close details" onClick={() => setDetailOpen(false)}>
+            <AppWorkspace.Detail id="record" open={detailOpen()} width="sm">
+              <header class="detail-header">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="text-sm font-semibold text-primary">Selected record</h3>
+                  <button type="button" class="btn-simple btn-sm" aria-label="Close details" onClick={() => setDetailOpen(false)}>
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </button>
+                </div>
+              </header>
+              <div class="detail-stack">
+                <section class="detail-section">
+                  <h4 class="detail-section-label">Context</h4>
+                  <p class="text-xs text-dimmed">Each contextual panel keeps an independent, persisted width.</p>
+                </section>
+              </div>
+            </AppWorkspace.Detail>
+
+            <AppWorkspace.Detail id="inspector" open={inspectorOpen()} width="sm">
+              <header class="detail-header">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="text-sm font-semibold text-primary">Inspector</h3>
+                  <button type="button" class="btn-simple btn-sm" aria-label="Close inspector" onClick={() => setInspectorOpen(false)}>
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </button>
+                </div>
+              </header>
+              <div class="detail-stack">
+                <section class="detail-section">
+                  <h4 class="detail-section-label">Properties</h4>
+                  <p class="text-xs text-dimmed">Use a second detail only when it represents a distinct contextual surface.</p>
+                </section>
+              </div>
+            </AppWorkspace.Detail>
+          </AppWorkspace.Content>
+
+          <AppWorkspace.BottomDrawer id="activity" open={drawerOpen()} height="sm" class="detail-stack">
+            <div class="detail-section-compact">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <h3 class="detail-section-label mb-0">Activity</h3>
+                  <p class="mt-1 text-xs text-dimmed">The drawer spans main and detail panels, never the navigation.</p>
+                </div>
+                <button type="button" class="btn-simple btn-sm" aria-label="Close activity" onClick={() => setDrawerOpen(false)}>
                   <i class="ti ti-x" aria-hidden="true" />
                 </button>
               </div>
-              <p class="text-xs text-dimmed">Detail panels use the same shell across apps.</p>
             </div>
-          </AppWorkspace.Detail>
+          </AppWorkspace.BottomDrawer>
         </AppWorkspace>
       </div>
     </DemoCard>

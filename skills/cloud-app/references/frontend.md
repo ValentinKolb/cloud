@@ -971,7 +971,7 @@ Canonical callback shape:
 
 ### AppWorkspace
 
-Compound layout for full-height app screens with left sidebar, main work area, and optional right detail panel. The root is one clipped workbench frame; its regions are not separate outer papers. Source: `packages/cloud/src/ui/misc/AppWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/workspace`.
+Compound layout for full-height app screens with a left sidebar, a content row containing Main plus optional right details, and an optional bottom drawer. The root is one clipped workbench frame; its regions are not separate outer papers. Source: `packages/cloud/src/ui/misc/AppWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/workspace`.
 
 For full-height `AppWorkspace.Main` screens, use the same content spacing as admin stretch pages:
 
@@ -994,9 +994,13 @@ Do not turn `AppWorkspace.Main` into another `paper`. The workspace root owns th
 
 Only put `scrollbar-gutter: stable` on the element that actually owns page scrolling. If the screen is composed of independently scrollable regions (for example an endpoints table and a requests table), keep `AppWorkspace.Main` as `flex min-h-0 flex-1 flex-col gap-2` without `overflow-y-auto` and put `overflow-auto` / `scrollPreserveKey` on each `DataTable`. Otherwise the reserved gutter appears as false spacing between main and detail.
 
-Do not add gaps, margins, borders, radii, or shadows between `AppWorkspace.Sidebar`, `AppWorkspace.Main`, and `AppWorkspace.Detail`. They are internal regions of the unified frame. Sidebar and detail use the quiet surface role; main remains neutral.
+Do not add gaps, margins, borders, radii, or shadows between `AppWorkspace.Sidebar`, `AppWorkspace.Content`, `AppWorkspace.Main`, `AppWorkspace.Detail`, and `AppWorkspace.BottomDrawer`. They are internal regions of the unified frame. Sidebar, detail, and drawer use the quiet surface role; main remains neutral.
 
-Main and Detail are siblings. Never implement contextual detail as `grid-cols-2`, a flex split, or another column inside `AppWorkspace.Main`. Use `AppWorkspace.Detail` so the shared shell owns responsive stacking and order, width, clipping, scrolling, and visibility. If the main content itself is an IDE-like multi-pane tool rather than a selected-record detail, use `Panes` inside Main instead.
+Main and Detail are siblings inside `AppWorkspace.Content`. Never implement contextual detail as `grid-cols-2`, a flex split, or another column inside `AppWorkspace.Main`. Use `AppWorkspace.Detail` so the shared shell owns responsive stacking and order, width, clipping, scrolling, and visibility. If the main content itself is an IDE-like multi-pane tool rather than a selected-record detail, use `Panes` inside Main instead.
+
+Multiple Details are additive shell regions, not nested boxes. Use them only when each one preserves distinct context the user needs simultaneously. Give each semantic panel a stable purpose-based `id` such as `record` or `inspector`; do not use a selected record id, because the id also keys SSR-persisted geometry. Open/close state remains controlled by the app. On mobile, keep at most one detail open.
+
+Use `AppWorkspace.BottomDrawer` for secondary activity, logs, preview, or a composer below the content row. Its height is resizable on desktop and persisted by stable `id`. It spans Main and Details, not the Sidebar. Do not use the drawer for navigation or as a second copy of a Detail.
 
 Detail panels have two hierarchy layers. Put the record identity, compact
 context or status, close/overflow controls, and frequent quick actions in a
@@ -1020,18 +1024,20 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
       </AppWorkspace.SidebarSection>
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
-  <AppWorkspace.Main class="p-[var(--ui-space-shell)]">{children}</AppWorkspace.Main>
-  <AppWorkspace.Detail open={Boolean(selectedId())} width="md">
-    <header class="detail-header">
-      {detailIdentity}
-      <div class="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Item actions">
-        {frequentQuickActions}
+  <AppWorkspace.Content>
+    <AppWorkspace.Main class="p-[var(--ui-space-shell)]">{children}</AppWorkspace.Main>
+    <AppWorkspace.Detail id="record" open={Boolean(selectedId())} width="md">
+      <header class="detail-header">
+        {detailIdentity}
+        <div class="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Item actions">
+          {frequentQuickActions}
+        </div>
+      </header>
+      <div class="detail-stack">
+        <section class="detail-section">{detailBody}</section>
       </div>
-    </header>
-    <div class="detail-stack">
-      <section class="detail-section">{detailBody}</section>
-    </div>
-  </AppWorkspace.Detail>
+    </AppWorkspace.Detail>
+  </AppWorkspace.Content>
 </AppWorkspace>
 ```
 
@@ -1041,16 +1047,17 @@ change.
 
 Use compound components instead of hand-written sidebar/detail classes. `SidebarItem` owns active, icon, mobile, tone, label truncation, trailing metadata, progressive row actions, and the accessible long-label marquee.
 
-Desktop Sidebar and Detail regions are resizable by default. `Layout` restores validated widths from a per-app cookie during SSR, so the first paint already uses the saved geometry. One Layout-owned controller handles pointer and keyboard resizing for all server-rendered workspaces; do not turn an app page or every sidebar item into an island. The separator supports Arrow keys, Shift+Arrow for larger steps, Home, and End. Set `resizable={false}` on the root or one region only when that layout deliberately owns a fixed width, such as a dedicated navigator mode.
+Desktop Sidebar, Detail, and BottomDrawer regions are resizable by default. `Layout` restores validated sizes from a per-app cookie during SSR, so the first paint already uses the saved geometry. One Layout-owned controller handles pointer and keyboard resizing for all server-rendered workspaces; do not turn an app page or every region into an island. Vertical separators support Left/Right and horizontal drawer separators support Up/Down; Shift uses larger steps, while Home and End select limits. Resize handles are hidden on mobile. Set `resizable={false}` on the root or one region only when that layout deliberately owns a fixed size.
 
 Resize behavior is an app-level contract, not a route-level accident. When one primary view of an app has a resizable sidebar, every primary view of that app must keep the same sidebar and resize behavior unless there is a documented UX reason to omit it. Do not replace the workspace with a standalone page merely for search, history, archive, or management. Prefer a modal for temporary collection workflows, or keep the same `AppWorkspace` shell when the workflow genuinely needs its own route.
 
 Collapsed desktop navigation is opt-in with `collapsible` on `AppWorkspace.Sidebar`. Crossing the shared collapse threshold snaps to the icon-only state with a short reduced-motion-aware transition; dragging back restores the last useful expanded width. The per-app SSR cookie stores both states, so reload never flashes the wrong geometry. Curate the collapsed navigation instead of shrinking every dense row: use `sidebarMode="expanded"` for labels or long lists and `sidebarMode="collapsed"` for a small set of recognizable icon actions. Every collapsed icon needs an accessible label and a visible tooltip or title.
 
 Compound pieces:
-- `AppWorkspace`, `AppWorkspace.Main`
+- `AppWorkspace`, `AppWorkspace.Content`, `AppWorkspace.Main`
 - `AppWorkspace` with `resizable?: boolean`
-- `AppWorkspace.Detail` with `open`, `width?: "sm" | "md" | "lg" | "xl"`, `widthClass?`, `viewTransitionName?`, and `resizable?`
+- `AppWorkspace.Detail` with stable `id?`, `open`, `width?: "sm" | "md" | "lg" | "xl"`, `minWidth?`, `maxWidth?`, `widthClass?`, `viewTransitionName?`, and `resizable?`
+- `AppWorkspace.BottomDrawer` with stable `id?`, `open`, `height?: "sm" | "md" | "lg"`, `minHeight?`, `maxHeight?`, `viewTransitionName?`, and `resizable?`
 - `AppWorkspace.Sidebar` with `resizable?` and opt-in `collapsible?`, plus `SidebarHeader`, `SidebarMobile`, `SidebarMobileItems`, `SidebarDesktop`, `SidebarBody`, `SidebarFooter`, and `SidebarSection`
 - `AppWorkspace.SidebarHeader` accepts `showDesktop={false}` when its static app title is redundant on desktop but must remain as the mobile sidebar trigger.
 - `AppWorkspace.SidebarBody` and `SidebarMobileBody` accept `scrollPreserveKey?: string | false`; pass a stable app-specific key when the body is a scrollable navigation/list region.

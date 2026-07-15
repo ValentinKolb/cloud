@@ -405,8 +405,19 @@
 }
 
 .workspace-resize-handle-detail {
-  right: var(--workspace-detail-width, var(--workspace-detail-default, 24rem));
+  right: var(--workspace-panel-size, var(--workspace-detail-width, 24rem));
   transform: translateX(50%);
+}
+
+.workspace-resize-handle-drawer {
+  top: auto;
+  right: 0;
+  bottom: var(--workspace-panel-size, 15rem);
+  left: 0;
+  width: auto;
+  height: 0.875rem;
+  cursor: row-resize;
+  transform: translateY(50%);
 }
 
 .workspace-resize-handle > span {
@@ -421,8 +432,20 @@
   transition: background-color 150ms ease-out;
 }
 
+.workspace-resize-handle-drawer > span {
+  top: 50%;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
 .workspace-resize-handle:is(:hover, :focus-visible) > span,
-.app-workspace[data-workspace-resize-active] > .workspace-resize-handle > span {
+.app-workspace[data-workspace-resize-active="sidebar"] .workspace-resize-handle-sidebar > span,
+.app-workspace[data-workspace-resize-active="detail"] .workspace-resize-handle-detail > span,
+.app-workspace[data-workspace-resize-active="drawer"] .workspace-resize-handle-drawer > span {
   background: var(--ui-border-strong);
 }
 
@@ -443,18 +466,70 @@
     transition: width 140ms ease-out;
   }
 
-  .app-workspace[data-workspace-resize-active]:not([data-workspace-sidebar-snapping])
-    > .workspace-sidebar[data-workspace-collapsible="true"] {
+  .app-workspace[data-workspace-resize-active] > .workspace-sidebar[data-workspace-collapsible="true"] {
     transition: none;
   }
 
-  .app-workspace > .workspace-detail[data-workspace-resizable="true"] {
-    width: var(--workspace-detail-width, var(--workspace-detail-default, 24rem));
+  .app-workspace > .workspace-detail[data-workspace-resizable="true"],
+  .app-workspace > .workspace-content > .workspace-detail[data-workspace-resizable="true"] {
+    width: var(--workspace-panel-size, var(--workspace-detail-width, 24rem));
   }
 
-  .app-workspace > .workspace-detail.hidden + .workspace-resize-handle-detail {
+  .app-workspace > .workspace-content > .workspace-resize-handle-detail {
+    position: relative;
+    inset: auto;
+    order: 3;
+    height: auto;
+    flex: 0 0 0.875rem;
+    margin-inline: -0.4375rem;
+    transform: none;
+  }
+
+  .app-workspace:has(> .workspace-sidebar) > .workspace-resize-handle-drawer {
+    left: var(--workspace-sidebar-width, 13rem);
+  }
+
+  .app-workspace > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
+  .app-workspace > .workspace-content > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
+  .app-workspace > .workspace-resize-handle-drawer:has(+ .workspace-bottom-drawer.hidden) {
     display: none;
   }
+
+  .app-workspace > .workspace-bottom-drawer[data-workspace-resizable="true"] {
+    height: var(--workspace-panel-size, 15rem);
+  }
+}
+
+@media (max-width: 1023px) {
+  .app-workspace > .workspace-content:has(> .workspace-detail:not(.hidden)) > .workspace-main {
+    display: none;
+  }
+
+  .app-workspace > .workspace-content > .workspace-detail:not(.hidden) {
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  .app-workspace > .workspace-bottom-drawer:not(.hidden) {
+    max-height: 50%;
+  }
+}
+
+@keyframes workspace-sidebar-content-settle {
+  from {
+    opacity: 0.25;
+    transform: translateX(-0.125rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.app-workspace[data-workspace-sidebar-snapping="true"]
+  .workspace-sidebar[data-workspace-collapsible="true"]
+  :is(.workspace-sidebar-header, [data-sidebar-mode]) {
+  animation: workspace-sidebar-content-settle 120ms ease-out 30ms both;
 }
 
 /* Collapsible navigation is opt-in. Apps can curate a compact mode with
@@ -511,6 +586,12 @@
 @media (prefers-reduced-motion: reduce) {
   .app-workspace > .workspace-sidebar[data-workspace-collapsible="true"] {
     transition: none;
+  }
+
+  .app-workspace[data-workspace-sidebar-snapping="true"]
+    .workspace-sidebar[data-workspace-collapsible="true"]
+    :is(.workspace-sidebar-header, [data-sidebar-mode]) {
+    animation: none;
   }
 }
 

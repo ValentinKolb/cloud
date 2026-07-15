@@ -186,12 +186,16 @@ Dark mode mixes appearance colours into the dark canvas; it does not invert a li
 `AppWorkspace` is the standard full-height work shell.
 
 - The workspace root owns the outer radius, clipping, surface, and depth.
-- Sidebar, main, and detail are siblings inside that single frame; they do not have independent outer radii or shadows.
+- Sidebar, content row, and optional bottom drawer are regions inside that single frame; main and one or more details are siblings inside the content row. None has an independent outer radius or shadow.
 - Sidebar and detail use the quiet surface role while main remains neutral. This tone change replaces decorative dividers between regions.
 - Shell spacing separates the workspace from the platform chrome. Section spacing organizes content inside its regions; there is no shell gap between the regions themselves.
 - The sidebar owns navigation scrolling.
 - Main owns the primary work scroll unless the screen contains independent panes or tables.
-- A contextual right-side detail area is always an `AppWorkspace.Detail` sibling after Main. Do not create a second grid or flex column inside `AppWorkspace.Main` to imitate a detail panel; the shared detail region owns responsive order, width, clipping, scrolling, and selection visibility.
+- A contextual right-side detail area is always an `AppWorkspace.Detail` sibling after Main inside `AppWorkspace.Content`. Do not create a second grid or flex column inside `AppWorkspace.Main` to imitate a detail panel; the shared detail region owns responsive order, width, clipping, scrolling, and selection visibility.
+- Multiple details are appropriate only when each panel preserves a distinct, simultaneously useful context, such as record plus inspector. Give every semantic panel a stable purpose-based `id`; never key saved geometry by the selected entity id.
+- Use `AppWorkspace.BottomDrawer` for secondary activity, logs, preview, or a composer that belongs beneath the main/detail row. Do not use it for primary navigation or duplicate content already visible in a detail panel.
+- Detail and drawer visibility remains app-owned. Persist only geometry in the shared SSR layout cookie; keep shareable record selection URL-backed.
+- Use `Panes` inside Main only for app-owned IDE/editor/query layouts whose panes can be rearranged or tabbed. A contextual record detail or shell drawer is not a `Panes` use case.
 - Detail selection is URL-backed when it must survive reload, sharing, and browser history.
 
 ### Workspace header
@@ -272,6 +276,8 @@ Use `DataTable` for tabular data.
 ### Detail panels
 
 - If selecting a record keeps the primary work visible and opens contextual content beside it, that content belongs in `AppWorkspace.Detail`, not in a second column inside `AppWorkspace.Main`.
+- Desktop detail panels are resizable by default and do not collapse into an icon rail. Let users resize or close them; add a collapsed detail mode only for a separately designed workflow with meaningful icon actions.
+- On narrow screens, expose at most one open detail at a time and hide resize handles. Do not squeeze several desktop panels into unusable columns.
 - Render only sections that contain data.
 - Start with a flat, full-width detail hero at the panel edge. It orients the user with the record identity, title, compact context or status, close and overflow controls, and the most frequent quick actions.
 - The detail hero is not a `paper` or content section. It has no independent background, border, radius, shadow, section label, or divider below it. Do not inset it where main and detail meet.

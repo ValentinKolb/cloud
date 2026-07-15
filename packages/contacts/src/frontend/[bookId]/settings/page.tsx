@@ -85,24 +85,26 @@ export default ssr<AuthContext>(async (c) => {
       ]}
       fullWidth
     >
+      <ContactsLayoutHelp />
       <AppWorkspace class="cloud-ui-soft">
-        <ContactsLayoutHelp />
         <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
 
-        <AppWorkspace.Main>
-          <div class="flex-1 min-h-0 p-[var(--ui-space-section)]" data-scroll-preserve={`contacts-settings-${book.id}`}>
-            <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col" style="view-transition-name: contacts-settings-modal">
-              <BookSettingsForm
-                bookId={book.id}
-                initialName={book.name}
-                initialDescription={book.description}
-                accessEntries={accessEntries}
-                apiKeys={apiKeys}
-                initialTags={bookTags}
-              />
+        <AppWorkspace.Content>
+          <AppWorkspace.Main>
+            <div class="flex-1 min-h-0 p-[var(--ui-space-section)]" data-scroll-preserve={`contacts-settings-${book.id}`}>
+              <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col" style="view-transition-name: contacts-settings-modal">
+                <BookSettingsForm
+                  bookId={book.id}
+                  initialName={book.name}
+                  initialDescription={book.description}
+                  accessEntries={accessEntries}
+                  apiKeys={apiKeys}
+                  initialTags={bookTags}
+                />
+              </div>
             </div>
-          </div>
-        </AppWorkspace.Main>
+          </AppWorkspace.Main>
+        </AppWorkspace.Content>
       </AppWorkspace>
     </Layout>
   );

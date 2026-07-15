@@ -21,12 +21,19 @@ export {
 export type { AppOverviewEmptyStateProps, AppOverviewPanelProps, AppOverviewProps } from "./AppOverview";
 export { default as AppOverview } from "./AppOverview";
 export type {
+  AppWorkspaceBottomDrawerHeight,
+  AppWorkspaceBottomDrawerProps,
+  AppWorkspaceContentProps,
   AppWorkspaceDetailProps,
   AppWorkspaceDetailWidth,
   AppWorkspaceMainProps,
   AppWorkspaceProps,
   AppWorkspaceSidebarBodyProps,
   AppWorkspaceSidebarHeaderProps,
+  AppWorkspaceSidebarItemActionProps,
+  AppWorkspaceSidebarItemIconProps,
+  AppWorkspaceSidebarItemLabelProps,
+  AppWorkspaceSidebarItemMetaProps,
   AppWorkspaceSidebarItemProps,
   AppWorkspaceSidebarItemTone,
   AppWorkspaceSidebarMobileProps,

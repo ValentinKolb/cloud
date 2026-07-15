@@ -126,6 +126,46 @@
   @apply lg:flex-row lg:items-stretch;
 }
 
+/* Structured workspaces keep the sidebar full-height while a bottom drawer
+   spans the main and any contextual detail panels. The empty sidebar track
+   collapses naturally for workspaces without navigation. */
+.app-workspace:has(> .workspace-content) {
+  display: grid;
+  grid-template-areas:
+    "mobile"
+    "content"
+    "drawer";
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
+}
+
+.app-workspace:has(> .workspace-content) > .workspace-sidebar-mobile {
+  grid-area: mobile;
+}
+
+.app-workspace:has(> .workspace-content) > .workspace-content {
+  grid-area: content;
+}
+
+.app-workspace:has(> .workspace-content) > .workspace-bottom-drawer {
+  grid-area: drawer;
+}
+
+@media (min-width: 1024px) {
+  .app-workspace:has(> .workspace-content) {
+    grid-template-areas:
+      "sidebar content"
+      "sidebar drawer";
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .app-workspace:has(> .workspace-content) > .workspace-sidebar {
+    grid-area: sidebar;
+  }
+}
+
 @utility app-rows {
   @apply flex flex-col gap-3;
 }

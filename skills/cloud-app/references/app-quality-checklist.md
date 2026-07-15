@@ -66,8 +66,10 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - Top-level resource overview pages with cards and create starters use `AppOverview`, not a custom landing page. List/detail apps such as Contacts use `AppWorkspace`.
 - Create column uses `AppOverview.Aside title="Create"` with template/starter buttons and one blank/create-from-scratch button.
 - Full-height resource screens use `Layout fullWidth` + `AppWorkspace`; add `fullPage` only when the route should match an existing footerless full-height reference.
-- AppWorkspace main content does not add generic outer padding; use `gap-2` rhythm.
-- Detail panels are composed from section cards (`detail-section`) inside a `detail-stack`; do not wrap the whole detail panel in one large paper or mix section margins with parent gaps.
+- Standard inset workspace content sets `class="p-[var(--ui-space-shell)]"` directly on `AppWorkspace.Main`; no `p-3`/`p-4` substitute or padding-only full-height wrapper. Edge-to-edge tables, editors, canvases, and pane layouts are intentional exceptions whose shared primitives own their gutters. Use `gap-2` rhythm.
+- Contextual right-side detail is an `AppWorkspace.Detail` sibling after Main inside `AppWorkspace.Content`, never a second grid or flex column inside Main. Detail panels are composed from section cards (`detail-section`) inside a `detail-stack`; do not wrap the whole detail panel in one large paper or mix section margins with parent gaps.
+- Multiple details and a bottom drawer use the shared `AppWorkspace` primitives with stable purpose-based ids. Use multiple details only for distinct simultaneous context; use `BottomDrawer` for secondary activity/log/preview/composer content. Use `Panes` only for app-owned IDE/editor/query splits inside Main.
+- Desktop details/drawers resize through the shared controller and SSR cookie; mobile hides resize handles and presents at most one open detail. Detail panels do not gain an icon-only collapsed rail without a separately justified UX.
 - Resource settings use `SettingsModal` as their shell. Modal settings open it in a bare prompt dialog; route-backed settings still reuse the same shell instead of inventing a local layout.
 - Complex editor modals use `PanelDialog`; small prompts stay with `prompts.form` or plain `prompts.dialog`.
 - Tables use `DataTable`; disable column hover with `highlightColumns={false}` when the design calls for row-only hover.
