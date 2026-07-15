@@ -15,7 +15,7 @@ export type Adjustments = {
 };
 
 export type MarkupPoint = { x: number; y: number };
-export type MarkupTool = "pen" | "highlighter" | "redact" | "shape" | "text";
+export type MarkupTool = "select" | "pen" | "highlighter" | "redact" | "shape" | "text" | "eraser";
 export type MarkupShapeKind = "rectangle" | "circle" | "arrow";
 
 export type MarkupElement =
@@ -63,7 +63,8 @@ export type ImageEntry = {
   name: string;
   adj: Adjustments;
   markup: MarkupElement[];
-  markupRedo: MarkupElement[];
+  markupUndo: MarkupElement[][];
+  markupRedo: MarkupElement[][];
   cropped: boolean;
   cropBounds: CropRect;
 };

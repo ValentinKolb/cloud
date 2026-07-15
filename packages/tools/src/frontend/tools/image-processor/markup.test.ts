@@ -71,6 +71,16 @@ describe("image markup", () => {
     expect(rounded).toEqual(elements);
   });
 
+  test("round-trips markup through repeated crops", () => {
+    const firstCrop = { x: 0.1, y: 0.2, w: 0.8, h: 0.6 };
+    const secondCrop = { x: 0.25, y: 0.1, w: 0.5, h: 0.7 };
+    const cropBounds = composeCropBounds(firstCrop, secondCrop);
+    const cropped = transformMarkupForCrop(transformMarkupForCrop(elements, firstCrop, 1.25), secondCrop, 2);
+    const restored = restoreMarkupFromCrop(cropped, cropBounds, 1 / 2.5);
+    const rounded = JSON.parse(JSON.stringify(restored, (_key, value) => (typeof value === "number" ? Number(value.toFixed(10)) : value)));
+    expect(rounded).toEqual(elements);
+  });
+
   test("composes repeated crop bounds", () => {
     expect(composeCropBounds({ x: 0.1, y: 0.2, w: 0.8, h: 0.6 }, { x: 0.25, y: 0.5, w: 0.5, h: 0.25 })).toEqual({
       x: 0.30000000000000004,

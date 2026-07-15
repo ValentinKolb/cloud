@@ -18,6 +18,7 @@ import { type CropHandle, createCropRect, moveCropRect, resizeCropRect, toPixelC
 import { buildImagePipeline, makePreviewSource, rotatedImageDimensions } from "./image-processor/image-processing";
 import MarkupOverlay from "./image-processor/MarkupOverlay";
 import { composeCropBounds, FULL_CROP_BOUNDS, restoreMarkupFromCrop, transformMarkupForCrop } from "./image-processor/markup";
+import { commitMarkupHistory, redoMarkupHistory, undoMarkupHistory } from "./image-processor/markup-history";
 import type {
   Adjustments,
   CropAspect,
@@ -35,6 +36,8 @@ const uid = () => `images-${++nextId}`;
 const MIN_PREVIEW_ZOOM = 0.25;
 const MAX_PREVIEW_ZOOM = 4;
 const PREVIEW_ZOOM_STEP = 1.2;
+type SizedMarkupTool = "pen" | "highlighter" | "shape" | "text";
+type MarkupSelection = { imageId: string; elementId: string };
 const MARKUP_COLORS = [
   { value: "#111827", label: "Black" },
   { value: "#ef4444", label: "Red" },
@@ -64,12 +67,13 @@ export default function ImageProcessor() {
   const [markupTool, setMarkupTool] = createSignal<MarkupTool>("pen");
   const [markupShape, setMarkupShape] = createSignal<MarkupShapeKind>("rectangle");
   const [markupColor, setMarkupColor] = createSignal("#ef4444");
-  const [markupSizes, setMarkupSizes] = createSignal<Record<Exclude<MarkupTool, "redact">, number>>({
+  const [markupSizes, setMarkupSizes] = createSignal<Record<SizedMarkupTool, number>>({
     pen: 8,
     highlighter: 28,
     shape: 6,
     text: 32,
   });
+  const [markupSelection, setMarkupSelection] = createSignal<MarkupSelection | null>(null);
 
   // --- Clipboard for copy/paste edits ---
   const [clipboard, setClipboard] = createSignal<Adjustments | null>(null);
@@ -94,6 +98,11 @@ export default function ImageProcessor() {
   const activeImage = createMemo(() => images()[activeIndex()] ?? null);
   const hasImages = createMemo(() => images().length > 0);
   const adj = createMemo(() => activeImage()?.adj ?? DEFAULT_ADJ);
+  const selectedMarkupId = createMemo(() => {
+    const image = activeImage();
+    const selection = markupSelection();
+    return markupTool() === "select" && image && selection?.imageId === image.id ? selection.elementId : null;
+  });
 
   // Helper to update adj for the active image
   const setAdj = (key: keyof Adjustments, value: number | boolean) => {
@@ -201,6 +210,7 @@ export default function ImageProcessor() {
             name: file.name,
             adj: { ...DEFAULT_ADJ },
             markup: [],
+            markupUndo: [],
             markupRedo: [],
             cropped: false,
             cropBounds: { ...FULL_CROP_BOUNDS },
@@ -267,6 +277,7 @@ export default function ImageProcessor() {
     setCropActive(false);
     setDragging(null);
     setDragStart(null);
+    setMarkupSelection(null);
     if (currentImageId !== nextImageId) {
       fitPreview();
       setBasePreview("");
@@ -282,6 +293,7 @@ export default function ImageProcessor() {
     setCropActive(false);
     setDragging(null);
     setDragStart(null);
+    setMarkupSelection(null);
     void rebuildBasePreview();
   };
 
@@ -321,6 +333,7 @@ export default function ImageProcessor() {
     if (!image) return;
     setDragging(null);
     setDragStart(null);
+    setMarkupSelection(null);
     setCropRect(createCropRect(cropAspect(), image.source.width, image.source.height));
     setCropActive(true);
   };
@@ -331,6 +344,7 @@ export default function ImageProcessor() {
     if (!image) return;
     setDragging(null);
     setDragStart(null);
+    setMarkupSelection(null);
     setCropAspect(aspect);
     setCropRect(createCropRect(aspect, image.source.width, image.source.height));
     setCropActive(true);
@@ -372,6 +386,7 @@ export default function ImageProcessor() {
                 previewSource: croppedPreview,
                 thumbUrl,
                 markup: transformMarkupForCrop(image.markup, effectiveCrop, sizeScale),
+                markupUndo: [],
                 markupRedo: [],
                 cropped: true,
                 cropBounds: composeCropBounds(image.cropBounds, effectiveCrop),
@@ -395,6 +410,7 @@ export default function ImageProcessor() {
     const entry = activeImage();
     if (!entry || !entry.cropped || cropBusy()) return;
 
+    setMarkupSelection(null);
     setCropBusy(true);
     setError("");
     try {
@@ -410,6 +426,7 @@ export default function ImageProcessor() {
                 previewSource: image.originalPreviewSource,
                 thumbUrl,
                 markup: restoreMarkupFromCrop(image.markup, image.cropBounds, sizeScale),
+                markupUndo: [],
                 markupRedo: [],
                 cropped: false,
                 cropBounds: { ...FULL_CROP_BOUNDS },
@@ -492,9 +509,12 @@ export default function ImageProcessor() {
   // Markup
   // ====================================
 
+  const isSizedMarkupTool = (tool: MarkupTool): tool is SizedMarkupTool =>
+    tool === "pen" || tool === "highlighter" || tool === "shape" || tool === "text";
+
   const markupSize = createMemo(() => {
     const tool = markupTool();
-    return tool === "redact" ? 0 : markupSizes()[tool];
+    return isSizedMarkupTool(tool) ? markupSizes()[tool] : 0;
   });
   const markupSizeRange = createMemo(() => {
     const tool = markupTool();
@@ -503,31 +523,51 @@ export default function ImageProcessor() {
     if (tool === "shape") return { min: 2, max: 20 };
     return { min: 2, max: 32 };
   });
-  const canUndoMarkup = createMemo(() => (activeImage()?.markup.length ?? 0) > 0);
+  const canUndoMarkup = createMemo(() => (activeImage()?.markupUndo.length ?? 0) > 0);
   const canRedoMarkup = createMemo(() => (activeImage()?.markupRedo.length ?? 0) > 0);
 
   const setMarkupSize = (value: number) => {
     const tool = markupTool();
-    if (tool === "redact") return;
+    if (!isSizedMarkupTool(tool)) return;
     setMarkupSizes((current) => ({ ...current, [tool]: value }));
   };
 
   const changeEditorMode = (mode: "edit" | "markup") => {
     if (mode === "markup") cancelCrop();
+    else setMarkupSelection(null);
     setEditorMode(mode);
   };
 
-  const commitMarkup = (element: MarkupElement, imageId = activeImage()?.id) => {
-    if (!imageId) return;
+  const chooseMarkupTool = (tool: MarkupTool) => {
+    setMarkupTool(tool);
+    if (tool !== "select") setMarkupSelection(null);
+  };
+
+  const selectMarkup = (elementId: string | null, imageId: string) => {
+    setMarkupSelection(elementId ? { imageId, elementId } : null);
+  };
+
+  const mutateMarkup = (imageId: string, update: (markup: MarkupElement[]) => MarkupElement[]) => {
     setImages((prev) =>
-      prev.map((image) => (image.id === imageId ? { ...image, markup: [...image.markup, element], markupRedo: [] } : image)),
+      prev.map((image) => {
+        if (image.id !== imageId) return image;
+        const next = commitMarkupHistory(image, update(image.markup));
+        return next === image ? image : { ...image, ...next };
+      }),
     );
   };
 
+  const replaceMarkup = (markup: MarkupElement[], imageId = activeImage()?.id) => {
+    if (!imageId) return;
+    mutateMarkup(imageId, () => markup);
+  };
+
   const addMarkupText = async (position: MarkupPoint, imageId: string) => {
+    const color = markupColor();
+    const size = markupSizes().text / 1_000;
     const result = await prompts.form({
       title: "Add text",
-      icon: "ti ti-text-caption",
+      icon: "ti ti-text-resize",
       confirmText: "Add",
       fields: {
         text: {
@@ -538,18 +578,21 @@ export default function ImageProcessor() {
       },
     });
     const text = String(result?.text ?? "").trim();
-    if (!text) return;
-    commitMarkup(
-      {
-        id: crypto.randomUUID(),
-        kind: "text",
-        position,
-        text,
-        color: markupColor(),
-        size: markupSizes().text / 1_000,
-      },
-      imageId,
-    );
+    const image = images().find((entry) => entry.id === imageId);
+    if (!text || !image) return;
+    const element: MarkupElement = {
+      id: crypto.randomUUID(),
+      kind: "text",
+      position,
+      text,
+      color,
+      size,
+    };
+    mutateMarkup(imageId, (markup) => [...markup, element]);
+    if (activeImage()?.id === imageId) {
+      selectMarkup(element.id, imageId);
+      setMarkupTool("select");
+    }
   };
 
   const undoMarkup = () => {
@@ -558,11 +601,11 @@ export default function ImageProcessor() {
     setImages((prev) =>
       prev.map((image) => {
         if (image.id !== imageId) return image;
-        const removed = image.markup.at(-1);
-        if (!removed) return image;
-        return { ...image, markup: image.markup.slice(0, -1), markupRedo: [removed, ...image.markupRedo] };
+        const next = undoMarkupHistory(image);
+        return next === image ? image : { ...image, ...next };
       }),
     );
+    setMarkupSelection(null);
   };
 
   const redoMarkup = () => {
@@ -571,11 +614,21 @@ export default function ImageProcessor() {
     setImages((prev) =>
       prev.map((image) => {
         if (image.id !== imageId) return image;
-        const restored = image.markupRedo[0];
-        if (!restored) return image;
-        return { ...image, markup: [...image.markup, restored], markupRedo: image.markupRedo.slice(1) };
+        const next = redoMarkupHistory(image);
+        return next === image ? image : { ...image, ...next };
       }),
     );
+    setMarkupSelection(null);
+  };
+
+  const deleteSelectedMarkup = () => {
+    const image = activeImage();
+    const elementId = selectedMarkupId();
+    if (!image || !elementId) return;
+    const markup = image.markup.filter((element) => element.id !== elementId);
+    if (markup.length === image.markup.length) return;
+    replaceMarkup(markup, image.id);
+    setMarkupSelection(null);
   };
 
   const clearMarkup = async () => {
@@ -588,7 +641,8 @@ export default function ImageProcessor() {
       variant: "danger",
     });
     if (!confirmed) return;
-    setImages((prev) => prev.map((entry) => (entry.id === image.id ? { ...entry, markup: [], markupRedo: [] } : entry)));
+    replaceMarkup([], image.id);
+    setMarkupSelection(null);
   };
 
   // ====================================
@@ -809,6 +863,18 @@ export default function ImageProcessor() {
       return;
     }
     if (e.metaKey || e.ctrlKey) return;
+    if (editorMode() === "markup" && !cropActive() && !isControlTarget(e.target)) {
+      if ((e.key === "Backspace" || e.key === "Delete") && selectedMarkupId()) {
+        deleteSelectedMarkup();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Escape" && selectedMarkupId()) {
+        setMarkupSelection(null);
+        e.preventDefault();
+        return;
+      }
+    }
     if (cropActive()) {
       if (e.key === "Escape" && !cropBusy()) {
         cancelCrop();
@@ -875,7 +941,7 @@ export default function ImageProcessor() {
         </div>
       </Show>
 
-      <Show when={markupTool() !== "redact"}>
+      <Show when={isSizedMarkupTool(markupTool())}>
         <div class="flex flex-col gap-2">
           <SectionLabel label="Color" />
           <div class="flex flex-wrap items-center gap-2">
@@ -1015,7 +1081,9 @@ export default function ImageProcessor() {
                                 shape={markupShape()}
                                 color={markupColor()}
                                 size={markupSize() / 1_000}
-                                onCommit={commitMarkup}
+                                selectedId={selectedMarkupId()}
+                                onCommit={replaceMarkup}
+                                onSelect={selectMarkup}
                                 onText={addMarkupText}
                               />
                             )}
@@ -1238,14 +1306,16 @@ export default function ImageProcessor() {
                 <div class="flex flex-col gap-[var(--ui-space-section)]">
                   <div class="flex flex-col gap-2">
                     <SectionLabel label="Tool" />
-                    <div class="grid grid-cols-5 gap-1">
+                    <div class="grid grid-cols-7 gap-1">
                       <For
                         each={[
+                          { value: "select" as const, label: "Select", icon: "ti-selector" },
                           { value: "pen" as const, label: "Pen", icon: "ti-pencil" },
                           { value: "highlighter" as const, label: "Highlight", icon: "ti-highlight" },
-                          { value: "redact" as const, label: "Redact", icon: "ti-square-filled" },
+                          { value: "redact" as const, label: "Redact", icon: "ti-square" },
                           { value: "shape" as const, label: "Shape", icon: "ti-shape" },
-                          { value: "text" as const, label: "Text", icon: "ti-text-caption" },
+                          { value: "text" as const, label: "Text", icon: "ti-text-resize" },
+                          { value: "eraser" as const, label: "Erase strokes", icon: "ti-eraser" },
                         ]}
                       >
                         {(tool) => (
@@ -1253,7 +1323,7 @@ export default function ImageProcessor() {
                             <button
                               type="button"
                               class="icon-btn h-9 w-full"
-                              onClick={() => setMarkupTool(tool.value)}
+                              onClick={() => chooseMarkupTool(tool.value)}
                               aria-label={tool.label}
                               aria-pressed={markupTool() === tool.value}
                             >
@@ -1286,6 +1356,17 @@ export default function ImageProcessor() {
                           <i class="ti ti-arrow-forward-up" />
                         </button>
                       </Tooltip>
+                      <Tooltip content="Delete selected markup">
+                        <button
+                          type="button"
+                          class="icon-btn h-8 w-8 text-red-600 dark:text-red-400"
+                          onClick={deleteSelectedMarkup}
+                          disabled={!selectedMarkupId()}
+                          aria-label="Delete selected markup"
+                        >
+                          <i class="ti ti-trash" />
+                        </button>
+                      </Tooltip>
                       <Tooltip content="Clear markup">
                         <button
                           type="button"
@@ -1294,7 +1375,7 @@ export default function ImageProcessor() {
                           disabled={(activeImage()?.markup.length ?? 0) === 0}
                           aria-label="Clear markup"
                         >
-                          <i class="ti ti-trash" />
+                          <i class="ti ti-trash-x" />
                         </button>
                       </Tooltip>
                     </div>
