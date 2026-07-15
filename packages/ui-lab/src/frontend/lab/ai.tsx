@@ -1,6 +1,6 @@
 import type { AiPublicModelProfile, AiStoredMessage, AiTurnBlock } from "@valentinkolb/cloud/ai";
 import type { AiActiveTurn } from "@valentinkolb/cloud/ai/solid";
-import { AiComposer, AiMessageList } from "@valentinkolb/cloud/ai/ui";
+import { AiComposer, AiContextIndicator, AiMessageList } from "@valentinkolb/cloud/ai/ui";
 import { createSignal } from "solid-js";
 import DemoCard from "./DemoCard";
 
@@ -233,10 +233,33 @@ export const AiComposerDemo = () => {
             ],
             send: () => true,
             steer: () => true,
-            stop: () => undefined,
+            stop: () => true,
           }}
         />
       </div>
     </DemoCard>
   );
 };
+
+export const AiContextIndicatorDemo = () => (
+  <DemoCard
+    id="ai-context-indicator"
+    chip={{ kind: "component", name: "AiContextIndicator", from: FROM_AI_UI }}
+    description="Compact request-context disclosure. Pointer hover and keyboard focus reveal the same token breakdown; Escape closes the tooltip."
+    code={`<AiContextIndicator
+  usage={{ input: 31_200, output: 1_560, total: 32_760 }}
+  loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
+  contextWindow={262_000}
+  modelLabel="vLLM Qwen 3.6"
+/>`}
+  >
+    <div class="flex min-h-28 items-end justify-end rounded-lg bg-zinc-50 p-4 dark:bg-zinc-950">
+      <AiContextIndicator
+        usage={{ input: 31_200, output: 1_560, total: 32_760 }}
+        loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
+        contextWindow={262_000}
+        modelLabel="vLLM Qwen 3.6"
+      />
+    </div>
+  </DemoCard>
+);

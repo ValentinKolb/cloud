@@ -1,6 +1,6 @@
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
-import { AiChatBlocksDemo, AiComposerDemo } from "../lab/ai";
+import { AiChatBlocksDemo, AiComposerDemo, AiContextIndicatorDemo } from "../lab/ai";
 import { AiSkillsManagerDemo } from "../lab/ai-skills";
 import {
   ActionHierarchy,
@@ -213,6 +213,20 @@ export const uiLabDocs: UiLabDocSection[] = [
             <AiComposerDemo />
           </DemoGrid>
         ),
+      ),
+      page(
+        "ai",
+        "context-usage",
+        "Context usage",
+        "ti ti-brain",
+        "Accessible request and context-window usage disclosure for AI composers and agent workflows.",
+        ["ai-context-indicator"],
+        () => (
+          <DemoGrid columns="one">
+            <AiContextIndicatorDemo />
+          </DemoGrid>
+        ),
+        { exports: ["AiContextIndicator"], source: "@valentinkolb/cloud/ai/ui" },
       ),
     ],
   },
