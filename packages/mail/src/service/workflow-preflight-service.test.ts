@@ -97,8 +97,10 @@ describe("Mail workflow preflight", () => {
   test("maps declared Mail inputs to complete frozen objects", () => {
     const inputs = buildFrozenWorkflowInputs(plan, source, { callerValue: "kept", message: "untrusted-id" });
     expect(inputs.callerValue).toBe("kept");
-    expect(inputs.message).toBe(source.message);
-    expect(inputs.conversation).toBe(source.conversation);
+    expect(inputs.message).toEqual(source.message);
+    expect(inputs.conversation).toEqual(source.conversation);
+    expect(inputs.message).not.toBe(source.message);
+    expect(inputs.conversation).not.toBe(source.conversation);
   });
 
   test("uses shared dry-run traversal and excludes no-op effects", async () => {

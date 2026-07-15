@@ -23,6 +23,12 @@ import {
   type SqlClient,
 } from "./workflow-data";
 import { loadWorkflowVersion, mapWorkflowVersion } from "./workflow-definition-service";
+import {
+  applyMailConversationTransition,
+  applyMailMessageTransition,
+  createMailWorkflowProjectedState,
+  isMailWorkflowProjectedObject,
+} from "./workflow-projected-state";
 
 export const MAX_MAIL_WORKFLOW_TARGETS = 50_000;
 export const MAX_MAIL_WORKFLOW_EFFECTS = 50_000;
@@ -102,17 +108,7 @@ export const buildFrozenWorkflowInputs = (
   plan: WorkflowBoundPlan,
   source: FrozenMailWorkflowSource,
   invocationInputs: Record<string, WorkflowJsonValue>,
-): Record<string, WorkflowJsonValue> => {
-  const inputs: Record<string, WorkflowJsonValue> = { ...invocationInputs };
-  for (const input of plan.inputs) {
-    if (input.type === "mailMessage") inputs[input.name] = source.message;
-    else if (input.type === "mailConversation") inputs[input.name] = source.conversation;
-  }
-  return inputs;
-};
-
-const jsonRecord = (value: WorkflowJsonValue): Record<string, WorkflowJsonValue> | null =>
-  value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+): Record<string, WorkflowJsonValue> => createMailWorkflowProjectedState(plan, source, invocationInputs).inputs;
 
 const boundConfigValue = (plan: WorkflowBoundPlan, step: WorkflowActionStep, field: string): WorkflowJsonValue | undefined =>
   plan.bindings[workflowPathKey([...step.sourcePath, step.action, field])];
@@ -131,7 +127,8 @@ const messageAction = (
   ) => WorkflowJsonValue | undefined | Promise<WorkflowJsonValue | undefined>,
 ): WorkflowDryRunActionHandler => ({
   plan: async (context, step) => {
-    const message = jsonRecord(await context.evaluate(step.config.message ?? null));
+    const messageValue = await context.evaluate(step.config.message ?? null);
+    const message = isMailWorkflowProjectedObject(messageValue) ? messageValue : null;
     if (!message) return { state: "indeterminate", reason: `${step.action} requires a frozen Mail message` };
     const actionValue = await value(context, step);
     if (actionValue === undefined) return { state: "indeterminate", reason: `${step.action} has no bound value` };
@@ -142,30 +139,13 @@ const messageAction = (
 const keywordAction = (add: boolean): WorkflowDryRunActionHandler =>
   messageAction(
     "keyword",
-    (message, value) => {
-      if (typeof value !== "string") return false;
-      const current = Array.isArray(message.keywords) ? message.keywords.filter((item): item is string => typeof item === "string") : [];
-      const index = current.findIndex((item) => item.toLowerCase() === value.toLowerCase());
-      if (add && index < 0) {
-        message.keywords = [...current, value].sort();
-        return true;
-      }
-      if (!add && index >= 0) {
-        message.keywords = current.filter((_, itemIndex) => itemIndex !== index);
-        return true;
-      }
-      return false;
-    },
+    (message, value) => applyMailMessageTransition(message, add ? "addKeyword" : "removeKeyword", value),
     (context, step) => (step.config.keyword === undefined ? undefined : context.evaluate(step.config.keyword)),
   );
 
 const moveAction = messageAction(
   "move",
-  (message, value) => {
-    if (typeof value !== "string" || message.folderId === value) return false;
-    message.folderId = value;
-    return true;
-  },
+  (message, value) => applyMailMessageTransition(message, "moveMessage", value),
   (context, step) => {
     const bound = boundConfigValue(context.plan, step, "folder");
     return bound ?? (step.config.folder === undefined ? undefined : context.evaluate(step.config.folder));
@@ -180,7 +160,8 @@ const conversationAction = (
   ) => WorkflowJsonValue | undefined | Promise<WorkflowJsonValue | undefined>,
 ): WorkflowDryRunActionHandler => ({
   plan: async (context, step) => {
-    const conversation = jsonRecord(await context.evaluate(step.config.conversation ?? null));
+    const conversationValue = await context.evaluate(step.config.conversation ?? null);
+    const conversation = isMailWorkflowProjectedObject(conversationValue) ? conversationValue : null;
     if (!conversation) return { state: "indeterminate", reason: `${step.action} requires a frozen Mail conversation` };
     const actionValue = await value(context, step);
     if (actionValue === undefined) return { state: "indeterminate", reason: `${step.action} has no bound value` };
@@ -191,12 +172,7 @@ const conversationAction = (
 });
 
 const assignAction = conversationAction(
-  (conversation, value) => {
-    if ((typeof value !== "string" && value !== null) || conversation.assigneeUserId === value) return false;
-    conversation.assigneeUserId = value;
-    conversation.revision = Number(conversation.revision ?? 0) + 1;
-    return true;
-  },
+  (conversation, value) => applyMailConversationTransition(conversation, "assignConversation", value),
   (context, step) => {
     const bound = boundConfigValue(context.plan, step, "user");
     return bound ?? (step.config.user === undefined ? undefined : context.evaluate(step.config.user));
@@ -204,14 +180,7 @@ const assignAction = conversationAction(
 );
 
 const statusAction = conversationAction(
-  (conversation, value) => {
-    if (typeof value !== "string" || conversation.workStatus === value) return false;
-    conversation.status = value;
-    conversation.workStatus = value;
-    if (value === "done") conversation.responseNeeded = false;
-    conversation.revision = Number(conversation.revision ?? 0) + 1;
-    return true;
-  },
+  (conversation, value) => applyMailConversationTransition(conversation, "setConversationStatus", value),
   (context, step) => (step.config.status === undefined ? undefined : context.evaluate(step.config.status)),
 );
 
@@ -241,8 +210,7 @@ export const planFrozenWorkflowTarget = async (params: {
   inputs: Record<string, WorkflowJsonValue>;
   occurredAt: string;
 }): Promise<Result<PlannedEffect[]>> => {
-  const projectedSource = structuredClone(params.source);
-  const projectedInputs = buildFrozenWorkflowInputs(params.plan, projectedSource, params.inputs);
+  const projected = createMailWorkflowProjectedState(params.plan, params.source, params.inputs);
   const result = await dryRunWorkflowPlan({
     runId: crypto.randomUUID(),
     executionGeneration: 0,
@@ -252,10 +220,10 @@ export const planFrozenWorkflowTarget = async (params: {
       mode: "dryRun",
       channel: "bulk",
       actor: {},
-      inputs: projectedInputs,
+      inputs: projected.inputs,
       idempotencyKey: `preflight:${params.versionIdentity}`,
       occurredAt: params.occurredAt,
-      context: projectedSource,
+      context: projected.source,
     },
     repository: planningRepository,
     actions: planningActions,

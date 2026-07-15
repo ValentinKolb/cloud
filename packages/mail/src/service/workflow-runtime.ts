@@ -11,7 +11,9 @@ import { job, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { requireMailboxPermission } from "./access";
 import { createRuntimeLifecycle, createRuntimeTaskTracker, stopRuntimeJobs, stopRuntimeResources } from "./runtime-lifecycle";
+import type { FrozenMailWorkflowSource } from "./workflow-data";
 import { latestMailWorkflowDependencyCursor, liveMailWorkflowDependencies } from "./workflow-dependencies";
+import { createMailWorkflowProjectedState } from "./workflow-projected-state";
 import { createMailWorkflowActionPorts } from "./workflow-runtime-actions";
 import { resolveMailWorkflowExecutionAuthority } from "./workflow-runtime-context";
 import {
@@ -19,8 +21,8 @@ import {
   listRecoverableMailWorkflowTargetIds,
   MAIL_WORKFLOW_TARGET_LEASE_MS,
   MailWorkflowRuntimeRepository,
-  recoverCanceledMailWorkflowTargets,
   type MailWorkflowTargetResult,
+  recoverCanceledMailWorkflowTargets,
   resumeMailWorkflowDependency,
 } from "./workflow-runtime-repository";
 import { createMailWorkflowValueResolver } from "./workflow-runtime-values";
@@ -96,6 +98,13 @@ export const processMailWorkflowTarget = async (params: {
       }
       const repository = new MailWorkflowRuntimeRepository(claim);
       const sourceContext = isObject(claim.source) ? claim.source : {};
+      if (!isObject(sourceContext.message) || (sourceContext.conversation !== null && !isObject(sourceContext.conversation))) {
+        return {
+          state: "failed",
+          error: { code: "MAIL_WORKFLOW_SOURCE_INVALID", message: "Frozen Mail source is invalid", retryable: false },
+        };
+      }
+      const projected = createMailWorkflowProjectedState(claim.plan, sourceContext as FrozenMailWorkflowSource, claim.inputs);
       const actorSnapshot = claim.authorization.authority === "actor" ? claim.authorization.actor : null;
       const invocationActor = {
         userId: actorSnapshot?.kind === "user" ? actorSnapshot.userId : null,
@@ -108,11 +117,11 @@ export const processMailWorkflowTarget = async (params: {
         mode: claim.mode,
         channel: claim.channel,
         actor: invocationActor,
-        inputs: claim.inputs,
+        inputs: projected.inputs,
         idempotencyKey: `${claim.idempotencyKey}:${claim.runId}`,
         occurredAt: claim.occurredAt,
         context: {
-          ...sourceContext,
+          ...projected.source,
           mailboxId: claim.mailboxId,
           actor: invocationActor,
           occurredAt: claim.occurredAt,
@@ -133,7 +142,7 @@ export const processMailWorkflowTarget = async (params: {
         invocation,
         repository,
         clock: { now: () => claim.executionClockAt },
-        values: createMailWorkflowValueResolver({ targetId: claim.runId, inputs: claim.inputs }),
+        values: createMailWorkflowValueResolver({ targetId: claim.runId, inputs: projected.inputs }),
         trace: params.jobId ? workflowStepTrace(params.jobId, claim.parentRunId, claim.runId) : undefined,
       };
       return claim.mode === "execute"

@@ -14,6 +14,13 @@ import { sha256Text } from "./canonical";
 import { updateConversationCollaborationInTransaction, updateWorkflowConversationCollaborationInTransaction } from "./collaboration";
 import { createWorkflowCommand } from "./commands";
 import { publishMailCollaborationEvent } from "./events";
+import {
+  applyMailConversationTransition,
+  applyMailMessageTransition,
+  isMailWorkflowProjectedObject,
+  mailConversationTransitionChanges,
+  mailMessageTransitionChanges,
+} from "./workflow-projected-state";
 import type { MailWorkflowExecutionAuthority } from "./workflow-runtime-context";
 
 type JsonObject = Record<string, WorkflowJsonValue>;
@@ -142,6 +149,59 @@ const commandOutcome = (command: MailCommand): WorkflowStepOutcome => {
   return { state: "waiting", dependency: { kind: "mail.command", key: command.id } };
 };
 
+const completedNoop = (action: string): Extract<WorkflowStepOutcome, { state: "completed" }> => ({
+  state: "completed",
+  output: { action, applied: false },
+});
+
+const messageTransition = async (
+  context: WorkflowExecuteActionContext,
+  step: WorkflowActionStep,
+): Promise<{
+  message: JsonObject;
+  action: "addKeyword" | "removeKeyword" | "moveMessage";
+  value: WorkflowJsonValue;
+}> => {
+  if (step.action !== "addKeyword" && step.action !== "removeKeyword" && step.action !== "moveMessage") {
+    throw new Error(`Unsupported message transition ${step.action}`);
+  }
+  const message = objectValue(await referenceOrValue(context, step.config.message), "message");
+  if (step.action === "moveMessage") {
+    return {
+      message,
+      action: step.action,
+      value: textValue(actionBinding(context, step, "folder") ?? (await referenceOrValue(context, step.config.folder)), "folder"),
+    };
+  }
+  return {
+    message,
+    action: step.action,
+    value: textValue(await referenceOrValue(context, step.config.keyword), "keyword"),
+  };
+};
+
+const conversationTransition = async (
+  context: WorkflowExecuteActionContext,
+  step: WorkflowActionStep,
+): Promise<{
+  conversation: JsonObject;
+  action: "assignConversation" | "setConversationStatus";
+  value: WorkflowJsonValue;
+}> => {
+  if (step.action !== "assignConversation" && step.action !== "setConversationStatus") {
+    throw new Error(`Unsupported conversation transition ${step.action}`);
+  }
+  const conversation = objectValue(await referenceOrValue(context, step.config.conversation), "conversation");
+  if (step.action === "assignConversation") {
+    const value = actionBinding(context, step, "user") ?? (await referenceOrValue(context, step.config.user)) ?? null;
+    if (value !== null && typeof value !== "string") throw new Error("user must resolve to text or null");
+    return { conversation, action: step.action, value };
+  }
+  const value = textValue(await referenceOrValue(context, step.config.status), "status");
+  if (value !== "open" && value !== "waiting" && value !== "done") throw new Error("status is invalid");
+  return { conversation, action: step.action, value };
+};
+
 const remoteState = (preconditions: WorkflowJsonValue): RemoteMessagePrecondition | undefined => {
   if (!isJsonObject(preconditions)) return undefined;
   const value = preconditions.remoteState;
@@ -227,6 +287,10 @@ export const createMailWorkflowActionPorts = (
         };
       }
       if (step.action === "addKeyword" || step.action === "removeKeyword" || step.action === "moveMessage") {
+        const transition = await messageTransition(context, step);
+        if (!mailMessageTransitionChanges(transition.message, transition.action, transition.value)) {
+          return completedNoop(step.action);
+        }
         const command = await createWorkflowCommand({
           context: options.authority.kind === "actor" ? options.authority.context : null,
           mailboxId: options.mailboxId,
@@ -250,10 +314,21 @@ export const createMailWorkflowActionPorts = (
             }
           },
         });
-        return command.ok ? commandOutcome(command.data) : { state: "failed", error: executionError(command.error) };
+        if (!command.ok) return { state: "failed", error: executionError(command.error) };
+        const outcome = commandOutcome(command.data);
+        if (outcome.state !== "completed") return outcome;
+        applyMailMessageTransition(transition.message, transition.action, transition.value);
+        return {
+          ...outcome,
+          output: { ...(isMailWorkflowProjectedObject(outcome.output) ? outcome.output : {}), action: step.action, applied: true },
+        };
       }
 
-      const conversation = objectValue(await referenceOrValue(context, step.config.conversation), "conversation");
+      const transition = await conversationTransition(context, step);
+      if (!mailConversationTransitionChanges(transition.conversation, transition.action, transition.value)) {
+        return completedNoop(step.action);
+      }
+      const conversation = transition.conversation;
       const conversationId = textValue(conversation.id, "conversation.id");
       const frozenRevision = Number(conversation.revision);
       const expectedRevision = conversationRevisions.get(conversationId) ?? frozenRevision;
@@ -265,13 +340,9 @@ export const createMailWorkflowActionPorts = (
       }
       const input: UpdateConversationCollaboration = await (async () => {
         if (step.action === "assignConversation") {
-          const value = actionBinding(context, step, "user") ?? (await referenceOrValue(context, step.config.user)) ?? null;
-          if (value !== null && typeof value !== "string") throw new Error("user must resolve to text or null");
-          return { expectedRevision, assigneeUserId: value };
+          return { expectedRevision, assigneeUserId: transition.value as string | null };
         }
-        const value = textValue(step.config.status, "status");
-        if (value !== "open" && value !== "waiting" && value !== "done") throw new Error("status is invalid");
-        return { expectedRevision, workStatus: value };
+        return { expectedRevision, workStatus: transition.value as "open" | "waiting" | "done" };
       })();
       const completed = await sql.begin(async (tx) => {
         await lockCollaborationActionFence(tx, context);
@@ -298,7 +369,7 @@ export const createMailWorkflowActionPorts = (
         if (!mutation.ok) return { mutation, outcome: null };
         const outcome: Extract<WorkflowStepOutcome, { state: "completed" }> = {
           state: "completed",
-          output: { conversationId, revision: mutation.data.value.revision, action: step.action },
+          output: { conversationId, revision: mutation.data.value.revision, action: step.action, applied: true },
         };
         await ledgerCompletedCollaborationAction(tx, context, outcome);
         return { mutation, outcome };
@@ -306,6 +377,8 @@ export const createMailWorkflowActionPorts = (
       if (!completed.mutation.ok) return { state: "failed", error: executionError(completed.mutation.error) };
       if (!completed.outcome) throw new Error("Completed collaboration action outcome is unavailable");
       conversationRevisions.set(conversationId, completed.mutation.data.value.revision);
+      applyMailConversationTransition(conversation, transition.action, transition.value);
+      conversation.revision = completed.mutation.data.value.revision;
       if (completed.mutation.data.event) await publishMailCollaborationEvent(completed.mutation.data.event);
       return completed.outcome;
     } catch (error) {
@@ -313,11 +386,25 @@ export const createMailWorkflowActionPorts = (
     }
   };
 
-  const restoreCompleted = (_context: WorkflowExecuteActionContext, _step: WorkflowActionStep, outcome: { output?: WorkflowJsonValue }) => {
-    if (!isJsonObject(outcome.output)) return;
+  const restoreCompleted = async (
+    context: WorkflowExecuteActionContext,
+    step: WorkflowActionStep,
+    outcome: { output?: WorkflowJsonValue },
+  ) => {
+    if (!isJsonObject(outcome.output) || outcome.output.applied !== true) return;
+    if (step.action === "addKeyword" || step.action === "removeKeyword" || step.action === "moveMessage") {
+      const transition = await messageTransition(context, step);
+      applyMailMessageTransition(transition.message, transition.action, transition.value);
+      return;
+    }
+    const transition = await conversationTransition(context, step);
+    applyMailConversationTransition(transition.conversation, transition.action, transition.value);
     const conversationId = outcome.output.conversationId;
     const revision = outcome.output.revision;
-    if (typeof conversationId === "string" && typeof revision === "number") conversationRevisions.set(conversationId, revision);
+    if (typeof conversationId === "string" && typeof revision === "number") {
+      transition.conversation.revision = revision;
+      conversationRevisions.set(conversationId, revision);
+    }
   };
 
   return {
