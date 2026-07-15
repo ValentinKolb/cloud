@@ -592,7 +592,7 @@ export default function GridsWorkspace(props: Props) {
               keyed
               when={route.kind === "records" ? (route as WorkspaceRecordsRoute) : null}
               fallback={
-                <>
+                <AppWorkspace.Content>
                   <AppWorkspace.Main class={workspaceMainClass(route.kind)}>
                     <Switch>
                       <Match when={route.kind === "dashboard"}>{renderDashboard(route as WorkspaceDashboardRoute)}</Match>
@@ -619,12 +619,17 @@ export default function GridsWorkspace(props: Props) {
                       </Match>
                     </Switch>
                   </AppWorkspace.Main>
-                  <AppWorkspace.Detail open={Boolean(workflowRunDetailId())} width="lg" viewTransitionName="grids-workflow-run-detail">
+                  <AppWorkspace.Detail
+                    id="workflow-run"
+                    open={Boolean(workflowRunDetailId())}
+                    width="lg"
+                    viewTransitionName="grids-workflow-run-detail"
+                  >
                     <Show keyed when={workflowRunDetailId()}>
                       {(runId) => <WorkflowRunDetailPanel runId={runId} onClose={() => void selectWorkflowRun(null)} />}
                     </Show>
                   </AppWorkspace.Detail>
-                </>
+                </AppWorkspace.Content>
               }
             >
               {(recordsRoute) => renderRecords(recordsRoute)}
