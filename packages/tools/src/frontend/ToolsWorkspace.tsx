@@ -70,7 +70,7 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
               />
               <ToolSearchButton variant="icon" registerShortcut />
             </AppWorkspace.SidebarIconGrid>
-            <div class="mt-3">{categoryNavigation("expanded")}</div>
+            {categoryNavigation("expanded")}
           </AppWorkspace.SidebarBody>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
