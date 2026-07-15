@@ -176,8 +176,9 @@ export default ssr<AuthContext>(async (c) => {
       <AppWorkspace class="cloud-ui-soft">
         <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 
-        {/* Main content */}
-        <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
+        <AppWorkspace.Content>
+          {/* Main content */}
+          <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
           <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="files-search-results">
             <div class="flex flex-col gap-2">
               {/* Search form */}
@@ -345,25 +346,26 @@ export default ssr<AuthContext>(async (c) => {
               )}
             </div>
           </div>
-        </AppWorkspace.Main>
+          </AppWorkspace.Main>
 
-        <AppWorkspace.Detail
-          id="files-detail-panel"
-          open={Boolean(detailFileParam)}
-          width="sm"
-          viewTransitionName="files-detail-panel-shell"
-        >
-          <FileDetailPanel
-            initialFile={detailFile}
-            initialFilePath={detailFileParam}
-            initialBaseType={detailBaseType ?? ""}
-            initialBaseId={detailBaseId ?? ""}
-            items={searchResults.flatMap((r) => r.files)}
-            bases={basesInfo}
-            useFullDetailKey
-            showEmpty={false}
-          />
-        </AppWorkspace.Detail>
+          <AppWorkspace.Detail
+            id="files-detail-panel"
+            open={Boolean(detailFileParam)}
+            width="sm"
+            viewTransitionName="files-detail-panel-shell"
+          >
+            <FileDetailPanel
+              initialFile={detailFile}
+              initialFilePath={detailFileParam}
+              initialBaseType={detailBaseType ?? ""}
+              initialBaseId={detailBaseId ?? ""}
+              items={searchResults.flatMap((r) => r.files)}
+              bases={basesInfo}
+              useFullDetailKey
+              showEmpty={false}
+            />
+          </AppWorkspace.Detail>
+        </AppWorkspace.Content>
         <FileDetailLayoutSync detailContainerId="files-detail-panel" />
       </AppWorkspace>
     </Layout>

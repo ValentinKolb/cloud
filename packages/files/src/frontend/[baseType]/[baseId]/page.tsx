@@ -170,16 +170,18 @@ export const renderFilesBasePage = async <E extends AuthContext>(
             currentBaseId={baseId}
             settingsPanel={() => <FileSettings initialSettings={fileSettings} />}
           />
-          <AppWorkspace.Main>
-            <Placeholder
-              state="error"
-              variant="panel"
-              title="Folder unavailable"
-              description={infoResult.error}
-              icon="ti ti-folder-off"
-              class="h-full"
-            />
-          </AppWorkspace.Main>
+          <AppWorkspace.Content>
+            <AppWorkspace.Main>
+              <Placeholder
+                state="error"
+                variant="panel"
+                title="Folder unavailable"
+                description={infoResult.error}
+                icon="ti ti-folder-off"
+                class="h-full"
+              />
+            </AppWorkspace.Main>
+          </AppWorkspace.Content>
         </AppWorkspace>
       </Layout>
     );
@@ -249,8 +251,9 @@ export const renderFilesBasePage = async <E extends AuthContext>(
           settingsPanel={() => <FileSettings initialSettings={fileSettings} />}
         />
 
-        {/* Main content */}
-        <AppWorkspace.Main class="gap-2 p-[var(--ui-space-shell)]">
+        <AppWorkspace.Content>
+          {/* Main content */}
+          <AppWorkspace.Main class="gap-2 p-[var(--ui-space-shell)]">
           <FileToolbar
             baseType={baseType}
             baseId={baseId}
@@ -279,24 +282,25 @@ export const renderFilesBasePage = async <E extends AuthContext>(
               selectedFilePath={detailFilePath}
             />
           </div>
-        </AppWorkspace.Main>
+          </AppWorkspace.Main>
 
-        <AppWorkspace.Detail
-          id="files-detail-panel"
-          open={Boolean(detailFilePath)}
-          width="sm"
-          viewTransitionName="files-detail-panel-shell"
-        >
-          <FileDetailPanel
-            initialFile={detailFile}
-            initialFilePath={detailFilePath}
-            initialBaseType={baseType}
-            initialBaseId={baseId}
-            items={sortedItems}
-            bases={basesInfo}
-            showEmpty={false}
-          />
-        </AppWorkspace.Detail>
+          <AppWorkspace.Detail
+            id="files-detail-panel"
+            open={Boolean(detailFilePath)}
+            width="sm"
+            viewTransitionName="files-detail-panel-shell"
+          >
+            <FileDetailPanel
+              initialFile={detailFile}
+              initialFilePath={detailFilePath}
+              initialBaseType={baseType}
+              initialBaseId={baseId}
+              items={sortedItems}
+              bases={basesInfo}
+              showEmpty={false}
+            />
+          </AppWorkspace.Detail>
+        </AppWorkspace.Content>
         <FileDetailLayoutSync detailContainerId="files-detail-panel" />
       </AppWorkspace>
     </Layout>
