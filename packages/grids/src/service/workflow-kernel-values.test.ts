@@ -16,6 +16,7 @@ const plan: WorkflowBoundPlan = {
   sourceHash: "source",
   manifestHash: "manifest",
   catalogHash: "catalog",
+  actionPolicies: {},
   inputs: [
     { name: "item", type: "record", config: { table: "Items", required: true } },
     { name: "items", type: "recordList", config: { table: "Items" } },
@@ -135,9 +136,16 @@ describe("workflow kernel value resolver", () => {
     const resolve = (reference: string, path: Array<string | number>, fallback: WorkflowJsonValue | undefined) =>
       resolver.resolve({ reference, path, plan, invocation, variables, fallback: () => fallback });
 
-    expect(await resolve("inputs.item.Name", ["steps", 0, "setVariable", "value"], undefined)).toBe("Returned");
-    expect(await resolve("inputs.item.Name", ["steps", 0, "setVariable", "value"], undefined)).toBe("Returned");
-    expect(await resolve("inputs.note.value", ["steps", 1], "plain")).toBe("plain");
+    expect(await resolve("inputs.item.Name", ["steps", 0, "setVariable", "value"], undefined)).toEqual({
+      state: "resolved",
+      value: "Returned",
+    });
+    expect(await resolve("inputs.item.Name", ["steps", 0, "setVariable", "value"], undefined)).toEqual({
+      state: "resolved",
+      value: "Returned",
+    });
+    expect(await resolve("inputs.note.value", ["steps", 1], "plain")).toEqual({ state: "resolved", value: "plain" });
+    expect(await resolve("inputs.missing", ["steps", 2], undefined)).toEqual({ state: "missing" });
     expect(reads).toBe(1);
   });
 });

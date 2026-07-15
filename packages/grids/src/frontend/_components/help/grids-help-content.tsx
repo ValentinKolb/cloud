@@ -82,7 +82,7 @@ const workflowHighlight = highlight.compile(
     {
       kind: "keyword",
       match:
-        /\b(?:inputs|type|table|label|description|required|options|triggers|schedule|recordEvent|cron|timezone|event|filter|with|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|switch|cases|default|forEach|as|do|set|values|record|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
+        /\b(?:inputs|type|table|label|description|required|options|triggers|schedule|recordEvent|cron|timezone|event|filter|with|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|equals|notEquals|contains|startsWith|endsWith|exists|all|any|not|switch|cases|default|forEach|as|do|set|values|record|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
     },
     { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/ },
     { kind: "placeholder", match: /\binputs\.[A-Za-z_][A-Za-z0-9_.]*\b/ },
@@ -1237,6 +1237,39 @@ steps:
         Control flow is still a normal step. That keeps nested behavior explicit and makes diagnostics point at the failing branch instead
         of guessing what the workflow meant.
       </p>
+      <DocRows
+        items={[
+          {
+            title: "Value comparisons",
+            icon: "ti-arrows-left-right",
+            text: (
+              <>
+                Use <DocInlineCode>equals</DocInlineCode> or <DocInlineCode>notEquals</DocInlineCode> with two literal or dynamic values.
+              </>
+            ),
+          },
+          {
+            title: "Text comparisons",
+            icon: "ti-letter-case",
+            text: (
+              <>
+                Use <DocInlineCode>contains</DocInlineCode>, <DocInlineCode>startsWith</DocInlineCode>, or{" "}
+                <DocInlineCode>endsWith</DocInlineCode> with two text values.
+              </>
+            ),
+          },
+          {
+            title: "Presence and nesting",
+            icon: "ti-binary-tree",
+            text: (
+              <>
+                <DocInlineCode>exists</DocInlineCode> takes one raw value reference. Combine conditions recursively with{" "}
+                <DocInlineCode>all</DocInlineCode>, <DocInlineCode>any</DocInlineCode>, and <DocInlineCode>not</DocInlineCode>.
+              </>
+            ),
+          },
+        ]}
+      />
       <WorkflowSnippet
         title="Branches and loops"
         code={`inputs:
@@ -1284,6 +1317,38 @@ steps:
       - generateDocument:
           template: Item label
           record: item`}
+      />
+      <WorkflowSnippet
+        title="Recursive conditions"
+        code={`inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+  prefix:
+    type: text
+    required: true
+steps:
+  - if:
+      all:
+        - exists: inputs.item.Status
+        - any:
+            - equals:
+                - \${{ inputs.item.Status }}
+                - Loaned
+            - startsWith:
+                - \${{ inputs.item.Name }}
+                - \${{ inputs.prefix }}
+        - not:
+            endsWith:
+              - \${{ inputs.item.Name }}
+              - Archived
+    then:
+      - succeed:
+          message: Item matches.
+    else:
+      - fail:
+          message: Item does not match.`}
       />
     </DocSection>
 

@@ -3,11 +3,12 @@ import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { WorkflowInvocation, WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
+import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
 import type { Result } from "@valentinkolb/stdlib";
 import { type Lock, mutex, type QueueReceived } from "@valentinkolb/sync";
 import { sql } from "bun";
 import type { FilterTree } from "../contracts";
-import type { GridsWorkflow, GridsWorkflowChannel } from "../workflows/contracts";
+import { type GridsWorkflow, type GridsWorkflowChannel, toWorkflowRevision } from "../workflows/contracts";
 import { listByTable as listFields } from "./fields";
 import { compileFilter, renderClause } from "./filter-compiler";
 import {
@@ -25,7 +26,6 @@ import {
 } from "./record-events";
 import { failQueuedWorkflowRun, materializeWorkflowInvocation } from "./workflow-kernel-runs";
 import { listRecordEventWorkflows } from "./workflow-kernel-store";
-import { evaluateWorkflowTriggerInputs } from "./workflow-kernel-trigger-values";
 import { type GridsWorkflowPrincipal, loadWorkflowUserGroupIds } from "./workflow-kernel-values";
 
 const log = logger("grids:workflow-kernel-record-events");
@@ -266,7 +266,7 @@ const failedInvocation = async (
 ): Promise<void> => {
   const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
     workflowId: workflow.id,
-    expectedRevision: workflow.revision,
+    expectedRevision: toWorkflowRevision(workflow.revision),
     mode: "execute",
     channel: "recordEvent",
     actor: principal,

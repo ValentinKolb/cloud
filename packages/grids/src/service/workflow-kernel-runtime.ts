@@ -7,16 +7,26 @@ import type {
   WorkflowJsonValue,
 } from "@valentinkolb/cloud/workflows";
 import {
+  coordinateWorkflowExecution,
   dryRunWorkflowPlan,
+  evaluateWorkflowTriggerInputs,
   executeWorkflowPlan,
+  type WorkflowCoordinatorExecution,
   type WorkflowDryRunIssue,
+  type WorkflowHeartbeatOutcome,
   type WorkflowRuntimeRunIdentity,
   type WorkflowTraceEvent,
   type WorkflowTracePort,
 } from "@valentinkolb/cloud/workflows/runtime";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { job, scheduler } from "@valentinkolb/sync";
-import type { GridsWorkflow, GridsWorkflowChannel, GridsWorkflowPrincipal, GridsWorkflowRun } from "../workflows/contracts";
+import {
+  type GridsWorkflow,
+  type GridsWorkflowChannel,
+  type GridsWorkflowPrincipal,
+  type GridsWorkflowRun,
+  toWorkflowRevision,
+} from "../workflows/contracts";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
 import { get as getDashboard } from "./dashboards";
 import { authorizeWorkflowTarget, revalidateWorkflowPrincipal, workflowPermissionAllows } from "./workflow-authorization";
@@ -24,12 +34,13 @@ import { workflowConflict } from "./workflow-errors";
 import { createGridsWorkflowActionPorts } from "./workflow-kernel-actions";
 import { createWorkflowRecordEventRuntime } from "./workflow-kernel-record-events";
 import {
-  claimWorkflowRun,
-  deferWorkflowRun,
+  type ClaimedWorkflowRun,
+  createGridsWorkflowCoordinatorPort,
   failQueuedWorkflowRun,
   findMaterializedWorkflowInvocation,
   finishWorkflowRun,
   type GridsWorkflowAuthorization,
+  type GridsWorkflowRunCompletion,
   GridsWorkflowRuntimeRepository,
   getWorkflowRun,
   listExpiredWaitingWorkflowRunIds,
@@ -40,7 +51,6 @@ import {
   workflowInvocationFingerprint,
 } from "./workflow-kernel-runs";
 import { getWorkflow, listScheduledWorkflows } from "./workflow-kernel-store";
-import { evaluateWorkflowTriggerInputs } from "./workflow-kernel-trigger-values";
 import {
   createGridsWorkflowValueResolver,
   createWorkflowInputPreparationDeps,
@@ -162,48 +172,15 @@ const canExecuteAcceptedRun = async (
   return widget?.kind === "workflow-button" && widget.launcherId === launcherId;
 };
 
-const runtimeIdentity = (
-  run: Pick<GridsWorkflowRun, "id" | "workflowId" | "mode">,
-  sourceHash: string,
-  idempotencyKey: string,
-  executionGeneration: number,
-): WorkflowRuntimeRunIdentity => ({
-  runId: run.id,
-  executionGeneration,
-  mode: run.mode,
-  workflowId: run.workflowId ?? "deleted",
-  sourceHash,
-  idempotencyKey,
-});
-
-const finishExecution = async (
-  identity: WorkflowRuntimeRunIdentity,
-  result: Awaited<ReturnType<typeof executeWorkflowPlan>>,
-): Promise<GridsWorkflowRun["status"]> => {
+const finishExecution = async (result: Awaited<ReturnType<typeof executeWorkflowPlan>>): Promise<GridsWorkflowRunCompletion> => {
   if (result.state === "succeeded") {
-    if (
-      !(await finishWorkflowRun(identity, {
-        status: "succeeded",
-        result: result.output ?? null,
-        resultMessage: result.message ?? null,
-      }))
-    )
-      throw workflowConflict("Workflow run lost its execution lease.");
-    return "succeeded";
+    return { status: "succeeded", result: result.output ?? null, resultMessage: result.message ?? null };
   }
-  if (result.state === "waiting") {
-    return "waiting";
-  }
+  if (result.state === "waiting") return { status: "waiting" };
   if (result.state === "canceled") {
-    if (!(await finishWorkflowRun(identity, { status: "canceled", resultMessage: result.message ?? null }))) {
-      throw workflowConflict("Workflow run lost its execution lease.");
-    }
-    return "canceled";
+    return { status: "canceled", resultMessage: result.message ?? null };
   }
-  if (!(await finishWorkflowRun(identity, { status: result.state, error: result.error }))) {
-    throw workflowConflict("Workflow run lost its execution lease.");
-  }
-  return result.state;
+  return { status: result.state, error: result.error };
 };
 
 const dryRunError = (code: string, message: string): WorkflowExecutionError => ({ code, message, retryable: false });
@@ -219,72 +196,141 @@ const persistedDryRunIssues = (issues: readonly WorkflowDryRunIssue[] | undefine
     },
   })) ?? [];
 
-export const finishDryRun = async (
-  identity: WorkflowRuntimeRunIdentity,
-  result: Awaited<ReturnType<typeof dryRunWorkflowPlan>>,
-): Promise<GridsWorkflowRun["status"]> => {
+const dryRunCompletion = (result: Awaited<ReturnType<typeof dryRunWorkflowPlan>>): GridsWorkflowRunCompletion => {
   if (result.state === "planned") {
-    if (
-      !(await finishWorkflowRun(identity, {
-        status: "succeeded",
-        result: { effects: result.effects, ...(result.output === undefined ? {} : { output: result.output }) },
-      }))
-    )
-      throw workflowConflict("Workflow run lost its execution lease.");
-    return "succeeded";
+    return {
+      status: "succeeded",
+      result: { effects: result.effects, ...(result.output === undefined ? {} : { output: result.output }) },
+    };
   }
   if (result.state === "terminal") {
     const issues = persistedDryRunIssues(result.issues);
     if (issues.length > 0) {
       const primary = issues.find((issue) => issue.state === "indeterminate") ?? issues[0]!;
-      if (
-        !(await finishWorkflowRun(identity, {
-          status: "failed",
-          result: { effects: result.effects, issues, terminal: { status: result.status, message: result.message ?? null } },
-          error: dryRunError(
-            primary.state === "indeterminate" ? "WORKFLOW_DRY_RUN_INDETERMINATE" : "WORKFLOW_DRY_RUN_UNSUPPORTED",
-            primary.reason,
-          ),
-        }))
-      ) {
-        throw workflowConflict("Workflow run lost its execution lease.");
-      }
-      return "failed";
+      return {
+        status: "failed",
+        result: { effects: result.effects, issues, terminal: { status: result.status, message: result.message ?? null } },
+        error: dryRunError(
+          primary.state === "indeterminate" ? "WORKFLOW_DRY_RUN_INDETERMINATE" : "WORKFLOW_DRY_RUN_UNSUPPORTED",
+          primary.reason,
+        ),
+      };
     }
     const status = result.status === "succeeded" ? "succeeded" : "failed";
-    if (
-      !(await finishWorkflowRun(identity, {
-        status,
-        result: { effects: result.effects },
-        resultMessage: result.message ?? null,
-        ...(status === "failed" ? { error: dryRunError("WORKFLOW_DRY_RUN_TERMINAL", result.message ?? "Workflow would fail.") } : {}),
-      }))
-    ) {
-      throw workflowConflict("Workflow run lost its execution lease.");
-    }
-    return status;
+    return {
+      status,
+      result: { effects: result.effects },
+      resultMessage: result.message ?? null,
+      ...(status === "failed" ? { error: dryRunError("WORKFLOW_DRY_RUN_TERMINAL", result.message ?? "Workflow would fail.") } : {}),
+    };
   }
   if (result.state === "canceled") {
-    if (
-      !(await finishWorkflowRun(identity, {
-        status: "canceled",
-        result: { effects: result.effects, issues: persistedDryRunIssues(result.issues) },
-        resultMessage: result.message ?? null,
-      }))
-    ) {
-      throw workflowConflict("Workflow run lost its execution lease.");
-    }
-    return "canceled";
-  }
-  if (
-    !(await finishWorkflowRun(identity, {
-      status: "failed",
+    return {
+      status: "canceled",
       result: { effects: result.effects, issues: persistedDryRunIssues(result.issues) },
-      error: dryRunError(result.state === "unsupported" ? "WORKFLOW_DRY_RUN_UNSUPPORTED" : "WORKFLOW_DRY_RUN_INDETERMINATE", result.reason),
-    }))
-  )
-    throw workflowConflict("Workflow run lost its execution lease.");
-  return "failed";
+      resultMessage: result.message ?? null,
+    };
+  }
+  return {
+    status: "failed",
+    result: { effects: result.effects, issues: persistedDryRunIssues(result.issues) },
+    error: dryRunError(result.state === "unsupported" ? "WORKFLOW_DRY_RUN_UNSUPPORTED" : "WORKFLOW_DRY_RUN_INDETERMINATE", result.reason),
+  };
+};
+
+export const finishDryRun = async (
+  identity: WorkflowRuntimeRunIdentity,
+  result: Awaited<ReturnType<typeof dryRunWorkflowPlan>>,
+): Promise<GridsWorkflowRun["status"]> => {
+  const completion = dryRunCompletion(result);
+  if (!(await finishWorkflowRun(identity, completion))) throw workflowConflict("Workflow run lost its execution lease.");
+  return completion.status;
+};
+
+const leaseCancellation = (signal: AbortSignal, message?: string): WorkflowHeartbeatOutcome => ({
+  state: "canceled",
+  message: message ?? (signal.reason instanceof Error ? signal.reason.message : "workflow run lease is no longer active"),
+});
+
+const executeClaimedWorkflowRun = async (
+  claimed: ClaimedWorkflowRun,
+  execution: WorkflowCoordinatorExecution<ClaimedWorkflowRun>,
+  workflowTrace?: WorkflowTracePort,
+): Promise<GridsWorkflowRunCompletion> => {
+  const runId = claimed.runId;
+  const repository = new GridsWorkflowRuntimeRepository(async () => {
+    if (execution.signal.aborted) return leaseCancellation(execution.signal);
+    const outcome = await execution.heartbeat();
+    return outcome.state === "active" && !execution.signal.aborted
+      ? { state: "active" }
+      : leaseCancellation(execution.signal, outcome.state === "canceled" ? outcome.message : undefined);
+  });
+  const storedWorkflow = claimed.context.workflow;
+  const workflow =
+    storedWorkflow && typeof storedWorkflow === "object" && !Array.isArray(storedWorkflow)
+      ? {
+          id: String(storedWorkflow.id ?? claimed.run.workflowId ?? ""),
+          shortId: String(storedWorkflow.shortId ?? ""),
+          baseId: claimed.run.baseId,
+          name: String(storedWorkflow.name ?? "Workflow"),
+        }
+      : await getWorkflow(claimed.run.workflowId ?? "", true);
+  if (!workflow) throw new Error("workflow metadata is unavailable for this run");
+  const actor = {
+    ...claimed.principal,
+    groupIds: await loadWorkflowUserGroupIds(claimed.run.actorUserId),
+  } satisfies GridsWorkflowPrincipal;
+  if (!(await canExecuteAcceptedRun(workflow.id, claimed.run.baseId, actor, claimed.authorization, claimed.run.launcherId))) {
+    throw err.forbidden("Workflow execution access was revoked.");
+  }
+  const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
+    workflowId: workflow.id,
+    mode: claimed.run.mode,
+    channel: claimed.run.channel,
+    actor,
+    inputs: claimed.run.inputs,
+    context: claimed.context,
+    idempotencyKey: claimed.idempotencyKey,
+    occurredAt: claimed.occurredAt,
+  };
+  const actions = createGridsWorkflowActionPorts({
+    workflow,
+    principal: actor,
+    authorizeExecution: () => canExecuteAcceptedRun(workflow.id, claimed.run.baseId, actor, claimed.authorization, claimed.run.launcherId),
+    authorizeTarget: (target, required) => authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, ...target }, required),
+  });
+  const values = createGridsWorkflowValueResolver(claimed.run.baseId, actor, {
+    authorizeTable: (tableId) => authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, tableId }, "read"),
+  });
+  const clock = { now: () => claimed.executionClockAt };
+  if (claimed.run.mode === "execute") {
+    return finishExecution(
+      await executeWorkflowPlan({
+        runId,
+        executionGeneration: claimed.executionGeneration,
+        plan: claimed.plan,
+        invocation: { ...invocation, mode: "execute" },
+        repository,
+        clock,
+        actions: actions.execute,
+        values,
+        ...(workflowTrace ? { trace: workflowTrace } : {}),
+      }),
+    );
+  }
+  return dryRunCompletion(
+    await dryRunWorkflowPlan({
+      runId,
+      executionGeneration: claimed.executionGeneration,
+      plan: claimed.plan,
+      invocation: { ...invocation, mode: "dryRun" },
+      repository,
+      clock,
+      actions: actions.dryRun,
+      values,
+      ...(workflowTrace ? { trace: workflowTrace } : {}),
+    }),
+  );
 };
 
 export const processWorkflowRun = async (
@@ -292,113 +338,20 @@ export const processWorkflowRun = async (
   heartbeat?: () => Promise<void>,
   workflowTrace?: WorkflowTracePort,
 ): Promise<WorkflowJobResult> => {
-  const claimed = await claimWorkflowRun(runId);
-  if (!claimed) return { runId, status: (await getWorkflowRun(runId))?.status ?? "missing" };
-  const identity = runtimeIdentity(claimed.run, claimed.plan.sourceHash, claimed.idempotencyKey, claimed.executionGeneration);
-  const repository = new GridsWorkflowRuntimeRepository();
-  let leaseFailure: unknown = null;
-  let leaseRenewal: Promise<Awaited<ReturnType<typeof repository.heartbeat>>> | null = null;
-  const renewLease = (): Promise<Awaited<ReturnType<typeof repository.heartbeat>>> => {
-    if (leaseFailure) return Promise.reject(leaseFailure);
-    if (leaseRenewal) return leaseRenewal;
-    leaseRenewal = Promise.all([repository.heartbeat(identity), heartbeat?.()])
-      .then(([outcome]) => {
-        if (outcome.state !== "active") throw workflowConflict(outcome.message ?? "Workflow run lost its execution lease.");
-        return outcome;
-      })
-      .catch((error) => {
-        leaseFailure ??= error;
-        throw error;
-      })
-      .finally(() => {
-        leaseRenewal = null;
-      });
-    return leaseRenewal;
-  };
-  const leaseTimer = setInterval(() => {
-    void renewLease().catch(() => undefined);
-  }, WORKFLOW_LEASE_HEARTBEAT_MS);
-  try {
-    const storedWorkflow = claimed.context.workflow;
-    const workflow =
-      storedWorkflow && typeof storedWorkflow === "object" && !Array.isArray(storedWorkflow)
-        ? {
-            id: String(storedWorkflow.id ?? claimed.run.workflowId ?? ""),
-            shortId: String(storedWorkflow.shortId ?? ""),
-            baseId: claimed.run.baseId,
-            name: String(storedWorkflow.name ?? "Workflow"),
-          }
-        : await getWorkflow(claimed.run.workflowId ?? "", true);
-    if (!workflow) throw new Error("workflow metadata is unavailable for this run");
-    const actor = {
-      ...claimed.principal,
-      groupIds: await loadWorkflowUserGroupIds(claimed.run.actorUserId),
-    } satisfies GridsWorkflowPrincipal;
-    if (!(await canExecuteAcceptedRun(workflow.id, claimed.run.baseId, actor, claimed.authorization, claimed.run.launcherId))) {
-      throw err.forbidden("Workflow execution access was revoked.");
-    }
-    const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
-      workflowId: workflow.id,
-      mode: claimed.run.mode,
-      channel: claimed.run.channel,
-      actor,
-      inputs: claimed.run.inputs,
-      context: claimed.context,
-      idempotencyKey: claimed.idempotencyKey,
-      occurredAt: claimed.occurredAt,
-    };
-    const runtimeRepository = {
-      heartbeat: () => renewLease(),
-      restoreStepOutcome: repository.restoreStepOutcome.bind(repository),
-      startStep: repository.startStep.bind(repository),
-      finishStep: repository.finishStep.bind(repository),
-      parkStep: repository.parkStep.bind(repository),
-    };
-    const actions = createGridsWorkflowActionPorts({
-      workflow,
-      principal: actor,
-      authorizeExecution: () =>
-        canExecuteAcceptedRun(workflow.id, claimed.run.baseId, actor, claimed.authorization, claimed.run.launcherId),
-      authorizeTarget: (target, required) => authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, ...target }, required),
-    });
-    const values = createGridsWorkflowValueResolver(claimed.run.baseId, actor, {
-      authorizeTable: (tableId) => authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, tableId }, "read"),
-    });
-    let status: GridsWorkflowRun["status"];
-    if (claimed.run.mode === "execute") {
-      const result = await executeWorkflowPlan({
-        runId,
-        executionGeneration: claimed.executionGeneration,
-        plan: claimed.plan,
-        invocation: { ...invocation, mode: "execute" },
-        repository: runtimeRepository,
-        actions: actions.execute,
-        values,
-        ...(workflowTrace ? { trace: workflowTrace } : {}),
-      });
-      if (result.state !== "waiting") await renewLease();
-      status = await finishExecution(identity, result);
-    } else {
-      const result = await dryRunWorkflowPlan({
-        runId,
-        executionGeneration: claimed.executionGeneration,
-        plan: claimed.plan,
-        invocation: { ...invocation, mode: "dryRun" },
-        repository: runtimeRepository,
-        actions: actions.dryRun,
-        values,
-        ...(workflowTrace ? { trace: workflowTrace } : {}),
-      });
-      await renewLease();
-      status = await finishDryRun(identity, result);
-    }
-    return { runId, status };
-  } catch (error) {
-    await deferWorkflowRun(identity);
-    throw error;
-  } finally {
-    clearInterval(leaseTimer);
-  }
+  const result = await coordinateWorkflowExecution({
+    input: runId,
+    heartbeatMs: WORKFLOW_LEASE_HEARTBEAT_MS,
+    port: createGridsWorkflowCoordinatorPort(heartbeat),
+    execute: (execution) => executeClaimedWorkflowRun(execution.claim, execution, workflowTrace),
+  });
+  if (result.state === "idle") return { runId, status: (await getWorkflowRun(runId))?.status ?? "missing" };
+  if (result.state === "finished") return { runId, status: result.result.status };
+  if (result.state === "released" || result.state === "retry") throw result.error;
+  const persisted = await getWorkflowRun(runId);
+  if (persisted?.status === "waiting") return { runId, status: "waiting" };
+  throw workflowConflict(
+    result.state === "canceled" ? (result.message ?? "Workflow run was canceled.") : "Workflow run lost its execution lease.",
+  );
 };
 
 const workflowJob = job<WorkflowJobInput, WorkflowJobResult>({
@@ -457,7 +410,7 @@ export const invokeGridsWorkflow = async (input: InvokeGridsWorkflowInput): Prom
   const occurredAt = input.occurredAt ?? new Date().toISOString();
   const rawInvocation: WorkflowInvocation<GridsWorkflowChannel> = {
     workflowId: workflow.id,
-    expectedRevision: input.expectedRevision,
+    expectedRevision: input.expectedRevision === undefined ? undefined : toWorkflowRevision(input.expectedRevision),
     mode: input.mode,
     channel: input.channel,
     actor: {
@@ -608,6 +561,19 @@ const registerSchedule = async (workflowId: string): Promise<void> => {
   });
 };
 
+export const registerWorkflowSchedules = async (
+  workflows: ReadonlyArray<Pick<GridsWorkflow, "id">>,
+  register: (workflowId: string) => Promise<void> = registerSchedule,
+): Promise<void> => {
+  for (const workflow of workflows) {
+    try {
+      await register(workflow.id);
+    } catch (error) {
+      log.warn("Could not reconcile workflow schedule", { workflowId: workflow.id, error: errorMessage(error) });
+    }
+  }
+};
+
 export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
   const expiredWaiting = await listExpiredWaitingWorkflowRunIds();
   for (const runId of expiredWaiting) {
@@ -627,7 +593,7 @@ export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
   );
   const workflows = await listScheduledWorkflows();
   const activeIds = new Set(workflows.map(workflowScheduleId));
-  for (const workflow of workflows) await registerSchedule(workflow.id);
+  await registerWorkflowSchedules(workflows);
   for (const item of await workflowScheduler.list()) {
     if (!item.id.startsWith(SCHEDULE_PREFIX) || activeIds.has(item.id)) continue;
     await workflowScheduler.delete({ id: item.id });

@@ -301,4 +301,68 @@ steps:
       );
     }
   });
+
+  test.each([
+    ["61 8 * * *", "UTC", "cron minute field is invalid"],
+    ["0 8 * * *", "Mars/Olympus", "timezone must be an IANA timezone"],
+  ])("rejects invalid schedules during binding", async (cron, timezone, message) => {
+    const result = await bindGridsWorkflow(
+      await compile(`triggers:
+  schedule:
+    cron: "${cron}"
+    timezone: ${timezone}
+steps:
+  - succeed:
+      message: done
+`),
+      catalog(),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.diagnostics).toContainEqual(
+        expect.objectContaining({ code: "schedule.invalid", message: expect.stringContaining(message), path: ["triggers", "schedule"] }),
+      );
+    }
+  });
+
+  test("binds recursive conditions and validates text operand types", async () => {
+    const result = await bindGridsWorkflow(
+      await compile(`inputs:
+  item:
+    type: record
+    table: Items
+  label:
+    type: text
+  count:
+    type: number
+steps:
+  - if:
+      all:
+        - contains: ["\${{ inputs.item.Name }}", "\${{ inputs.label }}"]
+        - not:
+            any:
+              - startsWith: ["\${{ inputs.count }}", "1"]
+              - exists: inputs.item.Status
+        - endsWith: [null, "suffix"]
+    then:
+      - succeed:
+          message: matched
+`),
+      catalog(),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "condition.type",
+        path: ["steps", 0, "if", "all", 1, "not", "any", 0, "startsWith", 0],
+      }),
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "condition.type", path: ["steps", 0, "if", "all", 2, "endsWith", 0] }),
+    );
+    expect(result.diagnostics).not.toContainEqual(expect.objectContaining({ code: "reference.unknown" }));
+  });
 });

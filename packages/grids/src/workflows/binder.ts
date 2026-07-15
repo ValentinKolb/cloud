@@ -1,5 +1,6 @@
 import type {
   WorkflowBoundPlan,
+  WorkflowCondition,
   WorkflowDiagnostic,
   WorkflowIr,
   WorkflowIrStep,
@@ -8,6 +9,7 @@ import type {
 } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
 import { bindWorkflow, parseWorkflowValueString, workflowMessageExpressions } from "@valentinkolb/cloud/workflows/language";
+import { normalizeWorkflowSchedule } from "@valentinkolb/cloud/workflows/runtime";
 import {
   getWorkflowCatalogRef,
   snapshotWorkflowCatalog,
@@ -326,19 +328,44 @@ const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Ma
   }
 };
 
+const bindCondition = (
+  condition: WorkflowCondition,
+  path: Array<string | number>,
+  scope: ReadonlyMap<string, ValueInfo>,
+  context: BindingContext,
+): void => {
+  if (condition.operator === "all" || condition.operator === "any") {
+    condition.conditions.forEach((child, index) => bindCondition(child, [...path, condition.operator, index], scope, context));
+    return;
+  }
+  if (condition.operator === "not") {
+    bindCondition(condition.condition, [...path, "not"], scope, context);
+    return;
+  }
+  if (condition.operator === "exists") {
+    resolveReference(condition.reference, [...path, "exists"], scope, context);
+    return;
+  }
+  const operands = condition.operands.map((operand, index) => bindValue(operand, [...path, condition.operator, index], scope, context));
+  if (condition.operator === "equals" || condition.operator === "notEquals") return;
+  operands.forEach((operand, index) => {
+    const value = condition.operands[index];
+    if (operand.type !== "core.text" && !(operand.type === "core.value" && typeof value === "string")) {
+      addDiagnostic(context, "condition.type", `${condition.operator} operand has type ${operand.type}, expected core.text`, [
+        ...path,
+        condition.operator,
+        index,
+      ]);
+    }
+  });
+};
+
 const bindSteps = (steps: WorkflowIrStep[], scope: Map<string, ValueInfo>, context: BindingContext): void => {
   for (const step of steps) {
     if (step.kind === "action") {
       bindAction(step, scope, context);
     } else if (step.kind === "if") {
-      const conditionPath = [...step.sourcePath, "if"];
-      if (step.condition.operator === "exists") {
-        resolveReference(step.condition.reference, [...conditionPath, "exists"], scope, context);
-      } else {
-        step.condition.operands.forEach((operand, index) =>
-          bindValue(operand, [...conditionPath, step.condition.operator, index], scope, context),
-        );
-      }
+      bindCondition(step.condition, [...step.sourcePath, "if"], scope, context);
       bindSteps(step.then, new Map(scope), context);
       bindSteps(step.else, new Map(scope), context);
     } else if (step.kind === "switch") {
@@ -374,6 +401,16 @@ const bindTriggers = (context: BindingContext): void => {
     const path = ["triggers", trigger.kind] as Array<string | number>;
     const descriptor = descriptors.get(trigger.kind);
     if (!descriptor) continue;
+    if (trigger.kind === "schedule") {
+      try {
+        normalizeWorkflowSchedule({
+          cron: typeof trigger.config.cron === "string" ? trigger.config.cron : "",
+          timezone: typeof trigger.config.timezone === "string" ? trigger.config.timezone : "UTC",
+        });
+      } catch (error) {
+        addDiagnostic(context, "schedule.invalid", error instanceof Error ? error.message : "Invalid workflow schedule", path);
+      }
+    }
     const configuredTable =
       trigger.kind === "recordEvent" && typeof trigger.config.table === "string"
         ? resolveCatalogRef(context, context.catalog.tables, trigger.config.table, "table", [...path, "table"])

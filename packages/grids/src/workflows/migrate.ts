@@ -162,6 +162,7 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
       error JSONB,
       result_message TEXT,
       occurred_at TIMESTAMPTZ NOT NULL,
+      execution_clock_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       started_at TIMESTAMPTZ,
       heartbeat_at TIMESTAMPTZ,
@@ -182,6 +183,7 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_resource_app_id TEXT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_resource_type TEXT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_resource_id TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS execution_clock_at TIMESTAMPTZ NOT NULL DEFAULT now()`.simple();
   await sql`
     DO $$
     BEGIN

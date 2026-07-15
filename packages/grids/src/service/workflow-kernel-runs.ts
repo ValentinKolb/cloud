@@ -8,6 +8,8 @@ import type {
 } from "@valentinkolb/cloud/workflows";
 import { hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
 import type {
+  WorkflowCoordinatorLeaseState,
+  WorkflowCoordinatorPort,
   WorkflowHeartbeatOutcome,
   WorkflowRestoredStep,
   WorkflowRuntimeRepositoryPort,
@@ -18,7 +20,13 @@ import type {
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { WorkflowRunEventScope } from "../lib/workflow-run-events";
-import type { GridsWorkflowChannel, GridsWorkflowCredential, GridsWorkflowPrincipal, GridsWorkflowRun } from "../workflows/contracts";
+import {
+  type GridsWorkflowChannel,
+  type GridsWorkflowCredential,
+  type GridsWorkflowPrincipal,
+  type GridsWorkflowRun,
+  toWorkflowRevision,
+} from "../workflows/contracts";
 import type { SqlClient } from "./audit";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
@@ -48,6 +56,7 @@ export type MaterializeWorkflowInvocation = {
 };
 
 export type ClaimedWorkflowRun = {
+  runId: string;
   run: GridsWorkflowRun;
   plan: WorkflowBoundPlan;
   context: Record<string, WorkflowJsonValue>;
@@ -56,6 +65,7 @@ export type ClaimedWorkflowRun = {
   authorization: GridsWorkflowAuthorization;
   idempotencyKey: string;
   occurredAt: string;
+  executionClockAt: string;
   executionGeneration: number;
 };
 
@@ -164,7 +174,7 @@ const existingInvocationReceipt = async (
   existing: DbRow,
 ): Promise<Result<WorkflowInvocationReceipt>> => {
   const existingRevision = Number(existing.workflow_revision);
-  if (input.invocation.expectedRevision !== undefined && input.invocation.expectedRevision !== existingRevision) {
+  if (input.invocation.expectedRevision !== undefined && input.invocation.expectedRevision !== toWorkflowRevision(existingRevision)) {
     return fail(workflowConflict("Workflow changed since the caller loaded it."));
   }
   const fingerprint = input.requestFingerprint ?? (await workflowInvocationFingerprint(input));
@@ -175,7 +185,7 @@ const existingInvocationReceipt = async (
   return ok({
     runId: run.id,
     workflowId: input.invocation.workflowId,
-    revision: existingRevision,
+    revision: toWorkflowRevision(existingRevision),
     mode: input.invocation.mode,
     channel: input.invocation.channel,
     created: false,
@@ -225,7 +235,7 @@ export const materializeWorkflowInvocation = async (input: MaterializeWorkflowIn
     if (input.preparedRevision !== undefined && input.preparedRevision !== workflowRevision) {
       return fail(workflowConflict("Workflow changed while the invocation was being prepared."));
     }
-    if (input.invocation.expectedRevision !== undefined && input.invocation.expectedRevision !== workflowRevision) {
+    if (input.invocation.expectedRevision !== undefined && input.invocation.expectedRevision !== toWorkflowRevision(workflowRevision)) {
       return fail(workflowConflict("Workflow changed since the caller loaded it."));
     }
     if (input.invocation.mode === "execute" && workflow.enabled !== true) return fail(err.badInput("workflow is disabled"));
@@ -298,7 +308,7 @@ export const materializeWorkflowInvocation = async (input: MaterializeWorkflowIn
     return ok({
       runId: run.id,
       workflowId: input.invocation.workflowId,
-      revision: Number(row.workflow_revision),
+      revision: toWorkflowRevision(Number(row.workflow_revision)),
       mode: input.invocation.mode,
       channel: input.invocation.channel,
       created: Boolean(inserted),
@@ -314,7 +324,8 @@ const claimColumns = sql`
   actor_service_account_id, credential_kind, credential_id, to_json(credential_scopes) AS credential_scopes,
   credential_permission_cap, credential_expires_at, credential_resource_app_id, credential_resource_type, credential_resource_id,
   to_json(actor_group_ids) AS actor_group_ids, authorization_snapshot AS authorization, inputs, context, workflow_plan, status, result,
-  error, result_message, idempotency_key, occurred_at, execution_generation, queue_attempts, created_at, started_at, finished_at
+  error, result_message, idempotency_key, occurred_at, execution_clock_at, execution_generation, queue_attempts,
+  created_at, started_at, finished_at
 `;
 
 export const claimWorkflowRun = async (runId: string): Promise<ClaimedWorkflowRun | null> => {
@@ -362,6 +373,7 @@ export const claimWorkflowRun = async (runId: string): Promise<ClaimedWorkflowRu
   if (!row) return null;
   await notifyPersistedWorkflowRun(row.id as string, `running:${row.execution_generation}`);
   return {
+    runId: row.id as string,
     run: mapRun(row),
     plan: parseJsonbRow<WorkflowBoundPlan>(row.workflow_plan, {} as WorkflowBoundPlan),
     context: parseJsonbRow<Record<string, WorkflowJsonValue>>(row.context, {}),
@@ -370,6 +382,7 @@ export const claimWorkflowRun = async (runId: string): Promise<ClaimedWorkflowRu
     authorization: parseJsonbRow<GridsWorkflowAuthorization>(row.authorization, { kind: "workflow" }),
     idempotencyKey: row.idempotency_key as string,
     occurredAt: (row.occurred_at as Date).toISOString(),
+    executionClockAt: (row.execution_clock_at as Date).toISOString(),
     executionGeneration: Number(row.execution_generation),
   };
 };
@@ -475,6 +488,29 @@ export const deferWorkflowRun = async (run: WorkflowRuntimeRunIdentity): Promise
   return changed;
 };
 
+export const renewWorkflowRunLease = async (
+  run: Pick<WorkflowRuntimeRunIdentity, "runId" | "executionGeneration">,
+): Promise<WorkflowCoordinatorLeaseState> => {
+  const rows = await sql`
+    UPDATE grids.workflow_runs
+    SET heartbeat_at = now(), lease_expires_at = now() + (${WORKFLOW_RUN_LEASE_MS} * interval '1 millisecond')
+    WHERE id = ${run.runId}::uuid
+      AND status = 'running'
+      AND execution_generation = ${run.executionGeneration}
+    RETURNING id
+  `;
+  if (rows.length > 0) return { state: "active" };
+
+  const [current] = await sql<Array<{ status: string; execution_generation: number }>>`
+    SELECT status, execution_generation
+    FROM grids.workflow_runs
+    WHERE id = ${run.runId}::uuid
+  `;
+  return current?.status === "canceled" && Number(current.execution_generation) === run.executionGeneration
+    ? { state: "canceled", message: "workflow run was canceled" }
+    : { state: "stale" };
+};
+
 export const failQueuedWorkflowRun = async (runId: string, message: string): Promise<boolean> => {
   const error = { code: "WORKFLOW_RUNTIME_ERROR", message, retryable: false };
   const changed = await sql.begin(async (tx) => {
@@ -546,16 +582,20 @@ const restoredStep = (mode: string, outcome: unknown): WorkflowRestoredStep | nu
 };
 
 export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepositoryPort {
+  constructor(
+    private readonly renewLease: (run: WorkflowRuntimeRunIdentity) => Promise<WorkflowHeartbeatOutcome> = async (run) => {
+      const outcome = await renewWorkflowRunLease(run);
+      return outcome.state === "active"
+        ? outcome
+        : {
+            state: "canceled",
+            message: outcome.state === "canceled" ? outcome.message : "workflow run lease is no longer active",
+          };
+    },
+  ) {}
+
   async heartbeat(run: WorkflowRuntimeRunIdentity): Promise<WorkflowHeartbeatOutcome> {
-    const rows = await sql`
-      UPDATE grids.workflow_runs
-      SET heartbeat_at = now(), lease_expires_at = now() + (${WORKFLOW_RUN_LEASE_MS} * interval '1 millisecond')
-      WHERE id = ${run.runId}::uuid
-        AND status = 'running'
-        AND execution_generation = ${run.executionGeneration}
-      RETURNING id
-    `;
-    return rows.length > 0 ? { state: "active" } : { state: "canceled", message: "workflow run lease is no longer active" };
+    return this.renewLease(run);
   }
 
   async restoreStepOutcome(step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null> {
@@ -727,3 +767,48 @@ export const finishWorkflowRun = async (
   if (changed && client === sql) await notifyPersistedWorkflowRun(run.runId, `run:${run.executionGeneration}:${input.status}`);
   return changed;
 };
+
+export type GridsWorkflowRunCompletion = {
+  status: GridsWorkflowRun["status"];
+  result?: WorkflowJsonValue | null;
+  error?: GridsWorkflowRun["error"];
+  resultMessage?: string | null;
+};
+
+type GridsWorkflowCoordinatorPersistence = {
+  claim: typeof claimWorkflowRun;
+  renew: typeof renewWorkflowRunLease;
+  finish: typeof finishWorkflowRun;
+  release: typeof deferWorkflowRun;
+};
+
+const workflowRunIdentity = (claim: ClaimedWorkflowRun): WorkflowRuntimeRunIdentity => ({
+  runId: claim.runId,
+  executionGeneration: claim.executionGeneration,
+  mode: claim.run.mode,
+  workflowId: claim.run.workflowId ?? "deleted",
+  sourceHash: claim.plan.sourceHash,
+  idempotencyKey: claim.idempotencyKey,
+});
+
+export const createGridsWorkflowCoordinatorPort = (
+  transportHeartbeat?: () => Promise<void>,
+  persistence: GridsWorkflowCoordinatorPersistence = {
+    claim: claimWorkflowRun,
+    renew: renewWorkflowRunLease,
+    finish: finishWorkflowRun,
+    release: deferWorkflowRun,
+  },
+): WorkflowCoordinatorPort<string, ClaimedWorkflowRun, GridsWorkflowRunCompletion> => ({
+  claim: persistence.claim,
+  renew: async (claim) => {
+    const outcome = await persistence.renew(workflowRunIdentity(claim));
+    if (outcome.state === "active") await transportHeartbeat?.();
+    return outcome;
+  },
+  finish: async (claim, result) => {
+    if (result.status === "waiting") return { state: "finished" };
+    return (await persistence.finish(workflowRunIdentity(claim), result)) ? { state: "finished" } : { state: "stale" };
+  },
+  release: async (claim) => ((await persistence.release(workflowRunIdentity(claim))) ? { state: "retry" } : { state: "stale" }),
+});

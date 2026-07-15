@@ -147,6 +147,7 @@ const dashboardWorkflowPlan = (): WorkflowBoundPlan =>
     sourceHash: "dashboard-source",
     manifestHash: "dashboard-manifest",
     catalogHash: "dashboard-catalog",
+    actionPolicies: {},
     inputs: [],
     triggers: [],
     steps: [],
@@ -292,7 +293,7 @@ describe("dashboard-scoped workflow execution", () => {
       ok({
         runId: uuid(),
         workflowId,
-        revision: 4,
+        revision: "4",
         mode: "execute" as const,
         channel: "dashboard" as const,
         created: true,
@@ -361,7 +362,7 @@ describe("dashboard-scoped workflow execution", () => {
       ok({
         runId: uuid(),
         workflowId,
-        revision: 2,
+        revision: "2",
         mode: "execute" as const,
         channel: "scanner" as const,
         created: true,
@@ -394,17 +395,21 @@ describe("dashboard-scoped workflow execution", () => {
 
     const rejected = await app.request(
       `/api/dashboards/${dashboardId}/widgets/${widgetId}/scan`,
-      jsonPost({ code: "asset-42", inputs: { forbidden: true } }),
+      jsonPost({ code: "asset-42", operationId: "scan-42", expectedRevision: 2, inputs: { forbidden: true } }),
     );
     expect(rejected.status).toBe(400);
     expect(invokeScannerLauncher).not.toHaveBeenCalled();
 
-    const response = await app.request(`/api/dashboards/${dashboardId}/widgets/${widgetId}/scan`, jsonPost({ code: "asset-42" }));
+    const response = await app.request(
+      `/api/dashboards/${dashboardId}/widgets/${widgetId}/scan`,
+      jsonPost({ code: "asset-42", operationId: "scan-42", expectedRevision: 2 }),
+    );
 
     expect(response.status).toBe(200);
     expect(invokeScannerLauncher).toHaveBeenCalledTimes(1);
     expect(invokeScannerLauncher.mock.calls[0]![0]).toMatchObject({
       launcherId,
+      operationId: "scan-42",
       mode: "execute",
       expectedRevision: 2,
       inputs: {},

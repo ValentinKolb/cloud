@@ -16,6 +16,7 @@ const workflow = {
     sourceHash: "source",
     manifestHash: "manifest",
     catalogHash: "catalog",
+    actionPolicies: {},
     inputs: [],
     triggers: [],
     steps: [],

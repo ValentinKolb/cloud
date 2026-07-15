@@ -40,6 +40,8 @@ import { uuidParam } from "./route-params";
 const DashboardWorkflowScannerRunSchema = z
   .object({
     code: z.string().trim().min(1).max(500),
+    operationId: z.string().trim().min(1).max(120),
+    expectedRevision: z.number().int().positive(),
   })
   .strict();
 
@@ -333,6 +335,7 @@ export const createDashboardsApi = (
         responses: {
           200: jsonResponse(DashboardWorkflowInvocationResponseSchema, "Run"),
           400: jsonResponse(ErrorResponseSchema, "Invalid scanner input"),
+          409: jsonResponse(ErrorResponseSchema, "Workflow revision conflict"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
           500: jsonResponse(ErrorResponseSchema, "Workflow invocation failed"),
@@ -353,14 +356,15 @@ export const createDashboardsApi = (
         const launcher = await getLauncher(widget.launcherId);
         if (!launcher || launcher.baseId !== dashboard.baseId) return c.json({ message: "Workflow launcher not found" }, 404);
         if (launcher.config.kind !== "scanner") return c.json({ message: "Workflow launcher is not a scanner launcher" }, 400);
+        const body = c.req.valid("json");
         const result = await invokeScanner({
           launcherId: launcher.id,
-          operationId: Bun.randomUUIDv7(),
+          operationId: body.operationId,
           mode: "execute",
-          expectedRevision: launcher.validatedRevision,
+          expectedRevision: body.expectedRevision,
           principal: currentWorkflowPrincipal(c),
           inputs: {},
-          scannedText: c.req.valid("json").code,
+          scannedText: body.code,
           authorization: { kind: "dashboard-widget", dashboardId: dashboard.id, dashboardWidgetId: widget.id },
         });
         if (!result.ok) return respond(c, () => Promise.resolve(result));

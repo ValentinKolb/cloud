@@ -1,7 +1,7 @@
 import { getEffectiveGroupIds } from "@valentinkolb/cloud/server";
 import type { WorkflowBoundPlan, WorkflowInvocation, WorkflowIrInput, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
-import type { WorkflowValueResolverPort, WorkflowVariableScope } from "@valentinkolb/cloud/workflows/runtime";
+import type { WorkflowValueResolution, WorkflowValueResolverPort, WorkflowVariableScope } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
 import { z } from "zod";
 import type { GridRecord } from "../contracts";
@@ -157,6 +157,9 @@ const rootValue = (
   return { value: variables.get(root), remaining };
 };
 
+const valueResolution = (value: WorkflowJsonValue | undefined): WorkflowValueResolution =>
+  value === undefined ? { state: "missing" } : { state: "resolved", value };
+
 export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
   private readonly readableTables = new Map<string, Promise<boolean>>();
   private readonly records = new Map<string, Promise<GridRecord | null>>();
@@ -189,20 +192,22 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
     invocation: WorkflowInvocation;
     variables: WorkflowVariableScope;
     fallback: () => WorkflowJsonValue | undefined;
-  }): Promise<WorkflowJsonValue | undefined> {
+  }): Promise<WorkflowValueResolution> {
     const { value, remaining } = rootValue(input.invocation, input.variables, input.reference);
-    if (!isRecordReference(value) || remaining.length === 0) return input.fallback();
+    if (!isRecordReference(value) || remaining.length === 0) return valueResolution(input.fallback());
     const fieldId = input.plan.bindings[workflowPathKey(input.path)];
     if (typeof fieldId !== "string") throw new Error(`workflow field binding is unavailable at "${workflowPathKey(input.path)}"`);
     if (!(await this.canReadTable(value.tableId))) throw new Error("workflow actor cannot read the referenced table");
     const snapshots = input.invocation.context?.workflowRecordSnapshots;
     if (snapshots && typeof snapshots === "object" && !Array.isArray(snapshots)) {
       const snapshot = snapshots[`${value.tableId}:${value.recordId}`];
-      if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)) return snapshot[fieldId] ?? null;
+      if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)) {
+        return { state: "resolved", value: snapshot[fieldId] ?? null };
+      }
     }
     const record = await this.readRecord(value.tableId, value.recordId);
     if (!record) throw new Error("referenced workflow record no longer exists");
-    return (record.data[fieldId] ?? null) as WorkflowJsonValue;
+    return { state: "resolved", value: (record.data[fieldId] ?? null) as WorkflowJsonValue };
   }
 }
 

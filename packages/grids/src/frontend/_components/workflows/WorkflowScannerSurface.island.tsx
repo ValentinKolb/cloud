@@ -32,6 +32,7 @@ const dashboardWorkflowRunsApi = apiClient.dashboards as unknown as DashboardWor
 
 import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
 import { acquireScannerStream, stopScannerStream } from "./workflow-scanner-camera";
+import { invokeWorkflowScannerRequest, type WorkflowScannerTransport, workflowScannerResponseKind } from "./workflow-scanner-request";
 
 export type WorkflowScannerState = {
   baseShortId: string;
@@ -92,7 +93,7 @@ const displayTime = (value: number) =>
     second: "2-digit",
   });
 
-async function openScanDetails(item: ScanLogItem) {
+async function openScanDetails(item: ScanLogItem, retry?: () => void) {
   await dialogCore.open<void>(
     (close) => (
       <PanelDialog>
@@ -133,7 +134,20 @@ async function openScanDetails(item: ScanLogItem) {
           </PanelDialog.Section>
         </PanelDialog.Body>
         <PanelDialog.Footer>
-          <span />
+          <Show when={retry} fallback={<span />}>
+            {(retryAction) => (
+              <button
+                type="button"
+                class="btn-input"
+                onClick={() => {
+                  close();
+                  retryAction()();
+                }}
+              >
+                <i class="ti ti-refresh" aria-hidden="true" /> Retry
+              </button>
+            )}
+          </Show>
           <button type="button" class="btn-input" onClick={() => close()}>
             Close
           </button>
@@ -159,6 +173,7 @@ export default function WorkflowScannerSurface(props: Props) {
 
   const [cameraRunning, setCameraRunning] = createSignal(false);
   const [cameraError, setCameraError] = createSignal<string | null>(null);
+  const [pauseReason, setPauseReason] = createSignal<string | null>(null);
   const [detections, setDetections] = createSignal<ScannerDetection[]>([]);
   const [logs, setLogs] = createSignal<ScanLogItem[]>([]);
   const [announcements, setAnnouncements] = createSignal<ScanAnnouncement[]>([]);
@@ -166,6 +181,10 @@ export default function WorkflowScannerSurface(props: Props) {
   const [videoBox, setVideoBox] = createSignal<VideoBox>({ x: 0, y: 0, width: 1, height: 1 });
   const recentCodes = new Map<string, number>();
   let announcementId = 0;
+  const scannerTransport: WorkflowScannerTransport = {
+    invokeDashboard: (input) => apiClient.dashboards[":dashboardId"].widgets[":widgetId"].scan.$post(input),
+    invokeLauncher: (input) => apiClient.workflows.launchers[":launcherId"].invoke.scanner.$post(input),
+  };
 
   const counts = createMemo(() => {
     const items = logs();
@@ -307,69 +326,74 @@ export default function WorkflowScannerSurface(props: Props) {
     },
   });
 
+  const submitScan = async (item: Pick<ScanLogItem, "id" | "code">) => {
+    try {
+      const res = await invokeWorkflowScannerRequest(
+        scannerTransport,
+        {
+          launcherId: props.state.launcherId,
+          dashboardId: props.state.dashboardId,
+          dashboardWidgetId: props.state.dashboardWidgetId,
+        },
+        { operationId: item.id, expectedRevision: props.state.expectedRevision, code: item.code },
+      );
+      const responseKind = workflowScannerResponseKind(res);
+      if (responseKind === "revision-conflict") {
+        const message = await errorMessage(res, "Workflow changed while the scanner was open");
+        const pausedMessage = `${message} Restart the scanner to load the latest workflow revision.`;
+        setPauseReason(pausedMessage);
+        stopCamera();
+        updateLog(item.id, { status: "failed", message: pausedMessage });
+        return;
+      }
+      if (responseKind === "failed") throw new Error(await errorMessage(res, "Scanner workflow could not be started"));
+      const receipt = (await res.json()) as { id?: string; runId?: string; status: string };
+      const runId = receipt.runId ?? receipt.id;
+      if (!runId) throw new Error("Scanner workflow did not return a run ID.");
+      const pending = pendingRunEvents.take(runId);
+      if (pending) applyRun(item.id, pending.run, pending.steps);
+      else {
+        const status = receipt.status === "queued" ? "queued" : "running";
+        updateLog(item.id, { runId, status, message: status === "queued" ? "Queued" : "Running" });
+      }
+      setTimeout(() => {
+        if (!disposed) void refreshRun(item.id, runId).catch(() => !streamReady && startFallback());
+      }, 1500);
+    } catch (error) {
+      updateLog(item.id, {
+        status: "failed",
+        message: error instanceof Error ? error.message : "Scanner workflow could not be started",
+      });
+    }
+  };
+
   const runScan = async (code: string, format: string | null) => {
     const trimmed = code.trim();
-    if (!trimmed) return;
+    if (!trimmed || pauseReason()) return;
     const now = Date.now();
     const last = recentCodes.get(trimmed) ?? 0;
     if (now - last < 2500) return;
     recentCodes.set(trimmed, now);
 
-    const id = crypto.randomUUID();
-    if (counts().active >= MAX_ACTIVE_SCAN_RUNS) {
-      prependLog({
-        id,
-        code: trimmed,
-        format,
-        status: "failed",
-        message: "Scanner is busy. Wait for active workflow runs to finish.",
-        runId: null,
-        run: null,
-        steps: [],
-        createdAt: now,
-      });
-      return;
-    }
+    const item: ScanLogItem = {
+      id: crypto.randomUUID(),
+      code: trimmed,
+      format,
+      status: counts().active >= MAX_ACTIVE_SCAN_RUNS ? "failed" : "queued",
+      message: counts().active >= MAX_ACTIVE_SCAN_RUNS ? "Scanner is busy. Wait for active workflow runs to finish." : "Queued",
+      runId: null,
+      run: null,
+      steps: [],
+      createdAt: now,
+    };
+    prependLog(item);
+    if (item.status === "queued") await submitScan(item);
+  };
 
-    prependLog({ id, code: trimmed, format, status: "queued", message: "Queued", runId: null, run: null, steps: [], createdAt: now });
-
-    try {
-      const operationId = id;
-      const res =
-        props.state.dashboardId && props.state.dashboardWidgetId
-          ? await apiClient.dashboards[":dashboardId"].widgets[":widgetId"].scan.$post({
-              param: { dashboardId: props.state.dashboardId, widgetId: props.state.dashboardWidgetId },
-              json: { code: trimmed },
-            })
-          : await apiClient.workflows.launchers[":launcherId"].invoke.scanner.$post({
-              param: { launcherId: props.state.launcherId },
-              json: {
-                operationId,
-                mode: "execute",
-                expectedRevision: props.state.expectedRevision,
-                inputs: {},
-                scannedText: trimmed,
-              },
-            });
-      if (!res.ok) throw new Error(await errorMessage(res, "Scanner workflow could not be started"));
-      const receipt = (await res.json()) as { id?: string; runId?: string; status: string };
-      const runId = receipt.runId ?? receipt.id;
-      if (!runId) throw new Error("Scanner workflow did not return a run ID.");
-      const pending = pendingRunEvents.take(runId);
-      if (pending) applyRun(id, pending.run, pending.steps);
-      else {
-        const status = receipt.status === "queued" ? "queued" : "running";
-        updateLog(id, { runId, status, message: status === "queued" ? "Queued" : "Running" });
-      }
-      setTimeout(() => {
-        if (!disposed) void refreshRun(id, runId).catch(() => !streamReady && startFallback());
-      }, 1500);
-    } catch (error) {
-      updateLog(id, {
-        status: "failed",
-        message: error instanceof Error ? error.message : "Scanner workflow could not be started",
-      });
-    }
+  const retryScan = (item: ScanLogItem) => {
+    if (pauseReason() || item.runId || counts().active >= MAX_ACTIVE_SCAN_RUNS) return;
+    updateLog(item.id, { status: "queued", message: "Retrying" });
+    void submitScan(item);
   };
 
   const updateVideoBox = () => {
@@ -428,6 +452,7 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const startCamera = async () => {
+    if (pauseReason()) return;
     setCameraError(null);
     try {
       engine ??= createScannerEngine();
@@ -542,23 +567,43 @@ export default function WorkflowScannerSurface(props: Props) {
           </div>
           <div class="absolute left-3 top-3 flex flex-wrap items-center gap-2">
             <span class="rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white">
-              {cameraRunning() ? "Scanning" : "Camera off"}
+              {pauseReason() ? "Paused" : cameraRunning() ? "Scanning" : "Camera off"}
             </span>
             <Show when={cameraError()}>
               <span class="rounded-full bg-red-600/90 px-2 py-1 text-xs font-medium text-white" role="alert">
                 {cameraError()}
               </span>
             </Show>
+            <Show when={pauseReason()}>
+              {(reason) => (
+                <span class="max-w-[min(36rem,75vw)] rounded bg-red-600/90 px-2 py-1 text-xs font-medium text-white" role="alert">
+                  {reason()}
+                </span>
+              )}
+            </Show>
           </div>
           <div class="absolute right-3 top-3 flex items-center gap-2">
-            <button
-              type="button"
-              class="btn-input btn-input-sm bg-black/70 text-white hover:bg-black/90"
-              onClick={() => (cameraRunning() ? stopCamera() : void startCamera())}
+            <Show
+              when={pauseReason()}
+              fallback={
+                <button
+                  type="button"
+                  class="btn-input btn-input-sm bg-black/70 text-white hover:bg-black/90"
+                  onClick={() => (cameraRunning() ? stopCamera() : void startCamera())}
+                >
+                  <i class={`ti ${cameraRunning() ? "ti-video-off" : "ti-video"}`} />
+                  {cameraRunning() ? "Stop" : "Start"}
+                </button>
+              }
             >
-              <i class={`ti ${cameraRunning() ? "ti-video-off" : "ti-video"}`} />
-              {cameraRunning() ? "Stop" : "Start"}
-            </button>
+              <button
+                type="button"
+                class="btn-input btn-input-sm bg-black/70 text-white hover:bg-black/90"
+                onClick={() => window.location.reload()}
+              >
+                <i class="ti ti-refresh" aria-hidden="true" /> Restart
+              </button>
+            </Show>
           </div>
         </section>
 
@@ -591,9 +636,10 @@ export default function WorkflowScannerSurface(props: Props) {
                 icon="ti ti-keyboard"
                 name="manual-scan-code"
                 autocomplete="off"
+                disabled={Boolean(pauseReason())}
               />
             </div>
-            <button type="submit" class="btn-input btn-sm shrink-0" disabled={!manualCode().trim()}>
+            <button type="submit" class="btn-input btn-sm shrink-0" disabled={!manualCode().trim() || Boolean(pauseReason())}>
               <i class="ti ti-scan" aria-hidden="true" /> Scan
             </button>
           </form>
@@ -607,7 +653,12 @@ export default function WorkflowScannerSurface(props: Props) {
                   <button
                     type="button"
                     class="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-zinc-800 px-3 py-2 text-left transition-colors hover:bg-white/5"
-                    onClick={() => void openScanDetails(item)}
+                    onClick={() =>
+                      void openScanDetails(
+                        item,
+                        item.status === "failed" && !item.runId && !pauseReason() ? () => retryScan(item) : undefined,
+                      )
+                    }
                   >
                     <i
                       class={`ti ${

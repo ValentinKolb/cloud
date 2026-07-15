@@ -40,6 +40,7 @@ const workflow = (inputName = "record", inputType = "record"): GridsWorkflow =>
       sourceHash: "source",
       manifestHash: "manifest",
       catalogHash: "catalog",
+      actionPolicies: {},
       inputs: [{ name: inputName, type: inputType, config: { table: "Records", required: true } }],
       triggers: [],
       steps: [],
@@ -74,7 +75,7 @@ const launcher = (config: GridsWorkflowLauncherConfig, overrides: Partial<GridsW
 const receipt: WorkflowInvocationReceipt = {
   runId: "80000000-0000-4000-8000-000000000008",
   workflowId,
-  revision: 3,
+  revision: "3",
   mode: "execute",
   channel: "scanner",
   created: true,

@@ -58,6 +58,7 @@ const boundPlan = (bindings: Record<string, WorkflowJsonValue> = {}): WorkflowBo
     sourceHash: "source",
     manifestHash: "manifest",
     catalogHash: "catalog",
+    actionPolicies: {},
     inputs: [],
     triggers: [],
     steps: [],
@@ -176,6 +177,24 @@ describe("Grids workflow kernel action ports", () => {
     }
     expect(ports.execute.get("unknown")).toBeUndefined();
     expect(ports.dryRun.get("unknown")).toBeUndefined();
+  });
+
+  test("applies Grids execution authorization to shared built-ins", async () => {
+    const authorizeExecution = mock(async () => false);
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      authorizeExecution,
+      services: commonServices(),
+      effectIntents: executingIntents(),
+    });
+    const action = actionStep("setVariable", { name: "result", value: true });
+    const ctx = context("execute", action);
+
+    const outcome = await ports.execute.get("setVariable")!.execute(ctx.value, action);
+
+    expect(outcome).toMatchObject({ state: "failed", error: { code: "FORBIDDEN" } });
+    expect(ctx.variables.has("result")).toBe(false);
+    expect(authorizeExecution).toHaveBeenCalledTimes(1);
   });
 
   test("awaits record resolution and field evaluation with exact binder paths", async () => {

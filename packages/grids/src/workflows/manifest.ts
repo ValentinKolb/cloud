@@ -1,4 +1,4 @@
-import type { WorkflowFieldSchema, WorkflowLanguageManifest } from "@valentinkolb/cloud/workflows";
+import { type WorkflowFieldSchema, type WorkflowLanguageManifest, workflowBuiltinActionDescriptors } from "@valentinkolb/cloud/workflows";
 
 const identifier = (description: string, optional = false): WorkflowFieldSchema => ({
   kind: "string",
@@ -45,6 +45,8 @@ export const gridsWorkflowManifest: WorkflowLanguageManifest = {
     maxInputs: 100,
     maxSteps: 1_000,
     maxDepth: 20,
+    maxConditions: 1_000,
+    maxConditionDepth: 20,
     maxLoopItems: 10_000,
   },
   inputs: [
@@ -208,30 +210,6 @@ export const gridsWorkflowManifest: WorkflowLanguageManifest = {
         saveAs,
       }),
     },
-    {
-      kind: "setVariable",
-      label: "Set variable",
-      description: "Stores a value for later steps in the current scope.",
-      effect: "pure",
-      dryRun: "full",
-      outputType: "core.value",
-      config: object({ name: identifier("Variable name."), value: value("Value to store.") }),
-    },
-    {
-      kind: "fail",
-      label: "Fail workflow",
-      description: "Stops the workflow with a domain-specific error message.",
-      effect: "pure",
-      dryRun: "full",
-      config: object({ message: text("Failure message.") }),
-    },
-    {
-      kind: "succeed",
-      label: "Succeed workflow",
-      description: "Stops the workflow successfully with an operator-facing message.",
-      effect: "pure",
-      dryRun: "full",
-      config: object({ message: text("Success message.") }),
-    },
+    ...workflowBuiltinActionDescriptors,
   ],
 };

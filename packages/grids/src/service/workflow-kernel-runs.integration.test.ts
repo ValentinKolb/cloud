@@ -61,7 +61,7 @@ describe("workflow run materialization", () => {
     const workflowId = Bun.randomUUIDv7();
     const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
       workflowId,
-      expectedRevision: 1,
+      expectedRevision: "1",
       mode: "execute",
       channel: "api",
       actor: { groupIds: [] },
@@ -84,7 +84,7 @@ describe("workflow run materialization", () => {
 
       const second = await materializeWorkflowInvocation({
         baseId,
-        invocation: { ...invocation, expectedRevision: 2 },
+        invocation: { ...invocation, expectedRevision: "2" },
       });
 
       expect(second.ok).toBe(false);
@@ -250,7 +250,7 @@ describe("workflow run materialization", () => {
     };
     const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
       workflowId,
-      expectedRevision: 1,
+      expectedRevision: "1",
       mode: "execute",
       channel: "api",
       actor: { serviceAccountId, groupIds: [] },
@@ -278,7 +278,8 @@ describe("workflow run materialization", () => {
       const [stored] = await sql<Array<Record<string, unknown>>>`
         SELECT actor_service_account_id::text, credential_kind, credential_id::text,
                credential_scopes, credential_permission_cap, credential_expires_at,
-               credential_resource_app_id, credential_resource_type, credential_resource_id
+               credential_resource_app_id, credential_resource_type, credential_resource_id,
+               execution_clock_at
         FROM grids.workflow_runs
         WHERE id = ${materialized.data.runId}::uuid
       `;
@@ -295,6 +296,8 @@ describe("workflow run materialization", () => {
 
       const claimed = await claimWorkflowRun(materialized.data.runId);
       expect(claimed?.principal).toEqual(principal);
+      expect(claimed?.executionClockAt).toBe((stored?.execution_clock_at as Date).toISOString());
+      expect(claimed?.executionClockAt).not.toBe(claimed?.occurredAt);
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
       await sql`DELETE FROM auth.service_accounts WHERE id = ${serviceAccountId}::uuid`;

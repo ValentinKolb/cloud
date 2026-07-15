@@ -6,6 +6,42 @@ import { createWorkflow, updateWorkflow } from "./workflow-kernel-store";
 const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
 
 describe("workflow launcher revision lifecycle", () => {
+  postgresTest("rejects an invalid stored schedule when activating a workflow", async () => {
+    await migrate();
+    const baseId = Bun.randomUUIDv7();
+    const source = `triggers:
+  schedule:
+    cron: "0 8 * * *"
+    timezone: UTC
+steps:
+  - succeed:
+      message: Done`;
+
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WL003', 'Schedule activation test')`;
+      const created = await createWorkflow(baseId, { name: "Scheduled workflow", source, enabled: false }, null);
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      const [stored] = await sql<Array<{ revision: number }>>`
+        UPDATE grids.workflows
+        SET source = ${source.replace('cron: "0 8 * * *"', 'cron: "61 8 * * *"')}
+        WHERE id = ${created.data.id}::uuid
+        RETURNING revision
+      `;
+      if (!stored) throw new Error("Expected stored workflow");
+
+      const activated = await updateWorkflow(created.data.id, { enabled: true }, null, stored.revision);
+
+      expect(activated.ok).toBe(false);
+      if (!activated.ok) {
+        expect(activated.error.status).toBe(400);
+        expect(activated.error.message).toContain("cron minute field is invalid");
+      }
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
   postgresTest("preserves the record-event activation boundary for redundant enable updates", async () => {
     await migrate();
     const baseId = Bun.randomUUIDv7();

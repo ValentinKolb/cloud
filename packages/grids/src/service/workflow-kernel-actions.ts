@@ -8,8 +8,8 @@ import type {
   WorkflowPlanningOutcome,
   WorkflowStepOutcome,
 } from "@valentinkolb/cloud/workflows";
-import { workflowPathKey } from "@valentinkolb/cloud/workflows";
-import { hashWorkflowJson, workflowMessageExpressions } from "@valentinkolb/cloud/workflows/language";
+import { createWorkflowBuiltinActionPorts, workflowPathKey } from "@valentinkolb/cloud/workflows";
+import { hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
 import type {
   WorkflowActionStep,
   WorkflowDryRunActionContext,
@@ -695,7 +695,7 @@ const saveAs = (
 const actionHandler = (
   execute: WorkflowExecuteActionHandler["execute"],
   plan: WorkflowDryRunActionHandler["plan"],
-  restore: "saveAs" | "setVariable" | null = "saveAs",
+  restore: "saveAs" | null = "saveAs",
 ): { execute: WorkflowExecuteActionHandler; dryRun: WorkflowDryRunActionHandler } => {
   const restoreCompleted = (
     context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
@@ -703,9 +703,6 @@ const actionHandler = (
     outcome: { output?: WorkflowJsonValue },
   ): void => {
     if (restore === "saveAs") saveAs(context, step, outcome.output);
-    if (restore === "setVariable" && typeof step.config.name === "string" && outcome.output !== undefined) {
-      context.variables.set(step.config.name, outcome.output);
-    }
   };
   return {
     execute: { execute, ...(restore ? { restoreCompleted } : {}) },
@@ -902,26 +899,6 @@ const executeTransactional = async (
   return restoredIntentOutcome(prepared);
 };
 
-const renderMessage = async (
-  context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
-  step: WorkflowActionStep,
-): Promise<string> => {
-  const message = stringConfig(step.config.message, `${step.action}.message`);
-  let rendered = "";
-  let offset = 0;
-  for (const [index, expression] of workflowMessageExpressions(message).entries()) {
-    rendered += message.slice(offset, expression.index);
-    if (!expression.expression) throw actionError("WORKFLOW_ACTION_INVALID", `${step.action}.message contains an invalid expression`);
-    const value =
-      expression.expression.kind === "now"
-        ? context.invocation.occurredAt
-        : await context.resolveReference(expression.expression.reference, [...actionPath(step), "message", "expression", index]);
-    rendered += value === undefined || value === null ? "" : typeof value === "string" ? value : JSON.stringify(value);
-    offset = expression.index + expression.raw.length;
-  }
-  return `${rendered}${message.slice(offset)}`;
-};
-
 export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActionPortsOptions): GridsWorkflowActionPorts => {
   const services = { ...defaultServices(options), ...options.services } as GridsWorkflowActionServices;
   const effectIntents = options.effectIntents ?? new SqlGridsWorkflowEffectIntents();
@@ -931,7 +908,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
     name: string,
     execute: WorkflowExecuteActionHandler["execute"],
     plan: WorkflowDryRunActionHandler["plan"],
-    restore: "saveAs" | "setVariable" | null = "saveAs",
+    restore: "saveAs" | null = "saveAs",
   ): void => {
     const handler = actionHandler(execute, plan, restore);
     executeHandlers.set(name, handler.execute);
@@ -1421,72 +1398,20 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
       }),
   );
 
-  register(
-    "setVariable",
-    (context, step) =>
-      executeKnown(async () => {
+  const builtins = createWorkflowBuiltinActionPorts({
+    authorize: async (context) => {
+      try {
         await requireWorkflowPermission(services, options, context);
-        const name = stringConfig(step.config.name, "setVariable.name");
-        const output = await context.evaluate(step.config.value!, [...actionPath(step), "value"]);
-        context.variables.set(name, output);
-        return { state: "completed", output };
-      }),
-    (context, step) =>
-      planKnown(async () => {
-        await requireWorkflowPermission(services, options, context);
-        const name = stringConfig(step.config.name, "setVariable.name");
-        const output = await context.evaluate(step.config.value!, [...actionPath(step), "value"]);
-        context.variables.set(name, output);
-        return { state: "planned", output, effects: [effectDescription(context, step.action)] };
-      }),
-    "setVariable",
-  );
-
-  register(
-    "fail",
-    (context, step) =>
-      executeKnown(async () => {
-        await requireWorkflowPermission(services, options, context);
-        return {
-          state: "failed",
-          error: { code: "WORKFLOW_FAILED", message: await renderMessage(context, step), retryable: false },
-        };
-      }),
-    (context, step) =>
-      planKnown(async () => {
-        await requireWorkflowPermission(services, options, context);
-        return {
-          state: "terminal",
-          status: "failed",
-          message: await renderMessage(context, step),
-          effects: [effectDescription(context, step.action)],
-        };
-      }),
-    null,
-  );
-
-  register(
-    "succeed",
-    (context, step) =>
-      executeKnown(async () => {
-        await requireWorkflowPermission(services, options, context);
-        return { state: "terminal", status: "succeeded", message: await renderMessage(context, step) };
-      }),
-    (context, step) =>
-      planKnown(async () => {
-        await requireWorkflowPermission(services, options, context);
-        return {
-          state: "terminal",
-          status: "succeeded",
-          message: await renderMessage(context, step),
-          effects: [effectDescription(context, step.action)],
-        };
-      }),
-    null,
-  );
+        return undefined;
+      } catch (error) {
+        if (error instanceof GridsWorkflowActionError) return error.executionError;
+        throw error;
+      }
+    },
+  });
 
   return {
-    execute: { get: (action) => executeHandlers.get(action) },
-    dryRun: { get: (action) => dryRunHandlers.get(action) },
+    execute: { get: (action) => executeHandlers.get(action) ?? builtins.execute.get(action) },
+    dryRun: { get: (action) => dryRunHandlers.get(action) ?? builtins.dryRun.get(action) },
   };
 };

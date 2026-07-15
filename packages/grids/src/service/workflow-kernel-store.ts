@@ -219,7 +219,8 @@ export const updateWorkflow = async (
   if (!existing) return fail(err.notFound("workflow"));
   if (existing.revision !== expectedRevision) return fail(revisionConflict());
   const source = input.source ?? existing.source;
-  const plan = input.source === undefined ? ok(existing.plan) : await compileAndBind(existing.baseId, source);
+  const activating = !existing.enabled && input.enabled === true;
+  const plan = input.source === undefined && !activating ? ok(existing.plan) : await compileAndBind(existing.baseId, source);
   if (!plan.ok) return plan;
   const enabled = input.enabled ?? existing.enabled;
   const recordEventsEnabled = enabled && hasRecordEventTrigger(plan.data);

@@ -3,6 +3,7 @@ import type {
   WorkflowDiagnostic,
   WorkflowInvocationMode,
   WorkflowJsonValue,
+  WorkflowRevision,
   WorkflowRunState,
   WorkflowStepState,
 } from "@valentinkolb/cloud/workflows";
@@ -56,6 +57,8 @@ export const GridsWorkflowPrincipalSchema = z
   .strict();
 
 export const WORKFLOW_REVISION_HEADER = "X-Workflow-Revision";
+
+export const toWorkflowRevision = (revision: number): WorkflowRevision => String(revision);
 
 export const GRIDS_WORKFLOW_LAUNCHER_KINDS = ["scanner", "bulk", "dashboard"] as const;
 
@@ -182,6 +185,13 @@ export const WorkflowPlanSchema = z
     manifestHash: z.string(),
     catalogHash: z.string(),
     maxLoopItems: z.number().int().positive().optional(),
+    actionPolicies: z.record(
+      z.string(),
+      z.object({
+        effect: z.enum(["pure", "transactional", "durable-intent", "ambiguous-external"]),
+        dryRun: z.enum(["full", "validate", "unsupported"]),
+      }),
+    ),
     inputs: z.array(z.unknown()),
     triggers: z.array(z.unknown()),
     steps: z.array(z.unknown()),
@@ -301,7 +311,7 @@ export const GridsWorkflowLauncherListSchema = z.object({ items: z.array(GridsWo
 export const WorkflowInvocationReceiptSchema = z.object({
   runId: z.string().uuid(),
   workflowId: z.string().uuid(),
-  revision: z.number().int().positive(),
+  revision: z.string().min(1),
   mode: z.enum(["execute", "dryRun"]),
   channel: z.enum(GRIDS_WORKFLOW_CHANNELS),
   created: z.boolean(),

@@ -6,6 +6,8 @@ import { GRIDS_WORKFLOW_CHANNELS, GRIDS_WORKFLOW_LAUNCHER_KINDS, GridsWorkflowRu
 import { gridsWorkflowManifest } from "../../../workflows/manifest";
 
 const helpSource = await Bun.file(new URL("./grids-help-content.tsx", import.meta.url)).text();
+const controlFlowHelp =
+  helpSource.match(/<DocSection title="Control flow">([\s\S]*?)<DocSection title="Values and references">/)?.[1] ?? "";
 
 const workflowSnippets = [...helpSource.matchAll(/<WorkflowSnippet\s+title="([^"]+)"\s+code=\{`([\s\S]*?)`\}/g)].map(
   ([, title, source]) => ({ title: title!, source: source!.replaceAll("\\${{", "${{") }),
@@ -146,5 +148,12 @@ describe("Grids workflow help", () => {
     ]) {
       expect(helpSource, `missing record-event filter help for ${term}`).toContain(term);
     }
+  });
+
+  test("documents every recursive workflow condition operator", () => {
+    for (const operator of ["equals", "notEquals", "contains", "startsWith", "endsWith", "exists", "all", "any", "not"]) {
+      expect(controlFlowHelp, `missing workflow condition help for ${operator}`).toContain(`<DocInlineCode>${operator}</DocInlineCode>`);
+    }
+    expect(workflowSnippets.map(({ title }) => title)).toContain("Recursive conditions");
   });
 });
