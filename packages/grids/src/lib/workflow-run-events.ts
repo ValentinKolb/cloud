@@ -1,19 +1,42 @@
-import type { WorkflowRun, WorkflowStepRun } from "../contracts";
+import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../workflows/contracts";
 
 export type WorkflowRunStepSummary = Pick<
-  WorkflowStepRun,
-  "id" | "runId" | "stepIndex" | "stepPath" | "kind" | "status" | "error" | "durationMs" | "startedAt" | "finishedAt"
+  GridsWorkflowStepRun,
+  | "id"
+  | "runId"
+  | "key"
+  | "sourcePath"
+  | "iterationPath"
+  | "kind"
+  | "action"
+  | "status"
+  | "outcome"
+  | "executionGeneration"
+  | "startedAt"
+  | "finishedAt"
 >;
 
 export type WorkflowRunEventSummary = Pick<
-  WorkflowRun,
-  "id" | "workflowId" | "baseId" | "triggerKind" | "status" | "error" | "resultMessage" | "createdAt" | "startedAt" | "finishedAt"
+  GridsWorkflowRun,
+  | "id"
+  | "workflowId"
+  | "launcherId"
+  | "baseId"
+  | "workflowRevision"
+  | "mode"
+  | "channel"
+  | "status"
+  | "error"
+  | "resultMessage"
+  | "createdAt"
+  | "startedAt"
+  | "finishedAt"
 >;
 
 export type GridsWorkflowRunEvent = {
   v: 1;
   baseId: string;
-  workflowId: string;
+  workflowId: string | null;
   run: WorkflowRunEventSummary;
   steps: WorkflowRunStepSummary[];
   scope: WorkflowRunEventScope;
@@ -27,11 +50,14 @@ export const isWorkflowRunEventVisible = (event: GridsWorkflowRunEvent, dashboar
     event.scope.dashboardId === dashboard.id &&
     event.scope.dashboardWidgetId === dashboard.widgetId);
 
-export const toWorkflowRunEventSummary = (run: WorkflowRun): WorkflowRunEventSummary => ({
+export const toWorkflowRunEventSummary = (run: GridsWorkflowRun): WorkflowRunEventSummary => ({
   id: run.id,
   workflowId: run.workflowId,
+  launcherId: run.launcherId,
   baseId: run.baseId,
-  triggerKind: run.triggerKind,
+  workflowRevision: run.workflowRevision,
+  mode: run.mode,
+  channel: run.channel,
   status: run.status,
   error: run.error,
   resultMessage: run.resultMessage,
@@ -43,23 +69,27 @@ export const toWorkflowRunEventSummary = (run: WorkflowRun): WorkflowRunEventSum
 export const toWorkflowRunStepSummary = ({
   id,
   runId,
-  stepIndex,
-  stepPath,
+  key,
+  sourcePath,
+  iterationPath,
   kind,
+  action,
   status,
-  error,
-  durationMs,
+  outcome,
+  executionGeneration,
   startedAt,
   finishedAt,
-}: WorkflowStepRun): WorkflowRunStepSummary => ({
+}: GridsWorkflowStepRun): WorkflowRunStepSummary => ({
   id,
   runId,
-  stepIndex,
-  stepPath,
+  key,
+  sourcePath,
+  iterationPath,
   kind,
+  action,
   status,
-  error,
-  durationMs,
+  outcome,
+  executionGeneration,
   startedAt,
   finishedAt,
 });

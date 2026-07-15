@@ -199,26 +199,31 @@ describe("document audit integration", () => {
       await insertFixture(fixture);
       const workflowId = uuid();
       const workflowRunId = uuid();
+      const workflowPlan = { inputs: {}, automatic: {}, steps: [] };
       await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, compiled, enabled, position, owner_user_id)
+        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, diagnostics, enabled, position, owner_user_id)
         VALUES (
           ${workflowId}::uuid,
           ${shortId("W")},
           ${fixture.baseId}::uuid,
           'Generate invoice',
           'steps: []',
-          ${{ inputs: {}, triggers: { api: {} }, steps: [] }}::jsonb,
+          ${workflowPlan}::jsonb,
+          '[]'::jsonb,
           TRUE,
           0,
           ${fixture.actorId}::uuid
         )
       `;
       await sql`
-        INSERT INTO grids.workflow_runs (id, workflow_id, base_id, actor_user_id, workflow_definition, workflow_catalog, trigger_kind, status)
+        INSERT INTO grids.workflow_runs (
+          id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+          actor_user_id, authorization_snapshot, inputs, context, workflow_plan, status, occurred_at
+        )
         VALUES (
-          ${workflowRunId}::uuid, ${workflowId}::uuid, ${fixture.baseId}::uuid, ${fixture.actorId}::uuid,
-          '{"triggers":{"api":{}},"steps":[]}'::jsonb,
-          '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, 'api', 'running'
+          ${workflowRunId}::uuid, ${workflowId}::uuid, ${fixture.baseId}::uuid, 1, 'execute', 'api',
+          'documents-audit-test', 'documents-audit-test', ${fixture.actorId}::uuid, '{"kind":"workflow"}'::jsonb,
+          '{}'::jsonb, '{}'::jsonb, ${workflowPlan}::jsonb, 'running', now()
         )
       `;
 

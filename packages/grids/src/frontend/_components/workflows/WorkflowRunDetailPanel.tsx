@@ -2,20 +2,33 @@ import { CodeDisplay, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DocumentRunSummary, WorkflowRun, WorkflowStepRun } from "../../../contracts";
+import type { DocumentRunSummary } from "../../../contracts";
+import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
 import { downloadPdfResponse } from "../documents/document-download";
 import { requestDocumentRunDownload, requestWorkflowDocumentsDownload } from "../documents/document-transfer-client";
 import { errorMessage } from "../utils/api-helpers";
 import {
+  channelLabels,
   formatWorkflowRunDate as formatDate,
   formatWorkflowRunDuration as formatDuration,
   workflowRunStatusClass as statusClass,
-  triggerLabels,
 } from "./workflow-display";
 
+type WorkflowRunDetailApi = {
+  [":runId"]: {
+    $get: (input: { param: { runId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
+    steps: { $get: (input: { param: { runId: string } }, options?: { init?: RequestInit }) => Promise<Response> };
+    documents: {
+      $get: (input: { param: { runId: string }; query: { limit: string } }, options?: { init?: RequestInit }) => Promise<Response>;
+    };
+  };
+};
+
+const workflowRunDetailApi = apiClient.workflows.runs as unknown as WorkflowRunDetailApi;
+
 export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => void }) {
-  const [run, setRun] = createSignal<WorkflowRun | null>(null);
-  const [steps, setSteps] = createSignal<WorkflowStepRun[]>([]);
+  const [run, setRun] = createSignal<GridsWorkflowRun | null>(null);
+  const [steps, setSteps] = createSignal<GridsWorkflowStepRun[]>([]);
   const [documents, setDocuments] = createSignal<{ items: DocumentRunSummary[]; total: number; hasMore: boolean }>({
     items: [],
     total: 0,
@@ -27,16 +40,16 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
   const loadMut = mutations.create<void, string>({
     mutation: async (runId, { abortSignal }) => {
       const [runRes, stepsRes, documentsRes] = await Promise.all([
-        apiClient.workflows.runs[":runId"].$get({ param: { runId } }, { init: { signal: abortSignal } }),
-        apiClient.workflows.runs[":runId"].steps.$get({ param: { runId } }, { init: { signal: abortSignal } }),
-        apiClient.workflows.runs[":runId"].documents.$get({ param: { runId }, query: { limit: "100" } }, { init: { signal: abortSignal } }),
+        workflowRunDetailApi[":runId"].$get({ param: { runId } }, { init: { signal: abortSignal } }),
+        workflowRunDetailApi[":runId"].steps.$get({ param: { runId } }, { init: { signal: abortSignal } }),
+        workflowRunDetailApi[":runId"].documents.$get({ param: { runId }, query: { limit: "100" } }, { init: { signal: abortSignal } }),
       ]);
       if (!runRes.ok) throw new Error(await errorMessage(runRes, "Could not load workflow run."));
       if (!stepsRes.ok) throw new Error(await errorMessage(stepsRes, "Could not load workflow run steps."));
       if (!documentsRes.ok) throw new Error(await errorMessage(documentsRes, "Could not load generated documents."));
-      setRun(await runRes.json());
-      setSteps((await stepsRes.json()).items);
-      const documentPage = await documentsRes.json();
+      setRun((await runRes.json()) as GridsWorkflowRun);
+      setSteps(((await stepsRes.json()) as { items: GridsWorkflowStepRun[] }).items);
+      const documentPage = (await documentsRes.json()) as { items: DocumentRunSummary[]; total?: number; hasMore?: boolean };
       setDocuments({
         items: documentPage.items,
         total: documentPage.total ?? documentPage.items.length,
@@ -96,8 +109,12 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
         <section class="detail-section">
           <h3 class="detail-section-label">Execution</h3>
           <dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-xs">
-            <dt class="text-dimmed">Trigger</dt>
-            <dd class="text-primary">{run() ? (triggerLabels[run()!.triggerKind] ?? run()!.triggerKind) : "-"}</dd>
+            <dt class="text-dimmed">Channel</dt>
+            <dd class="text-primary">{run() ? (channelLabels[run()!.channel] ?? run()!.channel) : "-"}</dd>
+            <dt class="text-dimmed">Mode</dt>
+            <dd class="text-primary">{run()?.mode === "dryRun" ? "Dry run" : "Execute"}</dd>
+            <dt class="text-dimmed">Revision</dt>
+            <dd class="text-primary tabular-nums">{run()?.workflowRevision ?? "-"}</dd>
             <dt class="text-dimmed">Started</dt>
             <dd class="text-primary">{run() ? formatDate(run()!.startedAt) : "-"}</dd>
             <dt class="text-dimmed">Finished</dt>
@@ -105,13 +122,13 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
             <dt class="text-dimmed">Duration</dt>
             <dd class="text-primary tabular-nums">{run() ? formatDuration(run()!) : "-"}</dd>
           </dl>
-          <Show when={run()?.error}>{(error) => <p class="info-block-danger mt-3 text-xs">{error()}</p>}</Show>
+          <Show when={run()?.error}>{(error) => <p class="info-block-danger mt-3 text-xs">{error().message}</p>}</Show>
           <Show when={run()?.resultMessage}>{(message) => <p class="info-block-success mt-3 text-xs">{message()}</p>}</Show>
         </section>
 
         <section class="detail-section">
           <h3 class="detail-section-label">Input</h3>
-          <CodeDisplay language="text" code={JSON.stringify(run()?.resolvedInput ?? run()?.triggerInput ?? {}, null, 2)} copy />
+          <CodeDisplay language="text" code={JSON.stringify(run()?.inputs ?? {}, null, 2)} copy />
         </section>
 
         <section class="detail-section">
@@ -129,11 +146,17 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
                 <div class="grid grid-cols-[auto_1fr_auto] items-start gap-2 py-1 text-xs">
                   <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
                   <span class="min-w-0 truncate text-primary">
-                    {step.stepPath} · {step.kind}
+                    {step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key} · {step.action ?? step.kind}
                   </span>
-                  <span class="text-dimmed tabular-nums">{step.durationMs == null ? "-" : `${step.durationMs}ms`}</span>
-                  <Show when={step.error}>
-                    <p class="col-span-3 text-red-600 dark:text-red-400">{step.error}</p>
+                  <span class="text-dimmed tabular-nums">
+                    {step.startedAt && step.finishedAt
+                      ? `${Math.max(0, new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime())}ms`
+                      : "-"}
+                  </span>
+                  <Show when={step.outcome && typeof step.outcome === "object" && "error" in step.outcome}>
+                    <p class="col-span-3 text-red-600 dark:text-red-400">
+                      {String((step.outcome as { error?: unknown }).error ?? "Step failed")}
+                    </p>
                   </Show>
                 </div>
               )}

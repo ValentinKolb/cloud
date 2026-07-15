@@ -999,9 +999,6 @@ export const inventoryTemplate: GridTemplate = {
     table: Loans
     label: Loan
     required: true
-triggers:
-  form: {}
-  api: {}
 steps:
   - generateDocument:
       template: Loan agreement

@@ -1,10 +1,9 @@
 import type { DateContext } from "@valentinkolb/stdlib";
 import type { RecordDisplayConfig, RecordQuery } from "../../../contracts";
 import type { DslResolverDiagnostic } from "../../../query-dsl/resolver";
-import type { Field, GridRecord, Table, View, Workflow } from "../../../service";
+import type { Field, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
 import { filterSearchableFields } from "../../../service/search";
-import { loadWorkflowCatalog, resolveWorkflowTableRef } from "../../../service/workflows";
 import { activeDisplayConfig } from "../records-view/display-mode";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
 import { compileViewSource, isComputedColumn, loadInitialRecords, outputFieldsForQuery } from "./workspace-records-query";
@@ -15,6 +14,7 @@ import type {
   GridsWorkspaceState,
   OkWorkspaceState,
   RuntimeView,
+  WorkspaceBulkLauncher,
   WorkspaceCatalog,
   WorkspaceCommon,
   WorkspaceRecordsRoute,
@@ -23,22 +23,20 @@ import type {
 const diagnosticsMessage = (diagnostics: Array<Pick<DslResolverDiagnostic, "message">>) =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
 
-const bulkSelectionWorkflowsForTable = async (user: AuthUser, baseId: string, tableId: string): Promise<Workflow[]> => {
+const bulkSelectionLaunchersForTable = async (user: AuthUser, baseId: string, tableId: string): Promise<WorkspaceBulkLauncher[]> => {
   if (!gridsService.workflow?.listEnabledForBase) return [];
   const workflows = await gridsService.workflow.listEnabledForBase(baseId);
-  const catalog = await loadWorkflowCatalog(baseId);
-  const matches: Workflow[] = [];
+  const matches: WorkspaceBulkLauncher[] = [];
   for (const workflow of workflows) {
-    const bulk = workflow.compiled.triggers.bulkSelection;
-    if (!bulk) continue;
-    const input = workflow.compiled.inputs?.[bulk.input];
-    if (!input || input.type !== "recordList" || !input.table) continue;
-    const table = resolveWorkflowTableRef(catalog, input.table);
-    if (!table || table.id !== tableId) continue;
     const level = await workflowLevelForUser(user, baseId, workflow.id);
-    if (gridsService.permission.hasAtLeast(level, "write")) matches.push(workflow);
+    if (!gridsService.permission.hasAtLeast(level, "write")) continue;
+    for (const launcher of await gridsService.workflow.launcher.list(workflow.id, true)) {
+      if (launcher.config.kind !== "bulk") continue;
+      if (workflow.plan.bindings[`inputs.${launcher.config.input}.table`] !== tableId) continue;
+      matches.push({ ...launcher, workflowRevision: workflow.revision });
+    }
   }
-  return matches.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return matches.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 };
 
 const selectedRecordMeta = (
@@ -224,7 +222,7 @@ const buildRecordsRoute = async (params: {
     groupedExplode: initial.groupedExplode,
     activeRecordQuery: view.activeViewForQuery?.query ?? null,
     displayConfig,
-    bulkSelectionWorkflows: await bulkSelectionWorkflowsForTable(common.params.user, common.base.id, activeTable.id),
+    bulkSelectionLaunchers: await bulkSelectionLaunchersForTable(common.params.user, common.base.id, activeTable.id),
   };
 };
 

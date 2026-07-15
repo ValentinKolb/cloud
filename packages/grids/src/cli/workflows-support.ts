@@ -1,6 +1,13 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { flag } from "@valentinkolb/cloud/cli";
-import type { Base, EmailTemplate, Workflow, WorkflowEmailDelivery, WorkflowRun, WorkflowStepRun } from "../contracts";
+import type { Base, EmailTemplate } from "../contracts";
+import type {
+  GridsWorkflowLauncher,
+  GridsWorkflow as Workflow,
+  GridsWorkflowEmailDelivery as WorkflowEmailDelivery,
+  GridsWorkflowRun as WorkflowRun,
+  GridsWorkflowStepRun as WorkflowStepRun,
+} from "../workflows/contracts";
 import { assertBaseScoped, resolveBaseFromCommand, UUID_RE } from "./resources";
 import { compactId, exactMatch, readApi, requireRestArg } from "./runtime";
 
@@ -11,7 +18,7 @@ export type WorkflowStepRunListResponse = { items: WorkflowStepRun[] };
 export type WorkflowEmailDeliveryListResponse = { items: WorkflowEmailDelivery[]; nextCursor?: string | null };
 
 export type WorkflowValidateResponse =
-  | { ok: true; definition: unknown }
+  | { ok: true; plan: unknown }
   | { ok: false; diagnostics: Array<{ message: string; path?: Array<string | number>; line?: number; column?: number }> };
 
 export const JSON_BODY_NAMED_INPUT = flag.input({
@@ -29,19 +36,19 @@ export const WORKFLOW_SOURCE_INPUT = flag.input({
   valueLabel: "yaml",
 });
 
-export const WORKFLOW_TRIGGER_INPUT = flag.input({
-  name: "input",
-  fileName: "input-file",
+export const WORKFLOW_INPUTS_INPUT = flag.input({
+  name: "inputs",
+  fileName: "inputs-file",
   fileAliases: ["f"],
   stdinName: "stdin",
   valueLabel: "json",
 });
 
-export const WORKFLOW_BULK_QUERY_INPUT = flag.input({
-  name: "query",
-  fileName: "query-file",
-  fileAliases: ["qf"],
-  stdinName: false,
+export const WORKFLOW_LAUNCHER_BODY_INPUT = flag.input({
+  name: "body",
+  fileName: "body-file",
+  fileAliases: ["f"],
+  stdinName: "stdin",
   valueLabel: "json",
 });
 
@@ -51,6 +58,10 @@ export const emailTemplateFlag = {
 
 export const workflowFlag = {
   workflow: flag.string({ description: "Workflow id, short id, or exact name" }),
+};
+
+export const workflowLauncherFlag = {
+  launcher: flag.string({ description: "Launcher id, short id, or exact name" }),
 };
 
 export const EMAIL_TEMPLATE_REFERENCE = {
@@ -73,7 +84,7 @@ export const WORKFLOW_REFERENCE = {
   yaml: {
     topLevel: ["inputs", "triggers", "steps"],
     inputTypes: ["record", "recordList", "text", "number", "boolean", "date", "dateTime", "select"],
-    triggers: ["form", "api", "scanner", "bulkSelection", "dashboardButton", "schedule", "recordEvent"],
+    triggers: ["schedule", "recordEvent"],
     steps: [
       "setVariable",
       "updateRecord",
@@ -89,6 +100,59 @@ export const WORKFLOW_REFERENCE = {
       "fail",
     ],
   },
+  invocation: {
+    direct: {
+      mode: "execute",
+      inputs: { message: "hello" },
+      idempotencyKey: "agent-job-42",
+      expectedRevision: 3,
+    },
+    scanner: {
+      operationId: "scan-42",
+      mode: "execute",
+      expectedRevision: 3,
+      scannedText: "gsc_opaque",
+      inputs: {},
+    },
+    bulkRecordIds: {
+      operationId: "bulk-42",
+      mode: "execute",
+      expectedRevision: 3,
+      recordIds: ["00000000-0000-4000-8000-000000000001"],
+      inputs: {},
+    },
+    bulkQuery: {
+      operationId: "bulk-query-42",
+      mode: "dryRun",
+      expectedRevision: 3,
+      query: { limit: 100 },
+      inputs: {},
+    },
+    dashboard: {
+      operationId: "dashboard-42",
+      mode: "execute",
+      expectedRevision: 3,
+      inputs: { range: "30d" },
+    },
+  },
+  launchers: {
+    scanner: {
+      name: "Scan item",
+      config: { kind: "scanner", input: "item", resolve: { by: "scanCode" } },
+      enabled: true,
+    },
+    scannerByField: {
+      name: "Scan asset tag",
+      config: { kind: "scanner", input: "item", resolve: { by: "field", field: "Asset tag" } },
+      enabled: true,
+    },
+    bulk: { name: "Process selection", config: { kind: "bulk", input: "items" }, enabled: true },
+    dashboard: {
+      name: "Run report",
+      config: { kind: "dashboard", label: "Refresh", inputBindings: { range: "30d" } },
+      enabled: true,
+    },
+  },
   values: {
     literals: "Plain strings are literal values, including strings containing dots.",
     dynamic: "Use an exact ${{ inputs.name }}, ${{ savedValue }}, or ${{ now() }} expression for dynamic WorkflowValue strings.",
@@ -97,7 +161,7 @@ export const WORKFLOW_REFERENCE = {
     scope: "Inputs exist for the whole run; saved values exist after their step; forEach aliases exist only inside do.",
   },
   example:
-    "inputs:\n  item:\n    type: record\n    table: Items\ntriggers:\n  api: {}\nsteps:\n  - setVariable:\n      name: ranAt\n      value: ${{ now() }}\n  - updateRecord:\n      record: inputs.item\n      set:\n        Status: Checked",
+    "inputs:\n  item:\n    type: record\n    table: Items\nsteps:\n  - setVariable:\n      name: ranAt\n      value: ${{ now() }}\n  - updateRecord:\n      record: inputs.item\n      set:\n        Status: Checked",
 };
 
 export const listEmailTemplates = (ctx: CloudCliContext, baseId: string): Promise<EmailTemplate[]> =>
@@ -134,6 +198,23 @@ export const resolveWorkflow = async (ctx: CloudCliContext, baseId: string, ref:
   return workflow;
 };
 
+export const listWorkflowLaunchers = (ctx: CloudCliContext, workflowId: string): Promise<{ items: GridsWorkflowLauncher[] }> =>
+  readApi<{ items: GridsWorkflowLauncher[] }>(ctx, `/workflows/${encodeURIComponent(workflowId)}/launchers`);
+
+export const resolveWorkflowLauncher = async (ctx: CloudCliContext, workflow: Workflow, ref: string): Promise<GridsWorkflowLauncher> => {
+  const launcher = UUID_RE.test(ref)
+    ? await readApi<GridsWorkflowLauncher>(ctx, `/workflows/launchers/${encodeURIComponent(ref)}`)
+    : exactMatch(
+        (await listWorkflowLaunchers(ctx, workflow.id)).items,
+        ref,
+        [(item) => item.id, (item) => item.shortId, (item) => item.name],
+        "workflow launcher",
+        (item) => `${item.name} (${item.shortId})`,
+      );
+  if (launcher.workflowId !== workflow.id) throw new Error("Workflow launcher does not belong to the selected workflow.");
+  return launcher;
+};
+
 export const emailTemplateRows = (items: EmailTemplate[]) =>
   items.map((template) => ({
     shortId: template.shortId,
@@ -153,12 +234,25 @@ export const workflowRows = (items: Workflow[]) =>
     id: workflow.id,
   }));
 
+export const workflowLauncherRows = (items: GridsWorkflowLauncher[]) =>
+  items.map((launcher) => ({
+    shortId: launcher.shortId,
+    name: launcher.name,
+    kind: launcher.config.kind,
+    enabled: launcher.enabled ? "yes" : "no",
+    revision: launcher.validatedRevision,
+    diagnostics: launcher.diagnostics.length,
+    id: launcher.id,
+  }));
+
 export const workflowRunRows = (items: WorkflowRun[]) =>
   items.map((run) => ({
     id: compactId(run.id),
     runId: run.id,
     workflowId: run.workflowId ?? "-",
-    trigger: run.triggerKind,
+    revision: run.workflowRevision,
+    channel: run.channel,
+    mode: run.mode,
     status: run.status,
     createdAt: run.createdAt,
     finishedAt: run.finishedAt ?? "-",
@@ -166,12 +260,14 @@ export const workflowRunRows = (items: WorkflowRun[]) =>
 
 export const workflowStepRows = (items: WorkflowStepRun[]) =>
   items.map((step) => ({
-    index: step.stepIndex,
-    path: step.stepPath,
+    key: step.key,
+    path: step.sourcePath.join("."),
+    iteration: step.iterationPath.join("."),
     kind: step.kind,
+    action: step.action ?? "-",
     status: step.status,
-    durationMs: step.durationMs ?? "-",
-    error: step.error ?? "",
+    generation: step.executionGeneration,
+    outcome: step.outcome === null ? "" : JSON.stringify(step.outcome),
   }));
 
 export const workflowEmailRows = (items: WorkflowEmailDelivery[]) =>
@@ -203,4 +299,18 @@ export const resolveWorkflowFromCommand = async (
   const { base, rest } = await resolveBaseFromCommand(ctx, args, workflowRef ? 0 : 1);
   const ref = workflowRef ?? requireRestArg(rest, 0, "workflow");
   return { base, workflow: await resolveWorkflow(ctx, base.id, ref) };
+};
+
+export const resolveWorkflowLauncherFromCommand = async (
+  ctx: CloudCliContext,
+  args: string[],
+  workflowRef: string | undefined,
+  launcherRef: string | undefined,
+): Promise<{ base: Base; workflow: Workflow; launcher: GridsWorkflowLauncher }> => {
+  const trailingArgs = (workflowRef ? 0 : 1) + (launcherRef ? 0 : 1);
+  const { base, rest } = await resolveBaseFromCommand(ctx, args, trailingArgs);
+  const workflowReference = workflowRef ?? requireRestArg(rest, 0, "workflow");
+  const launcherReference = launcherRef ?? requireRestArg(rest, workflowRef ? 0 : 1, "workflow launcher");
+  const workflow = await resolveWorkflow(ctx, base.id, workflowReference);
+  return { base, workflow, launcher: await resolveWorkflowLauncher(ctx, workflow, launcherReference) };
 };

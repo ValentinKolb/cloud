@@ -1,21 +1,27 @@
-import type { WorkflowRun, WorkflowTriggerKind } from "../../../contracts";
+import type { GridsWorkflowChannel, GridsWorkflowRun } from "../../../workflows/contracts";
 
-export const triggerLabels: Record<WorkflowTriggerKind, string> = {
-  form: "Form",
+export const channelLabels: Record<GridsWorkflowChannel, string> = {
+  manual: "Manual",
   api: "API",
+  cli: "CLI",
+  dashboard: "Dashboard",
   scanner: "Scanner",
-  bulkSelection: "Bulk",
-  dashboardButton: "Dashboard",
+  bulk: "Bulk",
   schedule: "Schedule",
   recordEvent: "Record event",
+  agent: "Agent",
 };
 
-export const workflowRunStatusClass = (status: WorkflowRun["status"]) =>
-  status === "succeeded" ? "badge-success" : status === "failed" || status === "canceled" ? "badge-danger" : "badge-neutral";
+export const workflowRunStatusClass = (status: GridsWorkflowRun["status"] | string) =>
+  status === "succeeded"
+    ? "badge-success"
+    : status === "failed" || status === "canceled" || status === "needs_attention"
+      ? "badge-danger"
+      : "badge-neutral";
 
 export const formatWorkflowRunDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
 
-export const formatWorkflowRunDuration = (run: WorkflowRun): string => {
+export const formatWorkflowRunDuration = (run: Pick<GridsWorkflowRun, "startedAt" | "finishedAt">): string => {
   if (!run.startedAt || !run.finishedAt) return "-";
   const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "-";

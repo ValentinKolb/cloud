@@ -1,28 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { WorkflowDefinition } from "../../../contracts";
-import { activeWorkflowTriggers, buildWorkflowRunInput, directWorkflowRunTriggers } from "./workflow-trigger-actions";
+import type { WorkflowIrInput } from "@valentinkolb/cloud/workflows";
+import { buildWorkflowRunInput } from "./workflow-trigger-actions";
 
-const definition = (overrides: Partial<WorkflowDefinition> = {}): WorkflowDefinition => ({
-  inputs: {},
-  triggers: { form: {}, api: { enabled: false }, schedule: { cron: "0 8 * * *" } },
-  steps: [],
-  ...overrides,
-});
-
-describe("workflow trigger actions", () => {
-  test("excludes disabled triggers from summaries and direct runs", () => {
-    const workflow = definition();
-
-    expect(activeWorkflowTriggers(workflow)).toEqual(["form", "schedule"]);
-    expect(directWorkflowRunTriggers(workflow)).toEqual(["form", "schedule"]);
-  });
-
+describe("workflow run inputs", () => {
   test("requires declared inputs and preserves typed values", () => {
-    const inputs: WorkflowDefinition["inputs"] = {
-      loan: { type: "record", table: "Loans", label: "Loan", required: true },
-      notify: { type: "boolean", required: true },
-      amount: { type: "number" },
-    };
+    const inputs: WorkflowIrInput[] = [
+      { name: "loan", type: "record", config: { table: "Loans", label: "Loan", required: true } },
+      { name: "notify", type: "boolean", config: { required: true } },
+      { name: "amount", type: "number", config: {} },
+    ];
 
     expect(buildWorkflowRunInput(inputs, {})).toEqual({
       ok: false,
@@ -36,7 +22,13 @@ describe("workflow trigger actions", () => {
 
   test("omits empty optional inputs instead of inventing values", () => {
     expect(
-      buildWorkflowRunInput({ note: { type: "text" }, records: { type: "recordList", table: "Loans" } }, { note: "", records: [] }),
+      buildWorkflowRunInput(
+        [
+          { name: "note", type: "text", config: {} },
+          { name: "records", type: "recordList", config: { table: "Loans" } },
+        ],
+        { note: "", records: [] },
+      ),
     ).toEqual({
       ok: true,
       input: {},

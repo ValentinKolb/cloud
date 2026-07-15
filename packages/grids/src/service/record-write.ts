@@ -334,14 +334,20 @@ export const createMany = async (
   return ok(records);
 };
 
-export const update = async (
+type UpdateRecordInTransactionResult = {
+  record: GridRecord;
+  outboxId: string;
+};
+
+export const updateInTransaction = async (
+  client: SqlClient,
   tableId: string,
   recordId: string,
   payload: Record<string, unknown>,
   actorId: string | null,
   ifMatchVersion?: number,
-  opts: { includeRelations?: boolean; viewer?: ExpansionViewer; dateConfig?: DateContext } = {},
-): Promise<Result<GridRecord>> => {
+  opts: { dateConfig?: DateContext } = {},
+): Promise<Result<UpdateRecordInTransactionResult>> => {
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   if (ifMatchVersion !== undefined && ifMatchVersion !== existing.version) {
@@ -357,7 +363,7 @@ export const update = async (
   // Pre-flight relation-target existence check (same reasoning as create).
   // Batched per target table; runs outside the write transaction.
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  const preflight = await preflightRelationTargets(split.relations, fieldsById);
+  const preflight = await preflightRelationTargets(split.relations, fieldsById, client);
   if (!preflight.ok) return preflight;
 
   // Merge: existing JSONB data + only the validated NON-RELATION fields.
@@ -376,12 +382,7 @@ export const update = async (
     actorId,
   };
 
-  // ATOMIC: row UPDATE + relation link writes + audit in one transaction.
-  // The version-check WHERE clause still gives us the optimistic-lock
-  // semantics; if it fires, no link writes happen.
-  const txResult = await sql
-    .begin(async (tx) => {
-      const [r] = await tx<DbRow[]>`
+  const [row] = await client<DbRow[]>`
       UPDATE grids.records
       SET data = ${merged}::jsonb,
           version = version + 1,
@@ -393,42 +394,47 @@ export const update = async (
         AND version = ${existing.version}
       RETURNING *, grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
     `;
-      if (!r) {
-        // Trigger rollback by throwing a sentinel; caller catches it and
-        // converts to err.conflict. (`fail(...)` from inside a tx would
-        // commit because bun.sql treats only thrown errors as rollback.)
-        const e = new Error("VERSION_CONFLICT");
-        (e as Error & { __versionConflict: true }).__versionConflict = true;
-        throw e;
-      }
+  if (!row) return fail(recordVersionConflict());
 
-      for (const [fieldId, toIds] of split.relations) {
-        await writeRecordLinks(recordId, fieldId, toIds, tx);
-      }
+  for (const [fieldId, toIds] of split.relations) {
+    await writeRecordLinks(recordId, fieldId, toIds, client);
+  }
+  await captureRecordEventSnapshot(client, {
+    snapshotId: row.outbox_id as string,
+    tableId,
+    recordId,
+    eventType: "record.updated",
+  });
+  if (Object.keys(diff).length > 0) {
+    await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff }, client);
+  }
+  const record = mapRecordRow(row);
+  for (const [fieldId, toIds] of split.relations) record.data[fieldId] = toIds;
+  enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
+  return ok({ record, outboxId: row.outbox_id as string });
+};
 
-      await captureRecordEventSnapshot(tx, {
-        snapshotId: r.outbox_id as string,
-        tableId,
-        recordId,
-        eventType: "record.updated",
-      });
-
-      if (Object.keys(diff).length > 0) {
-        await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff }, tx);
-      }
-      return ok({ row: r, outboxId: r.outbox_id as string });
-    })
-    .catch((e: unknown) => {
-      if ((e as { __versionConflict?: true })?.__versionConflict) return fail(recordVersionConflict());
-      const conflict = recordUniqueConflict<{ row: DbRow; outboxId: string }>(e, fields);
+export const update = async (
+  tableId: string,
+  recordId: string,
+  payload: Record<string, unknown>,
+  actorId: string | null,
+  ifMatchVersion?: number,
+  opts: { includeRelations?: boolean; viewer?: ExpansionViewer; dateConfig?: DateContext } = {},
+): Promise<Result<GridRecord>> => {
+  const fields = await listFields(tableId);
+  const updated = await sql
+    .begin((tx) => updateInTransaction(tx, tableId, recordId, payload, actorId, ifMatchVersion, { dateConfig: opts.dateConfig }))
+    .catch((error: unknown) => {
+      const conflict = recordUniqueConflict<UpdateRecordInTransactionResult>(error, fields);
       if (conflict) return conflict;
-      throw e;
+      throw error;
     });
-  if (!txResult.ok) return txResult;
+  if (!updated.ok) return updated;
 
   const record = await get(tableId, recordId, opts);
   if (!record) return fail(err.notFound("Record"));
-  notifyRecordEventOutbox(txResult.data.outboxId);
+  notifyRecordEventOutbox(updated.data.outboxId);
   return ok(record);
 };
 

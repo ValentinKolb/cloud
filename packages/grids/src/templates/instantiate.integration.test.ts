@@ -26,8 +26,8 @@ describe("built-in template instantiation", () => {
         FROM grids.email_templates
         WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
       `;
-        const [workflow] = await sql<Array<{ name: string; enabled: boolean; compiled: { steps?: unknown[] } }>>`
-        SELECT name, enabled, compiled
+        const [workflow] = await sql<Array<{ name: string; enabled: boolean; plan: { steps?: unknown[] } }>>`
+        SELECT name, enabled, plan
         FROM grids.workflows
         WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
       `;
@@ -43,7 +43,7 @@ describe("built-in template instantiation", () => {
         expect(emailTemplate).toMatchObject({ name: "Loan agreement ready" });
         expect(emailTemplate?.subject).toContain("data.loanNumber");
         expect(workflow).toMatchObject({ name: "Send loan agreement", enabled: true });
-        expect(workflow?.compiled.steps).toHaveLength(4);
+        expect(workflow?.plan.steps).toHaveLength(4);
         expect(documentAudit?.action).toBe("document_template.created");
       } finally {
         await sql`DELETE FROM grids.bases WHERE id = ${created.data.id}::uuid`;

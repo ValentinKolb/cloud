@@ -1,15 +1,19 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
+import { ok } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
-import type { WorkflowDefinition } from "../contracts";
+import type { Dashboard } from "../contracts";
 import { migrate } from "../migrate";
 import { canReadDashboardIncludedData } from "../service/dashboard-included-access";
 import * as dashboardService from "../service/dashboards";
 import { loadGrantsForUser, type ResolveTarget, resolveEffectivePermission } from "../service/permission-resolver";
-import { workflowTriggerRuntime } from "../service/workflow-trigger-runtime";
-import * as workflowService from "../service/workflows";
+import type {
+  invokeDashboardLauncher as invokeDashboardLauncherService,
+  invokeScannerLauncher as invokeScannerLauncherService,
+} from "../service/workflow-kernel-launchers";
 import { canReadDashboardForRequest, createDashboardsApi } from "./dashboards";
 import { createWorkflowsApi } from "./workflows";
 
@@ -23,6 +27,7 @@ type DashboardWorkflowFixture = {
   dashboardId: string;
   widgetId: string;
   workflowId: string;
+  launcherId: string;
   accessIds: string[];
 };
 
@@ -76,13 +81,11 @@ const apiFor = (user: User) =>
       "/api/dashboards",
       createDashboardsApi({
         requireAuthenticated: authenticateAs(user),
-        workflowTriggerRuntime,
         getDashboard: dashboardService.get,
-        getWorkflow: workflowService.get,
         canReadDashboard: (c, dashboard) => canReadDashboardForRequest(c, dashboard, resolveDashboardAccess),
       }),
     )
-    .route("/api/workflows", createWorkflowsApi({ requireAuthenticated: authenticateAs(user), workflowTriggerRuntime }));
+    .route("/api/workflows", createWorkflowsApi({ requireAuthenticated: authenticateAs(user) }));
 
 const jsonPost = (body: unknown): RequestInit => ({
   method: "POST",
@@ -109,9 +112,33 @@ const createAccess = async (baseId: string, userId: string, permission: "read" |
   return row.id;
 };
 
-const dashboardWorkflowDefinition = (): WorkflowDefinition => ({
-  triggers: { dashboardButton: { label: "Run check" } },
-  steps: [{ setVariable: { name: "result", value: "ok" } }],
+const dashboardWorkflowPlan = (): WorkflowBoundPlan =>
+  ({
+    schemaVersion: 1,
+    languageId: "grids",
+    languageVersion: 1,
+    sourceHash: "dashboard-source",
+    manifestHash: "dashboard-manifest",
+    catalogHash: "dashboard-catalog",
+    inputs: [],
+    triggers: [],
+    steps: [],
+    bindings: {},
+  }) as WorkflowBoundPlan;
+
+const dashboardWithLauncher = (baseId: string, dashboardId: string, widgetId: string, launcherId: string): Dashboard => ({
+  id: dashboardId,
+  shortId: "D1234",
+  baseId,
+  name: "Dashboard",
+  description: null,
+  icon: null,
+  config: { rows: [{ id: "row-1", kind: "row", height: "md", cells: [{ id: widgetId, kind: "workflow-button", launcherId }] }] },
+  ownerUserId: null,
+  position: 0,
+  deletedAt: null,
+  createdAt: "2026-07-15T00:00:00.000Z",
+  updatedAt: "2026-07-15T00:00:00.000Z",
 });
 
 const insertFixture = async (userId: string): Promise<DashboardWorkflowFixture> => {
@@ -119,23 +146,42 @@ const insertFixture = async (userId: string): Promise<DashboardWorkflowFixture> 
   const dashboardId = uuid();
   const widgetId = uuid();
   const workflowId = uuid();
-  const compiled = dashboardWorkflowDefinition();
+  const launcherId = uuid();
+  const plan = dashboardWorkflowPlan();
 
   await sql`
     INSERT INTO grids.bases (id, short_id, name)
     VALUES (${baseId}::uuid, ${shortId("B")}, 'Dashboard workflow execution')
   `;
   await sql`
-    INSERT INTO grids.workflows (id, short_id, base_id, name, source, compiled, enabled, position)
+    INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, diagnostics, enabled, position, revision)
     VALUES (
       ${workflowId}::uuid,
       ${shortId("W")},
       ${baseId}::uuid,
       'Dashboard-only workflow',
-      'triggers:\n  dashboardButton: {}\nsteps:\n  - setVariable:\n      name: result\n      value: ok',
-      ${compiled}::jsonb,
+      'steps: []',
+      ${plan}::jsonb,
+      '[]'::jsonb,
       true,
-      0
+      0,
+      1
+    )
+  `;
+  await sql`
+    INSERT INTO grids.workflow_launchers (
+      id, short_id, base_id, workflow_id, name, kind, config, enabled, validated_revision, diagnostics
+    ) VALUES (
+      ${launcherId}::uuid,
+      ${shortId("L")},
+      ${baseId}::uuid,
+      ${workflowId}::uuid,
+      'Dashboard launcher',
+      'dashboard',
+      ${{ kind: "dashboard" }}::jsonb,
+      true,
+      1,
+      '[]'::jsonb
     )
   `;
   await sql`
@@ -156,7 +202,7 @@ const insertFixture = async (userId: string): Promise<DashboardWorkflowFixture> 
                 id: widgetId,
                 kind: "workflow-button",
                 span: 4,
-                workflowId,
+                launcherId,
               },
             ],
           },
@@ -171,6 +217,7 @@ const insertFixture = async (userId: string): Promise<DashboardWorkflowFixture> 
     dashboardId,
     widgetId,
     workflowId,
+    launcherId,
     accessIds: [await createAccess(baseId, userId, "read")],
   };
 };
@@ -203,6 +250,125 @@ describe("dashboard-scoped workflow execution", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ message: "Invalid dashboard id" });
+  });
+
+  test("invokes the saved dashboard launcher with server-trusted widget authorization", async () => {
+    const user = testUser(uuid());
+    const baseId = uuid();
+    const dashboardId = uuid();
+    const workflowId = uuid();
+    const launcherId = uuid();
+    const widgetId = "widget-dashboard";
+    const invokeDashboardLauncher = mock<typeof invokeDashboardLauncherService>(async () =>
+      ok({
+        runId: uuid(),
+        workflowId,
+        revision: 4,
+        mode: "execute" as const,
+        channel: "dashboard" as const,
+        created: true,
+        status: "queued" as const,
+      }),
+    );
+    const app = new Hono<AuthContext>().route(
+      "/api/dashboards",
+      createDashboardsApi({
+        requireAuthenticated: authenticateAs(user),
+        getDashboard: mock(async () => dashboardWithLauncher(baseId, dashboardId, widgetId, launcherId)),
+        getLauncher: mock(async () => ({
+          id: launcherId,
+          shortId: "L1234",
+          baseId,
+          workflowId,
+          name: "Dashboard launcher",
+          config: { kind: "dashboard" as const },
+          enabled: true,
+          validatedRevision: 4,
+          diagnostics: [],
+          deletedAt: null,
+          createdAt: "2026-07-15T00:00:00.000Z",
+          updatedAt: "2026-07-15T00:00:00.000Z",
+        })),
+        invokeDashboardLauncher,
+        canReadDashboard: mock(async () => true),
+      }),
+    );
+
+    const response = await app.request(`/api/dashboards/${dashboardId}/widgets/${widgetId}/run`, { method: "POST" });
+
+    expect(response.status).toBe(200);
+    expect(invokeDashboardLauncher).toHaveBeenCalledTimes(1);
+    expect(invokeDashboardLauncher.mock.calls[0]![0]).toMatchObject({
+      launcherId,
+      mode: "execute",
+      expectedRevision: 4,
+      inputs: {},
+      principal: { userId: user.id, groupIds: [], serviceAccountId: null },
+      authorization: { kind: "dashboard-widget", dashboardId, dashboardWidgetId: widgetId },
+    });
+  });
+
+  test("invokes the saved scanner launcher without accepting arbitrary workflow inputs", async () => {
+    const user = testUser(uuid());
+    const baseId = uuid();
+    const dashboardId = uuid();
+    const workflowId = uuid();
+    const launcherId = uuid();
+    const widgetId = "widget-scanner";
+    const invokeScannerLauncher = mock<typeof invokeScannerLauncherService>(async () =>
+      ok({
+        runId: uuid(),
+        workflowId,
+        revision: 2,
+        mode: "execute" as const,
+        channel: "scanner" as const,
+        created: true,
+        status: "queued" as const,
+      }),
+    );
+    const app = new Hono<AuthContext>().route(
+      "/api/dashboards",
+      createDashboardsApi({
+        requireAuthenticated: authenticateAs(user),
+        getDashboard: mock(async () => dashboardWithLauncher(baseId, dashboardId, widgetId, launcherId)),
+        getLauncher: mock(async () => ({
+          id: launcherId,
+          shortId: "L1234",
+          baseId,
+          workflowId,
+          name: "Scanner launcher",
+          config: { kind: "scanner" as const, input: "record", resolve: { by: "scanCode" as const } },
+          enabled: true,
+          validatedRevision: 2,
+          diagnostics: [],
+          deletedAt: null,
+          createdAt: "2026-07-15T00:00:00.000Z",
+          updatedAt: "2026-07-15T00:00:00.000Z",
+        })),
+        invokeScannerLauncher,
+        canReadDashboard: mock(async () => true),
+      }),
+    );
+
+    const rejected = await app.request(
+      `/api/dashboards/${dashboardId}/widgets/${widgetId}/scan`,
+      jsonPost({ code: "asset-42", inputs: { forbidden: true } }),
+    );
+    expect(rejected.status).toBe(400);
+    expect(invokeScannerLauncher).not.toHaveBeenCalled();
+
+    const response = await app.request(`/api/dashboards/${dashboardId}/widgets/${widgetId}/scan`, jsonPost({ code: "asset-42" }));
+
+    expect(response.status).toBe(200);
+    expect(invokeScannerLauncher).toHaveBeenCalledTimes(1);
+    expect(invokeScannerLauncher.mock.calls[0]![0]).toMatchObject({
+      launcherId,
+      mode: "execute",
+      expectedRevision: 2,
+      inputs: {},
+      scannedText: "asset-42",
+      authorization: { kind: "dashboard-widget", dashboardId, dashboardWidgetId: widgetId },
+    });
   });
 
   postgresTest("keeps personal dashboard workflow streams owner-or-explicit-grant scoped", async () => {
@@ -239,49 +405,50 @@ describe("dashboard-scoped workflow execution", () => {
     const app = apiFor(testUser(userId));
     const fixture = await insertFixture(userId);
     try {
-      const direct = await app.request(`/api/workflows/${fixture.workflowId}/run/dashboard-button`, jsonPost({ input: {} }));
+      const direct = await app.request(
+        `/api/workflows/${fixture.workflowId}/invoke`,
+        jsonPost({ mode: "execute", inputs: {}, idempotencyKey: "direct-dashboard-test" }),
+      );
       expect(direct.status).toBe(403);
 
-      const dashboardRun = await app.request(
-        `/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/run`,
-        jsonPost({ input: {} }),
-      );
+      const dashboardRun = await app.request(`/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/run`, {
+        method: "POST",
+      });
       expect(dashboardRun.status).toBe(200);
       const body = (await dashboardRun.json()) as {
         id: string;
         workflowId: string;
-        triggerKind: string;
-        triggerInput: Record<string, unknown>;
+        launcherId: string;
+        channel: string;
       };
       expect(body.workflowId).toBe(fixture.workflowId);
-      expect(body.triggerKind).toBe("dashboardButton");
-      expect(body.triggerInput).toEqual({
-        dashboardId: fixture.dashboardId,
-        dashboardWidgetId: fixture.widgetId,
-      });
+      expect(body.launcherId).toBe(fixture.launcherId);
+      expect(body.channel).toBe("dashboard");
       expect(await waitForRunCompletion(body.id)).toBe("succeeded");
 
       const status = await app.request(`/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/runs/${body.id}`);
       expect(status.status).toBe(200);
       const statusBody = (await status.json()) as {
-        run: { id: string; status: string; triggerInput?: unknown };
-        steps: Array<{ input?: unknown; output?: unknown }>;
+        run: { id: string; status: string; launcherId: string; mode: string; inputs?: unknown };
+        steps: Array<{ outcome?: unknown }>;
       };
-      expect(statusBody.run).toMatchObject({ id: body.id, status: "succeeded" });
-      expect(statusBody.run.triggerInput).toBeUndefined();
-      expect(statusBody.steps.length).toBeGreaterThan(0);
-      expect(statusBody.steps[0]?.input).toBeUndefined();
-      expect(statusBody.steps[0]?.output).toBeUndefined();
+      expect(statusBody.run).toMatchObject({
+        id: body.id,
+        status: "succeeded",
+        launcherId: fixture.launcherId,
+        mode: "execute",
+      });
+      expect(statusBody.run.inputs).toBeUndefined();
 
       const [unscoped] = await sql<Array<{ id: string }>>`
         INSERT INTO grids.workflow_runs (
-          workflow_id, base_id, workflow_definition, workflow_catalog, trigger_authorization, trigger_kind, trigger_input, resolved_input, status, finished_at
+          workflow_id, launcher_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+          authorization_snapshot, inputs, context, workflow_plan, status, occurred_at, finished_at
         )
         VALUES (
-          ${fixture.workflowId}::uuid, ${fixture.baseId}::uuid,
-          '{"triggers":{"dashboardButton":{}},"steps":[]}'::jsonb,
-          '{"tables":[],"fieldsByTable":{},"templates":[],"emailTemplates":[]}'::jsonb, '{"kind":"workflow"}'::jsonb,
-          'dashboardButton', '{}'::jsonb, '{}'::jsonb, 'succeeded', now()
+          ${fixture.workflowId}::uuid, ${fixture.launcherId}::uuid, ${fixture.baseId}::uuid, 1, 'execute', 'dashboard',
+          'unscoped-dashboard-test', 'unscoped-dashboard-test', '{"kind":"workflow"}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+          ${dashboardWorkflowPlan()}::jsonb, 'succeeded', now(), now()
         )
         RETURNING id::text AS id
       `;

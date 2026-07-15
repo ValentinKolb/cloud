@@ -1,5 +1,5 @@
 import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
-import type { DslQueryCompletionItem, WorkflowAutocompleteResponse } from "../../../contracts";
+import type { WorkflowAutocompleteResponse, WorkflowCompletionItem } from "../../../workflows/contracts";
 
 export type WorkflowAutocompleteRequest = {
   source: string;
@@ -12,7 +12,7 @@ const WORKFLOW_TRIGGER_CHARS = [" ", "\n", "\t", ":", "-", ".", "[", "{", ",", "
 
 const isKnownLabelScan = (ctx: SuggestContext) => ctx.fullText === "" && ctx.caret === 0 && ctx.tokenStart === 0;
 
-export const toSuggestion = (item: DslQueryCompletionItem): Suggestion => ({
+export const toSuggestion = (item: WorkflowCompletionItem): Suggestion => ({
   text: item.insertText,
   label: item.label,
   hint: item.detail ?? item.kind,

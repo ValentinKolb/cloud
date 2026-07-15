@@ -217,7 +217,11 @@ const evaluateWorkflowAccess = async (
     const item = await gridsService.dashboard.get(dashboard.id);
     if (!item || item.baseId !== workflow.baseId) return { ok: false, code: "not_found", message: "Dashboard not found" };
     const widget = item.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === dashboard.widgetId);
-    if (!widget || widget.kind !== "workflow-button" || widget.workflowId !== workflow.id) {
+    if (!widget || widget.kind !== "workflow-button") {
+      return { ok: false, code: "not_found", message: "Workflow widget not found" };
+    }
+    const launcher = await gridsService.workflow.launcher.get(widget.launcherId);
+    if (!launcher || launcher.config.kind !== "dashboard" || launcher.workflowId !== workflow.id) {
       return { ok: false, code: "not_found", message: "Workflow widget not found" };
     }
     if (!(await canReadDashboardIncludedData(item, { userId: user.id, userGroups: user.memberofGroupIds }))) {

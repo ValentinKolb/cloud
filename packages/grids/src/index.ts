@@ -7,7 +7,7 @@ import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
 import { migrate } from "./migrate";
 import { gridsService } from "./service";
 import { startRecordEventOutbox, stopRecordEventOutbox } from "./service/record-event-outbox";
-import { workflowTriggerRuntime } from "./service/workflow-trigger-runtime";
+import { startWorkflowKernelRuntime, stopWorkflowKernelRuntime } from "./service/workflow-kernel-runtime";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -26,10 +26,10 @@ const result = await app.start({
     },
     start: async () => {
       await startRecordEventOutbox();
-      await workflowTriggerRuntime.start();
+      await startWorkflowKernelRuntime();
     },
     stop: async () => {
-      await workflowTriggerRuntime.stop();
+      await stopWorkflowKernelRuntime();
       await stopRecordEventOutbox();
     },
   },

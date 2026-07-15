@@ -18,6 +18,7 @@ import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget, Workflow } from "../../../service";
 import {
+  dashboardWorkflowOption,
   defaultChartWidget,
   defaultFormWidget,
   defaultLinkWidget,
@@ -129,10 +130,15 @@ const configuredNewWidget = (
     return tableId ? ({ ...widget, title: "Open table", target: { kind: "table", tableId } } as Widget) : null;
   }
   if (widget.kind === "workflow-button") {
-    const workflow = ctx.dashboardWorkflows.find(
-      (candidate) => candidate.enabled && (candidate.compiled.triggers.dashboardButton || candidate.compiled.triggers.scanner),
-    );
-    return workflow ? ({ ...widget, workflowId: workflow.id, title: workflow.name, buttonLabel: "Run" } as Widget) : null;
+    const workflow = ctx.dashboardWorkflows.find((candidate) => dashboardWorkflowOption(candidate).dashboardLauncher.enabled);
+    return workflow
+      ? ({
+          ...widget,
+          launcherId: dashboardWorkflowOption(workflow).dashboardLauncher.id,
+          title: workflow.name,
+          buttonLabel: "Run",
+        } as Widget)
+      : null;
   }
   return widget;
 };
@@ -309,7 +315,7 @@ export default function DashboardWysiwygEditor(props: Props) {
           : kind === "chart"
             ? "Create a grouped view with at least one summary value first."
             : kind === "workflow-button"
-              ? "Create an enabled workflow with a dashboard button trigger before adding this widget."
+              ? "Create an enabled dashboard or scanner workflow launcher before adding this widget."
               : "Create a view before adding this widget.",
       );
       return;

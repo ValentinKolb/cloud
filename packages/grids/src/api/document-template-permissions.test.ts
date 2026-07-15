@@ -230,7 +230,15 @@ describe("document template permission surfaces", () => {
   });
 
   test("keeps workflow autocomplete template-aware without leaking fields from hidden tables", async () => {
-    const catalog = await permissionedWorkflowCatalog(context as never, baseId);
+    const catalog = await permissionedWorkflowCatalog(context as never, baseId, {
+      listTablesByBase: async (id) => (id === baseId ? [table] : []),
+      listTemplatesForTable: async (id) => (id === tableId ? [template] : []),
+      listFieldsByTable: async () => {
+        fieldListCalls += 1;
+        return [field];
+      },
+      listEmailTemplatesForBase: async () => [],
+    });
 
     expect([...catalog.tables.refs.values()].map((entry) => entry.name)).toContain(table.name);
     expect([...catalog.templates.refs.values()].map((entry) => entry.name)).toContain(template.name);

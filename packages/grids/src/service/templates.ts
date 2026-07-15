@@ -16,7 +16,7 @@ import * as records from "./records";
 import * as tables from "./tables";
 import type { Base, Field } from "./types";
 import * as views from "./views";
-import * as workflows from "./workflows";
+import { createWorkflow } from "./workflow-kernel-store";
 
 const log = logger("grids:templates");
 
@@ -412,7 +412,7 @@ const createEmailTemplates = async (template: GridTemplate, baseId: string, acto
 const createWorkflows = async (template: GridTemplate, baseId: string, actorId: string | null) => {
   for (const definition of template.workflows ?? []) {
     requireResult(
-      await workflows.create(
+      await createWorkflow(
         baseId,
         {
           name: definition.name,

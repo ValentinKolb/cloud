@@ -27,8 +27,8 @@ import type { SnapshotRecord } from "./document-snapshots";
 import { listByTable as listFields } from "./fields";
 import { getContent as getFileContent, listForRecordField } from "./files";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
+import { ensureRecordScanCode } from "./record-scan-codes";
 import type { Field, GridRecord, Table } from "./types";
-import { ensureRecordScanCode } from "./workflows";
 
 const DEFAULT_FILENAME_TEMPLATE = "{{ document.number }}.pdf";
 const SOURCE_MAX_BYTES = 20_000;

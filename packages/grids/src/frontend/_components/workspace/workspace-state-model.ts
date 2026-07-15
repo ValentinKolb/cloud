@@ -9,6 +9,7 @@ import type {
 } from "../../../contracts";
 import type { Base, Dashboard, Field, Form, GridRecord, Table, View, Workflow } from "../../../service";
 import type { WidgetData } from "../../../service/dashboard-widget-data";
+import type { GridsWorkflowLauncher } from "../../../workflows/contracts";
 import type { RecordsState } from "../records-view/query-url";
 import type { GridsDocumentViewMode } from "../sidebar/GridsSettingsStore";
 
@@ -45,6 +46,8 @@ export type RuntimeView = View & {
   displayConfig: RecordDisplayConfig;
 };
 
+export type WorkspaceBulkLauncher = GridsWorkflowLauncher & { workflowRevision: number };
+
 export type WorkspaceRecordsRoute = {
   kind: "records";
   activeTable: Table;
@@ -77,7 +80,7 @@ export type WorkspaceRecordsRoute = {
   groupedExplode: boolean;
   activeRecordQuery: RecordQuery | null;
   displayConfig: RecordDisplayConfig;
-  bulkSelectionWorkflows: Workflow[];
+  bulkSelectionLaunchers: WorkspaceBulkLauncher[];
 };
 
 export type WorkspaceDashboardRoute = {

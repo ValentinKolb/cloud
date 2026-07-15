@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseDataUrl } from "@valentinkolb/cloud/shared";
+import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import {
   CreateBaseSchema,
   CreateDashboardSchema,
@@ -8,7 +9,6 @@ import {
   CreateFieldSchema,
   CreateTableSchema,
   CreateViewSchema,
-  CreateWorkflowSchema,
   DashboardConfigSchema,
   FormConfigSchema,
   RecordDisplayConfigSchema,
@@ -21,8 +21,10 @@ import { type DslResolverContext, resolveDslQueryToQueryPlan } from "../query-ds
 import { renderDocumentHtml, renderDocumentSource, validateTemplateWrite } from "../service/documents";
 import { validateEmailTemplateWrite } from "../service/email-templates";
 import type { Field } from "../service/types";
-import { buildWorkflowCatalog, validateWorkflowReferences } from "../service/workflows";
-import { parseWorkflowYaml } from "../workflows/dsl";
+import { buildWorkflowCatalog } from "../service/workflow-catalog";
+import { bindGridsWorkflow } from "../workflows/binder";
+import { CreateGridsWorkflowSchema } from "../workflows/contracts";
+import { gridsWorkflowManifest } from "../workflows/manifest";
 import { templates } from ".";
 import type { GridTemplate, TemplateDateExpression, TemplateField, TemplateRef } from "./types";
 import { field, formula } from "./types";
@@ -714,11 +716,18 @@ describe("built-in grid templates", () => {
         emailTemplates: emailTemplateEntries,
       });
       for (const workflow of template.workflows ?? []) {
-        expect(CreateWorkflowSchema.safeParse(workflow).success, `${template.id}.${workflow.key} workflow payload`).toBe(true);
-        const parsed = parseWorkflowYaml(workflow.source);
-        expect(parsed.ok, `${template.id}.${workflow.key} workflow YAML`).toBe(true);
-        if (!parsed.ok) continue;
-        expect(validateWorkflowReferences(parsed.definition, workflowCatalog), `${template.id}.${workflow.key} workflow refs`).toEqual([]);
+        expect(CreateGridsWorkflowSchema.safeParse(workflow).success, `${template.id}.${workflow.key} workflow payload`).toBe(true);
+        const compiled = await compileWorkflow(workflow.source, gridsWorkflowManifest);
+        expect(
+          compiled.ok,
+          `${template.id}.${workflow.key} workflow YAML: ${compiled.ok ? "" : compiled.diagnostics.map((item) => item.message).join("; ")}`,
+        ).toBe(true);
+        if (!compiled.ok) continue;
+        const bound = await bindGridsWorkflow(compiled.ir, workflowCatalog);
+        expect(
+          bound.ok,
+          `${template.id}.${workflow.key} workflow YAML: ${bound.ok ? "" : bound.diagnostics.map((item) => item.message).join("; ")}`,
+        ).toBe(true);
       }
     }
   });

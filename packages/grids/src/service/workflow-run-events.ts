@@ -1,12 +1,12 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { topic } from "@valentinkolb/sync";
-import type { WorkflowRun, WorkflowStepRun } from "../contracts";
 import {
   type GridsWorkflowRunEvent,
   toWorkflowRunEventSummary,
   toWorkflowRunStepSummary,
   type WorkflowRunEventScope,
 } from "../lib/workflow-run-events";
+import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../workflows/contracts";
 
 const log = logger("grids:workflow-run-events");
 const workflowRunTopic = topic<GridsWorkflowRunEvent>({
@@ -23,8 +23,8 @@ type WorkflowRunEventPublisher = (event: Parameters<typeof workflowRunTopic.pub>
 export const createWorkflowRunEventNotifier =
   (publish: WorkflowRunEventPublisher) =>
   async (
-    run: WorkflowRun,
-    steps: WorkflowStepRun[] = [],
+    run: GridsWorkflowRun,
+    steps: GridsWorkflowStepRun[] = [],
     scope: WorkflowRunEventScope = { kind: "workflow" },
     transitionId?: string,
   ): Promise<void> => {

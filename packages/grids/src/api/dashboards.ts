@@ -1,5 +1,6 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
+import { sql } from "bun";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -10,27 +11,63 @@ import {
   DashboardSchema,
   UpdateDashboardSchema,
   WidgetSchema,
-  WorkflowRunSchema,
-  WorkflowStepRunSchema,
 } from "../contracts";
 import { toWorkflowRunEventSummary, toWorkflowRunStepSummary } from "../lib/workflow-run-events";
 import { gridsService } from "../service";
 import { resolveWidgetData } from "../service/dashboard-widget-data";
+import { get as getDashboardById } from "../service/dashboards";
 import { hasAtLeast, hasGrantsForResource } from "../service/permission-resolver";
-import { getWorkflowRun, getWorkflowRunScope, listStepRuns } from "../service/workflows";
+import { invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-kernel-launchers";
+import { listWorkflowStepRuns } from "../service/workflow-kernel-observability";
+import { getWorkflowRun } from "../service/workflow-kernel-runs";
+import { getLauncher as getWorkflowLauncher } from "../service/workflow-launchers";
+import { GridsWorkflowRunSchema, GridsWorkflowRunStatusSchema, GridsWorkflowStepRunSchema } from "../workflows/contracts";
 import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, resolveWithGrants } from "./permissions";
 import { uuidParam } from "./route-params";
 
-const DashboardWorkflowScannerRunSchema = z.object({
-  code: z.string().trim().min(1).max(500),
+const DashboardWorkflowScannerRunSchema = z
+  .object({
+    code: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+const DashboardWorkflowInvocationResponseSchema = z.object({
+  id: z.string().uuid(),
+  workflowId: z.string().uuid(),
+  launcherId: z.string().uuid(),
+  channel: z.enum(["dashboard", "scanner"]),
+  status: GridsWorkflowRunStatusSchema,
 });
 
+const DashboardWidgetAuthorizationSchema = z
+  .object({
+    kind: z.literal("dashboard-widget"),
+    dashboardId: z.string().uuid(),
+    dashboardWidgetId: z.string().min(1),
+  })
+  .strict();
+
+type DashboardWidgetAuthorization = z.infer<typeof DashboardWidgetAuthorizationSchema>;
+
+const getWorkflowRunAuthorization = async (runId: string): Promise<DashboardWidgetAuthorization | null> => {
+  const [row] = await sql<Array<{ authorization: unknown }>>`
+    SELECT authorization_snapshot AS authorization
+    FROM grids.workflow_runs
+    WHERE id = ${runId}::uuid
+  `;
+  const parsed = DashboardWidgetAuthorizationSchema.safeParse(row?.authorization);
+  return parsed.success ? parsed.data : null;
+};
+
 const DashboardWorkflowRunStatusSchema = z.object({
-  run: WorkflowRunSchema.pick({
+  run: GridsWorkflowRunSchema.pick({
     id: true,
     workflowId: true,
+    launcherId: true,
     baseId: true,
-    triggerKind: true,
+    workflowRevision: true,
+    mode: true,
+    channel: true,
     status: true,
     error: true,
     resultMessage: true,
@@ -39,15 +76,17 @@ const DashboardWorkflowRunStatusSchema = z.object({
     finishedAt: true,
   }),
   steps: z.array(
-    WorkflowStepRunSchema.pick({
+    GridsWorkflowStepRunSchema.pick({
       id: true,
       runId: true,
-      stepIndex: true,
-      stepPath: true,
+      key: true,
+      sourcePath: true,
+      iterationPath: true,
       kind: true,
+      action: true,
       status: true,
-      error: true,
-      durationMs: true,
+      outcome: true,
+      executionGeneration: true,
       startedAt: true,
       finishedAt: true,
     }),
@@ -88,22 +127,24 @@ export const canReadDashboardForRequest = async (
 export const createDashboardsApi = (
   deps: {
     requireAuthenticated?: MiddlewareHandler<AuthContext>;
-    workflowTriggerRuntime?: typeof gridsService.workflowTriggerRuntime;
-    getDashboard?: typeof gridsService.dashboard.get;
-    getWorkflow?: typeof gridsService.workflow.get;
-    getWorkflowRun?: typeof gridsService.workflow.getRun;
-    getWorkflowRunScope?: typeof gridsService.workflow.getRunScope;
-    listWorkflowStepRuns?: typeof gridsService.workflow.listStepRuns;
+    getDashboard?: typeof getDashboardById;
+    getLauncher?: typeof getWorkflowLauncher;
+    invokeDashboardLauncher?: typeof invokeDashboardLauncher;
+    invokeScannerLauncher?: typeof invokeScannerLauncher;
+    getWorkflowRun?: typeof getWorkflowRun;
+    getWorkflowRunAuthorization?: typeof getWorkflowRunAuthorization;
+    listWorkflowStepRuns?: typeof listWorkflowStepRuns;
     canReadDashboard?: typeof canReadDashboardForRequest;
   } = {},
 ) => {
   const requireAuthenticated = deps.requireAuthenticated ?? auth.requireRole("authenticated");
-  const workflowTriggerRuntime = deps.workflowTriggerRuntime ?? gridsService.workflowTriggerRuntime;
-  const getDashboard = deps.getDashboard ?? gridsService.dashboard.get;
-  const getWorkflow = deps.getWorkflow ?? gridsService.workflow.get;
+  const getDashboard = deps.getDashboard ?? getDashboardById;
+  const getLauncher = deps.getLauncher ?? getWorkflowLauncher;
+  const invokeDashboard = deps.invokeDashboardLauncher ?? invokeDashboardLauncher;
+  const invokeScanner = deps.invokeScannerLauncher ?? invokeScannerLauncher;
   const getWorkflowRunImpl = deps.getWorkflowRun ?? getWorkflowRun;
-  const getWorkflowRunScopeImpl = deps.getWorkflowRunScope ?? getWorkflowRunScope;
-  const listWorkflowStepRuns = deps.listWorkflowStepRuns ?? listStepRuns;
+  const getWorkflowRunAuthorizationImpl = deps.getWorkflowRunAuthorization ?? getWorkflowRunAuthorization;
+  const listWorkflowStepRunsImpl = deps.listWorkflowStepRuns ?? listWorkflowStepRuns;
   const canReadDashboard = deps.canReadDashboard ?? canReadDashboardForRequest;
 
   return new Hono<AuthContext>()
@@ -236,7 +277,7 @@ export const createDashboardsApi = (
         tags: ["Grids:Dashboard"],
         summary: "Run a dashboard workflow button",
         responses: {
-          200: jsonResponse(WorkflowRunSchema, "Run"),
+          200: jsonResponse(DashboardWorkflowInvocationResponseSchema, "Run"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -253,27 +294,27 @@ export const createDashboardsApi = (
         const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
         if (!widget || widget.kind !== "workflow-button") return c.json({ message: "Widget not found" }, 404);
 
-        const workflow = await getWorkflow(widget.workflowId);
-        if (!workflow || workflow.baseId !== dashboard.baseId) return c.json({ message: "Workflow not found" }, 404);
-        if (!workflow.compiled.triggers.dashboardButton) return c.json({ message: "Workflow has no dashboard button trigger" }, 400);
-        if (!workflow.enabled) return c.json({ message: "Workflow is disabled" }, 400);
-
+        const launcher = await getLauncher(widget.launcherId);
+        if (!launcher || launcher.baseId !== dashboard.baseId) return c.json({ message: "Workflow launcher not found" }, 404);
+        if (launcher.config.kind !== "dashboard") return c.json({ message: "Workflow launcher is not a dashboard launcher" }, 400);
         const viewer = currentActorViewer(c);
-        return respond(c, () =>
-          workflowTriggerRuntime.queueDashboardRun({
-            workflowId: workflow.id,
-            triggerKind: "dashboardButton",
-            actorUserId: viewer.userId,
-            actorGroupIds: viewer.userGroups,
-            serviceAccountId: viewer.serviceAccountId,
-            triggerInput: {
-              dashboardId: dashboard.id,
-              dashboardWidgetId: widget.id,
-            },
-            dashboardId: dashboard.id,
-            dashboardWidgetId: widget.id,
-          }),
-        );
+        const result = await invokeDashboard({
+          launcherId: launcher.id,
+          operationId: Bun.randomUUIDv7(),
+          mode: "execute",
+          expectedRevision: launcher.validatedRevision,
+          principal: { userId: viewer.userId, groupIds: viewer.userGroups, serviceAccountId: viewer.serviceAccountId },
+          inputs: {},
+          authorization: { kind: "dashboard-widget", dashboardId: dashboard.id, dashboardWidgetId: widget.id },
+        });
+        if (!result.ok) return respond(c, () => Promise.resolve(result));
+        return c.json({
+          id: result.data.runId,
+          workflowId: result.data.workflowId,
+          launcherId: launcher.id,
+          channel: "dashboard" as const,
+          status: result.data.status,
+        });
       },
     )
 
@@ -283,7 +324,7 @@ export const createDashboardsApi = (
         tags: ["Grids:Dashboard"],
         summary: "Run a dashboard scanner workflow button",
         responses: {
-          200: jsonResponse(WorkflowRunSchema, "Run"),
+          200: jsonResponse(DashboardWorkflowInvocationResponseSchema, "Run"),
           400: jsonResponse(ErrorResponseSchema, "Invalid scanner input"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -301,23 +342,28 @@ export const createDashboardsApi = (
         const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
         if (!widget || widget.kind !== "workflow-button") return c.json({ message: "Widget not found" }, 404);
 
-        const workflow = await getWorkflow(widget.workflowId);
-        if (!workflow || workflow.baseId !== dashboard.baseId) return c.json({ message: "Workflow not found" }, 404);
-        if (!workflow.compiled.triggers.scanner) return c.json({ message: "Workflow has no scanner trigger" }, 400);
-        if (!workflow.enabled) return c.json({ message: "Workflow is disabled" }, 400);
-
+        const launcher = await getLauncher(widget.launcherId);
+        if (!launcher || launcher.baseId !== dashboard.baseId) return c.json({ message: "Workflow launcher not found" }, 404);
+        if (launcher.config.kind !== "scanner") return c.json({ message: "Workflow launcher is not a scanner launcher" }, 400);
         const viewer = currentActorViewer(c);
-        return respond(c, () =>
-          workflowTriggerRuntime.queueDashboardScanner({
-            workflowId: workflow.id,
-            scannedText: c.req.valid("json").code,
-            actorUserId: viewer.userId,
-            actorGroupIds: viewer.userGroups,
-            serviceAccountId: viewer.serviceAccountId,
-            dashboardId: dashboard.id,
-            dashboardWidgetId: widget.id,
-          }),
-        );
+        const result = await invokeScanner({
+          launcherId: launcher.id,
+          operationId: Bun.randomUUIDv7(),
+          mode: "execute",
+          expectedRevision: launcher.validatedRevision,
+          principal: { userId: viewer.userId, groupIds: viewer.userGroups, serviceAccountId: viewer.serviceAccountId },
+          inputs: {},
+          scannedText: c.req.valid("json").code,
+          authorization: { kind: "dashboard-widget", dashboardId: dashboard.id, dashboardWidgetId: widget.id },
+        });
+        if (!result.ok) return respond(c, () => Promise.resolve(result));
+        return c.json({
+          id: result.data.runId,
+          workflowId: result.data.workflowId,
+          launcherId: launcher.id,
+          channel: "scanner" as const,
+          status: result.data.status,
+        });
       },
     )
 
@@ -341,19 +387,18 @@ export const createDashboardsApi = (
         if (!dashboard || !(await canReadDashboard(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
         const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
         if (!widget || widget.kind !== "workflow-button") return c.json({ message: "Widget not found" }, 404);
-        const [run, scope] = await Promise.all([getWorkflowRunImpl(runId), getWorkflowRunScopeImpl(runId)]);
+        const [run, authorization] = await Promise.all([getWorkflowRunImpl(runId), getWorkflowRunAuthorizationImpl(runId)]);
         if (
           !run ||
-          run.workflowId !== widget.workflowId ||
-          scope?.kind !== "dashboard-widget" ||
-          scope.dashboardId !== dashboard.id ||
-          scope.dashboardWidgetId !== widget.id
+          run.launcherId !== widget.launcherId ||
+          authorization?.dashboardId !== dashboard.id ||
+          authorization.dashboardWidgetId !== widget.id
         ) {
           return c.json({ message: "Workflow run not found" }, 404);
         }
         return c.json({
           run: toWorkflowRunEventSummary(run),
-          steps: (await listWorkflowStepRuns(run.id)).map(toWorkflowRunStepSummary),
+          steps: (await listWorkflowStepRunsImpl(run.id)).map(toWorkflowRunStepSummary),
         });
       },
     )

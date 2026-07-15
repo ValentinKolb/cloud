@@ -41,7 +41,7 @@ describe("grids schema migration", () => {
           FROM information_schema.tables
           WHERE table_schema = 'grids'
         `;
-        expect(row?.tableCount).toBe(30);
+        expect(row?.tableCount).toBe(33);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -67,14 +67,9 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
-    "adds workflow revisions to an existing schema",
+    "increments workflow revisions",
     async () => {
       await withIsolatedDatabase(async (database) => {
-        await migrate(database);
-        await database`DROP TRIGGER bump_workflow_revision ON grids.workflows`.simple();
-        await database`DROP FUNCTION grids.bump_workflow_revision()`.simple();
-        await database`ALTER TABLE grids.workflows DROP COLUMN revision`.simple();
-
         await migrate(database);
 
         const baseId = uuid();
@@ -83,8 +78,8 @@ describe("grids schema migration", () => {
           VALUES (${baseId}::uuid, ${shortId("B")}, 'Workflow revision migration')
         `;
         const [created] = await database<Array<{ id: string; revision: number }>>`
-          INSERT INTO grids.workflows (short_id, base_id, name, source, compiled)
-          VALUES (${shortId("W")}, ${baseId}::uuid, 'Revision test', 'triggers: {}\nsteps: []', '{}'::jsonb)
+          INSERT INTO grids.workflows (short_id, base_id, name, source, plan)
+          VALUES (${shortId("W")}, ${baseId}::uuid, 'Revision test', 'inputs: {}\nsteps: []', '{"inputs":{},"steps":[]}'::jsonb)
           RETURNING id::text AS id, revision
         `;
         const [updated] = await database<Array<{ revision: number }>>`
@@ -103,6 +98,62 @@ describe("grids schema migration", () => {
         expect(created?.revision).toBe(1);
         expect(updated?.revision).toBe(2);
         expect(constraint?.count).toBe(1);
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "preserves document runs while resetting alpha workflow runs",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrate(database);
+
+        const baseId = uuid();
+        const workflowId = uuid();
+        const workflowRunId = uuid();
+        const snapshotId = uuid();
+        const documentRunId = uuid();
+        await database`
+          INSERT INTO grids.bases (id, short_id, name)
+          VALUES (${baseId}::uuid, ${shortId("B")}, 'Workflow reset artifacts')
+        `;
+        await database`
+          INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan)
+          VALUES (${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, 'Old workflow', 'steps: []', '{}'::jsonb)
+        `;
+        await database`
+          INSERT INTO grids.workflow_runs (
+            id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+            inputs, context, workflow_plan, status, occurred_at
+          ) VALUES (
+            ${workflowRunId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'manual', 'old-run', 'old',
+            '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'succeeded', now()
+          )
+        `;
+        await database`
+          INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
+          VALUES (${snapshotId}::uuid, ${baseId}::uuid, ${uuid()}::uuid, ${uuid()}::uuid, '{}'::jsonb, '{}'::jsonb)
+        `;
+        await database`
+          INSERT INTO grids.document_runs (
+            id, short_id, workflow_run_id, snapshot_id, base_id, table_id, record_id, document_number, filename,
+            template_snapshot, render_data
+          ) VALUES (
+            ${documentRunId}::uuid, ${shortId("D")}, ${workflowRunId}::uuid, ${snapshotId}::uuid, ${baseId}::uuid,
+            ${uuid()}::uuid, ${uuid()}::uuid, 'DOC-1', 'DOC-1.pdf', '{}'::jsonb, '{}'::jsonb
+          )
+        `;
+
+        await database`DELETE FROM grids.workflow_kernel_migrations WHERE version = 1`;
+        await migrate(database);
+
+        const [document] = await database<Array<{ workflowRunId: string | null }>>`
+          SELECT workflow_run_id::text AS "workflowRunId"
+          FROM grids.document_runs
+          WHERE id = ${documentRunId}::uuid
+        `;
+        expect(document).toEqual({ workflowRunId: null });
       });
     },
     30_000,
@@ -178,70 +229,6 @@ describe("grids schema migration", () => {
         expect((migrationError as Error).message).toContain(
           `cannot enforce unique table names: grid ${baseId} contains multiple live tables named "orders"`,
         );
-      });
-    },
-    30_000,
-  );
-
-  postgresTest(
-    "fails legacy active workflow runs instead of attaching the current workflow revision",
-    async () => {
-      await withIsolatedDatabase(async (database) => {
-        await migrate(database);
-        await database`DROP TRIGGER populate_workflow_run_snapshots ON grids.workflow_runs`.simple();
-        await database`DROP FUNCTION grids.populate_workflow_run_snapshots()`.simple();
-        await database`ALTER TABLE grids.workflow_runs DROP COLUMN workflow_definition`.simple();
-        await database`ALTER TABLE grids.workflow_runs DROP COLUMN workflow_catalog`.simple();
-        const baseId = uuid();
-        const workflowId = uuid();
-        const runId = uuid();
-        const originalDefinition = { triggers: { form: {} }, steps: [{ succeed: { message: "original" } }] };
-        const editedDefinition = { triggers: { form: {} }, steps: [{ succeed: { message: "edited" } }] };
-        await database`
-          INSERT INTO grids.bases (id, short_id, name)
-          VALUES (${baseId}::uuid, ${shortId("B")}, 'Legacy workflow runs')
-        `;
-        await database`
-          INSERT INTO grids.workflows (id, short_id, base_id, name, source, compiled, enabled)
-          VALUES (${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, 'Legacy workflow', 'steps: []', ${originalDefinition}::jsonb, TRUE)
-        `;
-        await database`
-          INSERT INTO grids.workflow_runs (id, workflow_id, base_id, trigger_kind, status)
-          VALUES (${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 'form', 'queued')
-        `;
-        await database`UPDATE grids.workflows SET compiled = ${editedDefinition}::jsonb WHERE id = ${workflowId}::uuid`;
-
-        await migrate(database);
-
-        const [run] = await database<Array<{ status: string; error: string | null; definition: unknown }>>`
-          SELECT status, error, workflow_definition AS definition
-          FROM grids.workflow_runs
-          WHERE id = ${runId}::uuid
-        `;
-        expect(run?.status).toBe("failed");
-        expect(run?.error).toBe("Could not recover workflow run created before immutable execution snapshots were available");
-        expect(run?.definition).not.toEqual(editedDefinition);
-        const [audit] = await database<Array<{ action: string; runId: string }>>`
-          SELECT action, diff->'workflowRun'->'new'->>'id' AS "runId"
-          FROM grids.audit_log
-          WHERE base_id = ${baseId}::uuid
-            AND action = 'workflow.run.failed'
-            AND diff->'workflowRun'->'new'->>'id' = ${runId}
-        `;
-        expect(audit).toEqual({ action: "workflow.run.failed", runId });
-
-        const rollingRunId = uuid();
-        await database`
-          INSERT INTO grids.workflow_runs (id, workflow_id, base_id, trigger_kind, status)
-          VALUES (${rollingRunId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 'form', 'queued')
-        `;
-        const [rollingRun] = await database<Array<{ definition: unknown; catalog: unknown }>>`
-          SELECT workflow_definition AS definition, workflow_catalog AS catalog
-          FROM grids.workflow_runs
-          WHERE id = ${rollingRunId}::uuid
-        `;
-        expect(rollingRun?.definition).toEqual(editedDefinition);
-        expect(rollingRun?.catalog).toEqual({ tables: [], fieldsByTable: {}, templates: [], emailTemplates: [] });
       });
     },
     30_000,

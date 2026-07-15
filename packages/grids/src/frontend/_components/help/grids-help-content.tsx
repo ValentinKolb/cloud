@@ -82,7 +82,7 @@ const workflowHighlight = highlight.compile(
     {
       kind: "keyword",
       match:
-        /\b(?:name|description|inputs|type|table|required|options|triggers|form|api|scanner|bulkSelection|dashboardButton|schedule|recordEvent|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|switch|cases|default|forEach|as|do|set|values|record|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
+        /\b(?:inputs|type|table|label|description|required|options|triggers|schedule|recordEvent|cron|timezone|event|filter|with|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|switch|cases|default|forEach|as|do|set|values|record|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
     },
     { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/ },
     { kind: "placeholder", match: /\binputs\.[A-Za-z_][A-Za-z0-9_.]*\b/ },
@@ -233,7 +233,7 @@ export const GridsOverviewPage = () => (
           {
             title: "Workflows",
             icon: "ti-route",
-            text: "Use workflows for repeatable operations started from forms, API requests, scanners, bulk selection, dashboards, schedules, or record events.",
+            text: "Use workflows for repeatable operations invoked directly, exposed through saved launchers, or started automatically by schedules and record events.",
           },
         ]}
       />
@@ -268,7 +268,7 @@ export const GridsOverviewPage = () => (
 
     <DocNote title="Source of truth">
       Tables store data. Views shape queries. Forms create records. Dashboards present included data. Document templates generate PDFs from
-      selected records. Workflows react to records, scanners, bulk selections, schedules, or dashboard buttons.
+      selected records. Workflows define inputs and steps; automatic triggers and saved launchers decide how runs start.
     </DocNote>
   </GridsDocPage>
 );
@@ -348,7 +348,7 @@ export const GridsCoreModelPage = () => (
           {
             title: "Workflows run actions",
             icon: "ti-route",
-            text: "Use workflow YAML for executable inputs, triggers, and steps. Keep the workflow name and description in the editor fields.",
+            text: "Use workflow YAML for inputs, optional automatic triggers, and steps. Keep launchers, the workflow name, and its description outside YAML.",
           },
         ]}
       />
@@ -740,7 +740,7 @@ export const GridsDashboardFormsPage = () => (
           {
             title: "Workflow buttons",
             icon: "ti-route",
-            text: "Let dashboard users run a dashboardButton workflow or open a scanner workflow session. Users also need permission to run the workflow.",
+            text: "Attach a saved dashboard launcher to let users run a workflow from a dashboard. Dashboard access and the workflow actions still enforce their applicable permissions.",
           },
         ]}
       />
@@ -807,32 +807,31 @@ export const GridsWorkflowsPage = () => (
   <GridsDocPage>
     <DocLead>
       Workflows run repeatable operations in Grids. The UI stores the workflow name, description, enabled state, permissions, and run
-      history; the YAML source stores only the executable definition: inputs, triggers, and steps.
+      history; YAML stores the executable definition: inputs, optional automatic triggers, and steps. Scanner, bulk, and dashboard launchers
+      are saved separately.
     </DocLead>
 
     <DocSection title="How workflows work">
       <p class="text-dimmed">
-        A workflow is a saved action surface. It can be started from a form, authenticated API request, scanner, table bulk selection,
-        dashboard button, schedule, or record event. Each run records who started it, which trigger was used, the resolved input, every
-        step, generated documents, errors, and timing.
+        A workflow is one saved executable definition. Start it directly from the manual UI, authenticated API, or CLI, attach a persisted
+        launcher for scanner, bulk, or dashboard use, or declare an automatic schedule or record event in YAML. These paths all create the
+        same kind of run from typed inputs and the active workflow revision.
       </p>
       <p class="mt-3 text-dimmed">
-        Scanner workflows are workflow-scoped sessions. A user starts one workflow first, then scans any matching item labels for that
-        operation. The label stays generic for the record; the workflow decides whether the scan means return, checkout, inventory check, or
-        another action.
+        Direct invocation is generic: the caller supplies the workflow inputs, mode, and a stable idempotency key. Launchers add only the
+        surface-specific input binding. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a
+        dashboard launcher may bind saved input values.
       </p>
       <p class="mt-3 text-dimmed">
         Keep display metadata out of YAML. Write the name and description in the normal fields at the top of the editor. Write only behavior
-        in YAML, so the compiled runtime definition, permissions, and visible label cannot drift apart.
+        in YAML, and manage saved launchers separately, so the compiled plan and each launch surface can be validated independently.
       </p>
       <WorkflowSnippet
-        title="YAML shape"
+        title="Directly invokable YAML"
         code={`inputs:
   item:
     type: record
     table: Items
-triggers:
-  form: {}
 steps:
   - updateRecord:
       record: inputs.item
@@ -847,12 +846,12 @@ steps:
           {
             title: "Inputs",
             icon: "ti-forms",
-            text: "Typed values the trigger or runner provides. Record inputs resolve to real Grids records before steps execute.",
+            text: "Typed values supplied by a direct caller, launcher, or automatic trigger. Record inputs resolve before steps execute.",
           },
           {
-            title: "Triggers",
+            title: "Start",
             icon: "ti-player-play",
-            text: "The allowed ways to start the workflow. A workflow must declare at least one trigger.",
+            text: "Invoke directly, use a persisted launcher, or declare an automatic trigger. A workflow does not need a YAML trigger.",
           },
           {
             title: "Steps",
@@ -860,9 +859,9 @@ steps:
             text: "Actions and control flow executed in order. Failed steps stop the run and write diagnostics to the run history.",
           },
           {
-            title: "Audit",
+            title: "Observe",
             icon: "ti-history",
-            text: "Record updates, record creates, document generation, HTTP failures, and run state are auditable.",
+            text: "Each run keeps its revision, mode, channel, inputs, status, timing, step outcomes, result or error, and generated documents.",
           },
         ]}
       />
@@ -888,8 +887,8 @@ steps:
             text: (
               <>
                 Every input has <DocInlineCode>type</DocInlineCode>. Add <DocInlineCode>label</DocInlineCode>,{" "}
-                <DocInlineCode>description</DocInlineCode>, and <DocInlineCode>required</DocInlineCode> when the generated form should guide
-                a user.
+                <DocInlineCode>description</DocInlineCode>, and <DocInlineCode>required</DocInlineCode> so callers and generated input
+                controls can explain what the run needs.
               </>
             ),
           },
@@ -937,64 +936,131 @@ steps:
       />
     </DocSection>
 
-    <DocSection title="Trigger reference">
+    <DocSection title="Starting a workflow">
       <DocRows
         items={[
-          { title: "form", icon: "ti-forms", text: "Starts from an autogenerated form. Optional field: enabled." },
-          { title: "api", icon: "ti-api", text: "Starts from an authenticated API or service-account call. Optional field: enabled." },
           {
-            title: "scanner",
-            icon: "ti-scan",
-            text: "Opens a scanner session for one workflow and resolves each scanned value into one record input. Resolve by opaque scanCode by default or by a configured unique field.",
+            title: "Direct invocation",
+            icon: "ti-player-play",
+            text: "Manual UI, API, and CLI callers invoke the same workflow directly with an input object, execute or dryRun mode, and an idempotency key.",
           },
           {
-            title: "bulkSelection",
-            icon: "ti-list-check",
-            text: "Runs for a table selection or current query. The input must be a recordList.",
+            title: "Persisted launchers",
+            icon: "ti-rocket",
+            text: "Scanner, bulk, and dashboard launchers are saved resources attached to a workflow. They are configured and validated outside workflow YAML.",
           },
           {
-            title: "dashboardButton",
-            icon: "ti-click",
-            text: "Runs directly from a dashboard action. Scanner workflows can also be placed on dashboards without this trigger.",
+            title: "Automatic triggers",
+            icon: "ti-clock-play",
+            text: "Only schedule and recordEvent belong under triggers in YAML. The triggers block is optional when a workflow starts only through direct invocation or launchers.",
           },
+          {
+            title: "Revision and deduplication",
+            icon: "ti-git-commit",
+            text: "Callers may require the expected active revision. Idempotency keys reuse the same logical invocation and reject conflicting reuse.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Automatic trigger reference">
+      <DocRows
+        items={[
           {
             title: "schedule",
             icon: "ti-clock",
-            text: "Runs from a five-field cron expression. Optional field: timezone. Scheduled workflows cannot require interactive inputs.",
+            text: "Runs future slots from a five-field cron expression. timezone is an optional IANA timezone and defaults to UTC.",
           },
           {
             title: "recordEvent",
             icon: "ti-activity",
-            text: "Runs when a record is created, updated, or deleted. Use table or a record input; filters require one of them.",
+            text: "Runs when a record is created, updated, or deleted. Add an optional table restriction and optional server-side filter.",
+          },
+          {
+            title: "with bindings",
+            icon: "ti-arrows-exchange",
+            text: "Map trigger values into declared workflow inputs. Every required input must receive a compatible value before the automatic run can start.",
+          },
+          {
+            title: "Trigger values",
+            icon: "ti-braces",
+            text: "Schedules expose occurredAt and slot. Record events expose record, event, and occurredAt through the trigger root.",
           },
         ]}
       />
       <WorkflowSnippet
-        title="Triggers"
-        code={`triggers:
-  form: {}
-  api:
-    enabled: true
-  scanner:
-    input: item
-    resolve:
-      by: field
-      field: Label code
-  bulkSelection:
-    input: labels
-  dashboardButton:
-    label: Print labels
+        title="Scheduled workflow"
+        code={`inputs:
+  requestedAt:
+    type: dateTime
+    required: true
+triggers:
   schedule:
     cron: '0 9 * * 1-5'
     timezone: Europe/Berlin
+    with:
+      requestedAt: \${{ trigger.slot }}
+steps:
+  - succeed:
+      message: "Scheduled for \${{ inputs.requestedAt }}."`}
+      />
+      <WorkflowSnippet
+        title="Record-event workflow"
+        code={`inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+  eventAt:
+    type: dateTime
+    required: true
+triggers:
   recordEvent:
     event: updated
-    input: item`}
+    table: Items
+    with:
+      item: \${{ trigger.record }}
+      eventAt: \${{ trigger.occurredAt }}
+steps:
+  - updateRecord:
+      record: inputs.item
+      set:
+        Reviewed at: \${{ inputs.eventAt }}`}
       />
       <DocNote title="Required inputs">
-        Every active trigger must be able to provide every required input. Forms and APIs can provide all input types. A scanner provides
-        only its configured record input, bulk selection provides only its configured recordList input, and schedules or dashboard buttons
-        provide no required inputs.
+        Direct callers can provide every declared input. Launchers provide their configured binding plus any invocation inputs. Each
+        automatic trigger must use <DocInlineCode>with</DocInlineCode> to provide all required inputs from compatible trigger values.
+      </DocNote>
+    </DocSection>
+
+    <DocSection title="Launcher reference">
+      <DocRows
+        items={[
+          {
+            title: "Scanner",
+            icon: "ti-scan",
+            text: "Binds one record input. Resolve scanned text by a generated scan code or by a configured field that enforces unique values.",
+          },
+          {
+            title: "Bulk",
+            icon: "ti-list-check",
+            text: "Binds one recordList input from explicit record IDs or a row-shaped table query, with at most 10,000 records per run.",
+          },
+          {
+            title: "Dashboard",
+            icon: "ti-layout-dashboard",
+            text: "Exposes the workflow as a dashboard action and may persist input bindings such as a fixed reporting range.",
+          },
+          {
+            title: "Launcher lifecycle",
+            icon: "ti-refresh",
+            text: "Each launcher has its own name, enabled state, validated workflow revision, and diagnostics. Review launcher diagnostics when workflow inputs change.",
+          },
+        ]}
+      />
+      <DocNote title="Outside YAML" variant="info">
+        Launcher configuration is persisted with the workflow, not copied into its source. One workflow can therefore support multiple named
+        scanner, bulk, or dashboard surfaces without changing the executable definition.
       </DocNote>
     </DocSection>
 
@@ -1301,18 +1367,59 @@ steps:
       />
     </DocSection>
 
+    <DocSection title="Run modes and observability">
+      <DocRows
+        items={[
+          {
+            title: "execute",
+            icon: "ti-player-play",
+            text: "Runs the active revision and performs its record changes, durable intents, and external requests.",
+          },
+          {
+            title: "dryRun",
+            icon: "ti-eye",
+            text: "Plans the workflow, checks current references and permissions, and records predicted effects without applying changes or sending external requests.",
+          },
+          {
+            title: "Channels",
+            icon: "ti-direction-sign",
+            text: "Runs identify their source as manual, api, cli, dashboard, scanner, bulk, schedule, recordEvent, or agent.",
+          },
+          {
+            title: "Run statuses",
+            icon: "ti-progress-check",
+            text: "A run is queued, running, waiting, succeeded, failed, canceled, or needs_attention.",
+          },
+          {
+            title: "Step statuses",
+            icon: "ti-list-details",
+            text: "Step history uses the run states where applicable and can also show skipped, indeterminate, or unsupported planning outcomes.",
+          },
+          {
+            title: "Run detail",
+            icon: "ti-timeline-event",
+            text: "Inspect revision, channel, mode, input, start and finish times, duration, result message or structured error, each step outcome, and generated documents.",
+          },
+        ]}
+      />
+      <DocNote title="Dry runs are recorded">
+        A dry run is a normal observable run with mode <DocInlineCode>dryRun</DocInlineCode>. Review its predicted effects and step
+        outcomes; it does not prove that a later execute run will see unchanged records, permissions, or external systems.
+      </DocNote>
+    </DocSection>
+
     <DocSection title="Permissions and limits">
       <DocRows
         items={[
           {
             title: "Run permission",
             icon: "ti-lock",
-            text: "Starting a workflow requires write access to that workflow. Service account calls use the existing Cloud service-account pattern.",
+            text: "Direct calls and standalone launcher runs require workflow write access. Dashboard widget runs use included dashboard authorization; actions still check their target resources.",
           },
           {
-            title: "Interactive run identity",
+            title: "Caller run identity",
             icon: "ti-user-check",
-            text: "Forms, API requests, scanners, bulk selections, and dashboard buttons run as the user or service account that starts them, including that principal's current groups.",
+            text: "Direct manual, API, and CLI calls plus scanner, bulk, and dashboard launchers run as the user or service account that starts them, including that principal's current groups.",
           },
           {
             title: "Automatic run identity",
@@ -1345,17 +1452,12 @@ steps:
 
     <DocSection title="Scanner example">
       <WorkflowSnippet
+        title="Workflow YAML"
         code={`inputs:
   item:
     type: record
     table: Items
     required: true
-triggers:
-  scanner:
-    input: item
-    resolve:
-      by: field
-      field: Label code
 steps:
   - if:
       equals:
@@ -1373,17 +1475,19 @@ steps:
       - fail:
           message: "\${{ inputs.item.Name }} is not currently loaned out."`}
       />
+      <DocNote title="Saved launcher">
+        Add a scanner launcher for the <DocInlineCode>item</DocInlineCode> record input. Choose generated scan-code resolution or configure
+        a unique field such as <DocInlineCode>Label code</DocInlineCode>. The launcher remains outside this YAML.
+      </DocNote>
     </DocSection>
 
     <DocSection title="Bulk document example">
       <WorkflowSnippet
+        title="Workflow YAML"
         code={`inputs:
   items:
     type: recordList
     table: Items
-triggers:
-  bulkSelection:
-    input: items
 steps:
   - forEach: inputs.items
     as: item
@@ -1393,6 +1497,10 @@ steps:
           record: item
           batch: true`}
       />
+      <DocNote title="Saved launcher">
+        Add a bulk launcher for the <DocInlineCode>items</DocInlineCode> record-list input. The launcher can supply an explicit selection or
+        the current row-shaped query without adding a trigger to YAML.
+      </DocNote>
     </DocSection>
   </GridsDocPage>
 );
@@ -1410,7 +1518,7 @@ export const GridsOperationsTroubleshootingPage = () => (
           {
             title: "Workflows",
             icon: "ti-route",
-            text: "Run from scanners, bulk selections, record events, schedules, and dashboard buttons. Add filters so actions only run for relevant records.",
+            text: "Use direct invocation, saved scanner, bulk, or dashboard launchers, and automatic record events or schedules. Inspect run history before retrying failures.",
           },
           {
             title: "HTTP requests",

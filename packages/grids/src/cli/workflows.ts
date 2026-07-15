@@ -1,12 +1,13 @@
 import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import type { WorkflowInvocationReceipt } from "@valentinkolb/cloud/workflows";
+import type { DocumentRunSummaryList, EmailTemplate } from "../contracts";
 import {
-  type DocumentRunSummaryList,
-  type EmailTemplate,
+  type GridsWorkflowLauncher,
   WORKFLOW_REVISION_HEADER,
-  type Workflow,
+  type GridsWorkflow as Workflow,
   type WorkflowAutocompleteResponse,
-  type WorkflowRun,
-} from "../contracts";
+  type GridsWorkflowRun as WorkflowRun,
+} from "../workflows/contracts";
 import { documentRunRows } from "./documents-support";
 import { baseArgs, baseFlag, resolveBaseFromCommand } from "./resources";
 import {
@@ -31,24 +32,30 @@ import {
   emailTemplateRows,
   JSON_BODY_NAMED_INPUT,
   listEmailTemplates,
+  listWorkflowLaunchers,
   listWorkflows,
   resolveEmailTemplateFromCommand,
   resolveWorkflow,
   resolveWorkflowFromCommand,
-  WORKFLOW_BULK_QUERY_INPUT,
+  resolveWorkflowLauncherFromCommand,
+  WORKFLOW_INPUTS_INPUT,
+  WORKFLOW_LAUNCHER_BODY_INPUT,
   WORKFLOW_REFERENCE,
   WORKFLOW_SOURCE_INPUT,
-  WORKFLOW_TRIGGER_INPUT,
   type WorkflowEmailDeliveryListResponse,
   type WorkflowRunListResponse,
   type WorkflowStepRunListResponse,
   type WorkflowValidateResponse,
   workflowEmailRows,
   workflowFlag,
+  workflowLauncherFlag,
+  workflowLauncherRows,
   workflowRows,
   workflowRunRows,
   workflowStepRows,
 } from "./workflows-support";
+
+const prettyJson = (value: unknown): string => JSON.stringify(value, null, 2);
 
 export const emailTemplateCommands = [
   command("email-templates reference", {
@@ -197,8 +204,8 @@ export const emailTemplateCommands = [
 
 export const workflowCommands = [
   command("workflows reference", {
-    summary: "Show workflow YAML structure, triggers, steps, and examples",
-    description: "Use this before creating or updating workflows from an agent.",
+    summary: "Show workflow YAML, invocation, and launcher JSON reference",
+    description: "Use this before creating, invoking, or attaching launchers to workflows from an agent.",
     examples: ["cld grids workflows reference", "cld grids workflows reference --json"],
     async run({ ctx }) {
       printReference(
@@ -207,7 +214,8 @@ export const workflowCommands = [
         [
           "Workflows",
           "",
-          "Workflow name and description are UI fields. YAML only defines inputs, triggers, and steps.",
+          "Workflow name and description are resource fields. YAML defines inputs, optional automatic triggers, and steps.",
+          "Direct, scanner, bulk, and dashboard invocation are API/CLI operations, not YAML triggers.",
           "",
           "Top-level keys:",
           ...WORKFLOW_REFERENCE.yaml.topLevel.map((item) => `  ${item}`),
@@ -215,13 +223,35 @@ export const workflowCommands = [
           "Input types:",
           `  ${WORKFLOW_REFERENCE.yaml.inputTypes.join(", ")}`,
           "",
-          "Triggers:",
+          "Automatic triggers:",
           `  ${WORKFLOW_REFERENCE.yaml.triggers.join(", ")}`,
           "",
           "Steps:",
           ...WORKFLOW_REFERENCE.yaml.steps.map((item) => `  ${item}`),
           "",
-          "Example:",
+          "Direct invocation JSON:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.direct).replace(/\n/g, "\n  ")}`,
+          "",
+          "Launcher kinds and create JSON:",
+          "  scanner: maps scanned text to one record input by stable scan code or a unique field",
+          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.scanner).replace(/\n/g, "\n  ")}`,
+          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.scannerByField).replace(/\n/g, "\n  ")}`,
+          "  bulk: maps explicit recordIds or a Grids record query to one recordList input",
+          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.bulk).replace(/\n/g, "\n  ")}`,
+          "  dashboard: applies optional fixed inputBindings and accepts non-overlapping invocation inputs",
+          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.dashboard).replace(/\n/g, "\n  ")}`,
+          "",
+          "Launcher invocation JSON:",
+          "  scanner:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.scanner).replace(/\n/g, "\n  ")}`,
+          "  bulk with record IDs:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.bulkRecordIds).replace(/\n/g, "\n  ")}`,
+          "  bulk with query:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.bulkQuery).replace(/\n/g, "\n  ")}`,
+          "  dashboard:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.dashboard).replace(/\n/g, "\n  ")}`,
+          "",
+          "Workflow YAML example:",
           `  ${WORKFLOW_REFERENCE.example.replace(/\n/g, "\n  ")}`,
         ].join("\n"),
       );
@@ -385,69 +415,136 @@ export const workflowCommands = [
       );
     },
   }),
-  command("workflows trigger", {
-    summary: "Trigger a workflow manually",
+  command("workflows invoke", {
+    summary: "Invoke a workflow through the CLI channel",
+    description:
+      "Invokes one workflow directly. Inputs must be a JSON object. Idempotency keys are scoped to this workflow and CLI channel; reuse the key only for the same revision, mode, actor, and inputs.",
     args: baseArgs,
     flags: {
       ...baseFlag,
       ...workflowFlag,
-      mode: flag.enum(["api", "form", "dashboard-button", "bulk-selection", "scanner", "schedule"] as const, {
-        default: "api",
-        description: "Trigger mode",
+      mode: flag.enum(["execute", "dryRun"] as const, {
+        default: "execute",
+        description: "Execution mode",
       }),
-      input: WORKFLOW_TRIGGER_INPUT,
-      code: flag.string({ description: "Scanner code for scanner mode" }),
-      recordId: flag.stringList({ name: "record-id", description: "Record UUID for bulk-selection. Repeatable." }),
-      bulkInput: flag.string({ name: "bulk-input", description: "Workflow input name for bulk-selection" }),
-      query: WORKFLOW_BULK_QUERY_INPUT,
+      inputs: WORKFLOW_INPUTS_INPUT,
+      idempotencyKey: flag.string({
+        name: "idempotency-key",
+        required: true,
+        description: "Required stable key for this logical invocation",
+      }),
+      expectedRevision: flag.int({ name: "expected-revision", min: 1, description: "Reject unless this workflow revision is active" }),
     },
     examples: [
-      "cld grids workflows trigger Bookshop 'Send reminders' --input '{\"email\":\"ada@example.test\"}'",
-      "cld grids workflows trigger Bookshop 'Scan item' --mode scanner --code '<scan-code>'",
-      "cld grids workflows trigger Bookshop 'Print labels' --mode bulk-selection --bulk-input items --record-id <record-uuid>",
-      "cld grids workflows trigger Bookshop 'Nightly sync' --mode schedule",
+      "cld grids workflows invoke Bookshop 'Send reminders' --inputs '{\"email\":\"ada@example.test\"}' --idempotency-key reminder-2026-07-15",
+      "cld grids workflows invoke Bookshop 'Send reminders' --mode dryRun --inputs-file inputs.json --idempotency-key reminder-preview-42 --expected-revision 3",
     ],
     async run({ ctx, args, flags }) {
       const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
-      if (flags.mode === "schedule") {
-        const response = await readApi<MessageResponse>(
-          ctx,
-          `/workflows/${encodeURIComponent(workflow.id)}/run/schedule`,
-          jsonRequest("POST", {}),
-        );
-        printJsonOrMessage(ctx, response, response.message ?? "Scheduled workflow run requested.");
-        return;
-      }
-      if (flags.mode === "scanner") {
-        if (!flags.code) throw new Error("Missing scanner code. Pass --code.");
-        const run = await readApi<WorkflowRun>(
-          ctx,
-          `/workflows/${encodeURIComponent(workflow.id)}/run/scanner`,
-          jsonRequest("POST", { code: flags.code }),
-        );
-        printJsonOrMessage(ctx, run, `Queued workflow run ${run.id} (${run.status}).`);
-        return;
-      }
-      if (flags.mode === "bulk-selection") {
-        const query = await readJsonInput<Record<string, unknown>>(flags.query, "bulk record query JSON", false);
-        const recordIds = flags.recordId.length > 0 ? flags.recordId : undefined;
-        if ((recordIds === undefined) === (query === undefined)) throw new Error("Pass either --record-id or --query/--query-file.");
-        const run = await readApi<WorkflowRun>(
-          ctx,
-          `/workflows/${encodeURIComponent(workflow.id)}/run/bulk-selection`,
-          jsonRequest("POST", { input: flags.bulkInput, recordIds, query }),
-        );
-        printJsonOrMessage(ctx, run, `Queued workflow run ${run.id} (${run.status}).`);
-        return;
-      }
-      const input = (await readJsonInput<Record<string, unknown>>(flags.input, "workflow input JSON", false)) ?? {};
-      const endpoint = flags.mode === "dashboard-button" ? "dashboard-button" : flags.mode;
-      const run = await readApi<WorkflowRun>(
+      const inputs = (await readJsonInput<Record<string, unknown>>(flags.inputs, "workflow inputs JSON", false)) ?? {};
+      const receipt = await readApi<WorkflowInvocationReceipt>(
         ctx,
-        `/workflows/${encodeURIComponent(workflow.id)}/run/${endpoint}`,
-        jsonRequest("POST", { input }),
+        `/workflows/${encodeURIComponent(workflow.id)}/invoke/cli`,
+        jsonRequest("POST", {
+          mode: flags.mode,
+          inputs,
+          idempotencyKey: flags.idempotencyKey,
+          ...(flags.expectedRevision !== undefined ? { expectedRevision: flags.expectedRevision } : {}),
+        }),
       );
-      printJsonOrMessage(ctx, run, `Queued workflow run ${run.id} (${run.status}).`);
+      printJsonOrMessage(ctx, receipt, `${receipt.created ? "Created" : "Reused"} workflow run ${receipt.runId} (${receipt.status}).`);
+    },
+  }),
+  command("workflow-launchers list", {
+    summary: "List launchers attached to a workflow",
+    args: baseArgs,
+    flags: { ...baseFlag, ...workflowFlag },
+    async run({ ctx, args, flags }) {
+      const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
+      const payload = await listWorkflowLaunchers(ctx, workflow.id);
+      printJsonOrTable(ctx, payload, workflowLauncherRows(payload.items), [
+        { key: "shortId", label: "SHORT" },
+        { key: "name", label: "NAME" },
+        { key: "kind", label: "KIND" },
+        { key: "enabled", label: "ENABLED" },
+        { key: "revision", label: "REVISION" },
+        { key: "diagnostics", label: "DIAGNOSTICS" },
+        { key: "id", label: "ID" },
+      ]);
+    },
+  }),
+  command("workflow-launchers create", {
+    summary: "Create and validate a workflow launcher",
+    description:
+      'Pass one JSON object: scanner {"name":"Scan","config":{"kind":"scanner","input":"item","resolve":{"by":"scanCode"}},"enabled":true}; bulk {"name":"Bulk","config":{"kind":"bulk","input":"items"}}; dashboard {"name":"Run","config":{"kind":"dashboard","label":"Refresh","inputBindings":{"range":"30d"}}}. Run `cld grids workflows reference` for all shapes.',
+    args: baseArgs,
+    flags: { ...baseFlag, ...workflowFlag, body: WORKFLOW_LAUNCHER_BODY_INPUT },
+    examples: ["cld grids workflow-launchers create Bookshop 'Check in' --body-file launcher.json"],
+    async run({ ctx, args, flags }) {
+      const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
+      const body = await readJsonInput<Record<string, unknown>>(flags.body, "workflow launcher JSON", true);
+      const launcher = await readApi<GridsWorkflowLauncher>(
+        ctx,
+        `/workflows/${encodeURIComponent(workflow.id)}/launchers`,
+        jsonRequest("POST", body),
+      );
+      printJsonOrMessage(ctx, launcher, `Created ${launcher.config.kind} launcher ${launcher.name} (${launcher.shortId}).`);
+    },
+  }),
+  command("workflow-launchers update", {
+    summary: "Update and revalidate a workflow launcher",
+    description:
+      'Pass a partial create JSON object, for example {"name":"New label"}, {"enabled":false}, or {"config":{"kind":"bulk","input":"items"}}. Run `cld grids workflows reference` for config shapes.',
+    args: baseArgs,
+    flags: { ...baseFlag, ...workflowFlag, ...workflowLauncherFlag, body: WORKFLOW_LAUNCHER_BODY_INPUT },
+    examples: ["cld grids workflow-launchers update Bookshop 'Check in' Scanner --body '{\"enabled\":false}'"],
+    async run({ ctx, args, flags }) {
+      const { launcher } = await resolveWorkflowLauncherFromCommand(ctx, args.args, flags.workflow, flags.launcher);
+      const body = await readJsonInput<Record<string, unknown>>(flags.body, "workflow launcher update JSON", true);
+      const updated = await readApi<GridsWorkflowLauncher>(
+        ctx,
+        `/workflows/launchers/${encodeURIComponent(launcher.id)}`,
+        jsonRequest("PATCH", body),
+      );
+      printJsonOrMessage(ctx, updated, `Updated ${updated.config.kind} launcher ${updated.name} (${updated.shortId}).`);
+    },
+  }),
+  command("workflow-launchers delete", {
+    summary: "Delete a workflow launcher",
+    args: baseArgs,
+    flags: {
+      ...baseFlag,
+      ...workflowFlag,
+      ...workflowLauncherFlag,
+      yes: confirmFlag("Delete this workflow launcher"),
+    },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to delete.");
+      const { launcher } = await resolveWorkflowLauncherFromCommand(ctx, args.args, flags.workflow, flags.launcher);
+      await readApi<null>(ctx, `/workflows/launchers/${encodeURIComponent(launcher.id)}`, jsonRequest("DELETE"));
+      printJsonOrMessage(ctx, { deleted: launcher.id }, `Deleted workflow launcher ${launcher.name} (${launcher.shortId}).`);
+    },
+  }),
+  command("workflow-launchers invoke", {
+    summary: "Invoke a scanner, bulk, or dashboard launcher",
+    description:
+      'The saved launcher kind selects the endpoint. Pass the exact JSON body: scanner {"operationId":"scan-42","mode":"execute","expectedRevision":3,"scannedText":"gsc_opaque","inputs":{}}; bulk uses either "recordIds":[uuid,...] or "query":{...}; dashboard uses {"operationId":"dashboard-42","mode":"execute","expectedRevision":3,"inputs":{...}}. Run `cld grids workflows reference` for complete shapes.',
+    args: baseArgs,
+    flags: { ...baseFlag, ...workflowFlag, ...workflowLauncherFlag, body: WORKFLOW_LAUNCHER_BODY_INPUT },
+    examples: ["cld grids workflow-launchers invoke Bookshop 'Check in' Scanner --body-file invocation.json"],
+    async run({ ctx, args, flags }) {
+      const { launcher } = await resolveWorkflowLauncherFromCommand(ctx, args.args, flags.workflow, flags.launcher);
+      const body = await readJsonInput<Record<string, unknown>>(flags.body, "workflow launcher invocation JSON", true);
+      const receipt = await readApi<WorkflowInvocationReceipt>(
+        ctx,
+        `/workflows/launchers/${encodeURIComponent(launcher.id)}/invoke/${launcher.config.kind}`,
+        jsonRequest("POST", body),
+      );
+      printJsonOrMessage(
+        ctx,
+        receipt,
+        `${receipt.created ? "Created" : "Reused"} ${launcher.config.kind} workflow run ${receipt.runId} (${receipt.status}).`,
+      );
     },
   }),
 ];
@@ -459,7 +556,13 @@ export const workflowRunCommands = [
     flags: {
       ...baseFlag,
       ...workflowFlag,
-      status: flag.enum(["queued", "running", "succeeded", "failed", "canceled"] as const, { description: "Run status" }),
+      status: flag.enum(["queued", "running", "waiting", "succeeded", "failed", "canceled", "needs_attention"] as const, {
+        description: "Run status",
+      }),
+      channel: flag.enum(["manual", "api", "cli", "dashboard", "scanner", "bulk", "schedule", "recordEvent", "agent"] as const, {
+        description: "Invocation channel",
+      }),
+      mode: flag.enum(["execute", "dryRun"] as const, { description: "Execution mode" }),
       cursor: flag.string({ description: "Pagination cursor" }),
       limit: flag.int({ min: 1, max: 200, description: "Maximum runs" }),
     },
@@ -471,6 +574,8 @@ export const workflowRunCommands = [
         `/workflows/by-base/${encodeURIComponent(base.id)}/runs${queryString({
           workflowId: workflow?.id,
           status: flags.status,
+          channel: flags.channel,
+          mode: flags.mode,
           cursor: flags.cursor,
           limit: flags.limit,
         })}`,
@@ -478,7 +583,9 @@ export const workflowRunCommands = [
       printJsonOrTable(ctx, payload, workflowRunRows(payload.items), [
         { key: "id", label: "SHORT" },
         { key: "workflowId", label: "WORKFLOW" },
-        { key: "trigger", label: "TRIGGER" },
+        { key: "revision", label: "REVISION" },
+        { key: "channel", label: "CHANNEL" },
+        { key: "mode", label: "MODE" },
         { key: "status", label: "STATUS" },
         { key: "createdAt", label: "CREATED" },
         { key: "runId", label: "ID" },
@@ -495,8 +602,16 @@ export const workflowRunCommands = [
       else {
         ctx.print(`${run.id} (${run.status})`);
         ctx.print(`workflow: ${run.workflowId ?? "-"}`);
-        ctx.print(`trigger: ${run.triggerKind}`);
-        if (run.error) ctx.print(`error: ${run.error}`);
+        ctx.print(`launcher: ${run.launcherId ?? "-"}`);
+        ctx.print(`revision: ${run.workflowRevision}`);
+        ctx.print(`channel: ${run.channel}`);
+        ctx.print(`mode: ${run.mode}`);
+        if (run.resultMessage) ctx.print(`message: ${run.resultMessage}`);
+        if (run.error) {
+          ctx.print(`error: ${run.error.code}: ${run.error.message}`);
+          ctx.print(`retryable: ${run.error.retryable ? "yes" : "no"}`);
+          if (run.error.details) ctx.print(`details: ${JSON.stringify(run.error.details)}`);
+        }
       }
     },
   }),
@@ -506,12 +621,14 @@ export const workflowRunCommands = [
     async run({ ctx, args }) {
       const payload = await readApi<WorkflowStepRunListResponse>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}/steps`);
       printJsonOrTable(ctx, payload, workflowStepRows(payload.items), [
-        { key: "index", label: "#" },
+        { key: "key", label: "KEY" },
         { key: "path", label: "PATH" },
+        { key: "iteration", label: "ITERATION" },
         { key: "kind", label: "KIND" },
+        { key: "action", label: "ACTION" },
         { key: "status", label: "STATUS" },
-        { key: "durationMs", label: "MS" },
-        { key: "error", label: "ERROR" },
+        { key: "generation", label: "GENERATION" },
+        { key: "outcome", label: "OUTCOME" },
       ]);
     },
   }),

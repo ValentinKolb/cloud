@@ -9,31 +9,38 @@ import {
   SelectInput,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import type { WorkflowIrInput } from "@valentinkolb/cloud/workflows";
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
-import type { Workflow, WorkflowInput, WorkflowTriggerKind } from "../../../contracts";
-import type { Table } from "../../../service";
+import type { Table, Workflow } from "../../../service";
 import RecordPicker from "../records/RecordPicker";
 import { fetchRecordLookup } from "../records/record-lookup";
-import { triggerLabels } from "./workflow-display";
-import { buildWorkflowRunInput, type WorkflowRunInputDraft, type WorkflowRunInputDraftValue } from "./workflow-trigger-actions";
+import {
+  buildWorkflowRunInput,
+  type WorkflowRunInputDraft,
+  type WorkflowRunInputDraftValue,
+  workflowInputDescription,
+  workflowInputLabel,
+  workflowInputOptions,
+  workflowInputRequired,
+} from "./workflow-trigger-actions";
 
 type Props = {
   workflow: Workflow;
-  triggerKind: WorkflowTriggerKind;
   tables: Table[];
   close: (input?: Record<string, unknown>) => void;
 };
 
-const resolveInputTable = (input: WorkflowInput, tables: Table[]): Table | null => {
-  const reference = input.table?.trim().toLowerCase();
+const resolveInputTable = (workflow: Workflow, input: WorkflowIrInput, tables: Table[]): Table | null => {
+  const bound = workflow.plan.bindings[`inputs.${input.name}.table`];
+  const reference = (typeof bound === "string" ? bound : input.config.table)?.toString().trim().toLowerCase();
   if (!reference) return null;
   return tables.find((table) => [table.id, table.shortId, table.name].some((value) => value.toLowerCase() === reference)) ?? null;
 };
 
 function WorkflowRunInputDialog(props: Props) {
   const [draft, setDraft] = createSignal<WorkflowRunInputDraft>({});
-  const inputs = () => Object.entries(props.workflow.compiled.inputs ?? {});
-  const validation = createMemo(() => buildWorkflowRunInput(props.workflow.compiled.inputs ?? {}, draft()));
+  const inputs = () => props.workflow.plan.inputs;
+  const validation = createMemo(() => buildWorkflowRunInput(inputs(), draft()));
   const value = (name: string) => draft()[name];
   const setValue = (name: string, next: WorkflowRunInputDraftValue) => setDraft((current) => ({ ...current, [name]: next }));
   const errorFor = (name: string) => () => {
@@ -49,25 +56,28 @@ function WorkflowRunInputDialog(props: Props) {
     <PanelDialog>
       <PanelDialog.Header
         title={`Run ${props.workflow.name}`}
-        subtitle={`${triggerLabels[props.triggerKind] ?? props.triggerKind} input`}
+        subtitle="Provide the inputs for this run."
         icon="ti ti-player-play"
         close={() => props.close()}
       />
       <PanelDialog.Body>
         <div class="flex flex-col gap-3">
           <For each={inputs()}>
-            {([name, input]) => {
-              const label = input.label ?? name;
-              const table = resolveInputTable(input, props.tables);
+            {(input) => {
+              const name = input.name;
+              const label = workflowInputLabel(input);
+              const description = workflowInputDescription(input);
+              const required = workflowInputRequired(input);
+              const table = resolveInputTable(props.workflow, input, props.tables);
               return (
                 <Switch>
                   <Match when={input.type === "record" && table}>
                     <RecordPicker
                       tableId={table!.id}
                       label={label}
-                      description={input.description}
+                      description={description}
                       placeholder="Choose a record..."
-                      clearable={!input.required}
+                      clearable={!required}
                       value={() => (typeof value(name) === "string" ? (value(name) as string) : "")}
                       onChange={(recordId) => setValue(name, recordId)}
                     />
@@ -75,10 +85,10 @@ function WorkflowRunInputDialog(props: Props) {
                   <Match when={input.type === "recordList" && table}>
                     <MultiSelectInput
                       label={label}
-                      description={input.description}
+                      description={description}
                       placeholder="Choose records..."
-                      required={input.required}
-                      clearable={!input.required}
+                      required={required}
+                      clearable={!required}
                       value={() => (Array.isArray(value(name)) ? (value(name) as string[]) : [])}
                       onChange={(recordIds) => setValue(name, recordIds)}
                       fetchData={async (query, signal) =>
@@ -96,8 +106,8 @@ function WorkflowRunInputDialog(props: Props) {
                   <Match when={input.type === "number"}>
                     <NumberInput
                       label={label}
-                      description={input.description}
-                      required={input.required}
+                      description={description}
+                      required={required}
                       decimalPlaces={10}
                       value={() => (typeof value(name) === "number" ? (value(name) as number) : null)}
                       onInput={(next) => setValue(name, next)}
@@ -107,9 +117,9 @@ function WorkflowRunInputDialog(props: Props) {
                   <Match when={input.type === "boolean"}>
                     <SelectInput
                       label={label}
-                      description={input.description}
-                      required={input.required}
-                      clearable={!input.required}
+                      description={description}
+                      required={required}
+                      clearable={!required}
                       options={[
                         { id: "true", label: "Yes" },
                         { id: "false", label: "No" },
@@ -122,9 +132,9 @@ function WorkflowRunInputDialog(props: Props) {
                   <Match when={input.type === "date"}>
                     <DatePicker
                       label={label}
-                      description={input.description}
-                      required={input.required}
-                      clearable={!input.required}
+                      description={description}
+                      required={required}
+                      clearable={!required}
                       value={() => (typeof value(name) === "string" ? (value(name) as string) : null)}
                       onChange={(next) => setValue(name, next)}
                       error={errorFor(name)}
@@ -133,9 +143,9 @@ function WorkflowRunInputDialog(props: Props) {
                   <Match when={input.type === "dateTime"}>
                     <DateTimePicker
                       label={label}
-                      description={input.description}
-                      required={input.required}
-                      clearable={!input.required}
+                      description={description}
+                      required={required}
+                      clearable={!required}
                       value={() => (typeof value(name) === "string" ? (value(name) as string) : null)}
                       onChange={(next) => setValue(name, next)}
                       error={errorFor(name)}
@@ -144,10 +154,10 @@ function WorkflowRunInputDialog(props: Props) {
                   <Match when={input.type === "select"}>
                     <SelectInput
                       label={label}
-                      description={input.description}
-                      required={input.required}
-                      clearable={!input.required}
-                      options={input.options ?? []}
+                      description={description}
+                      required={required}
+                      clearable={!required}
+                      options={workflowInputOptions(input)}
                       value={() => (typeof value(name) === "string" ? (value(name) as string) : "")}
                       onChange={(next) => setValue(name, next)}
                       error={errorFor(name)}
@@ -156,9 +166,9 @@ function WorkflowRunInputDialog(props: Props) {
                   <Match when={input.type === "text"}>
                     <TextInput
                       label={label}
-                      description={input.description}
-                      required={input.required}
-                      clearable={!input.required}
+                      description={description}
+                      required={required}
+                      clearable={!required}
                       value={() => (typeof value(name) === "string" ? (value(name) as string) : "")}
                       onInput={(next) => setValue(name, next)}
                       error={errorFor(name)}
@@ -190,9 +200,8 @@ function WorkflowRunInputDialog(props: Props) {
 
 export const requestWorkflowRunInput = async (args: {
   workflow: Workflow;
-  triggerKind: WorkflowTriggerKind;
   tables: Table[];
 }): Promise<Record<string, unknown> | undefined> => {
-  if (Object.keys(args.workflow.compiled.inputs ?? {}).length === 0) return {};
+  if (args.workflow.plan.inputs.length === 0) return {};
   return dialogCore.open<Record<string, unknown>>((close) => <WorkflowRunInputDialog {...args} close={close} />, panelDialogOptions);
 };

@@ -7,7 +7,7 @@ describe("dashboard widget contracts", () => {
       id: "w_workflow",
       kind: "workflow-button",
       span: 4,
-      workflowId: "11111111-1111-4111-8111-111111111111",
+      launcherId: "11111111-1111-4111-8111-111111111111",
       title: "Run invoice sync",
       description: "Runs the configured invoice workflow.",
       buttonLabel: "Run sync",
@@ -17,6 +17,7 @@ describe("dashboard widget contracts", () => {
     if (!parsed.success) throw new Error(parsed.error.message);
     expect(parsed.data.kind).toBe("workflow-button");
     if (parsed.data.kind !== "workflow-button") throw new Error("expected workflow button widget");
+    expect(parsed.data.launcherId).toBe("11111111-1111-4111-8111-111111111111");
     expect(parsed.data.buttonLabel).toBe("Run sync");
   });
 

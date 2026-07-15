@@ -30,6 +30,12 @@ type Props = {
   initialState: Extract<GridsWorkspaceState, { kind: "ok" }>;
 };
 
+type WorkspaceRouteApi = {
+  route: { $get: (input: { query: { href: string } }) => Promise<Response> };
+};
+
+const workspaceRouteApi = apiClient.workspace as unknown as WorkspaceRouteApi;
+
 const permissionRank = { none: 0, read: 1, write: 2, admin: 3 } as const;
 
 const hasAtLeast = (level: keyof typeof permissionRank, required: keyof typeof permissionRank) =>
@@ -83,9 +89,9 @@ export default function GridsWorkspace(props: Props) {
   let renderedWorkspacePathname: string | null = null;
 
   const loadWorkspaceState = async (href: string) => {
-    const res = await apiClient.workspace.route.$get({ query: { href } });
+    const res = await workspaceRouteApi.route.$get({ query: { href } });
     if (!res.ok) throw new Error("Could not load route");
-    const next = await res.json();
+    const next = (await res.json()) as GridsWorkspaceState;
     if (next.kind !== "ok") throw new Error("Could not load route");
     return next;
   };
@@ -229,7 +235,7 @@ export default function GridsWorkspace(props: Props) {
       groupedExplode={route.groupedExplode}
       activeRecordQuery={route.activeRecordQuery}
       displayConfig={route.displayConfig}
-      bulkSelectionWorkflows={route.bulkSelectionWorkflows}
+      bulkSelectionLaunchers={route.bulkSelectionLaunchers}
       dateConfig={state().dateConfig}
       workspaceRouteKey={routeKey()}
     />

@@ -44,6 +44,8 @@ export default function WorkflowButtonWidget(props: Props) {
                 state={
                   {
                     baseShortId: props.baseShortId,
+                    launcherId: d.launcherId,
+                    expectedRevision: d.expectedRevision,
                     workflowId: d.workflowId,
                     dashboardId: props.dashboardId,
                     dashboardWidgetId: props.widget.id,

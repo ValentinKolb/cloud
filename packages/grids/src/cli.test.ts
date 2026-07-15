@@ -12,7 +12,7 @@ import { recordCommands, snapshotCommands } from "./cli/records";
 import { fieldCommands, tableCommands } from "./cli/schema";
 import { formulaCommands, gqlCommands, viewCommands } from "./cli/views-gql";
 import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflowRunCommands } from "./cli/workflows";
-import { WORKFLOW_REVISION_HEADER } from "./contracts";
+import { WORKFLOW_REVISION_HEADER } from "./workflows/contracts";
 
 const commandGroups = [
   baseCrudCommands,
@@ -256,11 +256,24 @@ const workflow = {
   baseId,
   name: "Send reminder",
   description: null,
-  source: "triggers:\n  api: {}\nsteps:\n  - setVariable:\n      name: ok\n      value: true",
-  compiled: { triggers: { api: {} }, steps: [{ setVariable: { name: "ok", value: true } }] },
+  source: "steps:\n  - setVariable:\n      name: ok\n      value: true",
+  plan: {
+    schemaVersion: 1,
+    languageId: "grids",
+    languageVersion: 1,
+    sourceHash: "source",
+    manifestHash: "manifest",
+    catalogHash: "catalog",
+    inputs: [],
+    triggers: [],
+    steps: [],
+    bindings: {},
+  },
+  diagnostics: [],
   enabled: true,
   position: 0,
   revision: 1,
+  recordEventActiveSince: null,
   ownerUserId: null,
   deletedAt: null,
   createdAt: "2026-07-07T00:00:00.000Z",
@@ -270,14 +283,18 @@ const workflow = {
 const workflowRun = {
   id: runId,
   workflowId,
+  launcherId: null,
   baseId,
+  workflowRevision: 1,
+  mode: "execute",
+  channel: "cli",
   actorUserId: null,
   serviceAccountId: null,
-  triggerKind: "api",
-  triggerInput: {},
-  resolvedInput: {},
+  inputs: {},
   status: "succeeded",
+  result: null,
   error: null,
+  resultMessage: null,
   createdAt: "2026-07-07T00:00:00.000Z",
   startedAt: "2026-07-07T00:00:00.000Z",
   finishedAt: "2026-07-07T00:00:01.000Z",
@@ -352,7 +369,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(120);
+    expect(commands).toHaveLength(125);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -693,7 +710,7 @@ describe("grids CLI", () => {
       fields: expect.objectContaining({ html: "Liquid HTML email body. There is no plain-text fallback field." }),
     });
     expect(workflows.jsonValues[0]).toMatchObject({
-      yaml: expect.objectContaining({ triggers: expect.arrayContaining(["api", "scanner", "bulkSelection"]) }),
+      yaml: expect.objectContaining({ triggers: ["schedule", "recordEvent"] }),
       values: expect.objectContaining({
         dynamic: expect.stringContaining("${{ inputs.name }}"),
         dedicatedReferences: expect.stringContaining("record: inputs.item"),
@@ -1174,7 +1191,7 @@ describe("grids CLI", () => {
   test("validates workflow YAML through the backend", async () => {
     const { ctx, calls, lines } = createContext(["workflows", "validate", baseId], { source: workflow.source }, [
       jsonResponse(base),
-      jsonResponse({ ok: true, definition: workflow.compiled }),
+      jsonResponse({ ok: true, plan: workflow.plan }),
     ]);
 
     const exitCode = await gridsCli.run(ctx);
@@ -1233,11 +1250,15 @@ describe("grids CLI", () => {
     await expect(gridsCli.run(ctx)).rejects.toThrow("Workflow does not belong to the selected base.");
   });
 
-  test("triggers workflows with JSON input", async () => {
+  test("invokes workflows with JSON inputs", async () => {
     const { ctx, calls, lines } = createContext(
-      ["workflows", "trigger", baseId, "Send reminder"],
-      { input: JSON.stringify({ recordId }) },
-      [jsonResponse(base), jsonResponse([workflow]), jsonResponse(workflowRun)],
+      ["workflows", "invoke", baseId, "Send reminder"],
+      { inputs: JSON.stringify({ recordId }), "idempotency-key": "reminder-1" },
+      [
+        jsonResponse(base),
+        jsonResponse([workflow]),
+        jsonResponse({ runId, workflowId, revision: 1, mode: "execute", channel: "cli", created: true, status: "queued" }),
+      ],
     );
 
     await gridsCli.run(ctx);
@@ -1245,49 +1266,53 @@ describe("grids CLI", () => {
     expect(calls.map((call) => call.path)).toEqual([
       `/api/grids/bases/${baseId}`,
       `/api/grids/workflows/by-base/${baseId}`,
-      `/api/grids/workflows/${workflowId}/run/api`,
+      `/api/grids/workflows/${workflowId}/invoke/cli`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ input: { recordId } });
-    expect(lines).toEqual([`Queued workflow run ${runId} (succeeded).`]);
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ mode: "execute", inputs: { recordId }, idempotencyKey: "reminder-1" });
+    expect(lines).toEqual([`Created workflow run ${runId} (queued).`]);
   });
 
-  test("triggers scheduled workflows through the scheduler endpoint", async () => {
+  test("manually invokes scheduled workflows through the same CLI endpoint", async () => {
     const scheduledWorkflow = {
       ...workflow,
       source: 'triggers:\n  schedule:\n    cron: "0 8 * * *"\nsteps:\n  - setVariable:\n      name: ok\n      value: true',
-      compiled: { triggers: { schedule: { cron: "0 8 * * *" } }, steps: [{ setVariable: { name: "ok", value: true } }] },
     };
-    const { ctx, calls, lines } = createContext(["workflows", "trigger", baseId, "Send reminder"], { mode: "schedule" }, [
-      jsonResponse(base),
-      jsonResponse([scheduledWorkflow]),
-      jsonResponse({ message: "Scheduled workflow run requested." }),
-    ]);
+    const { ctx, calls, lines } = createContext(
+      ["workflows", "invoke", baseId, "Send reminder"],
+      { "idempotency-key": "scheduled-manual-1" },
+      [
+        jsonResponse(base),
+        jsonResponse([scheduledWorkflow]),
+        jsonResponse({ runId, workflowId, revision: 1, mode: "execute", channel: "cli", created: true, status: "queued" }),
+      ],
+    );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
       `/api/grids/bases/${baseId}`,
       `/api/grids/workflows/by-base/${baseId}`,
-      `/api/grids/workflows/${workflowId}/run/schedule`,
+      `/api/grids/workflows/${workflowId}/invoke/cli`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({});
-    expect(lines).toEqual(["Scheduled workflow run requested."]);
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ mode: "execute", inputs: {}, idempotencyKey: "scheduled-manual-1" });
+    expect(lines).toEqual([`Created workflow run ${runId} (queued).`]);
   });
 
   test("lists workflow run steps", async () => {
     const step = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       runId,
-      stepIndex: 0,
-      stepPath: "0",
-      kind: "setVariable",
+      key: "steps.0",
+      sourcePath: ["steps", 0],
+      iterationPath: [],
+      kind: "action",
+      action: "setVariable",
+      mode: "execute",
       status: "succeeded",
-      input: null,
-      output: { ok: true },
-      error: null,
-      durationMs: 12,
+      outcome: { state: "completed", output: { ok: true } },
+      executionGeneration: 1,
       startedAt: "2026-07-07T00:00:00.000Z",
       finishedAt: "2026-07-07T00:00:01.000Z",
     };
@@ -1296,7 +1321,18 @@ describe("grids CLI", () => {
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([`/api/grids/workflows/runs/${runId}/steps`]);
-    expect(tables[0]).toEqual([{ index: 0, path: "0", kind: "setVariable", status: "succeeded", durationMs: 12, error: "" }]);
+    expect(tables[0]).toEqual([
+      {
+        key: "steps.0",
+        path: "steps.0",
+        iteration: "",
+        kind: "action",
+        action: "setVariable",
+        status: "succeeded",
+        generation: 1,
+        outcome: '{"state":"completed","output":{"ok":true}}',
+      },
+    ]);
   });
 
   test("requires confirmation before deleting workflow email templates", async () => {

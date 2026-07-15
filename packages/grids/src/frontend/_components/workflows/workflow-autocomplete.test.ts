@@ -22,7 +22,7 @@ describe("backend workflow autocomplete adapter", () => {
 
   test("asks the backend with full YAML source and caret", async () => {
     const seen: WorkflowAutocompleteRequest[] = [];
-    const diagnostics = [{ message: "define at least one trigger" }];
+    const diagnostics = [{ code: "workflow.steps", message: "define at least one step", severity: "error" as const, path: ["steps"] }];
     const completions = buildBackendWorkflowCompletions({
       fetchAutocomplete: async (request) => {
         seen.push(request);

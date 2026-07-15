@@ -3,7 +3,7 @@ import { coreSettings } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { CreateDocumentLinkInput, DocumentLink, DocumentLinkTtl, DocumentRun } from "../contracts";
-import { logAudit } from "./audit";
+import { logAudit, type SqlClient } from "./audit";
 import { type DocumentDbRow, mapDocumentLink, mapDocumentRun } from "./document-mappers";
 
 const DOCUMENT_LINK_TOKEN_PREFIX = "gdl_";
@@ -76,11 +76,12 @@ export const createDocumentLink = async (params: {
   actorId: string | null;
   ip?: string | null;
   userAgent?: string | null;
+  client?: SqlClient;
 }): Promise<Result<{ link: DocumentLink; token: string }>> => {
   const token = generateDocumentLinkToken();
   const expiresAt = documentLinkExpiresAt(params.input.expiresIn);
   const comment = normalizeDocumentLinkComment(params.input.comment);
-  return sql.begin(async (tx) => {
+  const create = async (tx: SqlClient): Promise<Result<{ link: DocumentLink; token: string }>> => {
     const [row] = await tx<DocumentDbRow[]>`
       INSERT INTO grids.document_links (
         document_run_id, base_id, table_id, record_id, token_hash, comment, created_by, expires_at
@@ -118,7 +119,8 @@ export const createDocumentLink = async (params: {
       tx,
     );
     return ok({ link, token });
-  });
+  };
+  return params.client ? create(params.client) : sql.begin(create);
 };
 
 export const revokeDocumentLink = async (params: {

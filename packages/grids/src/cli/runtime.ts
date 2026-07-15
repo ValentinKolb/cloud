@@ -1,7 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import type { CliInputFlagValue, CloudCliContext } from "@valentinkolb/cloud/cli";
 import { flag, readCliInput } from "@valentinkolb/cloud/cli";
-import type { DslQueryAutocompleteResponse, WorkflowAutocompleteResponse } from "../contracts";
+import type { DslQueryAutocompleteResponse } from "../contracts";
+import type { WorkflowAutocompleteResponse } from "../workflows/contracts";
 
 export type MessageResponse = { message?: string };
 

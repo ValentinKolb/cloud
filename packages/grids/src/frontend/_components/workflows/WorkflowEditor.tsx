@@ -3,11 +3,33 @@ import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import { type DslQueryPreviewDiagnostic, WORKFLOW_REVISION_HEADER, type Workflow } from "../../../contracts";
-import type { Table } from "../../../service";
+import type { DslQueryPreviewDiagnostic } from "../../../contracts";
+import type { Table, Workflow } from "../../../service";
+import { WORKFLOW_REVISION_HEADER, type WorkflowAutocompleteResponse } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { buildBackendWorkflowCompletions } from "./workflow-autocomplete";
 import { type WorkflowEditorDraft, workflowEditorDraft, workflowEditorDraftDirty } from "./workflow-editor-draft";
+
+type WorkflowEditorApi = {
+  "by-base": {
+    ":baseId": {
+      autocomplete: {
+        $post: (
+          input: { param: { baseId: string }; json: { source: string; caret: number } },
+          options?: { init?: RequestInit },
+        ) => Promise<Response>;
+      };
+      $post: (input: { param: { baseId: string }; json: unknown }, options?: { init?: RequestInit }) => Promise<Response>;
+    };
+  };
+  ":workflowId": {
+    $get: (input: { param: { workflowId: string } }) => Promise<Response>;
+    $patch: (input: { param: { workflowId: string }; json: unknown }, options?: { init?: RequestInit }) => Promise<Response>;
+    $delete: (input: { param: { workflowId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
+  };
+};
+
+const workflowEditorApi = apiClient.workflows as unknown as WorkflowEditorApi;
 
 type WorkflowEditorProps = {
   baseId: string;
@@ -32,7 +54,7 @@ const workflowHighlight = highlight.compile(
     {
       kind: "keyword",
       match:
-        /\b(?:inputs|triggers|steps|type|table|required|options|form|api|scanner|bulkSelection|dashboardButton|schedule|recordEvent|enabled|input|resolve|by|field|event|cron|timezone|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|switch|cases|default|forEach|as|do|record|recordList|text|number|boolean|date|dateTime|select|method|url|headers|json|timeoutMs|saveAs|set|values|template|document|expiresIn|comment|to|email|user|data|batch|filename|tags|message|name|description)\b/,
+        /\b(?:inputs|triggers|steps|type|table|required|options|schedule|recordEvent|with|field|event|cron|timezone|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|switch|cases|default|forEach|as|do|record|recordList|text|number|boolean|date|dateTime|select|method|url|headers|json|timeoutMs|saveAs|set|values|template|document|expiresIn|comment|to|email|user|data|batch|filename|tags|message|name|description)\b/,
     },
     { kind: "function", match: /\bnow\(\)/ },
     { kind: "placeholder", match: /\binputs\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_ -]+)?\b/ },
@@ -54,9 +76,7 @@ const yamlString = (value: string): string => JSON.stringify(value);
 
 const defaultSource = (
   table?: Table,
-) => `${table ? `inputs:\n  record:\n    type: record\n    table: ${yamlString(table.name)}\n` : ""}triggers:
-  form: {}
-steps:
+) => `${table ? `inputs:\n  record:\n    type: record\n    table: ${yamlString(table.name)}\n` : ""}steps:
   - setVariable:
       name: ranAt
       value: \${{ now() }}
@@ -118,12 +138,12 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   };
 
   const fetchAutocomplete = async (request: { source: string; caret: number }, signal: AbortSignal) => {
-    const response = await apiClient.workflows["by-base"][":baseId"].autocomplete.$post(
+    const response = await workflowEditorApi["by-base"][":baseId"].autocomplete.$post(
       { param: { baseId: props.baseId }, json: request },
       { init: { signal } },
     );
     if (!response.ok) throw new Error(await errorMessage(response, "Could not load workflow suggestions."));
-    return response.json();
+    return (await response.json()) as WorkflowAutocompleteResponse;
   };
 
   const completions = createMemo(() =>
@@ -176,9 +196,9 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
 
   const reloadWorkflow = async () => {
     if (!props.workflow) return;
-    const response = await apiClient.workflows[":workflowId"].$get({ param: { workflowId: props.workflow.id } });
+    const response = await workflowEditorApi[":workflowId"].$get({ param: { workflowId: props.workflow.id } });
     if (!response.ok) throw new Error(await errorMessage(response, "Could not reload workflow."));
-    const latest = await response.json();
+    const latest = (await response.json()) as Workflow;
     replaceDraft(workflowEditorDraft(latest, defaultSource(props.tables[0])));
     props.onSaved();
     toast.success("Loaded the latest workflow version");
@@ -215,17 +235,17 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
       };
       if (!payload.name) throw new Error("Name is required.");
       const res = props.workflow
-        ? await apiClient.workflows[":workflowId"].$patch(
+        ? await workflowEditorApi[":workflowId"].$patch(
             { param: { workflowId: props.workflow.id }, json: payload },
             { init: { signal: abortSignal, headers: { [WORKFLOW_REVISION_HEADER]: String(revision()) } } },
           )
-        : await apiClient.workflows["by-base"][":baseId"].$post(
+        : await workflowEditorApi["by-base"][":baseId"].$post(
             { param: { baseId: props.baseId }, json: payload },
             { init: { signal: abortSignal } },
           );
       if (res.status === 409) throw new WorkflowConflictError();
       if (!res.ok) throw new Error(await errorMessage(res, "Could not save workflow."));
-      return res.json();
+      return (await res.json()) as Workflow;
     },
     onSuccess: (saved) => {
       toast.success(`Saved "${saved.name}"`);
@@ -244,10 +264,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
         variant: "danger",
       });
       if (!confirmed) return { deleted: false };
-      const res = await apiClient.workflows[":workflowId"].$delete(
-        { param: { workflowId: workflow.id } },
-        { init: { signal: abortSignal } },
-      );
+      const res = await workflowEditorApi[":workflowId"].$delete({ param: { workflowId: workflow.id } }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not delete workflow."));
       return { deleted: true };
     },

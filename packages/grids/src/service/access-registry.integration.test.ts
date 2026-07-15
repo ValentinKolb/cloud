@@ -56,8 +56,15 @@ const insertFixture = async (item: Fixture) => {
     VALUES (${item.dashboardId}::uuid, ${shortId("A")}, ${item.baseId}::uuid, 'Operations')
   `;
   await sql`
-    INSERT INTO grids.workflows (id, short_id, base_id, name, source)
-    VALUES (${item.workflowId}::uuid, ${shortId("W")}, ${item.baseId}::uuid, 'Check in', 'steps: []')
+    INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan)
+    VALUES (
+      ${item.workflowId}::uuid,
+      ${shortId("W")},
+      ${item.baseId}::uuid,
+      'Check in',
+      'steps: []',
+      '{"inputs":[],"triggers":[],"steps":[],"bindings":{}}'::jsonb
+    )
   `;
 };
 

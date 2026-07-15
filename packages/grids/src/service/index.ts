@@ -20,8 +20,27 @@ import * as relationsModule from "./relations";
 import * as tables from "./tables";
 import * as templates from "./templates";
 import * as views from "./views";
-import { workflowTriggerRuntime } from "./workflow-trigger-runtime";
-import * as workflows from "./workflows";
+import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "./workflow-kernel-launchers";
+import { getWorkflowRun } from "./workflow-kernel-runs";
+import {
+  invokeGridsWorkflow,
+  reconcileWorkflowKernelRuntime,
+  startWorkflowKernelRuntime,
+  stopWorkflowKernelRuntime,
+} from "./workflow-kernel-runtime";
+import {
+  createWorkflow,
+  getWorkflow,
+  getWorkflowByIdOrShortId,
+  listRecordEventBaseIds,
+  listRecordEventWorkflows,
+  listScheduledWorkflows,
+  listWorkflows,
+  removeWorkflow,
+  updateWorkflow,
+  validateWorkflowSource,
+} from "./workflow-kernel-store";
+import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "./workflow-launchers";
 
 export const gridsService = {
   base: {
@@ -206,29 +225,35 @@ export const gridsService = {
     remove: files.remove,
   },
   workflow: {
-    listForBase: workflows.listForBase,
-    listEnabledForBase: workflows.listEnabledForBase,
-    listScheduledEnabled: workflows.listScheduledEnabled,
-    listRecordEventEnabled: workflows.listRecordEventEnabled,
-    get: workflows.get,
-    getByShortId: workflows.getByShortId,
-    getByIdOrShortId: workflows.getByIdOrShortId,
-    create: workflows.create,
-    update: workflows.update,
-    remove: workflows.remove,
-    listRuns: workflows.listRuns,
-    listRunsPage: workflows.listRunsPage,
-    listEmailDeliveriesPage: workflows.listEmailDeliveriesPage,
-    runStats: workflows.runStats,
-    getRun: workflows.getWorkflowRun,
-    getRunScope: workflows.getWorkflowRunScope,
-    listStepRuns: workflows.listStepRuns,
-    getOrCreateRecordScanCode: workflows.getOrCreateRecordScanCode,
-    ensureRecordScanCode: workflows.ensureRecordScanCode,
-    getRecordScanCode: workflows.getRecordScanCode,
-    recordMatchesWorkflowFilter: workflows.recordMatchesWorkflowFilter,
+    listForBase: listWorkflows,
+    listEnabledForBase: (baseId: string) => listWorkflows(baseId, true),
+    listScheduledEnabled: listScheduledWorkflows,
+    listRecordEventBaseIds,
+    listRecordEventEnabled: listRecordEventWorkflows,
+    get: getWorkflow,
+    getByIdOrShortId: getWorkflowByIdOrShortId,
+    create: createWorkflow,
+    update: updateWorkflow,
+    remove: removeWorkflow,
+    validate: validateWorkflowSource,
+    getRun: getWorkflowRun,
+    invoke: invokeGridsWorkflow,
+    launcher: {
+      get: getLauncher,
+      list: listLaunchers,
+      create: createLauncher,
+      update: updateLauncher,
+      remove: removeLauncher,
+      invokeScanner: invokeScannerLauncher,
+      invokeBulk: invokeBulkLauncher,
+      invokeDashboard: invokeDashboardLauncher,
+    },
+    runtime: {
+      start: startWorkflowKernelRuntime,
+      stop: stopWorkflowKernelRuntime,
+      reconcile: reconcileWorkflowKernelRuntime,
+    },
   },
-  workflowTriggerRuntime,
   template: {
     list: templates.list,
     get: templates.get,
@@ -268,9 +293,9 @@ export type {
   ViewWidget,
   Widget,
   WidgetFormat,
-  Workflow,
   WorkflowButtonWidget,
 } from "../contracts";
+export type { GridsWorkflow as Workflow, GridsWorkflowRun as WorkflowRun } from "../workflows/contracts";
 export type { Form, FormFieldEntry } from "./forms";
 export type { Grant, ResolveTarget, ResourceType } from "./permission-resolver";
 export type {

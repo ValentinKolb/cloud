@@ -1,159 +1,161 @@
-import { ErrorResponseSchema, MessageResponseSchema } from "@valentinkolb/cloud/contracts";
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { WorkflowRunSchema } from "../contracts";
-import { gridsService } from "../service";
-import { gateAt } from "./permissions";
-import { WorkflowBulkRunSchema, WorkflowGenericRunSchema, WorkflowScannerRunSchema, workflowActor } from "./workflow-api-shared";
+import type { z } from "zod";
+import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-kernel-launchers";
+import { invokeGridsWorkflow } from "../service/workflow-kernel-runtime";
+import { GridsWorkflowInvocationRequestSchema, WorkflowInvocationReceiptSchema } from "../workflows/contracts";
+import {
+  BulkLauncherRequestSchema,
+  DashboardLauncherRequestSchema,
+  ScannerLauncherRequestSchema,
+  workflowPrincipal,
+} from "./workflow-api-shared";
 
-export const createWorkflowTriggerRoutes = (workflowTriggerRuntime: typeof gridsService.workflowTriggerRuntime) =>
+type DirectInvocation = z.infer<typeof GridsWorkflowInvocationRequestSchema>;
+
+const invokeDirect = (
+  workflowId: string,
+  channel: "api" | "manual" | "cli",
+  body: DirectInvocation,
+  principal: ReturnType<typeof workflowPrincipal>,
+) =>
+  invokeGridsWorkflow({
+    workflowId,
+    mode: body.mode,
+    channel,
+    inputs: body.inputs,
+    idempotencyKey: body.idempotencyKey,
+    expectedRevision: body.expectedRevision,
+    principal,
+  });
+
+export const createWorkflowTriggerRoutes = () =>
   new Hono<AuthContext>()
     .post(
-      "/:workflowId/run/form",
+      "/:workflowId/invoke",
       describeRoute({
         tags: ["Grids:Workflow"],
-        summary: "Run a workflow from form input",
+        summary: "Invoke a workflow from the external API",
         responses: {
-          200: jsonResponse(WorkflowRunSchema, "Run"),
-          400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
+          409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
         },
       }),
-      v("json", WorkflowGenericRunSchema),
-      async (c) =>
-        respond(c, () =>
-          workflowTriggerRuntime.queueDirectRun({
-            workflowId: c.req.param("workflowId")!,
-            triggerKind: "form",
-            triggerInput: c.req.valid("json").input,
-            ...workflowActor(c),
-          }),
-        ),
-    )
-
-    .post(
-      "/:workflowId/run/api",
-      describeRoute({
-        tags: ["Grids:Workflow"],
-        summary: "Run a workflow from API input",
-        responses: {
-          200: jsonResponse(WorkflowRunSchema, "Run"),
-          400: jsonResponse(ErrorResponseSchema, "Invalid input"),
-          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
-          404: jsonResponse(ErrorResponseSchema, "Not found"),
-        },
-      }),
-      v("json", WorkflowGenericRunSchema),
-      async (c) =>
-        respond(c, () =>
-          workflowTriggerRuntime.queueDirectRun({
-            workflowId: c.req.param("workflowId")!,
-            triggerKind: "api",
-            triggerInput: c.req.valid("json").input,
-            ...workflowActor(c),
-          }),
-        ),
-    )
-
-    .post(
-      "/:workflowId/run/dashboard-button",
-      describeRoute({
-        tags: ["Grids:Workflow"],
-        summary: "Run a workflow from a dashboard button",
-        responses: {
-          200: jsonResponse(WorkflowRunSchema, "Run"),
-          400: jsonResponse(ErrorResponseSchema, "Invalid input"),
-          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
-          404: jsonResponse(ErrorResponseSchema, "Not found"),
-        },
-      }),
-      v("json", WorkflowGenericRunSchema),
-      async (c) =>
-        respond(c, () =>
-          workflowTriggerRuntime.queueDirectRun({
-            workflowId: c.req.param("workflowId")!,
-            triggerKind: "dashboardButton",
-            triggerInput: c.req.valid("json").input,
-            ...workflowActor(c),
-          }),
-        ),
-    )
-
-    .post(
-      "/:workflowId/run/schedule",
-      describeRoute({
-        tags: ["Grids:Workflow"],
-        summary: "Run a scheduled workflow immediately",
-        responses: {
-          200: jsonResponse(MessageResponseSchema, "Run requested"),
-          400: jsonResponse(ErrorResponseSchema, "Invalid schedule trigger"),
-          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
-          404: jsonResponse(ErrorResponseSchema, "Not found"),
-        },
-      }),
-      async (c) => {
-        const workflowId = c.req.param("workflowId")!;
-        const workflow = await gridsService.workflow.get(workflowId);
-        if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "write");
-        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return respond(c, async () => {
-          const result = await workflowTriggerRuntime.runScheduledNow(workflowId);
-          if (!result.ok) return result;
-          return { ok: true, data: { message: "Scheduled workflow run requested." } };
-        });
-      },
-    )
-
-    .post(
-      "/:workflowId/run/bulk-selection",
-      describeRoute({
-        tags: ["Grids:Workflow"],
-        summary: "Run a workflow from selected records or a record query",
-        responses: {
-          200: jsonResponse(WorkflowRunSchema, "Run"),
-          400: jsonResponse(ErrorResponseSchema, "Invalid bulk selection"),
-          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
-          404: jsonResponse(ErrorResponseSchema, "Not found"),
-        },
-      }),
-      v("json", WorkflowBulkRunSchema),
+      v("json", GridsWorkflowInvocationRequestSchema),
       async (c) => {
         const body = c.req.valid("json");
-        return respond(c, () =>
-          workflowTriggerRuntime.queueBulkSelection({
-            workflowId: c.req.param("workflowId")!,
-            inputName: body.input,
-            recordIds: body.recordIds,
-            query: body.query,
-            ...workflowActor(c),
-          }),
-        );
+        return respond(c, () => invokeDirect(c.req.param("workflowId")!, "api", body, workflowPrincipal(c)));
       },
     )
-
     .post(
-      "/:workflowId/run/scanner",
+      "/:workflowId/invoke/manual",
       describeRoute({
         tags: ["Grids:Workflow"],
-        summary: "Run a workflow from scanner input",
+        summary: "Invoke a workflow from the trusted UI",
         responses: {
-          200: jsonResponse(WorkflowRunSchema, "Run"),
-          400: jsonResponse(ErrorResponseSchema, "Invalid scanner input"),
+          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
+          409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
         },
       }),
-      v("json", WorkflowScannerRunSchema),
+      v("json", GridsWorkflowInvocationRequestSchema),
       async (c) => {
-        return respond(c, () =>
-          workflowTriggerRuntime.queueScanner({
-            workflowId: c.req.param("workflowId")!,
-            scannedText: c.req.valid("json").code,
-            ...workflowActor(c),
-          }),
-        );
+        const body = c.req.valid("json");
+        return respond(c, () => invokeDirect(c.req.param("workflowId")!, "manual", body, workflowPrincipal(c)));
       },
+    )
+    .post(
+      "/:workflowId/invoke/cli",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "Invoke a workflow from the trusted CLI",
+        responses: {
+          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+          409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+        },
+      }),
+      v("json", GridsWorkflowInvocationRequestSchema),
+      async (c) => {
+        const body = c.req.valid("json");
+        return respond(c, () => invokeDirect(c.req.param("workflowId")!, "cli", body, workflowPrincipal(c)));
+      },
+    )
+    .post(
+      "/launchers/:launcherId/invoke/scanner",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "Invoke a scanner workflow launcher",
+        responses: {
+          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+          409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+        },
+      }),
+      v("json", ScannerLauncherRequestSchema),
+      async (c) =>
+        respond(c, () =>
+          invokeScannerLauncher({
+            ...c.req.valid("json"),
+            launcherId: c.req.param("launcherId")!,
+            principal: workflowPrincipal(c),
+          }),
+        ),
+    )
+    .post(
+      "/launchers/:launcherId/invoke/bulk",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "Invoke a bulk workflow launcher",
+        responses: {
+          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+          409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+        },
+      }),
+      v("json", BulkLauncherRequestSchema),
+      async (c) =>
+        respond(c, () =>
+          invokeBulkLauncher({
+            ...c.req.valid("json"),
+            launcherId: c.req.param("launcherId")!,
+            principal: workflowPrincipal(c),
+          }),
+        ),
+    )
+    .post(
+      "/launchers/:launcherId/invoke/dashboard",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "Invoke a dashboard workflow launcher",
+        responses: {
+          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+          409: jsonResponse(ErrorResponseSchema, "Revision or idempotency conflict"),
+        },
+      }),
+      v("json", DashboardLauncherRequestSchema),
+      async (c) =>
+        respond(c, () =>
+          invokeDashboardLauncher({
+            ...c.req.valid("json"),
+            launcherId: c.req.param("launcherId")!,
+            principal: workflowPrincipal(c),
+          }),
+        ),
     );

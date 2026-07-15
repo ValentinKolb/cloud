@@ -1,26 +1,24 @@
-import type { WorkflowDefinition, WorkflowInput, WorkflowTriggerKind } from "../../../contracts";
-
-const triggerKinds: WorkflowTriggerKind[] = ["form", "api", "scanner", "bulkSelection", "dashboardButton", "schedule", "recordEvent"];
-
-const isActiveTrigger = (trigger: unknown): boolean => {
-  if (!trigger) return false;
-  return !(typeof trigger === "object" && (trigger as { enabled?: unknown }).enabled === false);
-};
-
-export const activeWorkflowTriggers = (definition: WorkflowDefinition): WorkflowTriggerKind[] =>
-  triggerKinds.filter((kind) => isActiveTrigger(definition.triggers[kind]));
-
-export const directWorkflowRunTriggers = (definition: WorkflowDefinition): WorkflowTriggerKind[] => {
-  const active = new Set(activeWorkflowTriggers(definition));
-  return (["form", "api", "dashboardButton", "schedule"] as WorkflowTriggerKind[]).filter((kind) => active.has(kind));
-};
+import type { WorkflowIrInput, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 
 export type WorkflowRunInputDraftValue = string | number | boolean | string[] | null | undefined;
 export type WorkflowRunInputDraft = Record<string, WorkflowRunInputDraftValue>;
 
 type WorkflowRunInputResult = { ok: true; input: Record<string, unknown> } | { ok: false; errors: Record<string, string> };
 
-const inputLabel = (name: string, input: WorkflowInput): string => input.label ?? name;
+const configString = (input: WorkflowIrInput, key: string): string | undefined => {
+  const value = input.config[key];
+  return typeof value === "string" ? value : undefined;
+};
+
+const configBoolean = (input: WorkflowIrInput, key: string): boolean => input.config[key] === true;
+
+export const workflowInputLabel = (input: WorkflowIrInput): string => configString(input, "label") ?? input.name;
+export const workflowInputDescription = (input: WorkflowIrInput): string | undefined => configString(input, "description");
+export const workflowInputRequired = (input: WorkflowIrInput): boolean => configBoolean(input, "required");
+export const workflowInputOptions = (input: WorkflowIrInput): string[] => {
+  const options = input.config.options;
+  return Array.isArray(options) ? options.filter((option): option is string => typeof option === "string") : [];
+};
 
 const missingValue = (value: WorkflowRunInputDraftValue): boolean =>
   value === undefined ||
@@ -28,35 +26,36 @@ const missingValue = (value: WorkflowRunInputDraftValue): boolean =>
   (typeof value === "string" && value.trim() === "") ||
   (Array.isArray(value) && value.length === 0);
 
-export const buildWorkflowRunInput = (inputs: Record<string, WorkflowInput>, draft: WorkflowRunInputDraft): WorkflowRunInputResult => {
+export const buildWorkflowRunInput = (inputs: WorkflowIrInput[], draft: WorkflowRunInputDraft): WorkflowRunInputResult => {
   const result: Record<string, unknown> = {};
   const errors: Record<string, string> = {};
 
-  for (const [name, definition] of Object.entries(inputs)) {
+  for (const definition of inputs) {
+    const name = definition.name;
     const value = draft[name];
     if (missingValue(value)) {
-      if (definition.required) errors[name] = `${inputLabel(name, definition)} is required.`;
+      if (workflowInputRequired(definition)) errors[name] = `${workflowInputLabel(definition)} is required.`;
       continue;
     }
 
     if (definition.type === "number" && (typeof value !== "number" || !Number.isFinite(value))) {
-      errors[name] = `${inputLabel(name, definition)} must be a number.`;
+      errors[name] = `${workflowInputLabel(definition)} must be a number.`;
       continue;
     }
     if (definition.type === "boolean" && typeof value !== "boolean") {
-      errors[name] = `${inputLabel(name, definition)} must be true or false.`;
+      errors[name] = `${workflowInputLabel(definition)} must be true or false.`;
       continue;
     }
     if (definition.type === "recordList" && !Array.isArray(value)) {
-      errors[name] = `${inputLabel(name, definition)} must contain records.`;
+      errors[name] = `${workflowInputLabel(definition)} must contain records.`;
       continue;
     }
     if (definition.type !== "number" && definition.type !== "boolean" && definition.type !== "recordList" && typeof value !== "string") {
-      errors[name] = `${inputLabel(name, definition)} is invalid.`;
+      errors[name] = `${workflowInputLabel(definition)} is invalid.`;
       continue;
     }
 
-    result[name] = value;
+    result[name] = value as WorkflowJsonValue;
   }
 
   return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, input: result };

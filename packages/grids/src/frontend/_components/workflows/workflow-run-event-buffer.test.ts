@@ -9,8 +9,11 @@ const event = (runId: string, status: "running" | "succeeded"): GridsWorkflowRun
   run: {
     id: runId,
     workflowId: "22222222-2222-4222-8222-222222222222",
+    launcherId: null,
     baseId: "11111111-1111-4111-8111-111111111111",
-    triggerKind: "scanner",
+    workflowRevision: 1,
+    mode: "execute",
+    channel: "scanner",
     status,
     error: null,
     resultMessage: status === "succeeded" ? "Done" : null,

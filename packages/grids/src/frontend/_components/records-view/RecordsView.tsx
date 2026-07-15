@@ -12,10 +12,9 @@ import type {
   RecordDisplayConfig,
   RecordQuery,
   TableQueryResult,
-  WorkflowRun,
 } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
-import type { Field, Form, GridRecord, Table, View, Workflow } from "../../../service";
+import type { Field, Form, GridRecord, Table, View } from "../../../service";
 import { defaultTableAggregations } from "../../../table-defaults";
 import QueryWorkspace from "../query/QueryWorkspace";
 import type { QueryWorkspaceCurrentSource } from "../query/query-workspace-model";
@@ -30,6 +29,7 @@ import GridToolbar from "../toolbar/GridToolbar";
 // serialize the callback props used by these controls.
 import SearchBar from "../toolbar/SearchBar";
 import { errorMessage } from "../utils/api-helpers";
+import type { WorkspaceBulkLauncher } from "../workspace/workspace-state-model";
 import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
 import { visibleIdsFromResult } from "./live-refresh";
@@ -114,13 +114,13 @@ type Props = {
   /** Stored query of the active path-based view, used as the base for URL overrides. */
   activeRecordQuery: RecordQuery | null;
   displayConfig: RecordDisplayConfig;
-  bulkSelectionWorkflows: Workflow[];
+  bulkSelectionLaunchers: WorkspaceBulkLauncher[];
   dateConfig?: DateContext;
   workspaceRouteKey: string;
 };
 
 type BulkWorkflowRunInput = {
-  workflow: Workflow;
+  launcher: WorkspaceBulkLauncher;
   selectedRecordIds: string[];
   query: RecordQuery;
 };
@@ -261,7 +261,7 @@ export default function RecordsView(props: Props) {
   };
 
   const bulkSelectionEnabled = () =>
-    props.bulkSelectionWorkflows.length > 0 && !props.trashMode && !isGrouped() && renderMode() === "table";
+    props.bulkSelectionLaunchers.length > 0 && !props.trashMode && !isGrouped() && renderMode() === "table";
   const selectedBulkCount = () => bulkSelectedRecordIds().size;
   const clearBulkSelection = () => setBulkSelectedRecordIds(new Set<string>());
   const toggleBulkRecordSelection = (recordId: string, selected: boolean) => {
@@ -284,12 +284,18 @@ export default function RecordsView(props: Props) {
     });
   };
 
-  const runBulkWorkflow = mutations.create<WorkflowRun, BulkWorkflowRunInput>({
-    mutation: async ({ workflow, selectedRecordIds, query }, { abortSignal }) => {
-      const res = await apiClient.workflows[":workflowId"].run["bulk-selection"].$post(
+  const runBulkWorkflow = mutations.create<{ runId: string; status: string }, BulkWorkflowRunInput>({
+    mutation: async ({ launcher, selectedRecordIds, query }, { abortSignal }) => {
+      const res = await apiClient.workflows.launchers[":launcherId"].invoke.bulk.$post(
         {
-          param: { workflowId: workflow.id },
-          json: bulkSelectionRunPayload(selectedRecordIds, query),
+          param: { launcherId: launcher.id },
+          json: {
+            operationId: crypto.randomUUID(),
+            mode: "execute",
+            expectedRevision: launcher.workflowRevision,
+            inputs: {},
+            ...bulkSelectionRunPayload(selectedRecordIds, query),
+          },
         },
         { init: { signal: abortSignal } },
       );
@@ -303,9 +309,9 @@ export default function RecordsView(props: Props) {
     onError: (error) => prompts.error(error.message),
   });
 
-  const queueBulkWorkflow = (workflow: Workflow) =>
+  const queueBulkWorkflow = (launcher: WorkspaceBulkLauncher) =>
     runBulkWorkflow.mutate({
-      workflow,
+      launcher,
       selectedRecordIds: [...bulkSelectedRecordIds()],
       query: queryWithSearch(),
     });
@@ -828,10 +834,10 @@ export default function RecordsView(props: Props) {
                       label: "Export records",
                       action: openExportDialog,
                     },
-                    ...props.bulkSelectionWorkflows.map((workflow) => ({
+                    ...props.bulkSelectionLaunchers.map((launcher) => ({
                       icon: "ti ti-route",
-                      label: bulkWorkflowActionLabel(workflow.name, selectedBulkCount()),
-                      action: () => queueBulkWorkflow(workflow),
+                      label: bulkWorkflowActionLabel(launcher.name, selectedBulkCount()),
+                      action: () => queueBulkWorkflow(launcher),
                     })),
                     {
                       icon: "ti ti-code",

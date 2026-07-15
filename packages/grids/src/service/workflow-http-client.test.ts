@@ -321,7 +321,7 @@ describe("workflow HTTP client", () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(result.ok ? "" : result.error.message).toBe("httpRequest response is too large");
+    expect(result.ok ? "" : result.error.code).toBe("WORKFLOW_HTTP_OUTCOME_UNKNOWN");
   });
 
   test("applies the request timeout while DNS is still resolving", async () => {
@@ -334,7 +334,7 @@ describe("workflow HTTP client", () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(result.ok ? "" : result.error.message).toBe("httpRequest timed out");
+    expect(result.ok ? "" : result.error.message).toBe("HTTP request target resolution timed out");
   });
 
   test("applies the timeout after response headers arrive", async () => {
@@ -367,7 +367,7 @@ describe("workflow HTTP client", () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(result.ok ? "" : result.error.message).toBe("httpRequest timed out");
+    expect(result.ok ? "" : result.error.code).toBe("WORKFLOW_HTTP_OUTCOME_UNKNOWN");
   });
 
   test("classifies IPv4, IPv6, and mapped private ranges conservatively", () => {

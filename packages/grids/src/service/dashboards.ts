@@ -86,18 +86,21 @@ const ensureDashboardInBase = async (dashboardId: string, baseId: string, label:
   return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive dashboard in this base`));
 };
 
-const ensureWorkflowInBase = async (workflowId: string, baseId: string, label: string): Promise<Result<void>> => {
+const ensureWorkflowLauncherInBase = async (launcherId: string, baseId: string, label: string): Promise<Result<void>> => {
   const [row] = await sql<{ exists: boolean }[]>`
     SELECT EXISTS(
       SELECT 1
-      FROM grids.workflows w
-      JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
-      WHERE w.id = ${workflowId}::uuid
-        AND w.base_id = ${baseId}::uuid
-        AND w.deleted_at IS NULL
+      FROM grids.workflow_launchers launcher
+      JOIN grids.workflows workflow ON workflow.id = launcher.workflow_id AND workflow.deleted_at IS NULL
+      JOIN grids.bases b ON b.id = launcher.base_id AND b.deleted_at IS NULL
+      WHERE launcher.id = ${launcherId}::uuid
+        AND launcher.base_id = ${baseId}::uuid
+        AND workflow.base_id = launcher.base_id
+        AND launcher.kind IN ('dashboard', 'scanner')
+        AND launcher.deleted_at IS NULL
     ) AS exists
   `;
-  return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive workflow in this base`));
+  return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive dashboard or scanner launcher in this base`));
 };
 
 const widgetsOf = (config: DashboardConfig): Widget[] => config.rows.flatMap((row) => row.cells);
@@ -190,7 +193,7 @@ const validateWidgetRefs = async (widget: Widget, baseId: string): Promise<Resul
     case "markdown":
       return ok();
     case "workflow-button":
-      return ensureWorkflowInBase(widget.workflowId, baseId, "workflow button");
+      return ensureWorkflowLauncherInBase(widget.launcherId, baseId, "workflow button");
     case "link":
       if (widget.target.kind === "dashboard") return ensureDashboardInBase(widget.target.dashboardId, baseId, "link target");
       if (widget.target.kind === "table") return ensureTableInBase(widget.target.tableId, baseId, "link target");

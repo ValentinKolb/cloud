@@ -28,7 +28,8 @@ import * as records from "./records";
 import * as tables from "./tables";
 import type { Field, GridRecord } from "./types";
 import * as views from "./views";
-import * as workflows from "./workflows";
+import { getWorkflow } from "./workflow-kernel-store";
+import { getLauncher } from "./workflow-launchers";
 
 const isComputedColumn = (column: ColumnSpec): column is ComputedColumnSpec => "kind" in column && column.kind === "computed";
 
@@ -120,6 +121,8 @@ export type WidgetData =
     }
   | {
       kind: "workflow-button";
+      launcherId: string;
+      expectedRevision: number;
       workflowId: string;
       workflowName: string;
       title: string;
@@ -443,25 +446,30 @@ const renderableFormFields = (form: Form, formFields: Field[]): Field[] => {
 };
 
 const resolveWorkflowButton = async (widget: WorkflowButtonWidget): Promise<WidgetData> => {
-  const workflow = await workflows.get(widget.workflowId);
-  if (!workflow) return { kind: "error", reason: "workflow not found" };
+  const launcher = await getLauncher(widget.launcherId);
+  if (!launcher || (launcher.config.kind !== "dashboard" && launcher.config.kind !== "scanner")) {
+    return { kind: "error", reason: "workflow launcher not found" };
+  }
+  const workflow = await getWorkflow(launcher.workflowId);
+  if (!workflow || workflow.baseId !== launcher.baseId) return { kind: "error", reason: "workflow not found" };
   const title = widget.title?.trim() || workflow.name;
   const description = widget.description?.trim() || workflow.description;
-  const hasDashboardButton = Boolean(workflow.compiled.triggers.dashboardButton);
-  const hasScanner = Boolean(workflow.compiled.triggers.scanner);
-  const action = hasDashboardButton ? "run" : hasScanner ? "scanner" : "run";
-  const runnable = hasDashboardButton || hasScanner;
-  const enabled = workflow.enabled;
+  const action = launcher.config.kind === "scanner" ? "scanner" : "run";
+  const validRevision = launcher.validatedRevision === workflow.revision;
+  const valid = !launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error") && validRevision;
+  const enabled = workflow.enabled && launcher.enabled;
   return {
     kind: "workflow-button",
+    launcherId: launcher.id,
+    expectedRevision: launcher.validatedRevision,
     workflowId: workflow.id,
     workflowName: workflow.name,
     title,
     description,
     buttonLabel: widget.buttonLabel?.trim() || (action === "scanner" ? "Scan" : "Run"),
     action,
-    canRun: runnable && enabled,
-    disabledReason: !runnable ? "Workflow has no scanner or dashboard button trigger" : !enabled ? "Workflow is disabled" : null,
+    canRun: valid && enabled,
+    disabledReason: !valid ? "Workflow launcher must be revalidated" : !enabled ? "Workflow launcher is disabled" : null,
   };
 };
 

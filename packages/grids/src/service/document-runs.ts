@@ -36,10 +36,20 @@ export const createRunForRecord = async (params: {
   filename?: string | null;
   tags?: string[];
   workflowRunId?: string | null;
+  workflowStepKey?: string | null;
   renderPdf?: DocumentPdfRenderer;
 }): Promise<Result<DocumentRun>> => {
   if (!params.template.enabled) return fail(err.badInput("Document template is disabled"));
   if (params.template.tableId !== params.table.id) return fail(err.badInput("Document template does not belong to the table"));
+  if (params.workflowRunId && params.workflowStepKey) {
+    const [existing] = await sql<DocumentDbRow[]>`
+      SELECT *
+      FROM grids.document_runs
+      WHERE workflow_run_id = ${params.workflowRunId}::uuid
+        AND workflow_step_key = ${params.workflowStepKey}
+    `;
+    if (existing) return ok(mapDocumentRun(existing));
+  }
 
   const record = await getRecord(params.table.id, params.recordId, { dateConfig: params.dateConfig });
   if (!record) return fail(err.notFound("record"));
@@ -74,6 +84,7 @@ export const createRunForRecord = async (params: {
     filename: params.filename,
     tags: params.tags,
     workflowRunId: params.workflowRunId,
+    workflowStepKey: params.workflowStepKey,
     persistSnapshot: true,
     renderPdf: params.renderPdf,
   });
@@ -90,6 +101,7 @@ type CreateDocumentRunParams = {
   filename?: string | null;
   tags?: string[];
   workflowRunId?: string | null;
+  workflowStepKey?: string | null;
   persistSnapshot?: boolean;
   renderPdf?: DocumentPdfRenderer;
 };
@@ -152,7 +164,7 @@ const createDocumentRunInternal = async (
         }
         const [inserted] = await tx<DocumentDbRow[]>`
           INSERT INTO grids.document_runs (
-            id, short_id, template_id, workflow_run_id, snapshot_id, base_id, table_id, record_id,
+            id, short_id, template_id, workflow_run_id, workflow_step_key, snapshot_id, base_id, table_id, record_id,
             document_number, filename, tags, template_snapshot, render_data, generated_by, generated_at
           )
           VALUES (
@@ -160,6 +172,7 @@ const createDocumentRunInternal = async (
             ${shortId},
             ${params.template.id}::uuid,
             ${params.workflowRunId ?? null}::uuid,
+            ${params.workflowStepKey ?? null},
             ${params.snapshot.id}::uuid,
             ${params.snapshot.baseId}::uuid,
             ${params.snapshot.tableId}::uuid,

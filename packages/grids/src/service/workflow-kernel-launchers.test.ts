@@ -1,0 +1,333 @@
+import { describe, expect, mock, test } from "bun:test";
+import type { WorkflowInvocationReceipt } from "@valentinkolb/cloud/workflows";
+import { err, fail, ok } from "@valentinkolb/stdlib";
+import type { GridsWorkflow, GridsWorkflowLauncher, GridsWorkflowLauncherConfig } from "../workflows/contracts";
+import {
+  invokeBulkLauncher,
+  invokeDashboardLauncher,
+  invokeScannerLauncher,
+  type WorkflowKernelLauncherDeps,
+} from "./workflow-kernel-launchers";
+
+const baseId = "10000000-0000-4000-8000-000000000001";
+const workflowId = "20000000-0000-4000-8000-000000000002";
+const launcherId = "30000000-0000-4000-8000-000000000003";
+const tableId = "40000000-0000-4000-8000-000000000004";
+const recordId = "50000000-0000-4000-8000-000000000005";
+const secondRecordId = "60000000-0000-4000-8000-000000000006";
+const userId = "70000000-0000-4000-8000-000000000007";
+
+const principal = { userId, groupIds: [], serviceAccountId: null };
+
+const workflow = (inputName = "record", inputType = "record"): GridsWorkflow =>
+  ({
+    id: workflowId,
+    shortId: "W1234",
+    baseId,
+    name: "Kernel launcher workflow",
+    description: null,
+    source: "steps: []",
+    plan: {
+      schemaVersion: 1,
+      languageId: "grids",
+      languageVersion: 1,
+      sourceHash: "source",
+      manifestHash: "manifest",
+      catalogHash: "catalog",
+      inputs: [{ name: inputName, type: inputType, config: { table: "Records", required: true } }],
+      triggers: [],
+      steps: [],
+      bindings: { [`inputs.${inputName}.table`]: tableId },
+    },
+    diagnostics: [],
+    enabled: true,
+    position: 0,
+    revision: 3,
+    ownerUserId: userId,
+    deletedAt: null,
+    createdAt: "2026-07-14T00:00:00.000Z",
+    updatedAt: "2026-07-14T00:00:00.000Z",
+  }) as GridsWorkflow;
+
+const launcher = (config: GridsWorkflowLauncherConfig, overrides: Partial<GridsWorkflowLauncher> = {}): GridsWorkflowLauncher => ({
+  id: launcherId,
+  shortId: "L1234",
+  baseId,
+  workflowId,
+  name: "Launcher",
+  config,
+  enabled: true,
+  validatedRevision: 3,
+  diagnostics: [],
+  deletedAt: null,
+  createdAt: "2026-07-14T00:00:00.000Z",
+  updatedAt: "2026-07-14T00:00:00.000Z",
+  ...overrides,
+});
+
+const receipt: WorkflowInvocationReceipt = {
+  runId: "80000000-0000-4000-8000-000000000008",
+  workflowId,
+  revision: 3,
+  mode: "execute",
+  channel: "scanner",
+  created: true,
+  status: "queued",
+};
+
+const scannerInput = (overrides: Record<string, unknown> = {}) => ({
+  launcherId,
+  operationId: "scan-1",
+  mode: "execute",
+  expectedRevision: 3,
+  principal,
+  inputs: {},
+  scannedText: "gsc_opaque",
+  ...overrides,
+});
+
+const bulkInput = (overrides: Record<string, unknown> = {}) => ({
+  launcherId,
+  operationId: "bulk-1",
+  mode: "execute",
+  expectedRevision: 3,
+  principal,
+  inputs: {},
+  recordIds: [recordId],
+  ...overrides,
+});
+
+const dashboardInput = (overrides: Record<string, unknown> = {}) => ({
+  launcherId,
+  operationId: "dashboard-1",
+  mode: "execute",
+  expectedRevision: 3,
+  principal,
+  inputs: {},
+  ...overrides,
+});
+
+const setup = (
+  configuredLauncher: GridsWorkflowLauncher,
+  configuredWorkflow: GridsWorkflow,
+  overrides: Partial<WorkflowKernelLauncherDeps> = {},
+) => {
+  const invokeWorkflow = mock<WorkflowKernelLauncherDeps["invokeWorkflow"]>(async () => ok(receipt));
+  const authorize = mock(async () => ok());
+  const resolveScanCode = mock(async () => ok(recordId));
+  const resolveUniqueField = mock(async () => ok(recordId));
+  const resolveExplicitRecordIds = mock(async (_baseId: string, _tableId: string, ids: string[]) => ok(ids));
+  const resolveQueryRecordIds = mock(async () => ok([recordId, secondRecordId]));
+  const deps: WorkflowKernelLauncherDeps = {
+    getLauncher: mock(async () => configuredLauncher),
+    getWorkflow: mock(async () => configuredWorkflow),
+    authorize,
+    resolveScanCode,
+    resolveUniqueField,
+    resolveExplicitRecordIds,
+    resolveQueryRecordIds,
+    invokeWorkflow,
+    ...overrides,
+  };
+  return {
+    deps,
+    invokeWorkflow,
+    authorize,
+    resolveScanCode,
+    resolveUniqueField,
+    resolveExplicitRecordIds,
+    resolveQueryRecordIds,
+  };
+};
+
+describe("workflow kernel scanner launchers", () => {
+  test("resolves opaque scan URLs and uses stable per-operation idempotency", async () => {
+    const item = setup(launcher({ kind: "scanner", input: "record", resolve: { by: "scanCode" } }), workflow());
+    const input = scannerInput({
+      scannedText: "https://cloud.example/app/grids/scan?code=gsc_opaque",
+      inputs: { note: "accepted" },
+    });
+
+    const first = await invokeScannerLauncher(input, item.deps);
+    const second = await invokeScannerLauncher(input, item.deps);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(item.resolveScanCode).toHaveBeenCalledWith(baseId, tableId, "gsc_opaque");
+    expect(item.invokeWorkflow).toHaveBeenCalledTimes(2);
+    const calls = item.invokeWorkflow.mock.calls;
+    expect(calls[0]![0]).toMatchObject({
+      workflowId,
+      launcherId,
+      channel: "scanner",
+      expectedRevision: 3,
+      idempotencyKey: `launcher:${launcherId}:scan-1`,
+      inputs: { note: "accepted", record: recordId },
+      context: { launcher: { id: launcherId, kind: "scanner", operationId: "scan-1" } },
+    });
+    expect(calls[1]![0].idempotencyKey).toBe(calls[0]![0].idempotencyKey);
+  });
+
+  test("uses only the configured unique-field resolver", async () => {
+    const item = setup(launcher({ kind: "scanner", input: "record", resolve: { by: "field", field: "Asset code" } }), workflow());
+
+    const result = await invokeScannerLauncher(scannerInput({ scannedText: "A-42" }), item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.resolveUniqueField).toHaveBeenCalledWith(baseId, tableId, "Asset code", "A-42");
+    expect(item.resolveScanCode).not.toHaveBeenCalled();
+  });
+
+  test("checks current workflow and table permissions before resolution", async () => {
+    const item = setup(launcher({ kind: "scanner", input: "record", resolve: { by: "scanCode" } }), workflow(), {
+      authorize: mock(async () => fail(err.forbidden("denied"))),
+    });
+
+    const result = await invokeScannerLauncher(scannerInput(), item.deps);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.status).toBe(403);
+    expect(item.resolveScanCode).not.toHaveBeenCalled();
+    expect(item.invokeWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects stale and structurally invalid launcher configs", async () => {
+    const stale = setup(launcher({ kind: "scanner", input: "record", resolve: { by: "scanCode" } }, { validatedRevision: 2 }), workflow());
+    const invalid = setup(launcher({ kind: "scanner", input: "record", resolve: { by: "scanCode", field: "unexpected" } }), workflow());
+
+    const staleResult = await invokeScannerLauncher(scannerInput(), stale.deps);
+    const invalidResult = await invokeScannerLauncher(scannerInput(), invalid.deps);
+
+    expect(staleResult.ok).toBe(false);
+    if (!staleResult.ok) expect(staleResult.error.status).toBe(409);
+    expect(invalidResult.ok).toBe(false);
+    if (!invalidResult.ok) expect(invalidResult.error.message).toContain("does not accept a field");
+  });
+
+  test("strictly rejects unknown invocation properties", async () => {
+    const item = setup(launcher({ kind: "scanner", input: "record", resolve: { by: "scanCode" } }), workflow());
+
+    const result = await invokeScannerLauncher(scannerInput({ unexpected: true }), item.deps);
+
+    expect(result.ok).toBe(false);
+    expect(item.authorize).not.toHaveBeenCalled();
+    expect(item.invokeWorkflow).not.toHaveBeenCalled();
+  });
+});
+
+describe("workflow kernel bulk launchers", () => {
+  test("enforces non-empty, UUID, and maximum-count boundaries", async () => {
+    const item = setup(launcher({ kind: "bulk", input: "records" }), workflow("records", "recordList"));
+    const tooManyIds = Array.from({ length: 10_001 }, (_, index) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`);
+
+    const empty = await invokeBulkLauncher(bulkInput({ recordIds: [] }), item.deps);
+    const invalidUuid = await invokeBulkLauncher(bulkInput({ recordIds: ["not-a-uuid"] }), item.deps);
+    const tooMany = await invokeBulkLauncher(bulkInput({ recordIds: tooManyIds }), item.deps);
+
+    expect(empty.ok).toBe(false);
+    expect(invalidUuid.ok).toBe(false);
+    expect(tooMany.ok).toBe(false);
+    expect(item.resolveExplicitRecordIds).not.toHaveBeenCalled();
+  });
+
+  test("rejects duplicate UUIDs and missing records before invocation", async () => {
+    const duplicate = setup(launcher({ kind: "bulk", input: "records" }), workflow("records", "recordList"));
+    const missing = setup(launcher({ kind: "bulk", input: "records" }), workflow("records", "recordList"), {
+      resolveExplicitRecordIds: mock(async () => fail(err.notFound("bulk selection record"))),
+    });
+
+    const duplicateResult = await invokeBulkLauncher(bulkInput({ recordIds: [recordId, recordId] }), duplicate.deps);
+    const missingResult = await invokeBulkLauncher(bulkInput({ recordIds: [recordId, secondRecordId] }), missing.deps);
+
+    expect(duplicateResult.ok).toBe(false);
+    if (!duplicateResult.ok) expect(duplicateResult.error.message).toContain("must be unique");
+    expect(duplicate.resolveExplicitRecordIds).not.toHaveBeenCalled();
+    expect(missingResult.ok).toBe(false);
+    if (!missingResult.ok) expect(missingResult.error.status).toBe(404);
+    expect(missing.invokeWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("uses the SQL-backed query selector without JavaScript target filtering", async () => {
+    const item = setup(launcher({ kind: "bulk", input: "records" }), workflow("records", "recordList"));
+
+    const { recordIds: _recordIds, ...queryInput } = bulkInput({ query: { limit: 2 } });
+    const result = await invokeBulkLauncher(queryInput, item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.resolveQueryRecordIds).toHaveBeenCalledWith(tableId, { limit: 2 }, principal);
+    expect(item.resolveExplicitRecordIds).not.toHaveBeenCalled();
+    expect(item.invokeWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "bulk",
+        idempotencyKey: `launcher:${launcherId}:bulk-1`,
+        inputs: { records: [recordId, secondRecordId] },
+      }),
+    );
+  });
+
+  test("rejects invalid UUIDs and selections above the 10000-record limit", async () => {
+    const item = setup(launcher({ kind: "bulk", input: "records" }), workflow("records", "recordList"));
+    const tooManyIds = Array.from(
+      { length: 10_001 },
+      (_, index) => `00000000-0000-4000-8000-${(index + 1).toString(16).padStart(12, "0")}`,
+    );
+
+    const invalidUuid = await invokeBulkLauncher(bulkInput({ recordIds: ["not-a-uuid"] }), item.deps);
+    const tooMany = await invokeBulkLauncher(bulkInput({ recordIds: tooManyIds }), item.deps);
+
+    expect(invalidUuid.ok).toBe(false);
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.error.message).toContain("10000");
+    expect(item.resolveExplicitRecordIds).not.toHaveBeenCalled();
+    expect(item.invokeWorkflow).not.toHaveBeenCalled();
+  });
+});
+
+describe("workflow kernel dashboard launchers", () => {
+  test("combines non-overlapping bindings for shared invocation validation", async () => {
+    const configuredWorkflow = workflow("message", "text");
+    configuredWorkflow.plan.inputs.push({ name: "count", type: "number", config: {} });
+    const item = setup(launcher({ kind: "dashboard", inputBindings: { message: "Run report" } }), configuredWorkflow);
+
+    const result = await invokeDashboardLauncher(dashboardInput({ inputs: { count: 2 } }), item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.invokeWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "dashboard",
+        idempotencyKey: `launcher:${launcherId}:dashboard-1`,
+        inputs: { message: "Run report", count: 2 },
+      }),
+    );
+  });
+
+  test("passes server-trusted dashboard widget authorization to the runtime", async () => {
+    const item = setup(launcher({ kind: "dashboard" }), workflow());
+    const authorization = {
+      kind: "dashboard-widget" as const,
+      dashboardId: "90000000-0000-4000-8000-000000000009",
+      dashboardWidgetId: "widget-1",
+    };
+
+    const result = await invokeDashboardLauncher(dashboardInput({ authorization }), item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.authorize).toHaveBeenCalledWith(expect.objectContaining({ authorization }));
+    expect(item.invokeWorkflow).toHaveBeenCalledWith(expect.objectContaining({ launcherId, authorization }));
+  });
+
+  test("rejects unknown and overridden launcher bindings", async () => {
+    const unknown = setup(launcher({ kind: "dashboard", inputBindings: { missing: true } }), workflow("message", "text"));
+    const duplicate = setup(launcher({ kind: "dashboard", inputBindings: { message: "configured" } }), workflow("message", "text"));
+
+    const unknownResult = await invokeDashboardLauncher(dashboardInput(), unknown.deps);
+    const duplicateResult = await invokeDashboardLauncher(dashboardInput({ inputs: { message: "override" } }), duplicate.deps);
+
+    expect(unknownResult.ok).toBe(false);
+    if (!unknownResult.ok) expect(unknownResult.error.message).toContain("unknown workflow input");
+    expect(duplicateResult.ok).toBe(false);
+    if (!duplicateResult.ok) expect(duplicateResult.error.message).toContain("cannot be overridden");
+    expect(unknown.invokeWorkflow).not.toHaveBeenCalled();
+    expect(duplicate.invokeWorkflow).not.toHaveBeenCalled();
+  });
+});

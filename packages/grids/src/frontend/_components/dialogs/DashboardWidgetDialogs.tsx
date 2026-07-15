@@ -89,11 +89,22 @@ export const defaultWorkflowButtonWidget = (): WorkflowButtonWidget => ({
   id: newId("w"),
   kind: "workflow-button",
   span: 4,
-  workflowId: "",
+  launcherId: "",
   title: "Run workflow",
   description: "Start a saved workflow from this dashboard.",
   buttonLabel: "Run",
 });
+
+export type DashboardWorkflowOption = Workflow & {
+  dashboardLauncher: {
+    id: string;
+    name: string;
+    kind: "dashboard" | "scanner";
+    enabled: boolean;
+  };
+};
+
+export const dashboardWorkflowOption = (workflow: Workflow): DashboardWorkflowOption => workflow as DashboardWorkflowOption;
 
 type CellEditDialogResult = { action: "save"; widget: Widget } | { action: "delete" };
 
@@ -971,23 +982,25 @@ function WorkflowButtonCellBody(props: {
         />
         <Select
           label="Workflow"
-          description="Workflows with dashboardButton or scanner triggers are listed."
-          value={() => props.widget.workflowId}
+          description="Workflows with dashboard or scanner launchers are listed."
+          value={() => props.widget.launcherId}
           onChange={(v) => {
-            const workflow = props.dashboardWorkflows.find((candidate) => candidate.id === v);
+            const workflow = props.dashboardWorkflows.find((candidate) => dashboardWorkflowOption(candidate).dashboardLauncher.id === v);
             props.onUpdate({
               ...props.widget,
-              workflowId: v,
+              launcherId: v,
               title: props.widget.title || workflow?.name || undefined,
             });
           }}
           options={[
             { id: "", label: "(pick a workflow)" },
             ...props.dashboardWorkflows.map((workflow) => ({
-              id: workflow.id,
+              id: dashboardWorkflowOption(workflow).dashboardLauncher.id,
               label: workflow.name,
-              description: workflow.enabled ? (workflow.description ?? "Dashboard workflow") : "Disabled",
-              icon: workflow.enabled ? "ti ti-route" : "ti ti-player-pause",
+              description: dashboardWorkflowOption(workflow).dashboardLauncher.enabled
+                ? (workflow.description ?? dashboardWorkflowOption(workflow).dashboardLauncher.name)
+                : "Disabled",
+              icon: dashboardWorkflowOption(workflow).dashboardLauncher.enabled ? "ti ti-route" : "ti ti-player-pause",
             })),
           ]}
         />
@@ -1078,7 +1091,7 @@ function validateWidgetDraft(widget: Widget, viewsByTable: Record<string, View[]
     if (widget.target.kind === "view" && !widget.target.viewId) return "Pick a view.";
     if (widget.target.kind === "form" && !widget.target.formId) return "Pick a form.";
   }
-  if (widget.kind === "workflow-button" && !widget.workflowId) return "Pick a workflow.";
+  if (widget.kind === "workflow-button" && !widget.launcherId) return "Pick a workflow.";
   return null;
 }
 

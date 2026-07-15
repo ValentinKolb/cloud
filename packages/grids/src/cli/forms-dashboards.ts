@@ -1,5 +1,5 @@
 import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
-import type { Dashboard, WorkflowRun } from "../contracts";
+import type { Dashboard } from "../contracts";
 import {
   dashboardFlag,
   dashboardRows,
@@ -24,6 +24,11 @@ import {
   readJsonInput,
   requireRestArg,
 } from "./runtime";
+
+type DashboardWorkflowRun = {
+  id: string;
+  status: string;
+};
 
 export const formCommands = [
   command("forms list", {
@@ -322,7 +327,7 @@ export const dashboardCommands = [
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.dashboard && flags.widget ? 0 : 2);
       const dashboard = await resolveDashboard(ctx, base.id, flags.dashboard ?? requireRestArg(rest, 0, "dashboard"));
       const widgetId = flags.widget ?? requireRestArg(flags.dashboard ? rest : rest.slice(1), 0, "widget");
-      const run = await readApi<WorkflowRun>(
+      const run = await readApi<DashboardWorkflowRun>(
         ctx,
         `/dashboards/${encodeURIComponent(dashboard.id)}/widgets/${encodeURIComponent(widgetId)}/run`,
         jsonRequest("POST"),

@@ -216,6 +216,7 @@ export const requestWorkflowHttp = async (
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let dispatched = false;
   try {
     const target = await Promise.race([
       resolveTarget(input.url, deps),
@@ -226,11 +227,18 @@ export const requestWorkflowHttp = async (
       }),
     ]);
     if (!target.ok) return target;
+    dispatched = true;
     return ok(await sendPinnedRequest(target.data, input, headers.data, controller.signal, deps));
   } catch (error) {
-    if (error instanceof Error && error.message === "response too large") return fail(err.badInput("httpRequest response is too large"));
-    if (error instanceof Error && error.name === "AbortError") return fail(err.badInput("httpRequest timed out"));
-    return fail(err.badInput("httpRequest failed"));
+    if (dispatched) {
+      return fail({
+        code: "WORKFLOW_HTTP_OUTCOME_UNKNOWN",
+        message: "The HTTP request may have reached the remote service, but no complete response was received.",
+        status: 500,
+      });
+    }
+    if (error instanceof Error && error.name === "AbortError") return fail(err.badInput("HTTP request target resolution timed out"));
+    return fail(err.badInput("HTTP request target could not be resolved"));
   } finally {
     clearTimeout(timer);
   }

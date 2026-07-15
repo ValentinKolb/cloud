@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Workflow } from "../../../contracts";
+import type { Workflow } from "../../../service";
 import { workflowEditorDraft, workflowEditorDraftDirty } from "./workflow-editor-draft";
 
 const workflow = {
@@ -8,8 +8,20 @@ const workflow = {
   baseId: "22222222-2222-4222-8222-222222222222",
   name: "Current workflow",
   description: "Current description",
-  source: "triggers:\n  api: {}\nsteps: []",
-  compiled: { triggers: { api: {} }, steps: [] },
+  source: "steps:\n  - succeed:\n      message: Done",
+  plan: {
+    schemaVersion: 1,
+    languageId: "grids",
+    languageVersion: 1,
+    sourceHash: "source",
+    manifestHash: "manifest",
+    catalogHash: "catalog",
+    inputs: [],
+    triggers: [],
+    steps: [],
+    bindings: {},
+  },
+  diagnostics: [],
   enabled: true,
   position: 0,
   revision: 7,

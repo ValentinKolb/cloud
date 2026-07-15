@@ -2,7 +2,7 @@
 
 The shared workflow kernel uses the current Grids implementation as design input while defining one concentrated language and runtime for Grids, Mail, Assistant, and later Cloud apps.
 
-Status: Draft for cross-app review. Last updated: 2026-07-14. This document is a proposed cross-app contract, not an implementation commitment. Grids workflows are local alpha: their source, schema, runtime, and data may be replaced directly without backward compatibility or legacy migration.
+Status: Implemented for Grids; Mail migration remains separate. Last updated: 2026-07-14. Grids workflows are local alpha: their source, schema, runtime, and data were replaced directly without backward compatibility or a legacy runtime.
 
 ## Contents
 
@@ -90,27 +90,22 @@ The UI must not require users to understand the distinction between kernel, adap
 
 ## Current baseline
 
-### Grids is design input, not a compatibility contract
+### Grids uses the shared kernel
 
-The current Grids implementation already contains most of the reusable mechanics:
+Grids now compiles and executes workflows through the shared Cloud workflow package:
 
-- `packages/grids/src/contracts.ts` defines a strict YAML-compatible contract with `inputs`, one or more `triggers`, and recursive `steps`.
-- Built-in triggers are `form`, `api`, `scanner`, `bulkSelection`, `dashboardButton`, `schedule`, and `recordEvent`.
-- Built-in control flow is `if`/`then`/`else`, `switch`, and `forEach`; common terminal and state actions include `setVariable`, `succeed`, and `fail`.
-- `packages/grids/src/workflows/dsl.ts` parses YAML with duplicate-key protection, bounded aliases, line/column diagnostics, Zod validation, and semantic validation.
-- `packages/grids/src/workflows/value-expression.ts` defines exact `${{ reference }}` and `${{ now() }}` expressions.
-- `packages/grids/src/service/workflow-runtime-executor.ts` already separates the recursive executor from most Grids domain behavior. It handles step paths, scopes, restoration, loop limits, heartbeats, and interruption detection through injected hooks.
-- `packages/grids/src/service/workflow-runtime.ts` supplies Grids-specific values, references, authorization, actions, catalog snapshots, audit, and run orchestration.
-- `packages/grids/src/service/workflow-trigger-runtime.ts` and `workflow-trigger-schedules.ts` provide durable jobs, recovery, deterministic trigger keys, stable scheduler IDs, and stale-registration repair using `@valentinkolb/sync`.
-- `packages/grids/src/frontend/_components/workflows/WorkflowEditor.tsx` provides the current YAML editor, diagnostics, completions, reference help, and optimistic revision handling.
+- `packages/cloud/src/workflows/contracts.ts` defines the shared manifest, IR, bound plan, invocation, receipt, diagnostics, and run contracts.
+- `packages/cloud/src/workflows/language/` owns strict YAML parsing, expressions, control flow, source locations, and manifest-driven compilation.
+- `packages/cloud/src/workflows/runtime/` owns deterministic execution, dry-run traversal, step restoration, lease heartbeats, and action ports.
+- `packages/grids/src/workflows/manifest.ts` registers the Grids input, automatic-trigger, and action vocabulary once. The binder and editor consume the same descriptors.
+- `packages/grids/src/workflows/binder.ts` resolves visible table, field, document-template, and email-template references to stable IDs.
+- `packages/grids/src/service/workflow-kernel-runtime.ts` adapts durable Grids runs, permissions, schedules, record events, tracing, and recovery to the shared runtime.
+- `packages/grids/src/service/workflow-kernel-actions.ts` implements Grids domain actions with explicit transactional, durable-intent, or ambiguous-external effect handling.
+- `packages/grids/src/service/workflow-kernel-launchers.ts` invokes direct workflows from scanner, bulk-selection, and dashboard surfaces. These launchers are invocation channels rather than YAML triggers.
 
-This is a strong source of requirements and reusable ideas, but it is not a finished generic runtime and none of its workflow internals need to survive. In particular, the new runtime must close the crash window between performing an effect and persisting its result instead of copying the current implementation unchanged.
+Grids YAML has only three top-level concepts: typed `inputs`, optional automatic `triggers`, and recursive `steps`. Omitting `triggers` creates a direct-only workflow that remains available to authorized UI, API, CLI, dashboard, scanner, bulk, and agent callers. Built-in automatic triggers are `schedule` and `recordEvent`.
 
-The current implementation also has three concrete extraction constraints:
-
-- The definition schema in `packages/grids/src/contracts.ts`, semantic validation in `workflows/dsl-validator.ts`, and editor intelligence in `workflows/intelligence.ts` each hardcode the same trigger, input, condition, action, and output vocabulary. A registry must become their common source without weakening strict validation or diagnostics.
-- `service/workflow-runtime-executor.ts` contains useful control-flow mechanics, but it still imports Grids step-run persistence and treats `forEach` as a Grids `recordList`. Repository access and iteration must become ports before the file is genuinely shared.
-- `service/workflow-trigger-runtime.ts` combines generic queue/recovery/schedule behavior with Grids record-event readers, base lookup, catalog snapshots, permissions, and audit. It should be decomposed rather than moved wholesale.
+The alpha migration removes the former Grids workflow grammar, executor, trigger runtime, and data tables. Generated document records survive that reset, but references to removed workflow runs are cleared because the referenced audit record no longer exists. Grids does not carry a legacy parser, converter, or dual execution path.
 
 ### Mail has a strong domain runtime but a provisional language
 

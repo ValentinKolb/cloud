@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { WorkflowRun } from "../contracts";
 import { toWorkflowRunEventSummary } from "../lib/workflow-run-events";
+import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../workflows/contracts";
 import {
   createWorkflowRunEventNotifier,
   latestWorkflowRunEventCursor,
@@ -16,16 +16,19 @@ describe("workflow run events", () => {
     const notify = createWorkflowRunEventNotifier(async (event) => {
       if (event.idempotencyKey) idempotencyKeys.push(event.idempotencyKey);
     });
-    const run: WorkflowRun = {
+    const run: GridsWorkflowRun = {
       id: Bun.randomUUIDv7(),
       workflowId: Bun.randomUUIDv7(),
+      launcherId: null,
       baseId: Bun.randomUUIDv7(),
+      workflowRevision: 1,
+      mode: "execute",
+      channel: "manual",
       actorUserId: null,
       serviceAccountId: null,
-      triggerKind: "form",
-      triggerInput: null,
-      resolvedInput: null,
+      inputs: {},
       status: "running",
+      result: null,
       error: null,
       resultMessage: null,
       createdAt: "2026-07-11T00:00:00.000Z",
@@ -41,16 +44,19 @@ describe("workflow run events", () => {
     const notify = createWorkflowRunEventNotifier(async () => {
       throw new Error("topic unavailable");
     });
-    const run: WorkflowRun = {
+    const run: GridsWorkflowRun = {
       id: Bun.randomUUIDv7(),
       workflowId: Bun.randomUUIDv7(),
+      launcherId: null,
       baseId: Bun.randomUUIDv7(),
+      workflowRevision: 1,
+      mode: "execute",
+      channel: "manual",
       actorUserId: null,
       serviceAccountId: null,
-      triggerKind: "form",
-      triggerInput: null,
-      resolvedInput: null,
+      inputs: {},
       status: "succeeded",
+      result: null,
       error: null,
       resultMessage: null,
       createdAt: "2026-07-11T00:00:00.000Z",
@@ -64,33 +70,36 @@ describe("workflow run events", () => {
   redisTest("publishes run state and terminal step summaries across replicas", async () => {
     const baseId = Bun.randomUUIDv7();
     const workflowId = Bun.randomUUIDv7();
-    const run: WorkflowRun = {
+    const run: GridsWorkflowRun = {
       id: Bun.randomUUIDv7(),
       workflowId,
+      launcherId: null,
       baseId,
+      workflowRevision: 1,
+      mode: "execute",
+      channel: "scanner",
       actorUserId: null,
       serviceAccountId: null,
-      triggerKind: "scanner",
-      triggerInput: {},
-      resolvedInput: {},
+      inputs: {},
       status: "succeeded",
+      result: null,
       error: null,
       resultMessage: "Returned",
       createdAt: "2026-07-11T00:00:00.000Z",
       startedAt: "2026-07-11T00:00:00.100Z",
       finishedAt: "2026-07-11T00:00:00.200Z",
     };
-    const step = {
+    const step: GridsWorkflowStepRun = {
       id: Bun.randomUUIDv7(),
       runId: run.id,
-      stepIndex: 0,
-      stepPath: "steps.0",
-      kind: "updateRecord",
+      key: "steps.0",
+      sourcePath: ["steps", 0],
+      iterationPath: [],
+      kind: "action",
+      action: "grids.updateRecord",
       status: "succeeded" as const,
-      input: { large: "not published" },
-      output: { large: "not published" },
-      error: null,
-      durationMs: 12,
+      outcome: { updated: true },
+      executionGeneration: 1,
       startedAt: "2026-07-11T00:00:00.100Z",
       finishedAt: "2026-07-11T00:00:00.200Z",
     };
@@ -111,12 +120,14 @@ describe("workflow run events", () => {
         {
           id: step.id,
           runId: step.runId,
-          stepIndex: 0,
-          stepPath: "steps.0",
-          kind: "updateRecord",
+          key: "steps.0",
+          sourcePath: ["steps", 0],
+          iterationPath: [],
+          kind: "action",
+          action: "grids.updateRecord",
           status: "succeeded",
-          error: null,
-          durationMs: 12,
+          outcome: { updated: true },
+          executionGeneration: 1,
           startedAt: step.startedAt,
           finishedAt: step.finishedAt,
         },

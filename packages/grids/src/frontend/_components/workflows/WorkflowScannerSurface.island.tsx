@@ -5,11 +5,38 @@ import type { WorkflowRunEventSummary, WorkflowRunStepSummary } from "../../../l
 import { errorMessage } from "../utils/api-helpers";
 import { createScannerEngine, type ScannerDetection, type ScannerEngine } from "./scanner-engine";
 import { createWorkflowRunEventBuffer } from "./workflow-run-event-buffer";
+
+type WorkflowRunsApi = {
+  [":runId"]: {
+    $get: (input: { param: { runId: string } }) => Promise<Response>;
+    steps: { $get: (input: { param: { runId: string } }) => Promise<Response> };
+  };
+};
+
+type DashboardWorkflowRunsApi = {
+  [":dashboardId"]: {
+    widgets: {
+      [":widgetId"]: {
+        runs: {
+          [":runId"]: {
+            $get: (input: { param: { dashboardId: string; widgetId: string; runId: string } }) => Promise<Response>;
+          };
+        };
+      };
+    };
+  };
+};
+
+const workflowRunsApi = apiClient.workflows.runs as unknown as WorkflowRunsApi;
+const dashboardWorkflowRunsApi = apiClient.dashboards as unknown as DashboardWorkflowRunsApi;
+
 import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
 import { acquireScannerStream, stopScannerStream } from "./workflow-scanner-camera";
 
 export type WorkflowScannerState = {
   baseShortId: string;
+  launcherId: string;
+  expectedRevision: number;
   workflowId: string;
   workflowShortId?: string;
   dashboardId?: string | null;
@@ -28,6 +55,7 @@ type ScanLogItem = {
   format: string | null;
   status: ScanStatus;
   message: string;
+  runId: string | null;
   run: WorkflowRunEventSummary | null;
   steps: WorkflowRunStepSummary[];
   createdAt: number;
@@ -43,7 +71,7 @@ type VideoBox = { x: number; y: number; width: number; height: number };
 const MAX_ACTIVE_SCAN_RUNS = 8;
 
 const isTerminal = (run: WorkflowRunEventSummary): boolean =>
-  run.status === "succeeded" || run.status === "failed" || run.status === "canceled";
+  run.status === "succeeded" || run.status === "failed" || run.status === "canceled" || run.status === "needs_attention";
 
 const statusClass = (status: ScanStatus) =>
   status === "succeeded"
@@ -63,7 +91,7 @@ async function openScanDetails(item: ScanLogItem) {
   await dialogCore.open<void>(
     (close) => (
       <PanelDialog>
-        <PanelDialog.Header title="Scan details" subtitle={item.run?.id ?? item.code} icon="ti ti-barcode" close={() => close()} />
+        <PanelDialog.Header title="Scan details" subtitle={item.runId ?? item.code} icon="ti ti-barcode" close={() => close()} />
         <PanelDialog.Body>
           <PanelDialog.Section title="Result" icon="ti ti-activity">
             <dl class="grid gap-x-3 gap-y-2 text-sm sm:grid-cols-[7rem_minmax(0,1fr)]">
@@ -84,11 +112,8 @@ async function openScanDetails(item: ScanLogItem) {
                   {(step) => (
                     <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 py-1 text-sm">
                       <div class="min-w-0">
-                        <p class="truncate font-medium text-primary">{step.stepPath}</p>
-                        <p class="text-xs text-dimmed">{step.kind}</p>
-                        <Show when={step.error}>
-                          <p class="mt-1 text-xs text-red-600 dark:text-red-400">{step.error}</p>
-                        </Show>
+                        <p class="truncate font-medium text-primary">{step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key}</p>
+                        <p class="text-xs text-dimmed">{step.action ?? step.kind}</p>
                       </div>
                       <span
                         class={`text-xs font-semibold ${statusClass(step.status === "failed" ? "failed" : step.status === "succeeded" ? "succeeded" : "running")}`}
@@ -149,37 +174,43 @@ export default function WorkflowScannerSurface(props: Props) {
     setLogs((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
 
-  const fetchSteps = async (runId: string) => {
-    const res = await apiClient.workflows.runs[":runId"].steps.$get({ param: { runId } });
+  const fetchSteps = async (runId: string): Promise<WorkflowRunStepSummary[]> => {
+    const res = await workflowRunsApi[":runId"].steps.$get({ param: { runId } });
     if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
-    const payload = await res.json();
+    const payload = (await res.json()) as { items: WorkflowRunStepSummary[] };
     return payload.items;
   };
 
   const applyRun = (logId: string, run: WorkflowRunEventSummary, steps?: WorkflowRunStepSummary[]) => {
     const status: ScanStatus =
-      run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "canceled" ? "failed" : "running";
+      run.status === "succeeded"
+        ? "succeeded"
+        : run.status === "failed" || run.status === "canceled" || run.status === "needs_attention"
+          ? "failed"
+          : "running";
     updateLog(logId, {
       run,
       status,
-      message: run.resultMessage ?? run.error ?? (status === "succeeded" ? "Succeeded" : status === "failed" ? "Failed" : "Running"),
+      runId: run.id,
+      message:
+        run.resultMessage ?? run.error?.message ?? (status === "succeeded" ? "Succeeded" : status === "failed" ? "Failed" : "Running"),
       ...(steps ? { steps } : {}),
     });
   };
 
   const refreshRun = async (logId: string, runId: string) => {
     if (props.state.dashboardId && props.state.dashboardWidgetId) {
-      const res = await apiClient.dashboards[":dashboardId"].widgets[":widgetId"].runs[":runId"].$get({
+      const res = await dashboardWorkflowRunsApi[":dashboardId"].widgets[":widgetId"].runs[":runId"].$get({
         param: { dashboardId: props.state.dashboardId, widgetId: props.state.dashboardWidgetId, runId },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
-      const payload = await res.json();
+      const payload = (await res.json()) as { run: WorkflowRunEventSummary; steps: WorkflowRunStepSummary[] };
       applyRun(logId, payload.run, payload.steps);
       return;
     }
-    const res = await apiClient.workflows.runs[":runId"].$get({ param: { runId } });
+    const res = await workflowRunsApi[":runId"].$get({ param: { runId } });
     if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
-    const run = await res.json();
+    const run = (await res.json()) as WorkflowRunEventSummary;
     let steps: WorkflowRunStepSummary[] | undefined;
     if (isTerminal(run)) {
       try {
@@ -192,8 +223,8 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const refreshActiveRuns = async () => {
-    const active = logs().filter((item) => item.run && (item.status === "queued" || item.status === "running"));
-    await Promise.all(active.map((item) => refreshRun(item.id, item.run!.id).catch(() => undefined)));
+    const active = logs().filter((item) => item.runId && (item.status === "queued" || item.status === "running"));
+    await Promise.all(active.map((item) => refreshRun(item.id, item.runId!).catch(() => undefined)));
   };
 
   const stopFallback = () => {
@@ -221,7 +252,7 @@ export default function WorkflowScannerSurface(props: Props) {
       void refreshActiveRuns();
     },
     onEvent: (event) => {
-      const item = logs().find((candidate) => candidate.run?.id === event.run.id);
+      const item = logs().find((candidate) => candidate.runId === event.run.id);
       if (item) {
         applyRun(item.id, event.run, event.steps);
         return;
@@ -266,6 +297,7 @@ export default function WorkflowScannerSurface(props: Props) {
           format,
           status: "failed",
           message: "Scanner is busy. Wait for active workflow runs to finish.",
+          runId: null,
           run: null,
           steps: [],
           createdAt: now,
@@ -276,28 +308,37 @@ export default function WorkflowScannerSurface(props: Props) {
     }
 
     setLogs((items) => [
-      { id, code: trimmed, format, status: "queued", message: "Queued", run: null, steps: [], createdAt: now },
+      { id, code: trimmed, format, status: "queued", message: "Queued", runId: null, run: null, steps: [], createdAt: now },
       ...items.slice(0, 99),
     ]);
 
     try {
+      const operationId = id;
       const res =
         props.state.dashboardId && props.state.dashboardWidgetId
           ? await apiClient.dashboards[":dashboardId"].widgets[":widgetId"].scan.$post({
               param: { dashboardId: props.state.dashboardId, widgetId: props.state.dashboardWidgetId },
               json: { code: trimmed },
             })
-          : await apiClient.workflows[":workflowId"].run.scanner.$post({
-              param: { workflowId: props.state.workflowId },
-              json: { code: trimmed },
+          : await apiClient.workflows.launchers[":launcherId"].invoke.scanner.$post({
+              param: { launcherId: props.state.launcherId },
+              json: {
+                operationId,
+                mode: "execute",
+                expectedRevision: props.state.expectedRevision,
+                inputs: {},
+                scannedText: trimmed,
+              },
             });
       if (!res.ok) throw new Error(await errorMessage(res, "Scanner workflow could not be started"));
-      const run = await res.json();
-      const pending = pendingRunEvents.take(run.id);
+      const receipt = (await res.json()) as { id?: string; runId?: string; status: string };
+      const runId = receipt.runId ?? receipt.id;
+      if (!runId) throw new Error("Scanner workflow did not return a run ID.");
+      const pending = pendingRunEvents.take(runId);
       if (pending) applyRun(id, pending.run, pending.steps);
-      else updateLog(id, { run, status: run.status === "queued" ? "queued" : "running", message: "Queued" });
+      else updateLog(id, { runId, status: receipt.status === "queued" ? "queued" : "running", message: "Queued" });
       setTimeout(() => {
-        if (!disposed) void refreshRun(id, run.id).catch(() => !streamReady && startFallback());
+        if (!disposed) void refreshRun(id, runId).catch(() => !streamReady && startFallback());
       }, 1500);
     } catch (error) {
       updateLog(id, {

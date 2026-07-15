@@ -1,4 +1,4 @@
-import type { Base, Dashboard } from "../../../service";
+import type { Base, Dashboard, Workflow } from "../../../service";
 import { gridsService } from "../../../service";
 import { resolveWidgetData } from "../../../service/dashboard-widget-data";
 import { buildViewer, okState } from "./workspace-state-helpers";
@@ -24,12 +24,33 @@ export const loadDashboardState = async (common: WorkspaceCommon, dashboard: Das
   );
   const canEditActiveDashboard =
     dashboard.ownerUserId === common.params.user.id || (dashboard.ownerUserId === null && common.canManageBase);
-  const dashboardWorkflows =
-    common.canManageBase && common.chrome.adminModeRequested
-      ? (await gridsService.workflow.listForBase(common.base.id)).filter((workflow) =>
-          Boolean(workflow.compiled.triggers.dashboardButton || workflow.compiled.triggers.scanner),
-        )
-      : [];
+  const dashboardWorkflows: Array<
+    Workflow & { dashboardLauncher: { id: string; name: string; kind: "dashboard" | "scanner"; enabled: boolean } }
+  > = [];
+  if (common.canManageBase && common.chrome.adminModeRequested) {
+    const workflows = await gridsService.workflow.listForBase(common.base.id);
+    const launchersByWorkflow = await Promise.all(
+      workflows.map(async (workflow) => ({ workflow, launchers: await gridsService.workflow.launcher.list(workflow.id) })),
+    );
+    for (const { workflow, launchers } of launchersByWorkflow) {
+      for (const launcher of launchers) {
+        if (launcher.config.kind !== "dashboard" && launcher.config.kind !== "scanner") continue;
+        dashboardWorkflows.push({
+          ...workflow,
+          dashboardLauncher: {
+            id: launcher.id,
+            name: launcher.name,
+            kind: launcher.config.kind,
+            enabled:
+              workflow.enabled &&
+              launcher.enabled &&
+              launcher.validatedRevision === workflow.revision &&
+              !launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error"),
+          },
+        });
+      }
+    }
+  }
 
   return okState(common, {
     kind: "dashboard",

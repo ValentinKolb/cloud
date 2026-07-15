@@ -4,7 +4,7 @@ import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { fail, ok } from "@valentinkolb/stdlib";
 import { Hono, type MiddlewareHandler } from "hono";
 import { generateSpecs } from "hono-openapi";
-import { WORKFLOW_REVISION_HEADER, type Workflow } from "../contracts";
+import { type GridsWorkflow, WORKFLOW_REVISION_HEADER } from "../workflows/contracts";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const workflowId = "22222222-2222-4222-8222-222222222222";
@@ -30,14 +30,15 @@ const user: User = {
   ipa: null,
 };
 
-const workflow: Workflow = {
+const workflow: GridsWorkflow = {
   id: workflowId,
   shortId: "wf001",
   baseId,
   name: "Notify",
   description: null,
-  source: "triggers:\n  api: {}\nsteps:\n  - succeed:\n      message: done",
-  compiled: { triggers: { api: {} }, steps: [{ succeed: { message: "done" } }] },
+  source: "steps:\n  - succeed:\n      message: done",
+  plan: {} as GridsWorkflow["plan"],
+  diagnostics: [],
   enabled: true,
   position: 0,
   revision: 2,
@@ -49,24 +50,26 @@ const workflow: Workflow = {
 
 let permissionLevel: PermissionLevel = "admin";
 let updateRevision: number | null = null;
-let syncedWorkflow: Workflow | null = null;
-let syncError: Error | null = null;
+
+mock.module("../service/workflow-kernel-store", () => ({
+  getWorkflow: async () => workflow,
+  updateWorkflow: async (_id: string, input: { name?: string }, _actorId: string | null, expectedRevision: number) => {
+    updateRevision = expectedRevision;
+    if (expectedRevision !== workflow.revision) {
+      return fail({
+        code: "CONFLICT" as const,
+        message: "Workflow changed since you opened it. Reload the latest version before saving.",
+        status: 409 as const,
+      });
+    }
+    return ok({ ...workflow, ...input, revision: workflow.revision + 1 });
+  },
+}));
 
 mock.module("../service", () => ({
   gridsService: {
     workflow: {
       get: async () => workflow,
-      update: async (_id: string, input: { name?: string }, _actorId: string | null, expectedRevision: number) => {
-        updateRevision = expectedRevision;
-        if (expectedRevision !== workflow.revision) {
-          return fail({
-            code: "CONFLICT" as const,
-            message: "Workflow changed since you opened it. Reload the latest version before saving.",
-            status: 409 as const,
-          });
-        }
-        return ok({ ...workflow, ...input, revision: workflow.revision + 1 });
-      },
     },
     permission: {
       loadGrants: async () => [],
@@ -88,19 +91,7 @@ const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   await next();
 };
 
-const app = () =>
-  new Hono<AuthContext>().use("*", authenticated).route(
-    "/workflows",
-    createWorkflowCatalogRoutes(
-      {
-        sync: async (updated: Workflow) => {
-          if (syncError) throw syncError;
-          syncedWorkflow = updated;
-        },
-      } as never,
-      { warn: () => undefined },
-    ),
-  );
+const app = () => new Hono<AuthContext>().use("*", authenticated).route("/workflows", createWorkflowCatalogRoutes());
 
 const patchWorkflow = (revision?: number) =>
   app().request(`/workflows/${workflowId}`, {
@@ -116,8 +107,6 @@ describe("workflow catalog update route", () => {
   beforeEach(() => {
     permissionLevel = "admin";
     updateRevision = null;
-    syncedWorkflow = null;
-    syncError = null;
   });
 
   test("publishes the required revision header in OpenAPI", async () => {
@@ -141,7 +130,7 @@ describe("workflow catalog update route", () => {
     expect(updateRevision).toBeNull();
   });
 
-  test("returns 409 and does not sync a stale workflow", async () => {
+  test("returns 409 for a stale workflow revision", async () => {
     const response = await patchWorkflow(workflow.revision - 1);
 
     expect(response.status).toBe(409);
@@ -150,21 +139,9 @@ describe("workflow catalog update route", () => {
       message: "Workflow changed since you opened it. Reload the latest version before saving.",
     });
     expect(updateRevision).toBe(workflow.revision - 1);
-    expect(syncedWorkflow).toBeNull();
   });
 
-  test("updates and syncs the matching workflow revision", async () => {
-    const response = await patchWorkflow(workflow.revision);
-
-    expect(response.status).toBe(200);
-    expect((await response.json()).revision).toBe(workflow.revision + 1);
-    expect(updateRevision).toBe(workflow.revision);
-    expect(syncedWorkflow?.revision).toBe(workflow.revision + 1);
-  });
-
-  test("does not turn a committed update into an HTTP error when runtime reconciliation fails", async () => {
-    syncError = new Error("scheduler unavailable");
-
+  test("updates the matching workflow revision", async () => {
     const response = await patchWorkflow(workflow.revision);
 
     expect(response.status).toBe(200);

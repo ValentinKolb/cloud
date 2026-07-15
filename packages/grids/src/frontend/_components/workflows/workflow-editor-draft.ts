@@ -1,4 +1,4 @@
-import type { Workflow } from "../../../contracts";
+import type { Workflow } from "../../../service";
 
 export type WorkflowEditorDraft = {
   name: string;

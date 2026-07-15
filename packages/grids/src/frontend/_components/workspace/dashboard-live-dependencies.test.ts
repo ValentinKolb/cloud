@@ -66,7 +66,7 @@ describe("dashboardRecordTableIds", () => {
         widget({
           id: "workflow",
           kind: "workflow-button",
-          workflowId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          launcherId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
           title: "Run sync",
           buttonLabel: "Run",
         }),

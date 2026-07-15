@@ -13,30 +13,32 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, lazy, onMount, Show, Suspense } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type {
-  Workflow,
-  WorkflowEmailDelivery,
-  WorkflowRun,
-  WorkflowRunStats,
-  WorkflowRunStatsWindow,
-  WorkflowTriggerKind,
-} from "../../../contracts";
 import type { Table } from "../../../service";
+import type {
+  GridsWorkflowChannel,
+  GridsWorkflowLauncher,
+  GridsWorkflow as Workflow,
+  GridsWorkflowEmailDelivery as WorkflowEmailDelivery,
+  GridsWorkflowRun as WorkflowRun,
+  GridsWorkflowRunStats as WorkflowRunStats,
+  GridsWorkflowRunStatsWindow as WorkflowRunStatsWindow,
+} from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { EmailTemplateManager } from "./WorkflowEmailTemplates";
+import { WorkflowLauncherManager } from "./WorkflowLauncherManager";
 import { requestWorkflowRunInput } from "./WorkflowRunInputDialog";
 import type { WorkflowScannerState } from "./WorkflowScannerSurface.island";
 import {
+  channelLabels,
   formatWorkflowRunDate as formatDate,
   formatWorkflowRunDuration as formatDuration,
   workflowRunStatusClass as statusClass,
-  triggerLabels,
 } from "./workflow-display";
-import { activeWorkflowTriggers, directWorkflowRunTriggers } from "./workflow-trigger-actions";
 
 const WorkflowScannerSurface = lazy(() => import("./WorkflowScannerSurface.island"));
 
@@ -65,6 +67,33 @@ type WorkflowEmailDeliveryPage = {
   nextCursor?: string | null;
 };
 
+type WorkflowsPageApi = {
+  "by-base": {
+    ":baseId": {
+      $get: (input: { param: { baseId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
+      "run-stats": {
+        $get: (input: { param: { baseId: string }; query: { window: string } }, options?: { init?: RequestInit }) => Promise<Response>;
+      };
+      runs: {
+        $get: (input: { param: { baseId: string }; query: Record<string, string> }, options?: { init?: RequestInit }) => Promise<Response>;
+      };
+      "email-deliveries": {
+        $get: (input: { param: { baseId: string }; query: Record<string, string> }, options?: { init?: RequestInit }) => Promise<Response>;
+      };
+    };
+  };
+  ":workflowId": {
+    launchers: { $get: (input: { param: { workflowId: string } }, options?: { init?: RequestInit }) => Promise<Response> };
+    invoke: {
+      manual: {
+        $post: (input: { param: { workflowId: string }; json: unknown }, options?: { init?: RequestInit }) => Promise<Response>;
+      };
+    };
+  };
+};
+
+const workflowsPageApi = apiClient.workflows as unknown as WorkflowsPageApi;
+
 const statsWindowLabels: Record<WorkflowRunStatsWindow, string> = {
   "10m": "10 min",
   "1h": "1 hour",
@@ -90,24 +119,26 @@ const runStatusOptions: FilterChipSection[] = [
       { value: "all", label: "All statuses", icon: "ti ti-list" },
       { value: "queued", label: "Queued", icon: "ti ti-clock" },
       { value: "running", label: "Running", icon: "ti ti-loader" },
+      { value: "waiting", label: "Waiting", icon: "ti ti-hourglass" },
       { value: "succeeded", label: "Succeeded", icon: "ti ti-circle-check" },
       { value: "failed", label: "Failed", icon: "ti ti-alert-circle" },
+      { value: "needs_attention", label: "Needs attention", icon: "ti ti-alert-triangle" },
       { value: "canceled", label: "Canceled", icon: "ti ti-ban" },
     ],
   },
 ];
 
-const runTriggerOptions: FilterChipSection[] = [
+const runChannelOptions: FilterChipSection[] = [
   {
     options: [
-      { value: "all", label: "All triggers", icon: "ti ti-list" },
-      ...Object.entries(triggerLabels).map(([value, label]) => ({ value, label, icon: "ti ti-bolt" })),
+      { value: "all", label: "All channels", icon: "ti ti-list" },
+      ...Object.entries(channelLabels).map(([value, label]) => ({ value, label, icon: "ti ti-route" })),
     ],
   },
 ];
 
 type RunStatusFilter = "all" | WorkflowRun["status"];
-type RunTriggerFilter = "all" | WorkflowTriggerKind;
+type RunChannelFilter = "all" | GridsWorkflowChannel;
 
 const formatMetricDuration = (ms: number | null): string => {
   if (ms === null) return "-";
@@ -119,12 +150,12 @@ const formatMetricDuration = (ms: number | null): string => {
 const formatPercent = (value: number): string => `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 
 const triggerSummary = (workflow: Workflow): string => {
-  const triggers = activeWorkflowTriggers(workflow.compiled);
+  const triggers = workflow.plan.triggers.map((trigger) => trigger.kind);
   if (triggers.length === 0) return "No trigger";
-  return triggers.map((trigger) => triggerLabels[trigger] ?? trigger).join(", ");
+  return triggers.map((trigger) => (trigger === "recordEvent" ? "Record event" : "Schedule")).join(", ");
 };
 
-const workflowTriggers = (workflow: Workflow): WorkflowTriggerKind[] => activeWorkflowTriggers(workflow.compiled);
+const workflowTriggers = (workflow: Workflow): string[] => workflow.plan.triggers.map((trigger) => trigger.kind);
 
 const workflowSearch = (workflow: Workflow): string =>
   [workflow.name, workflow.description ?? "", workflow.source, triggerSummary(workflow)].join(" ").toLowerCase();
@@ -134,9 +165,11 @@ const emptyStats = (): WorkflowRunStats => ({
   total: 0,
   queued: 0,
   running: 0,
+  waiting: 0,
   succeeded: 0,
   failed: 0,
   canceled: 0,
+  needsAttention: 0,
   failedLast24h: 0,
   errorRate: 0,
   avgDurationMs: null,
@@ -182,7 +215,9 @@ function WorkflowCard(props: {
           )}
         </Show>
         <span class="mt-2 flex flex-wrap gap-1">
-          <For each={workflowTriggers(props.workflow)}>{(trigger) => <span class="tag">{triggerLabels[trigger] ?? trigger}</span>}</For>
+          <For each={workflowTriggers(props.workflow)}>
+            {(trigger) => <span class="tag">{trigger === "recordEvent" ? "Record event" : "Schedule"}</span>}
+          </For>
         </span>
       </span>
     </a>
@@ -224,13 +259,15 @@ function RunTimeline(props: {
               <span class={`badge ${statusClass(run.status)}`}>{run.status}</span>
               <span class="min-w-0">
                 <span class="block truncate font-medium text-primary">
-                  {props.showWorkflow ? (workflow()?.name ?? "Deleted workflow") : (triggerLabels[run.triggerKind] ?? run.triggerKind)}
+                  {props.showWorkflow ? (workflow()?.name ?? "Deleted workflow") : (channelLabels[run.channel] ?? run.channel)}
                 </span>
                 <span class="mt-0.5 block truncate text-dimmed">
-                  {props.showWorkflow ? `${triggerLabels[run.triggerKind] ?? run.triggerKind} · ` : ""}
+                  {props.showWorkflow ? `${channelLabels[run.channel] ?? run.channel} · ` : ""}
                   {formatDate(run.createdAt)}
                 </span>
-                <Show when={run.error}>{(error) => <span class="mt-1 block truncate text-red-600 dark:text-red-400">{error()}</span>}</Show>
+                <Show when={run.error}>
+                  {(error) => <span class="mt-1 block truncate text-red-600 dark:text-red-400">{error().message}</span>}
+                </Show>
               </span>
               <span class="whitespace-nowrap text-dimmed">{formatDuration(run)}</span>
             </button>
@@ -314,8 +351,9 @@ export default function WorkflowsPage(props: Props) {
   const [search, setSearch] = createSignal("");
   const [statsWindow, setStatsWindow] = createSignal<WorkflowRunStatsWindow>("24h");
   const [runStatus, setRunStatus] = createSignal<RunStatusFilter>("all");
-  const [runTrigger, setRunTrigger] = createSignal<RunTriggerFilter>("all");
+  const [runChannel, setRunChannel] = createSignal<RunChannelFilter>("all");
   const [items, setItems] = createSignal<Workflow[]>(props.workflows);
+  const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>([]);
   const [stats, setStats] = createSignal<WorkflowRunStats>(emptyStats());
   const [runs, setRuns] = createSignal<WorkflowRun[]>([]);
   const [nextCursor, setNextCursor] = createSignal<string | null>(null);
@@ -335,44 +373,41 @@ export default function WorkflowsPage(props: Props) {
 
   const refreshWorkflowsMut = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
-      const res = await apiClient.workflows["by-base"][":baseId"].$get(
-        { param: { baseId: props.baseId } },
-        { init: { signal: abortSignal } },
-      );
+      const res = await workflowsPageApi["by-base"][":baseId"].$get({ param: { baseId: props.baseId } }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflows."));
-      setItems(await res.json());
+      setItems((await res.json()) as Workflow[]);
     },
     onError: (error) => prompts.error(error.message),
   });
 
   const statsMut = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
-      const res = await apiClient.workflows["by-base"][":baseId"]["run-stats"].$get(
+      const res = await workflowsPageApi["by-base"][":baseId"]["run-stats"].$get(
         { param: { baseId: props.baseId }, query: { window: statsWindow() } },
         { init: { signal: abortSignal } },
       );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow stats."));
-      setStats(await res.json());
+      setStats((await res.json()) as WorkflowRunStats);
     },
     onError: (error) => prompts.error(error.message),
   });
 
   const fetchRuns = async (cursor?: string | null, signal?: AbortSignal): Promise<WorkflowRunPage> => {
-    const res = await apiClient.workflows["by-base"][":baseId"].runs.$get(
+    const res = await workflowsPageApi["by-base"][":baseId"].runs.$get(
       {
         param: { baseId: props.baseId },
         query: {
           limit: "50",
           ...(props.activeWorkflow ? { workflowId: props.activeWorkflow.id } : {}),
           ...(runStatus() !== "all" ? { status: runStatus() as WorkflowRun["status"] } : {}),
-          ...(runTrigger() !== "all" ? { trigger: runTrigger() as WorkflowTriggerKind } : {}),
+          ...(runChannel() !== "all" ? { channel: runChannel() as GridsWorkflowChannel } : {}),
           ...(cursor ? { cursor } : {}),
         },
       },
       { init: { signal } },
     );
     if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow runs."));
-    return res.json();
+    return (await res.json()) as WorkflowRunPage;
   };
 
   const runsMut = mutations.create<void, void>({
@@ -396,7 +431,7 @@ export default function WorkflowsPage(props: Props) {
   });
 
   const fetchEmailDeliveries = async (cursor?: string | null, signal?: AbortSignal): Promise<WorkflowEmailDeliveryPage> => {
-    const res = await apiClient.workflows["by-base"][":baseId"]["email-deliveries"].$get(
+    const res = await workflowsPageApi["by-base"][":baseId"]["email-deliveries"].$get(
       {
         param: { baseId: props.baseId },
         query: {
@@ -408,7 +443,7 @@ export default function WorkflowsPage(props: Props) {
       { init: { signal } },
     );
     if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow email deliveries."));
-    return res.json();
+    return (await res.json()) as WorkflowEmailDeliveryPage;
   };
 
   const emailDeliveriesMut = mutations.create<void, void>({
@@ -431,11 +466,29 @@ export default function WorkflowsPage(props: Props) {
     onError: (error) => prompts.error(error.message),
   });
 
+  const launchersMut = mutations.create<void, void>({
+    mutation: async (_, { abortSignal }) => {
+      const workflow = props.activeWorkflow;
+      if (!workflow) {
+        setLaunchers([]);
+        return;
+      }
+      const res = await workflowsPageApi[":workflowId"].launchers.$get(
+        { param: { workflowId: workflow.id } },
+        { init: { signal: abortSignal } },
+      );
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow launchers."));
+      setLaunchers(((await res.json()) as { items: GridsWorkflowLauncher[] }).items);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
   const reloadAll = () => {
     refreshWorkflowsMut.mutate();
     statsMut.mutate();
     runsMut.mutate();
     emailDeliveriesMut.mutate();
+    launchersMut.mutate();
   };
 
   const changeStatsWindow = (value: string[]) => {
@@ -448,8 +501,8 @@ export default function WorkflowsPage(props: Props) {
     runsMut.mutate();
   };
 
-  const changeRunTrigger = (value: string[]) => {
-    setRunTrigger((value[0] as RunTriggerFilter | undefined) ?? "all");
+  const changeRunChannel = (value: string[]) => {
+    setRunChannel((value[0] as RunChannelFilter | undefined) ?? "all");
     runsMut.mutate();
   };
 
@@ -489,11 +542,27 @@ export default function WorkflowsPage(props: Props) {
     );
   };
 
+  const openLaunchers = async (workflow: Workflow) => {
+    await dialogCore.open<void>(
+      (close) => (
+        <WorkflowLauncherManager
+          workflow={workflow}
+          onChanged={() => {
+            props.onWorkflowChanged();
+            reloadAll();
+          }}
+          onClose={close}
+        />
+      ),
+      panelDialogWorkspaceOptions,
+    );
+  };
+
   const scannerReturnHref = (workflow: Workflow) =>
     `/app/grids/${encodeURIComponent(props.baseShortId)}/workflows/${encodeURIComponent(workflow.shortId)}`;
 
-  const openScanner = async (workflow: Workflow) => {
-    if (!workflow.compiled.triggers.scanner || !props.canRunActiveWorkflow) return;
+  const openScanner = async (workflow: Workflow, launcher: GridsWorkflowLauncher) => {
+    if (launcher.config.kind !== "scanner" || !props.canRunActiveWorkflow) return;
     await dialogCore.open<void>(
       (close) => (
         <PanelDialog surface="floating">
@@ -510,6 +579,8 @@ export default function WorkflowsPage(props: Props) {
                 state={
                   {
                     baseShortId: props.baseShortId,
+                    launcherId: launcher.id,
+                    expectedRevision: workflow.revision,
                     workflowId: workflow.id,
                     workflowShortId: workflow.shortId,
                     workflowName: workflow.name,
@@ -527,50 +598,44 @@ export default function WorkflowsPage(props: Props) {
     );
   };
 
-  const runMut = mutations.create<WorkflowRun | null, { triggerKind: WorkflowTriggerKind; input: Record<string, unknown> }>({
-    mutation: async ({ triggerKind, input }, { abortSignal }) => {
+  const runMut = mutations.create<
+    { runId: string; status: WorkflowRun["status"] },
+    { input: Record<string, unknown>; mode: "execute" | "dryRun" }
+  >({
+    mutation: async ({ input, mode }, { abortSignal }) => {
       const workflow = props.activeWorkflow;
       if (!workflow) throw new Error("Choose a workflow first.");
-      if (triggerKind === "schedule") {
-        const res = await apiClient.workflows[":workflowId"].run.schedule.$post(
-          { param: { workflowId: workflow.id } },
-          { init: { signal: abortSignal } },
-        );
-        if (!res.ok) throw new Error(await errorMessage(res, "Could not run workflow."));
-        await res.json();
-        return null;
-      }
-      const endpoint =
-        triggerKind === "api"
-          ? apiClient.workflows[":workflowId"].run.api
-          : triggerKind === "dashboardButton"
-            ? apiClient.workflows[":workflowId"].run["dashboard-button"]
-            : apiClient.workflows[":workflowId"].run.form;
-      const res = await endpoint.$post({ param: { workflowId: workflow.id }, json: { input } }, { init: { signal: abortSignal } });
+      const res = await workflowsPageApi[":workflowId"].invoke.manual.$post(
+        {
+          param: { workflowId: workflow.id },
+          json: {
+            mode,
+            inputs: input as Record<string, WorkflowJsonValue>,
+            idempotencyKey: crypto.randomUUID(),
+            expectedRevision: workflow.revision,
+          },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not run workflow."));
-      return res.json();
+      return (await res.json()) as { runId: string; status: WorkflowRun["status"] };
     },
-    onSuccess: (run) => {
-      toast.success(run ? `Workflow run ${run.status}` : "Scheduled workflow run requested");
+    onSuccess: (receipt) => {
+      toast.success(`Workflow run ${receipt.status}`);
       reloadAll();
-      if (run) props.onSelectRun(run.id);
+      props.onSelectRun(receipt.runId);
     },
     onError: (error) => prompts.error(error.message),
   });
 
   const activeWorkflow = () => props.activeWorkflow;
-  const activeScannerWorkflow = () => {
-    const workflow = activeWorkflow();
-    return workflow && props.canRunActiveWorkflow && workflow.compiled.triggers.scanner ? workflow : null;
-  };
-  const runTriggers = () => (activeWorkflow() && props.canRunActiveWorkflow ? directWorkflowRunTriggers(activeWorkflow()!.compiled) : []);
-  const runWorkflow = async (triggerKind: WorkflowTriggerKind) => {
+  const scannerLaunchers = createMemo(() => launchers().filter((launcher) => launcher.enabled && launcher.config.kind === "scanner"));
+  const runWorkflow = async (mode: "execute" | "dryRun" = "execute") => {
     const workflow = activeWorkflow();
     if (!workflow) return;
-    const input =
-      triggerKind === "form" || triggerKind === "api" ? await requestWorkflowRunInput({ workflow, triggerKind, tables: props.tables }) : {};
+    const input = await requestWorkflowRunInput({ workflow, tables: props.tables });
     if (input === undefined) return;
-    runMut.mutate({ triggerKind, input });
+    runMut.mutate({ input, mode });
   };
 
   return (
@@ -582,28 +647,34 @@ export default function WorkflowsPage(props: Props) {
               <h1 class="min-w-0 text-base font-semibold text-primary">{activeWorkflow()?.name ?? "Workflows"}</h1>
               <p class="mt-0.5 text-xs text-dimmed">
                 {activeWorkflow()?.description ??
-                  "Monitor and run YAML workflows from forms, APIs, scanners, selections, schedules, and record events."}
+                  "Monitor and run workflows directly or through scanners, selections, dashboards, schedules, and record events."}
               </p>
             </div>
             <div class="flex shrink-0 items-center gap-2">
-              <Show when={activeWorkflow() && runTriggers().length > 0}>
-                <For each={runTriggers()}>
-                  {(trigger) => (
-                    <button type="button" class="btn-primary btn-sm" disabled={runMut.loading()} onClick={() => void runWorkflow(trigger)}>
-                      <i class={runMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} /> Run{" "}
-                      {triggerLabels[trigger] ?? trigger}
-                    </button>
-                  )}
-                </For>
+              <Show when={activeWorkflow() && props.canRunActiveWorkflow}>
+                <button
+                  type="button"
+                  class="btn-primary btn-sm"
+                  disabled={runMut.loading() || activeWorkflow()?.enabled !== true}
+                  onClick={() => void runWorkflow()}
+                >
+                  <i class={runMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} /> Run workflow
+                </button>
+                <button type="button" class="btn-input btn-sm" disabled={runMut.loading()} onClick={() => void runWorkflow("dryRun")}>
+                  <i class="ti ti-flask" /> Dry run
+                </button>
               </Show>
-              <Show when={activeScannerWorkflow()}>
-                {(workflow) => (
-                  <button type="button" class="btn-primary btn-sm" onClick={() => void openScanner(workflow())}>
-                    <i class="ti ti-barcode" /> Open Scanner
+              <For each={scannerLaunchers()}>
+                {(launcher) => (
+                  <button type="button" class="btn-input btn-sm" onClick={() => void openScanner(activeWorkflow()!, launcher)}>
+                    <i class="ti ti-barcode" /> {launcher.name}
                   </button>
                 )}
-              </Show>
+              </For>
               <Show when={props.editMode && activeWorkflow() && props.canManageActiveWorkflow}>
+                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openLaunchers(activeWorkflow()!)}>
+                  <i class="ti ti-rocket" /> Launchers
+                </button>
                 <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor(activeWorkflow()!)}>
                   <i class="ti ti-settings" /> Manage
                 </button>
@@ -648,13 +719,13 @@ export default function WorkflowsPage(props: Props) {
               isActive={runStatus() !== "all"}
             />
             <FilterChip
-              label="Trigger"
-              icon="ti ti-bolt"
-              options={runTriggerOptions}
-              value={[runTrigger()]}
-              onChange={changeRunTrigger}
+              label="Channel"
+              icon="ti ti-route"
+              options={runChannelOptions}
+              value={[runChannel()]}
+              onChange={changeRunChannel}
               defaultValue={["all"]}
-              isActive={runTrigger() !== "all"}
+              isActive={runChannel() !== "all"}
             />
             <button type="button" class="btn-simple btn-sm ml-auto" onClick={reloadAll}>
               <i class={runsMut.loading() || statsMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} /> Refresh
@@ -682,7 +753,7 @@ export default function WorkflowsPage(props: Props) {
           <section class="paper min-h-0 overflow-hidden">
             <div class="px-3 py-2">
               <h2 class="text-sm font-semibold text-primary">{activeWorkflow() ? "Workflows" : "Workflow catalog"}</h2>
-              <p class="text-xs text-dimmed">Definitions and trigger surfaces in this base.</p>
+              <p class="text-xs text-dimmed">Definitions and automatic triggers in this base.</p>
             </div>
             <div class="flex max-h-[34rem] min-h-0 flex-col gap-1 overflow-y-auto p-1">
               <For
