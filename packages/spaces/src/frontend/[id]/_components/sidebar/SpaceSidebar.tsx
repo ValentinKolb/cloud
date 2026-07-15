@@ -47,7 +47,7 @@ export default function SpaceSidebar(props: Props) {
   const vt = (key: string) => `space-sidebar-${props.ctx.space.id}-${key}`;
 
   return (
-    <AppWorkspace.Sidebar>
+    <AppWorkspace.Sidebar collapsible>
       <AppWorkspace.SidebarHeader
         title={props.ctx.space.name}
         icon={getViewIcon(props.ctx.currentView)}
@@ -117,7 +117,7 @@ export default function SpaceSidebar(props: Props) {
 
       <AppWorkspace.SidebarDesktop>
         <div class="flex flex-col gap-3">
-          <AppWorkspace.SidebarIconGrid columns={props.ctx.canWrite ? 3 : 2}>
+          <AppWorkspace.SidebarIconGrid columns={props.ctx.canWrite ? 3 : 2} sidebarMode="expanded">
             <Show when={props.ctx.canWrite}>
               <div style={`view-transition-name:${vt("create-desktop")}`}>
                 <CreateItemButton
@@ -149,7 +149,7 @@ export default function SpaceSidebar(props: Props) {
             />
           </AppWorkspace.SidebarIconGrid>
 
-          <AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection sidebarMode="expanded">
             {views.map((view) => {
               const href = buildViewHref(props.ctx, view.id);
               return (
@@ -168,9 +168,40 @@ export default function SpaceSidebar(props: Props) {
           </AppWorkspace.SidebarSection>
         </div>
 
+        <AppWorkspace.SidebarIconGrid sidebarMode="collapsed">
+          <Show when={props.ctx.canWrite}>
+            <CreateItemButton
+              spaceId={props.ctx.space.id}
+              columns={props.ctx.columns}
+              tags={props.ctx.tags}
+              dateConfig={props.dateConfig}
+              variant="icon"
+              defaultType={props.ctx.currentView === "calendar" ? "event" : "task"}
+            />
+          </Show>
+          <SearchButton
+            spaceId={props.ctx.space.id}
+            spaceName={props.ctx.space.name}
+            columns={props.ctx.columns}
+            query={props.ctx.query}
+            variant="icon"
+          />
+          <AppWorkspace.SidebarIconAction href="/app/spaces" navigation="document" icon="ti ti-layout-grid" label="All Spaces" />
+          {views.map((view) => (
+            <AppWorkspace.SidebarIconAction
+              href={buildViewHref(props.ctx, view.id)}
+              navigation="enhanced"
+              onNavigate={props.onNavigate}
+              icon={view.icon}
+              label={view.label}
+              active={props.ctx.currentView === view.id}
+            />
+          ))}
+        </AppWorkspace.SidebarIconGrid>
+
         <div class="min-h-0 flex-1" />
 
-        <AppWorkspace.SidebarFooter>
+        <AppWorkspace.SidebarFooter sidebarMode="expanded">
           <div class="flex flex-col gap-1">
             <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
               <CopyICalButton icalToken={props.ctx.space.icalToken} />
@@ -183,6 +214,12 @@ export default function SpaceSidebar(props: Props) {
               Space settings
             </AppWorkspace.SidebarItem>
           </div>
+        </AppWorkspace.SidebarFooter>
+        <AppWorkspace.SidebarFooter sidebarMode="collapsed">
+          <AppWorkspace.SidebarIconGrid>
+            <CopyICalButton icalToken={props.ctx.space.icalToken} variant="icon" />
+            <AppWorkspace.SidebarIconAction icon="ti ti-settings" label="Space settings" onClick={() => void props.onOpenSettings()} />
+          </AppWorkspace.SidebarIconGrid>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>

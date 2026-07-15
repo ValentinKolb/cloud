@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Dropdown } from "@valentinkolb/cloud/ui";
 import { For, type JSX } from "solid-js";
 import type { PulseDashboard } from "../../contracts";
 import type { WorkspaceView } from "./types";
@@ -16,6 +16,7 @@ type Props = {
   settingsDisabled: boolean;
   openSettings: () => void | Promise<void>;
   createDashboard: () => unknown;
+  openDashboard: (dashboardId: string) => void;
   renderDashboardItem: (dashboard: PulseDashboard) => JSX.Element;
   openResources: () => void;
   openSources: () => void;
@@ -59,7 +60,7 @@ const SidebarSections = (props: Props) => (
     <AppWorkspace.SidebarSection title="Signals">
       <AppWorkspace.SidebarItem
         icon="ti ti-bolt"
-        active={props.activeView === "activity-events"}
+        active={props.activeView === "activity-events" || props.activeView === "event-detail"}
         onClick={props.openActivityEvents}
         meta={props.eventCount}
       >
@@ -67,7 +68,7 @@ const SidebarSections = (props: Props) => (
       </AppWorkspace.SidebarItem>
       <AppWorkspace.SidebarItem
         icon="ti ti-toggle-right"
-        active={props.activeView === "activity-states"}
+        active={props.activeView === "activity-states" || props.activeView === "state-detail"}
         onClick={props.openActivityStates}
         meta={props.stateCount}
       >
@@ -75,7 +76,7 @@ const SidebarSections = (props: Props) => (
       </AppWorkspace.SidebarItem>
       <AppWorkspace.SidebarItem
         icon="ti ti-chart-dots"
-        active={props.activeView === "activity-metrics"}
+        active={props.activeView === "activity-metrics" || props.activeView === "metric-detail"}
         onClick={props.openActivityMetrics}
         meta={props.metricCount}
       >
@@ -86,8 +87,22 @@ const SidebarSections = (props: Props) => (
 );
 
 export default function PulseSidebar(props: Props) {
+  const collapsedDashboardMenu = () => [
+    {
+      sectionLabel: "Dashboards",
+      items: [
+        ...props.dashboards.map((dashboard) => ({
+          icon: "ti ti-chart-area-line",
+          label: dashboard.name,
+          action: () => props.openDashboard(dashboard.id),
+        })),
+        { icon: "ti ti-plus", label: "New dashboard", action: () => void props.createDashboard() },
+      ],
+    },
+  ];
+
   return (
-    <AppWorkspace.Sidebar>
+    <AppWorkspace.Sidebar collapsible>
       <AppWorkspace.SidebarHeader
         title={props.title}
         subtitle={props.subtitle}
@@ -113,7 +128,74 @@ export default function PulseSidebar(props: Props) {
         </AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarDesktop>
-        <SidebarSections {...props} />
+        <AppWorkspace.SidebarBody scrollPreserveKey="pulse-sidebar" sidebarMode="expanded">
+          <SidebarSections {...props} />
+        </AppWorkspace.SidebarBody>
+        <AppWorkspace.SidebarSection sidebarMode="collapsed">
+          <Dropdown
+            trigger={
+              <AppWorkspace.SidebarIconAction
+                icon="ti ti-chart-area-line"
+                label="Dashboards"
+                active={props.activeView === "dashboard" || props.activeView === "dashboard-edit"}
+              />
+            }
+            elements={collapsedDashboardMenu()}
+            position="right-start"
+            width="w-64"
+            triggerClass="flex w-full"
+            openOnHover
+          />
+        </AppWorkspace.SidebarSection>
+        <AppWorkspace.SidebarIconGrid sidebarMode="collapsed">
+          <AppWorkspace.SidebarIconAction
+            icon="ti ti-cube"
+            label="Resources"
+            active={props.activeView === "resources" || props.activeView === "resource-detail"}
+            onClick={props.openResources}
+          />
+          <AppWorkspace.SidebarIconAction
+            icon="ti ti-database"
+            label="Sources"
+            active={props.activeView === "sources"}
+            onClick={props.openSources}
+          />
+          <AppWorkspace.SidebarIconAction
+            icon="ti ti-terminal-2"
+            label="Query explorer"
+            active={props.activeView === "explorer"}
+            onClick={props.openQueryExplorer}
+          />
+          <AppWorkspace.SidebarIconAction
+            icon="ti ti-bolt"
+            label="Events"
+            active={props.activeView === "activity-events" || props.activeView === "event-detail"}
+            onClick={props.openActivityEvents}
+          />
+          <AppWorkspace.SidebarIconAction
+            icon="ti ti-toggle-right"
+            label="States"
+            active={props.activeView === "activity-states" || props.activeView === "state-detail"}
+            onClick={props.openActivityStates}
+          />
+          <AppWorkspace.SidebarIconAction
+            icon="ti ti-chart-dots"
+            label="Metrics"
+            active={props.activeView === "activity-metrics" || props.activeView === "metric-detail"}
+            onClick={props.openActivityMetrics}
+          />
+        </AppWorkspace.SidebarIconGrid>
+        <div class="min-h-0 flex-1" />
+        <AppWorkspace.SidebarFooter sidebarMode="collapsed">
+          <AppWorkspace.SidebarIconGrid>
+            <AppWorkspace.SidebarIconAction
+              icon="ti ti-settings"
+              label={`Settings for ${props.title}`}
+              disabled={props.settingsDisabled}
+              onClick={() => void props.openSettings()}
+            />
+          </AppWorkspace.SidebarIconGrid>
+        </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
   );

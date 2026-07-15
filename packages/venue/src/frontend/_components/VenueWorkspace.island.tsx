@@ -7,6 +7,7 @@ import {
   Chart,
   DataTable,
   type DataTableColumn,
+  Dropdown,
   dialogCore,
   FilterChip,
   Placeholder,
@@ -124,6 +125,19 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
     })),
   );
   const sectionHref = (section: PublicSection) => `/app/venue/${venue().id}/public-sections/${section.id}`;
+  const collapsedPublicContentMenu = () => [
+    {
+      sectionLabel: "Public content",
+      items: [
+        ...(canAdmin(venue()) ? [{ icon: "ti ti-plus", label: "Add public section", action: () => addSection.mutate() }] : []),
+        ...props.dashboard.sections.map((section) => ({
+          icon: sectionKindIcon(section.kind),
+          label: section.title,
+          href: sectionHref(section),
+        })),
+      ],
+    },
+  ];
   const calendarHref = (nextView: CalendarView, nextDate: Date) => {
     const normalizedView = nextView === "month" ? "month" : "week";
     const url = new URL(viewHref("shifts"), "http://venue.local");
@@ -305,7 +319,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
 
   return (
     <AppWorkspace class="cloud-ui-soft">
-      <AppWorkspace.Sidebar>
+      <AppWorkspace.Sidebar collapsible>
         <AppWorkspace.SidebarHeader
           title={venue().name}
           subtitle={permissionLabel(venue().permission)}
@@ -367,7 +381,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
 
         <AppWorkspace.SidebarDesktop>
           <div class="flex flex-col gap-3">
-            <AppWorkspace.SidebarIconGrid columns={canWrite(venue()) ? 3 : 2}>
+            <AppWorkspace.SidebarIconGrid columns={canWrite(venue()) ? 3 : 2} sidebarMode="expanded">
               <Show when={canWrite(venue())}>
                 <AppWorkspace.SidebarIconAction icon="ti ti-user-plus" label="Sign up for a shift" tone="success" onClick={openSignup} />
               </Show>
@@ -375,7 +389,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
               <AppWorkspace.SidebarIconAction href="/app/venue" navigation="document" icon="ti ti-layout-grid" label="All venues" />
             </AppWorkspace.SidebarIconGrid>
 
-            <AppWorkspace.SidebarSection title="Workspace">
+            <AppWorkspace.SidebarSection title="Workspace" sidebarMode="expanded">
               <For each={views}>
                 {(item) => (
                   <AppWorkspace.SidebarItem
@@ -391,7 +405,38 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
             </AppWorkspace.SidebarSection>
           </div>
 
-          <AppWorkspace.SidebarBody scrollPreserveKey={`venue-sidebar-${venue().id}`}>
+          <AppWorkspace.SidebarIconGrid sidebarMode="collapsed">
+            <Show when={canWrite(venue())}>
+              <AppWorkspace.SidebarIconAction icon="ti ti-user-plus" label="Sign up for a shift" tone="success" onClick={openSignup} />
+            </Show>
+            <AppWorkspace.SidebarIconAction icon="ti ti-device-tv" label="Public page" onClick={openPublicPage} />
+            <AppWorkspace.SidebarIconAction href="/app/venue" navigation="document" icon="ti ti-layout-grid" label="All venues" />
+            <For each={views}>
+              {(item) => (
+                <AppWorkspace.SidebarIconAction
+                  href={viewHref(item.id)}
+                  navigation="document"
+                  icon={item.icon}
+                  label={item.label}
+                  active={!selectedSectionId() && view() === item.id}
+                />
+              )}
+            </For>
+            <Show when={canAdmin(venue()) || props.dashboard.sections.length > 0}>
+              <Dropdown
+                trigger={
+                  <AppWorkspace.SidebarIconAction icon="ti ti-layout-list" label="Public content" active={Boolean(selectedSectionId())} />
+                }
+                elements={collapsedPublicContentMenu()}
+                position="right-start"
+                width="w-64"
+                triggerClass="flex w-full"
+                openOnHover
+              />
+            </Show>
+          </AppWorkspace.SidebarIconGrid>
+
+          <AppWorkspace.SidebarBody scrollPreserveKey={`venue-sidebar-${venue().id}`} sidebarMode="expanded">
             <AppWorkspace.SidebarSection title="Public content">
               <Show when={canAdmin(venue())}>
                 <AppWorkspace.SidebarItem icon="ti ti-plus" tone="success" onClick={() => addSection.mutate()}>
@@ -420,10 +465,15 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
 
-          <AppWorkspace.SidebarFooter>
+          <AppWorkspace.SidebarFooter sidebarMode="expanded">
             <AppWorkspace.SidebarItem icon="ti ti-settings" onClick={openSettings}>
               Venue settings
             </AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarFooter>
+          <AppWorkspace.SidebarFooter sidebarMode="collapsed">
+            <AppWorkspace.SidebarIconGrid>
+              <AppWorkspace.SidebarIconAction icon="ti ti-settings" label="Venue settings" onClick={openSettings} />
+            </AppWorkspace.SidebarIconGrid>
           </AppWorkspace.SidebarFooter>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>

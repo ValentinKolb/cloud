@@ -1,4 +1,4 @@
-import { AppWorkspace, Panes, toast, type PanesValue } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Panes, type PanesValue, toast } from "@valentinkolb/cloud/ui";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { createSignal } from "solid-js";
 import type { MetricType, PulseDashboard, PulseDashboardConfig, PulseResourceSummary, PulseSource } from "../contracts";
@@ -24,6 +24,7 @@ import {
 } from "./workspace/helpers";
 import { navigatePulseWorkspace, replacePulseWorkspaceUrl } from "./workspace/navigation";
 import { installNearRealtimeController } from "./workspace/near-realtime-controller";
+import PulseSidebar from "./workspace/PulseSidebar";
 import {
   createQueryExplorerPanesValue,
   initialPulsePanesValue,
@@ -31,7 +32,6 @@ import {
   QUERY_EXPLORER_ELEMENT_IDS,
   QUERY_EXPLORER_PANES_KEY,
 } from "./workspace/panes-state";
-import PulseSidebar from "./workspace/PulseSidebar";
 import { QueryHistoryPane, SavedQueriesPane } from "./workspace/QueryExplorerAuxPanes";
 import QueryExplorerBrowsePane from "./workspace/QueryExplorerBrowsePane";
 import QueryExplorerEditorPane from "./workspace/QueryExplorerEditorPane";
@@ -578,31 +578,19 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const renderDashboardSidebarItem = (dashboard: PulseDashboard) => {
     return (
-      <div
-        class="sidebar-item group text-xs"
-        classList={{
-          "sidebar-item-active":
-            (activeView() === "dashboard" || activeView() === "dashboard-edit") && selectedDashboard()?.id === dashboard.id,
-        }}
+      <AppWorkspace.SidebarItem
+        active={(activeView() === "dashboard" || activeView() === "dashboard-edit") && selectedDashboard()?.id === dashboard.id}
         title={dashboard.name}
+        onClick={() => openDashboard(dashboard.id)}
       >
-        <button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => openDashboard(dashboard.id)}>
-          <i class="ti ti-chart-area-line text-sm" />
-          <span class="truncate">{dashboard.name}</span>
-        </button>
-        <button
-          type="button"
-          class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-          aria-label={`Edit ${dashboard.name} dashboard DSL`}
-          title="Edit dashboard DSL"
-          onClick={(event) => {
-            event.stopPropagation();
-            openDashboardEditor(dashboard.id);
-          }}
-        >
-          <i class="ti ti-code text-xs" />
-        </button>
-      </div>
+        <AppWorkspace.SidebarItemIcon icon="ti ti-chart-area-line" />
+        <AppWorkspace.SidebarItemLabel>{dashboard.name}</AppWorkspace.SidebarItemLabel>
+        <AppWorkspace.SidebarItemAction
+          icon="ti ti-code"
+          label={`Edit ${dashboard.name} dashboard DSL`}
+          onSelect={() => openDashboardEditor(dashboard.id)}
+        />
+      </AppWorkspace.SidebarItem>
     );
   };
 
@@ -1123,6 +1111,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         settingsDisabled={!selectedBase() || loading()}
         openSettings={openSettingsDialog}
         createDashboard={createDashboard}
+        openDashboard={openDashboard}
         renderDashboardItem={renderDashboardSidebarItem}
         openResources={openResources}
         openSources={openSources}

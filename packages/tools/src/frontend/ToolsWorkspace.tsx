@@ -22,19 +22,23 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
     </AppWorkspace.SidebarItem>
   );
 
-  const categoryNavigation = () => (
+  const categoryNavigation = (sidebarMode?: "expanded") => (
     <>
       {categoryOrder.map((category) => {
         const items = tools.filter((tool) => tool.category === category);
         if (items.length === 0) return null;
-        return <AppWorkspace.SidebarSection title={categories[category].label}>{items.map(renderItem)}</AppWorkspace.SidebarSection>;
+        return (
+          <AppWorkspace.SidebarSection title={categories[category].label} sidebarMode={sidebarMode}>
+            {items.map(renderItem)}
+          </AppWorkspace.SidebarSection>
+        );
       })}
     </>
   );
 
   return (
     <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
-      <AppWorkspace.Sidebar>
+      <AppWorkspace.Sidebar collapsible>
         <AppWorkspace.SidebarHeader
           title="Tools"
           subtitle="Utilities"
@@ -66,7 +70,7 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
               />
               <ToolSearchButton variant="icon" registerShortcut />
             </AppWorkspace.SidebarIconGrid>
-            <div class="mt-3">{categoryNavigation()}</div>
+            <div class="mt-3">{categoryNavigation("expanded")}</div>
           </AppWorkspace.SidebarBody>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
@@ -75,7 +79,7 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
           props.activeToolId === "image" || props.activeToolId === "webhooks"
             ? "tools-main overflow-hidden"
             : props.activeToolId
-              ? "tools-main overflow-y-auto p-3 sm:p-4"
+              ? "tools-main overflow-y-auto p-[var(--ui-space-shell)]"
               : "tools-main overflow-y-auto"
         }
       >
