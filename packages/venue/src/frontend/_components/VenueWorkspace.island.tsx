@@ -478,7 +478,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
 
-      <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
+      <AppWorkspace.Content>
+        <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
         <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`venue-main-${venue().id}`} style="scrollbar-gutter: stable">
           <div class="flex flex-col gap-2">
             <Show when={selectedSection()}>
@@ -781,7 +782,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
             </Show>
           </div>
         </div>
-      </AppWorkspace.Main>
+        </AppWorkspace.Main>
+      </AppWorkspace.Content>
     </AppWorkspace>
   );
 }

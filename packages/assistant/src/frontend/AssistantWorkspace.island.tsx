@@ -355,7 +355,8 @@ export default function AssistantWorkspace(props: Props) {
         onConversationArchived={archiveConversation}
       />
 
-      <AppWorkspace.Main>
+      <AppWorkspace.Content>
+        <AppWorkspace.Main>
         <section class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-messages">
           <AiMessageList
             session={{
@@ -470,7 +471,8 @@ export default function AssistantWorkspace(props: Props) {
             />
           </div>
         </div>
-      </AppWorkspace.Main>
+        </AppWorkspace.Main>
+      </AppWorkspace.Content>
     </AppWorkspace>
   );
 }

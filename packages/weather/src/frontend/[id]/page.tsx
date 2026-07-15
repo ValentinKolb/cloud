@@ -157,16 +157,18 @@ export default ssr<AuthContext>(async (c) => {
         <AppWorkspace class="cloud-ui-soft">
           <WeatherLayoutHelp />
           <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
-          <AppWorkspace.Main>
-            <Placeholder
-              state="error"
-              variant="panel"
-              title="Location not found"
-              description="Choose another saved location or add a new city."
-              icon="ti ti-map-pin-off"
-              class="h-full"
-            />
-          </AppWorkspace.Main>
+          <AppWorkspace.Content>
+            <AppWorkspace.Main>
+              <Placeholder
+                state="error"
+                variant="panel"
+                title="Location not found"
+                description="Choose another saved location or add a new city."
+                icon="ti ti-map-pin-off"
+                class="h-full"
+              />
+            </AppWorkspace.Main>
+          </AppWorkspace.Content>
         </AppWorkspace>
       </Layout>
     );
@@ -199,27 +201,29 @@ export default ssr<AuthContext>(async (c) => {
         <WeatherLayoutHelp />
         <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 
-        <AppWorkspace.Main>
-          <div
-            class="min-h-0 flex-1 overflow-y-auto"
-            data-scroll-preserve={`weather-main-${activeLocation.id}`}
-            style="scrollbar-gutter: stable"
-          >
-            {activeWeather ? (
-              <WeatherDetail location={activeLocation} data={activeWeather} />
-            ) : (
-              <Placeholder
-                state="error"
-                variant="panel"
-                title="Weather data unavailable"
-                description="DWD currently provides forecast data only for locations in Germany."
-                icon="ti ti-cloud-off"
-                class="h-full"
-                action={<LocationActions id={activeLocation.id} lat={activeLocation.lat} lon={activeLocation.lon} />}
-              />
-            )}
-          </div>
-        </AppWorkspace.Main>
+        <AppWorkspace.Content>
+          <AppWorkspace.Main>
+            <div
+              class="min-h-0 flex-1 overflow-y-auto"
+              data-scroll-preserve={`weather-main-${activeLocation.id}`}
+              style="scrollbar-gutter: stable"
+            >
+              {activeWeather ? (
+                <WeatherDetail location={activeLocation} data={activeWeather} />
+              ) : (
+                <Placeholder
+                  state="error"
+                  variant="panel"
+                  title="Weather data unavailable"
+                  description="DWD currently provides forecast data only for locations in Germany."
+                  icon="ti ti-cloud-off"
+                  class="h-full"
+                  action={<LocationActions id={activeLocation.id} lat={activeLocation.lat} lon={activeLocation.lon} />}
+                />
+              )}
+            </div>
+          </AppWorkspace.Main>
+        </AppWorkspace.Content>
       </AppWorkspace>
     </Layout>
   );

@@ -16,11 +16,13 @@ export default function AccountsWorkspace(props: Props) {
     <AppWorkspace class="cloud-ui-soft h-full">
       <AccountsLayoutHelp />
       <AccountsNavSidebar active={props.active} isAdmin={props.isAdmin} pendingRequests={props.pendingRequests} />
-      <AppWorkspace.Main>
-        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-[var(--ui-space-shell)]" data-scroll-preserve={props.scrollPreserveKey}>
-          {props.children}
-        </div>
-      </AppWorkspace.Main>
+      <AppWorkspace.Content>
+        <AppWorkspace.Main>
+          <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-[var(--ui-space-shell)]" data-scroll-preserve={props.scrollPreserveKey}>
+            {props.children}
+          </div>
+        </AppWorkspace.Main>
+      </AppWorkspace.Content>
     </AppWorkspace>
   );
 }
