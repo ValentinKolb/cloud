@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import {
   type DndBuildIntentContext,
@@ -769,7 +769,11 @@ export default function KanbanBoard(props: Props) {
               <header class="flex items-center gap-2 px-1.5 py-1.5">
                 <i class="ti ti-arrow-bounce shrink-0 text-sm text-dimmed" />
                 <h3 class="flex-1 truncate text-xs font-medium">Wormholes</h3>
-                <span class="text-[11px] tabular-nums text-dimmed">{props.wormholes.length}</span>
+                <Tooltip content="Drop an item into a wormhole to move it directly into a status in another Space.">
+                  <button type="button" class="icon-btn h-5 w-5" aria-label="About wormholes">
+                    <i class="ti ti-info-circle text-xs" />
+                  </button>
+                </Tooltip>
               </header>
 
               <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-[var(--ui-radius-control)] p-1.5">
@@ -789,13 +793,13 @@ export default function KanbanBoard(props: Props) {
                                 meta: { kind: "wormhole", wormholeId: wormhole.id },
                               }));
                             }}
-                            class={`flex min-h-32 flex-1 shrink-0 flex-col items-center justify-center rounded-[var(--ui-radius-control)] border bg-[var(--ui-field)] px-5 py-6 text-center transition-[background-color,border-color,box-shadow] ${
+                            class={`flex h-36 shrink-0 flex-col items-center justify-center rounded-[var(--ui-radius-control)] border bg-[var(--ui-field)] px-5 py-4 text-center transition-[background-color,border-color,box-shadow] ${
                               active() ? "bg-[var(--ui-selected)]" : ""
                             }`}
                             style={
                               active()
-                                ? `border-color:${wormhole.color};box-shadow:inset 0 0 0 1px var(--ui-focus),inset 0 4px 12px rgb(0 0 0 / 0.16)`
-                                : `border-color:color-mix(in srgb, ${wormhole.color} 45%, var(--ui-border));box-shadow:inset 0 3px 8px rgb(0 0 0 / 0.12)`
+                                ? `border-color:${wormhole.color};box-shadow:inset 0 0 0 1px var(--ui-focus),inset 0 2px 5px rgb(0 0 0 / 0.08)`
+                                : `border-color:color-mix(in srgb, ${wormhole.color} 30%, var(--ui-border));box-shadow:inset 0 1px 2px rgb(0 0 0 / 0.05)`
                             }
                             title={dropLabel}
                           >
