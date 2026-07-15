@@ -86,17 +86,19 @@ export default function PulseQueryReferenceWindow(props: Props) {
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
 
-      <AppWorkspace.Main class="overflow-y-auto p-[var(--ui-space-shell)]">
-        <div class="mx-auto flex w-full max-w-7xl flex-col gap-5">
-          {activeTab() === "overview"
-            ? renderOverview()
-            : activeTab() === "query"
-              ? renderQueryDsl()
-              : activeTab() === "dashboard"
-                ? renderDashboardDsl()
-                : renderInventory()}
-        </div>
-      </AppWorkspace.Main>
+      <AppWorkspace.Content>
+        <AppWorkspace.Main class="overflow-y-auto p-[var(--ui-space-shell)]">
+          <div class="mx-auto flex w-full max-w-7xl flex-col gap-5">
+            {activeTab() === "overview"
+              ? renderOverview()
+              : activeTab() === "query"
+                ? renderQueryDsl()
+                : activeTab() === "dashboard"
+                  ? renderDashboardDsl()
+                  : renderInventory()}
+          </div>
+        </AppWorkspace.Main>
+      </AppWorkspace.Content>
     </AppWorkspace>
   );
 }

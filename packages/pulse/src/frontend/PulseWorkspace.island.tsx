@@ -1121,29 +1121,31 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         openActivityMetrics={openActivityMetrics}
       />
 
-      <AppWorkspace.Main
-        class={`p-[var(--ui-space-shell)] ${activeView() === "explorer" ? "gap-2 overflow-hidden" : "gap-2 overflow-y-auto"}`}
-      >
-        {activeView() === "dashboard"
-          ? renderDashboardView()
-          : activeView() === "dashboard-edit"
-            ? renderDashboardEditView()
-            : activeView() === "sources"
-              ? renderSourcesView()
-              : activeView() === "resources"
-                ? renderResourceBrowserView()
-                : activeView() === "resource-detail"
-                  ? renderResourceDetailView()
-                  : activeView() === "metric-detail" || activeView() === "state-detail" || activeView() === "event-detail"
-                    ? renderFocusedSignalView()
-                    : activeView() === "explorer"
-                      ? renderMetricExplorerView()
-                      : renderSignalCatalogView()}
-      </AppWorkspace.Main>
+      <AppWorkspace.Content>
+        <AppWorkspace.Main
+          class={`p-[var(--ui-space-shell)] ${activeView() === "explorer" ? "gap-2 overflow-hidden" : "gap-2 overflow-y-auto"}`}
+        >
+          {activeView() === "dashboard"
+            ? renderDashboardView()
+            : activeView() === "dashboard-edit"
+              ? renderDashboardEditView()
+              : activeView() === "sources"
+                ? renderSourcesView()
+                : activeView() === "resources"
+                  ? renderResourceBrowserView()
+                  : activeView() === "resource-detail"
+                    ? renderResourceDetailView()
+                    : activeView() === "metric-detail" || activeView() === "state-detail" || activeView() === "event-detail"
+                      ? renderFocusedSignalView()
+                      : activeView() === "explorer"
+                        ? renderMetricExplorerView()
+                        : renderSignalCatalogView()}
+        </AppWorkspace.Main>
 
-      <AppWorkspace.Detail id="pulse-detail-panel" open={workspaceDetailOpen()} width="lg" viewTransitionName="pulse-detail-panel-shell">
-        {renderWorkspaceDetail()}
-      </AppWorkspace.Detail>
+        <AppWorkspace.Detail id="pulse-detail-panel" open={workspaceDetailOpen()} width="lg" viewTransitionName="pulse-detail-panel-shell">
+          {renderWorkspaceDetail()}
+        </AppWorkspace.Detail>
+      </AppWorkspace.Content>
     </AppWorkspace>
   );
 }
