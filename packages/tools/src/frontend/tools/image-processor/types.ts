@@ -14,6 +14,44 @@ export type Adjustments = {
   flipV: boolean;
 };
 
+export type MarkupPoint = { x: number; y: number };
+export type MarkupTool = "pen" | "highlighter" | "redact" | "shape" | "text";
+export type MarkupShapeKind = "rectangle" | "circle" | "arrow";
+
+export type MarkupElement =
+  | {
+      id: string;
+      kind: "stroke";
+      points: MarkupPoint[];
+      color: string;
+      size: number;
+      opacity: number;
+    }
+  | {
+      id: string;
+      kind: "redaction";
+      start: MarkupPoint;
+      end: MarkupPoint;
+      color: string;
+    }
+  | {
+      id: string;
+      kind: "shape";
+      shape: MarkupShapeKind;
+      start: MarkupPoint;
+      end: MarkupPoint;
+      color: string;
+      size: number;
+    }
+  | {
+      id: string;
+      kind: "text";
+      position: MarkupPoint;
+      text: string;
+      color: string;
+      size: number;
+    };
+
 export type ImageEntry = {
   id: string;
   file: File;
@@ -24,7 +62,10 @@ export type ImageEntry = {
   thumbUrl: string;
   name: string;
   adj: Adjustments;
+  markup: MarkupElement[];
+  markupRedo: MarkupElement[];
   cropped: boolean;
+  cropBounds: CropRect;
 };
 
 export type CropAspect = "free" | "1:1" | "4:3" | "16:9" | "3:2";

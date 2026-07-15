@@ -1,6 +1,35 @@
 import { type ImgData, images as imageTools } from "@valentinkolb/stdlib/browser";
 import { PREVIEW_MAX } from "./constants";
+import { applyMarkupToImage } from "./markup";
 import type { ImageEntry } from "./types";
+
+export const rotatedImageDimensions = (width: number, height: number, degrees: number) => {
+  const radians = (degrees * Math.PI) / 180;
+  const normalizeTrig = (value: number) => {
+    const absolute = Math.abs(value);
+    if (absolute < 1e-12) return 0;
+    if (Math.abs(1 - absolute) < 1e-12) return 1;
+    return absolute;
+  };
+  const sin = normalizeTrig(Math.sin(radians));
+  const cos = normalizeTrig(Math.cos(radians));
+  return {
+    width: Math.ceil(width * cos + height * sin),
+    height: Math.ceil(width * sin + height * cos),
+  };
+};
+
+const rotateImage = async (data: ImgData, degrees: number): Promise<ImgData> => {
+  const dimensions = rotatedImageDimensions(data.width, data.height, degrees);
+  const canvas = Object.assign(document.createElement("canvas"), dimensions);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not create a canvas for image rotation");
+
+  ctx.translate(dimensions.width / 2, dimensions.height / 2);
+  ctx.rotate((degrees * Math.PI) / 180);
+  ctx.drawImage(data.canvas, -data.width / 2, -data.height / 2);
+  return { canvas, ctx, ...dimensions };
+};
 
 export const makePreviewSource = async (source: ImgData): Promise<ImgData> => {
   const maxDim = Math.max(source.width, source.height);
@@ -23,29 +52,6 @@ export const buildImagePipeline = (entry: ImageEntry, maxW?: number, maxH?: numb
       const scale = Math.min(mw / data.width, mh / data.height);
       return imageTools.resize(Math.round(data.width * scale), Math.round(data.height * scale), "fill")(data);
     });
-  }
-
-  if (a.freeRotation !== 0) {
-    pipeline = pipeline.then(
-      imageTools.apply((ctx, canvas) => {
-        const rad = (a.freeRotation * Math.PI) / 180;
-        const tmp = document.createElement("canvas");
-        tmp.width = canvas.width;
-        tmp.height = canvas.height;
-        const tmpCtx = tmp.getContext("2d");
-        if (!tmpCtx) return;
-
-        tmpCtx.drawImage(canvas, 0, 0);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(rad);
-        ctx.drawImage(tmp, -canvas.width / 2, -canvas.height / 2);
-      }),
-    );
-  }
-
-  if (a.flipH || a.flipV) {
-    pipeline = pipeline.then(imageTools.flip(a.flipH, a.flipV));
   }
 
   const filterParts: string[] = [];
@@ -90,6 +96,21 @@ export const buildImagePipeline = (entry: ImageEntry, maxW?: number, maxH?: numb
         ctx.putImageData(imageData, 0, 0);
       }),
     );
+  }
+
+  // Annotations stay crisp and keep their selected colors. Geometry is
+  // applied afterwards so image and markup still rotate and flip together.
+  if (entry.markup.length > 0) pipeline = pipeline.then((data) => applyMarkupToImage(data, entry.markup));
+
+  if (a.freeRotation !== 0) pipeline = pipeline.then((data) => rotateImage(data, a.freeRotation));
+  if (a.flipH || a.flipV) pipeline = pipeline.then(imageTools.flip(a.flipH, a.flipV));
+
+  if (a.freeRotation !== 0 && (maxW || maxH)) {
+    pipeline = pipeline.then(async (data) => {
+      const scale = Math.min((maxW ?? Infinity) / data.width, (maxH ?? Infinity) / data.height, 1);
+      if (scale === 1) return data;
+      return imageTools.resize(Math.max(1, Math.round(data.width * scale)), Math.max(1, Math.round(data.height * scale)), "fill")(data);
+    });
   }
 
   return pipeline;
