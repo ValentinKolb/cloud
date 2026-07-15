@@ -12,6 +12,7 @@ import CreateDashboardButton from "../sidebar/CreateDashboardButton";
 import CreateTableButton from "../sidebar/CreateTableButton";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry";
 import RememberGridsPath from "../sidebar/RememberGridsPath";
+import SidebarTableMeta from "../sidebar/SidebarTableMeta";
 import { WorkflowRunDetailPanel } from "../workflows/WorkflowRunDetailPanel";
 import WorkflowsPage from "../workflows/WorkflowsPage";
 import { workspaceMainClass } from "./workspace-layout";
@@ -407,53 +408,6 @@ export default function GridsWorkspace(props: Props) {
         </AppWorkspace.SidebarSection>
       </Show>
 
-      <Show when={state().catalog.sidebarForms.length > 0}>
-        <AppWorkspace.SidebarSection title="Forms">
-          {state().catalog.sidebarForms.map(({ form, table }) => {
-            const canEditForm = hasAtLeast(state().catalog.tableLevels[table.id] ?? "none", "admin");
-            return (
-              <FormSidebarEntry
-                form={form}
-                fields={state().catalog.fieldsByTable[table.id] ?? []}
-                editMode={state().adminModeRequested && canEditForm}
-                initialAccessEntries={state().catalog.formAccessEntriesByTable[table.id]?.[form.id] ?? []}
-                dateConfig={state().dateConfig}
-              />
-            );
-          })}
-        </AppWorkspace.SidebarSection>
-      </Show>
-
-      <Show when={state().catalog.sidebarDocumentTemplates.length > 0}>
-        <AppWorkspace.SidebarSection title="Documents">
-          {state().catalog.sidebarDocumentTemplates.map(({ template, table }) => {
-            const route = state().route;
-            const active = route.kind === "documentTemplate" && route.template.id === template.id;
-            return (
-              <AppWorkspace.SidebarItem
-                href={keepEdit(
-                  `/app/grids/${state().base.shortId}/document/${table.shortId}/${template.shortId}`,
-                  state().adminModeRequested,
-                )}
-                onNavigate={handleNavigate}
-                active={active}
-                activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                title={template.name}
-              >
-                <AppWorkspace.SidebarItemIcon icon="ti ti-file-type-pdf" />
-                <AppWorkspace.SidebarItemLabel>{template.name}</AppWorkspace.SidebarItemLabel>
-                <AppWorkspace.SidebarItemMeta>
-                  <span class="truncate text-[9px] uppercase tracking-wider">{table.name}</span>
-                </AppWorkspace.SidebarItemMeta>
-              </AppWorkspace.SidebarItem>
-            );
-          })}
-        </AppWorkspace.SidebarSection>
-      </Show>
-
-      {renderWorkflowSidebarSection()}
-
       <AppWorkspace.SidebarSection title="Tables">
         {state().catalog.tables.length === 0 ? (
           <p class="text-xs text-dimmed px-2 py-1">
@@ -495,15 +449,62 @@ export default function GridsWorkspace(props: Props) {
                 active={active}
                 activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
                 class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                title={view.name}
+                title={`${view.name} (table: ${t.name})`}
               >
                 <AppWorkspace.SidebarItemIcon icon={view.icon ?? "ti ti-table-spark"} />
                 <AppWorkspace.SidebarItemLabel>{view.name}</AppWorkspace.SidebarItemLabel>
+                <SidebarTableMeta tableName={t.name} />
               </AppWorkspace.SidebarItem>
             );
           }),
         )}
       </AppWorkspace.SidebarSection>
+
+      <Show when={state().catalog.sidebarForms.length > 0}>
+        <AppWorkspace.SidebarSection title="Forms">
+          {state().catalog.sidebarForms.map(({ form, table }) => {
+            const canEditForm = hasAtLeast(state().catalog.tableLevels[table.id] ?? "none", "admin");
+            return (
+              <FormSidebarEntry
+                form={form}
+                tableName={table.name}
+                fields={state().catalog.fieldsByTable[table.id] ?? []}
+                editMode={state().adminModeRequested && canEditForm}
+                initialAccessEntries={state().catalog.formAccessEntriesByTable[table.id]?.[form.id] ?? []}
+                dateConfig={state().dateConfig}
+              />
+            );
+          })}
+        </AppWorkspace.SidebarSection>
+      </Show>
+
+      <Show when={state().catalog.sidebarDocumentTemplates.length > 0}>
+        <AppWorkspace.SidebarSection title="Documents">
+          {state().catalog.sidebarDocumentTemplates.map(({ template, table }) => {
+            const route = state().route;
+            const active = route.kind === "documentTemplate" && route.template.id === template.id;
+            return (
+              <AppWorkspace.SidebarItem
+                href={keepEdit(
+                  `/app/grids/${state().base.shortId}/document/${table.shortId}/${template.shortId}`,
+                  state().adminModeRequested,
+                )}
+                onNavigate={handleNavigate}
+                active={active}
+                activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+                class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+                title={`${template.name} (table: ${table.name})`}
+              >
+                <AppWorkspace.SidebarItemIcon icon="ti ti-file-type-pdf" />
+                <AppWorkspace.SidebarItemLabel>{template.name}</AppWorkspace.SidebarItemLabel>
+                <SidebarTableMeta tableName={table.name} />
+              </AppWorkspace.SidebarItem>
+            );
+          })}
+        </AppWorkspace.SidebarSection>
+      </Show>
+
+      {renderWorkflowSidebarSection()}
     </>
   );
 
@@ -522,7 +523,7 @@ export default function GridsWorkspace(props: Props) {
                 <button
                   type="button"
                   onClick={() => void openSettingsDialog()}
-                  class="inline-flex h-6 w-6 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-primary"
+                  class="sidebar-header-settings focus-ui inline-flex h-6 w-6 items-center justify-center rounded"
                   title="Settings"
                   aria-label={`Settings for ${state().base.name}`}
                 >
@@ -551,7 +552,10 @@ export default function GridsWorkspace(props: Props) {
               </AppWorkspace.SidebarItem>
               {renderQuerySidebarItem()}
             </AppWorkspace.SidebarMobileItems>
-            <AppWorkspace.SidebarMobileBody scrollPreserveKey={`grids-sidebar-mobile-body-${state().base.id}`}>
+            <AppWorkspace.SidebarMobileBody
+              class="!max-h-[min(40rem,calc(100dvh-14rem))]"
+              scrollPreserveKey={`grids-sidebar-mobile-body-${state().base.id}`}
+            >
               {renderWorkspaceNavigationSections()}
             </AppWorkspace.SidebarMobileBody>
           </AppWorkspace.SidebarMobile>
@@ -560,7 +564,7 @@ export default function GridsWorkspace(props: Props) {
             <AppWorkspace.SidebarSection>
               <AppWorkspace.SidebarItem href="/app/grids" navigation="document">
                 <AppWorkspace.SidebarItemIcon icon="ti ti-layout-grid" />
-                <AppWorkspace.SidebarItemLabel>All Grids</AppWorkspace.SidebarItemLabel>
+                <AppWorkspace.SidebarItemLabel>All grids</AppWorkspace.SidebarItemLabel>
               </AppWorkspace.SidebarItem>
               {renderQuerySidebarItem()}
             </AppWorkspace.SidebarSection>

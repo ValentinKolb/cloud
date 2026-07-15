@@ -5,9 +5,11 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import type { Field, Form } from "../../../service";
 import { openFormEditorDialog } from "../forms/FormsManager";
 import { openFormModal } from "../records/FormSubmitModal";
+import SidebarTableMeta from "./SidebarTableMeta";
 
 type Props = {
   form: Form;
+  tableName: string;
   editMode?: boolean;
   initialAccessEntries?: AccessEntry[];
   /** All fields on the form's parent table — used by the modal to
@@ -75,10 +77,11 @@ export default function FormSidebarEntry(props: Props) {
     <AppWorkspace.SidebarItem
       class={props.editMode ? "text-secondary" : undefined}
       onClick={() => void handleClick()}
-      title={props.editMode ? `Edit ${props.form.name}` : `Submit ${props.form.name}`}
+      title={`${props.editMode ? "Edit" : "Submit"} ${props.form.name} (table: ${props.tableName})`}
     >
       <AppWorkspace.SidebarItemIcon icon="ti ti-forms" />
       <AppWorkspace.SidebarItemLabel>{props.form.name}</AppWorkspace.SidebarItemLabel>
+      <SidebarTableMeta tableName={props.tableName} />
     </AppWorkspace.SidebarItem>
   );
 }
