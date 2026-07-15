@@ -4,9 +4,11 @@ import type { WorkflowDryRunResult, WorkflowRuntimeRunIdentity } from "@valentin
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import type { GridsWorkflowChannel, GridsWorkflowPrincipal } from "../workflows/contracts";
+import { SqlGridsWorkflowEffectIntents } from "./workflow-kernel-actions";
 import {
   claimWorkflowRun,
   GridsWorkflowRuntimeRepository,
+  listExpiredWaitingWorkflowRuns,
   materializeWorkflowInvocation,
   resumeWaitingWorkflowRun,
 } from "./workflow-kernel-runs";
@@ -99,7 +101,7 @@ describe("workflow run materialization", () => {
     const baseId = Bun.randomUUIDv7();
     const workflowId = Bun.randomUUIDv7();
     const runId = Bun.randomUUIDv7();
-    const dependency = { kind: "approval", key: "approval-1", deadline: "2026-07-15T12:00:00.000Z" };
+    const dependency = { kind: "approval", key: "approval-1", deadline: "2000-01-01T00:00:00.000Z" };
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR003', 'Park step test')`;
@@ -157,13 +159,106 @@ describe("workflow run materialization", () => {
       expect(run).toMatchObject({ status: "waiting", result: { dependency }, lease_expires_at: null });
       expect(step).toMatchObject({ status: "waiting", outcome: { state: "waiting", dependency }, finished_at: null });
 
-      expect(await resumeWaitingWorkflowRun(runId, { ...dependency, key: "other" })).toBe(false);
-      expect(await resumeWaitingWorkflowRun(runId, dependency)).toBe(true);
-      expect(await resumeWaitingWorkflowRun(runId, dependency)).toBe(false);
+      const expired = (await listExpiredWaitingWorkflowRuns()).find((item) => item.runId === runId);
+      expect(expired).toEqual({ runId, dependency });
+      const nextDependency = { kind: "approval", key: "approval-2", deadline: "2000-01-02T00:00:00.000Z" };
+      await sql`
+        UPDATE grids.workflow_runs
+        SET result = ${{ dependency: nextDependency }}::jsonb
+        WHERE id = ${runId}::uuid
+      `;
+      expect(await resumeWaitingWorkflowRun(runId, expired!.dependency)).toBe(false);
+      expect(await resumeWaitingWorkflowRun(runId, nextDependency)).toBe(true);
+      expect(await resumeWaitingWorkflowRun(runId, nextDependency)).toBe(false);
       const [resumed] = await sql<Array<{ status: string; result: unknown }>>`
         SELECT status, result FROM grids.workflow_runs WHERE id = ${runId}::uuid
       `;
       expect(resumed).toMatchObject({ status: "queued", result: null });
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
+  postgresTest("fences recovered external effects by generation and attempt", async () => {
+    await migrate();
+    const baseId = Bun.randomUUIDv7();
+    const workflowId = Bun.randomUUIDv7();
+    const runId = Bun.randomUUIDv7();
+    const intents = new SqlGridsWorkflowEffectIntents();
+
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR007', 'Effect fence test')`;
+      await sql`
+        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
+        VALUES (${workflowId}::uuid, 'WR008', ${baseId}::uuid, 'Effect fence workflow', 'steps: []', '{}'::jsonb, TRUE)
+      `;
+      await sql`
+        INSERT INTO grids.workflow_runs (
+          id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+          workflow_plan, status, occurred_at, execution_generation, heartbeat_at, lease_expires_at
+        ) VALUES (
+          ${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'effect-fence', 'effect-fence',
+          '{}'::jsonb, 'running', now(), 1, now(), now() + interval '2 minutes'
+        )
+      `;
+
+      const durableRequest = { action: "sendEmail", templateId: "notice" };
+      const first = await intents.prepare({
+        runId,
+        stepKey: "steps.0",
+        executionGeneration: 1,
+        effectKind: "durable-intent",
+        idempotencyKey: `workflow:${runId}:step:steps.0`,
+        request: durableRequest,
+      });
+      expect(first).toMatchObject({ state: "execute", executionGeneration: 1, attempt: 1 });
+      if (first.state !== "execute") throw new Error("Durable effect was not claimed");
+      await intents.begin(first, async () => undefined);
+
+      await sql`
+        UPDATE grids.workflow_runs
+        SET execution_generation = 2, heartbeat_at = now(), lease_expires_at = now() + interval '2 minutes'
+        WHERE id = ${runId}::uuid
+      `;
+      await expect(intents.succeed(first, { sent: true })).rejects.toThrow("could not be completed");
+      const recovered = await intents.prepare({
+        runId,
+        stepKey: "steps.0",
+        executionGeneration: 2,
+        effectKind: "durable-intent",
+        idempotencyKey: `workflow:${runId}:step:steps.0`,
+        request: durableRequest,
+      });
+      expect(recovered).toMatchObject({ state: "execute", executionGeneration: 2, attempt: 2 });
+      if (recovered.state !== "execute") throw new Error("Durable effect was not recovered");
+      await intents.begin(recovered, async () => undefined);
+      await intents.succeed(recovered, { sent: true });
+
+      const ambiguous = await intents.prepare({
+        runId,
+        stepKey: "steps.1",
+        executionGeneration: 2,
+        effectKind: "ambiguous-external",
+        idempotencyKey: `workflow:${runId}:step:steps.1`,
+        request: { action: "httpRequest", host: "example.test" },
+      });
+      if (ambiguous.state !== "execute") throw new Error("Ambiguous effect was not claimed");
+      await intents.begin(ambiguous, async () => undefined);
+      await sql`
+        UPDATE grids.workflow_runs
+        SET execution_generation = 3, heartbeat_at = now(), lease_expires_at = now() + interval '2 minutes'
+        WHERE id = ${runId}::uuid
+      `;
+      expect(
+        await intents.prepare({
+          runId,
+          stepKey: "steps.1",
+          executionGeneration: 3,
+          effectKind: "ambiguous-external",
+          idempotencyKey: `workflow:${runId}:step:steps.1`,
+          request: { action: "httpRequest", host: "example.test" },
+        }),
+      ).toMatchObject({ state: "needs_attention", error: { code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN" } });
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }

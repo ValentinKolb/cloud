@@ -1,4 +1,5 @@
 import type { Dashboard } from "../contracts";
+import type { SqlClient } from "./audit";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 
 type DashboardIncludedViewer = {
@@ -13,15 +14,22 @@ type DashboardIncludedViewer = {
  * dashboard read access. Navigating to the source table/view/form, following
  * link widgets, or writing records still uses the origin resource's own ACL.
  */
-export const canReadDashboardIncludedData = async (dashboard: Dashboard, viewer: DashboardIncludedViewer): Promise<boolean> => {
+export const canReadDashboardIncludedData = async (
+  dashboard: Dashboard,
+  viewer: DashboardIncludedViewer,
+  client?: SqlClient,
+): Promise<boolean> => {
   if (viewer.isAdmin) return true;
-  const grants = await loadGrantsForUser({
-    userId: viewer.userId,
-    userGroups: viewer.userGroups,
-    serviceAccountId: viewer.serviceAccountId,
-    baseId: dashboard.baseId,
-    dashboardId: dashboard.id,
-  });
+  const grants = await loadGrantsForUser(
+    {
+      userId: viewer.userId,
+      userGroups: viewer.userGroups,
+      serviceAccountId: viewer.serviceAccountId,
+      baseId: dashboard.baseId,
+      dashboardId: dashboard.id,
+    },
+    client,
+  );
   const level = resolveEffectivePermission(grants, { baseId: dashboard.baseId, dashboardId: dashboard.id });
   if (!hasAtLeast(level, "read")) return false;
   if (dashboard.ownerUserId === null || dashboard.ownerUserId === viewer.userId) return true;

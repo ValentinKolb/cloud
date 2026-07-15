@@ -27,9 +27,15 @@ import {
   type GridsWorkflowRun,
   toWorkflowRevision,
 } from "../workflows/contracts";
+import type { SqlClient } from "./audit";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
 import { get as getDashboard } from "./dashboards";
-import { authorizeWorkflowTarget, revalidateWorkflowPrincipal, workflowPermissionAllows } from "./workflow-authorization";
+import {
+  authorizeWorkflowTarget,
+  revalidateWorkflowPrincipal,
+  revalidateWorkflowPrincipalInTransaction,
+  workflowPermissionAllows,
+} from "./workflow-authorization";
 import { workflowConflict } from "./workflow-errors";
 import { createGridsWorkflowActionPorts } from "./workflow-kernel-actions";
 import { createWorkflowRecordEventRuntime } from "./workflow-kernel-record-events";
@@ -43,7 +49,7 @@ import {
   type GridsWorkflowRunCompletion,
   GridsWorkflowRuntimeRepository,
   getWorkflowRun,
-  listExpiredWaitingWorkflowRunIds,
+  listExpiredWaitingWorkflowRuns,
   listRecoverableWorkflowRunIds,
   materializeWorkflowInvocation,
   resumeWaitingWorkflowRun,
@@ -141,8 +147,9 @@ const workflowPermission = async (
   baseId: string,
   principal: GridsWorkflowPrincipal,
   required: "read" | "write" | "admin",
+  client?: SqlClient,
 ): Promise<boolean> => {
-  return authorizeWorkflowTarget(principal, { baseId, workflowId }, required);
+  return authorizeWorkflowTarget(principal, { baseId, workflowId }, required, client);
 };
 
 const canExecuteAcceptedRun = async (
@@ -151,19 +158,26 @@ const canExecuteAcceptedRun = async (
   principal: GridsWorkflowPrincipal,
   authorization: GridsWorkflowAuthorization,
   launcherId: string | null | undefined,
+  client?: SqlClient,
 ): Promise<boolean> => {
-  if (authorization.kind === "workflow") return workflowPermission(workflowId, baseId, principal, "write");
-  const revalidated = await revalidateWorkflowPrincipal(principal, baseId);
+  if (authorization.kind === "workflow") return workflowPermission(workflowId, baseId, principal, "write", client);
+  const revalidated = client
+    ? await revalidateWorkflowPrincipalInTransaction(principal, baseId, client)
+    : await revalidateWorkflowPrincipal(principal, baseId);
   if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, "write")) return false;
   if (!launcherId) return false;
-  const dashboard = await getDashboard(authorization.dashboardId);
+  const dashboard = await getDashboard(authorization.dashboardId, {}, client);
   if (!dashboard || dashboard.baseId !== baseId) return false;
   if (
-    !(await canReadDashboardIncludedData(dashboard, {
-      userId: revalidated.subject.type === "user" ? revalidated.subject.userId : null,
-      userGroups: [],
-      serviceAccountId: revalidated.subject.type === "service_account" ? revalidated.subject.serviceAccountId : null,
-    }))
+    !(await canReadDashboardIncludedData(
+      dashboard,
+      {
+        userId: revalidated.subject.type === "user" ? revalidated.subject.userId : null,
+        userGroups: [],
+        serviceAccountId: revalidated.subject.type === "service_account" ? revalidated.subject.serviceAccountId : null,
+      },
+      client,
+    ))
   ) {
     return false;
   }
@@ -295,8 +309,10 @@ const executeClaimedWorkflowRun = async (
   const actions = createGridsWorkflowActionPorts({
     workflow,
     principal: actor,
-    authorizeExecution: () => canExecuteAcceptedRun(workflow.id, claimed.run.baseId, actor, claimed.authorization, claimed.run.launcherId),
-    authorizeTarget: (target, required) => authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, ...target }, required),
+    authorizeExecution: (client) =>
+      canExecuteAcceptedRun(workflow.id, claimed.run.baseId, actor, claimed.authorization, claimed.run.launcherId, client),
+    authorizeTarget: (target, required, client) =>
+      authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, ...target }, required, client),
   });
   const values = createGridsWorkflowValueResolver(claimed.run.baseId, actor, {
     authorizeTable: (tableId) => authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, tableId }, "read"),
@@ -574,9 +590,9 @@ export const registerWorkflowSchedules = async (
 };
 
 export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
-  const expiredWaiting = await listExpiredWaitingWorkflowRunIds();
-  for (const runId of expiredWaiting) {
-    if (await resumeWaitingWorkflowRun(runId)) {
+  const expiredWaiting = await listExpiredWaitingWorkflowRuns();
+  for (const { runId, dependency } of expiredWaiting) {
+    if (await resumeWaitingWorkflowRun(runId, dependency)) {
       await submitWorkflowRun(runId).catch((error) =>
         log.warn("Could not submit resumed workflow run", { runId, error: errorMessage(error) }),
       );

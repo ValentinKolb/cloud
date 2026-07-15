@@ -138,7 +138,14 @@ const context = <Mode extends "execute" | "dryRun">(
 };
 
 const executingIntents = (): GridsWorkflowEffectIntentPort => ({
-  prepare: mock(async () => ({ state: "execute" as const })),
+  prepare: mock(async (input) => ({
+    state: "execute" as const,
+    runId: input.runId,
+    idempotencyKey: input.idempotencyKey,
+    executionGeneration: input.executionGeneration,
+    attempt: 1,
+  })),
+  begin: mock(async (_claim, authorize) => authorize({} as never)),
   executeTransactional: mock(async (_input, perform) => {
     const output = await perform({} as never);
     return { state: "succeeded" as const, ...(output === undefined ? {} : { output }) };
@@ -414,6 +421,7 @@ describe("Grids workflow kernel action ports", () => {
     }));
     const intents: GridsWorkflowEffectIntentPort = {
       prepare,
+      begin: mock(async () => undefined),
       executeTransactional: mock(async () => ({
         state: "needs_attention" as const,
         error: { code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN", message: "unknown", retryable: false },

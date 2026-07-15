@@ -399,9 +399,11 @@ export const listRecoverableWorkflowRunIds = async (limit = 200): Promise<string
   return rows.map((row) => row.id);
 };
 
-export const listExpiredWaitingWorkflowRunIds = async (limit = 200): Promise<string[]> => {
-  const rows = await sql<Array<{ id: string }>>`
-    SELECT id::text AS id
+export type ExpiredWaitingWorkflowRun = { runId: string; dependency: WorkflowDependency };
+
+export const listExpiredWaitingWorkflowRuns = async (limit = 200): Promise<ExpiredWaitingWorkflowRun[]> => {
+  const rows = await sql<Array<{ id: string; dependency: unknown }>>`
+    SELECT id::text AS id, result->'dependency' AS dependency
     FROM grids.workflow_runs
     WHERE status = 'waiting'
       AND result #>> '{dependency,deadline}' IS NOT NULL
@@ -409,7 +411,7 @@ export const listExpiredWaitingWorkflowRunIds = async (limit = 200): Promise<str
     ORDER BY created_at, id
     LIMIT ${Math.max(1, Math.min(limit, 1000))}
   `;
-  return rows.map((row) => row.id);
+  return rows.map((row) => ({ runId: row.id, dependency: parseJsonbRow<WorkflowDependency>(row.dependency, { kind: "", key: "" }) }));
 };
 
 export const resumeWaitingWorkflowRun = async (runId: string, dependency?: WorkflowDependency): Promise<boolean> => {

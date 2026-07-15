@@ -73,6 +73,7 @@ export type GridsWorkflowActionServices = {
     actor: WorkflowActor;
     target: GridsWorkflowActionPermissionTarget;
     required: PermissionLevel;
+    client?: SqlClient;
   }): Promise<boolean>;
   dateContext(): Promise<DateContext>;
   audit(input: Parameters<typeof logAudit>[0], client?: SqlClient): Promise<void>;
@@ -146,28 +147,36 @@ export type GridsWorkflowActionServices = {
 export type GridsWorkflowEffectIntentInput = {
   runId: string;
   stepKey: string;
+  executionGeneration: number;
   effectKind: ActionEffect;
   idempotencyKey: string;
   request: WorkflowJsonValue;
 };
 
 type EffectIntentError = WorkflowExecutionError;
+export type GridsWorkflowEffectIntentClaim = {
+  runId: string;
+  idempotencyKey: string;
+  executionGeneration: number;
+  attempt: number;
+};
 type PreparedEffectIntent =
-  | { state: "execute" }
+  | ({ state: "execute" } & GridsWorkflowEffectIntentClaim)
   | { state: "succeeded"; output?: WorkflowJsonValue }
   | { state: "failed"; error: EffectIntentError }
   | { state: "needs_attention"; error: EffectIntentError };
 
 export type GridsWorkflowEffectIntentPort = {
   prepare(input: GridsWorkflowEffectIntentInput): Promise<PreparedEffectIntent>;
+  begin(claim: GridsWorkflowEffectIntentClaim, authorize: (client: SqlClient) => Promise<void>): Promise<void>;
   executeTransactional(
-    input: Omit<GridsWorkflowEffectIntentInput, "effectKind"> & { executionGeneration: number },
+    input: Omit<GridsWorkflowEffectIntentInput, "effectKind">,
     perform: (client: SqlClient) => Promise<WorkflowJsonValue | undefined>,
   ): Promise<PreparedEffectIntent>;
-  succeed(idempotencyKey: string, output?: WorkflowJsonValue): Promise<void>;
-  retry(idempotencyKey: string, error: EffectIntentError): Promise<void>;
-  fail(idempotencyKey: string, error: EffectIntentError): Promise<void>;
-  needsAttention(idempotencyKey: string, error: EffectIntentError): Promise<void>;
+  succeed(claim: GridsWorkflowEffectIntentClaim, output?: WorkflowJsonValue): Promise<void>;
+  retry(claim: GridsWorkflowEffectIntentClaim, error: EffectIntentError): Promise<void>;
+  fail(claim: GridsWorkflowEffectIntentClaim, error: EffectIntentError): Promise<void>;
+  needsAttention(claim: GridsWorkflowEffectIntentClaim, error: EffectIntentError): Promise<void>;
 };
 
 export type GridsWorkflowActionPorts = {
@@ -178,8 +187,8 @@ export type GridsWorkflowActionPorts = {
 export type CreateGridsWorkflowActionPortsOptions = {
   workflow: Pick<GridsWorkflow, "id" | "shortId" | "baseId" | "name">;
   principal?: GridsWorkflowPrincipal;
-  authorizeExecution?: () => Promise<boolean>;
-  authorizeTarget?: (target: GridsWorkflowActionPermissionTarget, required: PermissionLevel) => Promise<boolean>;
+  authorizeExecution?: (client?: SqlClient) => Promise<boolean>;
+  authorizeTarget?: (target: GridsWorkflowActionPermissionTarget, required: PermissionLevel, client?: SqlClient) => Promise<boolean>;
   services?: Partial<GridsWorkflowActionServices>;
   effectIntents?: GridsWorkflowEffectIntentPort;
   notificationSender?: WorkflowNotificationSender;
@@ -283,14 +292,17 @@ const defaultServices = (options: CreateGridsWorkflowActionPortsOptions): GridsW
     firstDayOfWeek: 1,
   });
   return {
-    requirePermission: async ({ baseId, actor, target, required }) => {
-      const grants = await loadGrantsForUser({
-        userId: actor.userId ?? null,
-        userGroups: actor.groupIds ?? [],
-        serviceAccountId: actor.serviceAccountId ?? null,
-        baseId,
-        ...(target as GridsWorkflowActionPermissionTarget),
-      });
+    requirePermission: async ({ baseId, actor, target, required, client }) => {
+      const grants = await loadGrantsForUser(
+        {
+          userId: actor.userId ?? null,
+          userGroups: actor.groupIds ?? [],
+          serviceAccountId: actor.serviceAccountId ?? null,
+          baseId,
+          ...(target as GridsWorkflowActionPermissionTarget),
+        },
+        client,
+      );
       return hasAtLeast(resolveEffectivePermission(grants, { baseId, ...target }), required);
     },
     dateContext,
@@ -468,6 +480,9 @@ type EffectIntentRow = {
   request: unknown;
   result: unknown;
   error: unknown;
+  attempts: number;
+  execution_generation: number | null;
+  effect_started_at: Date | null;
 };
 
 const interruptedEffectError = (): WorkflowExecutionError => ({
@@ -490,21 +505,32 @@ export class SqlGridsWorkflowEffectIntents implements GridsWorkflowEffectIntentP
 
   async prepare(input: GridsWorkflowEffectIntentInput): Promise<PreparedEffectIntent> {
     return sql.begin(async (tx): Promise<PreparedEffectIntent> => {
+      const [run] = await tx<{ id: string }[]>`
+        SELECT id::text
+        FROM grids.workflow_runs
+        WHERE id = ${input.runId}::uuid
+          AND status = 'running'
+          AND execution_generation = ${input.executionGeneration}
+        FOR UPDATE
+      `;
+      if (!run) throw actionError("WORKFLOW_RUN_LEASE_LOST", "Workflow run lease is no longer active");
       await tx`
         INSERT INTO grids.workflow_effect_intents (
-          run_id, step_key, effect_kind, idempotency_key, status, request
+          run_id, step_key, effect_kind, idempotency_key, status, request, execution_generation
         ) VALUES (
           ${input.runId}::uuid,
           ${input.stepKey},
           ${input.effectKind},
           ${input.idempotencyKey},
           'pending',
-          ${input.request}::jsonb
+          ${input.request}::jsonb,
+          ${input.executionGeneration}
         )
         ON CONFLICT (idempotency_key) DO NOTHING
       `;
       const [row] = await tx<EffectIntentRow[]>`
-        SELECT run_id::text, step_key, effect_kind, status, request, result, error
+        SELECT run_id::text, step_key, effect_kind, status, request, result, error,
+               attempts, execution_generation, effect_started_at
         FROM grids.workflow_effect_intents
         WHERE idempotency_key = ${input.idempotencyKey}
         FOR UPDATE
@@ -522,14 +548,10 @@ export class SqlGridsWorkflowEffectIntents implements GridsWorkflowEffectIntentP
         return { state: "needs_attention", error: parseJsonbRow(row.error, interruptedEffectError()) };
       }
       if (row.status === "executing") {
-        if (input.effectKind === "durable-intent") {
-          await tx`
-            UPDATE grids.workflow_effect_intents
-            SET status = 'pending', updated_at = now()
-            WHERE idempotency_key = ${input.idempotencyKey} AND status = 'executing'
-          `;
-          row.status = "pending";
-        } else {
+        if (row.execution_generation === input.executionGeneration) {
+          throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect is already executing in this run generation");
+        }
+        if (row.effect_started_at && input.effectKind === "ambiguous-external") {
           const error = interruptedEffectError();
           await tx`
             UPDATE grids.workflow_effect_intents
@@ -538,20 +560,103 @@ export class SqlGridsWorkflowEffectIntents implements GridsWorkflowEffectIntentP
           `;
           return { state: "needs_attention", error };
         }
+        await tx`
+          UPDATE grids.workflow_effect_intents
+          SET status = 'pending', effect_started_at = NULL, updated_at = now()
+          WHERE idempotency_key = ${input.idempotencyKey}
+            AND status = 'executing'
+            AND execution_generation IS DISTINCT FROM ${input.executionGeneration}
+        `;
+        row.status = "pending";
       }
-      const transitioned = await tx`
+      const [transitioned] = await tx<{ attempts: number }[]>`
         UPDATE grids.workflow_effect_intents
-        SET status = 'executing', attempts = attempts + 1, error = NULL, updated_at = now()
+        SET status = 'executing',
+            attempts = attempts + 1,
+            execution_generation = ${input.executionGeneration},
+            effect_started_at = NULL,
+            error = NULL,
+            updated_at = now()
         WHERE idempotency_key = ${input.idempotencyKey} AND status = 'pending'
-        RETURNING id
+        RETURNING attempts
       `;
-      if (transitioned.length === 0) throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect intent could not be started");
-      return { state: "execute" };
+      if (!transitioned) throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect intent could not be started");
+      return {
+        state: "execute",
+        runId: input.runId,
+        idempotencyKey: input.idempotencyKey,
+        executionGeneration: input.executionGeneration,
+        attempt: transitioned.attempts,
+      };
     });
   }
 
+  async begin(claim: GridsWorkflowEffectIntentClaim, authorize: (client: SqlClient) => Promise<void>): Promise<void> {
+    await sql.begin(async (tx) => {
+      const [run] = await tx<{ id: string }[]>`
+        SELECT id::text
+        FROM grids.workflow_runs
+        WHERE id = ${claim.runId}::uuid
+          AND status = 'running'
+          AND execution_generation = ${claim.executionGeneration}
+        FOR UPDATE
+      `;
+      if (!run) throw actionError("WORKFLOW_RUN_LEASE_LOST", "Workflow effect lost its execution lease");
+      const [intent] = await tx<{ id: string }[]>`
+        SELECT id::text
+        FROM grids.workflow_effect_intents
+        WHERE run_id = ${claim.runId}::uuid
+          AND idempotency_key = ${claim.idempotencyKey}
+          AND status = 'executing'
+          AND execution_generation = ${claim.executionGeneration}
+          AND attempts = ${claim.attempt}
+        FOR UPDATE
+      `;
+      if (!intent) throw actionError("WORKFLOW_RUN_LEASE_LOST", "Workflow effect lost its execution lease");
+      await authorize(tx);
+      const started = await tx`
+        UPDATE grids.workflow_effect_intents
+        SET effect_started_at = COALESCE(effect_started_at, now()), updated_at = now()
+        WHERE idempotency_key = ${claim.idempotencyKey}
+          AND status = 'executing'
+          AND execution_generation = ${claim.executionGeneration}
+          AND attempts = ${claim.attempt}
+        RETURNING id
+      `;
+      if (started.length === 0) throw actionError("WORKFLOW_RUN_LEASE_LOST", "Workflow effect lost its execution lease");
+    });
+  }
+
+  private async transition(
+    claim: GridsWorkflowEffectIntentClaim,
+    status: "succeeded" | "failed" | "pending" | "needs_attention",
+    values: { output?: WorkflowJsonValue; error?: EffectIntentError },
+    failureMessage: string,
+  ): Promise<void> {
+    const result = status === "succeeded" ? (values.output === undefined ? {} : { output: values.output }) : null;
+    const rows = await sql`
+      UPDATE grids.workflow_effect_intents intent
+      SET status = ${status},
+          result = CASE WHEN ${status} = 'succeeded' THEN ${result}::jsonb ELSE intent.result END,
+          error = ${status === "succeeded" ? null : (values.error ?? null)}::jsonb,
+          effect_started_at = CASE WHEN ${status} = 'pending' THEN NULL ELSE effect_started_at END,
+          updated_at = now()
+      FROM grids.workflow_runs run
+      WHERE intent.run_id = ${claim.runId}::uuid
+        AND intent.idempotency_key = ${claim.idempotencyKey}
+        AND intent.status = 'executing'
+        AND intent.execution_generation = ${claim.executionGeneration}
+        AND intent.attempts = ${claim.attempt}
+        AND run.id = intent.run_id
+        AND run.status = 'running'
+        AND run.execution_generation = ${claim.executionGeneration}
+      RETURNING intent.id
+    `;
+    if (rows.length === 0) throw actionError("WORKFLOW_EFFECT_INVALID", failureMessage);
+  }
+
   async executeTransactional(
-    input: Omit<GridsWorkflowEffectIntentInput, "effectKind"> & { executionGeneration: number },
+    input: Omit<GridsWorkflowEffectIntentInput, "effectKind">,
     perform: (client: SqlClient) => Promise<WorkflowJsonValue | undefined>,
   ): Promise<PreparedEffectIntent> {
     return sql.begin(async (tx): Promise<PreparedEffectIntent> => {
@@ -567,19 +672,21 @@ export class SqlGridsWorkflowEffectIntents implements GridsWorkflowEffectIntentP
       const intentInput: GridsWorkflowEffectIntentInput = { ...input, effectKind: "transactional" };
       await tx`
         INSERT INTO grids.workflow_effect_intents (
-          run_id, step_key, effect_kind, idempotency_key, status, request
+          run_id, step_key, effect_kind, idempotency_key, status, request, execution_generation
         ) VALUES (
           ${input.runId}::uuid,
           ${input.stepKey},
           'transactional',
           ${input.idempotencyKey},
           'pending',
-          ${input.request}::jsonb
+          ${input.request}::jsonb,
+          ${input.executionGeneration}
         )
         ON CONFLICT (idempotency_key) DO NOTHING
       `;
       const [row] = await tx<EffectIntentRow[]>`
-        SELECT run_id::text, step_key, effect_kind, status, request, result, error
+        SELECT run_id::text, step_key, effect_kind, status, request, result, error,
+               attempts, execution_generation, effect_started_at
         FROM grids.workflow_effect_intents
         WHERE idempotency_key = ${input.idempotencyKey}
         FOR UPDATE
@@ -595,7 +702,11 @@ export class SqlGridsWorkflowEffectIntents implements GridsWorkflowEffectIntentP
       }
       const started = await tx`
         UPDATE grids.workflow_effect_intents
-        SET status = 'executing', attempts = attempts + 1, updated_at = now()
+        SET status = 'executing',
+            attempts = attempts + 1,
+            execution_generation = ${input.executionGeneration},
+            effect_started_at = now(),
+            updated_at = now()
         WHERE idempotency_key = ${input.idempotencyKey} AND status = 'pending'
         RETURNING id
       `;
@@ -612,44 +723,20 @@ export class SqlGridsWorkflowEffectIntents implements GridsWorkflowEffectIntentP
     });
   }
 
-  async succeed(idempotencyKey: string, output?: WorkflowJsonValue): Promise<void> {
-    const rows = await sql`
-      UPDATE grids.workflow_effect_intents
-      SET status = 'succeeded', result = ${output === undefined ? {} : { output }}::jsonb, error = NULL, updated_at = now()
-      WHERE idempotency_key = ${idempotencyKey} AND status = 'executing'
-      RETURNING id
-    `;
-    if (rows.length === 0) throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect intent could not be completed");
+  async succeed(claim: GridsWorkflowEffectIntentClaim, output?: WorkflowJsonValue): Promise<void> {
+    await this.transition(claim, "succeeded", { output }, "Workflow effect intent could not be completed");
   }
 
-  async fail(idempotencyKey: string, error: EffectIntentError): Promise<void> {
-    const rows = await sql`
-      UPDATE grids.workflow_effect_intents
-      SET status = 'failed', error = ${error}::jsonb, updated_at = now()
-      WHERE idempotency_key = ${idempotencyKey} AND status = 'executing'
-      RETURNING id
-    `;
-    if (rows.length === 0) throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect intent could not be failed");
+  async fail(claim: GridsWorkflowEffectIntentClaim, error: EffectIntentError): Promise<void> {
+    await this.transition(claim, "failed", { error }, "Workflow effect intent could not be failed");
   }
 
-  async retry(idempotencyKey: string, error: EffectIntentError): Promise<void> {
-    const rows = await sql`
-      UPDATE grids.workflow_effect_intents
-      SET status = 'pending', error = ${error}::jsonb, updated_at = now()
-      WHERE idempotency_key = ${idempotencyKey} AND status = 'executing'
-      RETURNING id
-    `;
-    if (rows.length === 0) throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect intent could not be retried");
+  async retry(claim: GridsWorkflowEffectIntentClaim, error: EffectIntentError): Promise<void> {
+    await this.transition(claim, "pending", { error }, "Workflow effect intent could not be retried");
   }
 
-  async needsAttention(idempotencyKey: string, error: EffectIntentError): Promise<void> {
-    const rows = await sql`
-      UPDATE grids.workflow_effect_intents
-      SET status = 'needs_attention', error = ${error}::jsonb, updated_at = now()
-      WHERE idempotency_key = ${idempotencyKey} AND status = 'executing'
-      RETURNING id
-    `;
-    if (rows.length === 0) throw actionError("WORKFLOW_EFFECT_INVALID", "Workflow effect intent could not be suspended");
+  async needsAttention(claim: GridsWorkflowEffectIntentClaim, error: EffectIntentError): Promise<void> {
+    await this.transition(claim, "needs_attention", { error }, "Workflow effect intent could not be suspended");
   }
 }
 
@@ -736,9 +823,10 @@ const requirePermission = async (
   context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
   target: GridsWorkflowActionPermissionTarget,
   required: PermissionLevel,
+  client?: SqlClient,
 ): Promise<void> => {
   if (options.authorizeTarget) {
-    if (!(await options.authorizeTarget(target, required))) {
+    if (!(await options.authorizeTarget(target, required, client))) {
       throw actionError("FORBIDDEN", "Workflow actor does not have permission for this action");
     }
     return;
@@ -748,6 +836,7 @@ const requirePermission = async (
     actor: context.invocation.actor,
     target,
     required,
+    client,
   });
   if (!allowed) throw actionError("FORBIDDEN", "Workflow actor does not have permission for this action");
 };
@@ -756,14 +845,15 @@ const requireWorkflowPermission = async (
   services: GridsWorkflowActionServices,
   options: CreateGridsWorkflowActionPortsOptions,
   context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
+  client?: SqlClient,
 ): Promise<void> => {
   if (options.authorizeExecution) {
-    if (!(await options.authorizeExecution())) {
+    if (!(await options.authorizeExecution(client))) {
       throw actionError("FORBIDDEN", "Workflow actor does not have permission for this action");
     }
     return;
   }
-  await requirePermission(services, options, context, { workflowId: options.workflow.id }, "write");
+  await requirePermission(services, options, context, { workflowId: options.workflow.id }, "write", client);
 };
 
 const currentTable = async (
@@ -827,7 +917,7 @@ const executeIntent = async (
   context: WorkflowExecuteActionContext,
   step: WorkflowActionStep,
   request: WorkflowJsonValue,
-  authorize: () => Promise<void>,
+  authorize: (client?: SqlClient) => Promise<void>,
   perform: () => Promise<WorkflowJsonValue | undefined>,
 ): Promise<WorkflowStepOutcome> => {
   const effect = gridsWorkflowActionEffect(step.action);
@@ -835,41 +925,42 @@ const executeIntent = async (
     throw actionError("WORKFLOW_EFFECT_INVALID", `${step.action} is not an intent-backed action`);
   }
   await context.heartbeat();
-  await authorize();
   const idempotencyKey = `workflow:${context.run.runId}:step:${context.step.key}`;
   const prepared = await effectIntents.prepare({
     runId: context.run.runId,
     stepKey: context.step.key,
+    executionGeneration: context.run.executionGeneration,
     effectKind: effect,
     idempotencyKey,
     request,
   });
   if (prepared.state !== "execute") return restoredIntentOutcome(prepared);
+  await effectIntents.begin(prepared, async (client) => authorize(client));
   let output: WorkflowJsonValue | undefined;
   try {
     output = await perform();
   } catch (error) {
     if (error instanceof GridsWorkflowActionError) {
       if (effect === "ambiguous-external" && error.executionError.code === "WORKFLOW_HTTP_OUTCOME_UNKNOWN") {
-        await effectIntents.needsAttention(idempotencyKey, error.executionError);
+        await effectIntents.needsAttention(prepared, error.executionError);
         return { state: "needs_attention", error: error.executionError };
       }
       if (effect === "durable-intent" && error.executionError.retryable) {
-        await effectIntents.retry(idempotencyKey, error.executionError);
+        await effectIntents.retry(prepared, error.executionError);
         return failedOutcome(error);
       }
-      await effectIntents.fail(idempotencyKey, error.executionError);
+      await effectIntents.fail(prepared, error.executionError);
       return failedOutcome(error);
     }
     const unknown = interruptedEffectError();
-    await effectIntents.needsAttention(idempotencyKey, unknown);
+    await effectIntents.needsAttention(prepared, unknown);
     return { state: "needs_attention", error: unknown };
   }
   try {
-    await effectIntents.succeed(idempotencyKey, output);
+    await effectIntents.succeed(prepared, output);
   } catch {
     const unknown = interruptedEffectError();
-    await effectIntents.needsAttention(idempotencyKey, unknown).catch(() => undefined);
+    await effectIntents.needsAttention(prepared, unknown).catch(() => undefined);
     return { state: "needs_attention", error: unknown };
   }
   return { state: "completed", ...(output === undefined ? {} : { output }) };
@@ -880,11 +971,10 @@ const executeTransactional = async (
   context: WorkflowExecuteActionContext,
   step: WorkflowActionStep,
   request: WorkflowJsonValue,
-  authorize: () => Promise<void>,
+  authorize: (client: SqlClient) => Promise<void>,
   perform: (client: SqlClient) => Promise<WorkflowJsonValue | undefined>,
 ): Promise<WorkflowStepOutcome> => {
   await context.heartbeat();
-  await authorize();
   const prepared = await effectIntents.executeTransactional(
     {
       runId: context.run.runId,
@@ -893,7 +983,10 @@ const executeTransactional = async (
       idempotencyKey: `workflow:${context.run.runId}:step:${context.step.key}`,
       request,
     },
-    perform,
+    async (client) => {
+      await authorize(client);
+      return perform(client);
+    },
   );
   if (prepared.state === "execute") throw actionError("WORKFLOW_EFFECT_INVALID", "Transactional effect was not committed");
   return restoredIntentOutcome(prepared);
@@ -929,9 +1022,9 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           context,
           step,
           { action: step.action, tableId: record.tableId, recordId: record.recordId, fieldIds: Object.keys(values), requestFingerprint },
-          async () => {
-            await requireWorkflowPermission(services, options, context);
-            await requirePermission(services, options, context, { tableId: record.tableId }, "write");
+          async (client) => {
+            await requireWorkflowPermission(services, options, context, client);
+            await requirePermission(services, options, context, { tableId: record.tableId }, "write", client);
           },
           async (client) => {
             const updated = requireServiceResult(
@@ -983,9 +1076,9 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           context,
           step,
           { action: step.action, tableId, fieldIds: Object.keys(values), requestFingerprint },
-          async () => {
-            await requireWorkflowPermission(services, options, context);
-            await requirePermission(services, options, context, { tableId }, "write");
+          async (client) => {
+            await requireWorkflowPermission(services, options, context, client);
+            await requirePermission(services, options, context, { tableId }, "write", client);
           },
           async (client) => {
             const created = requireServiceResult(await services.createRecord(tableId, values, actorId(context), client));
@@ -1055,10 +1148,10 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           context,
           step,
           { action: step.action, templateId, tableId: table.id, recordId: record.recordId, requestFingerprint },
-          async () => {
-            await requireWorkflowPermission(services, options, context);
-            await requirePermission(services, options, context, { tableId: table.id }, "read");
-            await requirePermission(services, options, context, { tableId: table.id, documentTemplateId: template.id }, "write");
+          async (client) => {
+            await requireWorkflowPermission(services, options, context, client);
+            await requirePermission(services, options, context, { tableId: table.id }, "read", client);
+            await requirePermission(services, options, context, { tableId: table.id, documentTemplateId: template.id }, "write", client);
           },
           async () => {
             const run = requireServiceResult(
@@ -1163,14 +1256,15 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           context,
           step,
           { action: step.action, documentRunId: run.id, expiresIn, hasComment: comment !== null, requestFingerprint },
-          async () => {
-            await requireWorkflowPermission(services, options, context);
+          async (client) => {
+            await requireWorkflowPermission(services, options, context, client);
             await requirePermission(
               services,
               options,
               context,
               { tableId: run.tableId, ...(run.templateId ? { documentTemplateId: run.templateId } : {}) },
               "write",
+              client,
             );
           },
           async (client) => {
@@ -1277,7 +1371,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
             recipientKinds: input.recipients.map(({ kind }) => kind),
             requestFingerprint,
           },
-          () => requireWorkflowPermission(services, options, context),
+          (client) => requireWorkflowPermission(services, options, context, client),
           async () => {
             const workflowStepRunId = await services.getActiveStepRunId({
               runId: context.run.runId,
@@ -1345,7 +1439,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           context,
           step,
           { action: step.action, method: input.method, host: requestHost, requestFingerprint },
-          () => requireWorkflowPermission(services, options, context),
+          (client) => requireWorkflowPermission(services, options, context, client),
           async () => {
             const response = requireServiceResult(
               await services.httpRequest({

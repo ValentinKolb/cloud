@@ -7,8 +7,19 @@ import {
   serviceAccountCredentials,
   serviceAccounts,
 } from "@valentinkolb/cloud/services";
+import type { sql } from "bun";
 import type { GridsWorkflowCredential, GridsWorkflowCredentialBinding, GridsWorkflowPrincipal } from "../workflows/contracts";
 import { hasAtLeast, loadGrantsForSubject, type ResolveTarget, resolveEffectivePermission } from "./permission-resolver";
+
+type SqlClient = typeof sql;
+type WorkflowAuthorizationUser = Pick<User, "id" | "accountExpires">;
+type WorkflowAuthorizationServiceAccount = Pick<
+  ServiceAccount,
+  "id" | "kind" | "status" | "delegatedUserId" | "appId" | "resourceType" | "resourceId"
+>;
+type WorkflowAuthorizationCredential = Pick<ServiceAccountCredentialOverview, "id" | "status" | "scopes" | "expiresAt"> & {
+  serviceAccount: Pick<ServiceAccountCredentialOverview["serviceAccount"], "id" | "status">;
+};
 
 const PERMISSION_RANK: Record<PermissionLevel, number> = { none: 0, read: 1, write: 2, admin: 3 };
 
@@ -25,7 +36,9 @@ const minPermission = (left: PermissionLevel, right: PermissionLevel): Permissio
 export const workflowPermissionAllows = (actual: PermissionLevel, required: PermissionLevel): boolean =>
   PERMISSION_RANK[actual] >= PERMISSION_RANK[required];
 
-export const workflowCredentialBinding = (serviceAccount: ServiceAccount): GridsWorkflowCredentialBinding | null => {
+export const workflowCredentialBinding = (
+  serviceAccount: Pick<ServiceAccount, "kind" | "appId" | "resourceType" | "resourceId">,
+): GridsWorkflowCredentialBinding | null => {
   if (serviceAccount.kind !== "resource_bound") return null;
   if (!serviceAccount.appId || !serviceAccount.resourceType || !serviceAccount.resourceId) return null;
   return {
@@ -52,9 +65,9 @@ export type WorkflowAuthorizationRevalidation =
   | { ok: false; reason: string };
 
 export type WorkflowAuthorizationDeps = {
-  findCredential(id: string, serviceAccountId: string): Promise<ServiceAccountCredentialOverview | null>;
-  getServiceAccount(id: string): Promise<ServiceAccount | null>;
-  getUser(id: string): Promise<User | null>;
+  findCredential(id: string, serviceAccountId: string): Promise<WorkflowAuthorizationCredential | null>;
+  getServiceAccount(id: string): Promise<WorkflowAuthorizationServiceAccount | null>;
+  getUser(id: string): Promise<WorkflowAuthorizationUser | null>;
   now(): Date;
 };
 
@@ -66,6 +79,82 @@ const defaultDeps: WorkflowAuthorizationDeps = {
   getServiceAccount: (id) => serviceAccounts.get({ id }),
   getUser: (id) => accounts.users.get({ id }),
   now: () => new Date(),
+};
+
+const databaseDeps = async (db: SqlClient): Promise<WorkflowAuthorizationDeps> => {
+  const [clock] = await db<{ now: Date }[]>`SELECT now() AS now`;
+  if (!clock) throw new Error("Database clock is unavailable for workflow authorization");
+  return {
+    now: () => clock.now,
+    getUser: async (id) => {
+      const [row] = await db<{ id: string; account_expires: Date | null }[]>`
+        SELECT id::text, account_expires
+        FROM auth.users
+        WHERE id = ${id}::uuid
+      `;
+      return row ? { id: row.id, accountExpires: row.account_expires?.toISOString() ?? null } : null;
+    },
+    getServiceAccount: async (id) => {
+      const [row] = await db<
+        Array<{
+          id: string;
+          kind: WorkflowAuthorizationServiceAccount["kind"];
+          status: WorkflowAuthorizationServiceAccount["status"];
+          delegated_user_id: string | null;
+          app_id: string | null;
+          resource_type: string | null;
+          resource_id: string | null;
+        }>
+      >`
+        SELECT id::text, kind, status, delegated_user_id::text, app_id, resource_type, resource_id
+        FROM auth.service_accounts
+        WHERE id = ${id}::uuid
+      `;
+      return row
+        ? {
+            id: row.id,
+            kind: row.kind,
+            status: row.status,
+            delegatedUserId: row.delegated_user_id,
+            appId: row.app_id,
+            resourceType: row.resource_type,
+            resourceId: row.resource_id,
+          }
+        : null;
+    },
+    findCredential: async (id, serviceAccountId) => {
+      const [row] = await db<
+        Array<{
+          id: string;
+          status: WorkflowAuthorizationCredential["status"];
+          scopes: string[];
+          expires_at: Date | null;
+          service_account_id: string;
+          service_account_status: WorkflowAuthorizationCredential["serviceAccount"]["status"];
+        }>
+      >`
+        SELECT credential.id::text,
+               credential.status,
+               credential.scopes,
+               credential.expires_at,
+               account.id::text AS service_account_id,
+               account.status AS service_account_status
+        FROM auth.service_account_credentials credential
+        JOIN auth.service_accounts account ON account.id = credential.service_account_id
+        WHERE credential.id = ${id}::uuid
+          AND credential.service_account_id = ${serviceAccountId}::uuid
+      `;
+      return row
+        ? {
+            id: row.id,
+            status: row.status,
+            scopes: row.scopes,
+            expiresAt: row.expires_at?.toISOString() ?? null,
+            serviceAccount: { id: row.service_account_id, status: row.service_account_status },
+          }
+        : null;
+    },
+  };
 };
 
 const subjectFor = (principal: GridsWorkflowPrincipal, actorServiceAccountId: string | null): AccessSubject | null => {
@@ -164,22 +253,34 @@ export const revalidateWorkflowPrincipal = async (
   return { ok: true, subject, permissionCap: currentCredential.permissionCap, credential: currentCredential };
 };
 
+export const revalidateWorkflowPrincipalInTransaction = async (
+  principal: GridsWorkflowPrincipal,
+  baseId: string,
+  db: SqlClient,
+): Promise<WorkflowAuthorizationRevalidation> => revalidateWorkflowPrincipal(principal, baseId, await databaseDeps(db));
+
 export const authorizeWorkflowTarget = async (
   principal: GridsWorkflowPrincipal,
   target: ResolveTarget,
   required: PermissionLevel,
+  db?: SqlClient,
 ): Promise<boolean> => {
-  const revalidated = await revalidateWorkflowPrincipal(principal, target.baseId);
+  const revalidated = db
+    ? await revalidateWorkflowPrincipalInTransaction(principal, target.baseId, db)
+    : await revalidateWorkflowPrincipal(principal, target.baseId);
   if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, required)) return false;
-  const grants = await loadGrantsForSubject({
-    subject: revalidated.subject,
-    baseId: target.baseId,
-    tableId: "tableId" in target ? target.tableId : null,
-    viewId: "viewId" in target ? target.viewId : null,
-    formId: "formId" in target ? target.formId : null,
-    documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
-    dashboardId: "dashboardId" in target ? target.dashboardId : null,
-    workflowId: "workflowId" in target ? target.workflowId : null,
-  });
+  const grants = await loadGrantsForSubject(
+    {
+      subject: revalidated.subject,
+      baseId: target.baseId,
+      tableId: "tableId" in target ? target.tableId : null,
+      viewId: "viewId" in target ? target.viewId : null,
+      formId: "formId" in target ? target.formId : null,
+      documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
+      dashboardId: "dashboardId" in target ? target.dashboardId : null,
+      workflowId: "workflowId" in target ? target.workflowId : null,
+    },
+    db,
+  );
   return hasAtLeast(resolveEffectivePermission(grants, target), required);
 };

@@ -298,6 +298,8 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
       result JSONB,
       error JSONB,
       attempts INT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+      execution_generation INT CHECK (execution_generation IS NULL OR execution_generation >= 0),
+      effect_started_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (idempotency_key)
@@ -311,6 +313,26 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_effect_intents_recovery
     ON grids.workflow_effect_intents(status, updated_at)
     WHERE status IN ('pending', 'executing')
+  `.simple();
+  await sql`
+    ALTER TABLE grids.workflow_effect_intents
+      ADD COLUMN IF NOT EXISTS execution_generation INT,
+      ADD COLUMN IF NOT EXISTS effect_started_at TIMESTAMPTZ
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'workflow_effect_intents_generation_check'
+          AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.workflow_effect_intents
+          ADD CONSTRAINT workflow_effect_intents_generation_check
+          CHECK (execution_generation IS NULL OR execution_generation >= 0);
+      END IF;
+    END $$
   `.simple();
 };
 

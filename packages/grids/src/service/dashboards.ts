@@ -9,6 +9,7 @@ import { tableBelongsToBase } from "./query-validation";
 import { insertWithShortId } from "./short-id";
 
 type DbRow = Record<string, unknown>;
+type SqlClient = typeof sql;
 
 // Dashboards are per-base composition surfaces that may aggregate multiple
 // tables. Read visibility combines base, owner, and dashboard ACL context;
@@ -242,17 +243,17 @@ export const getByIdOrShortId = async (baseId: string, idOrSlug: string): Promis
   return getByShortId(baseId, idOrSlug);
 };
 
-export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<Dashboard | null> => {
+export const get = async (id: string, opts: { includeDeleted?: boolean } = {}, db: SqlClient = sql): Promise<Dashboard | null> => {
   // Live-parent invariant: dashboards under a trashed base never resolve
   // outside the top-down restore flow.
   const [row] = opts.includeDeleted
-    ? await sql<DbRow[]>`
+    ? await db<DbRow[]>`
         SELECT d.id, d.short_id, d.base_id, d.name, d.description, d.icon, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
         FROM grids.dashboards d
         JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL
         WHERE d.id = ${id}::uuid
       `
-    : await sql<DbRow[]>`
+    : await db<DbRow[]>`
         SELECT d.id, d.short_id, d.base_id, d.name, d.description, d.icon, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
         FROM grids.dashboards d
         JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL

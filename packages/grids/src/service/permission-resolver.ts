@@ -257,12 +257,16 @@ export const loadGrantsForUser = async (
     userGroups?: string[];
     serviceAccountId?: string | null;
   },
+  db: typeof sql = sql,
 ): Promise<Grant[]> =>
-  loadGrantsForSubject({
-    ...params,
-    subject: params.userId
-      ? { type: "user", userId: params.userId }
-      : params.serviceAccountId
-        ? { type: "service_account", serviceAccountId: params.serviceAccountId }
-        : null,
-  });
+  loadGrantsForSubject(
+    {
+      ...params,
+      subject: params.userId
+        ? { type: "user", userId: params.userId }
+        : params.serviceAccountId
+          ? { type: "service_account", serviceAccountId: params.serviceAccountId }
+          : null,
+    },
+    db,
+  );

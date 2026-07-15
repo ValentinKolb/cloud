@@ -214,6 +214,15 @@ const createDocumentRunInternal = async (
     }, "idx_grids_document_runs_short_id");
     return ok({ run: mapDocumentRun(created.row), pdf: created.pdf });
   } catch (error) {
+    if (params.workflowRunId && params.workflowStepKey && isUniqueViolation(error, "idx_grids_document_runs_workflow_step")) {
+      const [existing] = await sql<DocumentDbRow[]>`
+        SELECT *
+        FROM grids.document_runs
+        WHERE workflow_run_id = ${params.workflowRunId}::uuid
+          AND workflow_step_key = ${params.workflowStepKey}
+      `;
+      if (existing) return ok({ run: mapDocumentRun(existing), pdf: null });
+    }
     if (isUniqueViolation(error, "idx_grids_document_runs_number")) {
       return fail({
         code: "CONFLICT",
@@ -236,8 +245,9 @@ export const createRenderedDocumentRun = async (
 ): Promise<Result<{ run: DocumentRun; pdf: RenderHtmlToPdfResult }>> => {
   const created = await createDocumentRunInternal(params, true);
   if (!created.ok) return created;
-  if (!created.data.pdf) return fail(err.internal("Document PDF was not rendered"));
-  return ok({ run: created.data.run, pdf: created.data.pdf });
+  if (created.data.pdf) return ok({ run: created.data.run, pdf: created.data.pdf });
+  const rendered = await (params.renderPdf ?? renderRunPdf)(created.data.run);
+  return rendered.ok ? ok({ run: created.data.run, pdf: rendered.data }) : rendered;
 };
 
 export const getDocumentRun = async (runId: string): Promise<DocumentRun | null> => {
