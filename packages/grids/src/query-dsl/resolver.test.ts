@@ -3,7 +3,7 @@ import { sql } from "bun";
 import type { RecordQuery } from "../contracts";
 import type { FormulaSqlExpression } from "../service/formula-sql-compiler";
 import { dslPreviewDiagnosticForCompilerError, resolveDslPreviewLimit } from "./preview";
-import { resolveDslQueryToQueryPlan, resolveDslQueryToRecordQuery } from "./resolver";
+import { isDslAggregateOnlyPlan, resolveDslQueryToQueryPlan, resolveDslQueryToRecordQuery } from "./resolver";
 import {
   amountFieldId,
   attachmentFieldId,
@@ -1277,6 +1277,7 @@ sort missing desc`),
       { fieldId: customerScoreFieldId, tableId: customers.id, joinAlias: "customer", agg: "sum", label: "total_score" },
     ]);
     expect(result.plan.formulaAggregations?.map((aggregation) => aggregation.id)).toEqual(["weighted"]);
+    expect(isDslAggregateOnlyPlan(result.plan)).toBe(true);
 
     const compiled = compileDslGroupedQueryPlanToSql(result.plan, { fieldsByTableId: ctx().fieldsByTableId });
     expect(compiled.ok).toBe(true);
@@ -1285,6 +1286,19 @@ sort missing desc`),
     expect(text).toContain("JOIN grids.record_links");
     expect(text).not.toContain("GROUP BY");
     expect(compiled.query.columns.map((column) => column.key)).toEqual([`${customerScoreFieldId}__sum`, "weighted__sum"]);
+  });
+
+  test("aggregate-only plan classification follows the output shape", () => {
+    const simple = resolveDslQueryToQueryPlan(parseOk(`aggregate count(*) as rows`), ctx());
+    const joined = resolveDslQueryToQueryPlan(
+      parseOk(`join table Custs as customer on customer_link = customer.id\naggregate sum(customer.score) as total_score`),
+      ctx(),
+    );
+    const grouped = resolveDslQueryToQueryPlan(parseOk(`group by status\naggregate count(*) as rows`), ctx());
+
+    expect(simple.ok && isDslAggregateOnlyPlan(simple.plan)).toBe(true);
+    expect(joined.ok && isDslAggregateOnlyPlan(joined.plan)).toBe(true);
+    expect(grouped.ok && isDslAggregateOnlyPlan(grouped.plan)).toBe(false);
   });
 
   test("query plan rejects ambiguous aggregate-only shapes", () => {

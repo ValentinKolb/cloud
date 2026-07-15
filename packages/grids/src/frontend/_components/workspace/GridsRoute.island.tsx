@@ -3,6 +3,7 @@ import { createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import DashboardLayout from "../dashboard/DashboardLayout";
 import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor";
 import DocumentTemplateWorkspace from "../documents/DocumentTemplateWorkspace";
+import AnalyticalView from "../query/AnalyticalView";
 import QueryWorkspace from "../query/QueryWorkspace";
 import { createGridsRecordEventsProvider } from "../records-view/grids-record-events-provider";
 import RecordsView from "../records-view/RecordsView";
@@ -11,6 +12,7 @@ import WorkflowsPage from "../workflows/WorkflowsPage";
 import { workspaceMainClass } from "./workspace-layout";
 import type {
   OkWorkspaceState,
+  WorkspaceAnalyticalViewRoute,
   WorkspaceDashboardRoute,
   WorkspaceDocumentTemplateRoute,
   WorkspaceQueryRoute,
@@ -204,6 +206,20 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
                   tables={state.catalog.tables}
                   fieldsByTable={state.catalog.fieldsByTable}
                   viewsByTable={state.catalog.viewsByTable}
+                />
+              );
+            })()}
+          </Match>
+          <Match when={route.kind === "analyticalView"}>
+            {(() => {
+              const analytical = route as WorkspaceAnalyticalViewRoute;
+              return (
+                <AnalyticalView
+                  baseShortId={state.base.shortId}
+                  route={analytical}
+                  tables={state.catalog.tables}
+                  fieldsByTable={state.catalog.fieldsByTable}
+                  editMode={state.adminModeRequested}
                 />
               );
             })()}

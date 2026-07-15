@@ -15,6 +15,7 @@ import type {
   GridsWorkspaceState,
   OkWorkspaceState,
   RuntimeView,
+  WorkspaceAnalyticalViewRoute,
   WorkspaceBulkLauncher,
   WorkspaceCatalog,
   WorkspaceCommon,
@@ -81,6 +82,7 @@ type ResolvedRecordsView = {
   activeTableLevel: "none" | "read" | "write" | "admin";
   activeView: View | null;
   activeViewForQuery: RuntimeView | null;
+  analyticalView: View | null;
   canEditActiveView: boolean;
   fields: Field[];
 };
@@ -122,7 +124,7 @@ const resolveRecordsView = async (
     };
   }
   const activeViewForQuery: RuntimeView | null =
-    activeView && compiledView?.ok
+    activeView && compiledView?.ok && compiledView.kind === "records"
       ? {
           ...activeView,
           query: compiledView.query,
@@ -133,9 +135,29 @@ const resolveRecordsView = async (
     activeTableLevel,
     activeView,
     activeViewForQuery,
+    analyticalView: activeView && compiledView?.ok && compiledView.kind === "analytical" ? activeView : null,
     canEditActiveView:
       !!activeView && (activeView.ownerUserId === common.params.user.id || gridsService.permission.hasAtLeast(candidateViewLevel, "admin")),
     fields: activeViewForQuery ? outputFieldsForQuery(allFields, activeViewForQuery.query) : allFields,
+  };
+};
+
+const buildAnalyticalViewRoute = async (
+  common: WorkspaceCommon,
+  activeTable: Table,
+  view: ResolvedRecordsView,
+): Promise<WorkspaceAnalyticalViewRoute> => {
+  if (!view.analyticalView) throw new Error("Analytical view route requires an analytical view");
+  const canManageTable = gridsService.permission.hasAtLeast(view.activeTableLevel, "admin");
+  return {
+    kind: "analyticalView",
+    activeTable,
+    activeView: view.analyticalView,
+    fields: view.fields,
+    canManageActiveTable: canManageTable,
+    canEditActiveView: view.canEditActiveView,
+    activeViewAccessEntries: view.canEditActiveView ? await gridsService.access.listForView(view.analyticalView.id) : [],
+    initialResult: null,
   };
 };
 
@@ -252,6 +274,16 @@ export const loadRecordsState = async (
 ): Promise<OkWorkspaceState | Extract<GridsWorkspaceState, { kind: "invalidQuery" }>> => {
   const view = await resolveRecordsView(common, activeTable, activeViewSlug);
   if ("kind" in view) return view;
+  if (view.analyticalView) {
+    return okState(common, await buildAnalyticalViewRoute(common, activeTable, view), [
+      ...common.chrome.titleBase,
+      {
+        title: activeTable.name,
+        href: "/app/grids/" + common.base.shortId + "/table/" + activeTable.shortId,
+      },
+      { title: view.analyticalView.name },
+    ]);
+  }
   const recordsState = parseRecordsState(common.chrome.url.searchParams);
   const displayConfig = activeDisplayConfig(activeTable.displayConfig, view.activeViewForQuery?.displayConfig);
   const initial = await loadInitialRecords({

@@ -92,6 +92,17 @@ export type WorkspaceRecordsRoute = {
   bulkSelectionLaunchers: WorkspaceBulkLauncher[];
 };
 
+export type WorkspaceAnalyticalViewRoute = {
+  kind: "analyticalView";
+  activeTable: Table;
+  activeView: View;
+  fields: Field[];
+  canManageActiveTable: boolean;
+  canEditActiveView: boolean;
+  activeViewAccessEntries: AccessEntry[];
+  initialResult: DslQueryPreviewResponse | null;
+};
+
 export type WorkspaceRecordDetail = {
   recordId: string;
   filesByField: Record<string, GridFile[]>;
@@ -167,6 +178,7 @@ export type WorkspaceDocumentTemplateRoute = {
 
 export type GridsWorkspaceRoute =
   | WorkspaceRecordsRoute
+  | WorkspaceAnalyticalViewRoute
   | WorkspaceDashboardRoute
   | WorkspaceWorkflowsRoute
   | WorkspaceQueryRoute

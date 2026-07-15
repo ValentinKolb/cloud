@@ -6,6 +6,8 @@ import {
   type DslResolverDiagnostic,
   type DslTableSource,
   type DslViewSource,
+  isDslAggregateOnlyPlan,
+  resolveDslQueryToQueryPlan,
   resolveDslQueryToRecordQuery,
 } from "../../../query-dsl/resolver";
 import { collectDslFieldTableIds } from "../../../query-dsl/source-plan";
@@ -79,12 +81,19 @@ export const compileViewSource = (
   catalog: WorkspaceCatalog,
   activeTable: Table,
   view: View,
-): { ok: true; query: RecordQuery } | { ok: false; diagnostics: Array<Pick<DslResolverDiagnostic, "message">> } => {
+):
+  | { ok: true; kind: "records"; query: RecordQuery }
+  | { ok: true; kind: "analytical" }
+  | { ok: false; diagnostics: Array<Pick<DslResolverDiagnostic, "message">> } => {
   const parsed = parseGridsQueryDsl(view.source);
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
-  const resolved = resolveDslQueryToRecordQuery(parsed.ast, buildResolverContext(catalog, activeTable.id, parsed.ast));
+  const context = buildResolverContext(catalog, activeTable.id, parsed.ast);
+  const queryPlan = resolveDslQueryToQueryPlan(parsed.ast, context);
+  if (!queryPlan.ok) return { ok: false, diagnostics: queryPlan.diagnostics };
+  if (isDslAggregateOnlyPlan(queryPlan.plan)) return { ok: true, kind: "analytical" };
+  const resolved = resolveDslQueryToRecordQuery(parsed.ast, context);
   if (!resolved.ok) return { ok: false, diagnostics: resolved.diagnostics };
-  return { ok: true, query: withViewPresentation(resolved.plan.query, view.ui) };
+  return { ok: true, kind: "records", query: withViewPresentation(resolved.plan.query, view.ui) };
 };
 
 export const outputFieldsForQuery = (fields: Field[], query: RecordQuery): Field[] => {

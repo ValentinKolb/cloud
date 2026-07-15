@@ -4,7 +4,12 @@ import CreateDashboardButton from "../sidebar/CreateDashboardButton.island";
 import CreateTableButton from "../sidebar/CreateTableButton.island";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry.island";
 import SidebarTableMeta from "../sidebar/SidebarTableMeta";
-import type { OkWorkspaceState, WorkspaceRecordsRoute, WorkspaceWorkflowsRoute } from "./workspace-state-model";
+import type {
+  OkWorkspaceState,
+  WorkspaceAnalyticalViewRoute,
+  WorkspaceRecordsRoute,
+  WorkspaceWorkflowsRoute,
+} from "./workspace-state-model";
 
 const urlWithParam = (href: string, key: string, value: string) => {
   const url = new URL(href, "http://grids.local");
@@ -24,6 +29,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
   const state = props.state;
   const route = state.route;
   const recordsRoute = route.kind === "records" ? (route as WorkspaceRecordsRoute) : null;
+  const analyticalViewRoute = route.kind === "analyticalView" ? (route as WorkspaceAnalyticalViewRoute) : null;
   const workflowsRoute = route.kind === "workflows" ? (route as WorkspaceWorkflowsRoute) : null;
   const renderQueryItem = () =>
     state.canUseQueryWorkspace ? (
@@ -91,7 +97,9 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
       <AppWorkspace.SidebarSection title="Views">
         {state.catalog.tables.flatMap((table) =>
           (state.catalog.viewsByTable[table.id] ?? []).map((view) => {
-            const active = recordsRoute?.activeTable.id === table.id && recordsRoute.activeView?.id === view.id;
+            const active =
+              (recordsRoute?.activeTable.id === table.id && recordsRoute.activeView?.id === view.id) ||
+              analyticalViewRoute?.activeView.id === view.id;
             return (
               <SidebarLink
                 href={keepEdit(`/app/grids/${state.base.shortId}/table/${table.shortId}/view/${view.shortId}`, state.adminModeRequested)}

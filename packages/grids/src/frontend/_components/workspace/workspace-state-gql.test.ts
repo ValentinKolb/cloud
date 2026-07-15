@@ -190,6 +190,33 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(lastRecordListParams?.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
   });
 
+  test("routes aggregate-only saved views to the analytical runtime without listing records", async () => {
+    const aggregateView = {
+      ...savedView,
+      id: "66666666-6666-4666-8666-666666666666",
+      shortId: "COUNT",
+      name: "Orders count",
+      source: `from table {${table.id}}\naggregate count(*) as orders`,
+    };
+    catalogViewsByTable = { [table.id]: [aggregateView] };
+    lookupTable = table;
+    lookupView = aggregateView;
+
+    const state = await loadGridsWorkspaceState({
+      user,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${aggregateView.shortId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: aggregateView.shortId,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok" || state.route.kind !== "analyticalView") return;
+    expect(state.route.activeView.id).toBe(aggregateView.id);
+    expect(state.route.initialResult).toBeNull();
+    expect(lastRecordListParams).toBeNull();
+  });
+
   test("hydrates grouped aggregate sort into the client records state", async () => {
     const groupedView = {
       ...savedView,
@@ -237,6 +264,37 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.activeView?.id).toBe(savedView.id);
     expect(state.route.fields.map((field) => field.id)).toEqual([statusField.id]);
     expect(state.route.canWriteRecords).toBe(false);
+  });
+
+  test("loads an explicitly readable analytical view without parent table access", async () => {
+    const aggregateView = {
+      ...savedView,
+      id: "66666666-6666-4666-8666-666666666666",
+      shortId: "COUNT",
+      name: "Orders count",
+      source: `from table {${table.id}}\naggregate count(*) as orders`,
+    };
+    catalogTables = [];
+    catalogTableLevels = {};
+    catalogFieldsByTable = {};
+    lookupTable = table;
+    lookupView = aggregateView;
+    viewLevel = "read";
+
+    const state = await loadGridsWorkspaceState({
+      user,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${aggregateView.shortId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: aggregateView.shortId,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok" || state.route.kind !== "analyticalView") return;
+    expect(state.catalog.tables).toEqual([]);
+    expect(state.route.activeView.id).toBe(aggregateView.id);
+    expect(state.route.canManageActiveTable).toBe(false);
+    expect(lastRecordListParams).toBeNull();
   });
 
   test("loads selected records through the readable view query when table read is denied", async () => {

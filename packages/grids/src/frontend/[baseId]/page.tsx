@@ -1,7 +1,7 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { currentActorUser } from "../../api/permissions";
-import { withInitialQueryPreview } from "../../api/workspace-query-preview";
+import { withInitialGqlResults } from "../../api/workspace-query-preview";
 import { ssr } from "../../config";
 import { parseDocumentViewMode } from "../_components/sidebar/GridsSettingsStore";
 import GridsWorkspace from "../_components/workspace/GridsWorkspace";
@@ -43,7 +43,7 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const state = await withInitialQueryPreview(c, loadedState);
+  const state = await withInitialGqlResults(c, loadedState);
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>

@@ -26,6 +26,7 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
   const catalog = emptyClientCatalog();
   switch (state.route.kind) {
     case "records":
+    case "analyticalView":
       catalog.tables = state.catalog.tables;
       catalog.fieldsByTable = state.catalog.fieldsByTable;
       catalog.viewsByTable = state.catalog.viewsByTable;

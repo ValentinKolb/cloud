@@ -1,4 +1,4 @@
-import { AutocompleteEditor, DataTable, type DataTableColumn, Panes, type PanesValue, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, Panes, type PanesValue, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -7,8 +7,8 @@ import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
-import { FieldValue } from "../table/FieldValue";
 import { errorMessage } from "../utils/api-helpers";
+import QueryResultTable from "./QueryResultTable";
 import { buildBackendGqlCompletions } from "./query-autocomplete";
 import { currentSourceForApi, type QueryWorkspaceCurrentSource, visibleFields, visibleViews } from "./query-workspace-model";
 
@@ -25,9 +25,6 @@ type Props = {
   syncQueryToUrl?: boolean;
 };
 
-type PreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
-type PreviewRow = PreviewSuccess["rows"][number] & { __rowKey: string };
-type PreviewColumn = PreviewSuccess["columns"][number];
 type QuerySourceRow = {
   id: string;
   kind: "table" | "view";
@@ -119,13 +116,6 @@ const queryHighlight = highlight.compile(
   { classPrefix: "doc-token-" },
 );
 
-const displayValue = (value: unknown): string => {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map(displayValue).join(", ");
-  return JSON.stringify(value, null, 2);
-};
-
 const queryHref = (queryPath: string, query: string) => {
   const params = new URLSearchParams();
   if (query.trim()) params.set("q", query);
@@ -169,23 +159,6 @@ function QueryPreview(props: {
 }) {
   const success = createMemo(() => (props.preview?.ok ? props.preview : null));
   const diagnostics = createMemo(() => (props.preview && !props.preview.ok ? props.preview.diagnostics : []));
-  const rows = createMemo<PreviewRow[]>(() =>
-    props.preview?.ok ? props.preview.rows.map((row, index) => ({ ...row, __rowKey: row.recordId ?? `row-${index}` })) : [],
-  );
-  const tableShortIds = createMemo(() => Object.fromEntries(props.tables.map((table) => [table.id, table.shortId])));
-  const fieldForColumn = (column: PreviewColumn): Field | null => {
-    if (column.type === "aggregate" || !column.tableId || !column.fieldId) return null;
-    return props.fieldsByTable[column.tableId]?.find((field) => field.id === column.fieldId && !field.deletedAt) ?? null;
-  };
-  const columns = createMemo<DataTableColumn<PreviewRow>[]>(() => {
-    if (!props.preview?.ok) return [];
-    return props.preview.columns.map((column) => ({
-      id: column.key,
-      header: column.label,
-      subtitle: column.joinAlias ? `${column.joinAlias} · ${column.type}` : column.type,
-      value: (row) => row.values[column.key],
-    }));
-  });
 
   return (
     <div class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-surface">
@@ -235,32 +208,11 @@ function QueryPreview(props: {
           }
         >
           {(preview) => (
-            <DataTable
-              rows={rows()}
-              columns={columns()}
-              getRowId={(row) => row.__rowKey}
-              class="paper h-full min-h-0 flex-1 overflow-auto"
-              density="compact"
-              fillHeight
-              hoverRows={false}
-              cellContentClass="max-h-24 overflow-auto whitespace-pre-wrap break-words"
-              empty={<span>No rows match this query.</span>}
-              renderCell={({ col, value }) => {
-                const column = preview().columns.find((item) => item.key === col.id);
-                const field = column ? fieldForColumn(column) : null;
-                if (!field) return <span>{displayValue(value)}</span>;
-                return (
-                  <FieldValue
-                    field={field}
-                    value={value}
-                    baseId={props.baseShortId}
-                    tableShortIds={tableShortIds()}
-                    fieldsByTable={props.fieldsByTable}
-                    mode="table"
-                    relationValueMode={field.type === "relation" ? "labels" : "ids"}
-                  />
-                );
-              }}
+            <QueryResultTable
+              result={preview()}
+              baseShortId={props.baseShortId}
+              tables={props.tables}
+              fieldsByTable={props.fieldsByTable}
               scrollPreserveKey="grids-query-preview"
             />
           )}

@@ -8,7 +8,7 @@ import { storageOf } from "../service/field-storage";
 import { buildRelationLabelCacheForIds, type ExpansionViewer } from "../service/relations";
 import { compileSearchClause } from "../service/search";
 import type { Field } from "../service/types";
-import type { DslResolvedSqlQueryPlan } from "./resolver";
+import { isDslAggregateOnlyPlan, type DslResolvedSqlQueryPlan } from "./resolver";
 import type { DslSqlAggregateOutputColumn, DslSqlGroupOutputColumn, DslSqlOutputColumn } from "./sql-compiler";
 import {
   compileDslAggregateQueryPlanToSql,
@@ -91,18 +91,6 @@ const isGroupedPlan = (plan: DslResolvedSqlQueryPlan): boolean =>
   (plan.sqlGroupBy?.length ?? 0) > 0 ||
   ((plan.joins?.length ?? 0) > 0 && ((plan.sqlAggregations?.length ?? 0) > 0 || (plan.formulaAggregations?.length ?? 0) > 0)) ||
   Boolean(plan.formulaHaving);
-
-const isAggregateOnlyPlan = (plan: DslResolvedSqlQueryPlan): boolean => {
-  const hasAggregations = (plan.query.aggregations?.length ?? 0) > 0 || (plan.formulaAggregations?.length ?? 0) > 0;
-  const hasRowShape = (plan.query.columns?.length ?? 0) > 0 || (plan.joinedColumns?.length ?? 0) > 0 || (plan.joins?.length ?? 0) > 0;
-  const hasGrouping = (plan.query.groupBy?.length ?? 0) > 0 || Boolean(plan.formulaHaving);
-  const hasSort =
-    (plan.query.sort?.length ?? 0) > 0 ||
-    (plan.sqlSort?.length ?? 0) > 0 ||
-    (plan.query.groupSort?.length ?? 0) > 0 ||
-    (plan.formulaGroupSort?.length ?? 0) > 0;
-  return hasAggregations && !hasRowShape && !hasGrouping && !hasSort;
-};
 
 /** True when any group key is a multi-select / relation field, so one record
  *  contributes to several buckets (bucket totals can exceed record count). */
@@ -396,7 +384,7 @@ export const previewDslQuery = async (
       });
     }
 
-    if (isAggregateOnlyPlan(plan)) {
+    if (isDslAggregateOnlyPlan(plan)) {
       const compiled = compileDslAggregateQueryPlanToSql(plan, { ...options, ...compileInputs, limit: 1 });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 

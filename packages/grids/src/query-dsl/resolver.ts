@@ -7,7 +7,7 @@ export type { DslResolverDiagnostic } from "./resolver-diagnostics";
 export type { DslResolvedSqlGroupBy, DslResolvedSqlSort } from "./resolver-group-sort";
 export type { DslResolvedDerivedRelationJoin, DslResolvedRelationJoin } from "./resolver-joins";
 export type { DslJoinedColumn, DslOutputColumn } from "./resolver-output";
-export type { DslResolvedSqlQueryPlan } from "./resolver-plan-types";
+export { isDslAggregateOnlyPlan, type DslResolvedSqlQueryPlan } from "./resolver-plan-types";
 export { resolveDslQueryToQueryPlan } from "./resolver-query-plan";
 export { resolveDslQueryToRecordQuery } from "./resolver-record-query";
 export type { DslWherePredicate } from "./resolver-where";

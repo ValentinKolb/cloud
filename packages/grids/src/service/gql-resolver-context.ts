@@ -67,7 +67,7 @@ export const buildTrustedGqlResolverContext = async (
     baseId: string;
     currentTableId?: string;
     ast: DslQueryAst;
-    purpose: "dashboard-widget-render" | "document-template-render";
+    purpose: "dashboard-widget-render" | "document-template-render" | "saved-view-render";
   },
   loaders: TrustedGqlResolverContextLoaders = defaultLoaders,
 ): Promise<DslResolverContext> => {

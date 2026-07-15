@@ -4,6 +4,7 @@ type WorkspaceRouteKind = GridsWorkspaceRoute["kind"];
 type WorkspaceSurface = "edge-to-edge" | "inset";
 
 const WORKSPACE_SURFACES = {
+  analyticalView: "inset",
   dashboard: "inset",
   // The file browser and query panes own their full workbench gutters.
   documentTemplate: "edge-to-edge",

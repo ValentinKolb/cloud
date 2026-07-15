@@ -36,6 +36,14 @@ export type DslResolvedSqlQueryPlan = DslResolvedQueryPlan & {
   diagnosticSpans?: DslPlanDiagnosticSpans;
 };
 
+export const isDslAggregateOnlyPlan = (plan: DslResolvedSqlQueryPlan): boolean => {
+  const hasAggregations =
+    (plan.query.aggregations?.length ?? 0) > 0 || (plan.sqlAggregations?.length ?? 0) > 0 || (plan.formulaAggregations?.length ?? 0) > 0;
+  const hasRowProjection = (plan.query.columns?.length ?? 0) > 0 || (plan.joinedColumns?.length ?? 0) > 0;
+  const hasGrouping = (plan.query.groupBy?.length ?? 0) > 0 || (plan.sqlGroupBy?.length ?? 0) > 0;
+  return hasAggregations && !hasRowProjection && !hasGrouping;
+};
+
 export type DslRecordQueryResolveResult = { ok: true; plan: DslResolvedQueryPlan } | { ok: false; diagnostics: DslResolverDiagnostic[] };
 
 export type DslQueryPlanResolveResult = { ok: true; plan: DslResolvedSqlQueryPlan } | { ok: false; diagnostics: DslResolverDiagnostic[] };

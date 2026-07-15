@@ -1,6 +1,6 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
-import type { DslQueryPreviewBody, DslQueryPreviewDiagnostic, RecordQuery } from "../contracts";
+import type { DslQueryPreviewBody, DslQueryPreviewDiagnostic, DslQueryPreviewResponse, RecordQuery } from "../contracts";
 import { canonicalizeDslQuery } from "../query-dsl/canonical";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { dslPreviewDiagnosticForCompilerError, previewDslQuery } from "../query-dsl/preview";
@@ -15,7 +15,7 @@ import {
 import { collectDslFieldTableIds, collectDslPlanExtraFieldTableIds, needsDslViewCatalog } from "../query-dsl/source-plan";
 import type { DslQueryAst } from "../query-dsl/types";
 import { gridsService } from "../service";
-import { hydrateDslViewQueries } from "../service/gql-resolver-context";
+import { buildTrustedGqlResolverContext, hydrateDslViewQueries } from "../service/gql-resolver-context";
 import type { Field, Table } from "../service/types";
 import { type GqlRuntimeOperation, type GqlRuntimeTracer, traceGqlRuntime } from "./gql-observability";
 import { currentActorViewer, gateAt } from "./permissions";
@@ -151,6 +151,23 @@ const fieldsWithPlanExtras = async (
   return { ...fieldsByTableId, ...Object.fromEntries(groups.map((group) => [group.tableId, group.fields])) };
 };
 
+const previewResolvedGqlPlan = async (
+  c: Context<AuthContext>,
+  plan: DslResolvedSqlQueryPlan,
+  fieldsByTableId: Record<string, Field[]>,
+  options: { limit?: number; maxRows?: number },
+): Promise<DslQueryPreviewResponse> => {
+  const dateConfig = await getDateConfig(c);
+  const result = await previewDslQuery(plan, {
+    fieldsByTableId: await fieldsWithPlanExtras(fieldsByTableId, plan),
+    timeZone: dateConfig.timeZone,
+    limit: options.limit,
+    ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
+    viewer: currentActorViewer(c),
+  });
+  return result.ok ? result.data : { ok: false, diagnostics: [dslPreviewDiagnosticForCompilerError(plan, result.error.message)] };
+};
+
 export const canonicalGqlSource = async (
   c: Context<AuthContext>,
   baseId: string,
@@ -202,25 +219,69 @@ export const executeGqlSource = async (
       return { ok: true as const, response };
     }
 
-    const dateConfig = await getDateConfig(c);
-    const fieldsByTableId = await fieldsWithPlanExtras(ctx.fieldsByTableId, resolved.plan);
-    const result = await previewDslQuery(resolved.plan, {
-      fieldsByTableId,
-      timeZone: dateConfig.timeZone,
+    const response = await previewResolvedGqlPlan(c, resolved.plan, ctx.fieldsByTableId, {
       limit: body.limit,
-      ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
-      viewer: currentActorViewer(c),
+      maxRows: options.maxRows,
     });
-    if (!result.ok) {
-      const response = { ok: false as const, diagnostics: [dslPreviewDiagnosticForCompilerError(resolved.plan, result.error.message)] };
-      await trace.end({ stage: "execute", outcome: "diagnostic", plan: resolved.plan, response });
-      return {
-        ok: true as const,
-        response,
-      };
+    await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
+    return { ok: true as const, response };
+  } catch (error) {
+    await trace.end({ stage: "runtime", outcome: "error", error });
+    throw error;
+  }
+};
+
+/** Executes the exact stored source of one authorized saved view. The trusted
+ * resolver is safe here because callers cannot substitute arbitrary GQL. */
+export const executeSavedViewSource = async (
+  c: Context<AuthContext>,
+  baseId: string,
+  viewId: string,
+  options: { maxRows?: number; tracer?: GqlRuntimeTracer } = {},
+) => {
+  const trace = await (options.tracer ?? traceGqlRuntime)({
+    baseId,
+    operation: "initial-preview",
+    surface: "ssr",
+    currentSource: { kind: "view", viewId },
+    ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
+  });
+
+  try {
+    const view = await gridsService.view.get(viewId);
+    const table = view ? await gridsService.table.get(view.tableId) : null;
+    if (!view || !table || table.baseId !== baseId) {
+      const response = { ok: false as const, diagnostics: [{ message: "View not found" }] };
+      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      return response;
     }
-    await trace.end({ stage: "execute", outcome: "success", plan: resolved.plan, response: result.data });
-    return { ok: true as const, response: result.data };
+    const access = await gateAt(c, { baseId, tableId: table.id, viewId: view.id }, "read");
+    if (!access.ok) {
+      const response = { ok: false as const, diagnostics: [{ message: "You do not have permission to access this view." }] };
+      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      return response;
+    }
+    const parsed = parseGridsQueryDsl(view.source);
+    if (!parsed.ok) {
+      const response = { ok: false as const, diagnostics: parsed.diagnostics };
+      await trace.end({ stage: "parse", outcome: "diagnostic", response });
+      return response;
+    }
+    const context = await buildTrustedGqlResolverContext({
+      baseId,
+      currentTableId: table.id,
+      ast: parsed.ast,
+      purpose: "saved-view-render",
+    });
+    const resolved = resolveDslQueryToQueryPlan(parsed.ast, context);
+    if (!resolved.ok) {
+      const response = { ok: false as const, diagnostics: resolved.diagnostics };
+      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      return response;
+    }
+    const response = await previewResolvedGqlPlan(c, resolved.plan, context.fieldsByTableId, { maxRows: options.maxRows });
+    await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
+    return response;
   } catch (error) {
     await trace.end({ stage: "runtime", outcome: "error", error });
     throw error;
