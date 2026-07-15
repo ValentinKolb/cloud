@@ -59,11 +59,15 @@ export default ssr<AuthContext>(async (c) => {
       {tool.id === "webhooks" ? (
         renderTool?.({ webhookState, baseHref: `/tools/${tool.id}` })
       ) : (
-        <ToolsWorkspace activeToolId={tool.id}>
-          <div class={tool.id === "image" ? "flex min-h-0 flex-1 flex-col" : "mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-4"}>
-            <ShowToolHeader show={tool.id !== "image"} icon={tool.icon} name={tool.name} description={tool.description} />
-            {renderTool ? renderTool({ speedtestBase, baseHref: `/tools/${tool.id}` }) : null}
-          </div>
+        <ToolsWorkspace activeToolId={tool.id} layout={tool.id === "image" ? "regions" : "main"}>
+          {tool.id === "image" ? (
+            renderTool?.({ speedtestBase, baseHref: `/tools/${tool.id}` })
+          ) : (
+            <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-4">
+              <ShowToolHeader show icon={tool.icon} name={tool.name} description={tool.description} />
+              {renderTool ? renderTool({ speedtestBase, baseHref: `/tools/${tool.id}` }) : null}
+            </div>
+          )}
         </ToolsWorkspace>
       )}
     </Layout>

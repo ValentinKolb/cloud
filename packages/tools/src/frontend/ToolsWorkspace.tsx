@@ -5,6 +5,7 @@ import { categories, categoryOrder, tools } from "./tools/registry";
 
 type ToolsWorkspaceProps = {
   activeToolId?: string;
+  layout?: "main" | "regions";
   children: JSX.Element;
 };
 
@@ -75,17 +76,15 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
       <AppWorkspace.Content>
-        <AppWorkspace.Main
-          class={
-            props.activeToolId === "image" || props.activeToolId === "webhooks"
-              ? "tools-main overflow-hidden"
-              : props.activeToolId
-                ? "tools-main overflow-y-auto p-[var(--ui-space-shell)]"
-                : "tools-main overflow-y-auto"
-          }
-        >
-          {props.children}
-        </AppWorkspace.Main>
+        {props.layout === "regions" ? (
+          props.children
+        ) : (
+          <AppWorkspace.Main
+            class={props.activeToolId ? "tools-main overflow-y-auto p-[var(--ui-space-shell)]" : "tools-main overflow-y-auto"}
+          >
+            {props.children}
+          </AppWorkspace.Main>
+        )}
       </AppWorkspace.Content>
     </AppWorkspace>
   );

@@ -136,12 +136,22 @@ export default function MarkupOverlay(props: MarkupOverlayProps) {
     const completed = currentDraft;
     activePointer = null;
     currentDraft = null;
-    setDraft(null);
 
-    if (!commit || !completed) return;
-    if (completed.kind === "redaction" || completed.kind === "shape") {
-      if (pointDistance(completed.start, completed.end) < 0.005) return;
+    if (!commit || !completed) {
+      setDraft(null);
+      return;
     }
+    if (completed.kind === "redaction" || completed.kind === "shape") {
+      if (pointDistance(completed.start, completed.end) < 0.005) {
+        setDraft(null);
+        return;
+      }
+    }
+    // Paint the completed element before clearing the draft canvas. The parent
+    // state update remains the source of truth, but this avoids a visible gap
+    // between pointer release and the reactive committed-canvas redraw.
+    draw(committedCanvas, [...props.elements, completed]);
+    setDraft(null);
     props.onCommit(completed, renderedImageId);
   };
 
@@ -164,7 +174,7 @@ export default function MarkupOverlay(props: MarkupOverlayProps) {
         onPointerMove={moveDraft}
         onPointerUp={(event) => finishDraft(event, true)}
         onPointerCancel={(event) => finishDraft(event, false)}
-        onLostPointerCapture={(event) => finishDraft(event, false)}
+        onLostPointerCapture={(event) => finishDraft(event, true)}
       />
     </div>
   );

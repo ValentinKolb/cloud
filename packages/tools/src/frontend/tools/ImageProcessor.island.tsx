@@ -1,4 +1,15 @@
-import { ColorInput, Dropdown, NumberInput, prompts, SegmentedControl, Select, Slider, Switch, Tooltip } from "@valentinkolb/cloud/ui";
+import {
+  AppWorkspace,
+  ColorInput,
+  Dropdown,
+  NumberInput,
+  prompts,
+  SegmentedControl,
+  Select,
+  Slider,
+  Switch,
+  Tooltip,
+} from "@valentinkolb/cloud/ui";
 import { files as fileTools, images as imageTools } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -46,6 +57,7 @@ export default function ImageProcessor() {
   const [previewBusy, setPreviewBusy] = createSignal(false);
   const [previewZoom, setPreviewZoom] = createSignal(1);
   const [previewViewportSize, setPreviewViewportSize] = createSignal({ width: 1, height: 1 });
+  const [inspectorOpen, setInspectorOpen] = createSignal(true);
 
   // --- Editor mode + markup ---
   const [editorMode, setEditorMode] = createSignal<"edit" | "markup">("edit");
@@ -818,8 +830,13 @@ export default function ImageProcessor() {
   onMount(() => {
     measurePreviewViewport();
     const previewObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measurePreviewViewport);
+    const desktopMedia = window.matchMedia("(min-width: 1024px)");
+    const reopenInspectorOnDesktop = () => {
+      if (desktopMedia.matches) setInspectorOpen(true);
+    };
     if (previewViewportRef) previewObserver?.observe(previewViewportRef);
     if (!previewObserver) window.addEventListener("resize", measurePreviewViewport);
+    desktopMedia.addEventListener("change", reopenInspectorOnDesktop);
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("pointermove", onCropPointerMove, { passive: false });
     document.addEventListener("pointerup", onCropPointerUp);
@@ -828,6 +845,7 @@ export default function ImageProcessor() {
     onCleanup(() => {
       previewObserver?.disconnect();
       if (!previewObserver) window.removeEventListener("resize", measurePreviewViewport);
+      desktopMedia.removeEventListener("change", reopenInspectorOnDesktop);
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("pointermove", onCropPointerMove);
       document.removeEventListener("pointerup", onCropPointerUp);
@@ -898,20 +916,32 @@ export default function ImageProcessor() {
   // ====================================
 
   return (
-    <div
-      class="flex flex-col flex-1 min-h-0 overflow-y-auto md:overflow-hidden"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={handleDrop}
-      role="region"
-      aria-label="Image processor"
-    >
-      <div class="flex flex-none md:flex-1 md:min-h-0 flex-col md:flex-row">
-        {/* Main canvas */}
-        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+    <>
+      <AppWorkspace.Main class="tools-main overflow-hidden">
+        <div
+          class="flex min-h-0 min-w-0 flex-1 flex-col"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+          role="region"
+          aria-label="Image processor canvas"
+        >
           <div
             ref={previewViewportRef}
             class="relative min-h-75 min-w-0 flex-1 overflow-auto bg-[var(--ui-surface)] p-[var(--ui-space-shell)]"
           >
+            <Show when={!inspectorOpen()}>
+              <Tooltip content="Open image controls">
+                <button
+                  type="button"
+                  class="icon-btn absolute right-[var(--ui-space-shell)] top-[var(--ui-space-shell)] z-10 lg:hidden"
+                  onClick={() => setInspectorOpen(true)}
+                  aria-label="Open image controls"
+                >
+                  <i class="ti ti-adjustments-horizontal" />
+                </button>
+              </Tooltip>
+            </Show>
+
             {/* Loading overlay */}
             <Show when={loadMutation.loading() || previewBusy() || cropBusy()}>
               <div class="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-black/50 z-10">
@@ -1046,114 +1076,128 @@ export default function ImageProcessor() {
               </Show>
             </Show>
           </div>
-        </div>
-        {/* end main canvas */}
 
-        {/* Inspector */}
-        <div class="flex w-full shrink-0 flex-col bg-[var(--ui-surface-subtle)] md:min-h-0 md:w-80">
-          <div class="flex flex-none flex-col gap-[var(--ui-space-section)] p-[var(--ui-space-shell)]">
-            <div class="flex min-w-0 items-start gap-2">
-              <div class="min-w-0 flex-1">
-                <SectionLabel label="Image" />
-                <Show when={activeImage()} fallback={<p class="mt-1 text-xs text-dimmed">No image selected</p>}>
-                  {(image) => (
-                    <>
-                      <p class="mt-1 truncate text-sm font-medium text-primary" title={image().name}>
-                        {image().name}
-                      </p>
-                      <p class="text-xs text-dimmed">
-                        {image().source.width} &times; {image().source.height} px
-                        {image().file && ` · ${(image().file.size / 1024).toFixed(0)} KB`}
-                      </p>
-                    </>
-                  )}
-                </Show>
-              </div>
-              <Show when={hasImages()}>
-                <Tooltip content="Add images">
+          <Show when={images().length > 1}>
+            <nav
+              class="flex flex-none items-center gap-2 overflow-x-auto bg-[var(--ui-surface-subtle)] px-[var(--ui-space-shell)] py-[var(--ui-space-section)] scrollbar"
+              aria-label="Images"
+            >
+              <For each={images()}>
+                {(image, index) => (
                   <button
                     type="button"
-                    class="icon-btn h-8 w-8 shrink-0"
-                    onClick={selectFiles}
-                    disabled={loadMutation.loading() || cropActive()}
-                    aria-label="Add images"
+                    class="h-12 w-12 shrink-0 overflow-hidden rounded border border-[var(--ui-border)] bg-[var(--ui-surface)] p-0.5"
+                    classList={{ "ring-2 ring-blue-500": activeIndex() === index() }}
+                    onClick={() => switchImage(index())}
+                    disabled={cropActive()}
+                    aria-label={`Open ${image.name}`}
+                    aria-current={activeIndex() === index() ? "true" : undefined}
+                    title={image.name}
                   >
-                    <i class="ti ti-photo-plus" />
+                    <img src={image.thumbUrl} alt="" class="h-full w-full rounded-sm object-cover" draggable={false} />
                   </button>
-                </Tooltip>
-                <Tooltip content="Remove image">
-                  <button
-                    type="button"
-                    class="icon-btn h-8 w-8 shrink-0 text-red-600 dark:text-red-400"
-                    onClick={() => removeImage(activeIndex())}
-                    disabled={cropActive() || cropBusy()}
-                    aria-label="Remove image"
-                  >
-                    <i class="ti ti-trash" />
-                  </button>
-                </Tooltip>
+                )}
+              </For>
+            </nav>
+          </Show>
+        </div>
+      </AppWorkspace.Main>
+
+      <AppWorkspace.Detail
+        id="image-processor-inspector"
+        open={inspectorOpen()}
+        width="md"
+        minWidth={288}
+        viewTransitionName="tools-image-inspector"
+      >
+        <header class="detail-header flex flex-none flex-col gap-[var(--ui-space-section)]">
+          <div class="flex min-w-0 items-start gap-2">
+            <div class="min-w-0 flex-1">
+              <SectionLabel label="Image" />
+              <Show when={activeImage()} fallback={<p class="mt-1 text-xs text-dimmed">No image selected</p>}>
+                {(image) => (
+                  <>
+                    <p class="mt-1 truncate text-sm font-medium text-primary" title={image().name}>
+                      {image().name}
+                    </p>
+                    <p class="text-xs text-dimmed">
+                      {image().source.width} &times; {image().source.height} px
+                      {image().file && ` · ${(image().file.size / 1024).toFixed(0)} KB`}
+                    </p>
+                  </>
+                )}
               </Show>
             </div>
-
-            <Show
-              when={hasImages()}
-              fallback={
-                <button type="button" class="btn-primary btn-sm w-full" onClick={selectFiles} disabled={loadMutation.loading()}>
-                  <i class="ti ti-photo-plus" /> Add images
-                </button>
-              }
-            >
-              <div class="flex gap-1 overflow-x-auto scrollbar" role="group" aria-label="Images">
-                <For each={images()}>
-                  {(image, index) => (
-                    <button
-                      type="button"
-                      class="h-12 w-12 shrink-0 overflow-hidden rounded border border-[var(--ui-border)] bg-[var(--ui-surface)] p-0.5"
-                      classList={{ "ring-2 ring-blue-500": activeIndex() === index() }}
-                      onClick={() => switchImage(index())}
-                      disabled={cropActive()}
-                      aria-label={`Open ${image.name}`}
-                      aria-current={activeIndex() === index() ? "true" : undefined}
-                      title={image.name}
-                    >
-                      <img src={image.thumbUrl} alt="" class="h-full w-full rounded-sm object-cover" draggable={false} />
-                    </button>
-                  )}
-                </For>
-              </div>
-
-              <SegmentedControl<"edit" | "markup">
-                options={[
-                  { value: "edit", label: "Edit", icon: "ti ti-adjustments-horizontal" },
-                  { value: "markup", label: "Markup", icon: "ti ti-pencil" },
-                ]}
-                value={editorMode}
-                onChange={changeEditorMode}
-                ariaLabel="Editor mode"
-              />
-            </Show>
-          </div>
-
-          <div class="flex min-h-0 flex-1 flex-col gap-[var(--ui-space-section)] overflow-visible px-[var(--ui-space-shell)] pb-[var(--ui-space-shell)] md:overflow-y-auto scrollbar">
-            <Show when={error()}>
-              <div
-                class="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
-                role="alert"
-              >
-                <i class="ti ti-alert-circle shrink-0" />
-                <span class="min-w-0 flex-1">{error()}</span>
+            <Show when={hasImages()}>
+              <Tooltip content="Add images">
                 <button
                   type="button"
-                  class="icon-btn h-6 w-6 shrink-0 text-current"
-                  onClick={() => setError("")}
-                  aria-label="Dismiss error"
+                  class="icon-btn h-8 w-8 shrink-0"
+                  onClick={selectFiles}
+                  disabled={loadMutation.loading() || cropActive()}
+                  aria-label="Add images"
                 >
-                  <i class="ti ti-x" />
+                  <i class="ti ti-photo-plus" />
                 </button>
-              </div>
+              </Tooltip>
+              <Tooltip content="Remove image">
+                <button
+                  type="button"
+                  class="icon-btn h-8 w-8 shrink-0 text-red-600 dark:text-red-400"
+                  onClick={() => removeImage(activeIndex())}
+                  disabled={cropActive() || cropBusy()}
+                  aria-label="Remove image"
+                >
+                  <i class="ti ti-trash" />
+                </button>
+              </Tooltip>
             </Show>
+            <button
+              type="button"
+              class="icon-btn h-8 w-8 shrink-0 lg:hidden"
+              onClick={() => setInspectorOpen(false)}
+              aria-label="Show image canvas"
+            >
+              <i class="ti ti-x" />
+            </button>
+          </div>
 
-            <Show when={hasImages()}>
+          <Show
+            when={hasImages()}
+            fallback={
+              <button type="button" class="btn-primary btn-sm w-full" onClick={selectFiles} disabled={loadMutation.loading()}>
+                <i class="ti ti-photo-plus" /> Add images
+              </button>
+            }
+          >
+            <SegmentedControl<"edit" | "markup">
+              options={[
+                { value: "edit", label: "Edit", icon: "ti ti-adjustments-horizontal" },
+                { value: "markup", label: "Markup", icon: "ti ti-pencil" },
+              ]}
+              value={editorMode}
+              onChange={changeEditorMode}
+              ariaLabel="Editor mode"
+            />
+          </Show>
+        </header>
+
+        <div class="detail-stack scrollbar">
+          <Show when={error()}>
+            <div
+              class="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+              role="alert"
+            >
+              <i class="ti ti-alert-circle shrink-0" />
+              <span class="min-w-0 flex-1">{error()}</span>
+              <button type="button" class="icon-btn h-6 w-6 shrink-0 text-current" onClick={() => setError("")} aria-label="Dismiss error">
+                <i class="ti ti-x" />
+              </button>
+            </div>
+          </Show>
+
+          <Show when={hasImages()}>
+            <section class="detail-section flex flex-col gap-[var(--ui-space-section)]">
               <div class="flex flex-col gap-2">
                 <div class="flex items-center justify-between gap-2">
                   <SectionLabel label="Preview" />
@@ -1465,33 +1509,33 @@ export default function ImageProcessor() {
                   </div>
                 </div>
               </Show>
-            </Show>
-          </div>
-
-          <Show when={hasImages()}>
-            <div class="flex flex-none flex-col gap-2 px-[var(--ui-space-shell)] pb-[var(--ui-space-shell)]">
-              <button
-                type="button"
-                class="btn-primary btn-sm w-full"
-                onClick={() => showExportModal("single")}
-                disabled={cropActive() || cropBusy()}
-              >
-                <i class="ti ti-download" /> Export image
-              </button>
-              <Show when={images().length > 1}>
-                <button
-                  type="button"
-                  class="btn-secondary btn-sm w-full"
-                  onClick={() => showExportModal("all")}
-                  disabled={cropActive() || cropBusy()}
-                >
-                  <i class="ti ti-download" /> Export all ({images().length})
-                </button>
-              </Show>
-            </div>
+            </section>
           </Show>
         </div>
-      </div>
-    </div>
+
+        <Show when={hasImages()}>
+          <footer class="flex flex-none flex-col gap-2">
+            <button
+              type="button"
+              class="btn-primary btn-sm w-full"
+              onClick={() => showExportModal("single")}
+              disabled={cropActive() || cropBusy()}
+            >
+              <i class="ti ti-download" /> Export image
+            </button>
+            <Show when={images().length > 1}>
+              <button
+                type="button"
+                class="btn-secondary btn-sm w-full"
+                onClick={() => showExportModal("all")}
+                disabled={cropActive() || cropBusy()}
+              >
+                <i class="ti ti-download" /> Export all ({images().length})
+              </button>
+            </Show>
+          </footer>
+        </Show>
+      </AppWorkspace.Detail>
+    </>
   );
 }
