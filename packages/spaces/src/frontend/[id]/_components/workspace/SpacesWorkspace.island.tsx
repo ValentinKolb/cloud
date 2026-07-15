@@ -285,7 +285,8 @@ export default function SpacesWorkspace(props: Props) {
     <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
       <SpaceSidebar ctx={spaceContext()} onNavigate={handleNavigate} onOpenSettings={openSettingsRoute} dateConfig={props.dateConfig} />
 
-      <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
+      <AppWorkspace.Content>
+        <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
         {state().space.description && <p class="mb-2 text-xs leading-relaxed text-dimmed">{state().space.description}</p>}
 
         {(state().currentView === "list" || state().currentView === "table") && (
@@ -419,23 +420,24 @@ export default function SpacesWorkspace(props: Props) {
             />
           )}
         </div>
-      </AppWorkspace.Main>
+        </AppWorkspace.Main>
 
-      <AppWorkspace.Detail id="space-detail-panel" open={Boolean(selectedItemId())} viewTransitionName="space-detail-panel-shell">
-        <div class="h-full min-h-0 flex-1" data-scroll-preserve={detailScrollPreserveKey()}>
-          <ItemDetailHost
-            spaceId={spaceId()}
-            baseUrl={itemLinkBaseUrl()}
-            currentUserId={state().currentUserId}
-            columns={state().space.columns}
-            tags={state().space.tags}
-            initialItem={state().selectedItem}
-            initialComments={state().selectedItemComments}
-            dateConfig={props.dateConfig}
-            canWrite={state().canWrite}
-          />
-        </div>
-      </AppWorkspace.Detail>
+        <AppWorkspace.Detail id="space-detail-panel" open={Boolean(selectedItemId())} viewTransitionName="space-detail-panel-shell">
+          <div class="h-full min-h-0 flex-1" data-scroll-preserve={detailScrollPreserveKey()}>
+            <ItemDetailHost
+              spaceId={spaceId()}
+              baseUrl={itemLinkBaseUrl()}
+              currentUserId={state().currentUserId}
+              columns={state().space.columns}
+              tags={state().space.tags}
+              initialItem={state().selectedItem}
+              initialComments={state().selectedItemComments}
+              dateConfig={props.dateConfig}
+              canWrite={state().canWrite}
+            />
+          </div>
+        </AppWorkspace.Detail>
+      </AppWorkspace.Content>
       <SpaceDetailLayoutSync detailContainerId="space-detail-panel" />
     </AppWorkspace>
   );
