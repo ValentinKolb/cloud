@@ -281,10 +281,10 @@ export const materializeAutomaticWorkflowRun = async (
     if (!run) throw new Error("Automatic workflow run insert returned no row");
     await tx`
       INSERT INTO mail.workflow_run_targets (
-        id, parent_run_id, ordinal, target_key, state, execution_generation,
+        id, parent_run_id, ordinal, target_key, state, execution_generation, execution_clock_at,
         frozen_inputs, frozen_source, frozen_preconditions
       ) VALUES (
-        ${crypto.randomUUID()}::uuid, ${runId}::uuid, 0, ${params.target.key}, 'queued', 0,
+        ${crypto.randomUUID()}::uuid, ${runId}::uuid, 0, ${params.target.key}, 'queued', 0, ${params.occurredAt}::timestamptz,
         ${inputs}::jsonb, ${params.target.source}::jsonb, ${params.target.preconditions}::jsonb
       )
     `;

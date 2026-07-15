@@ -147,7 +147,7 @@ const resumeBackfillWorkflowRun = async (params: {
         await tx`DELETE FROM mail.workflow_runs WHERE id = ${current.id}::uuid AND state = 'materializing'`;
         return fail(err.conflict("Workflow preflight is stale"));
       }
-      await insertWorkflowTargets(tx, current.id, batch.data.targets, current.queued_targets);
+      await insertWorkflowTargets(tx, current.id, batch.data.targets, current.queued_targets, workflowTimestamp(current.occurred_at));
       const queuedTargets = current.queued_targets + batch.data.targets.length;
       if (queuedTargets === current.target_count) {
         if (batch.data.targetDigest !== current.materialization_expected_digest) {
@@ -644,7 +644,7 @@ const materializeWorkflowRun = async (params: {
         query: params.input.query,
         occurredAt,
         db: tx,
-        onBatch: (targets, ordinal) => insertWorkflowTargets(tx, runId, targets, ordinal),
+        onBatch: (targets, ordinal) => insertWorkflowTargets(tx, runId, targets, ordinal, occurredAt),
       });
       if (!streamed.ok) throw streamed.error;
       if (streamed.data.targetCount !== targetCount || streamed.data.targetDigest !== prepared.data.targetDigest) {

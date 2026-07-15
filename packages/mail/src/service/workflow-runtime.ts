@@ -44,7 +44,7 @@ const WORKFLOW_HEARTBEAT_MS = Math.floor(MAIL_WORKFLOW_TARGET_LEASE_MS / 3);
 const RECONCILE_LIMIT = 500;
 const workflowTargetTasks = createRuntimeTaskTracker();
 
-const isObject = (value: WorkflowJsonValue): value is Record<string, WorkflowJsonValue> =>
+const isObject = (value: WorkflowJsonValue | undefined): value is Record<string, WorkflowJsonValue> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
 const traceAttributes = (event: WorkflowTraceEvent, parentRunId: string, targetId: string) => {
@@ -99,10 +99,7 @@ export const processMailWorkflowTarget = async (params: {
       const repository = new MailWorkflowRuntimeRepository(claim);
       const sourceContext = isObject(claim.source) ? claim.source : {};
       if (!isObject(sourceContext.message) || (sourceContext.conversation !== null && !isObject(sourceContext.conversation))) {
-        return {
-          state: "failed",
-          error: { code: "MAIL_WORKFLOW_SOURCE_INVALID", message: "Frozen Mail source is invalid", retryable: false },
-        };
+        throw new Error("Frozen Mail workflow source is invalid");
       }
       const projected = createMailWorkflowProjectedState(claim.plan, sourceContext as FrozenMailWorkflowSource, claim.inputs);
       const actorSnapshot = claim.authorization.authority === "actor" ? claim.authorization.actor : null;
@@ -142,7 +139,14 @@ export const processMailWorkflowTarget = async (params: {
         invocation,
         repository,
         clock: { now: () => claim.executionClockAt },
-        values: createMailWorkflowValueResolver({ targetId: claim.runId, inputs: projected.inputs }),
+        values: createMailWorkflowValueResolver({
+          targetId: claim.runId,
+          executionGeneration: claim.executionGeneration,
+          leaseToken: claim.leaseToken,
+          mailboxId: claim.mailboxId,
+          inputs: projected.inputs,
+          frozenHydration: claim.frozenHydration,
+        }),
         trace: params.jobId ? workflowStepTrace(params.jobId, claim.parentRunId, claim.runId) : undefined,
       };
       return claim.mode === "execute"

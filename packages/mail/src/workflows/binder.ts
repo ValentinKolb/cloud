@@ -47,6 +47,18 @@ const mailAddress: WorkflowValuePathDescriptor = {
   type: "mail.address",
   properties: { role: textValue, name: textValue, email: textValue },
 };
+const mailAttachment: WorkflowValuePathDescriptor = {
+  kind: "object",
+  type: "mail.attachment",
+  properties: {
+    id: textValue,
+    filename: textValue,
+    contentType: textValue,
+    disposition: textValue,
+    contentId: textValue,
+    sizeBytes: { kind: "scalar", type: "core.number" },
+  },
+};
 const mailValueDescriptors: Record<string, WorkflowValuePathDescriptor> = {
   "mail.message": {
     kind: "object",
@@ -60,7 +72,7 @@ const mailValueDescriptors: Record<string, WorkflowValuePathDescriptor> = {
       body: textValue,
       bodyText: textValue,
       bodyHtml: textValue,
-      attachments: { kind: "scalar", type: "core.array" },
+      attachments: { kind: "array", type: "core.array", items: mailAttachment },
       hasAttachments: booleanValue,
       folderId: textValue,
       flags: { kind: "array", type: "core.array", items: textValue },

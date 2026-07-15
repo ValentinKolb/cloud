@@ -322,7 +322,14 @@ suite("mail canonical workflow runtime", () => {
       invocation,
       repository,
       clock: { now: () => claim.executionClockAt },
-      values: createMailWorkflowValueResolver({ targetId: claim.runId, inputs: claim.inputs }),
+      values: createMailWorkflowValueResolver({
+        targetId: claim.runId,
+        executionGeneration: claim.executionGeneration,
+        leaseToken: claim.leaseToken,
+        mailboxId: claim.mailboxId,
+        inputs: claim.inputs,
+        frozenHydration: claim.frozenHydration,
+      }),
       actions: createMailWorkflowActionPorts({
         authority: { kind: "actor", context: writerContext },
         mailboxId: claim.mailboxId,
@@ -539,15 +546,18 @@ suite("mail canonical workflow runtime", () => {
     expect(second.channel).toBe("api");
     expect(first.targetProgress).toMatchObject({ total: 2, queued: 2 });
 
-    const [materialized] = await sql<{ targets: number; steps: number; distinct_targets: number }[]>`
+    const [materialized] = await sql<{ targets: number; steps: number; distinct_targets: number; clocks: number }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM mail.workflow_run_targets WHERE parent_run_id = ${first.id}::uuid) AS targets,
         (SELECT COUNT(*)::int FROM mail.workflow_step_runs step
           JOIN mail.workflow_run_targets target ON target.id = step.target_id
           WHERE target.parent_run_id = ${first.id}::uuid) AS steps,
-        (SELECT COUNT(DISTINCT target_key)::int FROM mail.workflow_run_targets WHERE parent_run_id = ${first.id}::uuid) AS distinct_targets
+        (SELECT COUNT(DISTINCT target_key)::int FROM mail.workflow_run_targets WHERE parent_run_id = ${first.id}::uuid) AS distinct_targets,
+        (SELECT COUNT(*)::int FROM mail.workflow_run_targets
+          WHERE parent_run_id = ${first.id}::uuid
+            AND execution_clock_at = ${prepared.occurredAt}::timestamptz) AS clocks
     `;
-    expect(materialized).toEqual({ targets: 2, steps: 0, distinct_targets: 2 });
+    expect(materialized).toEqual({ targets: 2, steps: 0, distinct_targets: 2, clocks: 2 });
   });
 
   test("scopes idempotency keys to a workflow", async () => {
@@ -901,8 +911,8 @@ suite("mail canonical workflow runtime", () => {
     expect(await resumeMailWorkflowDependency({ kind: "mail.command", key: step.command_id })).toEqual([]);
   });
 
-  test("fails a waiting target when message hydration exhausts its attempts", async () => {
-    const workflow = await createWorkflowFixture(hydratedKeywordSource(), "Terminal hydration");
+  test("executes from frozen body data after live hydration changes", async () => {
+    const workflow = await createWorkflowFixture(hydratedKeywordSource(), "Frozen hydration");
     const query = {
       type: "search" as const,
       expression: { field: "message_id" as const, query: `<workflow-${suffix}@example.com>`, match: "exact" as const },
@@ -920,7 +930,7 @@ suite("mail canonical workflow runtime", () => {
           query,
           preflightHash: prepared.preflightHash,
           occurredAt: prepared.occurredAt,
-          idempotencyKey: `terminal-hydration-${suffix}`,
+          idempotencyKey: `frozen-hydration-${suffix}`,
         },
         enqueue: false,
       }),
@@ -934,33 +944,120 @@ suite("mail canonical workflow runtime", () => {
 
     await sql`
       UPDATE mail.message_contents
-      SET hydration_status = 'failed', hydration_attempt = 4
-      WHERE id = ${target.message_id}::uuid
-    `;
-    expect(await processTarget(target.id, "hydration-waiting")).toMatchObject({ state: "waiting" });
-
-    await sql`
-      UPDATE mail.message_contents
       SET hydration_status = 'failed', hydration_attempt = 5
       WHERE id = ${target.message_id}::uuid
     `;
-    expect(await resumeMailWorkflowDependency({ kind: "mail.hydration", key: target.message_id })).toEqual([target.id]);
-    expect(await processTarget(target.id, "hydration-terminal")).toMatchObject({
-      state: "failed",
-      result: { state: "failed", error: { code: "WORKFLOW_VALUE_UNAVAILABLE", retryable: false } },
-    });
-    const [stored] = await sql<{ state: string; error_code: string }[]>`
-      SELECT state, last_error ->> 'code' AS error_code
-      FROM mail.workflow_run_targets
-      WHERE id = ${target.id}::uuid
+    expect(await processTarget(target.id, "frozen-hydration")).toMatchObject({ state: "succeeded" });
+    const [stored] = await sql<{ hydration_dependencies: number }[]>`
+      SELECT COUNT(*) FILTER (WHERE dependency ->> 'kind' = 'mail.hydration')::int AS hydration_dependencies
+      FROM mail.workflow_step_runs
+      WHERE target_id = ${target.id}::uuid
     `;
-    expect(stored).toEqual({ state: "failed", error_code: "WORKFLOW_VALUE_UNAVAILABLE" });
+    expect(stored).toEqual({ hydration_dependencies: 0 });
 
     await sql`
       UPDATE mail.message_contents
       SET hydration_status = 'complete', hydration_attempt = 0
       WHERE id = ${target.message_id}::uuid
     `;
+  });
+
+  test("freezes deferred hydration with mailbox-scoped nested paths", async () => {
+    const [message] = await sql<{ id: string }[]>`
+      SELECT id
+      FROM mail.message_contents
+      WHERE mailbox_id = ${mailboxId}::uuid
+        AND message_id = ${`<workflow-${suffix}@example.com>`}
+    `;
+    if (!message) throw new Error("Workflow message fixture is unavailable");
+    const [blob] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_part_blobs (content_hash, byte_length, chunk_count, complete, completed_at)
+      VALUES (${suffix.padEnd(64, "d")}, 0, 0, true, now())
+      RETURNING id
+    `;
+    const [part] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_parts (
+        message_id, part_path, content_type, disposition, filename, size_bytes, blob_id, hydration_status
+      ) VALUES (
+        ${message.id}::uuid, '9', 'application/pdf', 'attachment', 'invoice.pdf', 0, ${blob!.id}::uuid, 'complete'
+      )
+      RETURNING id
+    `;
+    const [attachment] = await sql<{ id: string }[]>`
+      INSERT INTO mail.attachments (message_id, part_id, filename, content_type, disposition, size_bytes, blob_id)
+      VALUES (
+        ${message.id}::uuid, ${part!.id}::uuid, 'invoice.pdf', 'application/pdf', 'attachment', 0, ${blob!.id}::uuid
+      )
+      RETURNING id
+    `;
+
+    const workflow = await createWorkflowFixture(terminalFailureSource(), "Deferred hydration freeze");
+    const run = await oneShot(workflow, `deferred-hydration-${suffix}`);
+    const target = (await targetRows(run.id))[0]!;
+    const claim = await claimMailWorkflowTarget({ targetId: target.id, workerId: `hydration-${suffix}` });
+    if (!claim) throw new Error("Workflow target could not be claimed");
+    const frozenHydration: Record<string, WorkflowJsonValue> = {};
+    const resolver = createMailWorkflowValueResolver({
+      targetId: claim.runId,
+      executionGeneration: claim.executionGeneration,
+      leaseToken: claim.leaseToken,
+      mailboxId: claim.mailboxId,
+      inputs: {
+        message: { messageId: message.id, attachmentsAvailable: false },
+      },
+      frozenHydration,
+    });
+    const reference = "inputs.message.attachments.0.filename";
+    const variables = new Map<string, WorkflowJsonValue>();
+    const resolutionInput = {
+      reference,
+      path: ["steps", 0],
+      plan: claim.plan,
+      invocation: {
+        workflowId: claim.workflowId,
+        expectedRevision: claim.versionIdentity,
+        mode: "execute" as const,
+        channel: claim.channel,
+        actor: { userId: null, groupIds: [], serviceAccountId: null },
+        inputs: claim.inputs,
+        idempotencyKey: claim.idempotencyKey,
+        occurredAt: claim.occurredAt,
+        context: {},
+      },
+      variables: {
+        get: (name: string) => variables.get(name),
+        has: (name: string) => variables.has(name),
+        set: (name: string, value: WorkflowJsonValue) => variables.set(name, value),
+      },
+      fallback: () => undefined,
+    };
+    expect(await resolver.resolve(resolutionInput)).toEqual({ state: "resolved", value: "invoice.pdf" });
+
+    await sql`UPDATE mail.attachments SET filename = 'changed.pdf' WHERE id = ${attachment!.id}::uuid`;
+    expect(await resolver.resolve(resolutionInput)).toEqual({ state: "resolved", value: "invoice.pdf" });
+
+    const isolatedResolver = createMailWorkflowValueResolver({
+      targetId: claim.runId,
+      executionGeneration: claim.executionGeneration,
+      leaseToken: claim.leaseToken,
+      mailboxId: crypto.randomUUID(),
+      inputs: {
+        message: { messageId: message.id, attachmentsAvailable: false },
+      },
+      frozenHydration: {},
+    });
+    expect(await isolatedResolver.resolve(resolutionInput)).toEqual({ state: "missing" });
+
+    const [stored] = await sql<{ filename: string }[]>`
+      SELECT frozen_hydration #>> ARRAY['inputs.message.attachments', '0', 'filename'] AS filename
+      FROM mail.workflow_run_targets
+      WHERE id = ${claim.runId}::uuid
+    `;
+    expect(stored).toEqual({ filename: "invoice.pdf" });
+
+    await sql`DELETE FROM mail.attachments WHERE id = ${attachment!.id}::uuid`;
+    await sql`DELETE FROM mail.message_parts WHERE id = ${part!.id}::uuid`;
+    await sql`DELETE FROM mail.message_part_blobs WHERE id = ${blob!.id}::uuid`;
   });
 
   test("does not execute materialized work after authorization is revoked", async () => {

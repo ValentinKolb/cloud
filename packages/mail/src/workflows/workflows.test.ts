@@ -358,6 +358,9 @@ steps:
   - setVariable:
       name: keyword
       value: "\${{ inputs.message.keywords.0 }}"
+  - setVariable:
+      name: attachment
+      value: "\${{ inputs.message.attachments.0.filename }}"
   - succeed:
       message: "Actor \${{ context.actor.userId }}"
 `),
@@ -370,9 +373,6 @@ steps:
   message:
     type: mailMessage
 steps:
-  - setVariable:
-      name: first
-      value: "\${{ inputs.message.attachments.0.filename }}"
   - setVariable:
       name: second
       value: "\${{ inputs.message.attachments.01.filename }}"
@@ -391,7 +391,6 @@ steps:
         { code: "reference.path", path: ["steps", 0, "setVariable", "value"] },
         { code: "reference.path", path: ["steps", 1, "setVariable", "value"] },
         { code: "reference.path", path: ["steps", 2, "setVariable", "value"] },
-        { code: "reference.path", path: ["steps", 3, "setVariable", "value"] },
       ]);
     }
   });

@@ -116,6 +116,7 @@ export const insertWorkflowTargets = async (
   parentRunId: string,
   targets: WorkflowRunTargetInsert[],
   ordinalStart: number,
+  executionClockAt: string,
 ): Promise<void> => {
   for (let offset = 0; offset < targets.length; offset += 500) {
     const rows = targets.slice(offset, offset + 500).map((target, index) => ({
@@ -132,7 +133,7 @@ export const insertWorkflowTargets = async (
         frozen_inputs, frozen_source, frozen_preconditions
       )
       SELECT
-        row.id, ${parentRunId}::uuid, row.ordinal, row.target_key, 'queued', 0, NULL,
+        row.id, ${parentRunId}::uuid, row.ordinal, row.target_key, 'queued', 0, ${executionClockAt}::timestamptz,
         row.frozen_inputs, row.frozen_source, row.frozen_preconditions
       FROM jsonb_to_recordset(${rows}::jsonb) AS row(
         id uuid,

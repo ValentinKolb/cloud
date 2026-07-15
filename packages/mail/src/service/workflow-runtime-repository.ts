@@ -43,6 +43,7 @@ export type ClaimedMailWorkflowTarget = WorkflowCoordinatorClaim & {
   inputs: Record<string, WorkflowJsonValue>;
   source: WorkflowJsonValue;
   preconditions: WorkflowJsonValue;
+  frozenHydration: Record<string, WorkflowJsonValue>;
   authorization: MailWorkflowAuthorizationSnapshot;
 };
 
@@ -66,6 +67,7 @@ type ClaimRow = {
   frozen_inputs: Record<string, WorkflowJsonValue> | string;
   frozen_source: WorkflowJsonValue | string;
   frozen_preconditions: WorkflowJsonValue | string;
+  frozen_hydration: Record<string, WorkflowJsonValue> | string;
   authorization_snapshot: MailWorkflowAuthorizationSnapshot | string;
 };
 
@@ -83,6 +85,36 @@ const errorMessage = (error: unknown): string => (error instanceof Error ? error
 export class MailWorkflowLeaseLostError extends Error {
   override readonly name = "MailWorkflowLeaseLostError";
 }
+
+export const freezeMailWorkflowHydrationValue = async (params: {
+  targetId: string;
+  executionGeneration: number;
+  leaseToken: string;
+  reference: string;
+  value: WorkflowJsonValue;
+}): Promise<WorkflowJsonValue> =>
+  sql.begin(async (tx) => {
+    const [target] = await tx<{ frozen_hydration: Record<string, WorkflowJsonValue> | string }[]>`
+      SELECT frozen_hydration
+      FROM mail.workflow_run_targets
+      WHERE id = ${params.targetId}::uuid
+        AND state = 'running'
+        AND execution_generation = ${params.executionGeneration}
+        AND lease_token = ${params.leaseToken}::uuid
+        AND lease_expires_at >= now()
+        AND cancel_requested_at IS NULL
+      FOR UPDATE
+    `;
+    if (!target) throw new MailWorkflowLeaseLostError("Workflow execution lease was lost while freezing hydrated data");
+    const frozen = parseJson(target.frozen_hydration);
+    if (Object.prototype.hasOwnProperty.call(frozen, params.reference)) return frozen[params.reference]!;
+    await tx`
+      UPDATE mail.workflow_run_targets
+      SET frozen_hydration = frozen_hydration || jsonb_build_object(${params.reference}::text, ${params.value}::jsonb)
+      WHERE id = ${params.targetId}::uuid
+    `;
+    return params.value;
+  });
 
 const refreshParentState = async (db: SqlClient, parentRunId: string): Promise<void> => {
   await db`
@@ -253,7 +285,6 @@ export const claimMailWorkflowTarget = async (params: {
       SET
         state = 'running',
         execution_generation = target.execution_generation + 1,
-        execution_clock_at = COALESCE(target.execution_clock_at, now()),
         lease_owner = ${params.workerId},
         lease_token = ${leaseToken}::uuid,
         lease_expires_at = now() + (${leaseMs}::bigint * interval '1 millisecond'),
@@ -268,7 +299,7 @@ export const claimMailWorkflowTarget = async (params: {
         target.lease_owner, target.lease_token, run.mailbox_id, run.workflow_id, run.workflow_version_id,
         run.version_identity, run.source_hash, run.mode, run.channel, run.idempotency_key, run.occurred_at,
         run.authorization_snapshot, version.bound_plan,
-        target.frozen_inputs, target.frozen_source, target.frozen_preconditions
+        target.frozen_inputs, target.frozen_source, target.frozen_preconditions, target.frozen_hydration
     `;
     if (!claimed) return null;
     await updateParentCounters(tx, current.parent_run_id, current.state, "running");
@@ -292,6 +323,7 @@ export const claimMailWorkflowTarget = async (params: {
       inputs: parseJson(claimed.frozen_inputs),
       source: parseJson(claimed.frozen_source),
       preconditions: parseJson(claimed.frozen_preconditions),
+      frozenHydration: parseJson(claimed.frozen_hydration),
       authorization: parseJson(claimed.authorization_snapshot),
     };
   });
@@ -605,9 +637,7 @@ export const listRecoverableMailWorkflowTargetIds = async (limit = 500): Promise
 
 export const recoverCanceledMailWorkflowTargets = async (limit = 500): Promise<number> =>
   sql.begin(async (tx) => {
-    const rows = await tx<
-      { id: string; execution_generation: string | number; cancel_reason: string | null }[]
-    >`
+    const rows = await tx<{ id: string; execution_generation: string | number; cancel_reason: string | null }[]>`
       SELECT target.id, target.execution_generation, target.cancel_reason
       FROM mail.workflow_run_targets target
       JOIN mail.workflow_runs run ON run.id = target.parent_run_id

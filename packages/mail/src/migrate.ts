@@ -1932,6 +1932,18 @@ const pinWorkflowTriggerDeliveries = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const freezeWorkflowExecutionInputs = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.workflow_run_targets ADD COLUMN frozen_hydration JSONB NOT NULL DEFAULT '{}'::jsonb`;
+  await db`
+    UPDATE mail.workflow_run_targets target
+    SET execution_clock_at = run.occurred_at
+    FROM mail.workflow_runs run
+    WHERE run.id = target.parent_run_id
+      AND target.execution_clock_at IS NULL
+  `;
+  await db`ALTER TABLE mail.workflow_run_targets ALTER COLUMN execution_clock_at SET NOT NULL`;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -1963,6 +1975,7 @@ const migrations = [
   { version: 28, name: "canonical_workflow_authority", run: hardenCanonicalWorkflowAuthority },
   { version: 29, name: "workflow_scoped_idempotency", run: scopeWorkflowRunIdempotency },
   { version: 30, name: "pinned_workflow_trigger_deliveries", run: pinWorkflowTriggerDeliveries },
+  { version: 31, name: "frozen_workflow_execution_inputs", run: freezeWorkflowExecutionInputs },
 ] as const;
 
 export const migrate = async (): Promise<void> => {
