@@ -30,7 +30,7 @@ const openPermissionDialog = async (props: AdminSpaceActionsProps, entries: Acce
           initialEntries={entries}
           canEdit
           grantAccess={async (principal, permission) => {
-            const response = await apiClient[":id"].access.$post({
+            const response = await apiClient.admin[":id"].access.$post({
               param: { id: props.spaceId },
               json: { principal, permission },
             });
@@ -40,7 +40,7 @@ const openPermissionDialog = async (props: AdminSpaceActionsProps, entries: Acce
             return (await response.json()) as AccessEntry;
           }}
           updateAccess={async (accessId, permission) => {
-            const response = await apiClient[":id"].access[":accessId"].$patch({
+            const response = await apiClient.admin[":id"].access[":accessId"].$patch({
               param: { id: props.spaceId, accessId },
               json: { permission },
             });
@@ -49,7 +49,7 @@ const openPermissionDialog = async (props: AdminSpaceActionsProps, entries: Acce
             }
           }}
           revokeAccess={async (accessId) => {
-            const response = await apiClient[":id"].access[":accessId"].$delete({
+            const response = await apiClient.admin[":id"].access[":accessId"].$delete({
               param: { id: props.spaceId, accessId },
             });
             if (!response.ok) {
@@ -69,7 +69,7 @@ const openPermissionDialog = async (props: AdminSpaceActionsProps, entries: Acce
 const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
   const permissionsMutation = mutations.create<void, void>({
     mutation: async () => {
-      const listResponse = await apiClient[":id"].access.$get({
+      const listResponse = await apiClient.admin[":id"].access.$get({
         param: { id: props.spaceId },
       });
       if (!listResponse.ok) {
@@ -92,7 +92,7 @@ const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
       });
       if (!confirmed) return false;
 
-      const response = await apiClient[":id"].$delete({
+      const response = await apiClient.admin[":id"].$delete({
         param: { id: props.spaceId },
       });
       if (!response.ok) {

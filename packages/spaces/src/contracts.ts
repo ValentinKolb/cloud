@@ -32,6 +32,35 @@ export const SpaceTagSchema = z.object({
 });
 export type SpaceTag = z.infer<typeof SpaceTagSchema>;
 
+export const SpaceWormholeTargetSchema = z.object({
+  spaceId: SpaceUuidSchema.describe("Destination space UUID"),
+  spaceName: z.string().describe("Destination space name"),
+  spaceColor: z.string().describe("Destination space color (hex)"),
+  columnId: SpaceUuidSchema.describe("Destination column UUID"),
+  columnName: z.string().describe("Destination column name"),
+  columnIsDone: z.boolean().describe("Whether the destination column completes items"),
+});
+export type SpaceWormholeTarget = z.infer<typeof SpaceWormholeTargetSchema>;
+
+export const SpaceWormholeSchema = z.object({
+  id: SpaceUuidSchema.describe("Wormhole UUID"),
+  sourceSpaceId: SpaceUuidSchema.describe("Source space UUID"),
+  color: z.string().describe("Wormhole color (hex)"),
+  rank: z.string().describe("Wormhole ordering rank"),
+  target: SpaceWormholeTargetSchema.nullable().describe("Destination metadata, or null when it is no longer manageable"),
+  createdAt: z.string().describe("Creation timestamp (ISO)"),
+  updatedAt: z.string().describe("Last update timestamp (ISO)"),
+});
+export type SpaceWormhole = z.infer<typeof SpaceWormholeSchema>;
+
+export const SpaceWormholeDestinationSchema = z.object({
+  spaceId: SpaceUuidSchema.describe("Destination space UUID"),
+  spaceName: z.string().describe("Destination space name"),
+  spaceColor: z.string().describe("Destination space color (hex)"),
+  columns: z.array(SpaceColumnSchema).describe("Columns in the destination space"),
+});
+export type SpaceWormholeDestination = z.infer<typeof SpaceWormholeDestinationSchema>;
+
 export const PrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 export type Priority = z.infer<typeof PrioritySchema>;
 
@@ -263,6 +292,43 @@ export const MoveItemSchema = z.object({
   completed: z.boolean().optional().describe("Optional completion state override after move"),
 });
 export type MoveItem = z.infer<typeof MoveItemSchema>;
+
+export const CreateWormholeSchema = z.object({
+  targetColumnId: SpaceUuidSchema.describe("Destination column UUID"),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default("#6366f1")
+    .describe("Wormhole color (hex)"),
+});
+export type CreateWormhole = z.infer<typeof CreateWormholeSchema>;
+
+export const UpdateWormholeSchema = z
+  .object({
+    targetColumnId: SpaceUuidSchema.optional().describe("Destination column UUID"),
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional()
+      .describe("Wormhole color (hex)"),
+  })
+  .refine((data) => data.targetColumnId !== undefined || data.color !== undefined, {
+    message: "At least one wormhole field must be provided",
+  });
+export type UpdateWormhole = z.infer<typeof UpdateWormholeSchema>;
+
+export const ReorderWormholesSchema = z.object({
+  wormholeIds: z.array(SpaceUuidSchema).describe("Wormhole IDs in new order"),
+});
+export type ReorderWormholes = z.infer<typeof ReorderWormholesSchema>;
+
+export const WormholeTransferResultSchema = z.object({
+  item: SpaceItemSchema.describe("Transferred item in its destination space"),
+  destination: SpaceWormholeTargetSchema.describe("Resolved destination"),
+  removedTagCount: z.number().int().nonnegative().describe("Removed source-space tag count"),
+  removedAssigneeCount: z.number().int().nonnegative().describe("Removed assignee count"),
+});
+export type WormholeTransferResult = z.infer<typeof WormholeTransferResultSchema>;
 
 export const SetCompletedSchema = z.object({
   completed: z.boolean().describe("Completion status"),

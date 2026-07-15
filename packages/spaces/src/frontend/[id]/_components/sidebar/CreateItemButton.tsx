@@ -122,18 +122,13 @@ export default function CreateItemButton(props: Props) {
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => mutation.mutate(undefined)}
-      disabled={mutation.loading()}
-      class="w-full flex items-center justify-center gap-1 text-sm font-medium transition-colors bg-emerald-50/30 dark:bg-emerald-900/10 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 disabled:opacity-50 px-3 py-2 rounded-lg border border-emerald-200/50 dark:border-emerald-900/30"
-    >
+    <button type="button" onClick={() => mutation.mutate(undefined)} disabled={mutation.loading()} class="btn-primary btn-md w-full">
       {mutation.loading() ? (
         <i class="ti ti-loader-2 animate-spin" />
       ) : (
         <>
-          <i class="ti ti-plus text-emerald-600 dark:text-emerald-400" />
-          <span class="text-emerald-700 dark:text-emerald-300">{label()}</span>
+          <i class="ti ti-plus" />
+          <span>{label()}</span>
         </>
       )}
     </button>

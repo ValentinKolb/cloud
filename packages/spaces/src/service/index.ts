@@ -9,6 +9,7 @@ import * as ical from "./ical";
 import * as items from "./items";
 import * as spaces from "./spaces";
 import * as tags from "./tags";
+import * as wormholes from "./wormholes";
 
 const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
   if (!pagination) {
@@ -37,12 +38,14 @@ export const spacesService = {
     list: async (config: {
       subject: AccessSubject;
       boundSpaceId?: string | null;
+      requiredLevel?: "read" | "write" | "admin";
       pagination?: PageParams;
       filter?: { query?: string };
     }): Promise<Paginated<Space>> => {
       const items = await spaces.list({
         subject: config.subject,
         boundSpaceId: config.boundSpaceId,
+        requiredLevel: config.requiredLevel,
       });
 
       const query = config.filter?.query?.trim().toLowerCase();
@@ -110,6 +113,17 @@ export const spacesService = {
     create: tags.create,
     update: tags.update,
     remove: tags.remove,
+  },
+  wormhole: {
+    actorForUser: wormholes.actorForUser,
+    listUsable: wormholes.listUsable,
+    listConfigured: wormholes.listConfigured,
+    listDestinations: wormholes.listDestinations,
+    create: wormholes.create,
+    update: wormholes.update,
+    reorder: wormholes.reorder,
+    remove: wormholes.remove,
+    transfer: wormholes.transfer,
   },
   item: {
     list: async (config: {
@@ -211,10 +225,10 @@ export const spacesService = {
       return paginateItems(filtered, config.pagination);
     },
     grant: access.grantSpaceAccess,
-    remove: (config: { spaceId: string; accessId: string }) => access.removeSpaceAccess(config.spaceId, config.accessId),
+    remove: access.revokeSpaceAccess,
+    update: access.updateSpaceAccessPermission,
     add: (config: { spaceId: string; accessId: string }) => access.addSpaceAccess(config.spaceId, config.accessId),
     count: (config: { spaceId: string }) => access.countSpaceAccess(config.spaceId),
-    guard: (config: { spaceId: string; accessId: string }) => access.getSpaceAccessGuard(config),
     getPermission: access.getSpacePermission,
     ensureServiceAccount: access.ensureSpaceServiceAccountAccess,
     apiKeys: {
@@ -232,4 +246,4 @@ export const spacesService = {
 // Re-export types needed by widgets
 export type { ItemAcrossKind, ItemAcrossResult, TaskItem } from "./items";
 export type { SpaceAdminListItem } from "./spaces";
-export { access, columns, comments, ical, items, spaces, tags };
+export { access, columns, comments, ical, items, spaces, tags, wormholes };

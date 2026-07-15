@@ -8,6 +8,7 @@ import { GeneralSection } from "./GeneralSection";
 import { StatusesSection } from "./StatusesSection";
 import { TagsSection } from "./TagsSection";
 import type { SpaceEditPanelProps } from "./types";
+import { WormholesSection } from "./WormholesSection";
 
 export default function SpaceEditPanel(props: SpaceEditPanelProps) {
   const isAdmin = () => props.isAdmin === true;
@@ -44,6 +45,12 @@ export default function SpaceEditPanel(props: SpaceEditPanelProps) {
         {canWrite() && (
           <SettingsModal.Tab id="statuses" title="Statuses" icon="ti ti-columns-3" description="Kanban columns and item workflow states.">
             <StatusesSection spaceId={props.space.id} columns={props.space.columns} />
+          </SettingsModal.Tab>
+        )}
+
+        {isAdmin() && (
+          <SettingsModal.Tab id="wormholes" title="Wormholes" icon="ti ti-arrow-bounce" description="Move items into another Space.">
+            <WormholesSection spaceId={props.space.id} initialWormholes={props.wormholes ?? []} />
           </SettingsModal.Tab>
         )}
 

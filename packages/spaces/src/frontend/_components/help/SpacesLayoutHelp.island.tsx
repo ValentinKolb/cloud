@@ -317,7 +317,7 @@ export default function SpacesLayoutHelp() {
       <Layout.Help
         id="spaces-workflow"
         title="Workflow"
-        icon="ti ti-route"
+        icon="ti ti-arrow-bounce"
         description="How to structure items and keep active work readable."
         order={120}
       >

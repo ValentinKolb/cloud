@@ -3,7 +3,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
+import type { SpaceColumn, SpaceComment, SpaceItem, SpaceTag, SpaceWormhole } from "@/contracts";
 import { subscribeToDetailSelection } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
 import ItemDetailPanel from "./ItemDetailPanel";
@@ -14,6 +14,7 @@ type Props = {
   currentUserId: string;
   columns: SpaceColumn[];
   tags: SpaceTag[];
+  wormholes: SpaceWormhole[];
   initialItem: SpaceItem | null;
   initialComments: SpaceComment[];
   showEmpty?: boolean;
@@ -160,6 +161,7 @@ export default function ItemDetailHost(props: Props) {
             item={current}
             columns={props.columns}
             tags={props.tags}
+            wormholes={props.wormholes}
             spaceId={props.spaceId}
             baseUrl={props.baseUrl}
             currentUserId={props.currentUserId}

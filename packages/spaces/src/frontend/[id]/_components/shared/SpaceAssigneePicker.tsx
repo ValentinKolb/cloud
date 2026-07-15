@@ -60,7 +60,7 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
             <div class="flex flex-wrap gap-2">
               <For each={current()}>
                 {(assignee) => (
-                  <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ui-surface-muted)] px-2 py-1 text-xs">
                     <Avatar username={assignee.displayName} userId={assignee.id} avatarHash={assignee.avatarHash} size="xs" />
                     <span>{assignee.displayName}</span>
                     <Show when={!props.disabled}>

@@ -16,15 +16,17 @@ function StatusRow(props: {
   onMoveDown: () => void;
 }) {
   return (
-    <div class="group/status pl-3 py-0.5 flex items-center gap-2">
+    <div class="group/status flex items-center gap-2 py-0.5">
       <span class="w-4 h-4 rounded-full shrink-0" style={`background-color: ${props.column.color || "#6b7280"}`} />
       <span class="flex-1 text-sm truncate">{props.column.name}</span>
-      <div class="flex items-center gap-1 opacity-0 group-hover/status:opacity-100 transition-opacity">
+      <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/status:opacity-100 sm:group-focus-within/status:opacity-100">
         <button
           type="button"
           onClick={props.onMoveUp}
           disabled={props.index === 0}
-          class="p-1 w-6 h-6 flex items-center justify-center text-dimmed hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed"
+          class="icon-btn h-7 w-7"
+          aria-label={`Move ${props.column.name} up`}
+          title="Move up"
         >
           <i class="ti ti-arrow-up text-sm" />
         </button>
@@ -32,14 +34,22 @@ function StatusRow(props: {
           type="button"
           onClick={props.onMoveDown}
           disabled={props.index === props.total - 1}
-          class="p-1 w-6 h-6 flex items-center justify-center text-dimmed hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed"
+          class="icon-btn h-7 w-7"
+          aria-label={`Move ${props.column.name} down`}
+          title="Move down"
         >
           <i class="ti ti-arrow-down text-sm" />
         </button>
-        <button type="button" onClick={props.onEdit} class="p-1 w-6 h-6 flex items-center justify-center text-dimmed hover:text-primary">
+        <button type="button" onClick={props.onEdit} class="icon-btn h-7 w-7" aria-label={`Edit ${props.column.name}`} title="Edit status">
           <i class="ti ti-pencil text-sm" />
         </button>
-        <button type="button" onClick={props.onDelete} class="p-1 w-6 h-6 flex items-center justify-center text-dimmed hover:text-red-500">
+        <button
+          type="button"
+          onClick={props.onDelete}
+          class="icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
+          aria-label={`Delete ${props.column.name}`}
+          title="Delete status"
+        >
           <i class="ti ti-x text-sm" />
         </button>
       </div>
@@ -54,11 +64,7 @@ function AddStatusButton(props: { onSave: (data: { name: string; color?: string 
     <Show
       when={isOpen()}
       fallback={
-        <button
-          type="button"
-          onClick={() => setIsOpen(true)}
-          class="pl-3 py-1 flex items-center gap-2 text-sm text-dimmed hover:text-primary transition-colors"
-        >
+        <button type="button" onClick={() => setIsOpen(true)} class="btn-simple btn-sm self-start">
           <i class="ti ti-plus" />
           <span>Add status</span>
         </button>
@@ -171,7 +177,7 @@ export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]
   };
 
   return (
-    <div class="flex flex-col border-l-2 border-zinc-200 dark:border-zinc-700">
+    <div class="flex flex-col gap-1">
       <For each={columns()}>
         {(column, index) => (
           <Show

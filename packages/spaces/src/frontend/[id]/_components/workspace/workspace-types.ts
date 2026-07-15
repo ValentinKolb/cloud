@@ -1,7 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
-import type { CalendarItem, ItemListResult, SpaceComment, SpaceDetail, SpaceItem } from "@/contracts";
+import type { CalendarItem, ItemListResult, SpaceComment, SpaceDetail, SpaceItem, SpaceWormhole } from "@/contracts";
 import type { CalendarView, DayWeather } from "../calendar/types";
 import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
 import type { KanbanBucketInitial } from "../kanban/types";
@@ -36,6 +36,8 @@ export type SpacesWorkspaceState =
       selectedItemComments: SpaceComment[];
       accessEntries: AccessEntry[];
       apiKeys: ResourceApiKey[];
+      wormholes: SpaceWormhole[];
+      configuredWormholes: SpaceWormhole[];
     };
 
 export const parseSpacesWorkspaceHref = (href: string) => {

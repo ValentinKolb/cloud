@@ -4,19 +4,21 @@ import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { SpaceColumn, SpaceComment, SpaceItem, SpaceItemAssignee, SpaceTag } from "@/contracts";
+import type { SpaceColumn, SpaceComment, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
 import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 import { summarizeRecurrence } from "../shared/recurrence";
 import SpaceAssigneePicker from "../shared/SpaceAssigneePicker";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { canTransferThroughWormhole, showWormholeTransferToast, transferThroughWormhole } from "../wormhole-transfer";
 import CommentsSection from "./CommentsSection";
 
 type Props = {
   item: SpaceItem;
   columns: SpaceColumn[];
   tags: SpaceTag[];
+  wormholes: SpaceWormhole[];
   spaceId: string;
   /** Base URL for close link */
   baseUrl: string;
@@ -489,6 +491,23 @@ export default function ItemDetailPanel(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
+  const transferMutation = mutations.create<WormholeTransferResult, string>({
+    mutation: (wormholeId, context) =>
+      transferThroughWormhole({
+        sourceSpaceId: props.spaceId,
+        itemId: props.item.id,
+        wormholeId,
+        signal: context.abortSignal,
+      }),
+    onSuccess: (result) => {
+      showWormholeTransferToast(result);
+      requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
+    },
+    onError: (error) => {
+      if (error.name !== "AbortError") prompts.error(error.message);
+    },
+  });
+
   const handleDuplicate = () => duplicateMutation.mutate(undefined);
   const handleDelete = () => deleteMutation.mutate({});
 
@@ -510,11 +529,54 @@ export default function ItemDetailPanel(props: Props) {
     completeMutation.loading() ||
     duplicateMutation.loading() ||
     deleteMutation.loading() ||
+    transferMutation.loading() ||
     editItemMutation.loading();
 
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
   const isCompleted = () => !!props.item.completedAt;
   const recurrenceSummary = () => summarizeRecurrence(props.item.recurrence);
+  const itemActions = (): DropdownItem[] => {
+    const actions: DropdownItem[] = [
+      {
+        label: "Edit item",
+        icon: "ti ti-pencil",
+        action: () => editItemMutation.mutate(undefined),
+      },
+      {
+        label: "Duplicate item",
+        icon: "ti ti-copy",
+        action: handleDuplicate,
+      },
+    ];
+
+    if (canTransferThroughWormhole(props.item) && props.wormholes.length > 0) {
+      actions.push({
+        items: props.wormholes.flatMap((wormhole) =>
+          wormhole.target
+            ? [
+                {
+                  label: `Move to ${wormhole.target.spaceName} / ${wormhole.target.columnName}`,
+                  icon: "ti ti-arrow-bounce",
+                  action: () => transferMutation.mutate(wormhole.id),
+                },
+              ]
+            : [],
+        ),
+      });
+    }
+
+    actions.push({
+      items: [
+        {
+          label: "Delete item",
+          icon: "ti ti-trash",
+          variant: "danger",
+          action: handleDelete,
+        },
+      ],
+    });
+    return actions;
+  };
 
   const scheduleTitle = () => (isEvent() ? "Event Time" : "Deadline");
 
@@ -552,24 +614,7 @@ export default function ItemDetailPanel(props: Props) {
                     <i class="ti ti-dots" />
                   </button>
                 }
-                elements={[
-                  {
-                    label: "Edit item",
-                    icon: "ti ti-pencil",
-                    action: () => editItemMutation.mutate(undefined),
-                  },
-                  {
-                    label: "Duplicate item",
-                    icon: "ti ti-copy",
-                    action: handleDuplicate,
-                  },
-                  {
-                    label: "Delete item",
-                    icon: "ti ti-trash",
-                    variant: "danger",
-                    action: handleDelete,
-                  },
-                ]}
+                elements={itemActions()}
                 position="bottom-left"
               />
             </Show>

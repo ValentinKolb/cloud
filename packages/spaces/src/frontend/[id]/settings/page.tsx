@@ -1,5 +1,6 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { Placeholder } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../../config";
 import SpacesLayoutHelp from "../../_components/help/SpacesLayoutHelp.island";
@@ -25,9 +26,14 @@ export default ssr<AuthContext>(async (c) => {
   if (state.kind !== "ok") {
     return () => (
       <Layout c={c} title={state.title}>
-        <div class="paper p-8 max-w-md mx-auto mt-16 text-center text-dimmed">
-          <i class={`ti ${state.kind === "accessDenied" ? "ti-lock" : "ti-alert-circle"} text-sm`} /> {state.message}
-        </div>
+        <Placeholder
+          state="error"
+          variant="panel"
+          icon={state.kind === "accessDenied" ? "ti ti-lock" : "ti ti-alert-circle"}
+          title={state.title}
+          description={state.message}
+          class="mx-auto max-w-md"
+        />
       </Layout>
     );
   }

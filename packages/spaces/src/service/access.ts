@@ -171,50 +171,84 @@ export const countSpaceAccess = async (spaceId: string): Promise<number> => {
   return row?.count ?? 0;
 };
 
-/**
- * Read guard information needed for safe access updates/removals.
- */
-export const getSpaceAccessGuard = async (params: {
+/** Remove an access entry while preventing accidental orphaning. */
+export const revokeSpaceAccess = async (params: { spaceId: string; accessId: string }): Promise<Result<void>> =>
+  sql.begin(async (tx) => {
+    const [guard] = await tx<
+      {
+        total: number;
+        other_admins: number;
+        current_permission: PermissionLevel | null;
+      }[]
+    >`
+      WITH locked AS (
+        SELECT a.id, a.permission
+        FROM spaces.space_access sa
+        JOIN auth.access a ON sa.access_id = a.id
+        WHERE sa.space_id = ${params.spaceId}::uuid
+        FOR UPDATE OF sa, a
+      )
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (
+          WHERE permission = 'admin'::auth.permission_level
+            AND id <> ${params.accessId}::uuid
+        )::int AS other_admins,
+        MAX(CASE WHEN id = ${params.accessId}::uuid THEN permission END) AS current_permission
+      FROM locked
+    `;
+
+    if (!guard?.current_permission) return fail(err.notFound("Access entry for this space"));
+    if (guard.total <= 1) return fail(err.badInput("Cannot remove the last access entry"));
+    if (guard.current_permission === "admin" && guard.other_admins <= 0) {
+      return fail(err.badInput("Cannot remove the last admin"));
+    }
+
+    const result = await tx`DELETE FROM auth.access WHERE id = ${params.accessId}::uuid`;
+    return result.count > 0 ? ok() : fail(err.notFound("Access entry for this space"));
+  });
+
+/** Update a permission while preserving at least one Space admin. */
+export const updateSpaceAccessPermission = async (params: {
   spaceId: string;
   accessId: string;
-}): Promise<{
-  total: number;
-  otherAdmins: number;
-  currentPermission: PermissionLevel | null;
-}> => {
-  const [row] = await sql<
-    {
-      total: number;
-      other_admins: number;
-      current_permission: PermissionLevel | null;
-    }[]
-  >`
-    SELECT
-      COUNT(*)::int as total,
-      COUNT(*) FILTER (
-        WHERE a.permission = 'admin'::auth.permission_level
-          AND a.id <> ${params.accessId}::uuid
-      )::int as other_admins,
-      MAX(CASE WHEN a.id = ${params.accessId}::uuid THEN a.permission END) as current_permission
-    FROM spaces.space_access sa
-    JOIN auth.access a ON sa.access_id = a.id
-    WHERE sa.space_id = ${params.spaceId}::uuid
-  `;
+  permission: PermissionLevel;
+}): Promise<Result<void>> =>
+  sql.begin(async (tx) => {
+    const [guard] = await tx<
+      {
+        other_admins: number;
+        current_permission: PermissionLevel | null;
+      }[]
+    >`
+      WITH locked AS (
+        SELECT a.id, a.permission
+        FROM spaces.space_access sa
+        JOIN auth.access a ON sa.access_id = a.id
+        WHERE sa.space_id = ${params.spaceId}::uuid
+        FOR UPDATE OF sa, a
+      )
+      SELECT
+        COUNT(*) FILTER (
+          WHERE permission = 'admin'::auth.permission_level
+            AND id <> ${params.accessId}::uuid
+        )::int AS other_admins,
+        MAX(CASE WHEN id = ${params.accessId}::uuid THEN permission END) AS current_permission
+      FROM locked
+    `;
 
-  return {
-    total: row?.total ?? 0,
-    otherAdmins: row?.other_admins ?? 0,
-    currentPermission: row?.current_permission ?? null,
-  };
-};
+    if (!guard?.current_permission) return fail(err.notFound("Access entry for this space"));
+    if (guard.current_permission === "admin" && params.permission !== "admin" && guard.other_admins <= 0) {
+      return fail(err.badInput("Cannot remove the last admin"));
+    }
+
+    return updateAccess({ id: params.accessId, permission: params.permission }, tx);
+  });
 
 /**
  * Get the effective permission level for an actor on a space.
  */
-export const getSpacePermission = async (params: {
-  spaceId: string;
-  subject: AccessSubject;
-}): Promise<PermissionLevel> => {
+export const getSpacePermission = async (params: { spaceId: string; subject: AccessSubject }): Promise<PermissionLevel> => {
   const { spaceId } = params;
 
   // Get all access IDs for this space

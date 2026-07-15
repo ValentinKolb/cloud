@@ -127,6 +127,7 @@ export default function SpacesWorkspace(props: Props) {
               initialSettings={settingsState.settings}
               accessEntries={settingsState.accessEntries}
               apiKeys={settingsState.apiKeys}
+              wormholes={settingsState.configuredWormholes}
               isAdmin={settingsState.isAdmin}
               canWrite={settingsState.canWrite}
               onClose={() => {
@@ -230,7 +231,7 @@ export default function SpacesWorkspace(props: Props) {
           for await (const event of streaming.parseSSE(response.body)) {
             if (abortController.signal.aborted) return;
             if (event.id) lastEventCursor = event.id;
-            if (event.event?.startsWith("item.")) scheduleRefresh();
+            if (event.event?.startsWith("item.") || event.event?.startsWith("wormhole.")) scheduleRefresh();
           }
         } catch {
           // Best-effort refresh: normal navigation still works if the stream drops.
@@ -268,7 +269,7 @@ export default function SpacesWorkspace(props: Props) {
     });
   });
 
-  const selectedItemId = () => state().selectedItem?.id ?? new URLSearchParams(state().query).get("item") ?? "";
+  const selectedItemId = () => state().selectedItem?.id ?? "";
   const detailScrollPreserveKey = () => `spaces-detail-${spaceId()}-${selectedItemId() || "empty"}`;
   const spaceContext = () => ({
     space: state().space,
@@ -400,6 +401,7 @@ export default function SpacesWorkspace(props: Props) {
               pageSize={KANBAN_PAGE_SIZE}
               dateConfig={props.dateConfig}
               canWrite={state().canWrite}
+              wormholes={state().wormholes}
             />
           )}
 
@@ -434,6 +436,7 @@ export default function SpacesWorkspace(props: Props) {
               initialComments={state().selectedItemComments}
               dateConfig={props.dateConfig}
               canWrite={state().canWrite}
+              wormholes={state().wormholes}
             />
           </div>
         </AppWorkspace.Detail>

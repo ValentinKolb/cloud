@@ -60,6 +60,25 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ spaces.columns table");
 
   await sql`
+    CREATE TABLE IF NOT EXISTS spaces.wormholes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      source_space_id UUID NOT NULL REFERENCES spaces.spaces(id) ON DELETE CASCADE,
+      target_column_id UUID NOT NULL REFERENCES spaces.columns(id) ON DELETE CASCADE,
+      color TEXT NOT NULL DEFAULT '#6366f1',
+      rank BIGINT NOT NULL DEFAULT 1024,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT wormholes_source_target_key UNIQUE (source_space_id, target_column_id),
+      CONSTRAINT wormholes_color_check CHECK (color ~ '^#[0-9a-fA-F]{6}$')
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_wormholes_source_rank
+    ON spaces.wormholes(source_space_id, rank, id)
+  `.simple();
+  console.log("  ✓ spaces.wormholes table");
+
+  await sql`
     CREATE TABLE IF NOT EXISTS spaces.tags (
       id UUID DEFAULT gen_random_uuid() CONSTRAINT labels_pkey PRIMARY KEY,
       space_id UUID NOT NULL CONSTRAINT labels_space_id_fkey REFERENCES spaces.spaces(id) ON DELETE CASCADE,

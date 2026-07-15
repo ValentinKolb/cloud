@@ -120,10 +120,10 @@ export default function CommentsSection(props: Props) {
           </Placeholder>
         }
       >
-        <ol class="divide-y divide-[var(--ui-divider)]">
+        <ol class="flex flex-col gap-3">
           <For each={sortedComments()}>
             {(comment) => (
-              <li class="group flex gap-2 py-3 first:pt-0 last:pb-0">
+              <li class="group flex gap-2">
                 <Avatar username={comment.userName ?? "Unknown"} userId={comment.userId} avatarHash={comment.userAvatarHash} size="xs" />
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-1">

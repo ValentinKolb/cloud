@@ -36,13 +36,10 @@ export function CalendarSection(props: { spaceId: string; icalToken: string | nu
   return (
     <div class="flex flex-col gap-3">
       <Show when={icalUrl()} fallback={<p class="text-sm text-dimmed">No iCal token available.</p>}>
-        <div class="flex items-center gap-2">
-          <input
-            type="text"
-            value={icalUrl()!}
-            readonly
-            class="flex-1 px-2 py-1 text-xs bg-zinc-100 dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700 font-mono"
-          />
+        <div class="flex min-w-0 items-center gap-2">
+          <code class="min-w-0 flex-1 truncate rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] px-2 py-1.5 text-xs text-secondary">
+            {icalUrl()!}
+          </code>
           <CopyButton text={icalUrl()!} />
         </div>
         <div class="text-xs text-dimmed space-y-1">

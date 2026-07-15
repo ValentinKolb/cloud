@@ -8,14 +8,20 @@ import { readErrorMessage } from "./utils";
 
 function TagRow(props: { tag: SpaceTag; onEdit: () => void; onDelete: () => void }) {
   return (
-    <div class="group/tag pl-3 py-0.5 flex items-center gap-2">
+    <div class="group/tag flex items-center gap-2 py-0.5">
       <span class="w-4 h-4 rounded-full shrink-0" style={`background-color: ${props.tag.color}`} />
       <span class="flex-1 text-sm truncate">{props.tag.name}</span>
-      <div class="flex items-center gap-1 opacity-0 group-hover/tag:opacity-100 transition-opacity">
-        <button type="button" onClick={props.onEdit} class="p-1 w-6 h-6 flex items-center justify-center text-dimmed hover:text-primary">
+      <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/tag:opacity-100 sm:group-focus-within/tag:opacity-100">
+        <button type="button" onClick={props.onEdit} class="icon-btn h-7 w-7" aria-label={`Edit ${props.tag.name}`} title="Edit tag">
           <i class="ti ti-pencil text-sm" />
         </button>
-        <button type="button" onClick={props.onDelete} class="p-1 w-6 h-6 flex items-center justify-center text-dimmed hover:text-red-500">
+        <button
+          type="button"
+          onClick={props.onDelete}
+          class="icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
+          aria-label={`Delete ${props.tag.name}`}
+          title="Delete tag"
+        >
           <i class="ti ti-x text-sm" />
         </button>
       </div>
@@ -30,11 +36,7 @@ function AddTagButton(props: { onSave: (data: { name: string; color: string }) =
     <Show
       when={isOpen()}
       fallback={
-        <button
-          type="button"
-          onClick={() => setIsOpen(true)}
-          class="pl-3 py-1 flex items-center gap-2 text-sm text-dimmed hover:text-primary transition-colors"
-        >
+        <button type="button" onClick={() => setIsOpen(true)} class="btn-simple btn-sm self-start">
           <i class="ti ti-plus" />
           <span>Add tag</span>
         </button>
@@ -122,7 +124,7 @@ export function TagsSection(props: { spaceId: string; tags: SpaceTag[] }) {
   });
 
   return (
-    <div class="flex flex-col border-l-2 border-zinc-200 dark:border-zinc-700">
+    <div class="flex flex-col gap-1">
       <For each={tags()}>
         {(tag) => (
           <Show

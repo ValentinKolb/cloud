@@ -9,7 +9,6 @@ import {
   rateLimit,
   requiresAuth,
   respond,
-  updateAccess,
   v,
 } from "@valentinkolb/cloud/server";
 import { coreSettings } from "@valentinkolb/cloud/services";
@@ -27,9 +26,9 @@ import {
   CreateItemSchema,
   CreateSpaceSchema,
   CreateTagSchema,
+  CreateWormholeSchema,
   ErrorResponseSchema,
   GrantAccessSchema,
-  hasRole,
   ItemFilterSchema,
   ItemListResultSchema,
   MessageResponseSchema,
@@ -37,6 +36,7 @@ import {
   OverlapItemSchema,
   OverlapQuerySchema,
   ReorderColumnsSchema,
+  ReorderWormholesSchema,
   SetCompletedSchema,
   SpaceAssignableUserSchema,
   SpaceColumnSchema,
@@ -45,12 +45,16 @@ import {
   SpaceItemSchema,
   SpaceSchema,
   SpaceTagSchema,
+  SpaceWormholeDestinationSchema,
+  SpaceWormholeSchema,
   UpdateAccessSchema,
   UpdateColumnSchema,
   UpdateCommentSchema,
   UpdateItemSchema,
   UpdateSpaceSchema,
   UpdateTagSchema,
+  UpdateWormholeSchema,
+  WormholeTransferResultSchema,
 } from "@/contracts";
 import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
 import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
@@ -66,6 +70,8 @@ const SpaceListSchema = z.array(SpaceSchema);
 const SpaceItemListSchema = z.array(SpaceItemSchema);
 const SpaceCommentListSchema = z.array(SpaceCommentSchema);
 const SpaceAssignableUserListSchema = z.array(SpaceAssignableUserSchema);
+const SpaceWormholeListSchema = z.array(SpaceWormholeSchema);
+const SpaceWormholeDestinationListSchema = z.array(SpaceWormholeDestinationSchema);
 const AssignableUsersQuerySchema = z.object({
   search: z.string().optional(),
   exclude_user_ids: z.string().optional(),
@@ -140,6 +146,20 @@ const getSpaceAccessSubject = (c: Context<AuthContext>) => {
   };
 };
 
+const getWormholeActor = (c: Context<AuthContext>) => {
+  const actor = getSpaceAccessSubject(c);
+  return {
+    subject: actor.subject,
+    resourceBoundSpaceId:
+      actor.serviceAccount?.kind === "resource_bound" &&
+      actor.serviceAccount.appId === SPACES_APP_ID &&
+      actor.serviceAccount.resourceType === SPACE_RESOURCE_TYPE &&
+      isSpaceResourceId(actor.serviceAccount.resourceId)
+        ? actor.serviceAccount.resourceId
+        : null,
+  };
+};
+
 type ScopedSpaceAccess = {
   subject: AccessSubject;
   boundSpaceId: string | null;
@@ -177,6 +197,7 @@ const getScopedSpaceAccess = (c: Context<AuthContext>): Result<ScopedSpaceAccess
 
 /**
  * Middleware to check space access with permission level.
+ * Global roles never imply resource access; recovery operations use adminApp.
  */
 const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requiredLevel: PermissionLevel = "read") => {
   const subject = getSpaceAccessSubject(c);
@@ -188,10 +209,6 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
       permission: "none" as PermissionLevel,
       error: await respond(c, fail(err.notFound("Space"))),
     };
-  }
-
-  if (subject.user && hasRole(subject.user, "admin")) {
-    return { space, permission: "admin" as PermissionLevel, user: subject.user };
   }
 
   if (
@@ -225,6 +242,12 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
   }
 
   return { space, permission, user: subject.user };
+};
+
+const requireExistingSpace = async (c: Context<AuthContext>, spaceId: string) => {
+  const space = await spacesService.space.get({ id: spaceId });
+  if (space) return { space, error: null };
+  return { space: null, error: await respond(c, fail(err.notFound("Space"))) };
 };
 
 /**
@@ -664,6 +687,196 @@ const app = new Hono<AuthContext>()
   )
 
   // ==========================
+  // WORMHOLES
+  // ==========================
+
+  .get(
+    "/:id/wormholes",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "List usable wormholes",
+      description: "List wormholes whose source and destination the current actor may write.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceWormholeListSchema, "Usable wormholes"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    async (c) => {
+      const sourceSpaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, sourceSpaceId, "read");
+      if (error) return error;
+      return respond(c, async () => ok(await spacesService.wormhole.listUsable({ sourceSpaceId, actor: getWormholeActor(c) })));
+    },
+  )
+
+  .get(
+    "/:id/wormholes/configured",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "List configured wormholes",
+      description: "List configured wormholes for source-space administrators. Inaccessible destinations are redacted.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceWormholeListSchema, "Configured wormholes"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    async (c) => {
+      const sourceSpaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      if (error) return error;
+      return respond(c, spacesService.wormhole.listConfigured({ sourceSpaceId, actor: getWormholeActor(c) }));
+    },
+  )
+
+  .get(
+    "/:id/wormhole-destinations",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "List wormhole destinations",
+      description: "List other spaces and columns where the current actor is also an administrator.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceWormholeDestinationListSchema, "Available destinations"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    async (c) => {
+      const sourceSpaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      if (error) return error;
+      return respond(c, spacesService.wormhole.listDestinations({ sourceSpaceId, actor: getWormholeActor(c) }));
+    },
+  )
+
+  .post(
+    "/:id/wormholes",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Create wormhole",
+      description: "Create a reusable route to a column in another administered space.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceWormholeSchema, "Created wormhole"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid destination"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space or destination not found"),
+        409: jsonResponse(ErrorResponseSchema, "Wormhole already exists"),
+      },
+    }),
+    v("json", CreateWormholeSchema),
+    async (c) => {
+      const sourceSpaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      if (error) return error;
+      return respond(
+        c,
+        spacesService.wormhole.create({
+          sourceSpaceId,
+          data: c.req.valid("json"),
+          actor: getWormholeActor(c),
+        }),
+      );
+    },
+  )
+
+  .patch(
+    "/:id/wormholes/:wormholeId",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Update wormhole",
+      description: "Update a wormhole destination or color.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceWormholeSchema, "Updated wormhole"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid destination"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Wormhole or destination not found"),
+        409: jsonResponse(ErrorResponseSchema, "Wormhole already exists"),
+      },
+    }),
+    v("json", UpdateWormholeSchema),
+    async (c) => {
+      const sourceSpaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      if (error) return error;
+      return respond(
+        c,
+        spacesService.wormhole.update({
+          sourceSpaceId,
+          id: c.req.param("wormholeId") ?? "",
+          data: c.req.valid("json"),
+          actor: getWormholeActor(c),
+        }),
+      );
+    },
+  )
+
+  .put(
+    "/:id/wormholes/order",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Reorder wormholes",
+      description: "Set the display order of every wormhole in a source space.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Wormholes reordered"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid wormhole list"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    v("json", ReorderWormholesSchema),
+    async (c) => {
+      const sourceSpaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      if (error) return error;
+      return respondMessage(
+        c,
+        spacesService.wormhole.reorder({
+          sourceSpaceId,
+          wormholeIds: c.req.valid("json").wormholeIds,
+          actor: getWormholeActor(c),
+        }),
+        "Wormholes reordered",
+      );
+    },
+  )
+
+  .delete(
+    "/:id/wormholes/:wormholeId",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Delete wormhole",
+      description: "Delete a wormhole. Destination access is not required so stale links remain removable.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Wormhole deleted"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Wormhole not found"),
+      },
+    }),
+    async (c) => {
+      const sourceSpaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      if (error) return error;
+      return respondMessage(
+        c,
+        spacesService.wormhole.remove({
+          sourceSpaceId,
+          id: c.req.param("wormholeId") ?? "",
+          actor: getWormholeActor(c),
+        }),
+        "Wormhole deleted",
+      );
+    },
+  )
+
+  // ==========================
   // TAGS
   // ==========================
 
@@ -977,6 +1190,37 @@ const app = new Hono<AuthContext>()
       const itemCheck = await requireItemInSpace(spaceId, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
       return respond(c, spacesService.item.move({ id: itemId, columnId, rank, completed }));
+    },
+  )
+
+  .post(
+    "/:id/items/:itemId/wormholes/:wormholeId",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Move item through wormhole",
+      description: "Atomically transfer an item to the configured destination after rechecking write access to both spaces.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(WormholeTransferResultSchema, "Transferred item"),
+        400: jsonResponse(ErrorResponseSchema, "Item cannot be transferred"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Item or wormhole not found"),
+        409: jsonResponse(ErrorResponseSchema, "Wormhole destination changed"),
+      },
+    }),
+    async (c) => {
+      const sourceSpaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, sourceSpaceId, "write");
+      if (error) return error;
+      return respond(
+        c,
+        spacesService.wormhole.transfer({
+          sourceSpaceId,
+          itemId: c.req.param("itemId") ?? "",
+          wormholeId: c.req.param("wormholeId") ?? "",
+          actor: getWormholeActor(c),
+        }),
+      );
     },
   )
 
@@ -1359,15 +1603,7 @@ const app = new Hono<AuthContext>()
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
       if (error) return error;
 
-      const guard = await spacesService.access.guard({ spaceId, accessId });
-      if (!guard.currentPermission) {
-        return respond(c, fail(err.notFound("Access entry")));
-      }
-
-      if (guard.currentPermission === "admin" && permission !== "admin" && guard.otherAdmins <= 0) {
-        return respond(c, fail(err.badInput("Cannot remove the last admin")));
-      }
-      return respondMessage(c, updateAccess({ id: accessId, permission }), "Access updated");
+      return respondMessage(c, spacesService.access.update({ spaceId, accessId, permission }), "Access updated");
     },
   )
 
@@ -1395,19 +1631,122 @@ const app = new Hono<AuthContext>()
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
       if (error) return error;
 
-      const guard = await spacesService.access.guard({ spaceId, accessId });
-      if (!guard.currentPermission) {
-        return respond(c, fail(err.notFound("Access entry")));
-      }
-
-      if (guard.total <= 1) {
-        return respond(c, fail(err.badInput("Cannot remove the last access entry")));
-      }
-
-      if (guard.currentPermission === "admin" && guard.otherAdmins <= 0) {
-        return respond(c, fail(err.badInput("Cannot remove the last admin")));
-      }
       return respondMessage(c, spacesService.access.remove({ spaceId, accessId }), "Access revoked");
+    },
+  );
+
+// Global Cloud admins can repair Space ownership and remove abandoned Spaces,
+// but this route intentionally exposes no Space content or resource settings.
+const adminApp = new Hono<AuthContext>()
+  .use(auth.requireRole("admin"))
+  .get(
+    "/:id/access",
+    describeRoute({
+      tags: ["Spaces Admin"],
+      summary: "List Space access for recovery",
+      description: "List access entries without granting access to Space content. Requires Cloud admin.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.array(AccessEntrySchema), "Access entries"),
+        403: jsonResponse(ErrorResponseSchema, "Cloud admin required"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const { error } = await requireExistingSpace(c, spaceId);
+      if (error) return error;
+      const entries = await spacesService.access.list({ spaceId });
+      return respond(c, ok(entries.items));
+    },
+  )
+  .post(
+    "/:id/access",
+    describeRoute({
+      tags: ["Spaces Admin"],
+      summary: "Grant Space access for recovery",
+      description: "Grant access without granting the Cloud admin access to Space content. Requires Cloud admin.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(AccessEntrySchema, "Created access entry"),
+        403: jsonResponse(ErrorResponseSchema, "Cloud admin required"),
+        404: jsonResponse(ErrorResponseSchema, "Space or principal not found"),
+        409: jsonResponse(ErrorResponseSchema, "Principal already has access"),
+      },
+    }),
+    v("json", GrantAccessSchema),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const { error } = await requireExistingSpace(c, spaceId);
+      if (error) return error;
+      const { principal, permission } = c.req.valid("json");
+      return respond(c, spacesService.access.grant({ spaceId, principal, permission }));
+    },
+  )
+  .patch(
+    "/:id/access/:accessId",
+    describeRoute({
+      tags: ["Spaces Admin"],
+      summary: "Update Space access for recovery",
+      description: "Update an access entry while preserving at least one Space admin. Requires Cloud admin.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Access updated"),
+        400: jsonResponse(ErrorResponseSchema, "Cannot remove the last Space admin"),
+        403: jsonResponse(ErrorResponseSchema, "Cloud admin required"),
+        404: jsonResponse(ErrorResponseSchema, "Space or access entry not found"),
+      },
+    }),
+    v("json", UpdateAccessSchema),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const { error } = await requireExistingSpace(c, spaceId);
+      if (error) return error;
+      const accessId = c.req.param("accessId") ?? "";
+      const { permission } = c.req.valid("json");
+      return respondMessage(c, spacesService.access.update({ spaceId, accessId, permission }), "Access updated");
+    },
+  )
+  .delete(
+    "/:id/access/:accessId",
+    describeRoute({
+      tags: ["Spaces Admin"],
+      summary: "Revoke Space access for recovery",
+      description: "Revoke access while preserving at least one access entry and Space admin. Requires Cloud admin.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Access revoked"),
+        400: jsonResponse(ErrorResponseSchema, "Cannot remove the last access entry or Space admin"),
+        403: jsonResponse(ErrorResponseSchema, "Cloud admin required"),
+        404: jsonResponse(ErrorResponseSchema, "Space or access entry not found"),
+      },
+    }),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const { error } = await requireExistingSpace(c, spaceId);
+      if (error) return error;
+      const accessId = c.req.param("accessId") ?? "";
+      return respondMessage(c, spacesService.access.remove({ spaceId, accessId }), "Access revoked");
+    },
+  )
+  .delete(
+    "/:id",
+    describeRoute({
+      tags: ["Spaces Admin"],
+      summary: "Delete an abandoned Space",
+      description: "Delete a Space without granting access to its content. Requires Cloud admin.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Space deleted"),
+        403: jsonResponse(ErrorResponseSchema, "Cloud admin required"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const { error } = await requireExistingSpace(c, spaceId);
+      if (error) return error;
+      return respondMessage(c, spacesService.space.remove({ id: spaceId }), "Space deleted");
     },
   );
 
@@ -1526,7 +1865,12 @@ const icalApp = new Hono().get(
 // would otherwise match the literal path "calendar" and try to parse it as a
 // space UUID (causing a 500 from Postgres uuid validation). Hono's router
 // honours registration order for overlapping static-vs-dynamic paths.
-const combined = new Hono().use(rateLimit()).route("/calendar", calendarApp).route("/calendar", icalApp).route("/", app);
+const combined = new Hono()
+  .use(rateLimit())
+  .route("/admin", adminApp)
+  .route("/calendar", calendarApp)
+  .route("/calendar", icalApp)
+  .route("/", app);
 
 export default combined;
 export type ApiType = typeof combined;

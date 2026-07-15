@@ -281,7 +281,7 @@ export default function SpacesOverview(props: Props) {
                 onClick={() => createSpaceMutation.mutate(starter)}
                 disabled={createSpaceMutation.loading()}
               >
-                <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
+                <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-[var(--ui-surface-muted)]">
                   <i class={`${starter.icon} text-lg text-primary`} />
                 </span>
                 <span class="min-w-0 flex-1">
@@ -298,8 +298,8 @@ export default function SpacesOverview(props: Props) {
             onClick={() => createSpaceMutation.mutate(blankStarter)}
             disabled={createSpaceMutation.loading()}
           >
-            <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-blue-100 dark:bg-blue-900/50">
-              <i class="ti ti-plus text-lg text-blue-600 dark:text-blue-400" />
+            <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-[var(--ui-selected)]">
+              <i class="ti ti-plus app-accent-text text-lg" />
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-semibold text-primary">Blank space</span>

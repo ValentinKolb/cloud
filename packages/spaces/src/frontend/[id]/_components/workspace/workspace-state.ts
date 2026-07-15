@@ -1,6 +1,6 @@
 import { weatherService } from "@valentinkolb/cloud/services";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
-import type { CalendarItem, ItemListResult, SpaceComment, SpaceDetail, SpaceItem } from "@/contracts";
+import type { CalendarItem, ItemListResult, SpaceComment, SpaceDetail, SpaceItem, SpaceWormhole, User } from "@/contracts";
 import { spacesService } from "@/service";
 import type { CalendarView, DayWeather } from "../calendar/types";
 import { defaultFilter, type FilterState, parseFilterFromUrl } from "../filter/types";
@@ -8,9 +8,7 @@ import type { KanbanBucketInitial } from "../kanban/types";
 import { isValidView, parseSpaceSettings, type SpaceUserSettings, type ViewType } from "../settings/SpaceSettingsStore";
 import type { SpacesWorkspaceState } from "./workspace-types";
 
-type AuthUser = {
-  id: string;
-};
+type AuthUser = Pick<User, "id" | "roles">;
 
 type WorkspaceRequest = {
   user: AuthUser;
@@ -297,6 +295,23 @@ const loadAccessEntries = async (params: { isAdmin: boolean; isSettingsMode: boo
 const loadApiKeys = async (params: { isAdmin: boolean; isSettingsMode: boolean; spaceId: string }) =>
   params.isAdmin && params.isSettingsMode ? spacesService.access.apiKeys.list({ spaceId: params.spaceId }) : [];
 
+const loadWormholes = async (params: {
+  canWrite: boolean;
+  isAdmin: boolean;
+  isSettingsMode: boolean;
+  spaceId: string;
+  user: AuthUser;
+}): Promise<{ wormholes: SpaceWormhole[]; configuredWormholes: SpaceWormhole[] }> => {
+  const actor = spacesService.wormhole.actorForUser(params.user);
+  const [wormholes, configured] = await Promise.all([
+    params.canWrite ? spacesService.wormhole.listUsable({ sourceSpaceId: params.spaceId, actor }) : [],
+    params.isAdmin && params.isSettingsMode
+      ? spacesService.wormhole.listConfigured({ sourceSpaceId: params.spaceId, actor })
+      : Promise.resolve({ ok: true as const, data: [] }),
+  ]);
+  return { wormholes, configuredWormholes: configured.ok ? configured.data : [] };
+};
+
 const loadWorkspaceData = async (params: {
   route: RouteState;
   space: SpaceDetail;
@@ -304,7 +319,7 @@ const loadWorkspaceData = async (params: {
   request: WorkspaceRequest;
   calendarTagIds: string[];
 }) => {
-  const [accessEntries, apiKeys, itemsResult, kanbanBuckets, calendarState] = await Promise.all([
+  const [accessEntries, apiKeys, wormholeState, itemsResult, kanbanBuckets, calendarState] = await Promise.all([
     loadAccessEntries({
       isAdmin: params.permissions.isAdmin,
       isSettingsMode: params.route.isSettingsMode,
@@ -314,6 +329,13 @@ const loadWorkspaceData = async (params: {
       isAdmin: params.permissions.isAdmin,
       isSettingsMode: params.route.isSettingsMode,
       spaceId: params.request.spaceId,
+    }),
+    loadWormholes({
+      canWrite: params.permissions.canWrite,
+      isAdmin: params.permissions.isAdmin,
+      isSettingsMode: params.route.isSettingsMode,
+      spaceId: params.request.spaceId,
+      user: params.request.user,
     }),
     loadListItems({
       currentView: params.route.currentView,
@@ -341,7 +363,7 @@ const loadWorkspaceData = async (params: {
     }),
   ]);
 
-  return { accessEntries, apiKeys, itemsResult, kanbanBuckets, calendarState };
+  return { accessEntries, apiKeys, wormholeState, itemsResult, kanbanBuckets, calendarState };
 };
 
 const buildWorkspaceTitle = (space: SpaceDetail, isSettingsMode: boolean) => {
@@ -366,7 +388,7 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
   const permissions = await resolvePermissions({ spaceId: params.spaceId, user: params.user });
   if (!permissions) return { kind: "accessDenied", title: "Access denied", message: "You don't have access to this space" };
 
-  const { accessEntries, apiKeys, itemsResult, kanbanBuckets, calendarState } = await loadWorkspaceData({
+  const { accessEntries, apiKeys, wormholeState, itemsResult, kanbanBuckets, calendarState } = await loadWorkspaceData({
     route,
     space,
     permissions,
@@ -405,5 +427,7 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     selectedItemComments: selectedItemState.selectedItemComments,
     accessEntries,
     apiKeys,
+    wormholes: wormholeState.wormholes,
+    configuredWormholes: wormholeState.configuredWormholes,
   };
 };

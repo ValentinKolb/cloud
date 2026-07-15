@@ -26,7 +26,7 @@ export function NameColorForm(props: {
   };
 
   return (
-    <form onSubmit={handleSubmit} class="ml-2 paper p-3 flex flex-col gap-2">
+    <form onSubmit={handleSubmit} class="flex flex-col gap-2 py-2">
       <TextInput label={props.nameLabel} placeholder={props.namePlaceholder} value={name} onInput={setName} required />
       <ColorInput label="Color" value={color} onChange={setColor} />
       <div class="flex gap-2 mt-1">

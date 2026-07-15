@@ -96,11 +96,7 @@ const STARTER_COLUMNS: Record<NonNullable<CreateSpace["starter"]>, typeof DEFAUL
 /**
  * Check if an actor has access to a space.
  */
-export const canAccess = async (params: {
-  spaceId: string;
-  subject: AccessSubject;
-  requiredLevel?: PermissionLevel;
-}): Promise<boolean> => {
+export const canAccess = async (params: { spaceId: string; subject: AccessSubject; requiredLevel?: PermissionLevel }): Promise<boolean> => {
   const { spaceId, requiredLevel = "read" } = params;
 
   const permission = await getSpacePermission({
@@ -118,10 +114,7 @@ export const canAccess = async (params: {
 /**
  * Get the effective permission level for an actor on a space.
  */
-export const getPermission = async (params: {
-  spaceId: string;
-  subject: AccessSubject;
-}): Promise<PermissionLevel> => {
+export const getPermission = async (params: { spaceId: string; subject: AccessSubject }): Promise<PermissionLevel> => {
   const permission = await getSpacePermission(params);
 
   if (permission !== "none") {
@@ -137,17 +130,24 @@ export const getPermission = async (params: {
 export const list = async (params: {
   subject: AccessSubject;
   boundSpaceId?: string | null;
+  requiredLevel?: PermissionLevel;
 }): Promise<Space[]> => {
   if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) return [];
   const principalMatch = buildSpacePrincipalCondition(params.subject);
   const bindingMatch = params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
+  const permissionMatch =
+    params.requiredLevel === "admin"
+      ? sql`a.permission = 'admin'::auth.permission_level`
+      : params.requiredLevel === "write"
+        ? sql`a.permission IN ('write'::auth.permission_level, 'admin'::auth.permission_level)`
+        : sql`a.permission <> 'none'::auth.permission_level`;
 
   const rows = await sql<DbSpace[]>`
     SELECT DISTINCT s.id, s.name, s.description, s.color, s.ical_token, s.created_at, s.updated_at
     FROM spaces.spaces s
     LEFT JOIN spaces.space_access sa ON s.id = sa.space_id
     LEFT JOIN auth.access a ON sa.access_id = a.id
-    WHERE a.permission <> 'none'
+    WHERE ${permissionMatch}
       AND ${principalMatch}
       AND ${bindingMatch}
     ORDER BY s.name

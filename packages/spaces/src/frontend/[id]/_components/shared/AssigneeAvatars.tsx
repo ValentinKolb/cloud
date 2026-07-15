@@ -40,13 +40,13 @@ export default function AssigneeAvatars(props: Props) {
                 userId={assignee.id}
                 avatarHash={assignee.avatarHash}
                 size={size()}
-                class={`border-2 border-white dark:border-zinc-900 ${props.avatarClass ?? ""}`}
+                class={`border-2 border-[var(--ui-surface)] ${props.avatarClass ?? ""}`}
               />
             )}
           </For>
           <Show when={hiddenCount() > 0}>
             <span
-              class={`flex shrink-0 items-center justify-center rounded-full border-2 border-white bg-zinc-300 font-medium text-zinc-700 dark:border-zinc-900 dark:bg-zinc-600 dark:text-zinc-100 ${SIZE_CLASS[size()]} ${props.overflowClass ?? ""}`}
+              class={`flex shrink-0 items-center justify-center rounded-full border-2 border-[var(--ui-surface)] bg-[var(--ui-surface-muted)] font-medium text-secondary ${SIZE_CLASS[size()]} ${props.overflowClass ?? ""}`}
             >
               +{hiddenCount()}
             </span>

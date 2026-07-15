@@ -120,7 +120,7 @@ export default function ItemRow(props: ItemRowProps) {
           class={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
             isCompleted()
               ? "border-emerald-500 bg-emerald-500 text-white [box-shadow:inset_0_1px_0_0_rgb(255_255_255/0.35)]"
-              : `${isSelectedLocal() ? "app-accent-border" : "border-zinc-300 dark:border-zinc-600"} bg-white hover:border-emerald-500 dark:bg-zinc-900 [box-shadow:var(--theme-recess-sm)]`
+              : `${isSelectedLocal() ? "app-accent-border" : "border-[var(--ui-field-border)]"} bg-[var(--ui-field)] hover:border-emerald-500`
           }`}
           aria-label={isCompleted() ? "Mark incomplete" : "Mark complete"}
         >

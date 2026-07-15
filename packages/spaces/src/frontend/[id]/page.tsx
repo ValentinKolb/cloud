@@ -1,5 +1,6 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { Placeholder } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import SpacesLayoutHelp from "../_components/help/SpacesLayoutHelp.island";
@@ -20,15 +21,19 @@ export default ssr<AuthContext>(async (c) => {
   if (state.kind !== "ok") {
     return () => (
       <Layout c={c} title={state.title}>
-        <div class="max-w-4xl mx-auto flex flex-col items-center gap-4 py-12">
-          <p class="flex items-center gap-1.5 text-xs text-dimmed">
-            <i class={`ti ${state.kind === "accessDenied" ? "ti-lock" : "ti-alert-circle"} text-sm`} />
-            {state.message}
-          </p>
-          <a href="/app/spaces" class="btn-primary btn-sm">
-            Back to Spaces
-          </a>
-        </div>
+        <Placeholder
+          state="error"
+          variant="panel"
+          icon={state.kind === "accessDenied" ? "ti ti-lock" : "ti ti-alert-circle"}
+          title={state.title}
+          description={state.message}
+          class="mx-auto max-w-md"
+          action={
+            <a href="/app/spaces" class="btn-primary btn-sm">
+              Back to Spaces
+            </a>
+          }
+        />
       </Layout>
     );
   }

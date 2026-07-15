@@ -3,9 +3,12 @@ import {
   CalendarQuerySchema,
   CreateItemSchema,
   CreateSpaceSchema,
+  CreateWormholeSchema,
   ItemFilterSchema,
   OverlapQuerySchema,
+  ReorderWormholesSchema,
   UpdateItemSchema,
+  UpdateWormholeSchema,
 } from "./contracts";
 
 const START = "2026-06-01T09:00:00.000Z";
@@ -45,4 +48,17 @@ describe("Spaces starter contracts", () => {
 
 test("Spaces item filters default the overview to schedule grouping", () => {
   expect(ItemFilterSchema.parse({}).groupBy).toBe("deadline");
+});
+
+describe("Spaces wormhole contracts", () => {
+  test("accepts typed create, update, and reorder payloads", () => {
+    expect(CreateWormholeSchema.safeParse({ targetColumnId: crypto.randomUUID(), color: "#6366f1" }).success).toBe(true);
+    expect(UpdateWormholeSchema.safeParse({ color: "#10b981" }).success).toBe(true);
+    expect(ReorderWormholesSchema.safeParse({ wormholeIds: [crypto.randomUUID()] }).success).toBe(true);
+  });
+
+  test("rejects empty updates and invalid colors", () => {
+    expect(UpdateWormholeSchema.safeParse({}).success).toBe(false);
+    expect(CreateWormholeSchema.safeParse({ targetColumnId: crypto.randomUUID(), color: "indigo" }).success).toBe(false);
+  });
 });

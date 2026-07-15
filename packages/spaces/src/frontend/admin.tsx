@@ -68,7 +68,7 @@ export default ssr<AuthContext>(async (c) => {
           </StatGrid>
 
           <section class="paper overflow-hidden" style="view-transition-name: admin-spaces-table">
-            <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+            <div class="flex flex-col gap-2 px-3 py-2">
               <div>
                 <h2 class="text-xs font-semibold text-primary">Spaces</h2>
                 <p class="text-[10px] text-dimmed">
@@ -112,7 +112,7 @@ export default ssr<AuthContext>(async (c) => {
                       class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                         space.permissionCount === 0
                           ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                          : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                          : "bg-[var(--ui-surface-muted)] text-secondary"
                       }`}
                     >
                       {space.permissionCount} access {space.permissionCount === 1 ? "entry" : "entries"}

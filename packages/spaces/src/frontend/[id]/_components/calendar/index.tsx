@@ -144,7 +144,7 @@ const chooseRecurringEditScope = async (): Promise<RecurringEditScope | null> =>
               ].map(([scope, label, description, icon]) => (
                 <button
                   type="button"
-                  class="btn-input btn-input-md h-auto justify-start rounded-lg p-3 text-left [align-items:flex-start]"
+                  class="btn-input btn-input-md h-auto justify-start p-3 text-left [align-items:flex-start]"
                   onClick={() => close(scope as RecurringEditScope)}
                 >
                   <i class={`${icon} mt-0.5 text-base text-blue-500`} />

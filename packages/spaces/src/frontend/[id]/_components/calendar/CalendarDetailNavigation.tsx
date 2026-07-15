@@ -19,14 +19,13 @@ export default function CalendarDetailNavigation(props: Props) {
     const root = document.getElementById(props.rootId);
     if (!root) return;
     let pendingNavigation: ReturnType<typeof setTimeout> | undefined;
-    const hoverClasses = ["hover:bg-zinc-200", "dark:hover:bg-zinc-700"];
-    const activeClasses = ["!bg-blue-100", "dark:!bg-blue-900/30", "!hover:bg-blue-100", "dark:!hover:bg-blue-900/30"];
+    const hoverClasses = ["hover:bg-[var(--ui-hover)]"];
+    const activeClasses = ["!bg-[var(--ui-selected)]", "!hover:bg-[var(--ui-selected)]"];
 
     const setActiveItem = (itemId: string | null) => {
       const links = root.querySelectorAll<HTMLAnchorElement>("a[data-space-item-id]");
       for (const link of Array.from(links)) {
         const active = !!itemId && link.dataset.spaceItemId === itemId;
-        link.classList.remove("bg-blue-100", "dark:bg-blue-900/30");
         for (const className of hoverClasses) {
           link.classList.toggle(className, !active);
         }
