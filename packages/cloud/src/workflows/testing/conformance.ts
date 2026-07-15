@@ -1,4 +1,4 @@
-import type { WorkflowBoundPlan, WorkflowIr } from "../contracts";
+import type { WorkflowBoundPlan, WorkflowDependency, WorkflowIr } from "../contracts";
 import { bindWorkflow, compileWorkflow } from "../language";
 import {
   executeWorkflowPlan,
@@ -25,6 +25,10 @@ class FixtureRepository implements WorkflowRuntimeRepositoryPort {
 
   async finishStep(step: WorkflowRuntimeStepIdentity, result: WorkflowRuntimeStepResult) {
     this.finished.push({ step, result });
+  }
+
+  async parkStep(step: WorkflowRuntimeStepIdentity, dependency: WorkflowDependency) {
+    this.finished.push({ step, result: { mode: "execute", outcome: { state: "waiting", dependency } } });
   }
 }
 

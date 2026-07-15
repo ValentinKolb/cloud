@@ -12,13 +12,14 @@ import type {
   WorkflowSourceLocation,
   WorkflowTriggerDescriptor,
 } from "../contracts";
-import { hashWorkflowSource, normalizeWorkflowJson } from "./canonical";
+import { hashWorkflowJson, hashWorkflowSource, normalizeWorkflowJson } from "./canonical";
 import { validateWorkflowField, workflowDiagnostic, workflowRecord } from "./schema";
 import { parseWorkflowYaml } from "./strict-yaml";
 
 export type CompileWorkflowResult = { ok: true; ir: WorkflowIr } | { ok: false; diagnostics: WorkflowDiagnostic[] };
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const RESERVED_ACTIONS = new Set(["if", "switch", "forEach"]);
 const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
 
 type CompileContext = {
@@ -76,6 +77,16 @@ const validateManifest = (manifest: WorkflowLanguageManifest, diagnostics: Workf
       diagnostics.push({
         code: "manifest.limit",
         message: `Manifest limit "${name}" must be a positive integer`,
+        severity: "error",
+        path: [],
+      });
+    }
+  }
+  for (const action of manifest.actions) {
+    if (RESERVED_ACTIONS.has(action.kind)) {
+      diagnostics.push({
+        code: "manifest.reserved",
+        message: `Action descriptor "${action.kind}" uses a reserved control-flow name`,
         severity: "error",
         path: [],
       });
@@ -325,13 +336,16 @@ export const compileWorkflow = async (source: string, manifest: WorkflowLanguage
   const compiledSteps = compileSteps(root.steps, ["steps"], 1, context);
   if (diagnostics.length > 0) return { ok: false, diagnostics };
 
+  const [sourceHash, manifestHash] = await Promise.all([hashWorkflowSource(source), hashWorkflowJson(manifest)]);
+
   return {
     ok: true,
     ir: {
       schemaVersion: 1,
       languageId: manifest.id,
       languageVersion: manifest.version,
-      sourceHash: await hashWorkflowSource(source),
+      sourceHash,
+      manifestHash,
       inputs: compiledInputs,
       triggers: compiledTriggers,
       steps: compiledSteps,

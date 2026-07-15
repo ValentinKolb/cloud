@@ -19,8 +19,13 @@ export const bindWorkflow = async (
     );
   }
 
+  const manifestHash = await hashWorkflowJson(manifest);
+  if (ir.manifestHash !== manifestHash) {
+    throw new TypeError(`Workflow IR manifest hash ${ir.manifestHash} does not match manifest hash ${manifestHash}`);
+  }
+
   const binding = await bindCatalog(ir);
-  const [manifestHash, catalogHash] = await Promise.all([hashWorkflowJson(manifest), hashWorkflowJson(binding.catalog)]);
+  const catalogHash = await hashWorkflowJson(binding.catalog);
   return {
     schemaVersion: 1,
     languageId: ir.languageId,
@@ -28,6 +33,7 @@ export const bindWorkflow = async (
     sourceHash: ir.sourceHash,
     manifestHash,
     catalogHash,
+    ...(manifest.limits?.maxLoopItems !== undefined ? { maxLoopItems: manifest.limits.maxLoopItems } : {}),
     inputs: ir.inputs,
     triggers: ir.triggers,
     steps: ir.steps,

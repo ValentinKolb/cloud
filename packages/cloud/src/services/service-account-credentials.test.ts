@@ -102,6 +102,12 @@ describe("serviceAccountCredentials", () => {
         type: "user",
         userId: user.id,
       });
+      expect(await serviceAccountCredentials.getOverview({ id: created.data.credential.id })).toMatchObject({
+        id: created.data.credential.id,
+        serviceAccount: { kind: "user_delegated", delegatedUserId: user.id },
+        owner: { type: "user", userId: user.id },
+      });
+      expect(await serviceAccountCredentials.getOverview({ id: "not-a-uuid" })).toBeNull();
 
       const adminRevoked = await serviceAccountCredentials.revoke({
         credentialId: created.data.credential.id,
@@ -212,6 +218,11 @@ describe("serviceAccountCredentials", () => {
         appId: "notebooks",
         resourceType: "notebook",
         resourceId,
+      });
+      expect(await serviceAccountCredentials.getOverview({ id: created.data.credential.id })).toMatchObject({
+        id: created.data.credential.id,
+        serviceAccount: { id: serviceAccount.data.id, kind: "resource_bound" },
+        owner: { type: "resource", appId: "notebooks", resourceType: "notebook", resourceId },
       });
 
       const revoked = await serviceAccountCredentials.revoke({

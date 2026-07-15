@@ -1,6 +1,8 @@
 import { crypto } from "@valentinkolb/stdlib";
 import type { WorkflowJsonValue } from "../contracts";
 
+const compareJsonKeys = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
+
 const normalizeUnknown = (value: unknown, path: string): WorkflowJsonValue => {
   if (value === null) return null;
   if (typeof value === "string" || typeof value === "boolean") return value;
@@ -11,7 +13,7 @@ const normalizeUnknown = (value: unknown, path: string): WorkflowJsonValue => {
     if (prototype !== Object.prototype && prototype !== null) throw new TypeError(`${path} must be a plain JSON object`);
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, item]) => item !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareJsonKeys(left, right))
       .map(([key, item]) => [key, normalizeUnknown(item, `${path}.${key}`)] as const);
     return Object.fromEntries(entries) as Record<string, WorkflowJsonValue>;
   }

@@ -2,7 +2,7 @@
 
 The shared workflow kernel uses the current Grids implementation as design input while defining one concentrated language and runtime for Grids, Mail, Assistant, and later Cloud apps.
 
-Status: Implemented for Grids; Mail migration remains separate. Last updated: 2026-07-14. Grids workflows are local alpha: their source, schema, runtime, and data were replaced directly without backward compatibility or a legacy runtime.
+Status: The Grids migration is implemented. The cross-app author SDK, reusable action packs, Mail migration, and Assistant integration remain target design rather than current APIs. Last updated: 2026-07-15. Grids workflows are local alpha: their source, schema, runtime, and data were replaced directly without backward compatibility or a legacy runtime.
 
 ## Contents
 
@@ -181,7 +181,7 @@ The following rules are hard constraints for the extraction:
 - Unknown keys remain validation errors. Extensibility comes from an app's explicit registry, not permissive schemas.
 - `name`, `description`, ordering, activation state, and revision/version metadata remain outside YAML.
 - `triggers` is optional. If present, it contains one or more automatic event subscriptions. An empty `triggers: {}` is invalid so omission remains the one obvious direct-only form.
-- Compilation is deterministic for a given source and language manifest. Catalog binding is a separate deterministic phase for a given IR and app catalog snapshot.
+- Compilation is deterministic for a given source and language manifest. Canonical manifest and catalog hashing uses locale-independent key ordering. The IR stores the compile-time manifest hash, and binding rejects the same language ID/version when that hash differs. Catalog binding is a separate deterministic phase for a given IR and app catalog snapshot.
 - Mail requirements do not rename or reinterpret retained Grids syntax.
 
 ### Common grammar
@@ -574,6 +574,8 @@ Composition rejects duplicate names and incompatible descriptor versions. The re
 
 ## Action and trigger author SDK
 
+The APIs in this section are proposed. Current Grids adapters use the implemented shared language and runtime contracts without exposing these authoring factories as a public SDK.
+
 Shared implementations are needed at two levels: ready-to-enable action packs for users and lower-level helpers for developers who add app actions. The author SDK should make the reliable path the shortest path without hiding authority or side effects.
 
 ### Action factories
@@ -624,7 +626,7 @@ type ActionPlan<T> = {
 };
 ```
 
-The runtime reports each dry-run step as `would_execute`, `would_wait`, `would_skip`, `unsupported`, `blocked`, or `indeterminate`. An unsupported action is not executed. If later conditions or actions depend on its unavailable output, those steps become `indeterminate`; they are not evaluated using invented values. The overall result is `complete`, `partial`, or `blocked`, with diagnostics explaining every gap.
+The runtime reports unsupported and indeterminate analysis gaps as an ordered `issues` list. An unsupported action is not executed, but independent later steps are still planned; a later step that needs unavailable state becomes another indeterminate issue rather than receiving an invented value. The top-level result remains `unsupported` when every gap is unsupported and becomes `indeterminate` when any gap is indeterminate. Completed control-step outcomes persist their nested issues and effects so restoration produces the same analysis without rerunning completed children.
 
 Production built-ins and app actions must support at least `validate` before release. Mutations should normally provide full before/after plans. HTTP, email, document generation, approvals, and AI runs may render or describe their intended request without sending, allocating permanent numbers, creating command intents, or starting child runs.
 
@@ -858,7 +860,7 @@ The shared durable executor needs explicit atomic state transitions rather than 
 - renew the matching lease and reject stale generations;
 - start a step or restore its committed output;
 - commit a completed step and serialized output;
-- atomically park a step with its dependency and deadline;
+- atomically park the dependency-owning step with its dependency and deadline through `parkStep`, moving the run to `waiting` in the same fenced transition; enclosing control steps are closed before that transition;
 - atomically consume a wakeup and make the matching generation runnable;
 - move a run to terminal, canceled, failed, or `needs_attention` state.
 
@@ -917,6 +919,8 @@ Mail should reuse the Grids YAML editing model instead of building a separate fo
 The first shared UI should be a small `WorkflowSourceEditor` extracted from the proven Grids component after the compiler/registry boundary stabilizes. It should not include Grids metadata, activation, or routing.
 
 ## Extraction plan
+
+This is the historical and forward-looking extraction plan. Completion of the Grids migration does not mark every cross-app SDK, Mail, Assistant, action-pack, or verification item below as implemented.
 
 ### 0. Record existing invariants
 

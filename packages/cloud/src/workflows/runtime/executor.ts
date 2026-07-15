@@ -3,6 +3,7 @@ import type {
   WorkflowExecutionError,
   WorkflowIrStep,
   WorkflowJsonValue,
+  WorkflowPlanningIssue,
   WorkflowPlanningOutcome,
   WorkflowStepOutcome,
 } from "../contracts";
@@ -10,6 +11,7 @@ import { workflowPathKey } from "../contracts";
 import type {
   WorkflowActionStep,
   WorkflowDryRunActionContext,
+  WorkflowDryRunIssue,
   WorkflowDryRunOptions,
   WorkflowDryRunResult,
   WorkflowExecuteActionContext,
@@ -61,6 +63,17 @@ class WorkflowCancellation extends Error {
   }
 }
 
+export class WorkflowRetryableStepError extends Error {
+  override readonly name = "WorkflowRetryableStepError";
+
+  constructor(
+    readonly step: WorkflowRuntimeStepIdentity,
+    readonly executionError: WorkflowExecutionError,
+  ) {
+    super(executionError.message);
+  }
+}
+
 class WorkflowValueError extends Error {}
 
 type RuntimeOptions = (WorkflowExecuteOptions & { mode: "execute" }) | (WorkflowDryRunOptions & { mode: "dryRun" });
@@ -69,6 +82,7 @@ type RuntimeState = {
   options: RuntimeOptions;
   run: WorkflowRuntimeRunIdentity;
   effects: WorkflowJsonValue[];
+  issues: WorkflowDryRunIssue[];
   cancellationTraced: boolean;
 };
 
@@ -105,6 +119,22 @@ const emit = async (state: RuntimeState, event: WorkflowTraceEvent): Promise<voi
   await state.options.trace?.emit(event);
 };
 
+const storedIssues = (issues: WorkflowDryRunIssue[]): WorkflowPlanningIssue[] =>
+  issues.map((issue) => ({
+    ...issue,
+    step: {
+      key: issue.step.key,
+      sourcePath: [...issue.step.sourcePath],
+      iterationPath: [...issue.step.iterationPath],
+      path: [...issue.step.path],
+      kind: issue.step.kind,
+      ...(issue.step.action ? { action: issue.step.action } : {}),
+    },
+  }));
+
+const restoredIssues = (state: RuntimeState, issues: WorkflowPlanningIssue[] | undefined): WorkflowDryRunIssue[] =>
+  issues?.map((issue) => ({ ...issue, step: { ...state.run, ...issue.step } })) ?? [];
+
 const stepIdentity = (state: RuntimeState, step: WorkflowIrStep, iterationPath: number[]): WorkflowRuntimeStepIdentity => {
   const iterationKey = iterationPath.length === 0 ? "" : `#${iterationPath.join(".")}`;
   const path = [...step.sourcePath];
@@ -129,7 +159,7 @@ const readPath = (value: WorkflowJsonValue, path: string[]): WorkflowJsonValue |
       current = current[index];
       continue;
     }
-    if (current === null || typeof current !== "object" || !(segment in current)) return undefined;
+    if (current === null || typeof current !== "object" || !Object.prototype.hasOwnProperty.call(current, segment)) return undefined;
     current = current[segment];
   }
   return current;
@@ -301,6 +331,7 @@ const restoreStep = async (
   }
   if (restored.mode === "dryRun" && (restored.outcome.state === "planned" || restored.outcome.state === "terminal")) {
     state.effects.push(...restored.outcome.effects);
+    state.issues.push(...restoredIssues(state, restored.outcome.issues));
   }
   await emit(state, { type: "step.restored", step, restored });
   const cancellation = await heartbeat(state);
@@ -323,6 +354,7 @@ const flowFromPlanningOutcome = (outcome: WorkflowPlanningOutcome, step: Workflo
   if (outcome.state === "terminal") {
     return { state: "terminal_planned", status: outcome.status, ...optionalMessage(outcome.message), step };
   }
+  if (outcome.state === "canceled") return { state: "canceled", ...optionalMessage(outcome.message), step };
   return outcome.state === "unsupported"
     ? { state: "unsupported", reason: outcome.reason, step }
     : { state: "indeterminate", reason: outcome.reason, step };
@@ -348,7 +380,10 @@ const evaluateAction = async (
   const outcome: WorkflowPlanningOutcome = handler
     ? await handler.plan(actionContext(state, scope, step) as WorkflowDryRunActionContext, irStep)
     : { state: "unsupported", reason: `action "${irStep.action}" has no dry-run handler` };
-  if (outcome.state === "planned" || outcome.state === "terminal") state.effects.push(...outcome.effects);
+  if (outcome.state === "planned" || outcome.state === "terminal") {
+    state.effects.push(...outcome.effects);
+    state.issues.push(...restoredIssues(state, outcome.issues));
+  }
   return { flow: flowFromPlanningOutcome(outcome, step), result: { mode: "dryRun", outcome } };
 };
 
@@ -356,13 +391,88 @@ const resultForCompletedControl = (
   state: RuntimeState,
   output: WorkflowJsonValue | undefined,
   effectsStart: number,
+  issuesStart: number,
 ): WorkflowRuntimeStepResult =>
   state.options.mode === "execute"
     ? { mode: "execute", outcome: { state: "completed", ...optionalOutput(output) } }
     : {
         mode: "dryRun",
-        outcome: { state: "planned", ...optionalOutput(output), effects: state.effects.slice(effectsStart) },
+        outcome: {
+          state: "planned",
+          ...optionalOutput(output),
+          effects: state.effects.slice(effectsStart),
+          issues: storedIssues(state.issues.slice(issuesStart)),
+        },
       };
+
+const resultForHaltedControl = (state: RuntimeState, flow: Halt, effectsStart: number, issuesStart: number): WorkflowRuntimeStepResult => {
+  if (state.options.mode === "execute") {
+    if (flow.state === "waiting") return { mode: "execute", outcome: { state: "waiting", dependency: flow.dependency } };
+    if (flow.state === "failed") return { mode: "execute", outcome: { state: "failed", error: flow.error } };
+    if (flow.state === "needs_attention") return { mode: "execute", outcome: { state: "needs_attention", error: flow.error } };
+    if (flow.state === "canceled") {
+      return { mode: "execute", outcome: { state: "terminal", status: "canceled", ...optionalMessage(flow.message) } };
+    }
+    if (flow.state === "terminal_succeeded") {
+      return { mode: "execute", outcome: { state: "terminal", status: "succeeded", ...optionalMessage(flow.message) } };
+    }
+    return {
+      mode: "execute",
+      outcome: {
+        state: "failed",
+        error: executionError(
+          "WORKFLOW_RUNTIME_INVALID",
+          flow.state === "terminal_planned" ? "execute traversal produced a dry-run terminal outcome" : flow.reason,
+        ),
+      },
+    };
+  }
+
+  if (flow.state === "terminal_planned") {
+    return {
+      mode: "dryRun",
+      outcome: {
+        state: "terminal",
+        status: flow.status,
+        ...optionalMessage(flow.message),
+        effects: state.effects.slice(effectsStart),
+        issues: storedIssues(state.issues.slice(issuesStart)),
+      },
+    };
+  }
+  if (flow.state === "unsupported" || flow.state === "indeterminate") {
+    return { mode: "dryRun", outcome: { state: flow.state, reason: flow.reason } };
+  }
+  if (flow.state === "canceled") {
+    return { mode: "dryRun", outcome: { state: "canceled", ...optionalMessage(flow.message) } };
+  }
+  return { mode: "dryRun", outcome: { state: "indeterminate", reason: `dry-run traversal produced ${flow.state}` } };
+};
+
+const loopItemLimit = (state: RuntimeState): number => {
+  const limits = [state.options.plan.maxLoopItems, state.options.maxLoopItems].filter((value): value is number => value !== undefined);
+  for (const limit of limits) {
+    if (!Number.isSafeInteger(limit) || limit < 0) throw new WorkflowValueError("maxLoopItems must be a non-negative safe integer");
+  }
+  return limits.length > 0 ? Math.min(...limits) : DEFAULT_MAX_LOOP_ITEMS;
+};
+
+const analyzeUnknownBranches = async (
+  state: RuntimeState,
+  scope: RuntimeVariableScope,
+  irStep: Extract<WorkflowIrStep, { kind: "if" | "switch" }>,
+  iterationPath: number[],
+  reason: string,
+): Promise<Flow> => {
+  state.issues.push({ state: "indeterminate", reason, step: stepIdentity(state, irStep, iterationPath) });
+  const branches =
+    irStep.kind === "if" ? [irStep.then, irStep.else] : [...irStep.cases.map((candidate) => candidate.steps), irStep.default];
+  for (const branch of branches) {
+    const flow = await runSteps(state, branch, scope.child(), iterationPath);
+    if (flow.state === "canceled") return flow;
+  }
+  return { state: "continue" };
+};
 
 const evaluateControl = async (
   state: RuntimeState,
@@ -371,36 +481,51 @@ const evaluateControl = async (
   iterationPath: number[],
 ): Promise<StepEvaluation> => {
   const effectsStart = state.effects.length;
+  const issuesStart = state.issues.length;
   let flow: Flow;
   if (irStep.kind === "if") {
-    const matched = await evaluateCondition(state, scope, irStep.condition, [...irStep.sourcePath, "if"]);
-    flow = await runSteps(state, matched ? irStep.then : irStep.else, scope.child(), iterationPath);
-  } else if (irStep.kind === "switch") {
-    const value = await evaluateValue(state, scope, irStep.value, [...irStep.sourcePath, "switch"]);
-    let matched: (typeof irStep.cases)[number] | undefined;
-    for (const [index, candidate] of irStep.cases.entries()) {
-      if (jsonEqual(value, await evaluateValue(state, scope, candidate.when, [...irStep.sourcePath, "cases", index, "when"]))) {
-        matched = candidate;
-        break;
-      }
+    try {
+      const matched = await evaluateCondition(state, scope, irStep.condition, [...irStep.sourcePath, "if"]);
+      flow = await runSteps(state, matched ? irStep.then : irStep.else, scope.child(), iterationPath);
+    } catch (error) {
+      if (state.options.mode !== "dryRun") throw error;
+      flow = await analyzeUnknownBranches(state, scope, irStep, iterationPath, errorMessage(error));
     }
-    flow = await runSteps(state, matched?.steps ?? irStep.default, scope.child(), iterationPath);
+  } else if (irStep.kind === "switch") {
+    try {
+      const value = await evaluateValue(state, scope, irStep.value, [...irStep.sourcePath, "switch"]);
+      let matched: (typeof irStep.cases)[number] | undefined;
+      for (const [index, candidate] of irStep.cases.entries()) {
+        if (jsonEqual(value, await evaluateValue(state, scope, candidate.when, [...irStep.sourcePath, "cases", index, "when"]))) {
+          matched = candidate;
+          break;
+        }
+      }
+      flow = await runSteps(state, matched?.steps ?? irStep.default, scope.child(), iterationPath);
+    } catch (error) {
+      if (state.options.mode !== "dryRun") throw error;
+      flow = await analyzeUnknownBranches(state, scope, irStep, iterationPath, errorMessage(error));
+    }
   } else {
     const value = await resolveReference(state, scope, irStep.reference, [...irStep.sourcePath, "forEach"]);
     if (!Array.isArray(value)) throw new WorkflowValueError(`forEach reference "${irStep.reference}" must resolve to a JSON array`);
-    const limit = state.options.maxLoopItems ?? DEFAULT_MAX_LOOP_ITEMS;
-    if (!Number.isSafeInteger(limit) || limit < 0) throw new WorkflowValueError("maxLoopItems must be a non-negative safe integer");
+    const limit = loopItemLimit(state);
     if (value.length > limit)
       throw new WorkflowValueError(`forEach reference "${irStep.reference}" has ${value.length} items; limit is ${limit}`);
     flow = { state: "continue" };
     for (let index = 0; index < value.length; index += 1) {
       const cancellation = await heartbeat(state);
-      if (cancellation) return { flow: { state: "canceled", ...optionalMessage(cancellation.message) } };
+      if (cancellation) {
+        const flow = { state: "canceled", ...optionalMessage(cancellation.message) } as const;
+        return { flow, result: resultForHaltedControl(state, flow, effectsStart, issuesStart) };
+      }
       flow = await runSteps(state, irStep.steps, scope.child({ [irStep.alias]: value[index]! }), [...iterationPath, index]);
       if (flow.state !== "continue") break;
     }
   }
-  return flow.state === "continue" ? { flow, result: resultForCompletedControl(state, flow.output, effectsStart) } : { flow };
+  return flow.state === "continue"
+    ? { flow, result: resultForCompletedControl(state, flow.output, effectsStart, issuesStart) }
+    : { flow, result: resultForHaltedControl(state, flow, effectsStart, issuesStart) };
 };
 
 const evaluateStep = async (
@@ -417,14 +542,16 @@ const evaluateStep = async (
   } catch (error) {
     if (error instanceof WorkflowCancellation) {
       await traceCancellation(state, error.cancellation);
-      const outcome: WorkflowStepOutcome = {
-        state: "terminal",
-        status: "canceled",
-        ...optionalMessage(error.cancellation.message),
-      };
+      const flow = { state: "canceled", ...optionalMessage(error.cancellation.message), step } as const;
       return {
-        flow: { state: "canceled", ...optionalMessage(error.cancellation.message), step },
-        ...(state.options.mode === "execute" ? { result: { mode: "execute", outcome } as const } : {}),
+        flow,
+        result:
+          state.options.mode === "execute"
+            ? {
+                mode: "execute",
+                outcome: { state: "terminal", status: "canceled", ...optionalMessage(error.cancellation.message) },
+              }
+            : { mode: "dryRun", outcome: { state: "canceled", ...optionalMessage(error.cancellation.message) } },
       };
     }
     if (state.options.mode === "dryRun") {
@@ -436,7 +563,7 @@ const evaluateStep = async (
       error: executionError(
         error instanceof WorkflowValueError ? "WORKFLOW_VALUE_UNAVAILABLE" : "WORKFLOW_ACTION_ERROR",
         errorMessage(error),
-        !(error instanceof WorkflowValueError),
+        false,
       ),
     };
     return { flow: { state: "failed", error: outcome.error, step }, result: { mode: "execute", outcome } };
@@ -458,7 +585,21 @@ const runStep = async (
   await state.options.repository.startStep(step);
   await emit(state, { type: "step.started", step });
   const evaluated = await evaluateStep(state, scope, irStep, step, iterationPath);
-  if (evaluated.result) {
+  if (
+    evaluated.result?.mode === "execute" &&
+    evaluated.result.outcome.state === "failed" &&
+    evaluated.result.outcome.error.retryable &&
+    evaluated.flow.state === "failed" &&
+    evaluated.flow.step.key === step.key
+  ) {
+    throw new WorkflowRetryableStepError(step, evaluated.result.outcome.error);
+  }
+  const ownsWaitingDependency =
+    evaluated.result?.mode === "execute" &&
+    evaluated.result.outcome.state === "waiting" &&
+    evaluated.flow.state === "waiting" &&
+    evaluated.flow.step.key === step.key;
+  if (evaluated.result && !ownsWaitingDependency) {
     await state.options.repository.finishStep(step, evaluated.result);
     await emit(state, { type: "step.finished", step, result: evaluated.result });
   }
@@ -476,6 +617,11 @@ const runSteps = async (
   let last: WorkflowJsonValue | undefined;
   for (const step of steps) {
     const flow = await runStep(state, scope, step, iterationPath);
+    if (state.options.mode === "dryRun" && (flow.state === "unsupported" || flow.state === "indeterminate")) {
+      state.issues.push({ state: flow.state, reason: flow.reason, step: flow.step });
+      last = undefined;
+      continue;
+    }
     if (flow.state !== "continue") return flow;
     last = flow.output;
   }
@@ -493,12 +639,19 @@ const createState = (options: RuntimeOptions): RuntimeState => ({
     idempotencyKey: options.invocation.idempotencyKey,
   },
   effects: [],
+  issues: [],
   cancellationTraced: false,
 });
 
 export const executeWorkflowPlan = async (options: WorkflowExecuteOptions): Promise<WorkflowExecutionResult> => {
   const state = createState({ ...options, mode: "execute" });
   const flow = await runSteps(state, state.options.plan.steps, new RuntimeVariableScope(options.initialVariables), []);
+  if (flow.state === "waiting") {
+    const result = { mode: "execute", outcome: { state: "waiting", dependency: flow.dependency } } as const;
+    await state.options.repository.parkStep(flow.step, flow.dependency);
+    await emit(state, { type: "step.finished", step: flow.step, result });
+    return flow;
+  }
   if (flow.state === "continue") return { state: "succeeded", ...optionalOutput(flow.output) };
   if (flow.state === "terminal_succeeded") return { state: "succeeded", ...optionalMessage(flow.message) };
   if (flow.state === "unsupported" || flow.state === "indeterminate" || flow.state === "terminal_planned") {
@@ -517,18 +670,33 @@ export const executeWorkflowPlan = async (options: WorkflowExecuteOptions): Prom
 export const dryRunWorkflowPlan = async (options: WorkflowDryRunOptions): Promise<WorkflowDryRunResult> => {
   const state = createState({ ...options, mode: "dryRun" });
   const flow = await runSteps(state, state.options.plan.steps, new RuntimeVariableScope(options.initialVariables), []);
-  if (flow.state === "continue") return { state: "planned", ...optionalOutput(flow.output), effects: state.effects };
+  const issues = state.issues;
+  const optionalIssues = issues.length > 0 ? { issues } : {};
+  if (flow.state === "continue") {
+    if (issues.length === 0) return { state: "planned", ...optionalOutput(flow.output), effects: state.effects };
+    const stateName = issues.some((issue) => issue.state === "indeterminate") ? "indeterminate" : "unsupported";
+    const primary = issues.find((issue) => issue.state === stateName) ?? issues[0]!;
+    return { state: stateName, reason: primary.reason, effects: state.effects, step: primary.step, issues };
+  }
   if (flow.state === "terminal_planned") {
-    return { state: "terminal", status: flow.status, ...optionalMessage(flow.message), effects: state.effects };
+    return { state: "terminal", status: flow.status, ...optionalMessage(flow.message), effects: state.effects, ...optionalIssues };
   }
   if (flow.state === "unsupported" || flow.state === "indeterminate") {
-    return { state: flow.state, reason: flow.reason, effects: state.effects, step: flow.step };
+    const issue = { state: flow.state, reason: flow.reason, step: flow.step };
+    return { state: flow.state, reason: flow.reason, effects: state.effects, step: flow.step, issues: [...issues, issue] };
   }
   if (flow.state === "canceled") {
-    return { state: "canceled", ...optionalMessage(flow.message), effects: state.effects, ...(flow.step ? { step: flow.step } : {}) };
+    return {
+      state: "canceled",
+      ...optionalMessage(flow.message),
+      effects: state.effects,
+      ...(flow.step ? { step: flow.step } : {}),
+      ...optionalIssues,
+    };
   }
   const step = "step" in flow && flow.step ? flow.step : stepIdentity(state, state.options.plan.steps[0] ?? emptyActionStep, []);
-  return { state: "indeterminate", reason: `dry-run traversal produced ${flow.state}`, effects: state.effects, step };
+  const issue = { state: "indeterminate", reason: `dry-run traversal produced ${flow.state}`, step } as const;
+  return { state: "indeterminate", reason: issue.reason, effects: state.effects, step, issues: [...issues, issue] };
 };
 
 const emptyActionStep: WorkflowActionStep = { kind: "action", action: "<workflow>", config: {}, sourcePath: ["steps"] };

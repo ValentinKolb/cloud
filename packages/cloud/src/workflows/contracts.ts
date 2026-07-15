@@ -133,6 +133,7 @@ export type WorkflowIr = {
   languageId: string;
   languageVersion: number;
   sourceHash: string;
+  manifestHash: string;
   inputs: WorkflowIrInput[];
   triggers: WorkflowIrTrigger[];
   steps: WorkflowIrStep[];
@@ -146,6 +147,7 @@ export type WorkflowBoundPlan = {
   sourceHash: string;
   manifestHash: string;
   catalogHash: string;
+  maxLoopItems?: number;
   inputs: WorkflowIrInput[];
   triggers: WorkflowIrTrigger[];
   steps: WorkflowIrStep[];
@@ -217,10 +219,30 @@ export type WorkflowStepOutcome =
   | { state: "needs_attention"; error: WorkflowExecutionError }
   | { state: "terminal"; status: "succeeded" | "canceled"; message?: string };
 
+export type WorkflowPlanningIssue = {
+  state: "unsupported" | "indeterminate";
+  reason: string;
+  step: {
+    key: string;
+    sourcePath: Array<string | number>;
+    iterationPath: number[];
+    path: Array<string | number>;
+    kind: WorkflowIrStep["kind"];
+    action?: string;
+  };
+};
+
 export type WorkflowPlanningOutcome =
-  | { state: "planned"; output?: WorkflowJsonValue; effects: WorkflowJsonValue[] }
-  | { state: "terminal"; status: "succeeded" | "failed"; message?: string; effects: WorkflowJsonValue[] }
+  | { state: "planned"; output?: WorkflowJsonValue; effects: WorkflowJsonValue[]; issues?: WorkflowPlanningIssue[] }
+  | {
+      state: "terminal";
+      status: "succeeded" | "failed";
+      message?: string;
+      effects: WorkflowJsonValue[];
+      issues?: WorkflowPlanningIssue[];
+    }
   | { state: "unsupported"; reason: string }
-  | { state: "indeterminate"; reason: string };
+  | { state: "indeterminate"; reason: string }
+  | { state: "canceled"; message?: string };
 
 export const workflowPathKey = (path: Array<string | number>): string => path.map(String).join(".");

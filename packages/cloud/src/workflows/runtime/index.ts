@@ -1,9 +1,10 @@
-export { DEFAULT_MAX_LOOP_ITEMS, dryRunWorkflowPlan, executeWorkflowPlan } from "./executor";
+export { DEFAULT_MAX_LOOP_ITEMS, dryRunWorkflowPlan, executeWorkflowPlan, WorkflowRetryableStepError } from "./executor";
 export type {
   WorkflowActionStep,
   WorkflowDryRunActionContext,
   WorkflowDryRunActionHandler,
   WorkflowDryRunActionPort,
+  WorkflowDryRunIssue,
   WorkflowDryRunOptions,
   WorkflowDryRunResult,
   WorkflowExecuteActionContext,

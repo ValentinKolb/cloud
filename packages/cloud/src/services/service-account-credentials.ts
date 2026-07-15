@@ -1,10 +1,10 @@
-import { sql } from "bun";
 import { crypto, err, fail, ok, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
+import type { User } from "../contracts/shared";
 import { accounts } from "./accounts";
 import { audit } from "./audit";
 import { isUniqueViolation, toPgTextArray } from "./postgres";
-import { serviceAccounts, type ServiceAccount } from "./service-accounts";
-import type { User } from "../contracts/shared";
+import { type ServiceAccount, serviceAccounts } from "./service-accounts";
 
 export type ServiceAccountCredentialStatus = "active" | "revoked";
 export type ServiceAccountCredentialKind = "api_token";
@@ -546,6 +546,45 @@ export const listOverview = async (config?: {
   };
 };
 
+export const getOverview = async (params: { id: string }): Promise<ServiceAccountCredentialOverview | null> => {
+  if (!UUID_PATTERN.test(params.id)) return null;
+  const [row] = await sql<DbCredentialOverviewRow[]>`
+    SELECT
+      c.id,
+      c.service_account_id,
+      c.name,
+      c.kind,
+      c.status,
+      c.token_prefix,
+      c.scopes,
+      c.expires_at,
+      c.last_used_at,
+      c.created_by,
+      c.created_at,
+      c.revoked_at,
+      c.revoked_by,
+      sa.name AS service_account_name,
+      sa.kind AS service_account_kind,
+      sa.status AS service_account_status,
+      sa.delegated_user_id,
+      sa.app_id,
+      sa.resource_type,
+      sa.resource_id,
+      sa.created_by AS service_account_created_by,
+      sa.created_at AS service_account_created_at,
+      du.uid AS delegated_uid,
+      du.display_name AS delegated_display_name,
+      du.mail AS delegated_mail,
+      du.avatar_hash AS delegated_avatar_hash
+    FROM auth.service_account_credentials c
+    JOIN auth.service_accounts sa ON sa.id = c.service_account_id
+    LEFT JOIN auth.users du ON du.id = sa.delegated_user_id
+    WHERE c.id = ${params.id}::uuid
+    LIMIT 1
+  `;
+  return row ? mapCredentialOverview(row) : null;
+};
+
 export const revokeForDelegatedUser = async (params: { credentialId: string; user: User }): Promise<Result<void>> => {
   if (!UUID_PATTERN.test(params.credentialId)) return fail(err.notFound("API key"));
 
@@ -718,6 +757,7 @@ export const serviceAccountCredentials = {
   createResourceApiToken,
   listForDelegatedUser,
   listOverview,
+  getOverview,
   revokeForDelegatedUser,
   revoke,
   authenticateApiToken,

@@ -21,6 +21,7 @@ export type {
   WorkflowJsonValue,
   WorkflowLanguageManifest,
   WorkflowLauncher,
+  WorkflowPlanningIssue,
   WorkflowPlanningOutcome,
   WorkflowRunState,
   WorkflowSourceLocation,

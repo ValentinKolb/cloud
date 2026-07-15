@@ -1,7 +1,7 @@
-import { children, createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { hotkeys } from "@valentinkolb/stdlib/solid";
+import { children, createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { prompts } from "../ui";
-import { openGlobalSearchHelpDialog, type GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
+import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 
 export type LayoutHelpTab = {
   id: string;
@@ -196,6 +196,19 @@ const LayoutHelpDialog = (props: { close: () => void; searchHelpApps: GlobalSear
     writeLastTab(id);
   };
 
+  const tabId = (id: string) => `layout-help-tab-${id}`;
+  const panelId = (id: string) => `layout-help-panel-${id}`;
+  const moveTabFocus = (currentId: string, direction: -1 | 1 | "first" | "last") => {
+    const tabs = allTabs();
+    const currentIndex = tabs.findIndex((tab) => tab.id === currentId);
+    const nextIndex =
+      direction === "first" ? 0 : direction === "last" ? tabs.length - 1 : (currentIndex + direction + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
+    if (!next) return;
+    selectTab(next.id);
+    document.getElementById(tabId(next.id))?.focus();
+  };
+
   return (
     <div class="flex h-[min(90vh,52rem)] w-full flex-col gap-3">
       <div class="paper flex items-center justify-between gap-4 px-5 py-4">
@@ -214,9 +227,10 @@ const LayoutHelpDialog = (props: { close: () => void; searchHelpApps: GlobalSear
       </div>
 
       <div class="grid min-h-0 flex-1 gap-3 md:grid-cols-[14rem_1fr]">
-        <nav
+        <div
           class="paper flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-col md:overflow-x-hidden md:overflow-y-auto"
           aria-label="Help topics"
+          role="tablist"
         >
           <For each={allTabs()}>
             {(tab) => {
@@ -230,6 +244,19 @@ const LayoutHelpDialog = (props: { close: () => void; searchHelpApps: GlobalSear
                       : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
                   }`}
                   onClick={() => selectTab(tab.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowRight" || event.key === "ArrowDown") moveTabFocus(tab.id, 1);
+                    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") moveTabFocus(tab.id, -1);
+                    else if (event.key === "Home") moveTabFocus(tab.id, "first");
+                    else if (event.key === "End") moveTabFocus(tab.id, "last");
+                    else return;
+                    event.preventDefault();
+                  }}
+                  id={tabId(tab.id)}
+                  role="tab"
+                  aria-controls={panelId(tab.id)}
+                  aria-selected={active()}
+                  tabIndex={active() ? 0 : -1}
                 >
                   <i class={`${iconClass(tab.icon)} shrink-0 text-base`} />
                   <span class="min-w-0 flex-1 truncate">{tab.title}</span>
@@ -237,12 +264,18 @@ const LayoutHelpDialog = (props: { close: () => void; searchHelpApps: GlobalSear
               );
             }}
           </For>
-        </nav>
+        </div>
 
         <section class="paper min-h-0 overflow-hidden">
           <For each={allTabs()}>
             {(tab) => (
-              <div class={`${tab.id === activeId() ? "block" : "hidden"} h-full overflow-y-auto px-5 py-5 pr-4`}>
+              <div
+                class={`${tab.id === activeId() ? "block" : "hidden"} h-full overflow-y-auto px-5 py-5 pr-4`}
+                id={panelId(tab.id)}
+                role="tabpanel"
+                aria-labelledby={tabId(tab.id)}
+                tabIndex={0}
+              >
                 <div class="mb-5 flex items-start gap-3">
                   <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
                     <i class={`${iconClass(tab.icon)} text-lg`} />

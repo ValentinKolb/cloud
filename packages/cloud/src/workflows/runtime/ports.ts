@@ -1,9 +1,11 @@
 import type {
   WorkflowBoundPlan,
+  WorkflowDependency,
   WorkflowInvocation,
   WorkflowInvocationMode,
   WorkflowIrStep,
   WorkflowJsonValue,
+  WorkflowPlanningIssue,
   WorkflowPlanningOutcome,
   WorkflowStepOutcome,
 } from "../contracts";
@@ -43,6 +45,7 @@ export interface WorkflowRuntimeRepositoryPort {
   restoreStepOutcome(step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null>;
   startStep(step: WorkflowRuntimeStepIdentity): Promise<void>;
   finishStep(step: WorkflowRuntimeStepIdentity, result: WorkflowRuntimeStepResult): Promise<void>;
+  parkStep(step: WorkflowRuntimeStepIdentity, dependency: WorkflowDependency): Promise<void>;
 }
 
 export interface WorkflowVariableScope {
@@ -146,9 +149,37 @@ export type WorkflowExecutionResult =
     }
   | { state: "canceled"; message?: string; step?: WorkflowRuntimeStepIdentity };
 
+export type WorkflowDryRunIssue = Omit<WorkflowPlanningIssue, "step"> & {
+  step: WorkflowRuntimeStepIdentity;
+};
+
 export type WorkflowDryRunResult =
   | { state: "planned"; output?: WorkflowJsonValue; effects: WorkflowJsonValue[] }
-  | { state: "terminal"; status: "succeeded" | "failed"; message?: string; effects: WorkflowJsonValue[] }
-  | { state: "unsupported"; reason: string; effects: WorkflowJsonValue[]; step: WorkflowRuntimeStepIdentity }
-  | { state: "indeterminate"; reason: string; effects: WorkflowJsonValue[]; step: WorkflowRuntimeStepIdentity }
-  | { state: "canceled"; message?: string; effects: WorkflowJsonValue[]; step?: WorkflowRuntimeStepIdentity };
+  | {
+      state: "terminal";
+      status: "succeeded" | "failed";
+      message?: string;
+      effects: WorkflowJsonValue[];
+      issues?: WorkflowDryRunIssue[];
+    }
+  | {
+      state: "unsupported";
+      reason: string;
+      effects: WorkflowJsonValue[];
+      step: WorkflowRuntimeStepIdentity;
+      issues: WorkflowDryRunIssue[];
+    }
+  | {
+      state: "indeterminate";
+      reason: string;
+      effects: WorkflowJsonValue[];
+      step: WorkflowRuntimeStepIdentity;
+      issues: WorkflowDryRunIssue[];
+    }
+  | {
+      state: "canceled";
+      message?: string;
+      effects: WorkflowJsonValue[];
+      step?: WorkflowRuntimeStepIdentity;
+      issues?: WorkflowDryRunIssue[];
+    };

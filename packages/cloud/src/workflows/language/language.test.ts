@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { crypto } from "@valentinkolb/stdlib";
 import type { WorkflowLanguageManifest } from "../contracts";
-import { bindWorkflow, compileWorkflow, parseWorkflowYaml } from "./index";
+import { bindWorkflow, canonicalWorkflowJson, compileWorkflow, hashWorkflowJson, parseWorkflowYaml } from "./index";
 
 const docs = { label: "Test", description: "Test descriptor" };
 
@@ -150,6 +150,7 @@ describe("workflow compilation", () => {
       steps: [{ kind: "action", action: "setVariable", config: { name: "result", value: "hello" }, sourcePath: ["steps", 0] }],
     });
     expect(ir.sourceHash).toBe(await crypto.common.hash(directSource));
+    expect(ir.manifestHash).toBe(await hashWorkflowJson(manifest));
     expect(ir.sourceLocations["steps.0"]).toMatchObject({ line: 6, column: 5 });
   });
 
@@ -226,6 +227,15 @@ steps:
     expect(reordered.steps).toEqual(first.steps);
     expect(reordered.sourceHash).not.toBe(first.sourceHash);
   });
+
+  test("rejects action descriptors that collide with control-flow names", async () => {
+    const result = await compileWorkflow(directSource, {
+      ...manifest,
+      actions: [{ ...manifest.actions[0]!, kind: "if" }],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "manifest.reserved" }));
+  });
 });
 
 describe("workflow catalog binding", () => {
@@ -258,10 +268,29 @@ describe("workflow catalog binding", () => {
     });
     expect(first.manifestHash).toHaveLength(64);
     expect(first.catalogHash).toHaveLength(64);
+    expect(first.maxLoopItems).toBe(100);
   });
 
   test("rejects binding against a different manifest version", async () => {
     const ir = await compileOk(directSource);
     expect(bindWorkflow(ir, { ...manifest, version: 2 }, () => ({ catalog: {}, bindings: {} }))).rejects.toThrow("does not match manifest");
+  });
+
+  test("rejects binding against changed manifest content at the same version", async () => {
+    const ir = await compileOk(directSource);
+    let bindingCalled = false;
+    await expect(
+      bindWorkflow(ir, { ...manifest, limits: { ...manifest.limits, maxLoopItems: 99 } }, () => {
+        bindingCalled = true;
+        return { catalog: {}, bindings: {} };
+      }),
+    ).rejects.toThrow("manifest hash");
+    expect(bindingCalled).toBe(false);
+  });
+
+  test("canonicalizes distinct Unicode keys independently of insertion order", () => {
+    const composedFirst = { é: 1, "e\u0301": 2 };
+    const decomposedFirst = { "e\u0301": 2, é: 1 };
+    expect(canonicalWorkflowJson(composedFirst)).toBe(canonicalWorkflowJson(decomposedFirst));
   });
 });
