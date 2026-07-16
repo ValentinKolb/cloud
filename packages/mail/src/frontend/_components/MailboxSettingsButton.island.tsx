@@ -3,10 +3,10 @@ import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { Mailbox, ProviderBinding, ProviderConnection, SenderIdentity } from "../../contracts";
+import type { Mailbox, MailWorkflow, ProviderBinding, ProviderConnection, SenderIdentity } from "../../contracts";
 import type { MailFolderView } from "../../service/messages";
 import { readApiError } from "./api-response";
-import MailboxSettings from "./MailboxSettings.island";
+import MailboxSettings from "./MailboxSettings";
 
 type MailboxPermission = "read" | "write" | "admin";
 
@@ -38,19 +38,23 @@ export default function MailboxSettingsButton(props: {
       let accessEntries: Parameters<typeof MailboxSettings>[0]["accessEntries"] = [];
       let connections: ProviderConnection[] = [];
       let bindings: ProviderBinding[] = [];
+      let workflows: MailWorkflow[] = [];
 
       if (props.permission === "admin") {
-        const [accessResponse, connectionsResponse, bindingsResponse] = await Promise.all([
+        const [accessResponse, connectionsResponse, bindingsResponse, workflowsResponse] = await Promise.all([
           apiClient.mailboxes[":mailboxId"].access.$get({ param: { mailboxId: props.mailboxId } }),
           apiClient.connections.$get({ query: { mailboxId: props.mailboxId } }),
           apiClient.mailboxes[":mailboxId"].bindings.$get({ param: { mailboxId: props.mailboxId } }),
+          apiClient.mailboxes[":mailboxId"].workflows.$get({ param: { mailboxId: props.mailboxId } }),
         ]);
         if (!accessResponse.ok) throw new Error(await readApiError(accessResponse, "Failed to load mailbox access"));
         if (!connectionsResponse.ok) throw new Error(await readApiError(connectionsResponse, "Failed to load provider connections"));
         if (!bindingsResponse.ok) throw new Error(await readApiError(bindingsResponse, "Failed to load provider bindings"));
+        if (!workflowsResponse.ok) throw new Error(await readApiError(workflowsResponse, "Failed to load workflows"));
         accessEntries = await accessResponse.json();
         connections = await connectionsResponse.json();
         bindings = await bindingsResponse.json();
+        workflows = await workflowsResponse.json();
       }
 
       await prompts.dialog<void>(
@@ -65,6 +69,7 @@ export default function MailboxSettingsButton(props: {
             bindings={bindings}
             folders={folders}
             identities={identities}
+            workflows={workflows}
             onClose={() => close()}
           />
         ),

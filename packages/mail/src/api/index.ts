@@ -62,6 +62,7 @@ import {
 } from "../service";
 import { resolveByteRange } from "../service/byte-range";
 import type { AttachmentDownload } from "../service/messages";
+import { loadMailboxPageData } from "../service/workspace";
 import workflowRoutes from "./workflows";
 
 const uuidParamSchema = z.object({ mailboxId: z.string().uuid() });
@@ -82,6 +83,7 @@ const collaboratorQuerySchema = z.object({
 });
 const activityQuerySchema = cursorQuerySchema.extend({ conversationId: z.string().uuid().optional() });
 const eventQuerySchema = z.object({ after: z.string().max(200).optional() });
+const workspaceRouteQuerySchema = z.object({ href: z.string().trim().min(1).max(4_000) });
 const attachmentQuerySchema = z.object({
   offset: z.coerce.number().int().nonnegative().optional(),
   length: z.coerce
@@ -118,6 +120,17 @@ const notificationTargetParamSchema = z.object({
   kind: z.enum(["mention", "reminder"]),
   sourceId: z.string().uuid(),
 });
+
+const parseWorkspaceRouteUrl = (mailboxId: string, href: string): URL | null => {
+  try {
+    const base = new URL("https://cloud.invalid");
+    const url = new URL(href, base);
+    if (url.origin !== base.origin || url.pathname !== `/app/mail/${mailboxId}`) return null;
+    return url;
+  } catch {
+    return null;
+  }
+};
 
 const attachmentContentDisposition = (value: string | null): string => {
   const filename = [...(value?.normalize("NFC") || "attachment")].slice(0, 255).join("");
@@ -219,6 +232,13 @@ const api = new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId", v("param", uuidParamSchema), async (c) =>
     respond(c, mailboxes.getMailbox(requestContext(c), c.req.valid("param").mailboxId)),
   )
+  .get("/mailboxes/:mailboxId/workspace-route", v("param", uuidParamSchema), v("query", workspaceRouteQuerySchema), async (c) => {
+    const mailboxId = c.req.valid("param").mailboxId;
+    const requestUrl = parseWorkspaceRouteUrl(mailboxId, c.req.valid("query").href);
+    if (!requestUrl) return respond(c, fail(err.badInput("Workspace route must target this mailbox")));
+    const data = await loadMailboxPageData({ context: requestContext(c), mailboxId, requestUrl });
+    return respond(c, data ? { ok: true, data } : fail(err.notFound("Mailbox")));
+  })
   .get("/mailboxes/:mailboxId/health", v("param", uuidParamSchema), async (c) =>
     respond(c, health.getMailboxOperationalHealth(requestContext(c), c.req.valid("param").mailboxId)),
   )

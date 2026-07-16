@@ -71,12 +71,7 @@ export default function MailOverview(props: { mailboxes: MailboxWithPermission[]
   };
 
   return (
-    <AppOverview
-      class="cloud-ui-soft"
-      title="Mail"
-      subtitle="Shared mailboxes with durable search, synchronization, and delivery."
-      icon="ti ti-mail"
-    >
+    <AppOverview title="Mail" subtitle="Shared mailboxes with durable search, synchronization, and delivery." icon="ti ti-mail">
       <AppOverview.Main
         title="Your mailboxes"
         description={`${props.mailboxes.length} mailbox${props.mailboxes.length === 1 ? "" : "es"} available`}

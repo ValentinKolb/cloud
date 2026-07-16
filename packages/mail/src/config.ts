@@ -21,7 +21,7 @@ export const app = defineApp({
   },
   openapi: "/api/mail/openapi.json",
   notifications: NOTIFICATIONS,
-  routes: ["/api/mail", "/app/mail"],
+  routes: ["/api/mail", "/app/mail", "/public/mail"],
 });
 
 export const { ssr, plugin } = app;

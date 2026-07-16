@@ -4,10 +4,27 @@ import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { ConnectionOwner, Mailbox, ProviderBinding, ProviderConnection, SenderIdentity } from "../../contracts";
+import type {
+  ConfigurableFolderRole,
+  ConnectionOwner,
+  Mailbox,
+  MailWorkflow,
+  ProviderBinding,
+  ProviderConnection,
+  SenderIdentity,
+} from "../../contracts";
 import type { MailFolderView } from "../../service/messages";
 import { readApiError } from "./api-response";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
+import MailWorkflowSettings from "./MailWorkflowSettings";
+
+const FOLDER_ROLES: Array<{ id: ConfigurableFolderRole; label: string; icon: string }> = [
+  { id: "sent", label: "Sent", icon: "ti ti-send" },
+  { id: "drafts", label: "Drafts", icon: "ti ti-file-pencil" },
+  { id: "archive", label: "Archive", icon: "ti ti-archive" },
+  { id: "trash", label: "Trash", icon: "ti ti-trash" },
+  { id: "junk", label: "Junk", icon: "ti ti-alert-octagon" },
+];
 
 export default function MailboxSettings(props: {
   mailbox: Mailbox;
@@ -19,6 +36,7 @@ export default function MailboxSettings(props: {
   bindings: ProviderBinding[];
   folders: MailFolderView[];
   identities: SenderIdentity[];
+  workflows: MailWorkflow[];
   onClose: () => void;
 }) {
   const [name, setName] = createSignal(props.mailbox.name);
@@ -51,7 +69,7 @@ export default function MailboxSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const addProvider = mutations.create<{ requiresConfirmation: boolean } | null, void>({
+  const addProvider = mutations.create<{ requiresConfirmation: boolean; senderCreated: boolean } | null, void>({
     mutation: async () => {
       const values = await prompts.form({
         title: "Connect mail provider",
@@ -112,6 +130,12 @@ export default function MailboxSettings(props: {
             required: true,
           },
           rootPath: { type: "text", label: "Folder root", description: "Optional IMAP root for a shared namespace or delegated folder." },
+          createSender: {
+            type: "boolean",
+            label: "Create the default sender for this address",
+            description: "Recommended for normal mailboxes. Disable only when the remote folder and sender use different accounts.",
+            default: true,
+          },
         },
         confirmText: "Verify and connect",
       });
@@ -142,12 +166,22 @@ export default function MailboxSettings(props: {
       });
       if (!bindingResponse.ok) throw new Error(await readApiError(bindingResponse, "Connection was stored but folder discovery failed"));
       const binding = await bindingResponse.json();
-      return { requiresConfirmation: binding.requiresConfirmation };
+      let senderCreated = false;
+      if (values.createSender && !binding.requiresConfirmation) {
+        const senderResponse = await apiClient.mailboxes[":mailboxId"]["sender-identities"].default.setup.$post({
+          param: { mailboxId: props.mailbox.id },
+          json: { bindingId: binding.binding.id, savesSentAutomatically: false },
+        });
+        if (!senderResponse.ok)
+          throw new Error(await readApiError(senderResponse, "Provider connected, but the default sender could not be created"));
+        senderCreated = true;
+      }
+      return { requiresConfirmation: binding.requiresConfirmation, senderCreated };
     },
     onSuccess: (result) => {
       if (!result) return;
       if (result.requiresConfirmation) toast("Connection requires explicit scope confirmation");
-      toast.success("Provider connected");
+      toast.success(result.senderCreated ? "Provider and default sender connected" : "Provider connected");
       refreshCurrentPath();
     },
     onError: (error) => prompts.error(error.message),
@@ -266,6 +300,20 @@ export default function MailboxSettings(props: {
     onSuccess: (verified) => {
       if (!verified) return;
       toast.success("Sender identity verified");
+      refreshCurrentPath();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const updateFolderRole = mutations.create<void, { role: ConfigurableFolderRole; folderId: string }>({
+    mutation: async ({ role, folderId }) => {
+      const route = apiClient.mailboxes[":mailboxId"]["folder-roles"][":role"];
+      const param = { mailboxId: props.mailbox.id, role };
+      const response = folderId ? await route.$put({ param, json: { folderId } }) : await route.$delete({ param });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update folder role"));
+    },
+    onSuccess: () => {
+      toast.success("Folder role updated");
       refreshCurrentPath();
     },
     onError: (error) => prompts.error(error.message),
@@ -468,6 +516,48 @@ export default function MailboxSettings(props: {
                 )}
               </For>
             </div>
+          </SettingsModal.Tab>
+
+          <SettingsModal.Tab id="folders" title="Folders" icon="ti ti-folders" description="Map provider folders to portable Mail actions.">
+            <div class="flex flex-col gap-3">
+              <div class="info-block-info text-xs">
+                Inbox is discovered from the provider. These mappings control sent mail, drafts, archive, trash, and junk actions.
+              </div>
+              <For each={FOLDER_ROLES}>
+                {(role) => {
+                  const current = () => props.folders.find((folder) => folder.configuredRole === role.id || folder.role === role.id);
+                  return (
+                    <Select
+                      label={role.label}
+                      description={`Provider folder used for ${role.label.toLowerCase()} operations.`}
+                      icon={role.icon}
+                      value={() => current()?.id}
+                      selectedLabel={() => current()?.name}
+                      options={props.folders
+                        .filter((folder) => folder.selectable && folder.discoveryState === "active")
+                        .map((folder) => ({
+                          id: folder.id,
+                          label: folder.name,
+                          description: folder.namespaceKinds.join(", "),
+                          icon: "ti ti-folder",
+                        }))}
+                      clearable
+                      disabled={updateFolderRole.loading()}
+                      onChange={(folderId) => updateFolderRole.mutate({ role: role.id, folderId })}
+                    />
+                  );
+                }}
+              </For>
+            </div>
+          </SettingsModal.Tab>
+
+          <SettingsModal.Tab
+            id="automation"
+            title="Automation"
+            icon="ti ti-route"
+            description="Versioned YAML workflows with explicit activation."
+          >
+            <MailWorkflowSettings mailboxId={props.mailbox.id} initialWorkflows={props.workflows} />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
