@@ -6,18 +6,6 @@ export {
   aiSkillsApi,
   openAiSkillsManager,
 } from "./AiSkillsManager";
-export { type FileBrowserPanelProps, type FileSource, FileBrowserPanel, openFileBrowser } from "./FileBrowser";
-export { type FileTreeActions, type FileTreeEntry, type FileTreeProps, default as FileTree } from "./FileTree";
-export {
-  type FileViewContent,
-  type FileViewFile,
-  type FileViewProps,
-  type FileViewRenderer,
-  type FileViewRendererProps,
-  default as FileView,
-  formatFileViewSize,
-  registerFileViewRenderer,
-} from "./FileView";
 export type { AppOverviewEmptyStateProps, AppOverviewPanelProps, AppOverviewProps } from "./AppOverview";
 export { default as AppOverview } from "./AppOverview";
 export type {
@@ -91,6 +79,18 @@ export type { DropdownItem } from "./Dropdown";
 export { default as Dropdown } from "./Dropdown";
 export type { EntitySearchPrincipal } from "./EntitySearch";
 export { default as EntitySearch } from "./EntitySearch";
+export { FileBrowserPanel, type FileBrowserPanelProps, type FileSource, openFileBrowser } from "./FileBrowser";
+export { default as FileTree, type FileTreeActions, type FileTreeEntry, type FileTreeProps } from "./FileTree";
+export {
+  default as FileView,
+  type FileViewContent,
+  type FileViewFile,
+  type FileViewProps,
+  type FileViewRenderer,
+  type FileViewRendererProps,
+  formatFileViewSize,
+  registerFileViewRenderer,
+} from "./FileView";
 export type { LightboxImage } from "./Lightbox";
 export { default as Lightbox } from "./Lightbox";
 export { default as LinkCard } from "./LinkCard";
@@ -140,9 +140,6 @@ export type { ResourceApiKey, ResourceApiKeyPermissionOption, ResourceApiKeysPro
 export { default as ResourceApiKeys } from "./ResourceApiKeys";
 export type { SettingsModalProps, SettingsModalTabProps, SettingsModalTabTone } from "./SettingsModal";
 export { default as SettingsModal } from "./SettingsModal";
-export type { StatCellAccent, StatCellProps } from "./StatCell";
-export { default as StatCell } from "./StatCell";
-export { default as StatGrid } from "./StatGrid";
 export type { SpotlightButtonProps, SpotlightButtonVariant, SpotlightSearchOptions, SpotlightSearchResolver } from "./SpotlightSearch";
 export {
   default as SpotlightButton,
@@ -152,6 +149,9 @@ export {
   SPOTLIGHT_SHORTCUT_LABEL,
   SPOTLIGHT_SHORTCUT_TITLE,
 } from "./SpotlightSearch";
+export type { StatCellAccent, StatCellProps } from "./StatCell";
+export { default as StatCell } from "./StatCell";
+export { default as StatGrid } from "./StatGrid";
 export type { StructuredDataPreviewMode, StructuredDataPreviewProps } from "./StructuredDataPreview";
 export { default as StructuredDataPreview } from "./StructuredDataPreview";
 export type { TooltipPlacement, TooltipProps } from "./Tooltip";
