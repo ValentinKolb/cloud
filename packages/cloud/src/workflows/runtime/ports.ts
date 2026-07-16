@@ -30,7 +30,7 @@ export type WorkflowRuntimeStepIdentity = WorkflowRuntimeRunIdentity & {
   action?: string;
 };
 
-export type WorkflowHeartbeatOutcome = { state: "active" } | { state: "canceled"; message?: string };
+export type WorkflowHeartbeatOutcome = { state: "active" } | { state: "stale" } | { state: "canceled"; message?: string };
 
 export type WorkflowRestoredStep =
   | { mode: "execute"; outcome: Exclude<WorkflowStepOutcome, { state: "waiting" }> }

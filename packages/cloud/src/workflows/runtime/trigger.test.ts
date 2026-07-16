@@ -30,4 +30,16 @@ describe("workflow trigger input bindings", () => {
       'invalid workflow trigger expression "${{ broken"',
     );
   });
+
+  test("rejects inherited properties and non-canonical array indexes", () => {
+    const inherited = Object.create({ secret: "leaked" }) as Record<string, string>;
+    inherited.visible = "safe";
+
+    expect(() => evaluateWorkflowTriggerInputs(inherited, { item: "${{ trigger.secret }}" }, "2026-07-14T10:00:00.000Z")).toThrow(
+      'workflow trigger value "trigger.secret" is unavailable',
+    );
+    expect(() =>
+      evaluateWorkflowTriggerInputs({ items: ["zero", "one"] }, { item: "${{ trigger.items.01 }}" }, "2026-07-14T10:00:00.000Z"),
+    ).toThrow('workflow trigger value "trigger.items.01" is unavailable');
+  });
 });

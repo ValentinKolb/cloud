@@ -568,7 +568,29 @@ const workflowSourceSchema = z
 const workflowVersionIdSchema = z.string().uuid();
 const workflowVersionIdentitySchema = z.string().min(1).max(200);
 const workflowHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const workflowInputsSchema = z.record(z.string(), z.json()).default({});
+const isWorkflowJsonValue = (value: unknown): value is WorkflowJsonValue => {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isWorkflowJsonValue);
+  if (typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return (prototype === Object.prototype || prototype === null) && Object.values(value).every(isWorkflowJsonValue);
+};
+export const workflowJsonValueSchema = z
+  .unknown()
+  .refine(isWorkflowJsonValue, "Expected a JSON value")
+  .meta({
+    $dynamicAnchor: "WorkflowJsonValue",
+    oneOf: [
+      { type: "string" },
+      { type: "number" },
+      { type: "boolean" },
+      { type: "null" },
+      { type: "array", items: { $dynamicRef: "#WorkflowJsonValue" } },
+      { type: "object", additionalProperties: { $dynamicRef: "#WorkflowJsonValue" } },
+    ],
+  }) as z.ZodType<WorkflowJsonValue>;
+const workflowInputsSchema = z.record(z.string(), workflowJsonValueSchema).default({});
 const workflowIdempotencyKeySchema = z.string().trim().min(1).max(200);
 
 export const validateWorkflowInputSchema = z.object({ source: workflowSourceSchema }).strict();

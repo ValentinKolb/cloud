@@ -1677,6 +1677,39 @@ test("workflow wait emits structured terminal errors in machine-readable modes",
   }
 });
 
+test("workflow JSONL output stays structured for successful waits and lists", async () => {
+  const succeededRun = {
+    ...workflowRun(),
+    state: "succeeded",
+    targetProgress: { total: 1, queued: 0, running: 0, waiting: 0, succeeded: 1, failed: 0, canceled: 0, needs_attention: 0 },
+    finishedAt: "2026-07-13T00:00:02.000Z",
+  };
+  const server = withMailbox((request) => {
+    const path = new URL(request.url).pathname;
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/${WORKFLOW_RUN_ID}`) return api(succeededRun);
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs`) return api([succeededRun]);
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const waited = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--jsonl",
+    "mail",
+    "workflow",
+    "run",
+    "wait",
+    WORKFLOW_RUN_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const listed = await runCli(`http://127.0.0.1:${server.port}`, ["--jsonl", "mail", "workflow", "run", "list", "--mailbox", MAILBOX_ID]);
+
+  expect(waited.exitCode).toBe(0);
+  expect(JSON.parse(waited.stdout)).toEqual(succeededRun);
+  expect(listed.exitCode).toBe(0);
+  expect(JSON.parse(listed.stdout)).toEqual(succeededRun);
+});
+
 test("workflow run cancel requires confirmation and forwards the reason", async () => {
   let requestBody: Record<string, unknown> | null = null;
   const server = withMailbox(async (request) => {

@@ -96,6 +96,14 @@ describe("Mail workflow OpenAPI contracts", () => {
     }
   });
 
+  test("does not publish dangling component references", async () => {
+    const spec = await generateSpecs(app());
+    const references = JSON.stringify(spec).match(/#\/components\/schemas\/[A-Za-z0-9_-]+/g) ?? [];
+    const schemas = spec.components?.schemas ?? {};
+
+    expect(references.filter((reference) => !(reference.slice("#/components/schemas/".length) in schemas))).toEqual([]);
+  });
+
   test("represents recursive search expressions without an empty or dangling schema", async () => {
     const spec = await generateSpecs(app());
     const requestSchema = spec.paths?.["/mailboxes/{mailboxId}/workflows/{workflowId}/preflight"]?.post?.requestBody;

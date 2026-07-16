@@ -11,6 +11,7 @@ export type {
   WorkflowActor,
   WorkflowBoundPlan,
   WorkflowCondition,
+  WorkflowControlTraversal,
   WorkflowDependency,
   WorkflowDescriptorDocs,
   WorkflowDiagnostic,

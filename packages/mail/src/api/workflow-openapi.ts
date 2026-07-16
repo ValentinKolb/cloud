@@ -1,6 +1,6 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { jsonResponse, requiresAuth } from "@valentinkolb/cloud/server";
-import type { WorkflowBoundPlan, WorkflowCondition, WorkflowIr, WorkflowIrStep, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import type { WorkflowBoundPlan, WorkflowIr, WorkflowIrStep } from "@valentinkolb/cloud/workflows";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
@@ -12,6 +12,7 @@ import {
   type MailWorkflowVersion,
   type WorkflowValidation,
   workflowEffectBudgetSchema,
+  workflowJsonValueSchema,
   workflowRunChannelSchema,
   workflowRunKindSchema,
   workflowRunModeSchema,
@@ -25,18 +26,102 @@ const responseSchema =
   <S extends z.ZodType<T>>(schema: S): S =>
     schema;
 
-const workflowJsonValueSchema = z.unknown().meta({
-  $dynamicAnchor: "WorkflowJsonValue",
-  oneOf: [
-    { type: "string" },
-    { type: "number" },
-    { type: "boolean" },
-    { type: "null" },
-    { type: "array", items: { $dynamicRef: "#WorkflowJsonValue" } },
-    { type: "object", additionalProperties: { $dynamicRef: "#WorkflowJsonValue" } },
-  ],
-}) as z.ZodType<WorkflowJsonValue>;
 const workflowJsonObjectSchema = z.record(z.string(), workflowJsonValueSchema);
+const workflowConditionJsonSchema = {
+  $dynamicAnchor: "WorkflowCondition",
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        operator: { enum: ["equals", "notEquals", "contains", "startsWith", "endsWith"] },
+        operands: {
+          type: "array",
+          minItems: 2,
+          maxItems: 2,
+          prefixItems: [{ $dynamicRef: "#WorkflowJsonValue" }, { $dynamicRef: "#WorkflowJsonValue" }],
+        },
+      },
+      required: ["operator", "operands"],
+    },
+    {
+      type: "object",
+      properties: { operator: { const: "exists" }, reference: { type: "string" } },
+      required: ["operator", "reference"],
+    },
+    {
+      type: "object",
+      properties: {
+        operator: { enum: ["all", "any"] },
+        conditions: { type: "array", items: { $dynamicRef: "#WorkflowCondition" } },
+      },
+      required: ["operator", "conditions"],
+    },
+    {
+      type: "object",
+      properties: { operator: { const: "not" }, condition: { $dynamicRef: "#WorkflowCondition" } },
+      required: ["operator", "condition"],
+    },
+  ],
+} as const;
+const workflowIrStepJsonSchema = {
+  $dynamicAnchor: "WorkflowIrStep",
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        kind: { const: "action" },
+        action: { type: "string" },
+        config: { type: "object", additionalProperties: { $dynamicRef: "#WorkflowJsonValue" } },
+        sourcePath: { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
+      },
+      required: ["kind", "action", "config", "sourcePath"],
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "if" },
+        condition: workflowConditionJsonSchema,
+        then: { type: "array", items: { $dynamicRef: "#WorkflowIrStep" } },
+        else: { type: "array", items: { $dynamicRef: "#WorkflowIrStep" } },
+        sourcePath: { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
+      },
+      required: ["kind", "condition", "then", "else", "sourcePath"],
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "switch" },
+        value: { $dynamicRef: "#WorkflowJsonValue" },
+        cases: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              when: { $dynamicRef: "#WorkflowJsonValue" },
+              steps: { type: "array", items: { $dynamicRef: "#WorkflowIrStep" } },
+            },
+            required: ["when", "steps"],
+          },
+        },
+        default: { type: "array", items: { $dynamicRef: "#WorkflowIrStep" } },
+        sourcePath: { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
+      },
+      required: ["kind", "value", "cases", "default", "sourcePath"],
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "forEach" },
+        reference: { type: "string" },
+        alias: { type: "string" },
+        steps: { type: "array", items: { $dynamicRef: "#WorkflowIrStep" } },
+        sourcePath: { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
+      },
+      required: ["kind", "reference", "alias", "steps", "sourcePath"],
+    },
+  ],
+} as const;
+const workflowIrStepSchema = z.unknown().meta(workflowIrStepJsonSchema) as z.ZodType<WorkflowIrStep>;
 const workflowHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const workflowSourceLocationSchema = z.object({
   offset: z.number().int().nonnegative(),
@@ -50,49 +135,6 @@ const workflowDiagnosticSchema = z.object({
   path: z.array(z.union([z.string(), z.number()])),
   location: workflowSourceLocationSchema.optional(),
 });
-const workflowConditionSchema: z.ZodType<WorkflowCondition> = z.lazy(() =>
-  z.discriminatedUnion("operator", [
-    z.object({
-      operator: z.enum(["equals", "notEquals", "contains", "startsWith", "endsWith"]),
-      operands: z.tuple([workflowJsonValueSchema, workflowJsonValueSchema]),
-    }),
-    z.object({ operator: z.literal("exists"), reference: z.string() }),
-    z.object({ operator: z.literal("all"), conditions: z.array(workflowConditionSchema) }),
-    z.object({ operator: z.literal("any"), conditions: z.array(workflowConditionSchema) }),
-    z.object({ operator: z.literal("not"), condition: workflowConditionSchema }),
-  ]),
-);
-const workflowIrStepSchema: z.ZodType<WorkflowIrStep> = z.lazy(() =>
-  z.discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal("action"),
-      action: z.string(),
-      config: workflowJsonObjectSchema,
-      sourcePath: z.array(z.union([z.string(), z.number()])),
-    }),
-    z.object({
-      kind: z.literal("if"),
-      condition: workflowConditionSchema,
-      then: z.array(workflowIrStepSchema),
-      else: z.array(workflowIrStepSchema),
-      sourcePath: z.array(z.union([z.string(), z.number()])),
-    }),
-    z.object({
-      kind: z.literal("switch"),
-      value: workflowJsonValueSchema,
-      cases: z.array(z.object({ when: workflowJsonValueSchema, steps: z.array(workflowIrStepSchema) })),
-      default: z.array(workflowIrStepSchema),
-      sourcePath: z.array(z.union([z.string(), z.number()])),
-    }),
-    z.object({
-      kind: z.literal("forEach"),
-      reference: z.string(),
-      alias: z.string(),
-      steps: z.array(workflowIrStepSchema),
-      sourcePath: z.array(z.union([z.string(), z.number()])),
-    }),
-  ]),
-);
 const workflowIrShapeSchema = z.object({
   schemaVersion: z.literal(1),
   languageId: z.string(),

@@ -8,7 +8,13 @@ export type {
   WorkflowCoordinatorResult,
 } from "./coordinator";
 export { coordinateWorkflowExecution } from "./coordinator";
-export { DEFAULT_MAX_LOOP_ITEMS, dryRunWorkflowPlan, executeWorkflowPlan, WorkflowRetryableStepError } from "./executor";
+export {
+  DEFAULT_MAX_LOOP_ITEMS,
+  dryRunWorkflowPlan,
+  executeWorkflowPlan,
+  WorkflowLeaseLostError,
+  WorkflowRetryableStepError,
+} from "./executor";
 export type {
   WorkflowActionStep,
   WorkflowDryRunActionContext,

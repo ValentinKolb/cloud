@@ -482,9 +482,7 @@ export class MailWorkflowRuntimeRepository implements WorkflowRuntimeRepositoryP
 
   async heartbeat(_run: WorkflowRuntimeRunIdentity): Promise<WorkflowHeartbeatOutcome> {
     const state = await renewClaim(this.claim);
-    return state.state === "active"
-      ? { state: "active" }
-      : { state: "canceled", message: state.state === "canceled" ? state.message : "Workflow execution lease was lost" };
+    return state;
   }
 
   async restoreStepOutcome(step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null> {

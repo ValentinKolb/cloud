@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowBoundPlan, WorkflowDependency, WorkflowInvocation, WorkflowJsonValue } from "../contracts";
-import { dryRunWorkflowPlan, executeWorkflowPlan } from "./executor";
+import { dryRunWorkflowPlan, executeWorkflowPlan, WorkflowLeaseLostError } from "./executor";
 import type {
   WorkflowDryRunActionHandler,
   WorkflowDryRunActionPort,
@@ -483,7 +483,10 @@ describe("workflow runtime executor", () => {
 
   test("restores a completed action and lets its hook rebuild variable state", async () => {
     const repository = new FakeRepository();
-    repository.completed.set("execute:steps.0", { mode: "execute", outcome: { state: "completed", output: "persisted" } });
+    repository.completed.set("execute:steps.0", {
+      mode: "execute",
+      outcome: { state: "completed", output: "persisted" },
+    });
     let restored = 0;
     let executed = 0;
     const actions = executeActions({
@@ -520,7 +523,10 @@ describe("workflow runtime executor", () => {
 
   test("restores completed descendant actions before returning a completed control step", async () => {
     const repository = new FakeRepository();
-    repository.completed.set("execute:steps.0", { mode: "execute", outcome: { state: "completed", output: "persisted" } });
+    repository.completed.set("execute:steps.0", {
+      mode: "execute",
+      outcome: { state: "completed", output: "persisted", control: { kind: "if", branches: ["then"] } },
+    });
     repository.completed.set("execute:steps.0.then.0", {
       mode: "execute",
       outcome: { state: "completed", output: "restored-child" },
@@ -547,14 +553,14 @@ describe("workflow runtime executor", () => {
       plan: plan([
         {
           kind: "if",
-          condition: { operator: "equals", operands: [true, true] },
+          condition: { operator: "equals", operands: ["${{ inputs.enabled }}", true] },
           then: [{ kind: "action", action: "produce", config: {}, sourcePath: ["steps", 0, "then", 0] }],
           else: [],
           sourcePath: ["steps", 0],
         },
         { kind: "action", action: "consume", config: {}, sourcePath: ["steps", 1] },
       ]),
-      invocation: invocation("execute"),
+      invocation: invocation("execute", { enabled: false }),
       repository,
       actions,
     });
@@ -562,6 +568,90 @@ describe("workflow runtime executor", () => {
     expect(result).toEqual({ state: "succeeded", output: "restored-child" });
     expect(executed).toBe(0);
     expect(repository.started.map((step) => step.key)).toEqual(["steps.1"]);
+  });
+
+  test("restores nested dry-run state from the persisted traversal", async () => {
+    const repository = new FakeRepository();
+    repository.completed.set("dryRun:steps.0", {
+      mode: "dryRun",
+      outcome: { state: "planned", effects: [], control: { kind: "if", branches: ["then"] } },
+    });
+    repository.completed.set("dryRun:steps.0.then.0", {
+      mode: "dryRun",
+      outcome: { state: "planned", output: "persisted", effects: [] },
+    });
+    repository.completed.set("dryRun:steps.0.then.1", {
+      mode: "dryRun",
+      outcome: { state: "planned", effects: [] },
+    });
+    let plannedSeed = 0;
+    let restoredValue: WorkflowJsonValue | undefined;
+    const result = await dryRunWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: { operator: "equals", operands: ["${{ inputs.enabled }}", true] },
+          then: [
+            { kind: "action", action: "seed", config: {}, sourcePath: ["steps", 0, "then", 0] },
+            { kind: "action", action: "consume", config: {}, sourcePath: ["steps", 0, "then", 1] },
+          ],
+          else: [],
+          sourcePath: ["steps", 0],
+        },
+      ]),
+      invocation: invocation("dryRun", { enabled: false }),
+      repository,
+      actions: dryRunActions({
+        seed: {
+          plan: async () => {
+            plannedSeed += 1;
+            return { state: "planned", effects: [] };
+          },
+          restoreCompleted: (context, _step, outcome) => context.variables.set("saved", outcome.output ?? null),
+        },
+        consume: {
+          plan: async () => ({ state: "planned", effects: [] }),
+          restoreCompleted: (context) => {
+            restoredValue = context.variables.get("saved");
+          },
+        },
+      }),
+    });
+
+    expect(result).toEqual({ state: "planned", effects: [] });
+    expect(restoredValue).toBe("persisted");
+    expect(plannedSeed).toBe(0);
+  });
+
+  test("refuses malformed persisted control traversals instead of guessing a branch", async () => {
+    const repository = new FakeRepository();
+    repository.completed.set("execute:steps.0", {
+      mode: "execute",
+      outcome: { state: "completed", control: { kind: "if", branches: ["unknown"] } },
+    } as unknown as WorkflowRestoredStep);
+
+    const result = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: { operator: "equals", operands: [true, true] },
+          then: [],
+          else: [],
+          sourcePath: ["steps", 0],
+        },
+      ]),
+      invocation: invocation("execute"),
+      repository,
+      actions: executeActions({}),
+    });
+
+    expect(result).toMatchObject({
+      state: "needs_attention",
+      error: { code: "WORKFLOW_RESTORE_INVALID", message: expect.stringContaining("invalid persisted traversal branches") },
+      step: { key: "steps.0" },
+    });
   });
 
   test("returns and persists an opaque waiting dependency", async () => {
@@ -670,6 +760,31 @@ describe("workflow runtime executor", () => {
     });
 
     expect(result).toMatchObject({ state: "canceled", message: "preview stopped", step: { key: "steps.6" }, effects: [] });
+  });
+
+  test("propagates stale leases without cancellation traces or terminal writes", async () => {
+    const repository = new FakeRepository();
+    repository.heartbeats = [{ state: "stale" }];
+    const traced: string[] = [];
+
+    await expect(
+      executeWorkflowPlan({
+        ...runtime,
+        plan: plan([{ kind: "action", action: "run", config: {}, sourcePath: ["steps", 0] }]),
+        invocation: invocation("execute"),
+        repository,
+        actions: executeActions({ run: { execute: async () => ({ state: "completed" }) } }),
+        trace: {
+          emit: (event) => {
+            traced.push(event.type);
+          },
+        },
+      }),
+    ).rejects.toBeInstanceOf(WorkflowLeaseLostError);
+
+    expect(repository.started).toEqual([]);
+    expect(repository.finished).toEqual([]);
+    expect(traced).toEqual([]);
   });
 
   test("finishes nested dry-run steps when a planner heartbeat observes cancellation", async () => {

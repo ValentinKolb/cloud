@@ -1,5 +1,6 @@
 import type {
   WorkflowCondition,
+  WorkflowControlTraversal,
   WorkflowDependency,
   WorkflowExecutionError,
   WorkflowIrStep,
@@ -63,6 +64,14 @@ class RuntimeVariableScope implements WorkflowVariableScope {
 class WorkflowCancellation extends Error {
   constructor(readonly cancellation: Extract<WorkflowHeartbeatOutcome, { state: "canceled" }>) {
     super(cancellation.message ?? "workflow canceled");
+  }
+}
+
+export class WorkflowLeaseLostError extends Error {
+  override readonly name = "WorkflowLeaseLostError";
+
+  constructor() {
+    super("workflow execution lease was lost");
   }
 }
 
@@ -309,6 +318,7 @@ const traceCancellation = async (
 const heartbeat = async (state: RuntimeState): Promise<Extract<WorkflowHeartbeatOutcome, { state: "canceled" }> | null> => {
   const outcome = await state.options.repository.heartbeat(state.run);
   if (outcome.state === "active") return null;
+  if (outcome.state === "stale") throw new WorkflowLeaseLostError();
   await traceCancellation(state, outcome);
   return outcome;
 };
@@ -345,6 +355,46 @@ const invalidRestoration = (state: RuntimeState, step: WorkflowRuntimeStepIdenti
     ? { state: "needs_attention", error: executionError("WORKFLOW_RESTORE_INVALID", message), step }
     : { state: "indeterminate", reason: message, step };
 
+const persistedControlTraversal = (irStep: Exclude<WorkflowIrStep, { kind: "action" }>, value: unknown): WorkflowControlTraversal => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new WorkflowValueError(`completed ${irStep.kind} step has an invalid persisted control traversal`);
+  }
+  const traversal = value as Record<string, unknown>;
+  if (traversal.kind !== irStep.kind) {
+    throw new WorkflowValueError(`completed ${irStep.kind} step has a ${String(traversal.kind)} traversal`);
+  }
+  if (irStep.kind === "forEach") {
+    if (!Array.isArray(traversal.items)) {
+      throw new WorkflowValueError("completed forEach step has invalid persisted traversal items");
+    }
+    return { kind: "forEach", items: traversal.items as WorkflowJsonValue[] };
+  }
+  if (!Array.isArray(traversal.branches) || traversal.branches.length === 0) {
+    throw new WorkflowValueError(`completed ${irStep.kind} step has invalid persisted traversal branches`);
+  }
+  if (irStep.kind === "if") {
+    if (
+      traversal.branches.length > 2 ||
+      traversal.branches.some((branch) => branch !== "then" && branch !== "else") ||
+      new Set(traversal.branches).size !== traversal.branches.length
+    ) {
+      throw new WorkflowValueError("completed if step has invalid persisted traversal branches");
+    }
+    return { kind: "if", branches: traversal.branches as Array<"then" | "else"> };
+  }
+  const branches = traversal.branches as unknown[];
+  if (
+    branches.length > irStep.cases.length + 1 ||
+    branches.some(
+      (branch) => branch !== "default" && (!Number.isSafeInteger(branch) || Number(branch) < 0 || Number(branch) >= irStep.cases.length),
+    ) ||
+    new Set(branches).size !== branches.length
+  ) {
+    throw new WorkflowValueError("completed switch step has invalid persisted traversal branches");
+  }
+  return { kind: "switch", branches: branches as Array<number | "default"> };
+};
+
 const restoreCompletedSteps = async (
   state: RuntimeState,
   scope: RuntimeVariableScope,
@@ -355,7 +405,8 @@ const restoreCompletedSteps = async (
     const step = stepIdentity(state, irStep, iterationPath);
     const restored = await state.options.repository.restoreStepOutcome(step);
     if (!restored) return invalidRestoration(state, step, `completed control step is missing descendant "${step.key}"`);
-    const flow = await restoreStep(state, scope, irStep, step, restored);
+    const flow = await restoreStep(state, scope, irStep, step, restored, false);
+    if (state.options.mode === "dryRun" && (flow.state === "unsupported" || flow.state === "indeterminate")) continue;
     if (flow.state !== "continue") return flow;
   }
   return { state: "continue" };
@@ -366,30 +417,37 @@ const restoreCompletedControlDescendants = async (
   scope: RuntimeVariableScope,
   irStep: Exclude<WorkflowIrStep, { kind: "action" }>,
   iterationPath: number[],
+  persistedTraversal: WorkflowControlTraversal | undefined,
 ): Promise<Flow> => {
+  if (!persistedTraversal) {
+    throw new WorkflowValueError(`completed ${irStep.kind} step is missing its persisted control traversal`);
+  }
+  const traversal = persistedControlTraversal(irStep, persistedTraversal);
   if (irStep.kind === "if") {
-    const matched = await evaluateCondition(state, scope, irStep.condition, [...irStep.sourcePath, "if"]);
-    return restoreCompletedSteps(state, scope.child(), matched ? irStep.then : irStep.else, iterationPath);
+    if (traversal.kind !== "if") throw new WorkflowValueError(`completed if step has a ${traversal.kind} traversal`);
+    for (const branch of traversal.branches) {
+      const flow = await restoreCompletedSteps(state, scope.child(), branch === "then" ? irStep.then : irStep.else, iterationPath);
+      if (flow.state !== "continue") return flow;
+    }
+    return { state: "continue" };
   }
   if (irStep.kind === "switch") {
-    const value = await evaluateValue(state, scope, irStep.value, [...irStep.sourcePath, "switch"]);
-    for (const [index, candidate] of irStep.cases.entries()) {
-      const when = await evaluateValue(state, scope, candidate.when, [...irStep.sourcePath, "cases", index, "when"]);
-      if (jsonEqual(value, when)) return restoreCompletedSteps(state, scope.child(), candidate.steps, iterationPath);
+    if (traversal.kind !== "switch") throw new WorkflowValueError(`completed switch step has a ${traversal.kind} traversal`);
+    for (const branch of traversal.branches) {
+      const steps = branch === "default" ? irStep.default : irStep.cases[branch]?.steps;
+      if (!steps) throw new WorkflowValueError(`completed switch step references unavailable branch "${branch}"`);
+      const flow = await restoreCompletedSteps(state, scope.child(), steps, iterationPath);
+      if (flow.state !== "continue") return flow;
     }
-    return restoreCompletedSteps(state, scope.child(), irStep.default, iterationPath);
+    return { state: "continue" };
   }
-
-  const resolved = await resolveReference(state, scope, irStep.reference, [...irStep.sourcePath, "forEach"]);
-  if (resolved.state !== "resolved" || !Array.isArray(resolved.value)) {
-    throw new WorkflowValueError(`completed forEach reference "${irStep.reference}" is unavailable while restoring`);
-  }
+  if (traversal.kind !== "forEach") throw new WorkflowValueError(`completed forEach step has a ${traversal.kind} traversal`);
   const limit = loopItemLimit(state);
-  if (resolved.value.length > limit) {
-    throw new WorkflowValueError(`forEach reference "${irStep.reference}" has ${resolved.value.length} items; limit is ${limit}`);
+  if (traversal.items.length > limit) {
+    throw new WorkflowValueError(`completed forEach traversal has ${traversal.items.length} items; limit is ${limit}`);
   }
-  for (let index = 0; index < resolved.value.length; index += 1) {
-    const flow = await restoreCompletedSteps(state, scope.child({ [irStep.alias]: resolved.value[index]! }), irStep.steps, [
+  for (let index = 0; index < traversal.items.length; index += 1) {
+    const flow = await restoreCompletedSteps(state, scope.child({ [irStep.alias]: traversal.items[index]! }), irStep.steps, [
       ...iterationPath,
       index,
     ]);
@@ -404,6 +462,7 @@ const restoreStep = async (
   irStep: WorkflowIrStep,
   step: WorkflowRuntimeStepIdentity,
   restored: WorkflowRestoredStep,
+  collectPlanningOutcome = true,
 ): Promise<Flow> => {
   if (restored.mode !== state.options.mode) {
     return invalidRestoration(state, step, `restored step "${step.key}" belongs to ${restored.mode}, not ${state.options.mode}`);
@@ -420,18 +479,26 @@ const restoreStep = async (
           return invalidRestoration(state, step, `planner for action "${irStep.action}" is unavailable while restoring step "${step.key}"`);
         await handler.restoreCompleted?.(actionContext(state, scope, step) as WorkflowDryRunActionContext, irStep, restored.outcome);
       }
-    } else if (state.options.mode === "execute" && restored.mode === "execute" && restored.outcome.state === "completed") {
-      const descendants = await restoreCompletedControlDescendants(state, scope, irStep, step.iterationPath);
+    } else if (
+      (restored.mode === "execute" && restored.outcome.state === "completed") ||
+      (restored.mode === "dryRun" && restored.outcome.state === "planned")
+    ) {
+      const descendants = await restoreCompletedControlDescendants(state, scope, irStep, step.iterationPath, restored.outcome.control);
       if (descendants.state !== "continue") return descendants;
     }
   } catch (error) {
+    if (error instanceof WorkflowLeaseLostError) throw error;
     if (error instanceof WorkflowCancellation) {
       await traceCancellation(state, error.cancellation);
       return { state: "canceled", ...optionalMessage(error.cancellation.message), step };
     }
     return invalidRestoration(state, step, `restoring step "${step.key}" failed: ${errorMessage(error)}`);
   }
-  if (restored.mode === "dryRun" && (restored.outcome.state === "planned" || restored.outcome.state === "terminal")) {
+  if (
+    collectPlanningOutcome &&
+    restored.mode === "dryRun" &&
+    (restored.outcome.state === "planned" || restored.outcome.state === "terminal")
+  ) {
     state.effects.push(...restored.outcome.effects);
     state.issues.push(...restoredIssues(state, restored.outcome.issues));
   }
@@ -512,16 +579,18 @@ const evaluateAction = async (
 const resultForCompletedControl = (
   state: RuntimeState,
   output: WorkflowJsonValue | undefined,
+  control: WorkflowControlTraversal,
   effectsStart: number,
   issuesStart: number,
 ): WorkflowRuntimeStepResult =>
   state.options.mode === "execute"
-    ? { mode: "execute", outcome: { state: "completed", ...optionalOutput(output) } }
+    ? { mode: "execute", outcome: { state: "completed", ...optionalOutput(output), control } }
     : {
         mode: "dryRun",
         outcome: {
           state: "planned",
           ...optionalOutput(output),
+          control,
           effects: state.effects.slice(effectsStart),
           issues: storedIssues(state.issues.slice(issuesStart)),
         },
@@ -604,13 +673,16 @@ const evaluateControl = async (
 ): Promise<StepEvaluation> => {
   const effectsStart = state.effects.length;
   const issuesStart = state.issues.length;
+  let control: WorkflowControlTraversal;
   let flow: Flow;
   if (irStep.kind === "if") {
     try {
       const matched = await evaluateCondition(state, scope, irStep.condition, [...irStep.sourcePath, "if"]);
+      control = { kind: "if", branches: [matched ? "then" : "else"] };
       flow = await runSteps(state, matched ? irStep.then : irStep.else, scope.child(), iterationPath);
     } catch (error) {
       if (state.options.mode !== "dryRun") throw error;
+      control = { kind: "if", branches: ["then", "else"] };
       flow = await analyzeUnknownBranches(state, scope, irStep, iterationPath, errorMessage(error));
     }
   } else if (irStep.kind === "switch") {
@@ -623,9 +695,11 @@ const evaluateControl = async (
           break;
         }
       }
+      control = { kind: "switch", branches: [matched ? irStep.cases.indexOf(matched) : "default"] };
       flow = await runSteps(state, matched?.steps ?? irStep.default, scope.child(), iterationPath);
     } catch (error) {
       if (state.options.mode !== "dryRun") throw error;
+      control = { kind: "switch", branches: [...irStep.cases.map((_, index) => index), "default"] };
       flow = await analyzeUnknownBranches(state, scope, irStep, iterationPath, errorMessage(error));
     }
   } else {
@@ -641,16 +715,18 @@ const evaluateControl = async (
           : `forEach reference "${irStep.reference}" must resolve to a JSON array`;
       if (state.options.mode !== "dryRun") throw new WorkflowValueError(reason);
       state.issues.push({ state: "indeterminate", reason, step: stepIdentity(state, irStep, iterationPath) });
+      control = { kind: "forEach", items: [null] };
       flow = await runSteps(state, irStep.steps, scope.child({ [irStep.alias]: null }), [...iterationPath, 0]);
       if (flow.state === "canceled") {
         return { flow, result: resultForHaltedControl(state, flow, effectsStart, issuesStart) };
       }
       flow = { state: "continue" };
-      return { flow, result: resultForCompletedControl(state, undefined, effectsStart, issuesStart) };
+      return { flow, result: resultForCompletedControl(state, undefined, control, effectsStart, issuesStart) };
     }
     const limit = loopItemLimit(state);
     if (value.length > limit)
       throw new WorkflowValueError(`forEach reference "${irStep.reference}" has ${value.length} items; limit is ${limit}`);
+    control = { kind: "forEach", items: value };
     flow = { state: "continue" };
     for (let index = 0; index < value.length; index += 1) {
       const cancellation = await heartbeat(state);
@@ -663,7 +739,7 @@ const evaluateControl = async (
     }
   }
   return flow.state === "continue"
-    ? { flow, result: resultForCompletedControl(state, flow.output, effectsStart, issuesStart) }
+    ? { flow, result: resultForCompletedControl(state, flow.output, control, effectsStart, issuesStart) }
     : { flow, result: resultForHaltedControl(state, flow, effectsStart, issuesStart) };
 };
 
@@ -680,6 +756,7 @@ const evaluateStep = async (
       : await evaluateControl(state, scope, irStep, iterationPath);
   } catch (error) {
     if (error instanceof WorkflowRetryableStepError) throw error;
+    if (error instanceof WorkflowLeaseLostError) throw error;
     if (error instanceof WorkflowCancellation) {
       await traceCancellation(state, error.cancellation);
       const flow = { state: "canceled", ...optionalMessage(error.cancellation.message), step } as const;

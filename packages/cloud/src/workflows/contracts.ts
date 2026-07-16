@@ -222,8 +222,13 @@ export type WorkflowDependency = {
   data?: Record<string, WorkflowJsonValue>;
 };
 
+export type WorkflowControlTraversal =
+  | { kind: "if"; branches: Array<"then" | "else"> }
+  | { kind: "switch"; branches: Array<number | "default"> }
+  | { kind: "forEach"; items: WorkflowJsonValue[] };
+
 export type WorkflowStepOutcome =
-  | { state: "completed"; output?: WorkflowJsonValue }
+  | { state: "completed"; output?: WorkflowJsonValue; control?: WorkflowControlTraversal }
   | { state: "waiting"; dependency: WorkflowDependency }
   | { state: "failed"; error: WorkflowExecutionError }
   | { state: "needs_attention"; error: WorkflowExecutionError }
@@ -243,7 +248,13 @@ export type WorkflowPlanningIssue = {
 };
 
 export type WorkflowPlanningOutcome =
-  | { state: "planned"; output?: WorkflowJsonValue; effects: WorkflowJsonValue[]; issues?: WorkflowPlanningIssue[] }
+  | {
+      state: "planned";
+      output?: WorkflowJsonValue;
+      control?: WorkflowControlTraversal;
+      effects: WorkflowJsonValue[];
+      issues?: WorkflowPlanningIssue[];
+    }
   | {
       state: "terminal";
       status: "succeeded" | "failed";

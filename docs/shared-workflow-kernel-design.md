@@ -476,7 +476,7 @@ type StepOutcome<T> =
   | { state: "terminal"; status: "succeeded" | "canceled"; message?: string };
 ```
 
-`WorkflowDependency` is opaque to the kernel except for stable identity and resume semantics. Mail commands, AI runs, approvals, and later durable external operations can therefore wait without teaching the kernel their domain. Wakeup delivery is at least once; correctness comes from duplicate suppression and a fenced atomic state transition, not an exactly-once claim.
+`WorkflowDependency` is opaque to the kernel except for stable identity and resume semantics. Mail commands, AI runs, approvals, and later durable external operations can therefore wait without teaching the kernel their domain. Wakeup delivery is a best-effort latency hint and may be duplicated or lost. Correctness comes from PostgreSQL recovery, duplicate suppression, and a fenced atomic state transition.
 
 ### An app adapter owns
 
@@ -637,7 +637,7 @@ The runtime reports unsupported and indeterminate analysis gaps as an ordered `i
 
 Production built-ins and app actions must support at least `validate` before release. Mutations should normally provide full before/after plans. HTTP, email, document generation, approvals, and AI runs may render or describe their intended request without sending, allocating permanent numbers, creating command intents, or starting child runs.
 
-Full planners may update a virtual state overlay so later expressions observe predicted record or message changes. If an action cannot provide a trustworthy output or state projection, every later step that depends on that output or affected resource is marked `indeterminate`.
+The current executor restores explicit action outputs and variables rebuilt by action restoration hooks. A future action SDK may add a generic virtual-state overlay so later expressions observe predicted record or message changes. Until then, an app planner that cannot provide a trustworthy output or state projection must mark dependent analysis `indeterminate`.
 
 An unknown condition causes both branches to be statically validated while the runtime choice remains `indeterminate`. An unknown loop source validates the loop body but invents no iterations. A wait action reports `would_wait` without persisting a dependency.
 
@@ -647,16 +647,7 @@ Mail preflight remains a separate execution-safety contract. Its hash commits a 
 
 ### Runtime context
 
-Action handlers receive a small shared context with:
-
-- stable workflow, run, step-path, attempt, and execution-generation identity;
-- deterministic idempotency-key derivation;
-- heartbeat and cancellation checks;
-- bounded output serialization and redaction helpers;
-- structured trace and lifecycle-event emission;
-- the current opaque actor/authorization context for passing into app services;
-- dependency creation and waiting;
-- transaction access only through the app-provided transactional port.
+Action handlers receive a small shared context with stable run and step identity, the bound plan and invocation, lexical variables, value evaluation and reference resolution, and a heartbeat/cancellation check. The identity includes the execution generation and invocation idempotency key. App action adapters own transaction access, effect-intent identity, redaction, authorization, and bounded domain output validation.
 
 The context never grants permission by itself. App services remain responsible for current authorization checks.
 
@@ -665,21 +656,17 @@ The context never grants permission by itself. App services remain responsible f
 Waiting is a first-class runtime protocol, not custom polling inside an action:
 
 ```ts
-return ctx.waitFor({
-  kind: "mail.command",
-  key: commandId,
-  resumeKey: `command:${commandId}`,
-});
+return {
+  state: "waiting",
+  dependency: { kind: "mail.command", key: commandId },
+};
 ```
 
 The kernel supplies the opaque dependency contract, waiting execution outcome, and atomic `parkStep` repository port. Each app persists wait state, deadlines, duplicate-wakeup suppression, cancellation, and the fenced resume transition under a new execution generation in its own PostgreSQL schema. Wake transports are best-effort hints carrying a run ID; recovery queries remain authoritative when a hint is lost. Mail commands and hydration already use this contract. AI runs, approvals, and document rendering can use it once their app adapters provide the same durable transitions.
 
 ### Time and schedules
 
-Schedule support has two distinct author utilities:
-
-- `defineScheduleTrigger` and a schedule coordinator for cron registration, timezone normalization, deterministic slot keys, manual runs, reconciliation, tracing, and cleanup;
-- a future timer dependency such as `ctx.waitUntil(instant)` for pausing an already-running workflow without letting actions create unmanaged cron schedules.
+Current schedule support provides normalization, stable registration and slot keys, and a reconciliation planner. App adapters connect those registrations to `@valentinkolb/sync`, revalidate the current activation before materializing a run, and retain PostgreSQL authority. The current Grids and Mail misfire policy skips cron slots missed while their scheduler process is offline; delivered duplicate slots are deduplicated. A future timer dependency may pause an already-running workflow without letting actions create unmanaged cron schedules.
 
 An action must not register its own persistent scheduler entry. Recurring starts belong to triggers; delayed continuation belongs to the dependency protocol. This keeps schedules inspectable and prevents orphaned registrations.
 

@@ -68,6 +68,27 @@ describe("runtime lifecycle", () => {
     expect(events).toEqual(["stopped", "drained", "stopped"]);
   });
 
+  test("stops every worker and drains tasks when worker shutdown fails", async () => {
+    const tracker = createRuntimeTaskTracker();
+    const events: string[] = [];
+    tracker.open();
+    tracker.run(async () => events.push("drained"));
+
+    await expect(
+      stopRuntimeJobs(tracker, [
+        {
+          stop: () => {
+            events.push("first");
+            throw new Error("first stop failed");
+          },
+        },
+        { stop: () => events.push("second") },
+      ]),
+    ).rejects.toBeInstanceOf(AggregateError);
+
+    expect(events).toEqual(["first", "second", "drained", "first", "second"]);
+  });
+
   test("serializes duplicate starts and stops", async () => {
     let starts = 0;
     let stops = 0;

@@ -1,21 +1,11 @@
 import type { WorkflowJsonValue } from "../contracts";
 import { parseWorkflowValueString } from "../language";
+import { readWorkflowValuePath } from "../language/references";
 
 const readTriggerPath = (values: Record<string, WorkflowJsonValue>, reference: string): WorkflowJsonValue | undefined => {
   const segments = reference.split(".");
   if (segments.shift() !== "trigger") return undefined;
-  let current: WorkflowJsonValue = values;
-  for (const segment of segments) {
-    if (Array.isArray(current)) {
-      const index = Number(segment);
-      if (!Number.isSafeInteger(index) || index < 0 || index >= current.length) return undefined;
-      current = current[index]!;
-      continue;
-    }
-    if (current === null || typeof current !== "object" || !(segment in current)) return undefined;
-    current = current[segment]!;
-  }
-  return current;
+  return readWorkflowValuePath(values, segments);
 };
 
 const evaluateTriggerValue = (

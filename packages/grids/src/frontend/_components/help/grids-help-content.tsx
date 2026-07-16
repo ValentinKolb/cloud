@@ -969,7 +969,7 @@ steps:
           {
             title: "schedule",
             icon: "ti-clock",
-            text: "Runs future slots from a five-field cron expression. timezone is an optional IANA timezone and defaults to UTC.",
+            text: "Runs delivered future slots from a five-field cron expression. timezone is an optional IANA timezone and defaults to UTC. Duplicate slots reuse one logical run; slots missed while the scheduler process is offline are skipped rather than backfilled.",
           },
           {
             title: "recordEvent",

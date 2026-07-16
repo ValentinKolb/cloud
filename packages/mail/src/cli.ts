@@ -188,7 +188,16 @@ const printTable = <T extends Record<string, unknown>>(
   columns: Parameters<CloudCliContext["table"]>[1],
 ) => {
   if (ctx.options.output === "json") ctx.json(value);
-  else ctx.table(rows, columns);
+  else if (ctx.options.output === "jsonl") {
+    for (const item of Array.isArray(value) ? value : [value]) ctx.jsonLine(item);
+  } else ctx.table(rows, columns);
+};
+
+const printStructured = (ctx: CloudCliContext, value: unknown): boolean => {
+  if (ctx.options.output === "json") ctx.json(value);
+  else if (ctx.options.output === "jsonl") ctx.jsonLine(value);
+  else return false;
+  return true;
 };
 
 const listMailboxes = (ctx: CloudCliContext): Promise<MailboxWithPermission[]> => readApi(ctx, "/mailboxes?limit=200");
@@ -282,10 +291,7 @@ const readSavedViewFilter = async (
 };
 
 const printWorkflowPreflight = (ctx: CloudCliContext, preflight: MailWorkflowPreflight): void => {
-  if (ctx.options.output === "json") {
-    ctx.json(preflight);
-    return;
-  }
+  if (printStructured(ctx, preflight)) return;
   ctx.print(`Version: ${preflight.workflowVersionId}; source hash: ${preflight.sourceHash}`);
   ctx.print(`Targets: ${preflight.targetCount}; preflight hash: ${preflight.preflightHash}`);
 };
@@ -2525,7 +2531,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/workflows/validate`,
           jsonRequest("POST", { source: await readWorkflowSource(flags.source) }),
         );
-        if (ctx.options.output === "json") ctx.json(validation);
+        if (printStructured(ctx, validation)) return;
         else {
           ctx.print(validation.valid ? "Workflow is valid." : "Workflow is invalid.");
           for (const diagnostic of validation.diagnostics) {
@@ -2592,7 +2598,7 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const workflow = await readApi<MailWorkflowDetail>(ctx, `/mailboxes/${mailbox.id}/workflows/${args.workflowId}`);
-        if (ctx.options.output === "json") ctx.json(workflow);
+        if (printStructured(ctx, workflow)) return;
         else {
           ctx.print(`${workflow.name} (${workflow.id})`);
           ctx.print(`Current version: ${workflow.currentVersion.id}; source hash: ${workflow.currentVersion.sourceHash}`);
@@ -2624,7 +2630,7 @@ export default defineCliCommands({
             effectBudget: workflowEffectBudget(flags),
           }),
         );
-        if (ctx.options.output === "json") ctx.json(workflow);
+        if (printStructured(ctx, workflow)) return;
         else ctx.print(`Created ${workflow.name} (${workflow.id}) at version ${workflow.currentVersion.id}.`);
       },
     }),
@@ -2664,7 +2670,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions`,
           jsonRequest("POST", { source: await readWorkflowSource(flags.source), effectBudget: workflowEffectBudget(flags) }),
         );
-        if (ctx.options.output === "json") ctx.json(workflow);
+        if (printStructured(ctx, workflow)) return;
         else ctx.print(`Created ${workflow.name} version ${workflow.currentVersion.id}.`);
       },
     }),
@@ -2681,7 +2687,7 @@ export default defineCliCommands({
           ctx,
           `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${args.versionId}`,
         );
-        if (ctx.options.output === "json") ctx.json(version);
+        if (printStructured(ctx, version)) return;
         else {
           ctx.print(`Version: ${version.id}; source hash: ${version.sourceHash}`);
           ctx.print(version.source);
@@ -2702,7 +2708,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/activate`,
           jsonRequest("POST", { expectedVersionId: flags.versionId }),
         );
-        if (ctx.options.output === "json") ctx.json(workflow);
+        if (printStructured(ctx, workflow)) return;
         else ctx.print(`Activated ${workflow.name} at version ${workflow.activeVersionId}.`);
       },
     }),
@@ -2720,7 +2726,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/deactivate`,
           jsonRequest("POST", { expectedVersionId: flags.versionId }),
         );
-        if (ctx.options.output === "json") ctx.json(workflow);
+        if (printStructured(ctx, workflow)) return;
         else ctx.print(`Deactivated ${workflow.name}.`);
       },
     }),
@@ -2764,7 +2770,7 @@ export default defineCliCommands({
         );
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
         if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
-        if (ctx.options.output === "json") ctx.json({ preflight, run });
+        if (printStructured(ctx, { preflight, run })) return;
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
     }),
@@ -2794,7 +2800,7 @@ export default defineCliCommands({
         );
         const result = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, run.id, flags.timeoutSeconds) : run;
         if (flags.wait && result.state !== "succeeded") return printWorkflowWaitFailure(ctx, result);
-        if (ctx.options.output === "json") ctx.json(result);
+        if (printStructured(ctx, result)) return;
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow dry run ${result.id} (${result.state}).`);
       },
     }),
@@ -2838,7 +2844,7 @@ export default defineCliCommands({
         );
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
         if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
-        if (ctx.options.output === "json") ctx.json({ preflight, run });
+        if (printStructured(ctx, { preflight, run })) return;
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
     }),
@@ -2882,7 +2888,7 @@ export default defineCliCommands({
         );
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
         if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
-        if (ctx.options.output === "json") ctx.json({ preflight, run });
+        if (printStructured(ctx, { preflight, run })) return;
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
     }),
@@ -2925,7 +2931,7 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const run = await readApi<MailWorkflowRun>(ctx, `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}`);
-        if (ctx.options.output === "json") ctx.json(run);
+        if (printStructured(ctx, run)) return;
         else ctx.print(`${run.state}: ${workflowProgressText(run)}${workflowLastErrorText(run)}`);
       },
     }),
@@ -2975,7 +2981,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const run = await waitForWorkflowRun(ctx, mailbox.id, args.runId, flags.timeoutSeconds);
         if (run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run);
-        if (ctx.options.output === "json") ctx.json(run);
+        if (printStructured(ctx, run)) return;
         else ctx.print(`Workflow run ${run.id} succeeded (${workflowProgressText(run)}).`);
       },
     }),
@@ -2995,7 +3001,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}/cancel`,
           jsonRequest("POST", { reason: flags.reason }),
         );
-        if (ctx.options.output === "json") ctx.json(run);
+        if (printStructured(ctx, run)) return;
         else ctx.print(`Workflow run ${run.id} is ${run.state}.`);
       },
     }),

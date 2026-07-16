@@ -30,10 +30,26 @@ export const stopRuntimeJobs = async (
   jobs: ReadonlyArray<{ stop(): void }>,
 ): Promise<void> => {
   tracker.close();
-  for (const job of jobs) job.stop();
-  await tracker.drain();
+  const errors: unknown[] = [];
+  const stopAll = () => {
+    for (const job of jobs) {
+      try {
+        job.stop();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  };
+  stopAll();
+  try {
+    await tracker.drain();
+  } catch (error) {
+    errors.push(error);
+  }
   // An accepted task may restart its worker before the drain completes.
-  for (const job of jobs) job.stop();
+  stopAll();
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, "Multiple runtime jobs failed to stop");
 };
 
 type RuntimeLifecycleHooks = {

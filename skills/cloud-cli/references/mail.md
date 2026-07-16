@@ -240,7 +240,7 @@ steps:
       message: Scheduled check completed
 ```
 
-Activation reconciles each schedule into the shared scheduler. Every due slot has a deterministic key, revalidates the active workflow version and schedule before materialization, and uses the same authorization-aware, idempotent run path as event triggers. PostgreSQL activation state remains authoritative when scheduler delivery is repeated or missed.
+Activation reconciles each schedule into the shared scheduler. Every delivered slot has a deterministic key, revalidates the active workflow version and schedule before materialization, and uses the same authorization-aware, idempotent run path as event triggers. Duplicate delivery reuses the same logical run. The current misfire policy is explicit: slots missed while the scheduler process is offline are skipped rather than backfilled. PostgreSQL activation state remains authoritative for which schedules may create new runs.
 
 ### Use inputs, conditions, and actions
 
@@ -266,8 +266,8 @@ The current Mail action vocabulary is:
 | --- | --- | --- |
 | `addKeyword` | `message`, `keyword` | Durable provider command |
 | `removeKeyword` | `message`, `keyword` | Durable provider command |
-| `moveMessage` | `message`, accessible folder name, ID, or expression in `folder` | Durable provider command |
-| `assignConversation` | `conversation`, assignable user name, ID, expression, or `null` in `user` | Transactional collaboration change |
+| `moveMessage` | `message`, literal accessible folder name or ID in `folder` | Durable provider command |
+| `assignConversation` | `conversation`, literal assignable user name, ID, or `null` in `user` | Transactional collaboration change |
 | `setConversationStatus` | `conversation`, `open`, `waiting`, or `done` in `status` | Transactional collaboration change |
 | `setVariable` | Identifier in `name`, expression or literal in `value` | Store a pure scoped value for later steps |
 | `succeed` | Operator-facing `message` | Stop successfully |
@@ -389,7 +389,7 @@ With `--json` or `--jsonl`, a waited run that ends in `failed`, `canceled`, or `
 
 Every saved version carries an effect budget. Both `workflow create` and `workflow version create` use defaults of 1,000 targets, 1,000 moves, 2,000 keyword changes, and 2,000 collaboration changes when their flags are omitted. Set the version's budget with `--max-targets`, `--max-moves`, `--max-keyword-changes`, and `--max-collaboration-changes`; a new version does not implicitly inherit the previous version's budget. The API and CLI accept values up to 50,000 targets and moves and 100,000 keyword or collaboration changes. Preflight rejects work above the saved budget or the hard 50,000-target/50,000-total-effect planning ceilings.
 
-Creating versions and activating or deactivating workflows requires mailbox `admin`; validation and inspection require `read`; preflight, manual execution, and cancellation require current mutation access. Manual runs snapshot the initiating user or service-account credential and recheck it during execution. Automatic runs use the active version's mailbox-owned authority, so removing the activating administrator's later personal access does not silently disable approved automation. Deactivation or replacement of that version prevents new automatic runs and fences unfinished effects. Provider commands and collaboration actions still perform current mailbox, capability, revision, and active-version checks before changing mail.
+Creating versions and activating or deactivating workflows requires mailbox `admin`; validation and inspection require `read`; preflight, manual execution, and cancellation require current mutation access. Manual runs snapshot the initiating user or service-account credential and recheck it during execution. Automatic runs use the active version's mailbox-owned authority, so removing the activating administrator's later personal access does not silently disable approved automation. Deactivation or replacement prevents new automatic runs. Runs accepted before that change retain their pinned version and automation authority; cancel such a run explicitly to stop unfinished targets. Provider commands and collaboration actions still perform current mailbox, capability, and resource-revision checks before changing mail.
 
 Provider actions create idempotent Mail commands. The workflow step enters `waiting` until the command is confirmed, failed, reconciled, canceled, or marked `needs_attention`. Body, HTML, or attachment references can similarly wait for hydration during automatic execution. Large backfills materialize frozen targets in bounded keyset batches and persist a restart cursor and rolling digest before any target is executable. Durable step outcomes are restored after retries; lease generations fence stale workers; dependency events reduce wake-up latency; and PostgreSQL reconciliation recovers interrupted materialization, missed events, expired claims, and terminal dependencies. Ambiguous provider outcomes become `needs_attention` rather than being blindly repeated.
 

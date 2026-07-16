@@ -586,13 +586,7 @@ const restoredStep = (mode: string, outcome: unknown): WorkflowRestoredStep | nu
 export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepositoryPort {
   constructor(
     private readonly renewLease: (run: WorkflowRuntimeRunIdentity) => Promise<WorkflowHeartbeatOutcome> = async (run) => {
-      const outcome = await renewWorkflowRunLease(run);
-      return outcome.state === "active"
-        ? outcome
-        : {
-            state: "canceled",
-            message: outcome.state === "canceled" ? outcome.message : "workflow run lease is no longer active",
-          };
+      return await renewWorkflowRunLease(run);
     },
   ) {}
 
