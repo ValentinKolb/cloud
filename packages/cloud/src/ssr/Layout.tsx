@@ -47,6 +47,7 @@ type LayoutProps = {
   title?: string | Breadcrumb[];
   fullPage?: boolean /** Keep the shell viewport-bound and suppress its footer. */;
   fullWidth?: boolean /** Delegate scrolling and clipping to the page's work surface. */;
+  focusMode?: boolean /** Render only the app canvas and content for dedicated editors or pop-out windows. */;
 }; // ==========================
 // Helpers
 function active(pathname: string, match: string): string {
@@ -135,7 +136,7 @@ function ExpiryWarnings({ user }: { user: User }) {
 // Sub-Components
 // ==========================
 // Main Layout
-export default function Layout({ children, c, title, fullPage, fullWidth }: LayoutProps) {
+export default function Layout({ children, c, title, fullPage, fullWidth, focusMode }: LayoutProps) {
   const runtime = getRuntimeContext(c);
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
   c.get("page").theme = readThemeFromCookieHeader(cookie);
@@ -198,6 +199,19 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   const mainLayoutClass = fullPage || fullWidth ? "flex flex-col" : "md:overflow-auto";
   const canvasStyle =
     [appAppearanceStyle(currentApp?.appearance), appWorkspaceLayoutStyle(workspaceLayout)].filter(Boolean).join(";") || undefined;
+  if (focusMode) {
+    return (
+      <div
+        class="cloud-app-canvas flex h-dvh w-full overflow-hidden"
+        style={canvasStyle}
+        data-app-id={currentApp?.id}
+        data-workspace-sidebar-collapsed={workspaceLayout?.sidebarCollapsed ? "true" : undefined}
+      >
+        <TimezoneCookie />
+        <main class="min-h-0 min-w-0 flex-1">{children}</main>
+      </div>
+    );
+  }
   return (
     <div
       class={`cloud-app-canvas relative flex w-full ${fullPage ? "h-dvh overflow-hidden" : "min-h-screen md:h-screen md:overflow-hidden"}`}
