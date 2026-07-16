@@ -98,6 +98,8 @@ export default function MailConversationDetail(props: {
                     mailboxId={props.mailboxId}
                     identities={props.identities}
                     conversationId={props.selectedConversationId}
+                    intent="reply"
+                    sourceMessageId={lastMessage?.id}
                     initialTo={lastMessage?.from.map((address) => address.address) ?? []}
                     initialSubject={props.subject.toLowerCase().startsWith("re:") ? props.subject : `Re: ${props.subject}`}
                     label="Reply"
@@ -107,6 +109,9 @@ export default function MailConversationDetail(props: {
                 <ComposeMail
                   mailboxId={props.mailboxId}
                   identities={props.identities}
+                  conversationId={props.selectedConversationId}
+                  intent="forward"
+                  sourceMessageId={lastMessage?.id}
                   initialSubject={props.subject.toLowerCase().startsWith("fwd:") ? props.subject : `Fwd: ${props.subject}`}
                   label="Forward"
                   class="btn-secondary btn-sm"

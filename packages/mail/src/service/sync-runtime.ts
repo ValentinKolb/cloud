@@ -13,6 +13,7 @@ import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bind
 import { sha256Json } from "./canonical";
 import type { ConnectorEnvelope, FlagChange } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
+import { deleteAbandonedDraftAttachmentUploads } from "./draft-uploads";
 import { resolveMailExecution } from "./execution";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
@@ -1583,6 +1584,7 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
       cron: "17 * * * *",
       meta: { appId: "mail", family: "mail:storage", label: "Mail blob upload cleanup" },
       process: async () => ({
+        draftUploads: await deleteAbandonedDraftAttachmentUploads(),
         abandoned: await deleteAbandonedBlobUploads(),
         orphaned: await deleteOrphanedBlobs(),
       }),

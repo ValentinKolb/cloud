@@ -3,9 +3,12 @@ import {
   activateWorkflowInputSchema,
   backfillWorkflowInputSchema,
   createConversationCommentSchema,
+  createDraftAttachmentUploadSchema,
   createWorkflowInputSchema,
   createWorkflowVersionInputSchema,
   deactivateWorkflowInputSchema,
+  draftContentInputSchema,
+  draftEditableContentInputSchema,
   dryRunWorkflowInputSchema,
   invokeWorkflowInputSchema,
   mailSearchExpressionSchema,
@@ -20,6 +23,37 @@ import {
   workflowRunStateSchema,
   workflowTargetStateSchema,
 } from "./contracts";
+
+const draftEditableContent = {
+  senderIdentityId: "00000000-0000-4000-8000-000000000001",
+  to: [],
+  cc: [],
+  bcc: [],
+  subject: "Subject",
+  body: "Body",
+  format: "plain" as const,
+};
+
+describe("mail draft contracts", () => {
+  test("keeps draft context immutable and bounds attachment uploads", () => {
+    expect(draftEditableContentInputSchema.safeParse({ ...draftEditableContent, intent: "reply" }).success).toBe(false);
+    expect(
+      draftContentInputSchema.safeParse({
+        ...draftEditableContent,
+        conversationId: "00000000-0000-4000-8000-000000000002",
+        intent: "reply",
+        sourceMessageId: "00000000-0000-4000-8000-000000000003",
+      }).success,
+    ).toBe(true);
+    expect(
+      createDraftAttachmentUploadSchema.safeParse({
+        filename: "too-large.bin",
+        contentType: "application/octet-stream",
+        byteLength: 100 * 1024 * 1024 + 1,
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("mail message state contracts", () => {
   test("keeps system flags and provider keywords in separate namespaces", () => {

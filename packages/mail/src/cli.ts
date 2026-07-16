@@ -16,6 +16,11 @@ import {
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 import {
+  type AcquiredDraftLease,
+  type DraftAttachmentUpload,
+  type DraftIntent,
+  type DraftLease,
+  type DraftRecoveryCopy,
   type Mailbox,
   type MailboxHealth,
   type MailboxOperationalHealth,
@@ -354,23 +359,28 @@ const parsePort = (value: number | undefined, fallback: number): number => value
 const parseAddresses = (values: string[]): Array<{ name: null; address: string }> =>
   values.map((address) => ({ name: null, address: address.trim().toLowerCase() }));
 
-const draftContentFlags = {
+const draftEditableContentFlags = {
   identity: flag.string({ required: true, description: "Sender identity id" }),
   to: flag.stringList({ description: "Recipient; repeatable" }),
   cc: flag.stringList({ description: "Cc recipient; repeatable" }),
   bcc: flag.stringList({ description: "Bcc recipient; repeatable" }),
-  conversation: flag.string({ description: "Conversation id when replying" }),
   subject: flag.string({ description: "Message subject" }),
   body: flag.input({ required: true, fileName: "body-file", stdinName: "body-stdin", description: "Plaintext or Markdown body" }),
   format: flag.enum(["plain", "markdown"] as const, { default: "markdown" }),
 };
 
-const readDraftContent = async (flags: {
+const draftContentFlags = {
+  ...draftEditableContentFlags,
+  conversation: flag.string({ description: "Conversation id for reply or forward drafts" }),
+  intent: flag.enum(["new", "reply", "reply_all", "forward"] as const, { description: "Immutable draft intent" }),
+  sourceMessage: flag.string({ name: "source-message", description: "Source message id for reply or forward drafts" }),
+};
+
+const readDraftEditableContent = async (flags: {
   identity?: string;
   to: string[];
   cc: string[];
   bcc: string[];
-  conversation?: string;
   subject?: string;
   body: Parameters<typeof readCliInput>[0];
   format?: "plain" | "markdown";
@@ -378,7 +388,6 @@ const readDraftContent = async (flags: {
   if (!flags.identity) throw new Error("Missing sender identity.");
   const body = await readCliInput(flags.body, { label: "message body", required: true });
   return {
-    conversationId: flags.conversation,
     senderIdentityId: flags.identity,
     to: parseAddresses(flags.to),
     cc: parseAddresses(flags.cc),
@@ -388,6 +397,19 @@ const readDraftContent = async (flags: {
     format: flags.format ?? "markdown",
   };
 };
+
+const readDraftContent = async (
+  flags: Parameters<typeof readDraftEditableContent>[0] & {
+    conversation?: string;
+    intent?: DraftIntent;
+    sourceMessage?: string;
+  },
+) => ({
+  ...(await readDraftEditableContent(flags)),
+  conversationId: flags.conversation,
+  intent: flags.intent,
+  sourceMessageId: flags.sourceMessage,
+});
 
 const createDraft = async (ctx: CloudCliContext, mailboxId: string, flags: Parameters<typeof readDraftContent>[0]): Promise<MailDraft> =>
   readApi(ctx, `/mailboxes/${mailboxId}/drafts`, jsonRequest("POST", await readDraftContent(flags)));
@@ -400,22 +422,39 @@ const uploadDraftAttachment = async (params: {
   path: string;
   filename?: string;
   contentType?: string;
+  uploadId?: string;
 }): Promise<MailDraft> => {
   const file = Bun.file(params.path);
   if (!(await file.exists())) throw new Error(`Attachment file was not found: ${params.path}`);
-  const query = new URLSearchParams({
-    expectedRevision: String(params.expectedRevision),
-    filename: params.filename ?? basename(params.path),
-  });
-  const response = await params.ctx.fetch(apiPath(`/mailboxes/${params.mailboxId}/drafts/${params.draftId}/attachments?${query}`), {
-    method: "POST",
-    headers: {
-      "Content-Type": params.contentType || file.type || "application/octet-stream",
-      "Content-Length": String(file.size),
-    },
-    body: file,
-  });
-  return params.ctx.readJson<MailDraft>(response);
+  const uploadBase = `/mailboxes/${params.mailboxId}/drafts/${params.draftId}/attachment-uploads`;
+  let upload = params.uploadId
+    ? await readApi<DraftAttachmentUpload>(params.ctx, `${uploadBase}/${params.uploadId}`)
+    : await readApi<DraftAttachmentUpload>(
+        params.ctx,
+        uploadBase,
+        jsonRequest("POST", {
+          filename: params.filename ?? basename(params.path),
+          contentType: params.contentType || file.type || "application/octet-stream",
+          byteLength: file.size,
+        }),
+      );
+  if (upload.byteLength !== file.size)
+    throw new Error(`Upload ${upload.id} expects ${upload.byteLength} bytes, but the local file has ${file.size}.`);
+  while (upload.receivedBytes < upload.byteLength) {
+    const end = Math.min(upload.receivedBytes + upload.chunkSize, upload.byteLength);
+    const bytes = await file.slice(upload.receivedBytes, end).arrayBuffer();
+    const response = await params.ctx.fetch(apiPath(`${uploadBase}/${upload.id}?offset=${upload.receivedBytes}`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: bytes,
+    });
+    upload = await params.ctx.readJson<DraftAttachmentUpload>(response);
+  }
+  return readApi<MailDraft>(
+    params.ctx,
+    `${uploadBase}/${upload.id}/finalize`,
+    jsonRequest("POST", { expectedRevision: params.expectedRevision }),
+  );
 };
 
 const providerConnectionFlags = {
@@ -2378,6 +2417,62 @@ export default defineCliCommands({
         }
       },
     }),
+    command("draft lease get", {
+      summary: "Show the advisory editor lease for a shared draft",
+      args: { draftId: arg.required({ description: "Draft id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const lease = await readApi<DraftLease | null>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`);
+        if (printStructured(ctx, lease)) return;
+        if (!lease) ctx.print("No active draft lease.");
+        else ctx.print(`${lease.holder.displayName} holds the lease until ${lease.expiresAt}.`);
+      },
+    }),
+    command("draft lease acquire", {
+      summary: "Acquire or explicitly take over a shared draft editor lease",
+      args: { draftId: arg.required({ description: "Draft id" }) },
+      flags: { ...mailboxFlag, takeover: flag.boolean({ description: "Replace the current advisory lease" }) },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const lease = await readApi<AcquiredDraftLease>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`,
+          jsonRequest("POST", { takeover: flags.takeover }),
+        );
+        if (printStructured(ctx, lease)) return;
+        ctx.print(`Acquired draft lease until ${lease.expiresAt}.`);
+        ctx.print(`Token: ${lease.token}`);
+      },
+    }),
+    command("draft lease heartbeat", {
+      summary: "Extend an owned shared draft editor lease",
+      args: { draftId: arg.required({ description: "Draft id" }) },
+      flags: { ...mailboxFlag, token: flag.string({ required: true, description: "Lease token" }) },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.token) throw new Error("Missing draft lease token.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const lease = await readApi<AcquiredDraftLease>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`,
+          jsonRequest("PUT", { token: flags.token }),
+        );
+        if (printStructured(ctx, lease)) return;
+        ctx.print(`Extended draft lease until ${lease.expiresAt}.`);
+      },
+    }),
+    command("draft lease release", {
+      summary: "Release an owned shared draft editor lease",
+      args: { draftId: arg.required({ description: "Draft id" }) },
+      flags: { ...mailboxFlag, token: flag.string({ required: true, description: "Lease token" }) },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.token) throw new Error("Missing draft lease token.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await readApi<void>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`, jsonRequest("DELETE", { token: flags.token }));
+        if (printStructured(ctx, { released: true, draftId: args.draftId })) return;
+        ctx.print("Released draft lease.");
+      },
+    }),
     command("draft create", {
       summary: "Create a shared draft",
       flags: { ...mailboxFlag, ...draftContentFlags },
@@ -2393,7 +2488,7 @@ export default defineCliCommands({
       args: { draftId: arg.required({ description: "Draft id" }) },
       flags: {
         ...mailboxFlag,
-        ...draftContentFlags,
+        ...draftEditableContentFlags,
         revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
       },
       run: async ({ ctx, args, flags }) => {
@@ -2402,10 +2497,59 @@ export default defineCliCommands({
         const draft = await readApi<MailDraft>(
           ctx,
           `/mailboxes/${mailbox.id}/drafts/${args.draftId}`,
-          jsonRequest("PUT", { expectedRevision: flags.revision, draft: await readDraftContent(flags) }),
+          jsonRequest("PUT", { expectedRevision: flags.revision, draft: await readDraftEditableContent(flags) }),
         );
         if (ctx.options.output === "json") ctx.json(draft);
         else ctx.print(`Updated draft ${draft.id} to revision ${draft.revision}.`);
+      },
+    }),
+    command("draft recovery list", {
+      summary: "List conflict recovery copies for a shared draft",
+      args: { draftId: arg.required({ description: "Draft id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const copies = await readApi<DraftRecoveryCopy[]>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/recovery-copies`);
+        printTable(
+          ctx,
+          copies,
+          copies.map((copy) => ({
+            created: copy.createdAt,
+            baseRevision: copy.baseRevision,
+            restored: copy.restoredAt ?? "",
+            subject: copy.content.subject,
+            id: copy.id,
+          })),
+          [
+            { key: "created", label: "CREATED" },
+            { key: "baseRevision", label: "BASE REV" },
+            { key: "restored", label: "RESTORED" },
+            { key: "subject", label: "SUBJECT" },
+            { key: "id", label: "RECOVERY ID" },
+          ],
+        );
+      },
+    }),
+    command("draft recovery restore", {
+      summary: "Restore a recovery copy at an expected draft revision",
+      args: {
+        draftId: arg.required({ description: "Draft id" }),
+        recoveryId: arg.required({ description: "Recovery copy id" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current draft revision" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.revision === undefined) throw new Error("Missing expected draft revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const draft = await readApi<MailDraft>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/recovery-copies/${args.recoveryId}/restore`,
+          jsonRequest("POST", { expectedRevision: flags.revision }),
+        );
+        if (ctx.options.output === "json") ctx.json(draft);
+        else ctx.print(`Restored recovery copy into draft ${draft.id}; revision ${draft.revision}.`);
       },
     }),
     command("draft attachment add", {
@@ -2419,6 +2563,7 @@ export default defineCliCommands({
         revision: flag.int({ required: true, min: 1, description: "Expected current draft revision" }),
         name: flag.string({ description: "Attachment filename; defaults to the local basename" }),
         contentType: flag.string({ name: "content-type", description: "MIME content type" }),
+        upload: flag.string({ description: "Resume an existing attachment upload id" }),
       },
       run: async ({ ctx, args, flags }) => {
         if (flags.revision === undefined) throw new Error("Missing expected draft revision.");
@@ -2431,9 +2576,56 @@ export default defineCliCommands({
           path: args.path,
           filename: flags.name,
           contentType: flags.contentType,
+          uploadId: flags.upload,
         });
         if (ctx.options.output === "json") ctx.json(draft);
         else ctx.print(`Added attachment to draft ${draft.id}; revision ${draft.revision}.`);
+      },
+    }),
+    command("draft attachment upload list", {
+      summary: "List resumable attachment uploads for a shared draft",
+      args: { draftId: arg.required({ description: "Draft id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const uploads = await readApi<DraftAttachmentUpload[]>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachment-uploads`);
+        printTable(
+          ctx,
+          uploads,
+          uploads.map((upload) => ({
+            state: upload.state,
+            received: upload.receivedBytes,
+            total: upload.byteLength,
+            filename: upload.filename,
+            id: upload.id,
+          })),
+          [
+            { key: "state", label: "STATE" },
+            { key: "received", label: "RECEIVED" },
+            { key: "total", label: "TOTAL" },
+            { key: "filename", label: "FILENAME" },
+            { key: "id", label: "UPLOAD ID" },
+          ],
+        );
+      },
+    }),
+    command("draft attachment upload cancel", {
+      summary: "Cancel a resumable attachment upload",
+      args: {
+        draftId: arg.required({ description: "Draft id" }),
+        uploadId: arg.required({ description: "Attachment upload id" }),
+      },
+      flags: { ...mailboxFlag, yes: confirmFlag("Confirm attachment upload cancellation") },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to cancel the attachment upload.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const upload = await readApi<DraftAttachmentUpload>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachment-uploads/${args.uploadId}`,
+          { method: "DELETE" },
+        );
+        if (printStructured(ctx, upload)) return;
+        ctx.print(`Cancelled attachment upload ${upload.id}.`);
       },
     }),
     command("draft attachment remove", {
@@ -2457,6 +2649,30 @@ export default defineCliCommands({
         );
         if (ctx.options.output === "json") ctx.json(draft);
         else ctx.print(`Removed attachment from draft ${draft.id}; revision ${draft.revision}.`);
+      },
+    }),
+    command("draft attachment download", {
+      summary: "Download an attachment from a shared draft",
+      args: {
+        draftId: arg.required({ description: "Draft id" }),
+        attachmentId: arg.required({ description: "Draft attachment id" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        out: flag.string({ required: true, aliases: ["output"], description: "Output file path" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.out) throw new Error("Missing required flag --out.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const response = await ctx.fetch(apiPath(`/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachments/${args.attachmentId}`));
+        if (!response.ok) {
+          await ctx.readJson(response);
+          throw new Error(`Draft attachment download failed with HTTP ${response.status}.`);
+        }
+        const bytes = await streamResponseToFile(response, flags.out);
+        const result = { path: flags.out, bytes, contentType: response.headers.get("content-type"), etag: response.headers.get("etag") };
+        if (ctx.options.output === "json") ctx.json(result);
+        else ctx.print(`Wrote ${bytes} bytes to ${flags.out}.`);
       },
     }),
     command("draft discard", {
@@ -2510,6 +2726,7 @@ export default defineCliCommands({
           jsonRequest("POST", {
             kind: "send",
             draftId: draft.id,
+            expectedDraftRevision: draft.revision,
             senderIdentityId: flags.identity,
             scheduledAt: flags.schedule ? new Date(flags.schedule).toISOString() : undefined,
             undoSeconds: flags.undo,

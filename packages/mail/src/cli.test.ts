@@ -22,6 +22,7 @@ const WORKFLOW_RUN_ID = "00000000-0000-4000-8000-000000000015";
 const SOURCE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000016";
 const REMINDER_ID = "00000000-0000-4000-8000-000000000017";
 const SAVED_VIEW_ID = "00000000-0000-4000-8000-000000000018";
+const UPLOAD_ID = "00000000-0000-4000-8000-000000000019";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -894,7 +895,7 @@ test("send carries reply context and can wait for delivery", async () => {
 
   expect(result.exitCode).toBe(0);
   expect(bodies[0]).toMatchObject({ conversationId: CONVERSATION_ID, body: "Reply body" });
-  expect(bodies[1]).toMatchObject({ kind: "send", undoSeconds: 0 });
+  expect(bodies[1]).toMatchObject({ kind: "send", expectedDraftRevision: 1, undoSeconds: 0 });
   expect(JSON.parse(result.stdout).command.state).toBe("confirmed");
 });
 
@@ -1138,19 +1139,53 @@ test("conversation archive targets the configured semantic role", async () => {
   expect(JSON.parse(result.stdout)).toMatchObject({ correlationId: "archive-correlation", commands: [{ kind: "move" }] });
 });
 
-test("draft attachment add streams the exact local file at the expected revision", async () => {
+test("draft attachment add resumes a chunked upload and finalizes at the expected revision", async () => {
   const path = `/tmp/cloud-mail-draft-attachment-${crypto.randomUUID()}.txt`;
   const bytes = Buffer.from("streamed draft attachment\n");
   await writeFile(path, bytes);
   temporaryFiles.push(path);
   let uploaded = Buffer.alloc(0);
-  let query: URLSearchParams | undefined;
+  let createBody: unknown;
+  let finalizeBody: unknown;
+  let offset: string | null = null;
   const server = withMailbox(async (request) => {
-    const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/attachments`;
+    const uploadBase = `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/attachment-uploads`;
     const url = new URL(request.url);
-    if (request.method === "POST" && url.pathname === expectedPath) {
-      query = url.searchParams;
+    if (request.method === "POST" && url.pathname === uploadBase) {
+      createBody = await request.json();
+      return api({
+        id: UPLOAD_ID,
+        draftId: DRAFT_ID,
+        filename: "upload.txt",
+        contentType: "text/plain",
+        byteLength: bytes.length,
+        receivedBytes: 0,
+        chunkSize: 1024 * 1024,
+        state: "uploading",
+        attachmentId: null,
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      });
+    }
+    if (request.method === "PATCH" && url.pathname === `${uploadBase}/${UPLOAD_ID}`) {
+      offset = url.searchParams.get("offset");
       uploaded = Buffer.from(await request.arrayBuffer());
+      return api({
+        id: UPLOAD_ID,
+        draftId: DRAFT_ID,
+        filename: "upload.txt",
+        contentType: "text/plain",
+        byteLength: bytes.length,
+        receivedBytes: bytes.length,
+        chunkSize: 1024 * 1024,
+        state: "uploaded",
+        attachmentId: null,
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:01.000Z",
+      });
+    }
+    if (request.method === "POST" && url.pathname === `${uploadBase}/${UPLOAD_ID}/finalize`) {
+      finalizeBody = await request.json();
       return api({
         id: DRAFT_ID,
         mailboxId: MAILBOX_ID,
@@ -1203,9 +1238,139 @@ test("draft attachment add streams the exact local file at the expected revision
 
   expect(result.exitCode).toBe(0);
   expect(uploaded).toEqual(bytes);
-  expect(query?.get("expectedRevision")).toBe("3");
-  expect(query?.get("filename")).toBe("upload.txt");
+  expect(createBody).toEqual({ filename: "upload.txt", contentType: "text/plain", byteLength: bytes.length });
+  expect(String(offset)).toBe("0");
+  expect(finalizeBody).toEqual({ expectedRevision: 3 });
   expect(JSON.parse(result.stdout)).toMatchObject({ revision: 4, attachments: [{ id: ATTACHMENT_ID }] });
+});
+
+test("draft lease commands expose the complete advisory lease lifecycle", async () => {
+  const requests: Array<{ method: string; body: unknown }> = [];
+  const lease = {
+    holder: { kind: "user", id: USER_ID, displayName: "Mail User", avatarHash: null },
+    acquiredAt: "2026-07-12T00:00:00.000Z",
+    expiresAt: "2026-07-12T00:00:30.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (url.pathname !== `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/lease`) {
+      return api({ message: "unexpected" }, { status: 500 });
+    }
+    const body = request.method === "GET" ? null : await request.json();
+    requests.push({ method: request.method, body });
+    if (request.method === "GET" || request.method === "DELETE") return api(null);
+    return api({ ...lease, token: UPLOAD_ID });
+  });
+  servers.push(server);
+  const serverUrl = `http://127.0.0.1:${server.port}`;
+
+  const getResult = await runCli(serverUrl, ["--json", "mail", "draft", "lease", "get", DRAFT_ID, "--mailbox", MAILBOX_ID]);
+  const acquireResult = await runCli(serverUrl, [
+    "--json",
+    "mail",
+    "draft",
+    "lease",
+    "acquire",
+    DRAFT_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--takeover",
+  ]);
+  const heartbeatResult = await runCli(serverUrl, [
+    "--json",
+    "mail",
+    "draft",
+    "lease",
+    "heartbeat",
+    DRAFT_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--token",
+    UPLOAD_ID,
+  ]);
+  const releaseResult = await runCli(serverUrl, [
+    "--json",
+    "mail",
+    "draft",
+    "lease",
+    "release",
+    DRAFT_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--token",
+    UPLOAD_ID,
+  ]);
+
+  expect([getResult.exitCode, acquireResult.exitCode, heartbeatResult.exitCode, releaseResult.exitCode]).toEqual([0, 0, 0, 0]);
+  expect(JSON.parse(getResult.stdout)).toBeNull();
+  expect(JSON.parse(acquireResult.stdout)).toMatchObject({ token: UPLOAD_ID });
+  expect(JSON.parse(heartbeatResult.stdout)).toMatchObject({ token: UPLOAD_ID });
+  expect(JSON.parse(releaseResult.stdout)).toEqual({ released: true, draftId: DRAFT_ID });
+  expect(requests).toEqual([
+    { method: "GET", body: null },
+    { method: "POST", body: { takeover: true } },
+    { method: "PUT", body: { token: UPLOAD_ID } },
+    { method: "DELETE", body: { token: UPLOAD_ID } },
+  ]);
+});
+
+test("draft upload commands make resumable uploads discoverable and cancellable", async () => {
+  const activeUpload = {
+    id: UPLOAD_ID,
+    draftId: DRAFT_ID,
+    filename: "upload.txt",
+    contentType: "text/plain",
+    byteLength: 100,
+    receivedBytes: 50,
+    chunkSize: 1024 * 1024,
+    state: "uploading",
+    attachmentId: null,
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:01.000Z",
+  };
+  const methods: string[] = [];
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/attachment-uploads`;
+    methods.push(request.method);
+    if (request.method === "GET" && url.pathname === base) return api([activeUpload]);
+    if (request.method === "DELETE" && url.pathname === `${base}/${UPLOAD_ID}`) {
+      return api({ ...activeUpload, state: "cancelled" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const serverUrl = `http://127.0.0.1:${server.port}`;
+
+  const listResult = await runCli(serverUrl, [
+    "--json",
+    "mail",
+    "draft",
+    "attachment",
+    "upload",
+    "list",
+    DRAFT_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const cancelResult = await runCli(serverUrl, [
+    "--json",
+    "mail",
+    "draft",
+    "attachment",
+    "upload",
+    "cancel",
+    DRAFT_ID,
+    UPLOAD_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--yes",
+  ]);
+
+  expect([listResult.exitCode, cancelResult.exitCode]).toEqual([0, 0]);
+  expect(JSON.parse(listResult.stdout)).toEqual([activeUpload]);
+  expect(JSON.parse(cancelResult.stdout)).toMatchObject({ id: UPLOAD_ID, state: "cancelled" });
+  expect(methods).toEqual(["GET", "DELETE"]);
 });
 
 test("default sender setup preserves an existing display name when no name is passed", async () => {

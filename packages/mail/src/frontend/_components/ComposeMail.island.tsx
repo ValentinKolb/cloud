@@ -14,7 +14,7 @@ import {
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { MailCommand, MailDraft, SenderIdentity } from "../../contracts";
+import type { DraftIntent, MailCommand, MailDraft, SenderIdentity } from "../../contracts";
 import { readApiError } from "./api-response";
 import { readMailUserPreferences } from "./MailSettingsStore";
 
@@ -236,6 +236,8 @@ export default function ComposeMail(props: {
   label?: string;
   class?: string;
   conversationId?: string | null;
+  intent?: DraftIntent;
+  sourceMessageId?: string | null;
   initialTo?: string[];
   initialSubject?: string;
 }) {
@@ -246,7 +248,9 @@ export default function ComposeMail(props: {
       const values = await dialogCore.open<ComposeValues | null>(
         (close) => (
           <ComposeDialog
-            title={props.conversationId ? "Reply" : props.initialSubject?.toLowerCase().startsWith("fwd:") ? "Forward" : "New message"}
+            title={
+              props.intent === "forward" ? "Forward" : props.intent === "reply" || props.intent === "reply_all" ? "Reply" : "New message"
+            }
             identities={verified}
             initialTo={props.initialTo ?? []}
             initialSubject={props.initialSubject ?? ""}
@@ -262,6 +266,8 @@ export default function ComposeMail(props: {
         param: { mailboxId: props.mailboxId },
         json: {
           conversationId: props.conversationId ?? null,
+          intent: props.intent,
+          sourceMessageId: props.sourceMessageId ?? null,
           senderIdentityId: values.identityId,
           to: addresses(values.to),
           cc: addresses(values.cc),
@@ -290,6 +296,7 @@ export default function ComposeMail(props: {
         json: {
           kind: "send",
           draftId: draft.id,
+          expectedDraftRevision: draft.revision,
           senderIdentityId: values.identityId,
           undoSeconds: values.undoSeconds,
           idempotencyKey: crypto.randomUUID(),

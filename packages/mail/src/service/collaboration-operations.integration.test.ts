@@ -13,14 +13,7 @@ import {
   updateConversationComment,
 } from "./collaboration";
 import { createMailbox } from "./mailboxes";
-import {
-  acquireConversationReplyLease,
-  getConversationPresence,
-  heartbeatConversationPresence,
-  heartbeatConversationReplyLease,
-  leaveConversationPresence,
-  releaseConversationReplyLease,
-} from "./presence";
+import { getConversationPresence, heartbeatConversationPresence, leaveConversationPresence } from "./presence";
 import { cancelConversationReminder, getConversationReminder, setConversationReminder } from "./reminders";
 import {
   createSavedConversationView,
@@ -573,42 +566,6 @@ suite("mail collaboration operations", () => {
     const snapshot = await getConversationPresence({ context: ownerContext, mailboxId, conversationId });
     expect(snapshot.ok && snapshot.data.participants.find((participant) => participant.userId === writer.id)?.mode).toBe("composing");
 
-    const writerLease = await acquireConversationReplyLease({ context: writerContext, mailboxId, conversationId });
-    expect(writerLease.ok).toBe(true);
-    if (!writerLease.ok) return;
-    const competingLease = await acquireConversationReplyLease({ context: ownerContext, mailboxId, conversationId });
-    expect(competingLease.ok).toBe(false);
-    const wrongHeartbeat = await heartbeatConversationReplyLease({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      token: crypto.randomUUID(),
-    });
-    expect(wrongHeartbeat.ok).toBe(false);
-    const leaseHeartbeat = await heartbeatConversationReplyLease({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      token: writerLease.data.token,
-    });
-    expect(leaseHeartbeat.ok).toBe(true);
-    const released = await releaseConversationReplyLease({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      token: writerLease.data.token,
-    });
-    expect(released.ok && released.data.replyLease).toBeNull();
-    const ownerLease = await acquireConversationReplyLease({ context: ownerContext, mailboxId, conversationId });
-    expect(ownerLease.ok).toBe(true);
-    if (ownerLease.ok) {
-      await releaseConversationReplyLease({
-        context: ownerContext,
-        mailboxId,
-        conversationId,
-        token: ownerLease.data.token,
-      });
-    }
     await leaveConversationPresence({ context: writerContext, mailboxId, conversationId, peerId: writerPeerId });
     await leaveConversationPresence({ context: readerContext, mailboxId, conversationId, peerId: readerPeerId });
 
@@ -650,8 +607,6 @@ suite("mail collaboration operations", () => {
       input: { peerId: writerPeerId, mode: "composing" },
     });
     expect(staleWriterPresence.ok).toBe(true);
-    const staleWriterLease = await acquireConversationReplyLease({ context: writerContext, mailboxId, conversationId });
-    expect(staleWriterLease.ok).toBe(true);
     const revokedWriter = await revokeMailboxAccess({ context: ownerContext, mailboxId, accessId: writerAccessId });
     expect(revokedWriter.ok).toBe(true);
     const snapshotAfterWriterRevocation = await getConversationPresence({ context: ownerContext, mailboxId, conversationId });
@@ -659,17 +614,6 @@ suite("mail collaboration operations", () => {
       snapshotAfterWriterRevocation.ok &&
         snapshotAfterWriterRevocation.data.participants.some((participant) => participant.userId === writer.id),
     ).toBe(false);
-    expect(snapshotAfterWriterRevocation.ok && snapshotAfterWriterRevocation.data.replyLease).toBeNull();
-    const recoveredOwnerLease = await acquireConversationReplyLease({ context: ownerContext, mailboxId, conversationId });
-    expect(recoveredOwnerLease.ok).toBe(true);
-    if (recoveredOwnerLease.ok) {
-      await releaseConversationReplyLease({
-        context: ownerContext,
-        mailboxId,
-        conversationId,
-        token: recoveredOwnerLease.data.token,
-      });
-    }
 
     const restoredWriterAccess = await grantMailboxAccess({
       context: ownerContext,
@@ -727,8 +671,6 @@ suite("mail collaboration operations", () => {
       input: { peerId: personalPeerId, mode: "composing" },
     });
     expect(personalPresence.ok).toBe(true);
-    const personalLease = await acquireConversationReplyLease({ context: writerContext, mailboxId, conversationId });
-    expect(personalLease.ok).toBe(true);
     const bindingMention = await createConversationComment({
       context: ownerContext,
       mailboxId,
@@ -749,7 +691,6 @@ suite("mail collaboration operations", () => {
       snapshotAfterBindingRevocation.ok &&
         snapshotAfterBindingRevocation.data.participants.some((participant) => participant.userId === writer.id),
     ).toBe(false);
-    expect(snapshotAfterBindingRevocation.ok && snapshotAfterBindingRevocation.data.replyLease).toBeNull();
     const deniedAfterBindingRevocation = await heartbeatConversationPresence({
       context: writerContext,
       mailboxId,
@@ -760,19 +701,5 @@ suite("mail collaboration operations", () => {
     expect((await getConversationCollaboration({ context: writerContext, mailboxId, conversationId })).ok).toBe(false);
     expect((await listConversationComments({ context: writerContext, mailboxId, conversationId })).ok).toBe(false);
     expect((await listActivity({ context: writerContext, mailboxId, conversationId })).ok).toBe(false);
-    const ownerLeaseAfterBindingRevocation = await acquireConversationReplyLease({
-      context: ownerContext,
-      mailboxId,
-      conversationId,
-    });
-    expect(ownerLeaseAfterBindingRevocation.ok).toBe(true);
-    if (ownerLeaseAfterBindingRevocation.ok) {
-      await releaseConversationReplyLease({
-        context: ownerContext,
-        mailboxId,
-        conversationId,
-        token: ownerLeaseAfterBindingRevocation.data.token,
-      });
-    }
   }, 30_000);
 });

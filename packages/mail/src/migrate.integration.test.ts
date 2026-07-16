@@ -16,7 +16,7 @@ suite("mail migrations", () => {
     `;
     if (!before) throw new Error("Mail schema OIDs were not returned");
 
-    await sql`DELETE FROM mail.schema_migrations WHERE version IN (26, 27)`;
+    await sql`DELETE FROM mail.schema_migrations WHERE version BETWEEN 26 AND 31`;
 
     await migrate();
 
@@ -37,6 +37,10 @@ suite("mail migrations", () => {
         run_idempotency_unique: boolean;
         materialization_constraint: boolean;
         step_primary_key: boolean;
+        draft_upload_blob_nullable: boolean;
+        draft_upload_blob_set_null: boolean;
+        draft_upload_constraints_present: boolean;
+        draft_continuity_indexes_present: boolean;
       }[]
     >`
       SELECT
@@ -80,7 +84,6 @@ suite("mail migrations", () => {
             ('workflow_trigger_events', 'delivery_key'),
             ('workflow_trigger_events', 'execution_generation'),
             ('workflow_trigger_events', 'lease_token'),
-            ('workflow_trigger_events', 'payload'),
             ('workflow_trigger_events', 'result'),
             ('workflow_runs', 'mode'),
             ('workflow_runs', 'channel'),
@@ -100,6 +103,7 @@ suite("mail migrations", () => {
             ('workflow_run_targets', 'frozen_inputs'),
             ('workflow_run_targets', 'frozen_source'),
             ('workflow_run_targets', 'frozen_preconditions'),
+            ('workflow_run_targets', 'frozen_hydration'),
             ('workflow_step_runs', 'target_id'),
             ('workflow_step_runs', 'step_key'),
             ('workflow_step_runs', 'source_path'),
@@ -181,7 +185,7 @@ suite("mail migrations", () => {
           SELECT 1 FROM pg_constraint
           WHERE conrelid = 'mail.workflow_runs'::regclass
             AND contype = 'u'
-            AND pg_get_constraintdef(oid) = 'UNIQUE (mailbox_id, mode, idempotency_key)'
+            AND pg_get_constraintdef(oid) = 'UNIQUE (mailbox_id, workflow_id, mode, idempotency_key)'
         ) AS run_idempotency_unique,
         EXISTS (
           SELECT 1 FROM pg_constraint
@@ -193,7 +197,41 @@ suite("mail migrations", () => {
           WHERE conrelid = 'mail.workflow_step_runs'::regclass
             AND contype = 'p'
             AND pg_get_constraintdef(oid) = 'PRIMARY KEY (target_id, step_key)'
-        ) AS step_primary_key
+        ) AS step_primary_key,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'draft_attachment_uploads'
+            AND column_name = 'blob_id'
+            AND is_nullable = 'YES'
+        ) AS draft_upload_blob_nullable,
+        EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'mail.draft_attachment_uploads'::regclass
+            AND conname = 'draft_attachment_uploads_blob_id_fkey'
+            AND confdeltype = 'n'
+        ) AS draft_upload_blob_set_null,
+        NOT EXISTS (
+          SELECT 1
+          FROM (VALUES
+            ('draft_attachment_uploads_blob_state_check'),
+            ('draft_attachment_uploads_received_state_check')
+          ) expected(constraint_name)
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'mail.draft_attachment_uploads'::regclass
+              AND conname = expected.constraint_name
+          )
+        ) AS draft_upload_constraints_present,
+        NOT EXISTS (
+          SELECT 1
+          FROM (VALUES
+            ('mail.drafts_source_message_idx'),
+            ('mail.draft_recovery_copies_unresolved_idx'),
+            ('mail.draft_attachment_uploads_draft_idx')
+          ) expected(index_name)
+          WHERE to_regclass(expected.index_name) IS NULL
+        ) AS draft_continuity_indexes_present
     `;
     expect(state).toEqual({
       migration_applied: true,
@@ -211,6 +249,10 @@ suite("mail migrations", () => {
       run_idempotency_unique: true,
       materialization_constraint: true,
       step_primary_key: true,
+      draft_upload_blob_nullable: true,
+      draft_upload_blob_set_null: true,
+      draft_upload_constraints_present: true,
+      draft_continuity_indexes_present: true,
     });
 
     const mailboxId = crypto.randomUUID();

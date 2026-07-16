@@ -105,6 +105,7 @@ type PreparedActorCommand = {
   remoteMessageRefId: string | null;
   sourceFolderId: string | null;
   draftId: string | null;
+  expectedDraftRevision: number | null;
   scheduledAt: string | null;
   undoSeconds: number;
   requiredPermission: "write" | "admin";
@@ -118,6 +119,7 @@ type DraftForOutbox = {
   body_markdown: string;
   body_format: "plain" | "markdown";
   revision: string | number;
+  intent: "new" | "reply" | "reply_all" | "forward";
   display_name: string;
   from_address: string;
   reply_to: string | null;
@@ -152,6 +154,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
     remoteMessageRefId: null,
     sourceFolderId: null,
     draftId: null,
+    expectedDraftRevision: null,
     scheduledAt: null,
     undoSeconds: 0,
     requiredPermission: "write" as const,
@@ -247,11 +250,16 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
   }
   return ok({
     ...base,
-    target: { draftId: input.draftId, senderIdentityId: input.senderIdentityId },
+    target: {
+      draftId: input.draftId,
+      expectedDraftRevision: input.expectedDraftRevision,
+      senderIdentityId: input.senderIdentityId,
+    },
     payload: { scheduledAt: input.scheduledAt ?? null, undoSeconds: input.undoSeconds },
     folderRequirements: [],
     senderIdentityId: input.senderIdentityId,
     draftId: input.draftId,
+    expectedDraftRevision: input.expectedDraftRevision,
     scheduledAt: input.scheduledAt ?? null,
     undoSeconds: input.undoSeconds,
   });
@@ -276,22 +284,38 @@ const validateCommandTargets = async (params: {
     if (!messageRef) return fail(err.notFound("Remote message"));
   }
   if (params.prepared.draftId && params.prepared.senderIdentityId) {
-    const [draft] = await params.db<{ id: string; has_recipients: boolean }[]>`
+    const [draft] = await params.db<{ id: string; has_recipients: boolean; has_pending_attachments: boolean; revision: string | number }[]>`
       SELECT
         d.id,
+        d.revision,
         jsonb_array_length(d.to_addresses)
           + jsonb_array_length(d.cc_addresses)
-          + jsonb_array_length(d.bcc_addresses) > 0 AS has_recipients
+          + jsonb_array_length(d.bcc_addresses) > 0 AS has_recipients,
+        EXISTS (
+          SELECT 1
+          FROM mail.draft_attachment_uploads upload
+          WHERE upload.draft_id = d.id AND upload.state IN ('uploading', 'uploaded')
+        ) AS has_pending_attachments
       FROM mail.drafts d
       JOIN mail.sender_identities si ON si.id = d.sender_identity_id
       WHERE d.id = ${params.prepared.draftId}::uuid
         AND d.mailbox_id = ${params.mailboxId}::uuid
         AND d.sender_identity_id = ${params.prepared.senderIdentityId}::uuid
-        AND d.state IN ('draft', 'scheduled')
+        AND d.state = 'draft'
         AND si.status = 'verified'
       FOR UPDATE OF d
     `;
     if (!draft) return fail(err.badInput("Draft or sender identity is not ready for sending"));
+    if (Number(draft.revision) !== params.prepared.expectedDraftRevision) {
+      return fail({ code: "CONFLICT", message: "Draft changed before it could be sent", status: 409 });
+    }
+    if (draft.has_pending_attachments) {
+      return fail({
+        code: "CONFLICT",
+        message: "Finish or cancel every attachment upload before sending the draft",
+        status: 409,
+      });
+    }
     if (!draft.has_recipients) return fail(err.badInput("At least one recipient is required before sending"));
   }
   if (["create_folder", "rename_folder", "delete_folder", "set_folder_subscription"].includes(params.prepared.kind)) {
@@ -332,12 +356,13 @@ const createSendOutbox = async (params: {
       d.body_markdown,
       d.body_format,
       d.revision,
+      d.intent,
       si.display_name,
       si.from_address,
       si.reply_to,
       si.envelope_sender,
-      latest.message_id AS parent_message_id,
-      latest.reference_ids,
+      CASE WHEN d.intent IN ('reply', 'reply_all') THEN source.message_id ELSE NULL END AS parent_message_id,
+      CASE WHEN d.intent IN ('reply', 'reply_all') THEN source.reference_ids ELSE ARRAY[]::text[] END AS reference_ids,
       COALESCE(
         (
           SELECT jsonb_agg(
@@ -357,17 +382,11 @@ const createSendOutbox = async (params: {
       ) AS attachments
     FROM mail.drafts d
     JOIN mail.sender_identities si ON si.id = d.sender_identity_id
-    LEFT JOIN LATERAL (
-      SELECT mc.message_id, mc.reference_ids
-      FROM mail.conversation_messages cm
-      JOIN mail.message_contents mc ON mc.id = cm.message_id
-      WHERE cm.conversation_id = d.conversation_id
-      ORDER BY cm.position DESC, mc.internal_date DESC, mc.id DESC
-      LIMIT 1
-    ) latest ON true
+    LEFT JOIN mail.message_contents source ON source.id = d.source_message_id
     WHERE d.id = ${prepared.draftId}::uuid
       AND d.mailbox_id = ${params.mailboxId}::uuid
       AND d.sender_identity_id = ${prepared.senderIdentityId}::uuid
+      AND d.revision = ${prepared.expectedDraftRevision}
       AND si.status = 'verified'
     FOR UPDATE OF d, si
   `;

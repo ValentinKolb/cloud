@@ -210,11 +210,16 @@ suite("mail manual conversation threading", () => {
     `;
     await sql`
       INSERT INTO mail.drafts (
-        mailbox_id, conversation_id, sender_identity_id, author_kind, author_id, subject, body_markdown
+        mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
+        author_kind, author_id, last_editor_kind, last_editor_id, subject, body_markdown
       ) VALUES (
         ${mailboxId}::uuid,
         ${sourceConversationId}::uuid,
+        'reply',
+        ${sourceMessageId}::uuid,
         ${identity!.id}::uuid,
+        'user',
+        ${writer.id}::uuid,
         'user',
         ${writer.id}::uuid,
         'Merged draft',

@@ -1956,6 +1956,140 @@ const fenceWorkflowProviderEffects = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addDurableDraftContinuity = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.drafts
+      ADD COLUMN intent TEXT NOT NULL DEFAULT 'new'
+        CHECK (intent IN ('new', 'reply', 'reply_all', 'forward')),
+      ADD COLUMN source_message_id UUID REFERENCES mail.message_contents(id) ON DELETE RESTRICT,
+      ADD COLUMN last_editor_kind TEXT CHECK (last_editor_kind IN ('user', 'service_account')),
+      ADD COLUMN last_editor_id UUID
+  `;
+  await db`
+    UPDATE mail.drafts draft
+    SET
+      intent = CASE WHEN draft.conversation_id IS NULL THEN 'new' ELSE 'reply' END,
+      source_message_id = CASE
+        WHEN draft.conversation_id IS NULL THEN NULL
+        ELSE (
+          SELECT conversation_message.message_id
+          FROM mail.conversation_messages conversation_message
+          JOIN mail.message_contents message ON message.id = conversation_message.message_id
+          WHERE conversation_message.conversation_id = draft.conversation_id
+          ORDER BY conversation_message.position DESC, message.internal_date DESC, message.id DESC
+          LIMIT 1
+        )
+      END,
+      last_editor_kind = draft.author_kind,
+      last_editor_id = draft.author_id
+  `;
+  await db`
+    UPDATE mail.drafts
+    SET conversation_id = NULL, intent = 'new'
+    WHERE conversation_id IS NOT NULL AND source_message_id IS NULL
+  `;
+  await db`
+    ALTER TABLE mail.drafts
+      ALTER COLUMN last_editor_kind SET NOT NULL,
+      ALTER COLUMN last_editor_id SET NOT NULL,
+      ADD CONSTRAINT drafts_intent_source_check CHECK (
+        (intent = 'new' AND conversation_id IS NULL AND source_message_id IS NULL)
+        OR (intent <> 'new' AND conversation_id IS NOT NULL AND source_message_id IS NOT NULL)
+      )
+  `;
+  await db`
+    CREATE TABLE mail.draft_recovery_copies (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      draft_id UUID NOT NULL REFERENCES mail.drafts(id) ON DELETE CASCADE,
+      base_revision BIGINT NOT NULL CHECK (base_revision > 0),
+      content JSONB NOT NULL CHECK (jsonb_typeof(content) = 'object'),
+      content_hash TEXT NOT NULL CHECK (content_hash ~ '^[a-f0-9]{64}$'),
+      creator_kind TEXT NOT NULL CHECK (creator_kind IN ('user', 'service_account')),
+      creator_id UUID NOT NULL,
+      restored_at TIMESTAMPTZ,
+      restored_by_kind TEXT CHECK (restored_by_kind IN ('user', 'service_account')),
+      restored_by_id UUID,
+      resulting_revision BIGINT CHECK (resulting_revision IS NULL OR resulting_revision > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT draft_recovery_restore_check CHECK (
+        (restored_at IS NULL AND restored_by_kind IS NULL AND restored_by_id IS NULL AND resulting_revision IS NULL)
+        OR (restored_at IS NOT NULL AND restored_by_kind IS NOT NULL AND restored_by_id IS NOT NULL AND resulting_revision IS NOT NULL)
+      ),
+      UNIQUE (draft_id, base_revision, creator_kind, creator_id, content_hash)
+    )
+  `;
+  await db`
+    CREATE INDEX draft_recovery_copies_draft_idx
+    ON mail.draft_recovery_copies (draft_id, created_at DESC, id DESC)
+  `;
+
+  await db`
+    CREATE TABLE mail.draft_attachment_uploads (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      draft_id UUID NOT NULL REFERENCES mail.drafts(id) ON DELETE CASCADE,
+      blob_id UUID NOT NULL REFERENCES mail.message_part_blobs(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL CHECK (char_length(filename) BETWEEN 1 AND 255),
+      content_type TEXT NOT NULL CHECK (char_length(content_type) BETWEEN 1 AND 255),
+      byte_length BIGINT NOT NULL CHECK (byte_length BETWEEN 0 AND 104857600),
+      received_bytes BIGINT NOT NULL DEFAULT 0 CHECK (received_bytes >= 0 AND received_bytes <= byte_length),
+      next_position INTEGER NOT NULL DEFAULT 0 CHECK (next_position >= 0),
+      state TEXT NOT NULL DEFAULT 'uploading' CHECK (state IN ('uploading', 'uploaded', 'attached', 'cancelled')),
+      creator_kind TEXT NOT NULL CHECK (creator_kind IN ('user', 'service_account')),
+      creator_id UUID NOT NULL,
+      attachment_id UUID UNIQUE REFERENCES mail.draft_attachments(id) ON DELETE SET NULL,
+      finalized_revision BIGINT CHECK (finalized_revision IS NULL OR finalized_revision > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT draft_attachment_upload_state_check CHECK (
+        (state = 'attached' AND attachment_id IS NOT NULL AND finalized_revision IS NOT NULL)
+        OR (state <> 'attached' AND attachment_id IS NULL AND finalized_revision IS NULL)
+      )
+    )
+  `;
+  await db`
+    CREATE INDEX draft_attachment_uploads_active_idx
+    ON mail.draft_attachment_uploads (updated_at, id)
+    WHERE state IN ('uploading', 'uploaded')
+  `;
+  await db`
+    CREATE TRIGGER draft_attachment_uploads_touch_updated_at
+    BEFORE UPDATE ON mail.draft_attachment_uploads
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+};
+
+const hardenDurableDraftContinuity = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.draft_attachment_uploads
+      DROP CONSTRAINT draft_attachment_uploads_blob_id_fkey,
+      ALTER COLUMN blob_id DROP NOT NULL,
+      ADD CONSTRAINT draft_attachment_uploads_blob_id_fkey
+        FOREIGN KEY (blob_id) REFERENCES mail.message_part_blobs(id) ON DELETE SET NULL,
+      ADD CONSTRAINT draft_attachment_uploads_blob_state_check CHECK (
+        (state = 'cancelled' AND blob_id IS NULL)
+        OR (state <> 'cancelled' AND blob_id IS NOT NULL)
+      ),
+      ADD CONSTRAINT draft_attachment_uploads_received_state_check CHECK (
+        state IN ('uploading', 'cancelled')
+        OR received_bytes = byte_length
+      )
+  `;
+  await db`
+    CREATE INDEX drafts_source_message_idx
+    ON mail.drafts (source_message_id)
+    WHERE source_message_id IS NOT NULL
+  `;
+  await db`
+    CREATE INDEX draft_recovery_copies_unresolved_idx
+    ON mail.draft_recovery_copies (draft_id, created_at DESC, id DESC)
+    WHERE restored_at IS NULL
+  `;
+  await db`
+    CREATE INDEX draft_attachment_uploads_draft_idx
+    ON mail.draft_attachment_uploads (draft_id, created_at, id)
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -1989,6 +2123,8 @@ const migrations = [
   { version: 30, name: "pinned_workflow_trigger_deliveries", run: pinWorkflowTriggerDeliveries },
   { version: 31, name: "frozen_workflow_execution_inputs", run: freezeWorkflowExecutionInputs },
   { version: 32, name: "fenced_workflow_provider_effects", run: fenceWorkflowProviderEffects },
+  { version: 33, name: "durable_draft_continuity", run: addDurableDraftContinuity },
+  { version: 34, name: "hardened_draft_continuity", run: hardenDurableDraftContinuity },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

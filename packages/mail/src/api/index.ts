@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import { GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
-import { err, fail } from "@valentinkolb/stdlib";
+import { err, fail, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import {
@@ -13,6 +13,7 @@ import {
   conversationTriageInputSchema,
   conversationViewSchema,
   createConversationCommentSchema,
+  createDraftAttachmentUploadSchema,
   createMailboxInputSchema,
   createSavedConversationViewSchema,
   createSenderIdentityInputSchema,
@@ -20,10 +21,11 @@ import {
   deleteConversationCommentSchema,
   deleteSavedConversationViewSchema,
   draftContentInputSchema,
+  draftEditableContentInputSchema,
+  draftLeaseTokenSchema,
   mailCommandInputSchema,
   mergeConversationsInputSchema,
   providerConnectionInputSchema,
-  replyLeaseTokenSchema,
   searchBackendSchema,
   searchRequestSchema,
   setConversationReminderSchema,
@@ -39,7 +41,9 @@ import {
   collaboration,
   commands,
   conversations,
+  draftLeases,
   drafts,
+  draftUploads,
   events,
   folders,
   health,
@@ -57,6 +61,7 @@ import {
   triage,
 } from "../service";
 import { resolveByteRange } from "../service/byte-range";
+import type { AttachmentDownload } from "../service/messages";
 import workflowRoutes from "./workflows";
 
 const uuidParamSchema = z.object({ mailboxId: z.string().uuid() });
@@ -100,12 +105,14 @@ const verifyIdentitySchema = z.object({
   verificationRecipient: z.string().email().max(320),
   savesSentAutomatically: z.boolean(),
 });
-const updateDraftSchema = z.object({ expectedRevision: z.number().int().positive(), draft: draftContentInputSchema });
+const updateDraftSchema = z.object({ expectedRevision: z.number().int().positive(), draft: draftEditableContentInputSchema });
 const connectionListQuerySchema = z.object({ mailboxId: z.string().uuid().optional() });
 const roleParamSchema = z.object({ mailboxId: z.string().uuid(), role: configurableFolderRoleSchema });
 const folderRoleInputSchema = z.object({ folderId: z.string().uuid() });
 const draftRevisionSchema = z.object({ expectedRevision: z.coerce.number().int().positive() });
 const attachmentUploadQuerySchema = draftRevisionSchema.extend({ filename: z.string().trim().min(1).max(255) });
+const attachmentChunkQuerySchema = z.object({ offset: z.coerce.number().int().nonnegative() });
+const acquireDraftLeaseSchema = z.object({ takeover: z.boolean().default(false) }).strict();
 const notificationTargetParamSchema = z.object({
   mailboxId: z.string().uuid(),
   kind: z.enum(["mention", "reminder"]),
@@ -127,6 +134,78 @@ const requestContext = (c: Context<AuthContext>): MailRequestContext => ({
   accessSubject: c.get("accessSubject"),
   requestId: c.req.header("x-request-id") ?? null,
 });
+
+const readBoundedBody = async (body: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<Result<Uint8Array>> => {
+  if (!body) return fail(err.badInput("Request body is required"));
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel("body-too-large");
+        return fail(err.badInput(`Request body cannot exceed ${maxBytes} bytes`));
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, data: bytes };
+};
+
+const attachmentDownloadResponse = async (
+  c: Context<AuthContext>,
+  result: Result<AttachmentDownload>,
+  query: z.infer<typeof attachmentQuerySchema>,
+) => {
+  if (!result.ok) return respond(c, result);
+  const rangeHeader = c.req.header("range");
+  const hasQueryRange = query.offset !== undefined || query.length !== undefined;
+  if (rangeHeader && hasQueryRange)
+    return respond(c, fail(err.badInput("Use either the Range header or offset and length query parameters")));
+  const { blobId, total, chunkSize, chunkCount, contentHash, contentType, filename } = result.data;
+  const requestedRange =
+    rangeHeader ?? (hasQueryRange ? `bytes=${query.offset ?? 0}-${(query.offset ?? 0) + (query.length ?? 1024 * 1024) - 1}` : null);
+  const range = resolveByteRange(requestedRange, total);
+  if (range === "unsatisfiable") {
+    return new Response(null, {
+      status: 416,
+      headers: { "Accept-Ranges": "bytes", "Content-Range": `bytes */${total}`, "Cache-Control": "private, no-store" },
+    });
+  }
+  const selectedRange = range ?? { start: 0, endExclusive: total };
+  const partial = range !== null;
+  const headers = new Headers({
+    "Accept-Ranges": "bytes",
+    "Content-Length": String(selectedRange.endExclusive - selectedRange.start),
+    "Content-Type": safeAttachmentContentType(contentType),
+    "Content-Disposition": attachmentContentDisposition(filename),
+    ETag: `"${contentHash}"`,
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  if (partial) headers.set("Content-Range", `bytes ${selectedRange.start}-${selectedRange.endExclusive - 1}/${total}`);
+  return new Response(
+    messages.createAttachmentStream({
+      blobId,
+      chunkSize,
+      chunkCount,
+      start: selectedRange.start,
+      endExclusive: selectedRange.endExclusive,
+    }),
+    { status: partial ? 206 : 200, headers },
+  );
+};
 
 const api = new Hono<AuthContext>()
   .use(rateLimit())
@@ -594,46 +673,6 @@ const api = new Hono<AuthContext>()
         }),
       ),
   )
-  .post(
-    "/mailboxes/:mailboxId/conversations/:conversationId/reply-lease",
-    v("param", mailboxAndIdParamSchema("conversationId")),
-    async (c) =>
-      respond(
-        c,
-        presence.acquireConversationReplyLease({
-          context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
-        }),
-      ),
-  )
-  .put(
-    "/mailboxes/:mailboxId/conversations/:conversationId/reply-lease",
-    v("param", mailboxAndIdParamSchema("conversationId")),
-    v("json", replyLeaseTokenSchema),
-    async (c) =>
-      respond(
-        c,
-        presence.heartbeatConversationReplyLease({
-          context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
-          token: c.req.valid("json").token,
-        }),
-      ),
-  )
-  .delete(
-    "/mailboxes/:mailboxId/conversations/:conversationId/reply-lease",
-    v("param", mailboxAndIdParamSchema("conversationId")),
-    v("json", replyLeaseTokenSchema),
-    async (c) =>
-      respond(
-        c,
-        presence.releaseConversationReplyLease({
-          context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
-          token: c.req.valid("json").token,
-        }),
-      ),
-  )
   .get(
     "/mailboxes/:mailboxId/conversations/:conversationId/comments",
     v("param", mailboxAndIdParamSchema("conversationId")),
@@ -689,57 +728,12 @@ const api = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/messages/:messageId/attachments/:attachmentId",
     v("param", z.object({ mailboxId: z.string().uuid(), messageId: z.string().uuid(), attachmentId: z.string().uuid() })),
     v("query", attachmentQuerySchema),
-    async (c) => {
-      const query = c.req.valid("query");
-      const rangeHeader = c.req.header("range");
-      const hasQueryRange = query.offset !== undefined || query.length !== undefined;
-      if (rangeHeader && hasQueryRange) {
-        return respond(c, fail(err.badInput("Use either the Range header or offset and length query parameters")));
-      }
-
-      const result = await messages.openAttachment({ context: requestContext(c), ...c.req.valid("param") });
-      if (!result.ok) return respond(c, result);
-      const { blobId, total, chunkSize, chunkCount, contentHash, contentType, filename } = result.data;
-      const requestedRange =
-        rangeHeader ?? (hasQueryRange ? `bytes=${query.offset ?? 0}-${(query.offset ?? 0) + (query.length ?? 1024 * 1024) - 1}` : null);
-      const range = resolveByteRange(requestedRange, total);
-      if (range === "unsatisfiable") {
-        return new Response(null, {
-          status: 416,
-          headers: {
-            "Accept-Ranges": "bytes",
-            "Content-Range": `bytes */${total}`,
-            "Cache-Control": "private, no-store",
-          },
-        });
-      }
-      const selectedRange = range ?? { start: 0, endExclusive: total };
-      const partial = range !== null;
-      const contentLength = selectedRange.endExclusive - selectedRange.start;
-      const headers = new Headers({
-        "Accept-Ranges": "bytes",
-        "Content-Length": String(contentLength),
-        "Content-Type": safeAttachmentContentType(contentType),
-        "Content-Disposition": attachmentContentDisposition(filename),
-        ETag: `"${contentHash}"`,
-        "Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff",
-      });
-      if (partial) {
-        headers.set("Content-Range", `bytes ${selectedRange.start}-${selectedRange.endExclusive - 1}/${total}`);
-      }
-      const body = messages.createAttachmentStream({
-        blobId,
-        chunkSize,
-        chunkCount,
-        start: selectedRange.start,
-        endExclusive: selectedRange.endExclusive,
-      });
-      return new Response(body, {
-        status: partial ? 206 : 200,
-        headers,
-      });
-    },
+    async (c) =>
+      attachmentDownloadResponse(
+        c,
+        await messages.openAttachment({ context: requestContext(c), ...c.req.valid("param") }),
+        c.req.valid("query"),
+      ),
   )
   .post("/mailboxes/:mailboxId/search", v("param", uuidParamSchema), v("json", searchRequestSchema), async (c) =>
     respond(
@@ -818,6 +812,80 @@ const api = new Hono<AuthContext>()
       drafts.updateDraft({ context: requestContext(c), ...params, expectedRevision: input.expectedRevision, input: input.draft }),
     );
   })
+  .get("/mailboxes/:mailboxId/drafts/:draftId/recovery-copies", v("param", mailboxAndIdParamSchema("draftId")), async (c) =>
+    respond(
+      c,
+      drafts.listDraftRecoveryCopies({
+        context: requestContext(c),
+        ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+      }),
+    ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/drafts/:draftId/recovery-copies/:recoveryCopyId/restore",
+    v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), recoveryCopyId: z.string().uuid() })),
+    v("json", draftRevisionSchema),
+    async (c) =>
+      respond(
+        c,
+        drafts.restoreDraftRecoveryCopy({
+          context: requestContext(c),
+          ...c.req.valid("param"),
+          expectedRevision: c.req.valid("json").expectedRevision,
+        }),
+      ),
+  )
+  .get("/mailboxes/:mailboxId/drafts/:draftId/lease", v("param", mailboxAndIdParamSchema("draftId")), async (c) =>
+    respond(
+      c,
+      draftLeases.getDraftLease({
+        context: requestContext(c),
+        ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+      }),
+    ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/drafts/:draftId/lease",
+    v("param", mailboxAndIdParamSchema("draftId")),
+    v("json", acquireDraftLeaseSchema),
+    async (c) =>
+      respond(
+        c,
+        draftLeases.acquireDraftLease({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+          takeover: c.req.valid("json").takeover,
+        }),
+      ),
+  )
+  .put(
+    "/mailboxes/:mailboxId/drafts/:draftId/lease",
+    v("param", mailboxAndIdParamSchema("draftId")),
+    v("json", draftLeaseTokenSchema),
+    async (c) =>
+      respond(
+        c,
+        draftLeases.heartbeatDraftLease({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+          token: c.req.valid("json").token,
+        }),
+      ),
+  )
+  .delete(
+    "/mailboxes/:mailboxId/drafts/:draftId/lease",
+    v("param", mailboxAndIdParamSchema("draftId")),
+    v("json", draftLeaseTokenSchema),
+    async (c) =>
+      respond(
+        c,
+        draftLeases.releaseDraftLease({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+          token: c.req.valid("json").token,
+        }),
+      ),
+  )
   .post(
     "/mailboxes/:mailboxId/drafts/:draftId/discard",
     v("param", mailboxAndIdParamSchema("draftId")),
@@ -841,26 +909,38 @@ const api = new Hono<AuthContext>()
     async (c) => {
       const params = c.req.valid("param") as { mailboxId: string; draftId: string };
       const query = c.req.valid("query");
-      const body = c.req.raw.body;
-      if (!body) return respond(c, fail(err.badInput("Attachment body is required")));
       const contentLength = c.req.header("content-length");
-      const expectedSize = contentLength == null ? null : Number(contentLength);
-      if (expectedSize != null && (!Number.isSafeInteger(expectedSize) || expectedSize < 0)) {
+      if (contentLength == null) return respond(c, fail(err.badInput("Attachment Content-Length is required")));
+      const expectedSize = Number(contentLength);
+      if (!Number.isSafeInteger(expectedSize) || expectedSize < 0) {
         return respond(c, fail(err.badInput("Invalid attachment Content-Length")));
       }
+      const body = c.req.raw.body;
+      if (!body && expectedSize > 0) return respond(c, fail(err.badInput("Attachment body is required")));
       return respond(
         c,
-        drafts.addDraftAttachment({
+        draftUploads.uploadDraftAttachmentStream({
           context: requestContext(c),
           ...params,
           expectedRevision: query.expectedRevision,
           filename: query.filename,
           contentType: c.req.header("content-type") || "application/octet-stream",
-          stream: Readable.fromWeb(body as never),
-          expectedSize,
+          byteLength: expectedSize,
+          stream: body ? Readable.fromWeb(body as never) : Readable.from([]),
         }),
       );
     },
+  )
+  .get(
+    "/mailboxes/:mailboxId/drafts/:draftId/attachments/:attachmentId",
+    v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), attachmentId: z.string().uuid() })),
+    v("query", attachmentQuerySchema),
+    async (c) =>
+      attachmentDownloadResponse(
+        c,
+        await drafts.openDraftAttachment({ context: requestContext(c), ...c.req.valid("param") }),
+        c.req.valid("query"),
+      ),
   )
   .delete(
     "/mailboxes/:mailboxId/drafts/:draftId/attachments/:attachmentId",
@@ -875,6 +955,71 @@ const api = new Hono<AuthContext>()
           expectedRevision: c.req.valid("query").expectedRevision,
         }),
       ),
+  )
+  .get("/mailboxes/:mailboxId/drafts/:draftId/attachment-uploads", v("param", mailboxAndIdParamSchema("draftId")), async (c) =>
+    respond(
+      c,
+      draftUploads.listDraftAttachmentUploads({
+        context: requestContext(c),
+        ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+      }),
+    ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/drafts/:draftId/attachment-uploads",
+    v("param", mailboxAndIdParamSchema("draftId")),
+    v("json", createDraftAttachmentUploadSchema),
+    async (c) =>
+      respond(
+        c,
+        draftUploads.createDraftAttachmentUpload({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .get(
+    "/mailboxes/:mailboxId/drafts/:draftId/attachment-uploads/:uploadId",
+    v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), uploadId: z.string().uuid() })),
+    async (c) => respond(c, draftUploads.getDraftAttachmentUpload({ context: requestContext(c), ...c.req.valid("param") })),
+  )
+  .patch(
+    "/mailboxes/:mailboxId/drafts/:draftId/attachment-uploads/:uploadId",
+    v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), uploadId: z.string().uuid() })),
+    v("query", attachmentChunkQuerySchema),
+    async (c) => {
+      const body = await readBoundedBody(c.req.raw.body, draftUploads.DRAFT_UPLOAD_CHUNK_BYTES);
+      if (!body.ok) return respond(c, body);
+      return respond(
+        c,
+        draftUploads.appendDraftAttachmentUpload({
+          context: requestContext(c),
+          ...c.req.valid("param"),
+          offset: c.req.valid("query").offset,
+          bytes: body.data,
+        }),
+      );
+    },
+  )
+  .post(
+    "/mailboxes/:mailboxId/drafts/:draftId/attachment-uploads/:uploadId/finalize",
+    v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), uploadId: z.string().uuid() })),
+    v("json", draftRevisionSchema),
+    async (c) =>
+      respond(
+        c,
+        draftUploads.finalizeDraftAttachmentUpload({
+          context: requestContext(c),
+          ...c.req.valid("param"),
+          expectedRevision: c.req.valid("json").expectedRevision,
+        }),
+      ),
+  )
+  .delete(
+    "/mailboxes/:mailboxId/drafts/:draftId/attachment-uploads/:uploadId",
+    v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), uploadId: z.string().uuid() })),
+    async (c) => respond(c, draftUploads.cancelDraftAttachmentUpload({ context: requestContext(c), ...c.req.valid("param") })),
   )
   .post("/mailboxes/:mailboxId/commands", v("param", uuidParamSchema), v("json", mailCommandInputSchema), async (c) =>
     respond(

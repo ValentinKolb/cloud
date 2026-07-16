@@ -474,6 +474,7 @@ export const actorCommandInputSchema = z.discriminatedUnion("kind", [
   actorCommandBaseSchema.extend({
     kind: z.literal("send"),
     draftId: z.string().uuid(),
+    expectedDraftRevision: z.number().int().positive(),
     senderIdentityId: z.string().uuid(),
     scheduledAt: z.string().datetime().optional(),
     undoSeconds: z.number().int().min(0).max(60).default(10),
@@ -936,7 +937,25 @@ export type ConversationPresenceHeartbeat = z.infer<typeof conversationPresenceH
 
 export const conversationPresenceLeaveSchema = z.object({ peerId: z.string().uuid() }).strict();
 
-export const replyLeaseTokenSchema = z.object({ token: z.string().uuid() }).strict();
+export const draftLeaseTokenSchema = z.object({ token: z.string().uuid() }).strict();
+
+export const draftLeaseHolderSchema = z.object({
+  kind: z.enum(["user", "service_account"]),
+  id: z.string().uuid(),
+  displayName: z.string(),
+  avatarHash: z.string().nullable(),
+});
+export type DraftLeaseHolder = z.infer<typeof draftLeaseHolderSchema>;
+
+export const draftLeaseSchema = z.object({
+  holder: draftLeaseHolderSchema,
+  acquiredAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+});
+export type DraftLease = z.infer<typeof draftLeaseSchema>;
+
+export const acquiredDraftLeaseSchema = draftLeaseSchema.extend({ token: z.string().uuid() });
+export type AcquiredDraftLease = z.infer<typeof acquiredDraftLeaseSchema>;
 
 export const senderAuthenticationPolicySchema = z.object({
   interactive: z.enum(["mailbox", "actor"]),
@@ -1008,10 +1027,17 @@ export const draftAttachmentSchema = z.object({
 });
 export type DraftAttachment = z.infer<typeof draftAttachmentSchema>;
 
+export const draftIntentSchema = z.enum(["new", "reply", "reply_all", "forward"]);
+export type DraftIntent = z.infer<typeof draftIntentSchema>;
+
+const draftActorRefSchema = actorRefSchema;
+
 export const draftSchema = z.object({
   id: z.string().uuid(),
   mailboxId: z.string().uuid(),
   conversationId: z.string().uuid().nullable(),
+  intent: draftIntentSchema,
+  sourceMessageId: z.string().uuid().nullable(),
   senderIdentityId: z.string().uuid(),
   to: z.array(mailAddressSchema),
   cc: z.array(mailAddressSchema),
@@ -1020,6 +1046,9 @@ export const draftSchema = z.object({
   body: z.string(),
   format: z.enum(["plain", "markdown"]),
   attachments: z.array(draftAttachmentSchema),
+  createdBy: draftActorRefSchema,
+  lastEditedBy: draftActorRefSchema,
+  recoveryCopyCount: z.number().int().nonnegative(),
   revision: z.number().int().positive(),
   state: z.enum(["draft", "scheduled", "sending", "sent", "discarded"]),
   createdAt: z.string().datetime(),
@@ -1027,20 +1056,66 @@ export const draftSchema = z.object({
 });
 export type MailDraft = z.infer<typeof draftSchema>;
 
-export const draftContentInputSchema = z.object({
+export const draftEditableContentInputSchema = z
+  .object({
+    senderIdentityId: z.string().uuid(),
+    to: z.array(mailAddressSchema).max(200).default([]),
+    cc: z.array(mailAddressSchema).max(200).default([]),
+    bcc: z.array(mailAddressSchema).max(200).default([]),
+    subject: z.string().max(998).default(""),
+    body: z
+      .string()
+      .max(2 * 1024 * 1024)
+      .default(""),
+    format: z.enum(["plain", "markdown"]).default("markdown"),
+  })
+  .strict();
+export type DraftEditableContentInput = z.infer<typeof draftEditableContentInputSchema>;
+
+export const draftContentInputSchema = draftEditableContentInputSchema.extend({
   conversationId: z.string().uuid().nullable().optional(),
-  senderIdentityId: z.string().uuid(),
-  to: z.array(mailAddressSchema).max(200).default([]),
-  cc: z.array(mailAddressSchema).max(200).default([]),
-  bcc: z.array(mailAddressSchema).max(200).default([]),
-  subject: z.string().max(998).default(""),
-  body: z
-    .string()
-    .max(2 * 1024 * 1024)
-    .default(""),
-  format: z.enum(["plain", "markdown"]).default("markdown"),
+  intent: draftIntentSchema.optional(),
+  sourceMessageId: z.string().uuid().nullable().optional(),
 });
 export type DraftContentInput = z.infer<typeof draftContentInputSchema>;
+
+export const draftRecoveryCopySchema = z.object({
+  id: z.string().uuid(),
+  draftId: z.string().uuid(),
+  baseRevision: z.number().int().positive(),
+  content: draftEditableContentInputSchema,
+  createdBy: draftActorRefSchema,
+  createdAt: z.string().datetime(),
+  restoredAt: z.string().datetime().nullable(),
+  resultingRevision: z.number().int().positive().nullable(),
+});
+export type DraftRecoveryCopy = z.infer<typeof draftRecoveryCopySchema>;
+
+export const MAX_DRAFT_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
+export const createDraftAttachmentUploadSchema = z
+  .object({
+    filename: z.string().trim().min(1).max(255),
+    contentType: z.string().trim().min(1).max(255).default("application/octet-stream"),
+    byteLength: z.number().int().nonnegative().max(MAX_DRAFT_ATTACHMENT_BYTES),
+  })
+  .strict();
+export type CreateDraftAttachmentUpload = z.infer<typeof createDraftAttachmentUploadSchema>;
+
+export const draftAttachmentUploadSchema = z.object({
+  id: z.string().uuid(),
+  draftId: z.string().uuid(),
+  filename: z.string(),
+  contentType: z.string(),
+  byteLength: z.number().int().nonnegative(),
+  receivedBytes: z.number().int().nonnegative(),
+  chunkSize: z.number().int().positive(),
+  state: z.enum(["uploading", "uploaded", "attached", "cancelled"]),
+  attachmentId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type DraftAttachmentUpload = z.infer<typeof draftAttachmentUploadSchema>;
 
 export type RemoteAccount = {
   id: string;

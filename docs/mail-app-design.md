@@ -2,7 +2,7 @@
 
 Cloud Mail is a production-oriented shared inbox with a feature-complete IMAP/SMTP baseline, a provider-neutral domain model, local collaboration, structured automation, fast PostgreSQL search, and permission-bound agents.
 
-Status: Draft. Last consistency review: 2026-07-13. This document records accepted direction, implementation progress, and remaining delivery work. No product or policy decision remains open before implementation planning.
+Status: Draft. Last consistency review: 2026-07-16. This document records accepted direction, implementation progress, and remaining delivery work. External attachment-link defaults are the only newly opened product-policy topic in this revision.
 
 ## Contents
 
@@ -45,12 +45,16 @@ This document uses two decision states:
 | Search and tags | Accepted direction | Field-specific structured search, native PostgreSQL FTS, and Cloud-local tags are mandatory; `pg_textsearch` is an optional ranking backend. |
 | Conversations | Accepted direction | Original messages and replies form one mailbox-scoped conversation using provider IDs, RFC reply headers, conservative fallback, and explicit manual corrections. |
 | Collaboration | Accepted direction | Assignment, work state, internal comment chat, shared drafts, activity, and presence are first-class mailbox features. |
+| Draft continuity | Accepted direction | PostgreSQL owns the collaborative draft, a durable browser journal prevents lost typing, and one writer edits through a soft lease and revision checks. IMAP/JMAP drafts are reconciled external snapshots, never a second silent authority. The first implementation does not use Yjs or another CRDT. |
+| Application experience | Accepted direction | The default workspace combines dense one-line conversation rows with a reader and at most one optional right detail panel. The conversation list can be hidden without leaving the workspace; only the composer has a dedicated full-size focus mode. Received attachments stay with their history message; outgoing attachments stay with the composer. |
 | Automation | Accepted direction | Deterministic decision trees are the default; AI is an optional typed decision node. Live mail and backfill use the same evaluator. Guarded automatic replies and reference allocation are workflow actions, not a separate ticket subsystem. |
 | Bulk actions | Accepted direction | Agents compile broad mailbox requests into previewable one-shot workflow plans; direct unbounded mutation loops are not an execution path. |
 | Shared folders | Accepted direction | A mailbox has one remote resource and a pool of verified private provider bindings. Its connection policy chooses shared credentials or each actor's provider account. Background sync may fail over between eligible bindings; actor mutations and sends never borrow another user's identity. |
 | Agent access | Accepted direction | UI, API, CLI, workflows, service accounts, and AI tools use the same permission-checked domain services. |
 | Permissions | Accepted direction | `read` includes mail reading and internal comments; `write` includes all mail and collaboration operations; `admin` additionally owns connections, sharing, settings, workflows, rules, and mailbox deletion. |
 | Storage and retention | Accepted direction | PostgreSQL stores all mirrored message bodies and attachment bytes. Mail content, collaboration history, tombstones, AI artifacts, commands, and workflow runs are retained indefinitely. First-release mailbox deletion is a reversible soft deletion and does not purge durable data. |
+| External attachment links | Proposed contract | Large outgoing files may be shared through revocable opaque links on the configured Cloud app URL, optionally protected by a password. Link lifetime and the per-file upload limit require review; aggregate link-storage quotas are out of the initial scope. |
+| Storage observability | Accepted direction | Cloud administrators get a non-enforcing `/admin/mail` overview of logical message, attachment, draft-upload, and link-share usage per mailbox plus global physical Mail database storage. Quotas, billing, and content drilldown remain out of scope. |
 | Security boundary | Accepted direction | Only provider credentials receive application-level encryption. Mail and collaboration data rely on normal enterprise database, backup, and access controls so search remains possible. Credentials are write-only and never retrievable, including by mailbox admins. |
 | Release scope | Accepted direction | The first release supports generic IMAP/SMTP only. Provider-specific presets may improve setup but do not create separate support contracts. |
 | Connector and sync contracts | Proposed contract | Typed capabilities and remote identities, ImapFlow, Nodemailer, durable commands, recent-first backfill, and capability-driven fallbacks. |
@@ -65,11 +69,11 @@ This snapshot records the verified Mail backend, CLI, and core application exper
 | --- | --- | --- | --- |
 | 1. Foundation contracts | In progress | Mail package and schema; mailbox access adapter; encrypted write-only provider connections; mailbox remote resource and binding pool; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; connector conformance harness; typed API and CLI. | Conversation references and response schedules. |
 | 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; repair and health operations; field-specific structured search with keyset pagination, native FTS, optional `pg_textsearch`, and explicit 20,000- and 100,000-message performance gates. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, and setup UX. |
-| 3. Core mail operations | Backend, CLI, and core UI substantially implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split, and compose/reply/forward with frontend attachments. | Message-operation UI and quote collapsing. |
-| 4. Collaboration | Backend feature set implemented; UI integration in progress | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory reply leases; mailbox-scoped live invalidation; permission-safe API and CLI; responsive queue, detail, collaboration, and comment UI. | Saved-view, reminder, presence, and reply-lease UI integration plus shared-draft conflict UX. |
+| 3. Core mail operations | Backend, CLI, and core UI substantially implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split, and compose/reply/forward with frontend attachments. | Message-operation UI, quote collapsing, selected-text reply quoting, and origin-bound attachment UX. |
+| 4. Collaboration | Backend feature set implemented; UI integration in progress | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; mailbox-scoped live invalidation; permission-safe API and CLI; responsive queue, detail, collaboration, and comment UI. | Saved-view, reminder, presence, and draft-lease UI integration plus shared-draft conflict UX. |
 | 5. Deterministic workflows | Shared-kernel backend and CLI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable effect budgets; permission and credential rechecks; durable command waiting; fenced recovery; typed API and CLI. | Visual editor, richer Mail actions, guarded automatic replies, and AI decision nodes. |
 | 6. AI decisions and agents | Not started | Mail is exposed through typed API and CLI operations suitable for later tools. | Mail AI resource, tools, approvals, workflow decision nodes, summaries, classification, suggested drafts, and bulk-plan generation. |
-| 7. Product-speed pass | Core workspace implemented | Cloud-native mailbox overview; responsive queue, folder, list, and conversation workspace; scan-oriented rows; URL-backed navigation and search; contained compose; permission-aware settings; shared empty and error states; desktop/mobile and light/dark verification. | Message-operation commands, keyboard shortcuts, advanced focus behavior, prefetch, saved views, and explicit frontend performance gates. |
+| 7. Product-speed pass | Core workspace implemented | Cloud-native mailbox overview; responsive queue, folder, list, and conversation workspace; scan-oriented rows; URL-backed navigation and search; contained compose; permission-aware settings; shared empty and error states; desktop/mobile and light/dark verification. | Adopt the accepted calm workspace hierarchy, toggleable conversation list, combined Details panel, full-size and pop-out composer, message-operation commands, keyboard shortcuts, prefetch, saved views, and explicit frontend performance gates. |
 | 8-9. Enhanced connectors | Not started | Provider-neutral connector, capability, identity, and command boundaries are established. | JMAP, Microsoft Graph, and Gmail API connectors and their conformance suites. |
 
 Verification consists of package type checks, default tests, PostgreSQL integration tests, explicit large-mailbox performance gates, connector conformance, and authenticated browser smokes. The workflow suite covers immutable versions, preflight commitments, idempotent materialization, waiting, cancellation, recovery, authorization changes, event deduplication, and schedule fencing. The exact test counts are intentionally not duplicated here; the package scripts and CI output are authoritative.
@@ -706,15 +710,23 @@ The UI must make internal comments visually unmistakable from email. A comment c
 
 ### Shared drafts
 
-Drafts store source Markdown/plain text, rendered MIME preview, authorship, and revision. Opening a reply publishes ephemeral presence. Starting to edit creates a soft lease; it warns other collaborators but does not block recovery after a crashed client.
+Drafts store source Markdown/plain text, rendered MIME preview, intent, source-message context, authorship, last editor, and revision. They belong to the mailbox rather than their creator: a reader can inspect the complete draft, including Bcc recipients, and comment on its conversation; a writer can edit, take over, discard, schedule, or send it. Draft creation and autosave do not notify the mailbox. Review requests use the existing internal comment and mention flow.
+
+Opening an empty composer does not create durable clutter. The first meaningful change allocates a draft ID, writes every subsequent edit immediately to a durable browser recovery journal, and saves a coalesced revision to PostgreSQL. Navigation, switching conversations, changing composer surface, reload, browser restart, and temporary network loss never discard a draft. Closing a composer only closes the surface; discard is a separate explicit soft-deletion action with recovery. The UI distinguishes saving, saved, offline, and conflict states without announcing routine successful autosaves.
+
+PostgreSQL is the authoritative collaborative state after a revision is accepted. The browser journal covers edits that have not reached PostgreSQL and is removed when the draft is sent, explicitly discarded after its recovery period, or becomes inaccessible. Access revocation closes active editors and clears their local readable copy. A best-effort save on blur or page hide improves convergence but is never the only recovery mechanism.
+
+The first implementation has one active editor per draft, not simultaneous multi-cursor editing. Opening a reply publishes ephemeral presence; starting to edit acquires a soft lease. Other collaborators see the latest accepted revision read-only and may explicitly **Take over**. A takeover makes the prior editor read-only; any unaccepted local text remains a recoverable copy instead of being merged or overwritten. Inline, full-size, pop-out, and same-user browser tabs are surfaces for one logical editing session rather than competing collaborators.
 
 Presence and reply leases use distributed TTL state. Every heartbeat and snapshot rechecks current mailbox access; revoked users disappear immediately, and another eligible writer may recover their stale lease without waiting for the TTL.
 
-Saving requires the expected draft revision. A stale save produces a recoverable conflict that preserves the user's version as a copy. The first implementation does not merge text automatically.
+Saving requires the expected draft revision. A stale save produces a typed conflict that preserves the user's version as a copy and offers the latest accepted revision; the first implementation does not merge text automatically and does not use Yjs or another CRDT. Routine autosaves update draft revision history but do not create one user-facing activity event per save. Activity records meaningful lifecycle events such as creation, requested review, takeover, discard or restore, scheduling, and send.
+
+Send, Reply, Reply all, and Forward operate on one exact frozen draft revision. Permission, sender identity, provider binding, recipients, rendered signature, and conversation context are rechecked before submission. The first successful idempotent submission wins; every other surface becomes read-only. Activity distinguishes authorship from delivery, for example **Drafted by Alice, sent by Bob**. A newer inbound message or another collaborator's sent reply marks the draft context as changed and requires review rather than silently deleting or rewriting the draft.
 
 ### Activity
 
-Every collaboration mutation appends one `mail.activity_events` row in the same database transaction as the projection update. Remote actions append requested and terminal events around the durable command.
+Every user-visible collaboration lifecycle mutation appends one `mail.activity_events` row in the same database transaction as the projection update. Draft text autosaves remain in draft revision history and do not emit activity per revision. Remote actions append requested and terminal events around the durable command.
 
 Actors support:
 
@@ -917,10 +929,45 @@ Compose starts with plain text and Markdown while producing standards-compatible
 
 ### Draft representation
 
-- Store source plain text or Markdown locally with revision history.
-- Generate `text/plain` and sanitized `text/html` MIME alternatives.
-- Preserve remote IMAP draft placement and `\Draft` state.
-- If another client changes the remote draft, invalidate or detach the local Markdown source rather than silently overwriting it.
+- Store source plain text or Markdown in PostgreSQL with revision history and keep only unsynchronized recovery state in the browser journal.
+- Generate `text/plain` and sanitized `text/html` MIME alternatives from an exact accepted revision.
+- Preserve remote IMAP draft placement and `\Draft` state through coalesced complete MIME snapshots. A successful new snapshot is recorded before the prior remote snapshot is deleted or marked deleted.
+- Treat Cloud-to-provider synchronization as projection and provider-to-Cloud synchronization as import and reconciliation. The flow is bidirectional but intentionally asymmetric: PostgreSQL remains the collaborative authority.
+- Persist connector-scoped remote identity and the last projected Cloud revision. IMAP uses mailbox identity, `UIDVALIDITY`, UID, and a content fingerprint; JMAP uses its stable email ID and state tokens where available.
+- Import a draft created in another client as a Cloud draft. If only the remote version changed, import it as a new revision. If Cloud and the provider both changed, retain the remote version as a conflict copy instead of merging or choosing a winner silently.
+- Treat remote deletion as a Cloud soft discard only when the provider still represents the last projected Cloud revision. If Cloud has newer work, preserve it and expose a synchronization conflict.
+- Attribute changes that arrive through an external client to that external provider binding when the protocol cannot identify the human editor. Never claim a specific Cloud actor without evidence.
+- JMAP may improve identity and state-based conflict detection, but it does not change the PostgreSQL authority, permission, activity, or frozen-send contracts.
+
+### Reply quoting, draft intents, and composer surfaces
+
+A reply can quote a complete prior message or selected lines from any message in the conversation. Selecting text exposes **Quote in reply** and inserts a localized attribution plus a standards-compatible quote block at the current composer cursor:
+
+```text
+Am 11.07.26 um 18:12 schrieb Valentin Kolb:
+> Der 30.07. nachmittags passt bei mir gut. Teilst du mir dann noch Ort und genaue Uhrzeit mit?
+
+Der genaue Prüfungstermin ist:
+
+30.07., 15:05 Uhr, Raum O27/341.
+```
+
+Users can write before, after, or between several quoted fragments. Plain-text output uses `>` prefixes; sanitized HTML uses semantic quote markup. The draft keeps enough source-message metadata to regenerate attribution without modifying the retained message or changing `In-Reply-To` and `References` behavior.
+
+Each mail draft has one explicit intent: `new`, `reply`, `replyAll`, or `forward`. Intent is independent of where the draft is edited:
+
+- `new` starts without a source message or recipients;
+- `reply` addresses the selected message's reply target and preserves reply headers;
+- `replyAll` adds the selected message's visible recipients, removes the active sender identity and actor addresses, and deduplicates normalized addresses;
+- `forward` starts with empty recipients, a `Fwd:` subject, and the selected message as forwarded content. It includes that message's non-inline attachments by default, but each attachment can be excluded before sending.
+
+Forward acts on the selected message, not the entire conversation. **Forward as attachment** is an explicit advanced action. A reply or forward may be opened from a message action, keyboard command, or command palette; changing the editing surface never changes its intent.
+
+The compact reply composer is the default in the split workspace. Expanding it opens a full-size mail composer with explicit From, To, Cc, Bcc, Subject, attachments, body, and its intent-specific primary action. The same draft can open in a dedicated browser window. Inline, full-size, and pop-out surfaces share one draft ID, revision stream, draft lease, permission checks, upload state, and send command; opening another surface never clones the draft. Internal comments are collaboration records edited only in the Details panel. They are never a mail draft intent and never appear as an option in compact, full-size, or pop-out mail composers.
+
+The default composer keeps only frequent controls visible: sender and recipients, subject on demand in compact mode, body, the primary intent action, delivery options, attachments, and focus or pop-out controls. Formatting and Markdown preview, signatures and snippets, scheduling, AI drafting, subject editing on replies, and discard live in focused toolbar or overflow actions. Provider-dependent priority flags and **Forward as attachment** remain advanced actions. Undo send is a post-send action, not another composer mode.
+
+The primary commit action mirrors the draft intent on every surface: **Send** for a new message, **Reply** for reply, **Reply all** for reply-all, and **Forward** for forward. Its icon follows the same intent. The adjacent secondary control is consistently named **Delivery options** and contains scheduling or delivery behavior; it never changes recipients or draft intent.
 
 ### Signatures and snippets
 
@@ -938,24 +985,55 @@ Incoming HTML never uses mailbox compose CSS.
 
 ## Application experience
 
-The app uses `AppWorkspace` as a dense operational workspace, not a landing page.
+The app uses `AppWorkspace` as a dense operational workspace, not a landing page. The default is calm through progressive disclosure: capabilities remain available without occupying the screen until needed.
 
 ```text
-+----------------+-------------------------+--------------------------------+
-| Mailboxes      | Conversation list       | Conversation                   |
-| Saved views    | sender / subject / time | summary / messages / comments |
-| Folders        | assignee / state / tags | reply / assign / activity     |
-| Tags           | stable keyboard focus   |                                |
-+----------------+-------------------------+--------------------------------+
++----------------+---------------------------+--------------------------+------------------+
+| Mailbox nav    | Conversation list         | Reader                   | Optional detail  |
+| Views/folders  | sender · subject · preview | thread · reply composer  | one panel only   |
+| Settings       | state · assignee · time    | message actions          | resizable        |
++----------------+---------------------------+--------------------------+------------------+
 ```
+
+### Workspace hierarchy
+
+The left navigation selects the mailbox, saved view, or provider folder. Navigation and conversation-list widths are resizable, collapsible, and remembered per user. The conversation list favors Notion Mail-style one-line rows so users can scan many messages without changing context. A row keeps sender, subject, preview, unread state, timestamp, attachment indicator, and compact collaboration signals such as assignee or waiting state. Secondary labels yield before sender, subject, or work state disappears.
+
+Selecting a row opens the conversation beside the list. Search, filter, and view controls stay compact. Row actions appear on selection or hover, but consequential state and commands remain keyboard-accessible and never depend on hover alone.
 
 ### Thread view
 
-The conversation view shows the original message and every inbound or outbound reply in chronological order. The newest relevant message is expanded; older messages remain compact but preserve sender, recipients, timestamp, attachments, and delivery direction. Recognized quoted history is collapsed for readability, while the unmodified raw body remains available.
+The conversation view shows the original message and every inbound or outbound reply in chronological order. The newest relevant message is expanded; older messages remain compact but preserve sender, recipients, timestamp, attachment presence, and delivery direction. Recognized quoted history is collapsed for readability, while the unmodified raw body remains available.
 
-Internal comments appear in the same working context but use a distinct visual treatment and composer. Drafts and selected activity events may appear inline. Filters can show only email, comments, drafts, or activity without changing stored chronology.
+The selected message exposes familiar **Reply**, **Reply all**, and **Forward** actions without opening a generic action drawer. Reply may continue in the compact composer; Reply all and Forward can open the same draft in full-size or pop-out form when more recipient or source context is useful.
+
+Internal comments do not enter the email chronology. They live in the optional Details panel beside ownership, followers, compact mail metadata, and recent activity. Its comment input cannot address external recipients. The mail composer cannot silently switch into internal-comment mode.
 
 A stable conversation reference, when allocated, appears as a compact copyable label in the header and search results. Manual merge and split commands are available only when threading is wrong, require confirmation, and append an activity event. Merge previews the primary reference and retained aliases. Split previews which conversation keeps the reference and whether the new conversation receives one.
+
+### Detail panels
+
+The reader can open one resizable `AppWorkspace.Detail` panel at a time. A single **Details** panel combines ownership, followers, internal comments, recent activity, workflow state, participants, routing metadata, labels, and compact message metadata. Team and Mail details are not separate panels. Technical headers remain an advanced disclosure inside Details rather than occupying another panel.
+
+Contact context and contextual AI may replace Details in the same optional panel region. The AI panel hosts contextual chat and actions; the quiet inline summary remains in the reader. Attachments remain with their source message and do not become another generic detail panel.
+
+A badge on Details represents unread internal comments only, uses the exact unread count, and disappears at zero. Participant, follower, attachment, and activity counts are not mixed into that badge.
+
+Closing a panel restores reader width. Panel choice, width, and visibility are user preferences, not conversation data. On narrow screens a detail panel becomes a dedicated overlay or route and keeps an explicit path back to the conversation.
+
+### Attachment placement
+
+Attachments remain visually bound to their origin. Received files appear beneath the exact history message that carried them, including filename, type, size, availability, and actions. Files being sent appear only inside the active composer with upload progress, retry, remove, and failure state. The UI never combines received and outgoing files in one generic drawer.
+
+Each attachment group has a stable source label such as **Received with this message**, **Attached to this reply**, or **Included from original message**. The label remains visible in ordinary reading mode and is not dependent on opening an attachment-specific state.
+
+Opening a received file starts from its message row and may use an inline preview, a focused preview surface, or a new browser tab according to file type. Opening or downloading still rechecks current mailbox permission. The attachment's source message remains visible or directly reachable from the preview.
+
+### Reader width and compose focus
+
+The normal split workspace is optimized for moving between conversations. The conversation list can be hidden and restored independently while mailbox navigation, conversation actions, and the compact composer stay in place. Hiding the list closes the optional detail panel and lets the reader use the remaining workspace width; it is not a separate reader mode. List visibility and width are remembered per user, and restoring the list preserves the selected conversation and reader scroll position.
+
+**Full-size composer** is a separate editing surface for substantial new messages, replies, reply-all drafts, and forwards. It occupies the complete app viewport: mailbox navigation, conversation list, reader, conversation toolbar, detail panels, and other workspace chrome disappear. The composer header is the topmost UI, identifies the current mail intent, and provides both Exit full size and **Open in new window**. It never offers Internal note as a mode. The dedicated browser window contains the same composer-only surface for comparison with other mail or applications. Returning to split view preserves cursor, selection, scroll position, uploads, and draft revision.
 
 ### Command-first interaction
 
@@ -964,6 +1042,8 @@ One command registry powers buttons, menus, the shared Spotlight-style command p
 Shortcuts are discoverable and configurable. Keyboard and pointer interaction have parity. International keyboard layouts are part of verification.
 
 Triage actions advance focus to the next conversation without resizing the list. Adjacent conversation data is prefetched. Optimistic feedback appears immediately, while durable command state exposes sync failures and recovery.
+
+Dragging a conversation onto a provider folder invokes the same checked move command as menus, keyboard shortcuts, CLI, and agents. The drop target shows whether the operation moves, copies, or is unsupported before release. Every drag action has an equivalent keyboard and command-palette path.
 
 ### Split views
 
@@ -1067,8 +1147,8 @@ Accepted mapping:
 
 | Permission | Capabilities |
 | --- | --- |
-| `read` | List, search, and read mail; download permitted attachments; view activity; write, edit, and delete own internal comments; mention collaborators. |
-| `write` | Read plus every ordinary message and collaboration operation: flags, keywords, moves, copy, archive, trash, message deletion, local tags, assignment, status, references, drafts, and send. |
+| `read` | List, search, and read mail and shared drafts; download permitted attachments; view activity; write, edit, and delete own internal comments; mention collaborators. Draft access includes envelope fields and Bcc because drafts are mailbox content. |
+| `write` | Read plus every ordinary message and collaboration operation: flags, keywords, moves, copy, archive, trash, message deletion, local tags, assignment, status, references, draft creation and editing, takeover, discard, and send. |
 | `admin` | Write plus mailbox-owned provider connections, all mailbox binding links, sender identities, remote folder creation/rename/deletion, mailbox settings, sharing, workflows, rules, policies, signatures, and reversible mailbox deletion. |
 
 Service-account credential scopes can only reduce resource permission. Tool and automation policies can reduce it further.
@@ -1095,7 +1175,7 @@ Manual conversation merge and split require `write` and an expected conversation
 
 ### Revocation
 
-Every request, attachment fetch, stream reconnect, delayed command, workflow action, and agent tool execution resolves current access. Revocation blocks new work immediately. Existing live clients refetch and lose inaccessible state.
+Every request, attachment fetch, stream reconnect, delayed command, workflow action, and agent tool execution resolves current access. Revocation blocks new work immediately. Existing live clients refetch and lose inaccessible state; draft editors close and clear their durable browser recovery journal for that resource.
 
 Binding rights, scopes, and remote resource visibility are also rechecked. If a shared root disappears or a user's personal binding loses read rights, that binding no longer authorizes cached mail even if the Cloud ACL itself did not change. Other healthy bindings and collaborators remain unaffected.
 
@@ -1200,6 +1280,10 @@ Every manual operation is audited and uses the same scheduler/job handlers as au
 Metrics must cover sync duration and lag, fetch bytes, reconnects, parser failures, connector discovery and rights refreshes, binding failures, command latency, ambiguous outcomes, search latency, index size, workflow and bulk-action throughput, automatic-reply suppression and send outcomes, reference allocation failures, AI calls and cost metadata, approval wait time, and identity rejections.
 
 Logs use IDs and counts rather than subjects, addresses, bodies, or credentials. Traces carry mailbox, command, workflow-run, agent-loop, and request correlation IDs.
+
+The `/admin/mail` storage view is Cloud-admin-only and observational. Its mailbox table reports message count, logical message bytes, received-attachment bytes, draft and ordinary outgoing-upload bytes, external-link bytes, logical total, and last calculation time. It supports search and sorting by total without exposing subjects, addresses, filenames, or attachment content.
+
+Mailbox rows report logical referenced bytes, not attributed physical disk usage. Content-addressed blobs can be referenced by more than one mailbox, so assigning their physical bytes to one mailbox would be misleading. A separate global summary reports physical Mail relation and blob storage. A durable aggregate projection is updated from known byte lengths and periodically reconciled; the admin page never scans message or blob tables synchronously. No value in this view blocks upload, sync, or send in the initial release.
 
 ### Retention and backup
 
@@ -1317,8 +1401,24 @@ The matrix is cumulative. Only generic IMAP/SMTP behavior gates the first comple
 - Merge retains secondary references as searchable aliases; split never assigns the same reference to both conversations.
 - A visible reference with matching participants may recover a broken thread; a reference without participant evidence only suggests a possible match.
 - Recognized quoted history is collapsed visually while raw message content remains unchanged.
+- Selecting lines from a history message inserts an attributed quote at the current reply cursor and produces correct plain-text `>` and HTML quote output.
+- Received attachments remain attached to their source message; outgoing uploads remain attached to the active draft and never appear in one ambiguous drawer.
+- Reply all excludes active sender and actor addresses, deduplicates recipients, and exposes the final To and Cc lists before sending.
+- Forward starts without recipients, uses the selected message rather than the entire conversation, and lets the sender exclude original non-inline attachments.
+- New, reply, reply-all, and forward composers use Send, Reply, Reply all, and Forward respectively as their primary action on every editing surface.
+- Attachment groups retain a visible origin label in normal reader and composer states.
+- The Details badge equals unread internal comments and disappears when no unread comments remain.
+- Hiding and restoring the conversation list preserves the selected conversation, reader scroll position, draft, uploads, and permissions.
+- New, reply, reply-all, and forward drafts retain their intent while inline, full-size, and pop-out surfaces edit one revision-safe draft and cannot send duplicate revisions.
+- Draft text survives navigation, reload, browser restart, an interrupted autosave, and an offline interval without creating empty server drafts or duplicate editing sessions.
+- Direct and resumable attachment uploads use the same durable upload state machine. Sending is rejected while an upload is incomplete, cancellation is retry-safe, and abandoned upload bytes are removed by bounded background cleanup.
+- Readers can inspect mailbox drafts and request review without editing; writers can take over and send. Autosave does not notify the mailbox or flood user-facing activity.
+- A stale editor preserves its local text as a recovery copy, while an explicit takeover and the first successful idempotent send make older surfaces read-only.
+- A Cloud draft appears in the provider Drafts mailbox; a provider-created draft is imported; independent Cloud and external edits produce explicit conflict copies rather than silent last-write-wins behavior.
+- Replacing an IMAP draft snapshot records the new UID before retiring the prior snapshot. Failure between those operations is reconciled without losing the accepted Cloud revision.
+- Remote deletion soft-discards an unchanged projected draft but never deletes a newer Cloud revision. External-client activity is attributed only as precisely as the provider binding permits.
 - Two collaborators add comments, replies, edits, mentions, and deletion tombstones concurrently without losing revisions.
-- Comment and email composers remain visually and behaviorally distinct.
+- Internal comments remain in the Details panel and never appear as a mode in any mail composer.
 
 ### Workflow scenarios
 
@@ -1381,8 +1481,8 @@ Success: a generic IMAP account is usable without expert protocol knowledge, and
 
 ### 3. Core mail operations
 
-- Folder tree, list, threaded conversation view, quote collapsing, manual merge/split, flags, keywords, move, archive, trash, compose, reply, drafts, multiple verified sender identities, send, Undo Send, and Scheduled Send.
-- Safe HTML and attachment rendering.
+- Folder tree, dense one-line list, threaded conversation view, quote collapsing, selected-text reply quoting, manual merge/split, flags, keywords, move, archive, trash, compose, reply, drafts, multiple verified sender identities, send, Undo Send, and Scheduled Send.
+- Safe HTML rendering plus received attachments on their source message and outgoing attachments in their draft composer.
 - Provider-aware Sent behavior and ambiguous-outcome reconciliation.
 
 Success: generic IMAP/SMTP delivers the complete portable mail-operation set; all portable actions appear correctly in a second mail client and survive injected crashes.
@@ -1413,7 +1513,7 @@ Success: an agent can search, classify, assign, draft, and execute a bounded mai
 
 ### 7. Product-speed pass
 
-- Command registry, configurable shortcuts, focus preservation, prefetch, Split view templates, shared snippets, and keyboard/pointer parity.
+- Command registry, configurable shortcuts, focus preservation, prefetch, Split view templates, toggleable conversation list, combined Details panel, full-size and pop-out composer, shared snippets, and keyboard/pointer parity.
 - Performance and accessibility gates.
 
 Success: repeated triage is stable, measurable, and usable without a mouse or memorized shortcuts.

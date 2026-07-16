@@ -8,7 +8,24 @@ import { cancelSendCommand, executeMutationCommand, executeOutboxSubmission } fr
 import { createActorCommand } from "./commands";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
-import { addDraftAttachment, createDraft, discardDraft, removeDraftAttachment, updateDraft } from "./drafts";
+import { acquireDraftLease, getDraftLease, heartbeatDraftLease, releaseDraftLease } from "./draft-leases";
+import {
+  appendDraftAttachmentUpload,
+  cancelDraftAttachmentUpload,
+  createDraftAttachmentUpload,
+  finalizeDraftAttachmentUpload,
+  getDraftAttachmentUpload,
+  uploadDraftAttachmentStream,
+} from "./draft-uploads";
+import {
+  createDraft,
+  discardDraft,
+  getDraft,
+  listDraftRecoveryCopies,
+  removeDraftAttachment,
+  restoreDraftRecoveryCopy,
+  updateDraft,
+} from "./drafts";
 import { resolveMailExecution } from "./execution";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
@@ -387,6 +404,99 @@ suite("mail PostgreSQL foundation", () => {
       expect(replayedConversationRead.data.commands.map((item) => item.id)).toEqual(conversationRead.data.commands.map((item) => item.id));
     }
 
+    const replyDraft = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        conversationId: orderedConversation!.id,
+        intent: "reply",
+        sourceMessageId: latestInboundId,
+        senderIdentityId: identity!.id,
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Re: Ordered newest inbound",
+        body: "Reply using the pinned source message",
+        format: "plain",
+      },
+    });
+    expect(replyDraft.ok).toBe(true);
+    if (!replyDraft.ok) return;
+    expect(replyDraft.data.intent).toBe("reply");
+    expect(replyDraft.data.sourceMessageId).toBe(latestInboundId);
+    const editedReplyDraft = await updateDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: replyDraft.data.id,
+      expectedRevision: replyDraft.data.revision,
+      input: {
+        senderIdentityId: identity!.id,
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Re: Ordered newest inbound",
+        body: "Edited reply content",
+        format: "plain",
+      },
+    });
+    expect(editedReplyDraft.ok).toBe(true);
+    if (!editedReplyDraft.ok) return;
+    expect(editedReplyDraft.data.sourceMessageId).toBe(latestInboundId);
+    const replyCommand = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: replyDraft.data.id,
+        expectedDraftRevision: editedReplyDraft.data.revision,
+        senderIdentityId: identity!.id,
+        undoSeconds: 60,
+        idempotencyKey: `reply-source-send-${suffix}`,
+      },
+    });
+    expect(replyCommand.ok).toBe(true);
+    if (!replyCommand.ok) return;
+    const [replyOutbox] = await sql<{ draft_snapshot: Record<string, unknown> | string }[]>`
+      SELECT draft_snapshot
+      FROM mail.outbox_submissions
+      WHERE command_id = ${replyCommand.data.id}::uuid
+    `;
+    const replySnapshot =
+      typeof replyOutbox?.draft_snapshot === "string" ? JSON.parse(replyOutbox.draft_snapshot) : replyOutbox?.draft_snapshot;
+    expect(replySnapshot?.inReplyTo).toBe("<ordering-inbound@example.com>");
+    expect(replySnapshot?.references).toContain("<ordering-inbound@example.com>");
+    const rejectedPostSendAutosave = await updateDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: replyDraft.data.id,
+      expectedRevision: editedReplyDraft.data.revision,
+      input: {
+        senderIdentityId: identity!.id,
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Re: Ordered newest inbound",
+        body: "Typing that arrived after scheduling",
+        format: "plain",
+      },
+    });
+    expect(rejectedPostSendAutosave.ok).toBe(false);
+    const postSendRecovery = await listDraftRecoveryCopies({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: replyDraft.data.id,
+    });
+    expect(postSendRecovery.ok && postSendRecovery.data.filter((copy) => copy.restoredAt === null)).toHaveLength(1);
+    if (postSendRecovery.ok) expect(postSendRecovery.data[0]?.content.body).toBe("Typing that arrived after scheduling");
+    expect((await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: replyCommand.data.id })).ok).toBe(true);
+    const discardedReply = await discardDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: replyDraft.data.id,
+      expectedRevision: editedReplyDraft.data.revision,
+    });
+    expect(discardedReply.ok).toBe(true);
+
     const emptyDraft = await createDraft({
       context,
       mailboxId: mailbox.data.id,
@@ -401,12 +511,47 @@ suite("mail PostgreSQL foundation", () => {
       },
     });
     if (!emptyDraft.ok) throw new Error(`${emptyDraft.error.code}: ${emptyDraft.error.message}`);
+    const lease = await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: emptyDraft.data.id });
+    expect(lease.ok).toBe(true);
+    if (!lease.ok) return;
+    expect((await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: emptyDraft.data.id })).ok).toBe(false);
+    expect(
+      (
+        await heartbeatDraftLease({
+          context,
+          mailboxId: mailbox.data.id,
+          draftId: emptyDraft.data.id,
+          token: crypto.randomUUID(),
+        })
+      ).ok,
+    ).toBe(false);
+    expect(
+      (
+        await heartbeatDraftLease({
+          context,
+          mailboxId: mailbox.data.id,
+          draftId: emptyDraft.data.id,
+          token: lease.data.token,
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      (
+        await releaseDraftLease({
+          context,
+          mailboxId: mailbox.data.id,
+          draftId: emptyDraft.data.id,
+          token: lease.data.token,
+        })
+      ).ok,
+    ).toBe(true);
     const emptySend = await createActorCommand({
       context,
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
         draftId: emptyDraft.data.id,
+        expectedDraftRevision: emptyDraft.data.revision,
         senderIdentityId: identity!.id,
         undoSeconds: 60,
         idempotencyKey: `empty-send-${suffix}`,
@@ -419,6 +564,90 @@ suite("mail PostgreSQL foundation", () => {
       WHERE mailbox_id = ${mailbox.data.id}::uuid AND idempotency_key = ${`empty-send-${suffix}`}
     `;
     expect(emptyCommandCount?.count).toBe(0);
+
+    const invalidIdentityDraft = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        senderIdentityId: identity!.id,
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Identity recovery",
+        body: "Original body",
+        format: "plain",
+      },
+    });
+    expect(invalidIdentityDraft.ok).toBe(true);
+    if (!invalidIdentityDraft.ok) return;
+    const rejectedIdentityUpdate = await updateDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: invalidIdentityDraft.data.id,
+      expectedRevision: invalidIdentityDraft.data.revision,
+      input: {
+        senderIdentityId: crypto.randomUUID(),
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Identity recovery",
+        body: "Unsaved body after identity removal",
+        format: "plain",
+      },
+    });
+    expect(rejectedIdentityUpdate.ok).toBe(false);
+    const identityRecoveryCopies = await listDraftRecoveryCopies({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: invalidIdentityDraft.data.id,
+    });
+    expect(identityRecoveryCopies.ok && identityRecoveryCopies.data).toHaveLength(1);
+    if (identityRecoveryCopies.ok) {
+      expect(identityRecoveryCopies.data[0]?.content.body).toBe("Unsaved body after identity removal");
+    }
+    const pendingUpload = await createDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: invalidIdentityDraft.data.id,
+      input: { filename: "pending.txt", contentType: "text/plain", byteLength: 1 },
+    });
+    expect(pendingUpload.ok).toBe(true);
+    if (!pendingUpload.ok) return;
+    const sendWithPendingUpload = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: invalidIdentityDraft.data.id,
+        expectedDraftRevision: invalidIdentityDraft.data.revision,
+        senderIdentityId: identity!.id,
+        undoSeconds: 60,
+        idempotencyKey: `pending-upload-send-${suffix}`,
+      },
+    });
+    expect(sendWithPendingUpload.ok).toBe(false);
+    if (!sendWithPendingUpload.ok) expect(sendWithPendingUpload.error.code).toBe("CONFLICT");
+    const cancelledUpload = await cancelDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: invalidIdentityDraft.data.id,
+      uploadId: pendingUpload.data.id,
+    });
+    expect(cancelledUpload.ok && cancelledUpload.data.state).toBe("cancelled");
+    const repeatedCancellation = await cancelDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: invalidIdentityDraft.data.id,
+      uploadId: pendingUpload.data.id,
+    });
+    expect(repeatedCancellation.ok && repeatedCancellation.data.state).toBe("cancelled");
+    const retainedCancellation = await getDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: invalidIdentityDraft.data.id,
+      uploadId: pendingUpload.data.id,
+    });
+    expect(retainedCancellation.ok && retainedCancellation.data.state).toBe("cancelled");
 
     const draft = await updateDraft({
       context,
@@ -443,20 +672,46 @@ suite("mail PostgreSQL foundation", () => {
       WHERE target_type = 'draft' AND target_id = ${draft.data.id}::uuid
       ORDER BY id
     `;
-    expect(draftActivity).toEqual([
-      { action: "draft.created", revision: 1 },
-      { action: "draft.updated", revision: 2 },
-    ]);
-    const outgoingAttachment = Buffer.from(`outgoing attachment ${suffix}`);
-    const draftWithAttachment = await addDraftAttachment({
+    expect(draftActivity).toEqual([{ action: "draft.created", revision: 1 }]);
+    const staleUpdate = await updateDraft({
       context,
       mailboxId: mailbox.data.id,
       draftId: draft.data.id,
+      expectedRevision: emptyDraft.data.revision,
+      input: {
+        senderIdentityId: identity!.id,
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Integration subject",
+        body: "Recovered stale body",
+        format: "markdown",
+      },
+    });
+    expect(staleUpdate.ok).toBe(false);
+    const recoveryCopies = await listDraftRecoveryCopies({ context, mailboxId: mailbox.data.id, draftId: draft.data.id });
+    expect(recoveryCopies.ok && recoveryCopies.data).toHaveLength(1);
+    if (!recoveryCopies.ok || !recoveryCopies.data[0]) return;
+    const restoredDraft = await restoreDraftRecoveryCopy({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      recoveryCopyId: recoveryCopies.data[0].id,
       expectedRevision: draft.data.revision,
+    });
+    expect(restoredDraft.ok && restoredDraft.data.body).toBe("Recovered stale body");
+    expect(restoredDraft.ok && restoredDraft.data.recoveryCopyCount).toBe(0);
+    if (!restoredDraft.ok) return;
+    const outgoingAttachment = Buffer.from(`outgoing attachment ${suffix}`);
+    const draftWithAttachment = await uploadDraftAttachmentStream({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      expectedRevision: restoredDraft.data.revision,
       filename: "integration.txt",
       contentType: "text/plain",
+      byteLength: outgoingAttachment.length,
       stream: Readable.from([outgoingAttachment]),
-      expectedSize: outgoingAttachment.length,
     });
     expect(draftWithAttachment.ok).toBe(true);
     if (!draftWithAttachment.ok) return;
@@ -467,12 +722,26 @@ suite("mail PostgreSQL foundation", () => {
       WHERE id = ${draftWithAttachment.data.attachments[0]!.id}::uuid
     `;
     ids.blobIds.push(outgoingAttachmentBlob!.blob_id);
+    const staleSend = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: draft.data.id,
+        expectedDraftRevision: restoredDraft.data.revision,
+        senderIdentityId: identity!.id,
+        undoSeconds: 60,
+        idempotencyKey: `stale-send-${suffix}`,
+      },
+    });
+    expect(staleSend.ok).toBe(false);
     const command = await createActorCommand({
       context,
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
         draftId: draft.data.id,
+        expectedDraftRevision: draftWithAttachment.data.revision,
         senderIdentityId: identity!.id,
         undoSeconds: 60,
         idempotencyKey: `send-${suffix}`,
@@ -490,18 +759,33 @@ suite("mail PostgreSQL foundation", () => {
       input: {
         kind: "send",
         draftId: draft.data.id,
+        expectedDraftRevision: draftWithAttachment.data.revision,
         senderIdentityId: identity!.id,
         undoSeconds: 60,
         idempotencyKey: `send-${suffix}`,
       },
     });
     expect(repeatedCommand.ok && repeatedCommand.data.id).toBe(command.data.id);
+    const duplicateSend = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: draft.data.id,
+        expectedDraftRevision: draftWithAttachment.data.revision,
+        senderIdentityId: identity!.id,
+        undoSeconds: 60,
+        idempotencyKey: `duplicate-send-${suffix}`,
+      },
+    });
+    expect(duplicateSend.ok).toBe(false);
     const conflictingCommand = await createActorCommand({
       context,
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
         draftId: draft.data.id,
+        expectedDraftRevision: draftWithAttachment.data.revision,
         senderIdentityId: identity!.id,
         undoSeconds: 59,
         idempotencyKey: `send-${suffix}`,
@@ -524,16 +808,95 @@ suite("mail PostgreSQL foundation", () => {
     ]);
     const cancelled = await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: command.data.id });
     expect(cancelled.ok).toBe(true);
-    const withoutAttachment = await removeDraftAttachment({
+    expect(
+      (
+        await createDraftAttachmentUpload({
+          context,
+          mailboxId: mailbox.data.id,
+          draftId: draft.data.id,
+          input: { filename: "too-large.bin", contentType: "application/octet-stream", byteLength: 100 * 1024 * 1024 + 1 },
+        })
+      ).ok,
+    ).toBe(false);
+    const resumedBytes = Buffer.alloc(1024 * 1024 + 17, 7);
+    const upload = await createDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      input: { filename: "resumed.bin", contentType: "application/octet-stream", byteLength: resumedBytes.length },
+    });
+    if (!upload.ok) throw new Error(`${upload.error.code}: ${upload.error.message}`);
+    expect(
+      (
+        await appendDraftAttachmentUpload({
+          context,
+          mailboxId: mailbox.data.id,
+          draftId: draft.data.id,
+          uploadId: upload.data.id,
+          offset: 1,
+          bytes: resumedBytes.subarray(0, 16),
+        })
+      ).ok,
+    ).toBe(false);
+    const firstChunk = await appendDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      uploadId: upload.data.id,
+      offset: 0,
+      bytes: resumedBytes.subarray(0, 1024 * 1024),
+    });
+    expect(firstChunk.ok && firstChunk.data.receivedBytes).toBe(1024 * 1024);
+    const resumed = await getDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      uploadId: upload.data.id,
+    });
+    expect(resumed.ok && resumed.data.receivedBytes).toBe(1024 * 1024);
+    const completedUpload = await appendDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      uploadId: upload.data.id,
+      offset: 1024 * 1024,
+      bytes: resumedBytes.subarray(1024 * 1024),
+    });
+    expect(completedUpload.ok && completedUpload.data.state).toBe("uploaded");
+    const draftWithResumedAttachment = await finalizeDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      uploadId: upload.data.id,
+      expectedRevision: draftWithAttachment.data.revision,
+    });
+    expect(draftWithResumedAttachment.ok && draftWithResumedAttachment.data.attachments).toHaveLength(2);
+    if (!draftWithResumedAttachment.ok) return;
+    const resumedAttachment = draftWithResumedAttachment.data.attachments.find((attachment) => attachment.filename === "resumed.bin");
+    expect(resumedAttachment).toBeDefined();
+    if (!resumedAttachment) return;
+    const [resumedBlob] = await sql<{ blob_id: string }[]>`
+      SELECT blob_id FROM mail.draft_attachments WHERE id = ${resumedAttachment.id}::uuid
+    `;
+    ids.blobIds.push(resumedBlob!.blob_id);
+    const withoutFirstAttachment = await removeDraftAttachment({
       context,
       mailboxId: mailbox.data.id,
       draftId: draft.data.id,
       attachmentId: draftWithAttachment.data.attachments[0]!.id,
-      expectedRevision: draftWithAttachment.data.revision,
+      expectedRevision: draftWithResumedAttachment.data.revision,
     });
-    expect(withoutAttachment.ok).toBe(true);
+    expect(withoutFirstAttachment.ok).toBe(true);
+    if (!withoutFirstAttachment.ok) return;
+    const withoutAttachment = await removeDraftAttachment({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      attachmentId: resumedAttachment.id,
+      expectedRevision: withoutFirstAttachment.data.revision,
+    });
+    expect(withoutAttachment.ok && withoutAttachment.data.attachments).toEqual([]);
     if (!withoutAttachment.ok) return;
-    expect(withoutAttachment.data.attachments).toEqual([]);
     const discarded = await discardDraft({
       context,
       mailboxId: mailbox.data.id,
@@ -553,6 +916,8 @@ suite("mail PostgreSQL foundation", () => {
     `;
     expect(attachmentActivity).toEqual([
       { action: "draft.attachment_added", target_type: "draft_attachment" },
+      { action: "draft.attachment_added", target_type: "draft_attachment" },
+      { action: "draft.attachment_removed", target_type: "draft_attachment" },
       { action: "draft.attachment_removed", target_type: "draft_attachment" },
       { action: "draft.discarded", target_type: "draft" },
     ]);
@@ -844,12 +1209,73 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(collaboratorDraft.ok).toBe(true);
     if (!collaboratorDraft.ok) return;
+    const collaboratorLease = await acquireDraftLease({
+      context: collaboratorContext,
+      mailboxId: mailbox.data.id,
+      draftId: collaboratorDraft.data.id,
+    });
+    expect(collaboratorLease.ok).toBe(true);
+    expect((await revokeMailboxAccess({ context, mailboxId: mailbox.data.id, accessId: grant.data.id })).ok).toBe(true);
+    const leaseAfterRevocation = await getDraftLease({ context, mailboxId: mailbox.data.id, draftId: collaboratorDraft.data.id });
+    expect(leaseAfterRevocation.ok && leaseAfterRevocation.data).toBeNull();
+    const ownerLease = await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: collaboratorDraft.data.id });
+    expect(ownerLease.ok).toBe(true);
+    if (ownerLease.ok) {
+      expect(
+        (
+          await releaseDraftLease({
+            context,
+            mailboxId: mailbox.data.id,
+            draftId: collaboratorDraft.data.id,
+            token: ownerLease.data.token,
+          })
+        ).ok,
+      ).toBe(true);
+    }
+    const readGrant = await grantMailboxAccess({
+      context,
+      mailboxId: mailbox.data.id,
+      principal: { type: "user", userId: collaborator.id },
+      permission: "read",
+    });
+    expect(readGrant.ok).toBe(true);
+    if (!readGrant.ok) return;
+    expect((await getDraft(collaboratorContext, mailbox.data.id, collaboratorDraft.data.id)).ok).toBe(true);
+    expect(
+      (
+        await updateDraft({
+          context: collaboratorContext,
+          mailboxId: mailbox.data.id,
+          draftId: collaboratorDraft.data.id,
+          expectedRevision: collaboratorDraft.data.revision,
+          input: {
+            senderIdentityId: identity!.id,
+            to: [{ address: "recipient@example.com" }],
+            cc: [],
+            bcc: [],
+            subject: "Read-only mutation must fail",
+            body: "Readers must not edit shared drafts.",
+            format: "plain",
+          },
+        })
+      ).ok,
+    ).toBe(false);
+    expect((await revokeMailboxAccess({ context, mailboxId: mailbox.data.id, accessId: readGrant.data.id })).ok).toBe(true);
+    const sendGrant = await grantMailboxAccess({
+      context,
+      mailboxId: mailbox.data.id,
+      principal: { type: "user", userId: collaborator.id },
+      permission: "write",
+    });
+    expect(sendGrant.ok).toBe(true);
+    if (!sendGrant.ok) return;
     const collaboratorCommand = await createActorCommand({
       context: collaboratorContext,
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
         draftId: collaboratorDraft.data.id,
+        expectedDraftRevision: collaboratorDraft.data.revision,
         senderIdentityId: identity!.id,
         scheduledAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         undoSeconds: 0,
@@ -858,7 +1284,7 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(collaboratorCommand.ok).toBe(true);
     if (!collaboratorCommand.ok) return;
-    expect((await revokeMailboxAccess({ context, mailboxId: mailbox.data.id, accessId: grant.data.id })).ok).toBe(true);
+    expect((await revokeMailboxAccess({ context, mailboxId: mailbox.data.id, accessId: sendGrant.data.id })).ok).toBe(true);
     const [collaboratorOutbox] = await sql<{ id: string }[]>`
       UPDATE mail.outbox_submissions
       SET scheduled_at = now() - interval '1 second', undo_until = NULL
@@ -921,6 +1347,7 @@ suite("mail PostgreSQL foundation", () => {
       input: {
         kind: "send",
         draftId: retryDraft.data.id,
+        expectedDraftRevision: retryDraft.data.revision,
         senderIdentityId: identity!.id,
         scheduledAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         undoSeconds: 0,

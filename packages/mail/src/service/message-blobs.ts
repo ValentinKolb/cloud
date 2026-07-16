@@ -13,12 +13,14 @@ export type StoredBlob = {
 };
 
 export const getStoredBlob = async (blobId: string): Promise<StoredBlob> => {
-  const [blob] = await sql<{
-    id: string;
-    content_hash: string;
-    byte_length: string | number;
-    chunk_count: number;
-  }[]>`
+  const [blob] = await sql<
+    {
+      id: string;
+      content_hash: string;
+      byte_length: string | number;
+      chunk_count: number;
+    }[]
+  >`
     SELECT id, content_hash, byte_length, chunk_count
     FROM mail.message_part_blobs
     WHERE id = ${blobId}::uuid AND complete = true
@@ -79,12 +81,24 @@ export const storeReadableBlob = async (stream: Readable, expectedSize?: number 
       const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array);
       hasher.update(chunk);
       byteLength += chunk.length;
-      pending = pending.length === 0 ? chunk : Buffer.concat([pending, chunk]);
-      while (pending.length >= DEFAULT_CHUNK_SIZE) {
-        await insertChunk(created.id, chunkCount, pending.subarray(0, DEFAULT_CHUNK_SIZE));
+      let offset = 0;
+      if (pending.length > 0) {
+        const required = DEFAULT_CHUNK_SIZE - pending.length;
+        if (chunk.length < required) {
+          pending = Buffer.concat([pending, chunk]);
+          continue;
+        }
+        await insertChunk(created.id, chunkCount, Buffer.concat([pending, chunk.subarray(0, required)]));
         chunkCount += 1;
-        pending = Buffer.from(pending.subarray(DEFAULT_CHUNK_SIZE));
+        pending = Buffer.alloc(0);
+        offset = required;
       }
+      while (chunk.length - offset >= DEFAULT_CHUNK_SIZE) {
+        await insertChunk(created.id, chunkCount, chunk.subarray(offset, offset + DEFAULT_CHUNK_SIZE));
+        chunkCount += 1;
+        offset += DEFAULT_CHUNK_SIZE;
+      }
+      if (offset < chunk.length) pending = Buffer.from(chunk.subarray(offset));
     }
     if (pending.length > 0) {
       await insertChunk(created.id, chunkCount, pending);
@@ -164,6 +178,12 @@ export const deleteAbandonedBlobUploads = async (olderThanMinutes = 30): Promise
     DELETE FROM mail.message_part_blobs
     WHERE complete = false
       AND created_at < now() - (${boundedMinutes}::text || ' minutes')::interval
+      AND NOT EXISTS (
+        SELECT 1
+        FROM mail.draft_attachment_uploads upload
+        WHERE upload.blob_id = message_part_blobs.id
+          AND upload.state IN ('uploading', 'uploaded')
+      )
   `;
   return result.count;
 };
