@@ -758,6 +758,14 @@ app-internal JSON calls from islands use the typed Hono client, while raw
 `fetch()` is reserved for documented non-JSON boundaries such as files,
 streams, external URLs, and SSE.
 
+### Long-Lived SSE Responses
+
+Bun closes idle HTTP connections after 10 seconds by default. An SSE endpoint
+must therefore send its first event immediately and keepalive events more often
+than every 10 seconds; Cloud's existing streams use 5–8 second heartbeats.
+Otherwise Bun cancels the response while a topic subscription is blocked,
+which can surface a secondary stream-cancellation error during cleanup.
+
 ### OpenAPI Documentation
 
 Every API route should have `describeRoute()` (re-exported as
