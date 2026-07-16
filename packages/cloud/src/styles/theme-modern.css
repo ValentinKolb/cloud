@@ -1,10 +1,8 @@
-/* Scoped Cloud visual-system preview.
+/* Production Cloud visual system.
 
-   UI Lab places `.cloud-ui-soft` inside the shared canvas. `:has()` lifts the
-   preview tokens to the canvas and body so shell siblings and portaled layers
-   share one visual system without a Layout prop, app flag, or client script. */
-body:has(.cloud-ui-soft),
-.cloud-app-canvas:has(.cloud-ui-soft) {
+   This layer promotes the modern semantic tokens and shared component geometry
+   globally so shell siblings and portaled layers use one coherent design. */
+:root {
   --ui-surface: rgb(255 255 255 / 0.96);
   --ui-surface-subtle: rgb(248 248 248 / 0.96);
   --ui-surface-muted: rgb(243 244 243 / 0.96);
@@ -104,8 +102,7 @@ body:has(.cloud-ui-soft),
   --theme-tab-hover-bg: var(--ui-hover);
 }
 
-.dark body:has(.cloud-ui-soft),
-.dark .cloud-app-canvas:has(.cloud-ui-soft) {
+.dark {
   --ui-surface: rgb(20 21 21 / 0.98);
   --ui-surface-subtle: rgb(24 25 25 / 0.97);
   --ui-surface-muted: rgb(32 33 33 / 0.96);
@@ -148,7 +145,7 @@ body:has(.cloud-ui-soft),
 
 /* Compact breadcrumb paper with optical balance against the narrow rail. */
 @media (min-width: 768px) {
-  .cloud-app-canvas:has(.cloud-ui-soft) .layout-header {
+  .cloud-app-canvas .layout-header {
     padding: 0.375rem 0.75rem 0.375rem 1.125rem;
     border-color: transparent;
     border-radius: var(--ui-radius-surface);
@@ -157,15 +154,14 @@ body:has(.cloud-ui-soft),
 }
 
 @media (min-width: 1024px) {
-  .cloud-ui-soft.workspace-detail,
-  .cloud-ui-soft .workspace-detail {
+  .workspace-detail {
     flex: none;
   }
 }
 
 /* The workspace is one workbench frame, not three adjacent papers. The frame
    owns clipping, radius, and depth; its regions use surface tone for hierarchy. */
-.cloud-ui-soft.app-workspace {
+.app-workspace {
   gap: 0;
   min-width: 0;
   overflow: hidden;
@@ -175,16 +171,16 @@ body:has(.cloud-ui-soft),
   box-shadow: var(--ui-shadow-frame);
 }
 
-.cloud-ui-soft.app-workspace > .workspace-sidebar {
+.app-workspace > .workspace-sidebar {
   overflow: hidden;
   background: var(--ui-surface-subtle);
 }
 
-.cloud-ui-soft.app-workspace > .workspace-sidebar[data-workspace-resizable="true"] {
+.app-workspace > .workspace-sidebar[data-workspace-resizable="true"] {
   width: var(--workspace-sidebar-width, 13rem);
 }
 
-.cloud-ui-soft .workspace-sidebar-surface {
+.workspace-sidebar-surface {
   gap: var(--ui-space-section);
   padding: 0.625rem;
   border: 0;
@@ -193,10 +189,10 @@ body:has(.cloud-ui-soft),
   box-shadow: none;
 }
 
-.cloud-ui-soft.app-workspace > .workspace-main,
-.cloud-ui-soft.app-workspace > :is(solid-island, solid-client) > .workspace-main,
-.cloud-ui-soft.app-workspace > .workspace-content > .workspace-main,
-.cloud-ui-soft.app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-main {
+.app-workspace > .workspace-main,
+.app-workspace > :is(solid-island, solid-client) > .workspace-main,
+.app-workspace > .workspace-content > .workspace-main,
+.app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-main {
   position: relative;
   z-index: 1;
   border: 0;
@@ -206,34 +202,30 @@ body:has(.cloud-ui-soft),
   transition: box-shadow 150ms ease-out;
 }
 
-.cloud-ui-soft.app-workspace:has(> .workspace-resize-handle:is(:hover, :focus-visible)) > .workspace-main,
-.cloud-ui-soft.app-workspace:has(> :is(solid-island, solid-client) > .workspace-resize-handle:is(:hover, :focus-visible))
+.app-workspace:has(> .workspace-resize-handle:is(:hover, :focus-visible)) > .workspace-main,
+.app-workspace:has(> :is(solid-island, solid-client) > .workspace-resize-handle:is(:hover, :focus-visible))
   > :is(solid-island, solid-client)
   > .workspace-main,
-.cloud-ui-soft.app-workspace:has(> .workspace-content > .workspace-resize-handle:is(:hover, :focus-visible))
-  > .workspace-content
-  > .workspace-main,
-.cloud-ui-soft.app-workspace:has(
-    > .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle:is(:hover, :focus-visible)
-  )
+.app-workspace:has(> .workspace-content > .workspace-resize-handle:is(:hover, :focus-visible)) > .workspace-content > .workspace-main,
+.app-workspace:has(> .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle:is(:hover, :focus-visible))
   > .workspace-content
   > :is(solid-island, solid-client)
   > .workspace-main,
-.cloud-ui-soft.app-workspace[data-workspace-resize-active] > .workspace-main,
-.cloud-ui-soft.app-workspace[data-workspace-resize-active] > :is(solid-island, solid-client) > .workspace-main,
-.cloud-ui-soft.app-workspace[data-workspace-resize-active] > .workspace-content > .workspace-main,
-.cloud-ui-soft.app-workspace[data-workspace-resize-active] > .workspace-content > :is(solid-island, solid-client) > .workspace-main {
+.app-workspace[data-workspace-resize-active] > .workspace-main,
+.app-workspace[data-workspace-resize-active] > :is(solid-island, solid-client) > .workspace-main,
+.app-workspace[data-workspace-resize-active] > .workspace-content > .workspace-main,
+.app-workspace[data-workspace-resize-active] > .workspace-content > :is(solid-island, solid-client) > .workspace-main {
   box-shadow:
     -8px 0 18px -16px rgb(24 24 27 / 0.34),
     8px 0 18px -16px rgb(24 24 27 / 0.28),
     var(--ui-shadow-workspace-edge);
 }
 
-.cloud-ui-soft.app-workspace > .workspace-detail,
-.cloud-ui-soft.app-workspace > :is(solid-island, solid-client) > .workspace-detail,
-.cloud-ui-soft.app-workspace > .workspace-content > .workspace-detail,
-.cloud-ui-soft.app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-detail,
-.cloud-ui-soft.app-workspace > .workspace-bottom-drawer {
+.app-workspace > .workspace-detail,
+.app-workspace > :is(solid-island, solid-client) > .workspace-detail,
+.app-workspace > .workspace-content > .workspace-detail,
+.app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-detail,
+.app-workspace > .workspace-bottom-drawer {
   gap: var(--ui-space-section);
   padding: var(--ui-space-section);
   border: 0;
@@ -242,26 +234,22 @@ body:has(.cloud-ui-soft),
   box-shadow: none;
 }
 
-.cloud-ui-soft.app-workspace > .workspace-detail :is(.detail-section, .detail-section-compact),
-.cloud-ui-soft.app-workspace > :is(solid-island, solid-client) > .workspace-detail :is(.detail-section, .detail-section-compact),
-.cloud-ui-soft.app-workspace > .workspace-content > .workspace-detail :is(.detail-section, .detail-section-compact),
-.cloud-ui-soft.app-workspace
-  > .workspace-content
-  > :is(solid-island, solid-client)
-  > .workspace-detail
-  :is(.detail-section, .detail-section-compact),
-.cloud-ui-soft.app-workspace > .workspace-bottom-drawer :is(.detail-section, .detail-section-compact) {
+.app-workspace > .workspace-detail :is(.detail-section, .detail-section-compact),
+.app-workspace > :is(solid-island, solid-client) > .workspace-detail :is(.detail-section, .detail-section-compact),
+.app-workspace > .workspace-content > .workspace-detail :is(.detail-section, .detail-section-compact),
+.app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-detail :is(.detail-section, .detail-section-compact),
+.app-workspace > .workspace-bottom-drawer :is(.detail-section, .detail-section-compact) {
   border: 0;
   box-shadow: none;
 }
 
-.cloud-ui-soft .workspace-sidebar-header {
+.workspace-sidebar-header {
   min-height: var(--ui-control-md);
   gap: 0.625rem;
   padding: 0 0.25rem;
 }
 
-.cloud-ui-soft .workspace-sidebar-mobile > details {
+.workspace-sidebar-mobile > details {
   overflow: hidden;
   border: 0;
   border-radius: 0;
@@ -269,18 +257,18 @@ body:has(.cloud-ui-soft),
   box-shadow: none;
 }
 
-.cloud-ui-soft .workspace-sidebar-mobile .sidebar-mobile-toggle {
+.workspace-sidebar-mobile .sidebar-mobile-toggle {
   min-height: 2.75rem;
   padding: 0.375rem 0.625rem;
 }
 
-.cloud-ui-soft .workspace-sidebar-mobile .sidebar-mobile-actions {
+.workspace-sidebar-mobile .sidebar-mobile-actions {
   gap: var(--ui-space-control);
   padding: 0 0.625rem 0.625rem;
 }
 
 /* Resource identity stays visible without a large solid app tile. */
-.cloud-ui-soft .sidebar-header-icon {
+.sidebar-header-icon {
   width: 1.4375rem;
   height: 1.4375rem;
   border-radius: 0.4375rem;
@@ -289,28 +277,28 @@ body:has(.cloud-ui-soft),
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 16%, transparent);
 }
 
-.cloud-ui-soft .sidebar-header-icon-mobile {
+.sidebar-header-icon-mobile {
   background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 9%, transparent) !important;
   color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 80%, black) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 16%, transparent);
 }
 
-.dark .cloud-ui-soft :is(.sidebar-header-icon, .sidebar-header-icon-mobile) {
+.dark :is(.sidebar-header-icon, .sidebar-header-icon-mobile) {
   color: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white) !important;
 }
 
-.cloud-ui-soft .sidebar-header-title {
+.sidebar-header-title {
   font-size: 1rem;
   line-height: 1.375rem;
   font-weight: 650;
   letter-spacing: -0.016em;
 }
 
-.cloud-ui-soft .sidebar-header-subtitle {
+.sidebar-header-subtitle {
   font-size: 0.6875rem;
 }
 
-.cloud-ui-soft .sidebar-section-title {
+.sidebar-section-title {
   margin-inline: 0.375rem;
   color: color-mix(in srgb, currentColor 72%, transparent);
   font-size: 0.625rem;
@@ -319,39 +307,38 @@ body:has(.cloud-ui-soft),
   text-transform: uppercase;
 }
 
-.cloud-ui-soft .sidebar-item {
+.sidebar-item {
   min-height: 1.9375rem;
   padding: 0.375rem 0.5625rem;
 }
 
-.cloud-ui-soft .sidebar-icon-action {
+.sidebar-icon-action {
   height: 2.75rem;
   border-radius: var(--ui-radius-surface);
   background: var(--ui-surface-muted);
   box-shadow: none;
 }
 
-.cloud-ui-soft .sidebar-icon-action-active {
+.sidebar-icon-action-active {
   color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, black);
   background: var(--ui-selected);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 20%, transparent);
 }
 
 /* Overview pages use the same restrained identity and spacing rhythm. */
-.cloud-ui-soft.app-overview,
-.cloud-ui-soft .app-overview {
+.app-overview {
   padding: var(--ui-space-section);
 }
 
-.cloud-ui-soft .app-overview-header {
+.app-overview-header {
   margin-bottom: 1rem;
 }
 
-.cloud-ui-soft .app-overview-identity {
+.app-overview-identity {
   gap: 0.625rem;
 }
 
-.cloud-ui-soft .app-overview-icon {
+.app-overview-icon {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: var(--ui-radius-control);
@@ -360,45 +347,45 @@ body:has(.cloud-ui-soft),
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 16%, transparent);
 }
 
-.cloud-ui-soft .app-overview-icon > i {
+.app-overview-icon > i {
   color: inherit !important;
 }
 
-.dark .cloud-ui-soft .app-overview-icon {
+.dark .app-overview-icon {
   color: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white) !important;
 }
 
-.cloud-ui-soft .app-overview-title {
+.app-overview-title {
   font-size: 1.125rem;
   letter-spacing: -0.015em;
 }
 
-.cloud-ui-soft .app-overview-subtitle {
+.app-overview-subtitle {
   font-size: 0.8125rem;
 }
 
-.cloud-ui-soft .app-overview-columns {
+.app-overview-columns {
   gap: var(--ui-space-section);
 }
 
-.cloud-ui-soft .app-overview-panel-header {
+.app-overview-panel-header {
   gap: var(--ui-space-section);
   margin-bottom: var(--ui-space-section);
 }
 
-.cloud-ui-soft .app-overview-toolbar {
+.app-overview-toolbar {
   min-width: 0;
   max-width: 100%;
 }
 
 /* Controls are precise and quiet; state comes from colour and focus, not gloss. */
-body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed) {
+:is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed) {
   box-shadow: none;
 }
 
 /* AI is an interaction role, not a decorative gradient. Keep it recognisable
    through a cool tint and sparkle icon while retaining product-level restraint. */
-body:has(.cloud-ui-soft) .btn-ai {
+.btn-ai {
   border-color: color-mix(in srgb, var(--color-cyan-500) 20%, var(--ui-border));
   background: color-mix(in srgb, var(--color-cyan-500) 8%, var(--ui-surface));
   background-image: none;
@@ -407,7 +394,7 @@ body:has(.cloud-ui-soft) .btn-ai {
   filter: none;
 }
 
-body:has(.cloud-ui-soft) .btn-ai:hover {
+.btn-ai:hover {
   border-color: color-mix(in srgb, var(--color-cyan-500) 30%, var(--ui-border));
   background: color-mix(in srgb, var(--color-cyan-500) 12%, var(--ui-surface));
   background-image: none;
@@ -415,7 +402,7 @@ body:has(.cloud-ui-soft) .btn-ai:hover {
   filter: none;
 }
 
-body:has(.cloud-ui-soft) .btn-input-ai {
+.btn-input-ai {
   border-color: color-mix(in srgb, var(--color-cyan-500) 18%, var(--ui-border));
   background: color-mix(in srgb, var(--color-cyan-500) 7%, var(--ui-surface));
   background-image: none;
@@ -423,375 +410,375 @@ body:has(.cloud-ui-soft) .btn-input-ai {
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .btn-input-ai:hover {
+.btn-input-ai:hover {
   border-color: color-mix(in srgb, var(--color-cyan-500) 26%, var(--ui-border));
   background: color-mix(in srgb, var(--color-cyan-500) 11%, var(--ui-surface));
   background-image: none;
   color: var(--color-cyan-800);
 }
 
-body:has(.cloud-ui-soft) .input-ai {
+.input-ai {
   border-color: transparent;
   background: color-mix(in srgb, var(--color-cyan-500) 6%, var(--ui-field));
   background-image: none;
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .input-ai:hover {
+.input-ai:hover {
   border-color: var(--ui-border);
   background: color-mix(in srgb, var(--color-cyan-500) 8%, var(--ui-field-hover));
   background-image: none;
 }
 
-body:has(.cloud-ui-soft) .input-ai:focus,
-body:has(.cloud-ui-soft) .input-ai:focus-within {
+.input-ai:focus,
+.input-ai:focus-within {
   border-color: transparent !important;
   background: color-mix(in srgb, var(--color-cyan-500) 5%, var(--ui-field-focus)) !important;
   background-image: none !important;
   box-shadow: var(--ui-focus) !important;
 }
 
-.dark body:has(.cloud-ui-soft) .btn-ai {
+.dark .btn-ai {
   border-color: color-mix(in srgb, var(--color-cyan-400) 24%, var(--ui-border));
   background: color-mix(in srgb, var(--color-cyan-400) 11%, var(--ui-surface));
   color: var(--color-cyan-200);
 }
 
-.dark body:has(.cloud-ui-soft) .btn-ai:hover {
+.dark .btn-ai:hover {
   border-color: color-mix(in srgb, var(--color-cyan-400) 34%, var(--ui-border));
   background: color-mix(in srgb, var(--color-cyan-400) 16%, var(--ui-surface));
   color: var(--color-cyan-100);
 }
 
-.dark body:has(.cloud-ui-soft) .btn-input-ai {
+.dark .btn-input-ai {
   border-color: color-mix(in srgb, var(--color-cyan-400) 22%, var(--ui-border));
   background: color-mix(in srgb, var(--color-cyan-400) 9%, var(--ui-surface));
   background-image: none;
   color: var(--color-cyan-200);
 }
 
-.dark body:has(.cloud-ui-soft) .btn-input-ai:hover {
+.dark .btn-input-ai:hover {
   border-color: color-mix(in srgb, var(--color-cyan-400) 30%, var(--ui-border));
   background: color-mix(in srgb, var(--color-cyan-400) 13%, var(--ui-surface));
   background-image: none;
   color: var(--color-cyan-100);
 }
 
-.dark body:has(.cloud-ui-soft) .input-ai {
+.dark .input-ai {
   border-color: transparent;
   background: color-mix(in srgb, var(--color-cyan-400) 8%, var(--ui-field));
   background-image: none;
 }
 
-.dark body:has(.cloud-ui-soft) .input-ai:hover {
+.dark .input-ai:hover {
   border-color: var(--ui-border);
   background: color-mix(in srgb, var(--color-cyan-400) 11%, var(--ui-field-hover));
   background-image: none;
 }
 
-body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed):active {
+:is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed):active {
   box-shadow: var(--theme-press);
 }
 
-body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed):focus-visible {
+:is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed):focus-visible {
   box-shadow: var(--ui-focus);
 }
 
-body:has(.cloud-ui-soft) :is(.btn-secondary, .btn-input, .btn-input-recessed) {
+:is(.btn-secondary, .btn-input, .btn-input-recessed) {
   border-color: transparent;
 }
 
-body:has(.cloud-ui-soft) .input {
+.input {
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .md-editor {
+.md-editor {
   --md-editor-hover: var(--ui-field-hover);
   --md-editor-hover-border: var(--ui-field-hover-border);
 }
 
-body:has(.cloud-ui-soft) .input:hover {
+.input:hover {
   border-color: var(--ui-border);
   background: var(--ui-hover);
 }
 
-body:has(.cloud-ui-soft) .input:focus,
-body:has(.cloud-ui-soft) .input:focus-within,
-body:has(.cloud-ui-soft) .input[data-state="open"] {
+.input:focus,
+.input:focus-within,
+.input[data-state="open"] {
   border-color: var(--ui-field-focus-border) !important;
   background: var(--ui-field-focus) !important;
   box-shadow: var(--ui-focus);
 }
 
-body:has(.cloud-ui-soft) .checkbox-card {
+.checkbox-card {
   border-color: transparent;
   background: var(--ui-field);
 }
 
-body:has(.cloud-ui-soft) .checkbox-card:hover {
+.checkbox-card:hover {
   border-color: var(--ui-field-hover-border);
   background: var(--ui-field-hover);
 }
 
-body:has(.cloud-ui-soft) .checkbox-card[data-state="checked"] {
+.checkbox-card[data-state="checked"] {
   border-color: transparent;
   background: var(--ui-selected);
 }
 
-body:has(.cloud-ui-soft) .checkbox-card[data-state="invalid"] {
+.checkbox-card[data-state="invalid"] {
   border-color: color-mix(in srgb, var(--color-red-500) 28%, transparent);
   background: color-mix(in srgb, var(--color-red-500) 7%, var(--ui-surface));
 }
 
-body:has(.cloud-ui-soft) .file-dropzone {
+.file-dropzone {
   border-color: var(--ui-border);
   background: var(--ui-field);
 }
 
-body:has(.cloud-ui-soft) .file-dropzone:hover {
+.file-dropzone:hover {
   border-color: var(--ui-field-hover-border);
   background: var(--ui-field-hover);
 }
 
-body:has(.cloud-ui-soft) .file-dropzone[data-state="dragging"] {
+.file-dropzone[data-state="dragging"] {
   border-color: color-mix(in srgb, var(--color-blue-500) 32%, transparent);
   background: color-mix(in srgb, var(--color-blue-500) 7%, var(--ui-surface));
 }
 
-body:has(.cloud-ui-soft) .file-dropzone[data-state="invalid"] {
+.file-dropzone[data-state="invalid"] {
   border-color: color-mix(in srgb, var(--color-red-500) 32%, transparent);
   background: color-mix(in srgb, var(--color-red-500) 7%, var(--ui-surface));
 }
 
-body:has(.cloud-ui-soft) .file-dropzone-icon {
+.file-dropzone-icon {
   background: var(--ui-surface-raised);
   color: var(--color-zinc-600);
   box-shadow: none;
 }
 
-.dark body:has(.cloud-ui-soft) .file-dropzone-icon {
+.dark .file-dropzone-icon {
   color: var(--color-zinc-300);
 }
 
-body:has(.cloud-ui-soft) .color-input-swatch {
+.color-input-swatch {
   border-color: var(--ui-border-strong);
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .ui-switch-track {
+.ui-switch-track {
   background: var(--ui-field);
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .ui-switch-track[data-state="checked"] {
+.ui-switch-track[data-state="checked"] {
   background: var(--color-blue-500);
 }
 
-body:has(.cloud-ui-soft) .slider-track-colors {
+.slider-track-colors {
   --slider-fill: var(--color-blue-500);
   --slider-track: var(--ui-field);
 }
 
-.dark body:has(.cloud-ui-soft) .slider-track-colors {
+.dark .slider-track-colors {
   --slider-fill: var(--color-blue-400);
 }
 
-body:has(.cloud-ui-soft) .ui-slider {
+.ui-slider {
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .image-input-preview,
-body:has(.cloud-ui-soft) .image-cropper-stage {
+.image-input-preview,
+.image-cropper-stage {
   border-color: transparent;
   background: var(--ui-field);
 }
 
-body:has(.cloud-ui-soft) .image-input-placeholder,
-body:has(.cloud-ui-soft) .image-cropper-frame {
+.image-input-placeholder,
+.image-cropper-frame {
   background: var(--ui-surface-subtle);
 }
 
-body:has(.cloud-ui-soft) .image-cropper-frame {
+.image-cropper-frame {
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor):focus-within {
+:is(.ac-editor, .md-editor):focus-within {
   box-shadow: var(--ui-focus);
 }
 
-body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor)[data-variant="paper"]:focus-within {
+:is(.ac-editor, .md-editor)[data-variant="paper"]:focus-within {
   box-shadow: var(--ui-shadow-surface), var(--ui-focus);
 }
 
 /* Data stays dense; only functional separators remain. */
-.cloud-ui-soft [aria-label="Data table"] {
+[aria-label="Data table"] {
   border-color: var(--ui-border);
 }
 
-.cloud-ui-soft :is(.sidebar-item-active, .list-item-active) {
+:is(.sidebar-item-active, .list-item-active) {
   box-shadow: none;
 }
 
 /* Settings and data views read as one composed tool, not piles of cards. */
-.cloud-ui-soft .settings-modal {
+.settings-modal {
   background: var(--ui-surface);
   box-shadow: var(--ui-shadow-float);
 }
 
-.cloud-ui-soft .settings-modal-rail {
+.settings-modal-rail {
   background: var(--ui-surface-subtle);
 }
 
-.cloud-ui-soft .settings-modal-main {
+.settings-modal-main {
   background: var(--ui-surface);
 }
 
-.cloud-ui-soft [aria-label="Data table"],
-.cloud-ui-soft .stat-grid {
+[aria-label="Data table"],
+.stat-grid {
   box-shadow: none;
 }
 
-.cloud-ui-soft .stat-grid-header {
+.stat-grid-header {
   border-color: var(--ui-divider);
   background: var(--ui-surface-subtle);
 }
 
-.cloud-ui-soft .stat-grid-body {
+.stat-grid-body {
   background: var(--ui-divider);
 }
 
-.cloud-ui-soft .stat-cell {
+.stat-cell {
   background: var(--ui-surface);
 }
 
-.cloud-ui-soft .panes-tab-strip {
+.panes-tab-strip {
   gap: 0.125rem;
   padding: 0.125rem;
   border-radius: var(--ui-radius-control);
   background: var(--ui-surface-muted);
 }
 
-.cloud-ui-soft .panes-tab {
+.panes-tab {
   border-color: transparent !important;
   border-radius: calc(var(--ui-radius-control) - 0.125rem);
   background: transparent !important;
   box-shadow: none !important;
 }
 
-.cloud-ui-soft .panes-tab:hover {
+.panes-tab:hover {
   color: var(--color-zinc-900);
   background: var(--ui-hover) !important;
 }
 
-.dark .cloud-ui-soft .panes-tab:hover {
+.dark .panes-tab:hover {
   color: var(--color-zinc-100);
 }
 
-.cloud-ui-soft .panes-tab-active {
+.panes-tab-active {
   color: var(--color-zinc-950) !important;
   background: var(--ui-surface-raised) !important;
   box-shadow: 0 0 0 1px var(--ui-border) !important;
 }
 
-.dark .cloud-ui-soft .panes-tab-active {
+.dark .panes-tab-active {
   color: var(--color-zinc-50) !important;
 }
 
-.cloud-ui-soft .panes-tab [data-panes-drag-handle]:hover {
+.panes-tab [data-panes-drag-handle]:hover {
   color: var(--color-zinc-600);
 }
 
-.cloud-ui-soft .file-tree > li > div[data-state="selected"] {
+.file-tree > li > div[data-state="selected"] {
   background: var(--ui-selected) !important;
   box-shadow: none !important;
 }
 
-.cloud-ui-soft .file-tree > li > div[data-state="drop-target"] {
+.file-tree > li > div[data-state="drop-target"] {
   background: color-mix(in srgb, var(--color-blue-500) 8%, var(--ui-surface)) !important;
 }
 
-.cloud-ui-soft .calendar-surface {
+.calendar-surface {
   box-shadow: none;
 }
 
-.cloud-ui-soft .filter-chip-trigger {
+.filter-chip-trigger {
   border-color: transparent;
   background: var(--ui-field);
   box-shadow: none;
 }
 
-.cloud-ui-soft .filter-chip-trigger:hover {
+.filter-chip-trigger:hover {
   background: var(--ui-hover);
 }
 
-.cloud-ui-soft .filter-chip-trigger[data-state="active"] {
+.filter-chip-trigger[data-state="active"] {
   border-color: transparent;
   background: var(--ui-selected);
   box-shadow: none;
 }
 
-.cloud-ui-soft .link-card,
-.cloud-ui-soft .widget-surface,
-.cloud-ui-soft .widget-card {
+.link-card,
+.widget-surface,
+.widget-card {
   border-color: var(--ui-border);
   background: var(--ui-surface);
   box-shadow: none;
 }
 
-.cloud-ui-soft .sidebar-item-action {
+.sidebar-item-action {
   width: 1.75rem;
   height: 1.75rem;
 }
 
-.cloud-ui-soft .link-card:hover {
+.link-card:hover {
   background: var(--ui-hover);
 }
 
-.cloud-ui-soft .link-card-icon {
+.link-card-icon {
   background: var(--ui-surface-muted) !important;
 }
 
-.cloud-ui-soft .widget-card {
+.widget-card {
   border-radius: var(--ui-radius-surface);
 }
 
-.cloud-ui-soft .widget-header {
+.widget-header {
   background: var(--ui-surface-subtle);
 }
 
-.cloud-ui-soft .widget-header:hover {
+.widget-header:hover {
   background: var(--ui-hover);
 }
 
-.cloud-ui-soft .widget-icon {
+.widget-icon {
   background: var(--ui-surface-muted) !important;
   color: var(--color-zinc-600) !important;
 }
 
-.dark .cloud-ui-soft .widget-icon {
+.dark .widget-icon {
   color: var(--color-zinc-300) !important;
 }
 
 /* Floating layers follow the same geometry even when portaled under body. */
-body:has(.cloud-ui-soft) :is(.popup, .dialog-panel) {
+:is(.popup, .dialog-panel) {
   border-color: var(--ui-border-strong) !important;
   border-radius: var(--ui-radius-surface);
   background: var(--ui-surface-raised);
   box-shadow: var(--ui-shadow-float);
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-shell {
+.panel-dialog-shell {
   box-shadow: var(--ui-shadow-float);
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-layout[data-surface="floating"] {
+.panel-dialog-layout[data-surface="floating"] {
   gap: 0;
   border: 1px solid var(--ui-dialog-border);
   border-radius: var(--ui-dialog-radius);
   background: var(--ui-dialog-surface);
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-layout[data-surface="floating"] > .panel-dialog-header {
+.panel-dialog-layout[data-surface="floating"] > .panel-dialog-header {
   border: 0;
   border-bottom: 1px solid var(--ui-dialog-divider);
   border-radius: 0;
@@ -799,7 +786,7 @@ body:has(.cloud-ui-soft) .panel-dialog-layout[data-surface="floating"] > .panel-
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-layout[data-surface="floating"] > .panel-dialog-footer {
+.panel-dialog-layout[data-surface="floating"] > .panel-dialog-footer {
   border: 0;
   border-top: 1px solid var(--ui-dialog-divider);
   border-radius: 0;
@@ -807,191 +794,159 @@ body:has(.cloud-ui-soft) .panel-dialog-layout[data-surface="floating"] > .panel-
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-shell header.panel-dialog-divider {
+.panel-dialog-shell header.panel-dialog-divider {
   min-height: 3.25rem;
   padding-inline: 1rem;
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-shell footer.panel-dialog-divider {
+.panel-dialog-shell footer.panel-dialog-divider {
   padding: 0.75rem 1rem;
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-body {
+.panel-dialog-body {
   gap: var(--ui-space-shell);
   padding: 0.75rem 1rem;
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-section {
+.panel-dialog-section {
   padding: 0.75rem;
   border-color: transparent;
   background: var(--ui-dialog-section);
   box-shadow: none;
 }
 
-body:has(.cloud-ui-soft) .settings-save-bar {
+.settings-save-bar {
   border-color: var(--ui-divider);
   background: var(--ui-surface-raised);
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-tabs {
+.panel-dialog-tabs {
   gap: 0.125rem;
   background: var(--ui-surface-muted);
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-tabs > [role="tab"] {
+.panel-dialog-tabs > [role="tab"] {
   color: var(--color-zinc-600);
   background: transparent;
 }
 
-.dark body:has(.cloud-ui-soft) .panel-dialog-tabs > [role="tab"] {
+.dark .panel-dialog-tabs > [role="tab"] {
   color: var(--color-zinc-400);
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-tabs > [role="tab"]:hover {
+.panel-dialog-tabs > [role="tab"]:hover {
   color: var(--color-zinc-900);
   background: var(--ui-hover);
 }
 
-.dark body:has(.cloud-ui-soft) .panel-dialog-tabs > [role="tab"]:hover {
+.dark .panel-dialog-tabs > [role="tab"]:hover {
   color: var(--color-zinc-100);
 }
 
-body:has(.cloud-ui-soft) .panel-dialog-tabs > [role="tab"][aria-selected="true"] {
+.panel-dialog-tabs > [role="tab"][aria-selected="true"] {
   color: var(--color-zinc-950);
   background: var(--ui-surface-raised);
   box-shadow: 0 0 0 1px var(--ui-border);
 }
 
-.dark body:has(.cloud-ui-soft) .panel-dialog-tabs > [role="tab"][aria-selected="true"] {
+.dark .panel-dialog-tabs > [role="tab"][aria-selected="true"] {
   color: var(--color-zinc-50);
 }
 
-body:has(.cloud-ui-soft) .menu-item {
+.menu-item {
   gap: 0.625rem;
   padding: 0.4375rem 0.75rem;
   font-size: 0.8125rem;
 }
 
-body:has(.cloud-ui-soft) .menu-label {
+.menu-label {
   padding: 0.625rem 0.75rem 0.25rem;
   font-size: 0.625rem;
   letter-spacing: 0.06em;
 }
 
-body:has(.cloud-ui-soft) .state-placeholder[data-variant="panel"] {
+.state-placeholder[data-variant="panel"] {
   min-height: 13rem;
   padding: 1.5rem;
 }
 
-body:has(.cloud-ui-soft) .state-placeholder-icon-panel {
+.state-placeholder-icon-panel {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: var(--ui-radius-control);
 }
 
-body:has(.cloud-ui-soft) .prompt-panel,
-body:has(.cloud-ui-soft) .prompt-search-surface {
+.prompt-panel,
+.prompt-search-surface {
   border: 1px solid var(--ui-dialog-border);
   border-radius: var(--ui-dialog-radius);
   background: var(--ui-dialog-surface);
   box-shadow: var(--ui-shadow-float) !important;
 }
 
-body:has(.cloud-ui-soft) .prompt-panel-danger {
+.prompt-panel-danger {
   border-color: color-mix(in srgb, var(--color-red-500) 28%, var(--ui-dialog-border));
 }
 
-body:has(.cloud-ui-soft) .prompt-panel-success {
+.prompt-panel-success {
   border-color: color-mix(in srgb, var(--color-green-500) 24%, var(--ui-dialog-border));
 }
 
-body:has(.cloud-ui-soft) .prompt-search-surface > label {
+.prompt-search-surface > label {
   background: var(--ui-field);
 }
 
-body:has(.cloud-ui-soft) .prompt-search-surface > label:focus-within {
+.prompt-search-surface > label:focus-within {
   background: var(--ui-field-focus);
   box-shadow: var(--ui-focus);
 }
 
-body:has(.cloud-ui-soft) .code-display {
+.code-display {
   background: var(--ui-surface-subtle);
   box-shadow: 0 0 0 1px var(--ui-border);
 }
 
-body:has(.cloud-ui-soft) .structured-data-surface {
+.structured-data-surface {
   background: var(--ui-surface-subtle) !important;
 }
 
-body:has(.cloud-ui-soft) .ai-skill-origin-badge {
+.ai-skill-origin-badge {
   background: var(--ui-surface-muted) !important;
   color: var(--color-zinc-600) !important;
 }
 
-.dark body:has(.cloud-ui-soft) .ai-skill-origin-badge {
+.dark .ai-skill-origin-badge {
   color: var(--color-zinc-300) !important;
 }
 
-body:has(.cloud-ui-soft) #ui-toast-container > div {
+#ui-toast-container > div {
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-surface);
   background: var(--ui-surface-raised);
   box-shadow: var(--ui-shadow-float) !important;
 }
 
-body:has(.cloud-ui-soft) .info-block {
-  box-shadow: none;
-}
-
-body:has(.cloud-ui-soft) .info-block-note {
-  border-color: var(--ui-border);
-  background: var(--ui-surface-subtle);
-}
-
-body:has(.cloud-ui-soft) .info-block-info {
-  border-color: color-mix(in srgb, var(--color-blue-500) 18%, var(--ui-border));
-  background: color-mix(in srgb, var(--color-blue-500) 7%, var(--ui-surface));
-}
-
-body:has(.cloud-ui-soft) .info-block-success {
-  border-color: color-mix(in srgb, var(--color-green-500) 18%, var(--ui-border));
-  background: color-mix(in srgb, var(--color-green-500) 7%, var(--ui-surface));
-}
-
-body:has(.cloud-ui-soft) .info-block-warning {
-  border-color: color-mix(in srgb, var(--color-amber-500) 20%, var(--ui-border));
-  background: color-mix(in srgb, var(--color-amber-500) 8%, var(--ui-surface));
-}
-
-body:has(.cloud-ui-soft) .info-block-danger {
-  border-color: color-mix(in srgb, var(--color-red-500) 20%, var(--ui-border));
-  background: color-mix(in srgb, var(--color-red-500) 7%, var(--ui-surface));
-}
-
 @media (max-width: 1023px) {
-  .cloud-ui-soft.app-workspace:has(> .workspace-detail:not(.hidden)) > .workspace-main,
-  .cloud-ui-soft.app-workspace > :is(solid-island, solid-client):has(> .workspace-detail:not(.hidden)) > .workspace-main,
-  .cloud-ui-soft.app-workspace > .workspace-content:has(> .workspace-detail:not(.hidden)) > .workspace-main,
-  .cloud-ui-soft.app-workspace
-    > .workspace-content
-    > :is(solid-island, solid-client):has(> .workspace-detail:not(.hidden))
-    > .workspace-main {
+  .app-workspace:has(> .workspace-detail:not(.hidden)) > .workspace-main,
+  .app-workspace > :is(solid-island, solid-client):has(> .workspace-detail:not(.hidden)) > .workspace-main,
+  .app-workspace > .workspace-content:has(> .workspace-detail:not(.hidden)) > .workspace-main,
+  .app-workspace > .workspace-content > :is(solid-island, solid-client):has(> .workspace-detail:not(.hidden)) > .workspace-main {
     display: none;
   }
 
-  .cloud-ui-soft.app-workspace > .workspace-detail:not(.hidden),
-  .cloud-ui-soft.app-workspace > :is(solid-island, solid-client) > .workspace-detail:not(.hidden),
-  .cloud-ui-soft.app-workspace > .workspace-content > .workspace-detail:not(.hidden),
-  .cloud-ui-soft.app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-detail:not(.hidden) {
+  .app-workspace > .workspace-detail:not(.hidden),
+  .app-workspace > :is(solid-island, solid-client) > .workspace-detail:not(.hidden),
+  .app-workspace > .workspace-content > .workspace-detail:not(.hidden),
+  .app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-detail:not(.hidden) {
     min-height: 0;
     flex: 1 1 auto;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body:has(.cloud-ui-soft) *,
-  body:has(.cloud-ui-soft) *::before,
-  body:has(.cloud-ui-soft) *::after {
+  *,
+  *::before,
+  *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }

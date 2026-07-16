@@ -1,7 +1,7 @@
 /* Theme tokens and core text utilities */
 :root {
-  /* Semantic UI roles. Defaults intentionally match the current production
-     theme; the scoped soft preview overrides only these values. */
+  /* Semantic UI roles. The production visual layer refines these shared
+     defaults globally; apps consume the roles instead of copying values. */
   --ui-canvas: var(--color-zinc-50);
   --ui-surface: var(--color-white);
   --ui-surface-subtle: var(--color-zinc-50);
