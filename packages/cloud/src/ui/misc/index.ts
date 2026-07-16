@@ -111,6 +111,8 @@ export type {
 export {
   confirmDiscardIfDirty,
   default as PanelDialog,
+  panelDialogFixedOptions,
+  panelDialogFixedPanelClass,
   panelDialogOptions,
   panelDialogPanelClass,
   panelDialogWorkspaceOptions,

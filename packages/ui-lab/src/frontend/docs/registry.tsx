@@ -995,6 +995,8 @@ export const hiddenUiLabExports = [
   { name: "normalizeDockWorkspaceState", reason: "State normalization helper covered by DockWorkspace behavior." },
   { name: "normalizeImageCropRotation", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "openAvatarUploadDialog", reason: "Niche account avatar flow; profile pages are the source for that UX." },
+  { name: "panelDialogFixedOptions", reason: "Stable-height PanelDialog option bundle for tabbed or multi-view dialogs." },
+  { name: "panelDialogFixedPanelClass", reason: "Class constant behind panelDialogFixedOptions." },
   { name: "panelDialogPanelClass", reason: "Dialog option class constant covered by panelDialogOptions." },
   { name: "panelDialogWorkspaceOptions", reason: "Specialized PanelDialog option bundle for workspace-sized dialogs." },
   { name: "panelDialogWorkspacePanelClass", reason: "Class constant behind panelDialogWorkspaceOptions." },

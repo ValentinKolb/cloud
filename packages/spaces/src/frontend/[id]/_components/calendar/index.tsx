@@ -7,6 +7,7 @@ import {
   FilterChip,
   type FilterChipSection,
   PanelDialog,
+  panelDialogFixedOptions,
   panelDialogOptions,
   prompts,
   toast,
@@ -329,7 +330,7 @@ export default function Calendar(props: CalendarProps) {
             dateConfig={props.dateConfig}
           />
         ),
-        panelDialogOptions,
+        panelDialogFixedOptions,
       );
       if (!result) return false;
       const res = await apiClient[":id"].items.$post({
@@ -396,7 +397,7 @@ export default function Calendar(props: CalendarProps) {
             dateConfig={props.dateConfig}
           />
         ),
-        panelDialogOptions,
+        panelDialogFixedOptions,
       );
       if (!result) return false;
 

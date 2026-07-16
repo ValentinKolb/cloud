@@ -1,4 +1,4 @@
-import { AppWorkspace, dialogCore, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, dialogCore, panelDialogFixedOptions, prompts, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -37,7 +37,7 @@ export default function CreateItemButton(props: Props) {
             dateConfig={props.dateConfig}
           />
         ),
-        panelDialogOptions,
+        panelDialogFixedOptions,
       );
       if (!result) return null;
 

@@ -1285,6 +1285,8 @@ list; consistency makes app start pages easier to scan.
 
 Open settings through a bare `prompts.dialog` so `dialogCore` supplies the modal backdrop, focus trap, Escape handling, and backdrop dismissal. Do not render app settings as a third workspace pane or build a second frame around `SettingsModal`. Notebook settings are the reference flow at `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.tsx`.
 
+Tabbed settings dialogs must have a fixed, viewport-bounded height such as `h-[86vh]`. `SettingsModal` then keeps the rail and outer frame stable while only the active pane scrolls. Apply the same height to loading and error fallbacks so lazy loading does not resize the modal. A `max-height` alone is insufficient because shorter tabs still collapse the frame.
+
 For resource settings opened from an `AppWorkspace`, keep the trigger a small island and open the modal before loading its data. Fetch one typed, composed settings context inside the dialog with an abortable `mutation.create()` call. The server loader must re-check the current resource permission and omit admin-only data for non-admins. Render loading, error, and retry states inside the same modal frame.
 
 Do not add the settings payload to the workspace SSR state when it is not required for first paint, and do not keep a parallel settings route solely as a data source. After successful writes, update dialog-local state immediately. If a write changes server-rendered workspace data, mark the workspace dirty and refresh it once after the modal closes rather than reloading during editing. Dedicated settings pages remain appropriate when settings are themselves the primary, addressable application surface, such as global administration.
@@ -1292,14 +1294,16 @@ Do not add the settings payload to the workspace SSR state when it is not requir
 ```tsx
 await prompts.dialog<void>(
   (close) => (
-    <SettingsModal title="Notebook settings" onClose={close}>
-      <SettingsModal.Tab id="general" icon="ti ti-id" title="General" description="Name, icon, and metadata.">
-        <GeneralSettings />
-      </SettingsModal.Tab>
-      <SettingsModal.Tab id="danger" icon="ti ti-alert-triangle" title="Danger" tone="danger">
-        <DangerSettings />
-      </SettingsModal.Tab>
-    </SettingsModal>
+    <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+      <SettingsModal title="Notebook settings" onClose={close}>
+        <SettingsModal.Tab id="general" icon="ti ti-id" title="General" description="Name, icon, and metadata.">
+          <GeneralSettings />
+        </SettingsModal.Tab>
+        <SettingsModal.Tab id="danger" icon="ti ti-alert-triangle" title="Danger" tone="danger">
+          <DangerSettings />
+        </SettingsModal.Tab>
+      </SettingsModal>
+    </div>
   ),
   { surface: "bare", header: false, size: "large" },
 );
@@ -1313,9 +1317,11 @@ The component owns tab layout, arrow-key navigation, and optional internal activ
 
 ### PanelDialog
 
-Layout-only shell for complex editor dialogs. Source: `packages/cloud/src/ui/misc/PanelDialog.tsx`; real usage: Spaces item create/edit/event dialogs in `packages/spaces/src/frontend/[id]/_components/shared/ItemForm.tsx` opened via `dialogCore.open(..., panelDialogOptions)`.
+Layout-only shell for complex editor dialogs. Source: `packages/cloud/src/ui/misc/PanelDialog.tsx`; real usage: Spaces item create/edit/event dialogs in `packages/spaces/src/frontend/[id]/_components/shared/ItemForm.tsx` opened via `dialogCore.open(..., panelDialogFixedOptions)`.
 
 Use `PanelDialog` when the modal body is a real editor with multiple groups, a fixed header/footer, and a scrollable body. Do **not** use it for small one-field prompts (`prompts.form` is better), simple picker dialogs (`prompts.dialog` is enough), or tabbed app settings (`SettingsModal` is the right shell).
+
+Use `panelDialogFixedOptions` for `PanelDialog` editors whose tabs, modes, or progressive sections can substantially change content height. It keeps the standard dialog width, fixes the outer height at `86vh`, and lets `PanelDialog.Body` scroll. Keep `panelDialogOptions` for content-sized single-view dialogs and `panelDialogWorkspaceOptions` for full workspace-sized editors.
 
 `PanelDialog` has two surfaces. The default contained surface is for classic modals: one outer panel contains header, body, footer, and sections. Use `surface="floating"` for settings-style full-height pages: header and footer are their own `paper` surfaces, the body is transparent on the page background, and each section is the visible `paper` card with no extra body-side padding.
 

@@ -62,8 +62,9 @@ const usePanelDialogSurface = () => useContext(PanelDialogSurfaceContext);
 
 const panelDialogBasePanelClass =
   "panel-dialog-shell fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:text-zinc-100 dark:backdrop:bg-black/35";
+const panelDialogStandardWidthClass = "w-[min(96vw,48rem)]";
 
-export const panelDialogPanelClass = `${panelDialogBasePanelClass} max-h-[86vh] w-[min(96vw,48rem)]`;
+export const panelDialogPanelClass = `${panelDialogBasePanelClass} max-h-[86vh] ${panelDialogStandardWidthClass}`;
 
 export const panelDialogOptions = {
   panelClassName: panelDialogPanelClass,
@@ -73,6 +74,14 @@ export const panelDialogOptions = {
   // PanelDialog.Body can never scroll and long content gets clipped by the
   // panel's overflow-hidden.
   contentClassName: "flex max-h-[86vh] min-h-0 flex-col p-0",
+} satisfies OpenDialogOptions;
+
+/** Stable-height variant for tabbed or otherwise multi-view dialog bodies. */
+export const panelDialogFixedPanelClass = `${panelDialogBasePanelClass} h-[86vh] max-h-[86vh] ${panelDialogStandardWidthClass}`;
+
+export const panelDialogFixedOptions = {
+  panelClassName: panelDialogFixedPanelClass,
+  contentClassName: "flex h-full min-h-0 flex-col p-0",
 } satisfies OpenDialogOptions;
 
 export const panelDialogWorkspacePanelClass = `${panelDialogBasePanelClass} h-[80vh] max-h-[80vh] w-[80vw] max-w-[80vw]`;

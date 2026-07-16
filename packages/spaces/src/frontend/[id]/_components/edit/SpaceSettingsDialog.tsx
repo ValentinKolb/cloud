@@ -13,6 +13,8 @@ type Props = {
   onWorkspaceChange: () => void;
 };
 
+const settingsDialogFrameClass = "flex h-[86vh] min-h-0 flex-col overflow-hidden";
+
 export default function SpaceSettingsDialog(props: Props) {
   const load = mutation.create<SpaceSettingsContext, void>({
     mutation: async (_vars, context) => {
@@ -37,7 +39,7 @@ export default function SpaceSettingsDialog(props: Props) {
     <Show
       when={load.data()}
       fallback={
-        <div class="paper relative flex h-[86vh] min-h-0 flex-col overflow-hidden rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]">
+        <div class={`paper relative ${settingsDialogFrameClass} rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]`}>
           <button type="button" class="icon-btn absolute right-4 top-4 z-10" aria-label="Close settings" onClick={props.close}>
             <i class="ti ti-x" />
           </button>
@@ -65,7 +67,7 @@ export default function SpaceSettingsDialog(props: Props) {
       }
     >
       {(context) => (
-        <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+        <div class={settingsDialogFrameClass}>
           <SpaceEditPanel
             space={context().space}
             baseUrl={props.baseUrl}

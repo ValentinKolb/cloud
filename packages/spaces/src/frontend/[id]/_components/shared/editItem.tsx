@@ -1,4 +1,4 @@
-import { dialogCore, panelDialogOptions, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, panelDialogFixedOptions, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
@@ -46,7 +46,7 @@ export const editItemWithDialog = async (params: EditItemParams): Promise<boolea
         dateConfig={params.dateConfig}
       />
     ),
-    panelDialogOptions,
+    panelDialogFixedOptions,
   );
   if (!result) return false;
   await saveItemFormData({ spaceId: params.spaceId, itemId: params.item.id, data: result });

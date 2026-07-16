@@ -303,6 +303,7 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
 - Settings categories reuse the `AppWorkspace` sidebar item states: a quiet selected surface, the same small identity marker, and an accent-coloured active icon. Do not introduce a second marker style, thick borders, inset frames, or decorative section icons.
 - Resource settings opened from an `AppWorkspace` stay in a modal over the current workspace. Open the frame immediately, load settings data lazily inside it, and keep the current URL, main view, and detail panel intact. Do not maintain a parallel settings page solely to preload the modal.
 - If a settings write changes server-rendered workspace data, keep the dialog responsive and reconcile the workspace once after it closes. Do not reload the page while the user is still editing.
+- Dialogs with tabs or substantially different internal views use one fixed, viewport-bounded outer height. Tab and view changes scroll inside the body; they never resize or move the dialog frame. Simple single-view prompts remain content-sized.
 - Popovers align with their trigger and flip before overflowing the viewport.
 - Tooltips explain unfamiliar icon actions. They do not repeat visible labels.
 - Use `Tooltip` for short, non-interactive hints. Keep the control's accessible name on the control itself; the tooltip supplements it through `aria-describedby`.
