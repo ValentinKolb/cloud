@@ -1,17 +1,10 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { topic } from "@valentinkolb/sync";
+import type { MailCollaborationEvent } from "../live-events";
 
 const log = logger("mail:events");
 
-export type MailCollaborationEvent = {
-  type: "conversation.changed";
-  mailboxId: string;
-  conversationId: string;
-  reason: "collaboration" | "watcher" | "comment" | "inbound" | "threading" | "reminder";
-  targetId: string | null;
-  activityId: string;
-  at: string;
-};
+export type { MailCollaborationEvent } from "../live-events";
 
 const collaborationTopic = topic<MailCollaborationEvent>({
   id: "collaboration",

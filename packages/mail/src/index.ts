@@ -1,6 +1,7 @@
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { stopRuntimeResources } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
+import { websocket } from "hono/bun";
 import apiRoutes from "./api";
 import { mailCapabilities } from "./capabilities";
 import { app } from "./config";
@@ -26,7 +27,7 @@ const router = new Hono<AuthContext>()
   .route("/api/mail", apiRoutes)
   .route("/app/mail", pageRoutes);
 
-export default await app.start({
+const result = await app.start({
   capabilities: mailCapabilities,
   fetch: router.fetch,
   openapi: apiRoutes,
@@ -51,6 +52,7 @@ export default await app.start({
     stop: stopMailRuntimes,
   },
 });
+export default { ...result, websocket };
 
 export type { ApiType } from "./api";
 export * from "./contracts";

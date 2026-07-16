@@ -1,3 +1,4 @@
+import { logger } from "@valentinkolb/cloud/services";
 import { z } from "zod";
 import {
   type ConversationView,
@@ -7,11 +8,11 @@ import {
   type MailSearchExpression,
   type SenderIdentity,
 } from "../contracts";
-import * as mailboxAccess from "./access";
 import type { MailRequestContext } from "./auth";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./collaboration";
 import * as collaboration from "./collaboration";
 import * as drafts from "./drafts";
+import { latestMailCollaborationEventCursor } from "./events";
 import * as mailboxes from "./mailboxes";
 import type { ConversationSummary, ConversationViewCounts, MailFolderView, MessageDetail } from "./messages";
 import * as messages from "./messages";
@@ -21,6 +22,8 @@ import type { SavedConversationView } from "./saved-views";
 import * as savedViews from "./saved-views";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
+
+const log = logger("mail:workspace");
 
 export type MailListItem = {
   id: string;
@@ -86,6 +89,7 @@ const searchExpressionFromUrl = (url: URL, query: string): MailSearchExpression 
 export type MailboxPageData = {
   mailbox: Mailbox;
   permission: "read" | "write" | "admin";
+  initialLiveCursor: string | null;
   folders: MailFolderView[];
   identities: SenderIdentity[];
   drafts: MailDraft[];
@@ -264,16 +268,28 @@ export const loadMailboxPageData = async (params: {
   mailboxId: string;
   requestUrl: URL;
 }): Promise<MailboxPageData | null> => {
-  const [mailboxResult, folderResult, identityResult, permission, viewCountsResult, savedViewResult, draftResult] = await Promise.all([
+  const permission = await collaboration.requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
+  if (!permission.ok || permission.data === "none") return null;
+
+  let initialLiveCursor: string | null = null;
+  try {
+    initialLiveCursor = await latestMailCollaborationEventCursor(params.mailboxId);
+  } catch (error) {
+    log.warn("Failed to capture the initial Mail live cursor", {
+      mailboxId: params.mailboxId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const [mailboxResult, folderResult, identityResult, viewCountsResult, savedViewResult, draftResult] = await Promise.all([
     mailboxes.getMailbox(params.context, params.mailboxId),
     messages.listFolders(params.context, params.mailboxId),
     senderIdentities.listSenderIdentities(params.context, params.mailboxId),
-    mailboxAccess.getMailboxPermission(params.context, params.mailboxId),
     messages.getConversationViewCounts({ context: params.context, mailboxId: params.mailboxId }),
     savedViews.listSavedConversationViews({ context: params.context, mailboxId: params.mailboxId }),
     drafts.listDrafts(params.context, params.mailboxId, 20),
   ]);
-  if (!mailboxResult.ok || permission === "none") return null;
+  if (!mailboxResult.ok) return null;
 
   const parsedView = conversationViewSchema.safeParse(params.requestUrl.searchParams.get("view") ?? undefined);
   const activeView = parsedView.success ? parsedView.data : null;
@@ -312,7 +328,8 @@ export const loadMailboxPageData = async (params: {
 
   return {
     mailbox: mailboxResult.data,
-    permission,
+    permission: permission.data,
+    initialLiveCursor,
     folders,
     identities: identityResult.ok ? identityResult.data : [],
     drafts: draftResult.ok ? draftResult.data : [],

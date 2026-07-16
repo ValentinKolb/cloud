@@ -44,7 +44,6 @@ import {
   draftLeases,
   drafts,
   draftUploads,
-  events,
   folders,
   health,
   type MailRequestContext,
@@ -64,6 +63,7 @@ import {
 import { resolveByteRange } from "../service/byte-range";
 import type { AttachmentDownload } from "../service/messages";
 import { loadMailboxPageData } from "../service/workspace";
+import wsRoutes from "../ws";
 import workflowRoutes from "./workflows";
 
 const uuidParamSchema = z.object({ mailboxId: z.string().uuid() });
@@ -83,7 +83,6 @@ const collaboratorQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 const activityQuerySchema = cursorQuerySchema.extend({ conversationId: z.string().uuid().optional() });
-const eventQuerySchema = z.object({ after: z.string().max(200).optional() });
 const workspaceRouteQuerySchema = z.object({ href: z.string().trim().min(1).max(4_000) });
 const attachmentQuerySchema = z.object({
   offset: z.coerce.number().int().nonnegative().optional(),
@@ -223,6 +222,7 @@ const attachmentDownloadResponse = async (
 
 const api = new Hono<AuthContext>()
   .use(rateLimit())
+  .route("/ws", wsRoutes)
   .use(auth.requireRole("authenticated"))
   .get("/mailboxes", v("query", limitQuerySchema), async (c) =>
     respond(c, mailboxes.listMailboxes(requestContext(c), c.req.valid("query").limit)),
@@ -380,81 +380,6 @@ const api = new Hono<AuthContext>()
       }),
     ),
   )
-  .get("/mailboxes/:mailboxId/events", v("param", uuidParamSchema), v("query", eventQuerySchema), async (c) => {
-    const mailboxId = c.req.valid("param").mailboxId;
-    const context = requestContext(c);
-    const allowed = await collaboration.requireMailboxCollaborationPermission(context, mailboxId, "read");
-    if (!allowed.ok) return respond(c, allowed);
-
-    const encoder = new TextEncoder();
-    const streamAbort = new AbortController();
-    let keepalive: ReturnType<typeof setInterval> | undefined;
-    let closed = false;
-    let checkingAccess = false;
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const send = (event: string, data: unknown, id?: string) => {
-          if (closed) return;
-          controller.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-        };
-        const close = () => {
-          if (closed) return;
-          closed = true;
-          streamAbort.abort();
-          if (keepalive) clearInterval(keepalive);
-          try {
-            controller.close();
-          } catch {
-            // Client disconnects race with server-side access revocation.
-          }
-        };
-        try {
-          const requestedCursor = c.req.valid("query").after ?? c.req.header("last-event-id") ?? null;
-          const startCursor = requestedCursor ?? (await events.latestMailCollaborationEventCursor(mailboxId)) ?? "0-0";
-          send("ready", { mailboxId, cursor: startCursor }, startCursor);
-          keepalive = setInterval(() => {
-            if (checkingAccess || closed) return;
-            checkingAccess = true;
-            void collaboration
-              .requireMailboxCollaborationPermission(context, mailboxId, "read")
-              .then((permission) => {
-                if (!permission.ok) close();
-                else send("ping", { at: new Date().toISOString() });
-              })
-              .catch(() => close())
-              .finally(() => {
-                checkingAccess = false;
-              });
-          }, 8_000);
-          for await (const event of events.liveMailCollaborationEvents({ mailboxId, after: startCursor, signal: streamAbort.signal })) {
-            if (closed || streamAbort.signal.aborted) break;
-            const currentPermission = await collaboration.requireMailboxCollaborationPermission(context, mailboxId, "read");
-            if (!currentPermission.ok) break;
-            send(event.data.type, event.data, event.cursor);
-          }
-        } catch {
-          if (!closed && !streamAbort.signal.aborted) {
-            send("error", { message: "Mail event stream failed" });
-          }
-        } finally {
-          close();
-        }
-      },
-      cancel() {
-        closed = true;
-        streamAbort.abort();
-        if (keepalive) clearInterval(keepalive);
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
-  })
   .put("/mailboxes/:mailboxId/folder-roles/:role", v("param", roleParamSchema), v("json", folderRoleInputSchema), async (c) =>
     respond(
       c,

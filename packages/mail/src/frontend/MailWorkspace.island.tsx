@@ -1,8 +1,10 @@
+import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { documentNavigate, type LinkNavigateEvent, navigate, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { batch, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
+import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../live-events";
 import type { MailboxPageData } from "../service/workspace";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailConversationList from "./_components/MailConversationList";
@@ -117,25 +119,52 @@ export default function MailWorkspace(props: {
   };
 
   onMount(() => {
-    const source = new EventSource(`/api/mail/mailboxes/${data().mailbox.id}/events`);
-    const handleEvent = (event: MessageEvent<string>) => {
-      if (!data().selectedConversationId) return scheduleRefresh();
-      try {
-        const payload = JSON.parse(event.data) as { conversationId?: string | null };
-        if (!payload.conversationId || payload.conversationId === data().selectedConversationId) scheduleRefresh();
-      } catch {
-        // Ignore malformed events. EventSource reconnects and later valid events refresh the snapshot.
-      }
-    };
+    let reconcileAfterReady = props.data.initialLiveCursor === null;
+    const live = createLiveWebSocket<MailLiveServerMessage>({
+      url: "/api/mail/ws",
+      initialCursor: props.data.initialLiveCursor,
+      activity: "visible",
+      subscribe: (cursor) =>
+        ({
+          type: MAIL_LIVE_WS_TYPE.subscribe,
+          payload: { mailboxId: props.data.mailbox.id, fromCursor: cursor },
+        }) satisfies MailLiveClientMessage,
+      parse: parseMailLiveServerMessage,
+      onMessage: (message, controls) => {
+        const messageMailboxId = message.payload.mailboxId;
+        if (messageMailboxId && messageMailboxId !== props.data.mailbox.id) {
+          controls.terminate({ code: "resource_mismatch", message: "Mail live subscription changed resources" });
+          return;
+        }
+        if (message.type === MAIL_LIVE_WS_TYPE.ready) {
+          controls.markApplied(message.payload.cursor);
+          if (reconcileAfterReady) {
+            reconcileAfterReady = false;
+            scheduleRefresh();
+          }
+          return;
+        }
+        if (message.type === MAIL_LIVE_WS_TYPE.event) {
+          controls.markApplied(message.payload.cursor);
+          const selectedConversationId = data().selectedConversationId;
+          if (!selectedConversationId || message.payload.event.conversationId === selectedConversationId) scheduleRefresh();
+          return;
+        }
+        if (message.type === MAIL_LIVE_WS_TYPE.revoked) {
+          controls.terminate({ code: message.payload.code, message: message.payload.message });
+        }
+      },
+      onFatal: () => window.location.reload(),
+    });
     const handlePopState = () => {
       void replaceWorkspaceRoute(`${window.location.pathname}${window.location.search}`).then((result) => {
         if (result === "failed") documentNavigate(`${window.location.pathname}${window.location.search}`, { replace: true });
       });
     };
-    source.addEventListener("conversation.changed", handleEvent as EventListener);
+    live.connect();
     window.addEventListener("popstate", handlePopState);
     onCleanup(() => {
-      source.close();
+      live.dispose();
       window.removeEventListener("popstate", handlePopState);
     });
   });
