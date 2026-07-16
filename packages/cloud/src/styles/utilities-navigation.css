@@ -382,8 +382,8 @@
   }
 }
 
-/* The separator owns a generous hit area while its visible affordance stays
-   short and centered. It overlays the workspace and never changes layout. */
+/* The separator owns a generous hit area. Its full-edge guide and centered
+   handle overlay the workspace and never change layout. */
 .workspace-resize-handle {
   position: absolute;
   top: 0;
@@ -424,6 +424,29 @@
   transform: translateY(50%);
 }
 
+.workspace-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--ui-border-strong);
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease-out;
+}
+
+.workspace-resize-handle-drawer::before {
+  top: 50%;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
 .workspace-resize-handle > span {
   position: absolute;
   top: 50%;
@@ -446,6 +469,8 @@
   transform: translate(-50%, -50%);
 }
 
+.workspace-resize-handle:is(:hover, :focus-visible)::before,
+.workspace-resize-handle[data-workspace-resize-active="true"]::before,
 .workspace-resize-handle:is(:hover, :focus-visible) > span,
 .workspace-resize-handle[data-workspace-resize-active="true"] > span {
   opacity: 1;
