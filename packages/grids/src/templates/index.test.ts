@@ -469,17 +469,21 @@ describe("built-in grid templates", () => {
       expect(charts.length, `${template.id} dashboard charts`).toBeGreaterThan(0);
 
       for (const chart of charts) {
-        const viewId = chart.viewId;
+        const source = chart.source;
+        const isViewSource = typeof source === "object" && source !== null && "kind" in source && source.kind === "view";
+        expect(isViewSource, `${template.id}.${String(chart.id)} source kind`).toBe(true);
+        if (!isViewSource || !("viewId" in source)) continue;
+        const viewId = source.viewId;
         expect(isRef(viewId) && viewId.$ref === "view", `${template.id}.${String(chart.id)} view ref`).toBe(true);
         if (!isRef(viewId)) continue;
 
         const view = viewsByKey.get(viewId.key);
         expect(view, `${template.id}.${String(chart.id)} chart view exists`).toBeDefined();
-        const source = String(resolveTemplateGqlValue(view?.source ?? "", templateNamesForGql(template)));
-        expect(source, `${template.id}.${viewId.key} chart groupBy`).toContain("group by");
-        expect(source, `${template.id}.${viewId.key} chart aggregations`).toContain("aggregate");
+        const gql = String(resolveTemplateGqlValue(view?.source ?? "", templateNamesForGql(template)));
+        expect(gql, `${template.id}.${viewId.key} chart groupBy`).toContain("group by");
+        expect(gql, `${template.id}.${viewId.key} chart aggregations`).toContain("aggregate");
         if (chart.format === "currency") {
-          expect(source, `${template.id}.${viewId.key} currency chart value field`).toMatch(
+          expect(gql, `${template.id}.${viewId.key} currency chart value field`).toMatch(
             /aggregate[^\n]*(?:sum|avg|median|min|max|earliest|latest)\(/,
           );
         }

@@ -715,17 +715,17 @@ export const GridsDashboardFormsPage = () => (
           {
             title: "Stats",
             icon: "ti-number",
-            text: "Show one value from a table or view. Use thresholds only when higher or lower has meaning.",
+            text: "Show one value from a saved view or a GQL query stored directly in the widget.",
           },
           {
             title: "Charts",
             icon: "ti-chart-bar",
-            text: "Read grouped views. The view decides categories and values; the widget decides chart type and labels.",
+            text: "Read grouped GQL data from a saved view or a query stored directly in the widget. The source decides categories and values; the widget decides chart type and labels.",
           },
           {
             title: "Embedded views",
             icon: "ti-window",
-            text: "Show saved table results inside a dashboard. Dashboard embeds stay table-based for predictable density.",
+            text: "Show row or summary results from a saved view or local GQL query inside a dashboard.",
           },
           {
             title: "Markdown",
@@ -1683,7 +1683,7 @@ export const GridsOperationsTroubleshootingPage = () => (
         items={[
           {
             problem: "Chart source is missing",
-            use: "Open the source table, create or edit a grouped view, add an aggregation, then select that view in the chart widget.",
+            use: "Choose a grouped saved view or enter a grouped GQL query with at least one aggregation in the chart widget.",
           },
           {
             problem: "Record edit fails",

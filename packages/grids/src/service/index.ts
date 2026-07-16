@@ -296,6 +296,7 @@ export type {
   Dashboard,
   DashboardConfig,
   DashboardRow,
+  DashboardWidgetSource,
   FormWidget,
   GroupBySpec,
   LinkWidget,

@@ -1,21 +1,31 @@
 import type { Widget } from "../../../service";
 import type { GridsWorkspaceState } from "./workspace-state";
 
-const widgetTableDependency = (widget: Widget, viewToTable: Map<string, string>, formToTable: Map<string, string>): string | null => {
+const widgetTableDependencies = (widget: Widget, viewToTable: Map<string, string>, formToTable: Map<string, string>): string[] => {
   switch (widget.kind) {
-    case "stat":
-      return viewToTable.get(widget.viewId) ?? null;
+    case "stat": {
+      const tableIds = new Set<string>();
+      if (widget.source.kind === "view") {
+        const tableId = viewToTable.get(widget.source.viewId);
+        if (tableId) tableIds.add(tableId);
+      }
+      if (widget.trend?.source.kind === "view") {
+        const tableId = viewToTable.get(widget.trend.source.viewId);
+        if (tableId) tableIds.add(tableId);
+      }
+      return [...tableIds];
+    }
     case "chart":
     case "view-stats":
-      return viewToTable.get(widget.viewId) ?? null;
+      return widget.source.kind === "view" ? [viewToTable.get(widget.source.viewId)].filter((id): id is string => Boolean(id)) : [];
     case "view":
-      return viewToTable.get(widget.viewId) ?? null;
+      return widget.source.kind === "view" ? [viewToTable.get(widget.source.viewId)].filter((id): id is string => Boolean(id)) : [];
     case "form":
-      return formToTable.get(widget.formId) ?? null;
+      return [formToTable.get(widget.formId)].filter((id): id is string => Boolean(id));
     case "link":
     case "workflow-button":
     case "markdown":
-      return null;
+      return [];
   }
 };
 
@@ -35,8 +45,7 @@ export const dashboardRecordTableIds = (s: Extract<GridsWorkspaceState, { kind: 
 
   const tableIds = new Set<string>();
   for (const widget of s.route.dashboard.config.rows.flatMap((row) => row.cells)) {
-    const tableId = widgetTableDependency(widget, viewToTable, formToTable);
-    if (tableId) tableIds.add(tableId);
+    for (const tableId of widgetTableDependencies(widget, viewToTable, formToTable)) tableIds.add(tableId);
   }
   return [...tableIds].sort();
 };

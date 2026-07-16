@@ -92,7 +92,7 @@ describe("DashboardLayout edit controls", () => {
                 id: "widget-view",
                 kind: "view",
                 title: "Current status",
-                viewId: "00000000-0000-4000-8000-000000000012",
+                source: { kind: "view", viewId: "00000000-0000-4000-8000-000000000012" },
               },
             ],
           },

@@ -862,7 +862,7 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Items",
                 icon: "ti ti-packages",
                 format: "integer",
-                viewId: view("items_count"),
+                source: { kind: "view", viewId: view("items_count") },
               },
               {
                 id: "w_kits",
@@ -870,7 +870,7 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Kits",
                 icon: "ti ti-briefcase",
                 format: "integer",
-                viewId: view("kits_count"),
+                source: { kind: "view", viewId: view("kits_count") },
               },
               {
                 id: "w_open_loans",
@@ -878,7 +878,7 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Open loans",
                 icon: "ti ti-calendar-due",
                 format: "integer",
-                viewId: view("open_loans_count"),
+                source: { kind: "view", viewId: view("open_loans_count") },
               },
             ],
           },
@@ -891,7 +891,7 @@ export const inventoryTemplate: GridTemplate = {
                 id: "w_available",
                 kind: "view",
                 title: "Available items",
-                viewId: view("available_items"),
+                source: { kind: "view", viewId: view("available_items") },
               },
               {
                 id: "w_add",
@@ -905,7 +905,7 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Stock by category",
                 subtitle: "Available units per category",
                 chartType: "bar",
-                viewId: view("stock_by_category"),
+                source: { kind: "view", viewId: view("stock_by_category") },
               },
             ],
           },
@@ -918,7 +918,7 @@ export const inventoryTemplate: GridTemplate = {
                 id: "w_open",
                 kind: "view",
                 title: "Open loans",
-                viewId: view("open_loans"),
+                source: { kind: "view", viewId: view("open_loans") },
                 span: 6,
               },
               {

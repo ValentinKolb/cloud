@@ -1082,8 +1082,9 @@ export const FormConfigSchema = z.object({
 //   - "workflow-button": runs one workflow dashboard button trigger.
 //
 // Dashboard widgets do not carry filter/sort/aggregate semantics.
-// Query semantics live in saved Views (`view.source` GQL); widgets are
-// only "view reference + presentation hint".
+// Query semantics live in one explicit widget source. A widget may reuse a
+// saved View or own a dashboard-local GQL source. Widget kinds only describe
+// presentation; they never duplicate filter, grouping, or aggregate fields.
 //
 // Layout: `rows × cells` on a 12-column grid. Each widget owns a
 // `span` (1..12), so editors can make a chart wider than a stat
@@ -1098,14 +1099,19 @@ export type WidgetFormat = z.infer<typeof WidgetFormatSchema>;
 
 const StatToneSchema = z.enum(["neutral", "blue", "green", "amber", "red"]);
 
+export const DashboardWidgetSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("view"), viewId: z.string().uuid() }),
+  z.object({ kind: z.literal("gql"), source: z.string().trim().min(1).max(20_000) }),
+]);
+export type DashboardWidgetSource = z.infer<typeof DashboardWidgetSourceSchema>;
+
 /**
- * Optional trend view attached to a stat widget. The trend view must
- * be a saved grouped GQL query; the first aggregate column of each
- * bucket becomes the sparkline value. This keeps dashboard config free
- * of table/filter/aggregate semantics.
+ * Optional grouped source attached to a stat widget. The first aggregate
+ * column of each bucket becomes the sparkline value. Query semantics stay
+ * in the source instead of being duplicated by the widget.
  */
 const StatTrendSchema = z.object({
-  viewId: z.string().uuid(),
+  source: DashboardWidgetSourceSchema,
   windowSize: z.number().int().min(2).max(60).default(12),
 });
 
@@ -1118,9 +1124,9 @@ const StatWidgetSchema = z.object({
   kind: z.literal("stat"),
   span: z.number().int().min(1).max(12).optional(),
   title: z.string().max(200).optional(),
-  /** Saved view that supplies the scalar value. The first aggregate
-   *  column from its GQL result is rendered. */
-  viewId: z.string().uuid(),
+  /** Saved view or dashboard-local GQL source. The first aggregate column
+   *  from its result is rendered. */
+  source: DashboardWidgetSourceSchema,
   /** Optional inline trend — see {@link StatTrendSchema}. */
   trend: StatTrendSchema.optional(),
   icon: z.string().max(60).optional(),
@@ -1134,26 +1140,25 @@ const StatWidgetSchema = z.object({
 });
 
 /**
- * Chart widget — visualizes a saved view's bucketed output as a
+ * Chart widget — visualizes a GQL source's bucketed output as a
  * donut, bar, line, sparkline, or scatter SVG via the `<Chart>` primitive from
  * `cloud/ui`.
  *
- * **Source: a viewId.** The view supplies the filter, sort, groupBy
- * (with optional granularity), and aggregations. The widget just
- * says HOW to render. This mirrors the symmetry with `view-stats`
- * cells (also viewId-based) and means a single configured view —
- * "Orders per month" — can be reused as a stat strip, a chart, and
- * an embedded table without duplicating its query.
+ * **Source:** either a saved view or GQL stored directly in the widget.
+ * It supplies the filter, sort, groupBy (with optional granularity),
+ * and aggregations. The widget only controls presentation. A saved
+ * view can be reused across widgets; local GQL keeps dashboard-only
+ * queries out of the navigation.
  *
- * **chartType → expected view shape:**
- *  - `donut`/`bar`: view with 1 groupBy + ≥1 aggregation (first wins).
- *  - `line`:        view with 1 groupBy + N aggregations (one series each).
- *  - `sparkline`:   view with 1 groupBy + ≥1 aggregation (first wins).
- *  - `scatter`:     view with 1 groupBy + ≥2 aggregations (agg1=x, agg2=y).
+ * **chartType → expected source shape:**
+ *  - `donut`/`bar`: 1 groupBy + ≥1 aggregation (first wins).
+ *  - `line`:        1 groupBy + N aggregations (one series each).
+ *  - `sparkline`:   1 groupBy + ≥1 aggregation (first wins).
+ *  - `scatter`:     1 groupBy + ≥2 aggregations (agg1=x, agg2=y).
  *
- * **`limit`** caps the most-recent N buckets — handy when a view holds
+ * **`limit`** caps the most-recent N buckets — handy when a source holds
  * a long history but the chart should only show e.g. "last 12 months".
- * Applied after the view's own filter/sort, so it's a renderer trim,
+ * Applied after the source's own filter/sort, so it's a renderer trim,
  * not a query change.
  */
 const ChartWidgetSchema = z.object({
@@ -1164,8 +1169,8 @@ const ChartWidgetSchema = z.object({
   /** Small grey line under the title in the chart frame. */
   subtitle: z.string().max(200).optional(),
   chartType: z.enum(["donut", "bar", "line", "sparkline", "scatter"]),
-  /** Saved view that supplies the buckets (filter / groupBy / aggs). */
-  viewId: z.string().uuid(),
+  /** Saved view or dashboard-local GQL source that supplies the buckets. */
+  source: DashboardWidgetSourceSchema,
   /** Optional cap on bucket count — keeps the most-recent N. */
   limit: z.number().int().min(1).max(1000).optional(),
   /** Y-axis / value format. Defaults inferred from the primary aggregation. */
@@ -1176,7 +1181,7 @@ const ChartWidgetSchema = z.object({
 });
 
 /**
- * View-stats widget — derives a tiny 2×N stat-grid from a saved view's
+ * View-stats widget — derives a tiny 2×N stat-grid from a GQL source's
  * first row (ungrouped) or first bucket (grouped). It lives as a cell
  * inside a unified row, so it can sit next to other cell kinds in a
  * single horizontal strip.
@@ -1190,7 +1195,7 @@ const ViewStatsWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("view-stats"),
   span: z.number().int().min(1).max(12).optional(),
-  viewId: z.string().uuid(),
+  source: DashboardWidgetSourceSchema,
   title: z.string().max(200).optional(),
 });
 
@@ -1263,7 +1268,7 @@ const ViewWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("view"),
   span: z.number().int().min(1).max(12).optional(),
-  viewId: z.string().uuid(),
+  source: DashboardWidgetSourceSchema,
   title: z.string().max(200).optional(),
 });
 

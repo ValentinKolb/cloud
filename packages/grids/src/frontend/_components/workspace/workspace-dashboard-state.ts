@@ -17,7 +17,7 @@ export const loadDashboardState = async (common: WorkspaceCommon, dashboard: Das
   const widgets = dashboard.config.rows.flatMap((row) => row.cells);
   const results = await Promise.all(
     widgets.map((widget) =>
-      resolveWidgetData(widget, buildViewer(common.params.user), { dateConfig: common.params.dateConfig }).then(
+      resolveWidgetData(widget, buildViewer(common.params.user), { baseId: dashboard.baseId, dateConfig: common.params.dateConfig }).then(
         (data) => [widget.id, data] as const,
       ),
     ),

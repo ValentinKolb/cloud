@@ -40,7 +40,7 @@ describe("dashboardRecordTableIds", () => {
       widget({
         id: "stat",
         kind: "stat",
-        viewId: VIEW_A,
+        source: { kind: "view", viewId: VIEW_A },
       }),
     ]);
     if (state.route.kind !== "dashboard") throw new Error("expected dashboard route");
@@ -55,11 +55,12 @@ describe("dashboardRecordTableIds", () => {
         widget({
           id: "stat",
           kind: "stat",
-          viewId: VIEW_A,
+          source: { kind: "view", viewId: VIEW_A },
+          trend: { source: { kind: "view", viewId: VIEW_B }, windowSize: 12 },
         }),
-        widget({ id: "chart", kind: "chart", chartType: "bar", viewId: VIEW_B }),
-        widget({ id: "view-stats", kind: "view-stats", viewId: VIEW_A }),
-        widget({ id: "view-by-view", kind: "view", viewId: VIEW_B }),
+        widget({ id: "chart", kind: "chart", chartType: "bar", source: { kind: "view", viewId: VIEW_B } }),
+        widget({ id: "view-stats", kind: "view-stats", source: { kind: "view", viewId: VIEW_A } }),
+        widget({ id: "view-by-view", kind: "view", source: { kind: "view", viewId: VIEW_B } }),
         widget({ id: "form", kind: "form", formId: FORM_C }),
         widget({ id: "markdown", kind: "markdown", markdown: "# Notes" }),
         widget({ id: "link", kind: "link", target: { kind: "table", tableId: TABLE_A } }),

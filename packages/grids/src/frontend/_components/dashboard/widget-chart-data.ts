@@ -13,7 +13,7 @@ import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../
  * { keys: unknown[]; values: Record<"<fieldId>__<agg>", unknown> }
  * ```
  *
- *  - `keys` is parallel to the saved view's grouped GQL output.
+ *  - `keys` is parallel to the source's grouped GQL output.
  *  - `values` keys are namespaced `${fieldId}__${agg}` (mirrors `record.aggregate()`).
  *    The shorthand `*` is used for COUNT(*).
  *
@@ -250,15 +250,15 @@ type ChartRenderData =
 
 /**
  * Inputs the renderer needs to map buckets to a chart-specific shape.
- * The view-query metadata (groupBy + aggregations) determines bucket
+ * The resolved GQL metadata (groupBy + aggregations) determines bucket
  * key formatting and series labels; these used to live on the widget
- * itself but now come from the saved view that the widget points at.
+ * itself but now come from the GQL source that the widget points at.
  */
 type ChartRenderInput = {
   widget: ChartWidget;
-  /** The view's groupBy specs (parallel to bucket.keys positions). */
+  /** The source's groupBy specs (parallel to bucket.keys positions). */
   groupBy: GroupBySpec[];
-  /** The view's aggregations (parallel to bucket.values keys). */
+  /** The source's aggregations (parallel to bucket.values keys). */
   aggregations: AggregationSpec[];
   buckets: ChartBucket[];
   fieldsById: Map<string, Field>;

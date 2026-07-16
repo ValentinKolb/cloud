@@ -26,10 +26,30 @@ describe("dashboard widget contracts", () => {
       id: "w_spark",
       kind: "chart",
       chartType: "sparkline",
-      viewId: "11111111-1111-4111-8111-111111111111",
+      source: { kind: "view", viewId: "11111111-1111-4111-8111-111111111111" },
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  test("accepts dashboard-local GQL sources without a saved view", () => {
+    const parsed = WidgetSchema.safeParse({
+      id: "w_query",
+      kind: "view",
+      source: { kind: "gql", source: "from table Orders\nwhere Status = 'Open'" },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  test("rejects the removed viewId-only widget shape", () => {
+    const parsed = WidgetSchema.safeParse({
+      id: "w_legacy",
+      kind: "view",
+      viewId: "11111111-1111-4111-8111-111111111111",
+    });
+
+    expect(parsed.success).toBe(false);
   });
 
   test("accepts barcode display formats", () => {

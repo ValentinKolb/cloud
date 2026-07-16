@@ -30,7 +30,7 @@ const ACCENT_TONE: Record<NonNullable<StatWidget["tone"]>, "zinc" | "blue" | "em
  *
  * Mapping rules:
  *  - Label: explicit `widget.title` wins; otherwise use a neutral
- *    fallback. Query semantics live in the saved view.
+ *    fallback. Query semantics live in the widget's selected source.
  *  - Value: `formatWidgetValue` for stat data; em-dash fallback for
  *    missing / errored data keeps the row's typography stable.
  *  - Error state: render the cell red and surface the reason as the

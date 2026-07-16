@@ -26,7 +26,6 @@ import {
   defaultViewStatsWidget,
   defaultViewWidget,
   defaultWorkflowButtonWidget,
-  isChartReadyView,
   openCellEditDialog,
 } from "../dialogs/DashboardWidgetDialogs";
 import { dashboardWorkflowOption } from "../dialogs/dashboard-workflow-options";
@@ -56,10 +55,10 @@ type Props = {
 };
 
 const CELL_KIND_OPTIONS: Array<{ id: Widget["kind"]; label: string; description: string; icon: string }> = [
-  { id: "stat", label: "Stat", description: "One KPI from a table.", icon: "ti ti-number" },
-  { id: "view", label: "View", description: "Records from a view or table.", icon: "ti ti-table-spark" },
-  { id: "chart", label: "Chart", description: "Buckets from a grouped view.", icon: "ti ti-chart-bar" },
-  { id: "view-stats", label: "View stats", description: "Compact summary from a view.", icon: "ti ti-layout-2" },
+  { id: "stat", label: "Stat", description: "One KPI from GQL data.", icon: "ti ti-number" },
+  { id: "view", label: "View", description: "Rows from saved view or GQL.", icon: "ti ti-table-spark" },
+  { id: "chart", label: "Chart", description: "Buckets from grouped GQL data.", icon: "ti ti-chart-bar" },
+  { id: "view-stats", label: "View stats", description: "Compact summary from GQL data.", icon: "ti ti-layout-2" },
   { id: "form", label: "Form", description: "Inline record creation.", icon: "ti ti-forms" },
   { id: "markdown", label: "Markdown", description: "Notes or instructions.", icon: "ti ti-markdown" },
   { id: "link", label: "Link", description: "Open a resource or URL.", icon: "ti ti-link" },
@@ -68,24 +67,14 @@ const CELL_KIND_OPTIONS: Array<{ id: Widget["kind"]; label: string; description:
 
 const newWidget = (kind: Widget["kind"], tableId: string): Widget => {
   if (kind === "stat") return defaultStatWidget(tableId);
-  if (kind === "view") return defaultViewWidget();
-  if (kind === "chart") return defaultChartWidget();
-  if (kind === "view-stats") return defaultViewStatsWidget();
+  if (kind === "view") return defaultViewWidget(tableId);
+  if (kind === "chart") return defaultChartWidget(tableId);
+  if (kind === "view-stats") return defaultViewStatsWidget(tableId);
   if (kind === "markdown") return defaultMarkdownWidget();
   if (kind === "link") return defaultLinkWidget();
   if (kind === "workflow-button") return defaultWorkflowButtonWidget();
   return defaultFormWidget();
 };
-
-const firstView = (viewsByTable: Record<string, View[]>) =>
-  Object.values(viewsByTable)
-    .flat()
-    .find((view) => !view.deletedAt);
-
-const firstChartReadyView = (viewsByTable: Record<string, View[]>) =>
-  Object.values(viewsByTable)
-    .flat()
-    .find((view) => !view.deletedAt && isChartReadyView(view));
 
 const firstForm = (formsByTable: Record<string, Form[]>) =>
   Object.values(formsByTable)
@@ -98,27 +87,11 @@ const configuredNewWidget = (
     tableId: string;
     dashboards: Dashboard[];
     dashboardWorkflows: Workflow[];
-    viewsByTable: Record<string, View[]>;
     formsByTable: Record<string, Form[]>;
   },
 ): Widget | null => {
   const widget = newWidget(kind, ctx.tableId);
-  if (widget.kind === "view") {
-    const view = firstView(ctx.viewsByTable);
-    return view ? ({ ...widget, viewId: view.id, title: view.name } as Widget) : null;
-  }
-  if (widget.kind === "stat") {
-    const view = firstView(ctx.viewsByTable);
-    return view ? ({ ...widget, viewId: view.id } as Widget) : null;
-  }
-  if (widget.kind === "chart") {
-    const view = firstChartReadyView(ctx.viewsByTable);
-    return view ? ({ ...widget, viewId: view.id } as Widget) : null;
-  }
-  if (widget.kind === "view-stats") {
-    const view = firstView(ctx.viewsByTable);
-    return view ? ({ ...widget, viewId: view.id, title: view.name } as Widget) : null;
-  }
+  if (widget.kind === "view" || widget.kind === "stat" || widget.kind === "chart" || widget.kind === "view-stats") return widget;
   if (widget.kind === "form") {
     const form = firstForm(ctx.formsByTable);
     return form ? ({ ...widget, formId: form.id, title: form.name } as Widget) : null;
@@ -305,22 +278,19 @@ export default function DashboardWysiwygEditor(props: Props) {
       tableId: props.tables[0]?.id ?? "",
       dashboards: props.dashboards,
       dashboardWorkflows: props.dashboardWorkflows,
-      viewsByTable: props.viewsByTable,
       formsByTable: props.formsByTable,
     });
     if (!initialWidget) {
       prompts.error(
         kind === "form"
           ? "Create a form before adding a form widget."
-          : kind === "chart"
-            ? "Create a grouped view with at least one summary value first."
-            : kind === "workflow-button"
-              ? "Create an enabled dashboard or scanner workflow launcher before adding this widget."
-              : "Create a view before adding this widget.",
+          : "Create an enabled dashboard or scanner workflow launcher before adding this widget.",
       );
       return;
     }
     const result = await openCellEditDialog(withSpan(initialWidget, row.cells.length === 0 ? 12 : (initialWidget.span ?? 3)), {
+      baseId: props.initialDashboard.baseId,
+      dashboardId: props.initialDashboard.id,
       tables: props.tables,
       dashboards: props.dashboards,
       dashboardWorkflows: props.dashboardWorkflows,
@@ -341,6 +311,8 @@ export default function DashboardWysiwygEditor(props: Props) {
     const result = await openCellEditDialog(
       cell,
       {
+        baseId: props.initialDashboard.baseId,
+        dashboardId: props.initialDashboard.id,
         tables: props.tables,
         dashboards: props.dashboards,
         dashboardWorkflows: props.dashboardWorkflows,

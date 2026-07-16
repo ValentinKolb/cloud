@@ -1,8 +1,9 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { type Dashboard, type DashboardConfig, DashboardConfigSchema, type Widget } from "../contracts";
+import { type Dashboard, type DashboardConfig, DashboardConfigSchema, type DashboardWidgetSource, type Widget } from "../contracts";
 import { logAudit } from "./audit";
+import { compileDashboardWidgetQuery } from "./dashboard-widget-query";
 import { parseJsonbRow } from "./jsonb";
 import { emitMetadataEvent } from "./metadata-events";
 import { tableBelongsToBase } from "./query-validation";
@@ -108,46 +109,51 @@ const widgetsOf = (config: DashboardConfig): Widget[] => config.rows.flatMap((ro
 
 export const sourceTableIds = async (dashboard: Dashboard): Promise<string[]> => {
   const tableIds = new Set<string>();
-  const directTableIds = new Set<string>();
   const viewIds = new Set<string>();
+  const gqlSources = new Set<string>();
   const formIds = new Set<string>();
+
+  const collectSource = (source: DashboardWidgetSource) => {
+    if (source.kind === "view") viewIds.add(source.viewId);
+    else gqlSources.add(source.source);
+  };
 
   for (const widget of widgetsOf(dashboard.config)) {
     if (widget.kind === "stat") {
-      viewIds.add(widget.viewId);
-      if (widget.trend) viewIds.add(widget.trend.viewId);
+      collectSource(widget.source);
+      if (widget.trend) collectSource(widget.trend.source);
     } else if (widget.kind === "chart" || widget.kind === "view-stats") {
-      viewIds.add(widget.viewId);
+      collectSource(widget.source);
     } else if (widget.kind === "view") {
-      viewIds.add(widget.viewId);
+      collectSource(widget.source);
     } else if (widget.kind === "form") {
       formIds.add(widget.formId);
     }
   }
 
-  const directList = [...directTableIds];
-  if (directList.length > 0) {
-    const rows = await sql<{ table_id: string }[]>`
-      SELECT DISTINCT t.id::text AS table_id
-      FROM grids.tables t
-      WHERE t.id = ANY(${toPgUuidArray(directList)}::uuid[])
-        AND t.deleted_at IS NULL
-        AND t.base_id = ${dashboard.baseId}::uuid
-    `;
-    for (const row of rows) tableIds.add(row.table_id);
+  const directPlans = await Promise.all([...gqlSources].map((source) => compileDashboardWidgetQuery({ baseId: dashboard.baseId, source })));
+  for (const compiled of directPlans) {
+    if (!compiled.ok) continue;
+    for (const tableId of compiled.data.plan.readableTableIds) tableIds.add(tableId);
   }
 
   const viewList = [...viewIds];
   if (viewList.length > 0) {
-    const rows = await sql<{ table_id: string }[]>`
-      SELECT DISTINCT v.table_id::text AS table_id
+    const rows = await sql<{ table_id: string; source: string }[]>`
+      SELECT v.table_id::text AS table_id, v.source
       FROM grids.views v
       JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
       WHERE v.id = ANY(${toPgUuidArray(viewList)}::uuid[])
         AND v.deleted_at IS NULL
         AND t.base_id = ${dashboard.baseId}::uuid
     `;
-    for (const row of rows) tableIds.add(row.table_id);
+    const viewPlans = await Promise.all(
+      rows.map((row) => compileDashboardWidgetQuery({ baseId: dashboard.baseId, source: row.source, currentTableId: row.table_id })),
+    );
+    for (const compiled of viewPlans) {
+      if (!compiled.ok) continue;
+      for (const tableId of compiled.data.plan.readableTableIds) tableIds.add(tableId);
+    }
   }
 
   const formList = [...formIds];
@@ -166,28 +172,34 @@ export const sourceTableIds = async (dashboard: Dashboard): Promise<string[]> =>
   return [...tableIds].sort();
 };
 
+const validateWidgetSource = async (source: DashboardWidgetSource, baseId: string, label: string): Promise<Result<void>> => {
+  if (source.kind === "view") {
+    const view = await ensureViewInBase(source.viewId, baseId, label);
+    return view.ok ? ok() : view;
+  }
+  const compiled = await compileDashboardWidgetQuery({ baseId, source: source.source });
+  return compiled.ok ? ok() : fail(err.badInput(`${label} is invalid: ${compiled.error}`));
+};
+
 const validateWidgetRefs = async (widget: Widget, baseId: string): Promise<Result<void>> => {
   switch (widget.kind) {
     case "stat": {
-      const view = await ensureViewInBase(widget.viewId, baseId, "stat source");
-      if (!view.ok) return view;
+      const source = await validateWidgetSource(widget.source, baseId, "stat source");
+      if (!source.ok) return source;
       if (widget.trend) {
-        const trend = await ensureViewInBase(widget.trend.viewId, baseId, "stat trend source");
+        const trend = await validateWidgetSource(widget.trend.source, baseId, "stat trend source");
         if (!trend.ok) return trend;
       }
       return ok();
     }
     case "chart": {
-      const view = await ensureViewInBase(widget.viewId, baseId, "chart source");
-      return view.ok ? ok() : view;
+      return validateWidgetSource(widget.source, baseId, "chart source");
     }
     case "view-stats": {
-      const view = await ensureViewInBase(widget.viewId, baseId, "view-stats source");
-      return view.ok ? ok() : view;
+      return validateWidgetSource(widget.source, baseId, "view-stats source");
     }
     case "view": {
-      const view = await ensureViewInBase(widget.viewId, baseId, "view widget source");
-      return view.ok ? ok() : view;
+      return validateWidgetSource(widget.source, baseId, "view widget source");
     }
     case "form":
       return ensureFormInBase(widget.formId, baseId, "form widget source");

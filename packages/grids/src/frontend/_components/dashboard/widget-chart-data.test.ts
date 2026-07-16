@@ -259,7 +259,7 @@ const widget = (chartType: ChartWidget["chartType"]): ChartWidget => ({
   id: "w1",
   kind: "chart",
   chartType,
-  viewId: "11111111-1111-1111-1111-111111111111",
+  source: { kind: "view", viewId: "11111111-1111-4111-8111-111111111111" },
 });
 
 const renderInput = (w: ChartWidget, aggs: AggregationSpec[], buckets: typeof sliceBuckets) => ({

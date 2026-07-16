@@ -42,6 +42,7 @@ describe("resolveWidgetData — markdown", () => {
         markdown: "**Important**\n\n- Read this",
       },
       { userId: null, userGroups: [] },
+      { baseId },
     );
 
     expect(data.kind).toBe("markdown");
@@ -58,6 +59,7 @@ describe("resolveWidgetData — inactive forms", () => {
       const data = await resolveWidgetData(
         { id: "w_form", kind: "form", span: 6, title: "Create order", formId },
         { userId: null, userGroups: [], isAdmin: true },
+        { baseId },
       );
 
       expect(data.kind).toBe("form");
@@ -74,6 +76,7 @@ describe("resolveWidgetData — inactive forms", () => {
       const data = await resolveWidgetData(
         { id: "w_link", kind: "link", span: 6, title: "Create order", target: { kind: "form", formId } },
         { userId: null, userGroups: [], isAdmin: true },
+        { baseId },
       );
 
       expect(data.kind).toBe("link");

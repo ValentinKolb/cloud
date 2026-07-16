@@ -13,7 +13,7 @@ export default function SourceAccessHint(props: Props) {
         <Show when={props.sourceAccess === "dashboard"}>
           <span
             class="text-[11px] text-dimmed inline-flex items-center gap-1 shrink-0"
-            title="You can read this dashboard, not the source view."
+            title="This result is available through the dashboard. Its source cannot be opened here."
           >
             <i class="ti ti-lock text-[10px]" />
             <span>Dashboard only</span>

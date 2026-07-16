@@ -1,8 +1,20 @@
-import { dialogCore, IconInput, MarkdownEditor, PanelDialog, panelDialogOptions, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
+import {
+  dialogCore,
+  IconInput,
+  MarkdownEditor,
+  PanelDialog,
+  panelDialogOptions,
+  SegmentedControl,
+  Select,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
+import { apiClient } from "../../../api/client";
+import { gqlSourceRef } from "../../../query-dsl/source-format";
 import type {
   ChartWidget,
   Dashboard,
+  DashboardWidgetSource,
   Field,
   Form,
   FormWidget,
@@ -17,6 +29,8 @@ import type {
   WorkflowButtonWidget,
 } from "../../../service";
 import { formatWidgetValue } from "../dashboard/widget-format";
+import { GqlSourceEditor } from "../query/GqlSourceEditor";
+import { errorMessage } from "../utils/api-helpers";
 import { dashboardWorkflowOption, dashboardWorkflowSelectOption } from "./dashboard-workflow-options";
 
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
@@ -30,37 +44,40 @@ const isChartReadyForType = (view: View, chartType: ChartWidget["chartType"]): b
   return true;
 };
 
-export const defaultStatWidget = (_tableId: string): StatWidget => ({
+const tableQuery = (tableId: string, suffix = "") =>
+  tableId ? `from ${gqlSourceRef("table", tableId)}${suffix ? `\n${suffix}` : ""}` : "";
+
+export const defaultStatWidget = (tableId: string): StatWidget => ({
   id: newId("w"),
   kind: "stat",
   span: 3,
   title: "New stat",
   format: "plain",
   tone: "blue",
-  viewId: "",
+  source: { kind: "gql", source: tableQuery(tableId, "aggregate count(*) as value") },
 });
 
-export const defaultViewWidget = (): ViewWidget => ({
+export const defaultViewWidget = (tableId: string): ViewWidget => ({
   id: newId("w"),
   kind: "view",
   span: 6,
-  viewId: "",
+  source: { kind: "gql", source: tableQuery(tableId, "limit 25") },
 });
 
-export const defaultChartWidget = (): ChartWidget => ({
+export const defaultChartWidget = (tableId: string): ChartWidget => ({
   id: newId("w"),
   kind: "chart",
   span: 6,
   chartType: "bar",
   title: "New chart",
-  viewId: "",
+  source: { kind: "gql", source: tableQuery(tableId) },
 });
 
-export const defaultViewStatsWidget = (): ViewStatsWidget => ({
+export const defaultViewStatsWidget = (tableId: string): ViewStatsWidget => ({
   id: newId("w"),
   kind: "view-stats",
   span: 6,
-  viewId: "",
+  source: { kind: "gql", source: tableQuery(tableId, "limit 1") },
 });
 
 export const defaultFormWidget = (): FormWidget => ({
@@ -101,6 +118,8 @@ type CellEditDialogResult = { action: "save"; widget: Widget } | { action: "dele
 export const openCellEditDialog = (
   widget: Widget,
   ctx: {
+    baseId: string;
+    dashboardId: string;
     tables: Array<{ id: string; name: string; slug: string }>;
     dashboards: Dashboard[];
     dashboardWorkflows: Workflow[];
@@ -133,6 +152,42 @@ export const openCellEditDialog = (
 
   return dialogCore.open<CellEditDialogResult>((close) => {
     const [draft, setDraft] = createSignal<Widget>(widget);
+    const [validationError, setValidationError] = createSignal<string | null>(null);
+    const [validating, setValidating] = createSignal(false);
+    const updateDraft = (next: Widget) => {
+      setValidationError(null);
+      setDraft(next);
+    };
+
+    const save = async () => {
+      const localError = validateWidgetDraft(draft(), ctx.viewsByTable);
+      if (localError) {
+        setValidationError(localError);
+        return;
+      }
+      if (isQueryWidget(draft())) {
+        setValidating(true);
+        try {
+          const response = await apiClient.dashboards[":dashboardId"].widgets.resolve.$post({
+            param: { dashboardId: ctx.dashboardId },
+            json: draft(),
+          });
+          if (!response.ok) throw new Error(await errorMessage(response, "Could not validate widget data"));
+          const resolved = await response.json();
+          if (resolved.kind === "error") {
+            setValidationError(resolved.reason);
+            return;
+          }
+        } catch (error) {
+          setValidationError(error instanceof Error ? error.message : "Could not validate widget data");
+          return;
+        } finally {
+          setValidating(false);
+        }
+      }
+      close({ action: "save", widget: draft() });
+    };
+
     return (
       <PanelDialog>
         <PanelDialog.Header title={title[widget.kind]} icon={icon[widget.kind]} close={() => close()} />
@@ -142,7 +197,8 @@ export const openCellEditDialog = (
           </Show>
           <CellEditorBody
             widget={draft()}
-            onUpdate={(next) => setDraft(next)}
+            onUpdate={updateDraft}
+            baseId={ctx.baseId}
             tables={ctx.tables}
             dashboards={ctx.dashboards}
             dashboardWorkflows={ctx.dashboardWorkflows}
@@ -150,6 +206,7 @@ export const openCellEditDialog = (
             viewsByTable={ctx.viewsByTable}
             formsByTable={ctx.formsByTable}
           />
+          <Show when={validationError()}>{(message) => <div class="info-block-danger text-sm">{message()}</div>}</Show>
           <WidgetEditorSection title="Layout" subtitle="Width inside the row's 12-column grid." icon="ti ti-layout-columns">
             <Select
               label="Widget width"
@@ -174,18 +231,10 @@ export const openCellEditDialog = (
             <button type="button" class="btn-input btn-sm" onClick={() => close()}>
               Cancel
             </button>
-            <button
-              type="button"
-              class="btn-primary btn-sm"
-              onClick={() => {
-                const error = validateWidgetDraft(draft(), ctx.viewsByTable);
-                if (error) {
-                  prompts.error(error);
-                  return;
-                }
-                close({ action: "save", widget: draft() });
-              }}
-            >
+            <button type="button" class="btn-primary btn-sm" disabled={validating()} onClick={() => void save()}>
+              <Show when={validating()} fallback={<i class="ti ti-check" />}>
+                <i class="ti ti-loader-2 animate-spin" />
+              </Show>
               Save
             </button>
           </div>
@@ -198,6 +247,7 @@ export const openCellEditDialog = (
 function CellEditorBody(props: {
   widget: Widget;
   onUpdate: (w: Widget) => void;
+  baseId: string;
   tables: Array<{ id: string; name: string; slug: string }>;
   dashboards: Dashboard[];
   dashboardWorkflows: Workflow[];
@@ -211,6 +261,7 @@ function CellEditorBody(props: {
         <StatCellBody
           widget={props.widget}
           onUpdate={props.onUpdate as (w: StatWidget) => void}
+          baseId={props.baseId}
           tables={props.tables}
           viewsByTable={props.viewsByTable}
         />
@@ -220,6 +271,7 @@ function CellEditorBody(props: {
         <ViewCellBody
           widget={props.widget}
           onUpdate={props.onUpdate as (w: ViewWidget) => void}
+          baseId={props.baseId}
           tables={props.tables}
           viewsByTable={props.viewsByTable}
         />
@@ -229,6 +281,7 @@ function CellEditorBody(props: {
         <ChartCellBody
           widget={props.widget}
           onUpdate={props.onUpdate as (w: ChartWidget) => void}
+          baseId={props.baseId}
           tables={props.tables}
           fieldsByTable={props.fieldsByTable}
           viewsByTable={props.viewsByTable}
@@ -239,6 +292,7 @@ function CellEditorBody(props: {
         <ViewStatsCellBody
           widget={props.widget}
           onUpdate={props.onUpdate as (w: ViewStatsWidget) => void}
+          baseId={props.baseId}
           tables={props.tables}
           viewsByTable={props.viewsByTable}
         />
@@ -291,20 +345,109 @@ const STAT_TONE_OPTIONS = [
   { id: "red", label: "Red", description: "Problem or error-like value." },
 ];
 
+type DashboardSourceViewOption = { view: View; tableName: string; description?: string };
+
+function DashboardDataSourceEditor(props: {
+  baseId: string;
+  source: DashboardWidgetSource;
+  onChange: (source: DashboardWidgetSource) => void;
+  views: DashboardSourceViewOption[];
+  defaultGql: string;
+  queryPlaceholder: string;
+}) {
+  const [queryDraft, setQueryDraft] = createSignal(props.source.kind === "gql" ? props.source.source : props.defaultGql);
+  const [viewDraft, setViewDraft] = createSignal(props.source.kind === "view" ? props.source.viewId : (props.views[0]?.view.id ?? ""));
+
+  const switchMode = (kind: DashboardWidgetSource["kind"]) => {
+    if (kind === "gql") {
+      props.onChange({ kind: "gql", source: queryDraft() });
+      return;
+    }
+    props.onChange({ kind: "view", viewId: viewDraft() });
+  };
+
+  return (
+    <div class="flex flex-col gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-primary">Data source</p>
+          <p class="text-xs text-dimmed">Reuse a saved view or keep a GQL query local to this widget.</p>
+        </div>
+        <SegmentedControl
+          ariaLabel="Dashboard widget data source"
+          value={() => props.source.kind}
+          onChange={switchMode}
+          options={[
+            { value: "view", label: "Saved view", icon: "ti ti-bookmark" },
+            { value: "gql", label: "Query", icon: "ti ti-code" },
+          ]}
+        />
+      </div>
+      <Show
+        when={props.source.kind === "gql"}
+        fallback={
+          <Select
+            label="Saved view"
+            value={() => (props.source.kind === "view" ? props.source.viewId : viewDraft())}
+            onChange={(viewId) => {
+              setViewDraft(viewId);
+              props.onChange({ kind: "view", viewId });
+            }}
+            options={[
+              {
+                id: "",
+                label: props.views.length > 0 ? "(pick a view)" : "No saved views available",
+              },
+              ...props.views.map(({ view, tableName, description }) => ({
+                id: view.id,
+                label: `${tableName} · ${view.name}`,
+                description,
+              })),
+            ]}
+          />
+        }
+      >
+        <GqlSourceEditor
+          baseId={props.baseId}
+          value={() => (props.source.kind === "gql" ? props.source.source : queryDraft())}
+          onInput={(source) => {
+            setQueryDraft(source);
+            props.onChange({ kind: "gql", source });
+          }}
+          lines={8}
+          spellcheck={false}
+          ariaLabel="Widget GQL source"
+          placeholder={props.queryPlaceholder}
+          variant="paper"
+        />
+      </Show>
+    </div>
+  );
+}
+
 function StatCellBody(props: {
   widget: StatWidget;
   onUpdate: (w: StatWidget) => void;
+  baseId: string;
   tables: Array<{ id: string; name: string; slug: string }>;
   viewsByTable: Record<string, View[]>;
 }) {
   const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
 
   return (
-    <WidgetEditorSection title="Source" subtitle="Pick the saved view this stat should read." icon="ti ti-database">
+    <WidgetEditorSection title="Source" subtitle="Choose the value calculated by this widget." icon="ti ti-database">
       <WidgetInfoBlock
         title="Stat widget"
-        body="Shows one number from one saved GQL view."
-        detail="Use an aggregate view such as `aggregate count(*) as rows` or `aggregate sum(Amount) as revenue`."
+        body="Shows one number from a saved view or local GQL query."
+        detail="Use an aggregate such as `aggregate count(*) as rows` or `aggregate sum(Amount) as revenue`."
+      />
+      <DashboardDataSourceEditor
+        baseId={props.baseId}
+        source={props.widget.source}
+        onChange={(source) => props.onUpdate({ ...props.widget, source })}
+        views={allViews().map(({ view, tableName }) => ({ view, tableName, description: statViewDescription(view) }))}
+        defaultGql={tableQuery(props.tables[0]?.id ?? "", "aggregate count(*) as value")}
+        queryPlaceholder={"from table Orders\nwhere Status = 'Open'\naggregate count(*) as value"}
       />
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextInput
@@ -317,19 +460,6 @@ function StatCellBody(props: {
           value={() => props.widget.sub ?? ""}
           onInput={(v) => props.onUpdate({ ...props.widget, sub: v || undefined })}
           placeholder="e.g. last 24h"
-        />
-        <Select
-          label="Source view"
-          value={() => props.widget.viewId}
-          onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-          options={[
-            { id: "", label: "(pick a view)" },
-            ...allViews().map(({ view, tableName }) => ({
-              id: view.id,
-              label: `${tableName} · ${view.name}`,
-              description: statViewDescription(view),
-            })),
-          ]}
         />
         <Select
           label="Format"
@@ -353,7 +483,13 @@ function StatCellBody(props: {
       <div class="text-xs text-dimmed">
         Format preview: <code class="font-mono">{formatWidgetValue(1234.56, props.widget.format)}</code>
       </div>
-      <StatTrendSection widget={props.widget} views={allViews()} onUpdate={props.onUpdate} />
+      <StatTrendSection
+        widget={props.widget}
+        views={allViews().filter(({ view }) => isChartReadyView(view))}
+        baseId={props.baseId}
+        defaultGql={tableQuery(props.tables[0]?.id ?? "")}
+        onUpdate={props.onUpdate}
+      />
     </WidgetEditorSection>
   );
 }
@@ -361,16 +497,20 @@ function StatCellBody(props: {
 function StatTrendSection(props: {
   widget: StatWidget;
   views: Array<{ view: View; tableName: string }>;
+  baseId: string;
+  defaultGql: string;
   onUpdate: (w: StatWidget) => void;
 }) {
   const trend = () => props.widget.trend;
 
   const enable = () => {
     const first = props.views[0]?.view;
-    if (!first) return;
     props.onUpdate({
       ...props.widget,
-      trend: { viewId: first.id, windowSize: 12 },
+      trend: {
+        source: first ? { kind: "view", viewId: first.id } : { kind: "gql", source: props.defaultGql },
+        windowSize: 12,
+      },
     });
   };
 
@@ -386,86 +526,76 @@ function StatTrendSection(props: {
   };
 
   return (
-    <Show when={props.views.length > 0}>
-      <div class="flex flex-col gap-2">
-        <div class="flex items-center justify-between gap-2">
-          <span class="text-xs font-semibold uppercase tracking-wider text-dimmed">Trend</span>
-          <Show
-            when={trend()}
-            fallback={
-              <button type="button" class="btn-input-success btn-sm" onClick={enable}>
-                <i class="ti ti-plus" /> Add trend
-              </button>
-            }
-          >
-            <button type="button" class="btn-input btn-sm" onClick={disable}>
-              Remove trend
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-xs font-semibold uppercase tracking-wider text-dimmed">Trend</span>
+        <Show
+          when={trend()}
+          fallback={
+            <button type="button" class="btn-input-success btn-sm" onClick={enable}>
+              <i class="ti ti-plus" /> Add trend
             </button>
-          </Show>
-        </div>
-        <p class="text-xs text-dimmed">Adds a small history line from a grouped saved view.</p>
-        <Show when={trend()}>
-          {(t) => (
-            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <Select
-                label="Trend view"
-                value={() => t().viewId}
-                onChange={(v) => patchTrend({ viewId: v })}
-                options={props.views.map(({ view, tableName }) => ({
-                  id: view.id,
-                  label: `${tableName} · ${view.name}`,
-                  description: statViewDescription(view),
-                }))}
-              />
-              <Select
-                label="Window size"
-                value={() => String(t().windowSize)}
-                onChange={(v) => patchTrend({ windowSize: Number(v) })}
-                options={[6, 8, 12, 24, 30].map((n) => ({ id: String(n), label: `Last ${n}` }))}
-              />
-            </div>
-          )}
+          }
+        >
+          <button type="button" class="btn-input btn-sm" onClick={disable}>
+            Remove trend
+          </button>
         </Show>
       </div>
-    </Show>
+      <p class="text-xs text-dimmed">Adds a small history line from grouped saved-view or query data.</p>
+      <Show when={trend()}>
+        {(t) => (
+          <div class="flex flex-col gap-3">
+            <DashboardDataSourceEditor
+              baseId={props.baseId}
+              source={t().source}
+              onChange={(source) => patchTrend({ source })}
+              views={props.views.map(({ view, tableName }) => ({ view, tableName, description: statViewDescription(view) }))}
+              defaultGql={props.defaultGql}
+              queryPlaceholder={"from table Orders\ngroup by CreatedAt by month\naggregate sum(Total) as revenue\nsort CreatedAt asc"}
+            />
+            <Select
+              label="Window size"
+              value={() => String(t().windowSize)}
+              onChange={(v) => patchTrend({ windowSize: Number(v) })}
+              options={[6, 8, 12, 24, 30].map((n) => ({ id: String(n), label: `Last ${n}` }))}
+            />
+          </div>
+        )}
+      </Show>
+    </div>
   );
 }
 
 function ViewStatsCellBody(props: {
   widget: ViewStatsWidget;
   onUpdate: (w: ViewStatsWidget) => void;
+  baseId: string;
   tables: Array<{ id: string; name: string; slug: string }>;
   viewsByTable: Record<string, View[]>;
 }) {
   const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
   return (
-    <WidgetEditorSection title="Source" subtitle="Stats are derived from the selected saved view." icon="ti ti-table-spark">
+    <WidgetEditorSection title="Source" subtitle="Choose the data summarized by this widget." icon="ti ti-table-spark">
       <WidgetInfoBlock
         title="View summary"
-        body="Shows a compact summary from one saved view."
-        detail="Grouped views show the first group bucket. Ungrouped views show the first record's visible fields."
+        body="Shows a compact summary from a saved view or local GQL query."
+        detail="Grouped results show the first bucket. Ungrouped results show the first record's output fields."
       />
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <TextInput
-          label="Title"
-          value={() => props.widget.title ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-          placeholder="Defaults to the view name"
-        />
-        <Select
-          label="View"
-          value={() => props.widget.viewId}
-          onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-          options={[
-            { id: "", label: "(pick a view)" },
-            ...allViews().map(({ view, tableName }) => ({
-              id: view.id,
-              label: `${tableName} · ${view.name}`,
-              description: viewStatsViewDescription(view),
-            })),
-          ]}
-        />
-      </div>
+      <DashboardDataSourceEditor
+        baseId={props.baseId}
+        source={props.widget.source}
+        onChange={(source) => props.onUpdate({ ...props.widget, source })}
+        views={allViews().map(({ view, tableName }) => ({ view, tableName, description: viewStatsViewDescription(view) }))}
+        defaultGql={tableQuery(props.tables[0]?.id ?? "", "limit 1")}
+        queryPlaceholder={"from table Orders\nselect Status, Total\nsort CreatedAt desc\nlimit 1"}
+      />
+      <TextInput
+        label="Title"
+        value={() => props.widget.title ?? ""}
+        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        placeholder="Defaults to the saved view or query summary"
+      />
     </WidgetEditorSection>
   );
 }
@@ -512,39 +642,33 @@ function FormCellBody(props: {
 function ViewCellBody(props: {
   widget: ViewWidget;
   onUpdate: (w: ViewWidget) => void;
+  baseId: string;
   viewsByTable: Record<string, View[]>;
   tables: Array<{ id: string; name: string; slug: string }>;
 }) {
   const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
 
   return (
-    <WidgetEditorSection title="Source" subtitle="Use a saved view for filters, sorting, and columns." icon="ti ti-table">
+    <WidgetEditorSection title="Source" subtitle="Choose the records shown in this widget." icon="ti ti-table">
       <WidgetInfoBlock
         title="Embedded records"
         body="Shows records inside the dashboard."
-        detail="Saved views keep their filters, sorting, and columns. Create a simple `from table …` view for raw table records."
+        detail="Reuse a saved view or write a dashboard-local GQL query for filters, sorting, joins, and columns."
       />
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <TextInput
-          label="Title"
-          value={() => props.widget.title ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-          placeholder="Defaults to the view name"
-        />
-        <Select
-          label="View"
-          value={() => props.widget.viewId}
-          onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-          options={[
-            { id: "", label: "(pick a view)" },
-            ...allViews().map(({ view, tableName }) => ({
-              id: view.id,
-              label: `${tableName} · ${view.name}`,
-              description: embeddedViewDescription(view),
-            })),
-          ]}
-        />
-      </div>
+      <DashboardDataSourceEditor
+        baseId={props.baseId}
+        source={props.widget.source}
+        onChange={(source) => props.onUpdate({ ...props.widget, source })}
+        views={allViews().map(({ view, tableName }) => ({ view, tableName, description: embeddedViewDescription(view) }))}
+        defaultGql={tableQuery(props.tables[0]?.id ?? "", "limit 25")}
+        queryPlaceholder={"from table Orders\nwhere Status = 'Open'\nsort CreatedAt desc\nlimit 25"}
+      />
+      <TextInput
+        label="Title"
+        value={() => props.widget.title ?? ""}
+        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        placeholder="Defaults to the saved view or query results"
+      />
     </WidgetEditorSection>
   );
 }
@@ -561,31 +685,31 @@ const CHART_TYPE_INFO: Record<ChartWidget["chartType"], { title: string; body: s
   donut: {
     title: "Donut chart",
     body: "Use this when you want to show parts of one total, for example tasks by status or revenue by product group.",
-    requirement: "The source view must group rows into slices and include one summary value for the slice size.",
+    requirement: "The source must group rows into slices and include one summary value for the slice size.",
     example: "Example: group by Status, summarize with Count.",
   },
   bar: {
     title: "Bar chart",
     body: "Use this when you want to compare categories side by side, for example sales per month or tickets per team.",
-    requirement: "The source view must group rows into bars and include one summary value for the bar height.",
+    requirement: "The source must group rows into bars and include one summary value for the bar height.",
     example: "Example: group by Month, summarize Amount with Sum.",
   },
   line: {
     title: "Line chart",
     body: "Use this when you want to show change over time or another ordered list, for example monthly income.",
-    requirement: "The source view must group rows for the x-axis and include one or more summary values for the lines.",
+    requirement: "The source must group rows for the x-axis and include one or more summary values for the lines.",
     example: "Example: group by Month, summarize Amount with Sum.",
   },
   sparkline: {
     title: "Sparkline",
     body: "Use this when you want a compact trend without axes, for example daily signups or stock over time.",
-    requirement: "The source view must group rows in the desired order and include one summary value for the line.",
+    requirement: "The source must group rows in the desired order and include one summary value for the line.",
     example: "Example: group by Day, summarize Quantity with Sum.",
   },
   scatter: {
     title: "Scatter chart",
     body: "Use this when you want to compare two numbers for each category, for example hours spent vs revenue.",
-    requirement: "The source view must group rows and include at least two summary values. The first value is X, the second is Y.",
+    requirement: "The source must group rows and include at least two summary values. The first value is X, the second is Y.",
     example: "Example: group by Customer, summarize Hours and Revenue with Sum.",
   },
 };
@@ -608,16 +732,16 @@ function ChartWidgetInfoBlock(props: { chartType: ChartWidget["chartType"] }) {
 function ChartCellBody(props: {
   widget: ChartWidget;
   onUpdate: (w: ChartWidget) => void;
+  baseId: string;
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
 }) {
   const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
   const chartViews = createMemo(() => allViews().filter(({ view }) => isChartReadyForType(view, props.widget.chartType)));
-  const selectedView = createMemo(() => allViews().find(({ view }) => view.id === props.widget.viewId));
 
   return (
-    <WidgetEditorSection title="Source" subtitle="Pick one chart-ready saved view." icon="ti ti-chart-bar">
+    <WidgetEditorSection title="Source" subtitle="Choose grouped data for this chart." icon="ti ti-chart-bar">
       <div class="flex flex-col gap-1">
         <span class="text-xs font-medium text-primary">Chart type</span>
         <div class="flex flex-wrap items-center gap-2">
@@ -633,6 +757,18 @@ function ChartCellBody(props: {
           ))}
         </div>
       </div>
+      <DashboardDataSourceEditor
+        baseId={props.baseId}
+        source={props.widget.source}
+        onChange={(source) => props.onUpdate({ ...props.widget, source })}
+        views={chartViews().map(({ view, tableName }) => ({
+          view,
+          tableName,
+          description: chartViewDescription(props.widget.chartType, view, props.fieldsByTable[view.tableId] ?? []),
+        }))}
+        defaultGql={tableQuery(props.tables[0]?.id ?? "")}
+        queryPlaceholder={"from table Orders\ngroup by Status\naggregate count(*) as orders\nsort orders desc"}
+      />
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextInput
           label="Title"
@@ -645,21 +781,6 @@ function ChartCellBody(props: {
           value={() => props.widget.subtitle ?? ""}
           onInput={(v) => props.onUpdate({ ...props.widget, subtitle: v || undefined })}
           placeholder="e.g. last 12 months"
-        />
-        <Select
-          label="Source view"
-          description="Only chart-ready views are listed."
-          value={() => props.widget.viewId}
-          onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-          selectedLabel={() => selectedView()?.view.name}
-          options={[
-            { id: "", label: "(pick a view)" },
-            ...chartViews().map(({ view, tableName }) => ({
-              id: view.id,
-              label: `${tableName} · ${view.name}`,
-              description: chartViewDescription(props.widget.chartType, view, props.fieldsByTable[view.tableId] ?? []),
-            })),
-          ]}
         />
         <TextInput
           label="Limit"
@@ -1028,33 +1149,45 @@ function sortedForms(tables: Array<{ id: string; name: string }>, formsByTable: 
   return forms;
 }
 
+const isQueryWidget = (widget: Widget): widget is StatWidget | ChartWidget | ViewWidget | ViewStatsWidget =>
+  widget.kind === "stat" || widget.kind === "chart" || widget.kind === "view" || widget.kind === "view-stats";
+
+const validateDataSourceDraft = (source: DashboardWidgetSource, viewsByTable: Record<string, View[]>): string | null => {
+  if (source.kind === "gql") return source.source.trim() ? null : "Enter a GQL query.";
+  if (!source.viewId) return "Pick a saved view.";
+  return Object.values(viewsByTable)
+    .flat()
+    .some((candidate) => candidate.id === source.viewId)
+    ? null
+    : "Pick an existing saved view.";
+};
+
 function validateWidgetDraft(widget: Widget, viewsByTable: Record<string, View[]>): string | null {
   if (widget.kind === "chart") {
-    if (!widget.viewId) return "Pick a source view.";
-    const view = Object.values(viewsByTable)
-      .flat()
-      .find((candidate) => candidate.id === widget.viewId);
-    if (!view) return "Pick an existing source view.";
-    if (!isChartReadyView(view)) return "Chart views need grouped rows and at least one summary value.";
-    if (widget.chartType === "scatter" && aggregateItemsFromSource(view.source).length < 2) {
-      return "Scatter needs two summary values.";
+    const sourceError = validateDataSourceDraft(widget.source, viewsByTable);
+    if (sourceError) return sourceError;
+    if (widget.source.kind === "view") {
+      const viewId = widget.source.viewId;
+      const view = Object.values(viewsByTable)
+        .flat()
+        .find((candidate) => candidate.id === viewId);
+      if (!view || !isChartReadyView(view)) return "Chart views need grouped rows and at least one summary value.";
+      if (widget.chartType === "scatter" && aggregateItemsFromSource(view.source).length < 2) {
+        return "Scatter needs two summary values.";
+      }
     }
   }
   if (widget.kind === "stat") {
-    if (!widget.viewId) return "Pick a source view.";
-    const view = Object.values(viewsByTable)
-      .flat()
-      .find((candidate) => candidate.id === widget.viewId);
-    if (!view) return "Pick an existing source view.";
-    if (widget.trend?.viewId) {
-      const trendView = Object.values(viewsByTable)
-        .flat()
-        .find((candidate) => candidate.id === widget.trend?.viewId);
-      if (!trendView) return "Pick an existing trend view.";
+    const sourceError = validateDataSourceDraft(widget.source, viewsByTable);
+    if (sourceError) return sourceError;
+    if (widget.trend) {
+      const trendError = validateDataSourceDraft(widget.trend.source, viewsByTable);
+      if (trendError) return `Trend: ${trendError}`;
     }
   }
-  if (widget.kind === "view") {
-    if (!widget.viewId) return "Pick a view.";
+  if (widget.kind === "view" || widget.kind === "view-stats") {
+    const sourceError = validateDataSourceDraft(widget.source, viewsByTable);
+    if (sourceError) return sourceError;
   }
   if (widget.kind === "link") {
     if (widget.target.kind === "url") {

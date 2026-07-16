@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
+import { resolveWidgetData } from "./dashboard-widget-data";
 import * as dashboards from "./dashboards";
 import * as forms from "./forms";
 
@@ -82,6 +83,64 @@ describe("form and dashboard metadata updates", () => {
       const updated = await dashboards.get(created.data.id);
       expect(updated?.name).toBe("Renamed dashboard");
       expect(updated?.description).toBe("Operational overview");
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("stores and resolves dashboard-local GQL widget sources", async () => {
+    const fixture = await createFixture();
+    try {
+      const created = await dashboards.create({ baseId: fixture.baseId, name: "Query dashboard" }, null);
+      expect(created.ok).toBe(true);
+      if (!created.ok) throw created.error;
+
+      const widget = {
+        id: "orders-count",
+        kind: "stat" as const,
+        source: { kind: "gql" as const, source: "from table Orders\naggregate count(*) as orders" },
+      };
+      const updated = await dashboards.update(
+        created.data.id,
+        { config: { rows: [{ id: "summary", kind: "row", height: "sm", cells: [widget] }] } },
+        null,
+      );
+      expect(updated.ok).toBe(true);
+
+      const data = await resolveWidgetData(widget, { userId: null, userGroups: [], isAdmin: true }, { baseId: fixture.baseId });
+      expect(data).toEqual({ kind: "stat", value: 0 });
+      expect(await dashboards.sourceTableIds(created.data)).toEqual([]);
+      if (updated.ok) expect(await dashboards.sourceTableIds(updated.data)).toEqual([fixture.tableId]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("rejects invalid dashboard-local GQL at the config boundary", async () => {
+    const fixture = await createFixture();
+    try {
+      const created = await dashboards.create({ baseId: fixture.baseId, name: "Invalid query dashboard" }, null);
+      expect(created.ok).toBe(true);
+      if (!created.ok) throw created.error;
+
+      const updated = await dashboards.update(
+        created.data.id,
+        {
+          config: {
+            rows: [
+              {
+                id: "summary",
+                kind: "row",
+                height: "sm",
+                cells: [{ id: "broken", kind: "view", source: { kind: "gql", source: "from table Missing" } }],
+              },
+            ],
+          },
+        },
+        null,
+      );
+      expect(updated.ok).toBe(false);
+      if (!updated.ok) expect(updated.error.message).toContain("view widget source is invalid");
     } finally {
       await cleanupFixture(fixture.baseId);
     }

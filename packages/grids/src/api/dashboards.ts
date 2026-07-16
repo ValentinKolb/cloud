@@ -274,6 +274,7 @@ export const createDashboardsApi = (
 
         const viewer = currentActorViewer(c);
         const data = await resolveWidgetData(c.req.valid("json"), viewer, {
+          baseId: dashboard.baseId,
           dateConfig: await getDateConfig(c),
         });
         return c.json(data);

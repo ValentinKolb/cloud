@@ -12,7 +12,7 @@ type Props = {
 };
 
 /**
- * View-stats cell — embeds a saved view's first row (ungrouped) or
+ * View-stats cell — embeds a source's first row (ungrouped) or
  * first bucket (grouped) as a compact 2-column hairline stat-grid
  * inside a single paper-card. Renders inside a row's cell slot.
  *
