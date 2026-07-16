@@ -269,10 +269,12 @@ The current Mail action vocabulary is:
 | `moveMessage` | `message`, accessible folder name, ID, or expression in `folder` | Durable provider command |
 | `assignConversation` | `conversation`, assignable user name, ID, expression, or `null` in `user` | Transactional collaboration change |
 | `setConversationStatus` | `conversation`, `open`, `waiting`, or `done` in `status` | Transactional collaboration change |
+| `setVariable` | Identifier in `name`, expression or literal in `value` | Store a pure scoped value for later steps |
 | `succeed` | Operator-facing `message` | Stop successfully |
 | `fail` | Operator-facing `message` | Stop with failure |
 
 Literal folder and user names are bound to accessible stable IDs when a version is created. Unknown, inaccessible, or ambiguous names fail validation.
+Reference a value stored by `setVariable` as `${{ <name> }}` in later steps in the same scope. Mail validation reserves `inputs` and `trigger` and rejects another value with the same name in that scope.
 
 ### Validate, save, and activate
 
@@ -285,6 +287,10 @@ cld --json mail workflow create \
   --name "Route invoices" \
   --description "Move new invoices into the team folder" \
   --priority 100 \
+  --max-targets 500 \
+  --max-moves 500 \
+  --max-keyword-changes 500 \
+  --max-collaboration-changes 500 \
   --source-file route-mail.yml
 ```
 
@@ -353,6 +359,8 @@ cld --json mail workflow run backfill <workflow-id> \
 
 `invoke`, `one-shot`, and `backfill` currently share the same version-pinned query, preflight, and execution path. Their stored run kind records caller intent. Use a stable `--idempotency-key` when a caller may retry; reusing it with different inputs, query, version, or run kind fails with a conflict.
 
+Current CLI workflow requests use the authenticated API transport and are recorded by the server with channel `api`. The shared Cloud CLI transport does not provide authenticated client provenance, so a client-controlled header must not be used to claim channel `cli`. A distinct `cli` audit channel requires shared server-derived or cryptographically authenticated request metadata before Mail can trust it.
+
 Use a durable dry run when you need an auditable per-target plan without applying effects:
 
 ```bash
@@ -375,9 +383,11 @@ cld --json mail workflow run wait <run-id> --timeout-seconds 300
 cld --json mail workflow run cancel <run-id> --reason "Superseded" --yes
 ```
 
+With `--json` or `--jsonl`, a waited run that ends in `failed`, `canceled`, or `needs_attention` writes a structured `{ error, run }` result and exits with status 1. Effectful run commands also include their `preflight`. The error contains `code`, `message`, and `retryable`; text mode writes the same failure concisely to stderr.
+
 ### Understand safety and recovery
 
-Every saved version carries an effect budget. CLI creation uses defaults of 1,000 targets, 1,000 moves, 2,000 keyword changes, and 2,000 collaboration changes. Override them with `--max-targets`, `--max-moves`, `--max-keyword-changes`, and `--max-collaboration-changes` on `workflow create` or `workflow version create`. The API and CLI accept values up to 50,000 targets and moves and 100,000 keyword or collaboration changes. Preflight rejects work above the saved budget or the hard 50,000-target/50,000-total-effect planning ceilings.
+Every saved version carries an effect budget. Both `workflow create` and `workflow version create` use defaults of 1,000 targets, 1,000 moves, 2,000 keyword changes, and 2,000 collaboration changes when their flags are omitted. Set the version's budget with `--max-targets`, `--max-moves`, `--max-keyword-changes`, and `--max-collaboration-changes`; a new version does not implicitly inherit the previous version's budget. The API and CLI accept values up to 50,000 targets and moves and 100,000 keyword or collaboration changes. Preflight rejects work above the saved budget or the hard 50,000-target/50,000-total-effect planning ceilings.
 
 Creating versions and activating or deactivating workflows requires mailbox `admin`; validation and inspection require `read`; preflight, manual execution, and cancellation require current mutation access. Manual runs snapshot the initiating user or service-account credential and recheck it during execution. Automatic runs use the active version's mailbox-owned authority, so removing the activating administrator's later personal access does not silently disable approved automation. Deactivation or replacement of that version prevents new automatic runs and fences unfinished effects. Provider commands and collaboration actions still perform current mailbox, capability, revision, and active-version checks before changing mail.
 

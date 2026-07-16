@@ -1631,6 +1631,52 @@ test("workflow run targets forwards the ordinal cursor", async () => {
   expect(JSON.parse(result.stdout)).toEqual([workflowRunTarget]);
 });
 
+test("workflow wait emits structured terminal errors in machine-readable modes", async () => {
+  const failedRun = {
+    ...workflowRun(),
+    state: "failed",
+    targetProgress: {
+      total: 2,
+      queued: 0,
+      running: 0,
+      waiting: 0,
+      succeeded: 1,
+      failed: 1,
+      canceled: 0,
+      needs_attention: 0,
+    },
+    lastError: { code: "PROVIDER_REJECTED", message: "Provider rejected one target", retryable: false },
+    finishedAt: "2026-07-13T00:00:02.000Z",
+  };
+  const server = withMailbox((request) => {
+    if (new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/${WORKFLOW_RUN_ID}`) {
+      return api(failedRun);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  for (const outputFlag of ["--json", "--jsonl"]) {
+    const result = await runCli(`http://127.0.0.1:${server.port}`, [
+      outputFlag,
+      "mail",
+      "workflow",
+      "run",
+      "wait",
+      WORKFLOW_RUN_ID,
+      "--mailbox",
+      MAILBOX_ID,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      run: failedRun,
+      error: { code: "PROVIDER_REJECTED", message: "Provider rejected one target", retryable: false },
+    });
+  }
+});
+
 test("workflow run cancel requires confirmation and forwards the reason", async () => {
   let requestBody: Record<string, unknown> | null = null;
   const server = withMailbox(async (request) => {

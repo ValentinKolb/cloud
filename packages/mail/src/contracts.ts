@@ -243,7 +243,44 @@ const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> = z.l
   ]),
 );
 
-export const mailSearchExpressionSchema = boundedTreeInputSchema({
+const mailSearchExpressionOpenApi = {
+  $dynamicAnchor: "MailSearchExpression",
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        field: { type: "string", enum: mailSearchFieldSchema.options },
+        query: { type: "string", minLength: 1, maxLength: 500 },
+        match: { type: "string", enum: ["words", "phrase", "contains", "exact"], default: "words" },
+      },
+      required: ["field", "query"],
+    },
+    {
+      type: "object",
+      properties: {
+        and: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
+      },
+      required: ["and"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        or: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
+      },
+      required: ["or"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { not: { $dynamicRef: "#MailSearchExpression" } },
+      required: ["not"],
+      additionalProperties: false,
+    },
+  ],
+};
+
+const validatedMailSearchExpressionSchema = boundedTreeInputSchema({
   label: "Search expressions",
   children: (value) => [
     ...(Array.isArray(value.and) ? value.and : []),
@@ -251,6 +288,16 @@ export const mailSearchExpressionSchema = boundedTreeInputSchema({
     ...(value.not === undefined ? [] : [value.not]),
   ],
 }).pipe(mailSearchExpressionRecursiveSchema) as z.ZodType<MailSearchExpression>;
+
+export const mailSearchExpressionSchema = z
+  .unknown()
+  .transform((value, context): MailSearchExpression => {
+    const parsed = validatedMailSearchExpressionSchema.safeParse(value);
+    if (parsed.success) return parsed.data;
+    for (const issue of parsed.error.issues) context.addIssue({ ...issue });
+    return z.NEVER;
+  })
+  .meta(mailSearchExpressionOpenApi);
 
 export const searchRequestSchema = z.object({
   expression: mailSearchExpressionSchema,

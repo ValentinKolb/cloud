@@ -2,7 +2,7 @@
 
 The shared workflow kernel provides one concentrated language and runtime for Grids and Mail while defining the extension boundary for Assistant and later Cloud apps.
 
-Status: The Grids and Mail migrations are implemented for their current deterministic vocabularies. The shared pure built-ins, executor, coordinator, dependency protocol, schedule coordination, and bounded batch utilities are current APIs. The cross-app author SDK, external-effect action packs, broader Mail vocabulary, and Assistant integration remain target design. Last updated: 2026-07-15. Both workflow surfaces are local alpha and were replaced directly without compatibility readers or parallel runtimes.
+Status: The Grids and Mail migrations are implemented for their current deterministic vocabularies. The shared current APIs are the language and binding contracts, pure built-ins, deterministic executor, coordinator, schedule reconciliation, explicit run-wake contract, lifecycle helpers, and conformance fixtures. Apps implement durable waiting transitions and batch materialization through their own PostgreSQL persistence. The cross-app author SDK, external-effect action packs, broader Mail vocabulary, and Assistant integration remain target design. Last updated: 2026-07-16. Both workflow surfaces are local alpha and were replaced directly without compatibility readers or parallel runtimes.
 
 ## Contents
 
@@ -31,7 +31,7 @@ Status: The Grids and Mail migrations are implemented for their current determin
 1. **Grids informs the language semantics without constraining them.** The canonical top-level structure is `inputs`, optional automatic `triggers`, and `steps`. The existing implementation contributes proven concepts and product workflows, but no current Grids YAML, database row, API shape, or runtime path is a compatibility contract.
 2. **One grammar, app-specific vocabulary.** Consumers share parsing, expressions, control flow, diagnostics, execution semantics, and editor contracts. Each app registers its own resource types, triggers, conditions, and actions.
 3. **Mail uses the canonical YAML language.** Mail accepts the same top-level `inputs`, optional automatic `triggers`, and `steps` shape as Grids, with Mail-specific descriptors and bindings. Metadata, activation, immutable version IDs, and effect budgets stay outside YAML.
-4. **Extraction is language-first, but the target is one complete runtime.** The implemented kernel provides a versioned language manifest, compiler IR, catalog binder, diagnostics, deterministic executor, dry-run traversal, dependency protocol, and coordination utilities. Grids and Mail use those shared paths with app-owned persistence and domain ports; neither keeps a parallel evaluator.
+4. **Extraction is language-first, but the target is one complete runtime contract.** The implemented kernel provides a versioned language manifest, compiler IR, catalog binder, diagnostics, deterministic executor, dry-run traversal, dependency outcomes, coordination, schedule reconciliation, and wake contracts. Grids and Mail use those shared paths with app-owned durable persistence and domain ports; neither keeps a parallel evaluator.
 5. **Persistence remains app-owned.** Grids may replace its alpha workflow and run schema directly. Mail keeps immutable versions, target runs, command journal integration, and mailbox-scoped indexes. The kernel consumes repository ports instead of introducing generic workflow tables.
 6. **Existing primitives are reused before new syntax is added.** `if` is the common "only run when" construct. `triggers.schedule` starts scheduled workflows. A shared temporal condition may be added for work-hour checks. A generic delayed-action primitive is deferred until a second app needs the same durable behavior.
 7. **Side-effect hardening is an extraction gate.** Existing Grids actions reveal the required effects, but their current retry behavior is not frozen. Every action must be deliberately classified and implemented with a production-safe transactional, durable-command, or fail-after-unknown contract before the shared runtime executes it.
@@ -386,7 +386,7 @@ Moving scanner configuration out of `triggers` is a language cleanup, not a redu
 
 The scanner session is app-owned orchestration over the common invocation API. It groups run IDs and presentation state but does not become a second executor. Labels remain record labels: the same item code can be used by return, checkout, inventory, or maintenance workflows without generating a workflow-specific label.
 
-A Mail backfill is a durable batch invocation mode. It resolves a bounded target query and invokes the same executable plan for each frozen target. Target-level progress, effect budgets, preflight hashes, cancellation, and resumability remain app policy over the shared Batch SDK.
+A Mail backfill is a durable batch invocation mode. It resolves a bounded target query and invokes the same executable plan for each frozen target. Target discovery, materialization cursors, progress, effect budgets, preflight hashes, cancellation, and resumability remain Mail-owned persistence because those semantics depend on Mail's target model.
 
 Every invocation has one explicit contract. Automatic trigger adapters may record additional audit context, but workflow logic should receive required domain values through `inputs` so direct invocation never needs to fabricate an event:
 
@@ -461,8 +461,9 @@ flowchart LR
 - run claim, lease, heartbeat, fencing, cancellation, and recovery protocols through a repository port;
 - step lifecycle and the rules for restoring completed work after restart;
 - trigger idempotency keys and generic schedule registration through scheduler ports;
-- durable dependency parking and at-least-once wakeup with deduplicated, fenced state transition;
-- reusable schedule coordination and a bounded batch SDK; app adapters retain durable target discovery, budgets, and progress persistence.
+- a waiting outcome and repository port for atomically parking the current step;
+- an explicit, best-effort run-wake contract whose transport payload contains only the run ID;
+- reusable schedule normalization, stable registration and slot identities, and reconciliation planning.
 
 The kernel's execution outcome must be able to represent more than a boolean result:
 
@@ -671,7 +672,7 @@ return ctx.waitFor({
 });
 ```
 
-The SDK supplies stable dependency identity, persisted wait state, duplicate-wakeup suppression, timeout/cancellation handling, and a fenced atomic resume transition under a new execution generation. Wakeups are delivered at least once. Adapters register dependency resolvers and durable wakeup producers. Mail commands, AI runs, approvals, document rendering, and similar long-running work reuse this protocol.
+The kernel supplies the opaque dependency contract, waiting execution outcome, and atomic `parkStep` repository port. Each app persists wait state, deadlines, duplicate-wakeup suppression, cancellation, and the fenced resume transition under a new execution generation in its own PostgreSQL schema. Wake transports are best-effort hints carrying a run ID; recovery queries remain authoritative when a hint is lost. Mail commands and hydration already use this contract. AI runs, approvals, and document rendering can use it once their app adapters provide the same durable transitions.
 
 ### Time and schedules
 
@@ -684,7 +685,7 @@ An action must not register its own persistent scheduler entry. Recurring starts
 
 ### Batch coordination
 
-Large target sets need a durable batch utility rather than an expanded `forEach`:
+Large target sets need durable app orchestration rather than an expanded `forEach`:
 
 - app-owned keyset target discovery and immutable target snapshots;
 - deterministic child identity and per-target idempotency keys;
@@ -692,13 +693,13 @@ Large target sets need a durable batch utility rather than an expanded `forEach`
 - partial failure and `needs_attention` without blocking unrelated targets;
 - restart recovery without placing full target lists in queue payloads.
 
-The SDK owns coordination mechanics. Grids and Mail retain target queries, authorization, preview policy, and target-specific preconditions.
+The shared executor owns one target's deterministic plan execution. The app owns target discovery, child materialization, progress, budgets, and recovery because these operations are coupled to its schema and permission model. Promote a shared batch utility only after two adapters prove identical persistence and recovery semantics.
 
 ### Trigger and event utilities
 
 Trigger adapters should receive helpers for deterministic delivery keys, run materialization, duplicate suppression, actor snapshots, queue submission, failed-delivery recording, and recovery. Event selection and permission checks remain app-owned. The event transport remains outside the workflow kernel.
 
-Schedule, dependency, and batch coordination are separate SDK modules. An app can adopt one without moving its entire runtime. This is preferable to a single large coordinator whose contracts are too broad to verify.
+Schedule reconciliation is a shared module. Waiting uses shared contracts plus app-owned persistence, and batch orchestration remains app-owned. These boundaries keep the executor small and avoid a generic persistence abstraction that neither Grids nor Mail can use without leaking domain policy.
 
 ### Conformance harness
 
@@ -979,9 +980,9 @@ Recommended home: `@valentinkolb/cloud/workflows`, because the consumers already
 - Implement atomic active-revision pinning at run materialization plus atomic claim, step, park, wakeup, cancellation, `needs_attention`, and terminal transitions with execution-generation fencing.
 - Define invocation uniqueness over app, workflow, mode, and caller key, with pinned revision, actor, normalized inputs, and trusted provenance in the conflict fingerprint. A trusted server-owned channel may further partition the domain; a client-controlled header may not. Support `expectedRevisionId` so reviewed UI/API state cannot silently run a newer revision.
 - Implement `execute` and `dryRun` as explicit run modes over the same plan, inputs, permission checks, conditions, and step paths.
-- **Dependency SDK:** durable parking, deadlines, cancellation, at-least-once wakeups, duplicate suppression, fenced resume, and reconciliation.
+- **Waiting contract:** opaque dependencies and `parkStep` are shared; app repositories implement deadlines, cancellation, duplicate suppression, fenced resume, and recovery in PostgreSQL.
 - **Schedule SDK:** cron, timezone, DST, deterministic slots, overlap, catch-up/misfire policy, manual invocation, and stale-registration reconciliation.
-- **Batch SDK:** keyset cursors, deterministic child identity, progress, budget reserve/commit, pause/resume, cancellation, and partial failure.
+- **App batch adapters:** keyset cursors, deterministic child identity, progress, budget reserve/commit, pause/resume, cancellation, and partial failure stay with each app until their durable semantics are demonstrably identical.
 - Run crash/restart, stale-worker, revocation, cancellation, and duplicate-delivery conformance suites before migrating an app.
 
 ### 6. Migrate Grids completely
@@ -1013,7 +1014,7 @@ Remaining work is product-specific: broader Mail actions and product UI. Mail an
 
 - First add a durable AI terminal-completion outbox and reconciliation path; process-local callbacks are not sufficient.
 - Register `runAgent` with typed structured output, stable child-run identity, time/cost/output budgets, and explicit cancellation ownership.
-- Resume through the Dependency SDK and prove duplicate completion delivery, worker restart, permission revocation, cancellation, and audit correlation.
+- Resume through the shared waiting contract and an Assistant-owned durable repository; prove duplicate completion delivery, worker restart, permission revocation, cancellation, and audit correlation.
 - Keep AI tool approvals, steering, streaming, memory, tools, model execution, and usage accounting in the AI runtime.
 
 ### 9. Promote reusable external action packs last

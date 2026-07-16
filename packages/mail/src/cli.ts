@@ -295,6 +295,21 @@ const workflowProgressText = (run: MailWorkflowRun): string =>
 
 const workflowLastErrorText = (run: MailWorkflowRun): string => (run.lastError ? ` - ${run.lastError.code}: ${run.lastError.message}` : "");
 
+const workflowTerminalError = (run: MailWorkflowRun) =>
+  run.lastError ?? {
+    code: `WORKFLOW_RUN_${run.state.toUpperCase()}`,
+    message: `Workflow run ended in ${run.state}.`,
+    retryable: false,
+  };
+
+const printWorkflowWaitFailure = (ctx: CloudCliContext, run: MailWorkflowRun, value: Record<string, unknown> = { run }): number => {
+  const error = workflowTerminalError(run);
+  if (ctx.options.output === "json") ctx.json({ ...value, error });
+  else if (ctx.options.output === "jsonl") ctx.jsonLine({ ...value, error });
+  else ctx.error(`Workflow run ${run.id} ended in ${run.state} - ${error.code}: ${error.message}`);
+  return 1;
+};
+
 const waitForWorkflowRun = async (
   ctx: CloudCliContext,
   mailboxId: string,
@@ -307,7 +322,6 @@ const waitForWorkflowRun = async (
     timeoutSeconds,
     description: `workflow run ${runId}`,
   });
-  if (run.state !== "succeeded") throw new Error(`Workflow run ended in ${run.state}${workflowLastErrorText(run) || "."}`);
   return run;
 };
 
@@ -2749,6 +2763,7 @@ export default defineCliCommands({
           }),
         );
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
+        if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
         if (ctx.options.output === "json") ctx.json({ preflight, run });
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
@@ -2778,6 +2793,7 @@ export default defineCliCommands({
           }),
         );
         const result = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, run.id, flags.timeoutSeconds) : run;
+        if (flags.wait && result.state !== "succeeded") return printWorkflowWaitFailure(ctx, result);
         if (ctx.options.output === "json") ctx.json(result);
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow dry run ${result.id} (${result.state}).`);
       },
@@ -2821,6 +2837,7 @@ export default defineCliCommands({
           }),
         );
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
+        if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
         if (ctx.options.output === "json") ctx.json({ preflight, run });
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
@@ -2864,6 +2881,7 @@ export default defineCliCommands({
           }),
         );
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
+        if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
         if (ctx.options.output === "json") ctx.json({ preflight, run });
         else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
@@ -2956,6 +2974,7 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const run = await waitForWorkflowRun(ctx, mailbox.id, args.runId, flags.timeoutSeconds);
+        if (run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run);
         if (ctx.options.output === "json") ctx.json(run);
         else ctx.print(`Workflow run ${run.id} succeeded (${workflowProgressText(run)}).`);
       },
