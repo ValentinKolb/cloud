@@ -614,6 +614,8 @@ const AppWorkspaceDetail = (props: AppWorkspaceDetailProps) => {
           kind="detail"
           panelId={panelId()}
           controls={domId()}
+          edge="start"
+          shadow
           defaultSize={defaultWidth()}
           minSize={minWidth()}
           maxSize={maxWidth()}
@@ -649,6 +651,8 @@ const AppWorkspaceBottomDrawer = (props: AppWorkspaceBottomDrawerProps) => {
           kind="drawer"
           panelId={panelId()}
           controls={domId()}
+          edge="start"
+          shadow
           defaultSize={defaultHeight()}
           minSize={minHeight()}
           maxSize={maxHeight()}

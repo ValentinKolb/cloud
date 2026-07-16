@@ -202,25 +202,6 @@
   transition: box-shadow 150ms ease-out;
 }
 
-.app-workspace:has(> .workspace-resize-handle:is(:hover, :focus-visible)) > .workspace-main,
-.app-workspace:has(> :is(solid-island, solid-client) > .workspace-resize-handle:is(:hover, :focus-visible))
-  > :is(solid-island, solid-client)
-  > .workspace-main,
-.app-workspace:has(> .workspace-content > .workspace-resize-handle:is(:hover, :focus-visible)) > .workspace-content > .workspace-main,
-.app-workspace:has(> .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle:is(:hover, :focus-visible))
-  > .workspace-content
-  > :is(solid-island, solid-client)
-  > .workspace-main,
-.app-workspace[data-workspace-resize-active] > .workspace-main,
-.app-workspace[data-workspace-resize-active] > :is(solid-island, solid-client) > .workspace-main,
-.app-workspace[data-workspace-resize-active] > .workspace-content > .workspace-main,
-.app-workspace[data-workspace-resize-active] > .workspace-content > :is(solid-island, solid-client) > .workspace-main {
-  box-shadow:
-    -8px 0 18px -16px rgb(24 24 27 / 0.34),
-    8px 0 18px -16px rgb(24 24 27 / 0.28),
-    var(--ui-shadow-workspace-edge);
-}
-
 .app-workspace > .workspace-detail,
 .app-workspace > :is(solid-island, solid-client) > .workspace-detail,
 .app-workspace > .workspace-content > .workspace-detail,
