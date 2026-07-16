@@ -1,20 +1,9 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import type {
-  AggregationSpec,
-  ColumnSpec,
-  ComputedColumnSpec,
-  DslQueryPreviewColumn,
-  DslQueryPreviewResponse,
-  GroupBySpec,
-  RecordQuery,
-  View,
-  Widget,
-  WidgetFormat,
-} from "../contracts";
+import type { AggregationSpec, DslQueryPreviewColumn, DslQueryPreviewResponse, GroupBySpec, Widget, WidgetFormat } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
-import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan, resolveDslQueryToRecordQuery } from "../query-dsl/resolver";
+import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
 import { aggregateOutputKey } from "./aggregate-capabilities";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
@@ -24,14 +13,11 @@ import type { Form } from "./forms";
 import * as forms from "./forms";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
-import * as records from "./records";
 import * as tables from "./tables";
-import type { Field, GridRecord } from "./types";
+import type { Field } from "./types";
 import * as views from "./views";
 import { getWorkflow } from "./workflow-kernel-store";
 import { getLauncher } from "./workflow-launchers";
-
-const isComputedColumn = (column: ColumnSpec): column is ComputedColumnSpec => "kind" in column && column.kind === "computed";
 
 /**
  * Runtime data shape per dashboard cell — what the SSR pipeline
@@ -76,9 +62,8 @@ export type WidgetData =
   | {
       kind: "view";
       title: string;
-      fields: Field[];
-      records: GridRecord[];
-      viewColumns?: ColumnSpec[];
+      queryResult: PreviewSuccess;
+      fieldsByTable: Record<string, Field[]>;
       tableShortIds: Record<string, string>;
       fullViewLink: { tableShortId: string; viewShortId: string } | null;
       sourceAccess: "open" | "dashboard";
@@ -164,7 +149,6 @@ type ResolveOptions = {
 };
 
 type SavedView = NonNullable<Awaited<ReturnType<typeof views.get>>>;
-type RuntimeView = SavedView & { query: RecordQuery };
 type LinkWidget = Extract<Widget, { kind: "link" }>;
 type WorkflowButtonWidget = Extract<Widget, { kind: "workflow-button" }>;
 type LinkDataBase = {
@@ -174,30 +158,32 @@ type LinkDataBase = {
   icon: string;
 };
 
-const withViewUiPresentation = (query: RecordQuery, view: Pick<View, "ui">): RecordQuery => ({
-  ...query,
-  ...(view.ui.columns ? { columns: view.ui.columns } : {}),
-  ...(view.ui.groupedColumnOrder ? { groupedColumnOrder: view.ui.groupedColumnOrder } : {}),
-  ...(view.ui.hiddenGroupedColumns ? { hiddenGroupedColumns: view.ui.hiddenGroupedColumns } : {}),
-});
-
-const compileRuntimeView = async (view: SavedView): Promise<RuntimeView | { error: string }> => {
-  const table = await tables.get(view.tableId);
-  if (!table) return { error: "view's parent table not found" };
-  const parsed = parseGridsQueryDsl(view.source);
-  if (!parsed.ok) return { error: parsed.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
-  const context = await buildTrustedGqlResolverContext({
-    baseId: table.baseId,
-    currentTableId: view.tableId,
-    ast: parsed.ast,
-    purpose: "dashboard-widget-render",
-  });
-  const resolved = resolveDslQueryToRecordQuery(parsed.ast, context);
-  if (!resolved.ok) return { error: resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
-  return { ...view, query: withViewUiPresentation(resolved.plan.query, view) };
-};
-
 type PreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
+
+const outputMetadataForPreview = (
+  preview: PreviewSuccess,
+  fieldsByTableId: Record<string, Field[]>,
+  tableShortIds: Record<string, string>,
+): { fieldsByTableId: Record<string, Field[]>; tableShortIds: Record<string, string> } => {
+  const fieldIdsByTable = new Map<string, Set<string>>();
+  for (const column of preview.columns) {
+    if (!column.tableId || !column.fieldId) continue;
+    const fieldIds = fieldIdsByTable.get(column.tableId) ?? new Set<string>();
+    fieldIds.add(column.fieldId);
+    fieldIdsByTable.set(column.tableId, fieldIds);
+  }
+  return {
+    fieldsByTableId: Object.fromEntries(
+      [...fieldIdsByTable].map(([tableId, fieldIds]) => [
+        tableId,
+        (fieldsByTableId[tableId] ?? []).filter((field) => fieldIds.has(field.id)),
+      ]),
+    ),
+    tableShortIds: Object.fromEntries(
+      [...fieldIdsByTable.keys()].flatMap((tableId) => (tableShortIds[tableId] ? [[tableId, tableShortIds[tableId]]] : [])),
+    ),
+  };
+};
 
 const fieldsWithPlanExtras = async (
   fieldsByTableId: Record<string, Field[]>,
@@ -214,7 +200,10 @@ const previewSavedView = async (
   viewer: ViewerContext,
   options: ResolveOptions,
   limit?: number,
-): Promise<{ view: SavedView; preview: PreviewSuccess; fieldsByTableId: Record<string, Field[]> } | { error: string }> => {
+): Promise<
+  | { view: SavedView; preview: PreviewSuccess; fieldsByTableId: Record<string, Field[]>; tableShortIds: Record<string, string> }
+  | { error: string }
+> => {
   const table = await tables.get(view.tableId);
   if (!table) return { error: "view's parent table not found" };
   const parsed = parseGridsQueryDsl(view.source);
@@ -235,7 +224,16 @@ const previewSavedView = async (
     viewer,
   });
   if (!result.ok) return { error: result.error.message };
-  return { view, preview: result.data, fieldsByTableId };
+  const outputMetadata = outputMetadataForPreview(
+    result.data,
+    fieldsByTableId,
+    Object.fromEntries(context.tables.map((source) => [source.id, source.shortId])),
+  );
+  return {
+    view,
+    preview: result.data,
+    ...outputMetadata,
+  };
 };
 
 /**
@@ -532,21 +530,24 @@ const resolveStatTrend = async (
 // the most-recent `limit` buckets.
 // =============================================================================
 
-const inferAggKind = (key: string): AggregationSpec["agg"] => {
-  const suffix = key.split("__").pop();
-  return suffix === "count" ||
-    suffix === "countEmpty" ||
-    suffix === "countUnique" ||
-    suffix === "sum" ||
-    suffix === "avg" ||
-    suffix === "min" ||
-    suffix === "max" ||
-    suffix === "median" ||
-    suffix === "earliest" ||
-    suffix === "latest"
-    ? suffix
-    : "count";
-};
+const asAggregateKind = (value: string | undefined): AggregationSpec["agg"] | null =>
+  value === "count" ||
+  value === "countEmpty" ||
+  value === "countUnique" ||
+  value === "sum" ||
+  value === "avg" ||
+  value === "min" ||
+  value === "max" ||
+  value === "median" ||
+  value === "earliest" ||
+  value === "latest"
+    ? value
+    : null;
+
+const inferAggKind = (key: string): AggregationSpec["agg"] => asAggregateKind(key.split("__").pop()) ?? "count";
+
+const aggregateKindForColumn = (column: DslQueryPreviewColumn): AggregationSpec["agg"] =>
+  asAggregateKind(column.aggregate) ?? inferAggKind(column.key);
 
 const previewChartShape = (
   preview: PreviewSuccess,
@@ -555,7 +556,7 @@ const previewChartShape = (
   const aggregateColumns = preview.columns.filter((column) => column.type === "aggregate");
   const aggregations = aggregateColumns.map((column) => ({
     fieldId: column.key,
-    agg: inferAggKind(column.key),
+    agg: aggregateKindForColumn(column),
     label: column.label,
   }));
   return {
@@ -624,37 +625,17 @@ const resolveSavedView = async (
 ): Promise<WidgetData> => {
   const view = await views.get(viewId);
   if (!view) return { kind: "error", reason: "view not found" };
-  const runtime = await compileRuntimeView(view);
-  if ("error" in runtime) return { kind: "error", reason: runtime.error };
   const table = await tables.get(view.tableId);
   if (!table) return { kind: "error", reason: "view's parent table not found" };
   const canOpenSource = await canReadViewTarget(view, table.baseId, viewer);
-  const baseTables = await tables.listByBase(table.baseId);
-  const tableShortIds = Object.fromEntries(baseTables.map((t) => [t.id, t.shortId]));
-  // includeRelations=true with viewer ⇒ expansion is permission-gated:
-  // relation cells pointing at tables the viewer can't read aren't
-  // expanded, so DatabaseTable falls back to a neutral placeholder.
-  const recordList = await records.list({
-    tableId: view.tableId,
-    filter: runtime.query.filter ?? null,
-    search: runtime.query.search ?? null,
-    recordMeta: runtime.query.recordMeta ?? null,
-    sort: runtime.query.sort ?? [],
-    includeDeleted: runtime.query.includeDeleted,
-    deletedOnly: runtime.query.deletedOnly,
-    limit: EMBEDDED_VIEW_PAGESIZE,
-    includeRelations: true,
-    viewer,
-    dateConfig: options.dateConfig,
-  });
-  if (!recordList.ok) return { kind: "error", reason: recordList.error.message };
+  const result = await previewSavedView(view, viewer, options, EMBEDDED_VIEW_PAGESIZE);
+  if ("error" in result) return { kind: "error", reason: result.error };
   return {
     kind: "view",
     title: titleOverride ?? view.name,
-    fields: recordList.data.fields,
-    records: recordList.data.items,
-    viewColumns: runtime.query.columns,
-    tableShortIds,
+    queryResult: result.preview,
+    fieldsByTable: result.fieldsByTableId,
+    tableShortIds: result.tableShortIds,
     fullViewLink: canOpenSource ? { tableShortId: table.shortId, viewShortId: view.shortId } : null,
     sourceAccess: canOpenSource ? "open" : "dashboard",
   };
@@ -696,172 +677,54 @@ const resolveViewStats = async (
   const link = canOpenSource ? { tableShortId: table.shortId, viewShortId: view.shortId } : null;
   const sourceAccess = canOpenSource ? "open" : "dashboard";
   const title = widget.title ?? view.name;
-  const runtime = await compileRuntimeView(view);
-  if ("error" in runtime) {
+  const preview = await previewSavedView(view, viewer, options, 1);
+  if ("error" in preview) {
     return {
       kind: "view-stats",
       title,
       cells: [],
-      notice: runtime.error,
+      notice: preview.error,
       fullViewLink: link,
       sourceAccess,
     };
   }
-  const isGrouped = (runtime.query.groupBy ?? []).length > 0;
-  if (isGrouped) {
-    return await resolveGroupedViewStats(runtime, title, link, sourceAccess, viewer, options);
-  }
-  return await resolveUngroupedViewStats(runtime, title, link, sourceAccess, viewer, options);
-};
-
-const resolveUngroupedViewStats = async (
-  view: RuntimeView,
-  title: string,
-  link: { tableShortId: string; viewShortId: string } | null,
-  sourceAccess: "open" | "dashboard",
-  viewer: ViewerContext,
-  options: ResolveOptions,
-): Promise<WidgetData> => {
-  const fieldsList = await fields.listByTable(view.tableId);
-  const fieldsById = new Map(fieldsList.map((f) => [f.id, f]));
-  const visible = view.query.columns
-    ? view.query.columns
-        .map((column) => {
-          if (isComputedColumn(column)) {
-            return { id: column.id, name: column.label, format: column.format ?? null } as const;
-          }
-          const field = fieldsById.get(column.fieldId);
-          return field && !field.deletedAt
-            ? ({ id: field.id, name: column.label?.trim() || field.name, format: inferFormatFromField(field) } as const)
-            : null;
-        })
-        .filter((entry): entry is { id: string; name: string; format: ViewStatsCell["format"] } => Boolean(entry))
-    : fieldsList
-        .filter((f) => !f.deletedAt && !f.hideInTable)
-        .sort((a, b) => a.position - b.position)
-        .map((field) => ({ id: field.id, name: field.name, format: inferFormatFromField(field) }));
-  if (visible.length === 0) {
+  const row = preview.preview.rows[0];
+  if (!row) {
     return {
       kind: "view-stats",
       title,
       cells: [],
-      notice: "view has no visible fields",
+      notice: "view has no rows",
       fullViewLink: link,
       sourceAccess,
     };
   }
-  const result = await records.list({
-    tableId: view.tableId,
-    filter: view.query.filter ?? null,
-    search: view.query.search ?? null,
-    recordMeta: view.query.recordMeta ?? null,
-    sort: view.query.sort ?? [],
-    includeDeleted: view.query.includeDeleted,
-    deletedOnly: view.query.deletedOnly,
-    limit: 1,
-    viewer,
-    dateConfig: options.dateConfig,
-    computedColumns: view.query.columns?.filter(isComputedColumn),
-  });
-  if (!result.ok) {
+  const fieldsById = new Map((preview.fieldsByTableId[view.tableId] ?? []).map((field) => [field.id, field]));
+  const cells: ViewStatsCell[] = preview.preview.columns.map((column) => {
+    const field = column.fieldId ? (fieldsById.get(column.fieldId) ?? null) : null;
     return {
-      kind: "view-stats",
-      title,
-      cells: [],
-      notice: result.error.message,
-      fullViewLink: link,
-      sourceAccess,
-    };
-  }
-  const first = result.data.items[0];
-  if (!first) {
-    return {
-      kind: "view-stats",
-      title,
-      cells: [],
-      notice: "view has no records",
-      fullViewLink: link,
-      sourceAccess,
-    };
-  }
-  const cells: ViewStatsCell[] = visible.map((item) => ({
-    label: item.name,
-    value: first.data[item.id] ?? null,
-    format: item.format,
-  }));
-  return { kind: "view-stats", title, cells, notice: null, fullViewLink: link, sourceAccess };
-};
-
-const resolveGroupedViewStats = async (
-  view: RuntimeView,
-  title: string,
-  link: { tableShortId: string; viewShortId: string } | null,
-  sourceAccess: "open" | "dashboard",
-  viewer: ViewerContext,
-  options: ResolveOptions,
-): Promise<WidgetData> => {
-  const aggs = view.query.aggregations ?? [];
-  if (aggs.length === 0) {
-    return {
-      kind: "view-stats",
-      title,
-      cells: [],
-      notice: "view has no aggregations",
-      fullViewLink: link,
-      sourceAccess,
-    };
-  }
-  const fieldsList = await fields.listByTable(view.tableId);
-  const fieldsById = new Map(fieldsList.map((f) => [f.id, f]));
-  const result = await records.group({
-    tableId: view.tableId,
-    filter: view.query.filter ?? null,
-    search: view.query.search ?? null,
-    recordMeta: view.query.recordMeta ?? null,
-    groupBy: view.query.groupBy ?? [],
-    aggregations: aggs.map((a) => ({
-      fieldId: a.fieldId,
-      agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
-    })),
-    groupSort: view.query.groupSort,
-    includeDeleted: view.query.includeDeleted,
-    deletedOnly: view.query.deletedOnly,
-    limit: 1,
-    viewer,
-    dateConfig: options.dateConfig,
-  });
-  if (!result.ok) {
-    return {
-      kind: "view-stats",
-      title,
-      cells: [],
-      notice: result.error.message,
-      fullViewLink: link,
-      sourceAccess,
-    };
-  }
-  const first = result.data.buckets[0];
-  if (!first) {
-    return {
-      kind: "view-stats",
-      title,
-      cells: [],
-      notice: "view has no buckets",
-      fullViewLink: link,
-      sourceAccess,
-    };
-  }
-  const cells: ViewStatsCell[] = aggs.map((a) => {
-    const key = aggregateOutputKey(a.fieldId, a.agg);
-    const targetField = a.fieldId === "*" ? null : (fieldsById.get(a.fieldId) ?? null);
-    const fallbackLabel = a.fieldId === "*" ? `${a.agg}(*)` : `${a.agg}(${targetField?.name ?? "?"})`;
-    return {
-      label: a.label ?? fallbackLabel,
-      value: first.values[key] ?? null,
-      format: inferFormatFromAgg(a.agg, targetField),
+      label: column.label,
+      value: row.values[column.key] ?? null,
+      format:
+        column.type === "aggregate"
+          ? inferFormatFromAgg(aggregateKindForColumn(column), field)
+          : field
+            ? inferFormatFromField(field)
+            : "plain",
     };
   });
   return { kind: "view-stats", title, cells, notice: null, fullViewLink: link, sourceAccess };
+};
+
+const inferFormatFromField = (field: Field): WidgetFormat => {
+  if (field.type === "percent") return "percent";
+  if (field.type === "number") return (field.config as { integerOnly?: boolean }).integerOnly ? "integer" : "plain";
+  return "plain";
+};
+
+const inferFormatFromAgg = (agg: string, field: Field | null): WidgetFormat => {
+  if (agg === "count" || agg === "countEmpty" || agg === "countUnique") return "integer";
+  return field ? inferFormatFromField(field) : "plain";
 };
 
 // =============================================================================
@@ -905,24 +768,4 @@ const resolveSubmitPermission = async (viewer: ViewerContext, baseId: string, ta
   });
   const level = resolveEffectivePermission(grants, { baseId, tableId, formId });
   return hasAtLeast(level, "write");
-};
-
-// =============================================================================
-// shared helpers (format inference) — same heuristics the records page uses.
-// =============================================================================
-
-const inferFormatFromField = (field: Field): WidgetFormat => {
-  if (field.type === "percent") return "percent";
-  if (field.type === "number") {
-    const cfg = field.config as { integerOnly?: boolean };
-    return cfg.integerOnly ? "integer" : "plain";
-  }
-  return "plain";
-};
-
-const inferFormatFromAgg = (agg: string, targetField: Field | null): WidgetFormat => {
-  if (agg === "count" || agg === "countEmpty" || agg === "countUnique") {
-    return "integer";
-  }
-  return targetField ? inferFormatFromField(targetField) : "plain";
 };

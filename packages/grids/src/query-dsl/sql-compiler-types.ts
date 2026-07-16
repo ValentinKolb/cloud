@@ -15,6 +15,10 @@ export type DslSqlCompileOptions = {
   fieldsByTableId: Record<string, Field[]>;
   timeZone?: string;
   limit?: number;
+  offset?: number;
+  cursorValues?: unknown[];
+  /** Offset decoded from a server-signed cursor when a keyset token would be too large. */
+  cursorOffset?: number;
   joinFanoutLimit?: number;
   /** Pre-compiled full-text search predicate built asynchronously by the caller. */
   searchClause?: unknown;
@@ -32,6 +36,7 @@ export type DslSqlCompiledQuery = {
   joinAliases: Record<string, string>;
   limit: number;
   offset: number;
+  cursorValuesFromRow: (row: Record<string, unknown>) => unknown[];
 };
 
 export type DslSqlCompileResult = { ok: true; query: DslSqlCompiledQuery } | { ok: false; error: string };
@@ -61,6 +66,7 @@ type DslSqlCompiledGroupQuery = {
   limit: number;
   offset: number;
   cursorable: boolean;
+  cursorValuesFromRow?: (row: Record<string, unknown>) => unknown[];
 };
 
 export type DslSqlGroupCompileResult = { ok: true; query: DslSqlCompiledGroupQuery } | { ok: false; error: string };
@@ -81,3 +87,9 @@ type DslSqlCompiledAggregateQuery = {
 };
 
 export type DslSqlAggregateCompileResult = { ok: true; query: DslSqlCompiledAggregateQuery } | { ok: false; error: string };
+
+export const dslSqlOffset = (options: DslSqlCompileOptions, planOffset = 0): number => {
+  if (options.cursorValues) return 0;
+  if (options.cursorOffset !== undefined) return Math.max(options.cursorOffset, 0);
+  return Math.min(Math.max(options.offset ?? planOffset, 0), 10_000);
+};

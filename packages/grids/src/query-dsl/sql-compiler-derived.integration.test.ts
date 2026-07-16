@@ -1,6 +1,16 @@
 import { beforeAll, describe, expect } from "bun:test";
 import { migrate } from "../migrate";
-import { cleanupFixture, ctx, insertDslDbFixture, postgresTest, preview, uuid } from "./sql-compiler.integration-fixtures";
+import { decodeDslResultCursor } from "./result-cursor";
+import {
+  cleanupFixture,
+  ctx,
+  insertDslDbFixture,
+  integrationCursorSigningKey,
+  postgresTest,
+  preview,
+  previewPage,
+  uuid,
+} from "./sql-compiler.integration-fixtures";
 
 beforeAll(async () => {
   if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
@@ -140,6 +150,30 @@ describe("Query DSL Postgres smoke — derived saved-view sources", () => {
       expect(grouped.mode).toBe("groups");
       expect(grouped.rows.map((row) => row.values.gk_0)).toEqual(["Open"]);
       expect(Number(grouped.rows[0]?.values[`${fixture.amountId}__sum`])).toBe(12.5);
+
+      const pagedSource = `from view SUMRY\nselect Status, revenue\nsort revenue desc`;
+      const statuses: unknown[] = [];
+      let cursor: ReturnType<typeof decodeDslResultCursor> = null;
+      do {
+        const page = await previewPage(fixture, pagedSource, { pageSize: 1, cursor, context });
+        statuses.push(...page.rows.map((row) => row.values.gk_0));
+        cursor = decodeDslResultCursor(page.page?.nextCursor, integrationCursorSigningKey);
+      } while (cursor);
+
+      expect(statuses).toEqual(["Open", "Closed", "Backlog"]);
+      expect(new Set(statuses).size).toBe(statuses.length);
+
+      const differentlySortedSource = `from view SUMRY\nselect Status, revenue\nsort Status asc`;
+      const sortedStatuses: unknown[] = [];
+      cursor = null;
+      do {
+        const page = await previewPage(fixture, differentlySortedSource, { pageSize: 1, cursor, context });
+        sortedStatuses.push(...page.rows.map((row) => row.values.gk_0));
+        cursor = decodeDslResultCursor(page.page?.nextCursor, integrationCursorSigningKey);
+      } while (cursor);
+
+      expect(sortedStatuses).toEqual(["Backlog", "Closed", "Open"]);
+      expect(new Set(sortedStatuses).size).toBe(sortedStatuses.length);
 
       const aggregate = await preview(fixture, `from view TOTAL\nselect rows, revenue\nwhere revenue > 10`, context);
       expect(aggregate.mode).toBe("groups");

@@ -14,20 +14,24 @@ const currentSourceForPreview = (source: QueryRoute["currentSource"]): DslCurren
 export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Context, state: T): Promise<T> => {
   if (state.kind !== "ok") return state;
   const authContext = c as unknown as Context<AuthContext>;
-  if (state.route.kind === "analyticalView") {
+  if (state.route.kind === "queryResultView") {
     try {
       const initialResult = await executeSavedViewSource(authContext, state.base.id, state.route.activeView.id, {
         maxRows: 500,
+        pageSize: 100,
+        operation: "initial-preview",
+        surface: "ssr",
+        ...(state.route.initialCursor ? { cursor: state.route.initialCursor } : {}),
       });
       return { ...state, route: { ...state.route, initialResult } } as T;
-    } catch (error) {
+    } catch {
       return {
         ...state,
         route: {
           ...state.route,
           initialResult: {
             ok: false,
-            diagnostics: [{ message: error instanceof Error ? error.message : "Could not execute saved view." }],
+            diagnostics: [{ message: "Could not execute saved view." }],
           },
         },
       } as T;
@@ -41,20 +45,22 @@ export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Co
       state.base.id,
       {
         query: state.route.initialQuery,
+        pageSize: 100,
+        ...(state.route.initialCursor ? { cursor: state.route.initialCursor } : {}),
         ...(currentSource ? { currentSource } : {}),
         surface: "ssr",
       },
       { maxRows: 10_000, operation: "initial-preview" },
     );
     return { ...state, route: { ...state.route, initialPreview: result.response } } as T;
-  } catch (error) {
+  } catch {
     return {
       ...state,
       route: {
         ...state.route,
         initialPreview: {
           ok: false,
-          diagnostics: [{ message: error instanceof Error ? error.message : "Could not execute query." }],
+          diagnostics: [{ message: "Could not execute query." }],
         },
       },
     } as T;

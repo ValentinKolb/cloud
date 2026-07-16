@@ -5,6 +5,9 @@ import type { Field } from "../service/types";
 import { parseGridsQueryDsl } from "./parser";
 import { previewDslQuery } from "./preview";
 import { type DslResolverContext, resolveDslQueryToQueryPlan } from "./resolver";
+import type { DslResultCursor } from "./result-cursor";
+
+export const integrationCursorSigningKey = "grids-query-dsl-integration-cursor";
 
 export const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
 
@@ -326,5 +329,26 @@ export const preview = async (
   const result = await previewDslQuery(resolved.plan, { fieldsByTableId: context.fieldsByTableId, limit, viewer });
   if (!result.ok) throw new Error(result.error.message);
   expect(result.ok).toBe(true);
+  return result.data;
+};
+
+export const previewPage = async (
+  fixture: DslDbFixture,
+  source: string,
+  options: { pageSize: number; cursor?: DslResultCursor | null; fingerprint?: string; context?: DslResolverContext },
+) => {
+  const context = options.context ?? ctx(fixture);
+  const parsed = parseGridsQueryDsl(source);
+  if (!parsed.ok) throw new Error(parsed.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
+  const resolved = resolveDslQueryToQueryPlan(parsed.ast, context);
+  if (!resolved.ok) throw new Error(resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
+  const result = await previewDslQuery(resolved.plan, {
+    fieldsByTableId: context.fieldsByTableId,
+    pageSize: options.pageSize,
+    cursor: options.cursor,
+    cursorFingerprint: options.fingerprint ?? "integration-query",
+    cursorSigningKey: integrationCursorSigningKey,
+  });
+  if (!result.ok) throw new Error(result.error.message);
   return result.data;
 };

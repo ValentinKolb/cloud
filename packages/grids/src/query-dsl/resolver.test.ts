@@ -1350,7 +1350,7 @@ sort missing desc`),
 
     const compiled = compileDslGroupedQueryPlanToSql(result.plan, { fieldsByTableId: ctx().fieldsByTableId });
     expect(compiled.ok).toBe(true);
-    if (compiled.ok) expect(normalizedSql(compiled.query.sql)).toContain("DESC NULLS FIRST, 1 ASC NULLS FIRST");
+    if (compiled.ok) expect(normalizedSql(compiled.query.sql)).toContain('DESC NULLS FIRST, "gk_0" ASC NULLS FIRST');
   });
 
   test("query plan rejects grouped sort targets that cannot be represented by grouped SQL", () => {
@@ -1853,7 +1853,8 @@ sort missing desc`),
     expect(typeof compiled.query.sql).toBe("object");
     const text = normalizedSql(compiled.query.sql);
     expect(text).toContain("ORDER BY grids.try_numeric(r.data->>");
-    expect(text).toContain(" DESC NULLS LAST, q_col_1 ASC NULLS LAST");
+    expect(text).toContain(" DESC NULLS LAST, jq0.data->>");
+    expect(text).toContain(" ASC NULLS LAST, r.id DESC NULLS LAST, jq0.id DESC NULLS LAST");
   });
 
   test("SQL compiler can cap relation join fanout for preview queries", () => {
@@ -1905,7 +1906,10 @@ sort missing desc`),
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
     expect(compiled.query.columns.map((column) => column.label)).toEqual(["Amount", "margin"]);
-    expect(normalizedSql(compiled.query.sql)).toContain("ORDER BY q_col_1 DESC NULLS LAST, grids.try_numeric");
+    const text = normalizedSql(compiled.query.sql);
+    expect(text).toContain("ORDER BY ((grids.try_numeric");
+    expect(text).toContain("DESC NULLS LAST, grids.try_numeric");
+    expect(text).toContain("ASC NULLS LAST, r.id DESC NULLS LAST");
   });
 
   test("SQL compiler accepts scoped joined field sorts without selecting the sorted field", () => {
@@ -2283,7 +2287,8 @@ sort missing desc`),
     if (!compiled.ok) return;
     expect(compiled.query.limit).toBe(12);
     expect(compiled.query.offset).toBe(2);
-    expect(compiled.query.cursorable).toBe(false);
+    expect(compiled.query.cursorable).toBe(true);
+    expect(typeof compiled.query.cursorValuesFromRow).toBe("function");
     expect(compiled.query.columns).toEqual([
       {
         kind: "group",
@@ -2304,7 +2309,7 @@ sort missing desc`),
       },
     ]);
     expect(typeof compiled.query.sql).toBe("object");
-    expect(normalizedSql(compiled.query.sql)).toContain('ORDER BY "margin__sum" DESC NULLS LAST');
+    expect(normalizedSql(compiled.query.sql)).toContain('ORDER BY "margin__sum" DESC NULLS LAST, "gk_0" ASC NULLS LAST');
   });
 
   test("grouped SQL compiler aggregates the full matching set", () => {
@@ -2424,7 +2429,8 @@ sort missing desc`),
     expect(groupedByJoinSql.ok).toBe(true);
     if (!groupedByJoinSql.ok) return;
     expect(normalizedSql(groupedByJoinSql.query.sql)).toContain("GROUP BY 1");
-    expect(normalizedSql(groupedByJoinSql.query.sql)).toContain(`ORDER BY "${amountFieldId}__sum" DESC NULLS LAST, 1 DESC NULLS LAST`);
+    const groupedByJoinText = normalizedSql(groupedByJoinSql.query.sql);
+    expect(groupedByJoinText).toContain(`ORDER BY "${amountFieldId}__sum" DESC NULLS LAST, "gk_0" DESC NULLS LAST`);
 
     const joinedAggregate = resolveDslQueryToQueryPlan(
       parseOk(`
@@ -2478,7 +2484,7 @@ sort missing desc`),
     const joinedFormulaAggregateSqlText = normalizedSql(joinedFormulaAggregateSql.query.sql);
     expect(joinedFormulaAggregateSqlText).toContain('"margin__sum"');
     expect(joinedFormulaAggregateSqlText).toContain("grids.try_numeric(jq0.data->>");
-    expect(joinedFormulaAggregateSqlText).toContain('ORDER BY "margin__sum" DESC NULLS LAST, 1 ASC NULLS LAST');
+    expect(joinedFormulaAggregateSqlText).toContain('ORDER BY "margin__sum" DESC NULLS LAST, "gk_0" ASC NULLS LAST');
   });
 
   test("grouped relation joins reject sort targets outside grouped output", () => {
@@ -2667,7 +2673,7 @@ sort missing desc`),
     });
     expect(nullsFirstSql.ok).toBe(true);
     if (!nullsFirstSql.ok) return;
-    expect(normalizedSql(nullsFirstSql.query.sql)).toContain("ORDER BY 1 DESC NULLS FIRST");
+    expect(normalizedSql(nullsFirstSql.query.sql)).toContain('ORDER BY "gk_0" DESC NULLS FIRST');
 
     const joinedSelect = resolveDslQueryToQueryPlan(
       parseOk(`

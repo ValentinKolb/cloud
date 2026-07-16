@@ -2,8 +2,8 @@ import { sql } from "bun";
 import type { RecordQuery } from "../contracts";
 import { compileFilter, renderClause } from "../service/filter-compiler";
 import type { FormulaSqlExpression } from "../service/formula-sql-compiler";
+import { compileDslKeyset, type DslKeysetColumn } from "../service/keyset-compiler";
 import { compileRecordMetaFilter } from "../service/record-metadata";
-import { compileSort } from "../service/sort-compiler";
 import type { Field } from "../service/types";
 import type { DslOutputColumn, DslResolvedSqlQueryPlan, DslResolvedSqlSort } from "./resolver";
 import {
@@ -20,7 +20,13 @@ import {
 import { joinFragments } from "./sql-compiler-fragments";
 import { compileRelationJoin } from "./sql-compiler-joins";
 import { compileViewSourceRecordScope, recordDeletedCondition, scopedFormulaResolverForPlan } from "./sql-compiler-scope";
-import type { DslSqlCompiledQuery, DslSqlCompileOptions, DslSqlCompileResult, DslSqlOutputColumn } from "./sql-compiler-types";
+import {
+  type DslSqlCompiledQuery,
+  type DslSqlCompileOptions,
+  type DslSqlCompileResult,
+  type DslSqlOutputColumn,
+  dslSqlOffset,
+} from "./sql-compiler-types";
 import { compileWherePredicate } from "./sql-compiler-where";
 
 type RecordQueryColumn = NonNullable<RecordQuery["columns"]>[number];
@@ -31,6 +37,14 @@ const fail = (error: string): DslSqlCompileResult => ({ ok: false, error });
 
 const isComputedColumn = (column: RecordQueryColumn): column is RecordQueryComputedColumn =>
   (column as { kind?: unknown }).kind === "computed";
+
+const sortsForPlan = (plan: DslResolvedSqlQueryPlan): DslResolvedSqlSort[] =>
+  plan.sqlSort ??
+  (plan.query.sort ?? []).map((sort) =>
+    sort.source === "record"
+      ? { kind: "record", key: sort.key, direction: sort.direction, nullsFirst: sort.nullsFirst }
+      : { kind: "field", fieldId: sort.fieldId, direction: sort.direction, nullsFirst: sort.nullsFirst },
+  );
 
 const outputColumnsForPlan = (plan: DslResolvedSqlQueryPlan, baseFields: Field[]): DslOutputColumn[] => {
   if (plan.outputColumns && plan.outputColumns.length > 0) return plan.outputColumns;
@@ -62,7 +76,7 @@ const outputColumnsForPlan = (plan: DslResolvedSqlQueryPlan, baseFields: Field[]
 const compileSqlSort = (
   sorts: DslResolvedSqlSort[],
   fields: Field[],
-  columns: DslSqlOutputColumn[],
+  outputProjections: Map<string, { projection: unknown; sqlType: DslSqlOutputColumn["sqlType"] }>,
   options: {
     fieldsByTableId: Record<string, Field[]>;
     joinAliases: Map<string, string>;
@@ -70,28 +84,38 @@ const compileSqlSort = (
     readableTableIds?: readonly string[];
     computedFieldSql?: Map<string, FormulaSqlExpression>;
     computedFieldSqlByJoinAlias?: Map<string, Map<string, FormulaSqlExpression>>;
+    cursorValues?: unknown[];
   },
-): { ok: true; orderBy: unknown } | { ok: false; error: string } => {
-  if (sorts.length === 0) return { ok: true, orderBy: sql`r.id ASC` };
-
+): { ok: true; keyset: ReturnType<typeof compileDslKeyset> & { ok: true } } | { ok: false; error: string } => {
   const fieldsById = new Map(fields.map((field) => [field.id, field]));
-  const computedColumnsByLabel = new Map(columns.filter((column) => column.type === "formula").map((column) => [column.label, column]));
-  const joinedColumnsByLabel = new Map(columns.filter((column) => column.joinAlias).map((column) => [column.label, column]));
-  const orderParts: unknown[] = [];
+  const cursorColumns: DslKeysetColumn[] = [];
 
   for (const sort of sorts) {
-    const dir = sort.direction === "desc" ? sql`DESC` : sql`ASC`;
-    const nulls = sort.nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
+    if (sort.kind === "record") {
+      const expression = sort.key === "createdAt" ? sql`r.created_at` : sort.key === "updatedAt" ? sql`r.updated_at` : sql`r.deleted_at`;
+      cursorColumns.push({ expression, type: "datetime", direction: sort.direction, nullsFirst: sort.nullsFirst });
+      continue;
+    }
     if (sort.kind === "computed") {
-      const column = computedColumnsByLabel.get(sort.alias);
-      if (!column) return { ok: false, error: `computed sort alias "${sort.alias}" is not selected` };
-      orderParts.push(sql`${sql.unsafe(column.key)} ${dir} ${nulls}`);
+      const output = outputProjections.get(sort.alias);
+      if (!output) return { ok: false, error: `computed sort alias "${sort.alias}" is not selected` };
+      cursorColumns.push({
+        expression: output.projection,
+        type: output.sqlType === "json" ? "unknown" : output.sqlType,
+        direction: sort.direction,
+        nullsFirst: sort.nullsFirst,
+      });
       continue;
     }
     if (sort.kind === "joined") {
-      const column = joinedColumnsByLabel.get(sort.alias);
-      if (!column) return { ok: false, error: `joined sort alias "${sort.alias}" is not selected` };
-      orderParts.push(sql`${sql.unsafe(column.key)} ${dir} ${nulls}`);
+      const output = outputProjections.get(sort.alias);
+      if (!output) return { ok: false, error: `joined sort alias "${sort.alias}" is not selected` };
+      cursorColumns.push({
+        expression: output.projection,
+        type: output.sqlType === "json" ? "unknown" : output.sqlType,
+        direction: sort.direction,
+        nullsFirst: sort.nullsFirst,
+      });
       continue;
     }
     if (sort.kind === "joinedField") {
@@ -109,7 +133,12 @@ const compileSqlSort = (
         computedFieldSql: computedFieldSqlForScope(options, sort.joinAlias),
       });
       if (!projection.ok) return projection;
-      orderParts.push(sql`${projection.projection} ${dir} ${nulls}`);
+      cursorColumns.push({
+        expression: projection.projection,
+        type: projection.sqlType,
+        direction: sort.direction,
+        nullsFirst: sort.nullsFirst,
+      });
       continue;
     }
     const field = fieldsById.get(sort.fieldId);
@@ -124,12 +153,21 @@ const compileSqlSort = (
       computedFieldSql: options.computedFieldSql,
     });
     if (!projection.ok) return projection;
-    orderParts.push(sql`${projection.projection} ${dir} ${nulls}`);
+    cursorColumns.push({
+      expression: projection.projection,
+      type: projection.sqlType,
+      direction: sort.direction,
+      nullsFirst: sort.nullsFirst,
+    });
   }
 
-  const idDir = sorts[0]?.direction === "desc" ? sql`DESC` : sql`ASC`;
-  orderParts.push(sql`r.id ${idDir}`);
-  return { ok: true, orderBy: joinFragments(orderParts, sql`, `) };
+  const tieDirection = sorts[0]?.direction ?? "asc";
+  cursorColumns.push({ expression: sql`r.id`, type: "uuid", direction: tieDirection });
+  for (const recordAlias of options.joinAliases.values()) {
+    cursorColumns.push({ expression: sql`${sql.unsafe(recordAlias)}.id`, type: "uuid", direction: tieDirection, nullsFirst: false });
+  }
+  const keyset = compileDslKeyset(cursorColumns, options.cursorValues);
+  return keyset.ok ? { ok: true, keyset } : keyset;
 };
 
 export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options: DslSqlCompileOptions): DslSqlCompileResult => {
@@ -158,6 +196,7 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
 
   const selectFragments: unknown[] = [sql`r.id::text AS __record_id`, sql`r.table_id::text AS __table_id`];
   const columns: DslSqlOutputColumn[] = [];
+  const outputProjections = new Map<string, { projection: unknown; sqlType: DslSqlOutputColumn["sqlType"] }>();
   const outputColumns = outputColumnsForPlan(plan, baseFields);
   let index = 0;
 
@@ -176,6 +215,7 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
       if (!compiled.ok) return fail(`select "${column.label}": ${compiled.error}`);
       selectFragments.push(compiled.fragment);
       columns.push(compiled.column);
+      outputProjections.set(compiled.column.label, { projection: compiled.projection, sqlType: compiled.column.sqlType });
       index += 1;
       continue;
     }
@@ -194,6 +234,7 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
       if (!compiled.ok) return fail(compiled.error);
       selectFragments.push(compiled.fragment);
       columns.push(compiled.column);
+      outputProjections.set(compiled.column.label, { projection: compiled.projection, sqlType: compiled.column.sqlType });
       index += 1;
       continue;
     }
@@ -214,23 +255,22 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
     if (!compiled.ok) return fail(compiled.error);
     selectFragments.push(compiled.fragment);
     columns.push(compiled.column);
+    outputProjections.set(compiled.column.label, { projection: compiled.projection, sqlType: compiled.column.sqlType });
     index += 1;
   }
 
-  const sqlSort = plan.sqlSort ?? [];
-  const sort =
-    sqlSort.length > 0
-      ? compileSqlSort(sqlSort, baseFields, columns, {
-          fieldsByTableId: options.fieldsByTableId,
-          joinAliases,
-          timeZone: options.timeZone,
-          readableTableIds: plan.readableTableIds,
-          computedFieldSql: options.computedFieldSql,
-          computedFieldSqlByJoinAlias: options.computedFieldSqlByJoinAlias,
-        })
-      : compileSort(plan.query.sort ?? [], baseFields, null);
+  const sqlSort = sortsForPlan(plan);
+  const sort = compileSqlSort(sqlSort, baseFields, outputProjections, {
+    fieldsByTableId: options.fieldsByTableId,
+    joinAliases,
+    timeZone: options.timeZone,
+    readableTableIds: plan.readableTableIds,
+    computedFieldSql: options.computedFieldSql,
+    computedFieldSqlByJoinAlias: options.computedFieldSqlByJoinAlias,
+    cursorValues: options.cursorValues,
+  });
   if (!sort.ok) return fail(`sort: ${sort.error}`);
-  const orderBy = "result" in sort ? sort.result.orderBy : sort.orderBy;
+  selectFragments.push(sort.keyset.select);
 
   const conditions: unknown[] = [
     sql`r.table_id = ${plan.tableId}::uuid`,
@@ -251,9 +291,10 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
     conditions.push(compiled.sql);
   }
   if (options.searchClause) conditions.push(options.searchClause);
+  conditions.push(sort.keyset.where);
   const where = conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`);
   const limit = Math.min(Math.max(options.limit ?? plan.query.limit ?? 100, 1), 10_000);
-  const offset = Math.min(Math.max(plan.offset ?? 0, 0), 10_000);
+  const offset = dslSqlOffset(options, plan.offset);
 
   return ok({
     sql: sql`
@@ -263,7 +304,7 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
       JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
       ${joinFragments(joinSql, sql` `)}
       WHERE ${where}
-      ORDER BY ${orderBy}
+      ORDER BY ${sort.keyset.orderBy}
       LIMIT ${limit}
       OFFSET ${offset}
     `,
@@ -271,5 +312,6 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
     joinAliases: Object.fromEntries(joinAliases),
     limit,
     offset,
+    cursorValuesFromRow: sort.keyset.valuesFromRow,
   });
 };

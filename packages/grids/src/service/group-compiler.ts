@@ -21,6 +21,7 @@ import {
   type FormulaSqlFieldResolver,
   type FormulaSqlType,
 } from "./formula-sql-compiler";
+import { compileDslKeyset, type DslKeysetType } from "./keyset-compiler";
 import { assertSqlIdentifier } from "./sql-ident";
 import type { Field } from "./types";
 
@@ -527,46 +528,6 @@ const buildOrderBy = (groups: ResolvedGroup[], groupSort: GroupSortSpec[], rever
   return joinSql(parts);
 };
 
-const buildCursorWhereClause = (
-  cursor: CompileGroupParams["cursor"],
-  groups: ResolvedGroup[],
-): { ok: true; whereClause: any } | { ok: false; error: string } => {
-  if (!cursor) return { ok: true, whereClause: sql`TRUE` };
-  if (cursor.keys.length !== groups.length) {
-    return {
-      ok: false,
-      error: `cursor key count (${cursor.keys.length}) must match groupBy length (${groups.length})`,
-    };
-  }
-
-  const branches: any[] = [];
-  for (let i = 0; i < groups.length; i++) {
-    const group = groups[i]!;
-    const column = sql.unsafe(`"${groupAlias(i)}"`);
-    const cursorVal = cursor.keys[i];
-    const cmp = (group.spec.direction ?? "asc") === "desc" ? sql`<` : sql`>`;
-    let prefix: any = sql`TRUE`;
-
-    for (let j = 0; j < i; j++) {
-      const previousColumn = sql.unsafe(`"${groupAlias(j)}"`);
-      prefix = sql`${prefix} AND (${previousColumn} IS NOT DISTINCT FROM ${cursor.keys[j]})`;
-    }
-
-    const cursorIsNull = cursorVal === null || cursorVal === undefined;
-    const comp = cursorIsNull
-      ? group.spec.nullsFirst
-        ? sql`${column} IS NOT NULL`
-        : sql`FALSE`
-      : group.spec.nullsFirst
-        ? sql`${column} ${cmp} ${cursorVal}`
-        : sql`((${column} ${cmp} ${cursorVal}) OR ${column} IS NULL)`;
-    branches.push(sql`(${prefix} AND ${comp})`);
-  }
-
-  const whereClause = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
-  return { ok: true, whereClause: sql`(${whereClause})` };
-};
-
 type CompileGroupParams = {
   tableId: string;
   groupBy: GroupBySpec[];
@@ -580,7 +541,11 @@ type CompileGroupParams = {
   fields: Field[];
   cursor?: { keys: unknown[] } | null;
   limit?: number;
+  /** Callers that already request one lookahead row disable the service-level lookahead. */
+  lookahead?: boolean;
   offset?: number;
+  /** Server-signed fallback offset for oversized GQL keyset cursors. */
+  cursorOffset?: number;
   /** When true, returns the last N buckets by the requested group order. */
   fromEnd?: boolean;
   /** When true, soft-deleted records are included in the aggregation. */
@@ -594,7 +559,14 @@ type CompileGroupParams = {
 };
 
 type CompileGroupResult =
-  | { ok: true; query: any; resolvedGroups: ResolvedGroup[]; aggKeys: string[]; cursorable: boolean }
+  | {
+      ok: true;
+      query: any;
+      resolvedGroups: ResolvedGroup[];
+      aggKeys: string[];
+      cursorable: boolean;
+      cursorValuesFromRow: (row: Record<string, unknown>) => unknown[];
+    }
   | { ok: false; error: string };
 
 const validateGroupShape = (params: CompileGroupParams): { ok: true } | { ok: false; error: string } => {
@@ -604,7 +576,6 @@ const validateGroupShape = (params: CompileGroupParams): { ok: true } | { ok: fa
 };
 
 const validateGroupPaging = (params: CompileGroupParams, groupSort: GroupSortSpec[]): { ok: true } | { ok: false; error: string } => {
-  if (params.cursor && groupSort.length > 0) return { ok: false, error: "cursor pagination is not supported for aggregate-sorted groups" };
   if (params.cursor && params.fromEnd) return { ok: false, error: "cursor pagination is not supported for tail-window grouped queries" };
   if ((params.offset ?? 0) > 0 && params.cursor) {
     return { ok: false, error: "offset pagination is not supported together with grouped cursors" };
@@ -621,11 +592,11 @@ const buildGroupedSql = (
   aggregations: ResolvedAggregations,
   groupSort: GroupSortSpec[],
   userHaving: any,
-): { ok: true; query: any; cursorable: boolean } | { ok: false; error: string } => {
+):
+  | { ok: true; query: any; cursorable: boolean; cursorValuesFromRow: (row: Record<string, unknown>) => unknown[] }
+  | { ok: false; error: string } => {
   const where = buildWhereClause(params);
   if (!where.ok) return where;
-  const cursorWhere = buildCursorWhereClause(params.cursor, groups);
-  if (!cursorWhere.ok) return cursorWhere;
 
   const selectList = buildSelectList(groups, aggregations.aggExprs);
   const from = buildFromClause(groups);
@@ -633,8 +604,12 @@ const buildGroupedSql = (
   const orderBy = buildOrderBy(groups, groupSort);
   const reverseOrderBy = buildOrderBy(groups, groupSort, true);
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 1000);
-  const offset = Math.min(Math.max(params.offset ?? 0, 0), 10_000);
-  const fetchLimit = limit + 1;
+  const offset = params.cursor
+    ? 0
+    : params.cursorOffset !== undefined
+      ? Math.max(params.cursorOffset, 0)
+      : Math.min(Math.max(params.offset ?? 0, 0), 10_000);
+  const fetchLimit = limit + (params.lookahead === false ? 0 : 1);
   const groupedQuery = sql`
     SELECT ${selectList}
     FROM ${from}
@@ -642,28 +617,61 @@ const buildGroupedSql = (
     GROUP BY ${groupByPositions}
     HAVING ${userHaving}
   `;
+  const aggregateByKey = new Map(aggregations.aggExprs.map((aggregate) => [aggregate.key, aggregate]));
+  const groupType = (group: ResolvedGroup): DslKeysetType => {
+    const kind = storageOf(group.field).kind;
+    if (kind === "numeric") return "numeric";
+    if (kind === "date") return "date";
+    if (kind === "datetime") return "datetime";
+    if (kind === "boolean") return "boolean";
+    // Relation groups project `to_record_id::text`; cursor casts must match
+    // the projected SQL type rather than the logical field type.
+    if (kind === "relationLink") return "text";
+    return "text";
+  };
+  const keyset = compileDslKeyset(
+    [
+      ...groupSort.map((sort) => {
+        const key = aggAliasFor(sort);
+        return {
+          expression: sql`${sql.unsafe(`"${assertSqlIdentifier(key)}"`)}`,
+          type: aggregateByKey.get(key)?.type ?? "unknown",
+          direction: sort.direction ?? "desc",
+          nullsFirst: sort.nullsFirst,
+        } as const;
+      }),
+      ...groups.map((group) => ({
+        expression: sql`${sql.unsafe(`"${assertSqlIdentifier(group.alias)}"`)}`,
+        type: groupType(group),
+        direction: group.spec.direction ?? "asc",
+        nullsFirst: group.spec.nullsFirst,
+      })),
+    ],
+    params.cursor?.keys,
+  );
+  if (!keyset.ok) return keyset;
 
   const query = params.fromEnd
     ? sql`
         SELECT *
         FROM (
-          SELECT *
+          SELECT *, ${keyset.select}
           FROM (${groupedQuery}) grouped_tail
-          WHERE ${cursorWhere.whereClause}
+          WHERE TRUE
           ORDER BY ${reverseOrderBy}
           LIMIT ${fetchLimit}
         ) grouped_tail_window
         ORDER BY ${orderBy}
       `
     : sql`
-        SELECT *
+        SELECT *, ${keyset.select}
         FROM (${groupedQuery}) grouped
-        WHERE ${cursorWhere.whereClause}
-        ORDER BY ${orderBy}
+        WHERE ${keyset.where}
+        ORDER BY ${keyset.orderBy}
         LIMIT ${fetchLimit}
         OFFSET ${offset}
       `;
-  return { ok: true, query, cursorable: groupSort.length === 0 && offset === 0 };
+  return { ok: true, query, cursorable: !params.fromEnd, cursorValuesFromRow: keyset.valuesFromRow };
 };
 
 export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResult => {
@@ -701,5 +709,6 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
     resolvedGroups: groups.resolved,
     aggKeys: aggregations.resolved.aggKeys,
     cursorable: sqlQuery.cursorable,
+    cursorValuesFromRow: sqlQuery.cursorValuesFromRow,
   };
 };

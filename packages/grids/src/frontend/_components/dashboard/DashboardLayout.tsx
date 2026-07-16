@@ -584,7 +584,7 @@ function CellRenderer(props: {
         </div>
       );
     case "view":
-      return <EmbeddedViewWidget widget={props.widget} data={data()} baseShortId={props.baseShortId} dateConfig={props.dateConfig} />;
+      return <EmbeddedViewWidget widget={props.widget} data={data()} baseShortId={props.baseShortId} />;
     case "chart":
       return <ChartWidget widget={props.widget} data={data()} />;
     case "view-stats":

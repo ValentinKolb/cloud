@@ -3,6 +3,7 @@ import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { Hono, type MiddlewareHandler } from "hono";
+import type { DslQueryExecuteResponse } from "../contracts";
 import { migrate } from "../migrate";
 import { createGqlApi } from "./gql";
 import { compileGqlViewWrite } from "./gql-runtime";
@@ -220,8 +221,10 @@ const insertRelationFixture = async (userId: string): Promise<GqlRelationApiFixt
   const customerNameId = uuid();
   const orderAId = uuid();
   const orderBId = uuid();
+  const orderCId = uuid();
   const customerAId = uuid();
   const customerBId = uuid();
+  const customerCId = uuid();
 
   await sql`
     INSERT INTO grids.bases (id, short_id, name)
@@ -257,14 +260,17 @@ const insertRelationFixture = async (userId: string): Promise<GqlRelationApiFixt
     VALUES
       (${customerAId}::uuid, ${customersTableId}::uuid, ${{ [customerNameId]: "Alice" }}::jsonb, 1),
       (${customerBId}::uuid, ${customersTableId}::uuid, ${{ [customerNameId]: "Bob" }}::jsonb, 1),
+      (${customerCId}::uuid, ${customersTableId}::uuid, ${{ [customerNameId]: "Charlie" }}::jsonb, 1),
       (${orderAId}::uuid, ${ordersTableId}::uuid, ${{ [amountId]: "12.50" }}::jsonb, 1),
-      (${orderBId}::uuid, ${ordersTableId}::uuid, ${{ [amountId]: "4.00" }}::jsonb, 1)
+      (${orderBId}::uuid, ${ordersTableId}::uuid, ${{ [amountId]: "4.00" }}::jsonb, 1),
+      (${orderCId}::uuid, ${ordersTableId}::uuid, ${{ [amountId]: "8.00" }}::jsonb, 1)
   `;
   await sql`
     INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
     VALUES
       (${orderAId}::uuid, ${customerLinkId}::uuid, ${customerAId}::uuid, 0),
-      (${orderBId}::uuid, ${customerLinkId}::uuid, ${customerBId}::uuid, 0)
+      (${orderBId}::uuid, ${customerLinkId}::uuid, ${customerBId}::uuid, 0),
+      (${orderCId}::uuid, ${customerLinkId}::uuid, ${customerCId}::uuid, 0)
   `;
   const accessId = await grantBaseRead(baseId, userId);
 
@@ -285,7 +291,10 @@ const cleanupAutocompletePermissionFixture = async (baseId: string, accessIds: s
 };
 
 beforeAll(async () => {
-  if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
+  if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") {
+    process.env.APP_SECRET ??= "grids-gql-integration-cursor-secret";
+    await migrate();
+  }
 });
 
 describe("GQL API route contract", () => {
@@ -425,6 +434,49 @@ limit 2`);
       expect(body.rows).toHaveLength(1);
       expect(body.rows[0]?.values.gk_0).toBe("Alice");
       expect(Number(body.rows[0]?.values[`${fixture.amountId}__sum`])).toBe(12.5);
+    } finally {
+      await cleanupFixture(fixture.baseId, fixture.accessId);
+    }
+  });
+
+  postgresTest("paginates exact saved-view GQL with signed, permission-checked cursors", async () => {
+    const user = testUser({ id: await existingAuthUserId(), roles: ["user"] });
+    const fixture = await insertRelationFixture(user.id);
+    const app = apiFor(user);
+
+    try {
+      const executePath = `/gql/by-base/${fixture.baseId}/views/${fixture.byCustomerViewId}/execute`;
+      const firstResponse = await app.request(executePath, jsonRequest("POST", { pageSize: 2 }));
+      expect(firstResponse.status).toBe(200);
+      const first = (await firstResponse.json()) as DslQueryExecuteResponse;
+      expect(first.ok).toBe(true);
+      if (!first.ok) throw new Error(JSON.stringify(first.diagnostics));
+      expect(first.rows).toHaveLength(2);
+      expect(first.page?.nextCursor).toBeTruthy();
+
+      const secondResponse = await app.request(executePath, jsonRequest("POST", { pageSize: 1, cursor: first.page?.nextCursor }));
+      const second = (await secondResponse.json()) as DslQueryExecuteResponse;
+      expect(second.ok).toBe(true);
+      if (!second.ok) throw new Error(JSON.stringify(second.diagnostics));
+      expect(second.rows).toHaveLength(1);
+      expect(first.rows.map((row) => row.values.gk_0)).not.toContain(second.rows[0]?.values.gk_0);
+      expect(second.page?.nextCursor).toBeNull();
+
+      const cursor = first.page?.nextCursor ?? "";
+      const tampered = `${cursor.slice(0, -1)}${cursor.endsWith("a") ? "b" : "a"}`;
+      const tamperedResponse = await app.request(executePath, jsonRequest("POST", { cursor: tampered }));
+      const tamperedBody = (await tamperedResponse.json()) as DslQueryExecuteResponse;
+      expect(tamperedBody.ok).toBe(false);
+      if (tamperedBody.ok) throw new Error("expected cursor diagnostic");
+      expect(tamperedBody.diagnostics[0]?.message).toBe("The result cursor is invalid or no longer matches this query.");
+
+      await sql`DELETE FROM auth.access WHERE id = ${fixture.accessId}::uuid`;
+      const revokedResponse = await app.request(executePath, jsonRequest("POST", { cursor }));
+      expect(revokedResponse.status).toBe(200);
+      const revoked = (await revokedResponse.json()) as DslQueryExecuteResponse;
+      expect(revoked.ok).toBe(false);
+      if (revoked.ok) throw new Error("expected permission diagnostic");
+      expect(revoked.diagnostics[0]?.message).toBe("View not found or you do not have permission to access it.");
     } finally {
       await cleanupFixture(fixture.baseId, fixture.accessId);
     }

@@ -126,7 +126,7 @@ export const compileBaseFieldColumn = (params: {
   readableTableIds?: readonly string[];
   computedFieldSql?: Map<string, FormulaSqlExpression>;
   resolveField?: FormulaSqlFieldResolver;
-}): { ok: true; fragment: unknown; column: DslSqlOutputColumn } | { ok: false; error: string } => {
+}): { ok: true; fragment: unknown; column: DslSqlOutputColumn; projection: unknown } | { ok: false; error: string } => {
   const projection = fieldProjection(params.field, params.recordAlias, {
     fields: params.fields,
     timeZone: params.timeZone,
@@ -139,6 +139,7 @@ export const compileBaseFieldColumn = (params: {
   return {
     ok: true,
     fragment: sql`${projection.projection} AS ${sql.unsafe(key)}`,
+    projection: projection.projection,
     column: {
       key,
       label: params.label ?? params.field.name,
@@ -159,7 +160,7 @@ export const compileFormulaColumn = (params: {
   timeZone?: string;
   computedFieldSql?: Map<string, FormulaSqlExpression>;
   resolveField?: FormulaSqlFieldResolver;
-}): { ok: true; fragment: unknown; column: DslSqlOutputColumn } | { ok: false; error: string } => {
+}): { ok: true; fragment: unknown; column: DslSqlOutputColumn; projection: unknown } | { ok: false; error: string } => {
   const compiled = compileFormulaSourceToSql(params.expression, {
     fields: params.fields,
     recordAlias: params.recordAlias,
@@ -173,6 +174,7 @@ export const compileFormulaColumn = (params: {
   return {
     ok: true,
     fragment: sql`${compiled.expression.sql} AS ${sql.unsafe(key)}`,
+    projection: compiled.expression.sql,
     column: {
       key,
       label: params.label,
@@ -191,7 +193,7 @@ export const compileJoinedColumn = (params: {
   timeZone?: string;
   readableTableIds?: readonly string[];
   computedFieldSql?: Map<string, FormulaSqlExpression>;
-}): { ok: true; fragment: unknown; column: DslSqlOutputColumn } | { ok: false; error: string } => {
+}): { ok: true; fragment: unknown; column: DslSqlOutputColumn; projection: unknown } | { ok: false; error: string } => {
   const fields = aliveFields(params.fieldsByTableId[params.joinedColumn.tableId] ?? []);
   const field = fieldById(fields, params.joinedColumn.fieldId);
   if (!field) return { ok: false, error: `joined field ${params.joinedColumn.fieldId} is not available` };
@@ -206,6 +208,7 @@ export const compileJoinedColumn = (params: {
   return {
     ok: true,
     fragment: sql`${projection.projection} AS ${sql.unsafe(key)}`,
+    projection: projection.projection,
     column: {
       key,
       label: params.joinedColumn.label ?? `${params.joinedColumn.joinAlias}.${field.name}`,
@@ -222,7 +225,7 @@ export const sortProjectionForField = (
   field: Field,
   recordAlias = "r",
   options?: { fields?: Field[]; timeZone?: string; computedFieldSql?: Map<string, FormulaSqlExpression> },
-): { ok: true; projection: unknown } | { ok: false; error: string } => {
+): { ok: true; projection: unknown; sqlType: FormulaSqlType } | { ok: false; error: string } => {
   if (field.type === "formula") {
     const projection = compileFormulaFieldProjection({
       field,
@@ -232,16 +235,17 @@ export const sortProjectionForField = (
       computedFieldSql: options?.computedFieldSql,
     });
     if (!projection.ok) return projection;
-    return { ok: true, projection: projection.projection };
+    return { ok: true, projection: projection.projection, sqlType: projection.sqlType };
   }
   if (field.type === "lookup" || field.type === "rollup") {
     const computed = options?.computedFieldSql?.get(field.id);
-    if (computed) return { ok: true, projection: computed.sql };
+    if (computed) return { ok: true, projection: computed.sql, sqlType: computed.type };
     return { ok: false, error: `field "${field.name}" (type "${field.type}") is not available for sorting` };
   }
   const descriptor = storageOf(field);
   if (!descriptor.sortable) return { ok: false, error: `field "${field.name}" (type "${field.type}") is not sortable` };
   const projection = descriptor.project(field, recordAlias);
   if (!projection) return { ok: false, error: `field "${field.name}" (type "${field.type}") is not sortable` };
-  return { ok: true, projection };
+  const sqlType = outputTypeFor(field);
+  return { ok: true, projection, sqlType: sqlType === "json" ? "unknown" : sqlType };
 };

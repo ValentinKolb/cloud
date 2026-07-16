@@ -17,7 +17,14 @@ import { buildDslQueryIntelligence } from "../query-dsl/intelligence";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { gridsService } from "../service";
-import { buildPermissionedGqlResolverContext, canonicalGqlSource, emptyDslAst, executeGqlSource, sourceAst } from "./gql-runtime";
+import {
+  buildPermissionedGqlResolverContext,
+  canonicalGqlSource,
+  emptyDslAst,
+  executeGqlSource,
+  executeSavedViewSource,
+  sourceAst,
+} from "./gql-runtime";
 import { gateAt } from "./permissions";
 
 type GqlApiOptions = {
@@ -113,7 +120,6 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         summary: "Execute a GQL statement for records/table surfaces",
         responses: {
           200: jsonResponse(DslQueryExecuteResponseSchema, "Query diagnostics or tabular result"),
-          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
       v("json", DslQueryExecuteBodySchema),
@@ -125,6 +131,28 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         const body = c.req.valid("json");
         const result = await executeGqlSource(c, baseId, body, { maxRows: 10_000, operation: "execute" });
         return c.json(result.response);
+      },
+    )
+    .post(
+      "/by-base/:baseId/views/:viewId/execute",
+      describeRoute({
+        tags: ["Grids:GQL"],
+        summary: "Execute the exact stored GQL source for one saved view",
+        responses: {
+          200: jsonResponse(DslQueryExecuteResponseSchema, "Query diagnostics or tabular result"),
+        },
+      }),
+      v("json", DslQueryExecuteBodySchema.pick({ pageSize: true, cursor: true, surface: true })),
+      async (c) => {
+        const baseId = c.req.param("baseId")!;
+        const body = c.req.valid("json");
+        const response = await executeSavedViewSource(c, baseId, c.req.param("viewId")!, {
+          maxRows: 10_000,
+          pageSize: body.pageSize,
+          cursor: body.cursor,
+          surface: body.surface ?? "api",
+        });
+        return c.json(response);
       },
     )
     .post(

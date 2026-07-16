@@ -1,6 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
-  AutocompleteEditor,
   CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
@@ -10,15 +9,13 @@ import {
   type TemplateVariable,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { aggregateKindPattern } from "../../../aggregate-catalog";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
 import type { DocumentTemplateStarter } from "../../../document-template-starters";
 import { requestDocumentTemplateDraftPreview } from "../documents/document-transfer-client";
-import { buildBackendGqlCompletions } from "../query/query-autocomplete";
+import { GqlSourceEditor } from "../query/GqlSourceEditor";
 import RecordPicker from "../records/RecordPicker";
 import { errorMessage } from "../utils/api-helpers";
 import { DocumentTemplateEditorPanes } from "./DocumentTemplateEditorPanes";
@@ -41,23 +38,6 @@ const DOCUMENT_TEMPLATE_VARIABLES: TemplateVariable[] = [
   { name: "images", kind: "array" },
   { name: "primaryImage", kind: "object" },
 ];
-
-const documentGqlHighlight = highlight.compile(
-  [
-    { kind: "field", match: /"(?:""|[^"])*"/ },
-    { kind: "string", match: /'(?:\\[\s\S]|[^'\\])*'/ },
-    {
-      kind: "keyword",
-      match:
-        /\b(?:from|table|view|select|join|left|as|on|where|formula|group|by|aggregate|having|sort|search|include|deleted|only|nulls|first|last|limit|offset|asc|desc|and|or|not)\b/i,
-    },
-    { kind: "function", match: aggregateKindPattern() },
-    { kind: "placeholder", match: /\{[A-Za-z0-9_-]{1,200}\}/i },
-    { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
-    { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
-  ],
-  { classPrefix: "doc-token-" },
-);
 
 const diagnosticText = (diagnostic: { message: string; line?: number; column?: number }) =>
   diagnostic.line && diagnostic.column ? `Line ${diagnostic.line}, col ${diagnostic.column}: ${diagnostic.message}` : diagnostic.message;
@@ -137,19 +117,6 @@ function DocumentTemplateEditorDialog(props: {
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load document template access."));
       return res.json();
     },
-  );
-  const gqlCompletions = createMemo(() =>
-    buildBackendGqlCompletions({
-      currentSource: { kind: "table", tableId: props.args.tableId },
-      fetchAutocomplete: async (request, signal) => {
-        const response = await apiClient.gql["by-base"][":baseId"].autocomplete.$post(
-          { param: { baseId: props.args.baseId }, json: request },
-          { init: { signal } },
-        );
-        if (!response.ok) throw new Error(await errorMessage(response, "Could not load query suggestions."));
-        return response.json();
-      },
-    }),
   );
   const templateVariables = createMemo<TemplateVariable[]>(() => {
     const byName = new Map<string, TemplateVariable>();
@@ -426,11 +393,11 @@ function DocumentTemplateEditorDialog(props: {
                 </div>
                 <span class="text-xs text-dimmed">Scoped to {props.args.tableName}</span>
               </div>
-              <AutocompleteEditor
+              <GqlSourceEditor
+                baseId={props.args.baseId}
+                currentSource={{ kind: "table", tableId: props.args.tableId }}
                 value={source}
                 onInput={setSource}
-                completions={gqlCompletions()}
-                highlight={documentGqlHighlight}
                 lines={4}
                 placeholder={`from table ${props.args.tableName}\nwhere record.id = "{{ record.id }}"\nlimit 1`}
                 spellcheck={false}

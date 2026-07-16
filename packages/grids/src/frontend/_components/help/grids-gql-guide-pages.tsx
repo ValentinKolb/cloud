@@ -134,12 +134,12 @@ export const GridsGqlHowItWorksPage = () => (
           {
             title: "Result bounds",
             icon: "ti-list-numbers",
-            text: "Limit large results. Document templates are capped so one template cannot load unbounded data.",
+            text: "limit caps the complete logical result across every page. Without limit, result views continue through stable server cursors.",
           },
           {
-            title: "Sort before paging",
+            title: "Meaningful order",
             icon: "ti-sort-ascending",
-            text: "Sort first, then offset, then limit. Without sort, paging is not meaningful because source order can change.",
+            text: "Add sort when order has business meaning. Grids adds a stable tie-breaker so cursor pages do not duplicate or omit equal values.",
           },
           {
             title: "Errors",

@@ -15,10 +15,10 @@ import type {
   GridsWorkspaceState,
   OkWorkspaceState,
   RuntimeView,
-  WorkspaceAnalyticalViewRoute,
   WorkspaceBulkLauncher,
   WorkspaceCatalog,
   WorkspaceCommon,
+  WorkspaceQueryResultViewRoute,
   WorkspaceRecordsRoute,
 } from "./workspace-state-model";
 
@@ -82,7 +82,7 @@ type ResolvedRecordsView = {
   activeTableLevel: "none" | "read" | "write" | "admin";
   activeView: View | null;
   activeViewForQuery: RuntimeView | null;
-  analyticalView: View | null;
+  queryResultView: View | null;
   canEditActiveView: boolean;
   fields: Field[];
 };
@@ -115,7 +115,11 @@ const resolveRecordsView = async (
           viewsByTable: { ...common.catalog.viewsByTable, [activeTable.id]: [activeView] },
         }
       : common.catalog;
-  const compiledView = activeView ? compileViewSource(viewCompilerCatalog, activeTable, activeView) : null;
+  const localCompiledView = activeView ? compileViewSource(viewCompilerCatalog, activeTable, activeView) : null;
+  const compiledView =
+    localCompiledView && !localCompiledView.ok && activeView && !catalogView
+      ? ({ ok: true, kind: "queryResult", fieldIds: [] } as const)
+      : localCompiledView;
   if (compiledView && !compiledView.ok) {
     return {
       kind: "invalidQuery",
@@ -131,32 +135,38 @@ const resolveRecordsView = async (
           displayConfig: activeView.ui.displayConfig ?? { mode: "table" },
         }
       : null;
+  const queryResultFieldIds = compiledView?.ok && compiledView.kind === "queryResult" ? new Set(compiledView.fieldIds) : null;
   return {
     activeTableLevel,
     activeView,
     activeViewForQuery,
-    analyticalView: activeView && compiledView?.ok && compiledView.kind === "analytical" ? activeView : null,
+    queryResultView: activeView && compiledView?.ok && compiledView.kind === "queryResult" ? activeView : null,
     canEditActiveView:
       !!activeView && (activeView.ownerUserId === common.params.user.id || gridsService.permission.hasAtLeast(candidateViewLevel, "admin")),
-    fields: activeViewForQuery ? outputFieldsForQuery(allFields, activeViewForQuery.query) : allFields,
+    fields: activeViewForQuery
+      ? outputFieldsForQuery(allFields, activeViewForQuery.query)
+      : queryResultFieldIds
+        ? allFields.filter((field) => queryResultFieldIds.has(field.id))
+        : allFields,
   };
 };
 
-const buildAnalyticalViewRoute = async (
+const buildQueryResultViewRoute = async (
   common: WorkspaceCommon,
   activeTable: Table,
   view: ResolvedRecordsView,
-): Promise<WorkspaceAnalyticalViewRoute> => {
-  if (!view.analyticalView) throw new Error("Analytical view route requires an analytical view");
+): Promise<WorkspaceQueryResultViewRoute> => {
+  if (!view.queryResultView) throw new Error("Query result view route requires a query result view");
   const canManageTable = gridsService.permission.hasAtLeast(view.activeTableLevel, "admin");
   return {
-    kind: "analyticalView",
+    kind: "queryResultView",
     activeTable,
-    activeView: view.analyticalView,
+    activeView: view.queryResultView,
     fields: view.fields,
     canManageActiveTable: canManageTable,
     canEditActiveView: view.canEditActiveView,
-    activeViewAccessEntries: view.canEditActiveView ? await gridsService.access.listForView(view.analyticalView.id) : [],
+    activeViewAccessEntries: view.canEditActiveView ? await gridsService.access.listForView(view.queryResultView.id) : [],
+    initialCursor: common.chrome.url.searchParams.get("cursor"),
     initialResult: null,
   };
 };
@@ -274,14 +284,14 @@ export const loadRecordsState = async (
 ): Promise<OkWorkspaceState | Extract<GridsWorkspaceState, { kind: "invalidQuery" }>> => {
   const view = await resolveRecordsView(common, activeTable, activeViewSlug);
   if ("kind" in view) return view;
-  if (view.analyticalView) {
-    return okState(common, await buildAnalyticalViewRoute(common, activeTable, view), [
+  if (view.queryResultView) {
+    return okState(common, await buildQueryResultViewRoute(common, activeTable, view), [
       ...common.chrome.titleBase,
       {
         title: activeTable.name,
         href: "/app/grids/" + common.base.shortId + "/table/" + activeTable.shortId,
       },
-      { title: view.analyticalView.name },
+      { title: view.queryResultView.name },
     ]);
   }
   const recordsState = parseRecordsState(common.chrome.url.searchParams);

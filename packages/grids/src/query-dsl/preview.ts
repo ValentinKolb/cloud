@@ -8,7 +8,8 @@ import { storageOf } from "../service/field-storage";
 import { buildRelationLabelCacheForIds, type ExpansionViewer } from "../service/relations";
 import { compileSearchClause } from "../service/search";
 import type { Field } from "../service/types";
-import { isDslAggregateOnlyPlan, type DslResolvedSqlQueryPlan } from "./resolver";
+import { type DslResolvedSqlQueryPlan, isDslAggregateOnlyPlan } from "./resolver";
+import { type DslResultCursor, encodeDslResultCursor } from "./result-cursor";
 import type { DslSqlAggregateOutputColumn, DslSqlGroupOutputColumn, DslSqlOutputColumn } from "./sql-compiler";
 import {
   compileDslAggregateQueryPlanToSql,
@@ -26,6 +27,10 @@ type DslQueryPreviewOptions = {
   fieldsByTableId: Record<string, Field[]>;
   timeZone?: string;
   limit?: number;
+  pageSize?: number;
+  cursor?: DslResultCursor | null;
+  cursorFingerprint?: string;
+  cursorSigningKey?: string;
   maxRows?: number;
   /** Viewer for `search` over relation fields (target-table read scoping). */
   viewer?: ExpansionViewer;
@@ -75,6 +80,7 @@ const groupColumns = (columns: DslSqlGroupOutputColumn[], tableId?: string): Dsl
     ...(asOptionalUuid(column.fieldId) ? { fieldId: column.fieldId } : {}),
     type: column.kind === "group" ? column.type : "aggregate",
     sqlType: column.sqlType,
+    ...(column.kind === "aggregate" ? { aggregate: column.agg } : {}),
   }));
 
 const aggregateColumns = (columns: DslSqlAggregateOutputColumn[]): DslQueryPreviewColumn[] =>
@@ -84,6 +90,7 @@ const aggregateColumns = (columns: DslSqlAggregateOutputColumn[]): DslQueryPrevi
     ...(asOptionalUuid(column.fieldId) ? { fieldId: column.fieldId } : {}),
     type: "aggregate",
     sqlType: column.sqlType,
+    aggregate: column.agg,
   }));
 
 const isGroupedPlan = (plan: DslResolvedSqlQueryPlan): boolean =>
@@ -111,6 +118,75 @@ const groupExplodes = (plan: DslResolvedSqlQueryPlan, fieldsByTableId: Record<st
 
 export const resolveDslPreviewLimit = (plan: DslResolvedSqlQueryPlan, requested: number | undefined, maxRows = MAX_PREVIEW_ROWS): number =>
   Math.min(Math.max(requested ?? plan.query.limit ?? 100, 1), maxRows);
+
+const pageBoundsForPlan = (
+  plan: DslResolvedSqlQueryPlan,
+  options: DslQueryPreviewOptions,
+): { pageSize: number; visibleLimit: number; start: number; fetchLimit: number; offset: number; cursorOffset?: number } => {
+  const maxRows = options.maxRows ?? MAX_PREVIEW_ROWS;
+  const requestedPageSize = options.pageSize ?? options.limit;
+  const cursorPageSize = options.cursor?.pageSize;
+  const pageSize = Math.min(
+    Math.max(
+      cursorPageSize === undefined
+        ? (requestedPageSize ?? 100)
+        : requestedPageSize === undefined
+          ? cursorPageSize
+          : Math.min(cursorPageSize, requestedPageSize),
+      1,
+    ),
+    maxRows,
+  );
+  const start = options.cursor?.start ?? 0;
+  const sourceLimit = plan.query.limit;
+  const remaining = sourceLimit === undefined ? pageSize + 1 : Math.max(sourceLimit - start, 0);
+  const visibleLimit = Math.min(pageSize, remaining);
+  const fetchLimit = Math.min(visibleLimit + (sourceLimit === undefined || remaining > visibleLimit ? 1 : 0), maxRows + 1);
+  const baseOffset = Math.max(plan.offset ?? 0, 0);
+  const cursorOffset = options.cursor?.values === null ? baseOffset + start : undefined;
+  return {
+    pageSize,
+    visibleLimit,
+    start,
+    fetchLimit: Math.max(fetchLimit, 1),
+    offset: options.cursor ? 0 : baseOffset,
+    ...(cursorOffset !== undefined ? { cursorOffset } : {}),
+  };
+};
+
+const pageForRows = (
+  rows: Record<string, unknown>[],
+  bounds: ReturnType<typeof pageBoundsForPlan>,
+  options: DslQueryPreviewOptions,
+  cursorValuesFromRow?: (row: Record<string, unknown>) => unknown[],
+): { visible: Record<string, unknown>[]; page: NonNullable<DslQueryPreviewSuccess["page"]>; truncated: boolean } => {
+  const visible = rows.slice(0, bounds.visibleLimit);
+  const hasNext = bounds.visibleLimit > 0 && rows.length > bounds.visibleLimit;
+  const fingerprint = options.cursorFingerprint;
+  const boundary = visible.at(-1);
+  const nextCursor =
+    fingerprint && hasNext && boundary && cursorValuesFromRow
+      ? encodeDslResultCursor(
+          {
+            fingerprint,
+            pageSize: bounds.pageSize,
+            start: bounds.start + visible.length,
+            values: cursorValuesFromRow(boundary),
+          },
+          options.cursorSigningKey ?? "",
+        )
+      : null;
+  return {
+    visible,
+    truncated: hasNext,
+    page: {
+      size: bounds.pageSize,
+      start: bounds.start,
+      returned: visible.length,
+      nextCursor,
+    },
+  };
+};
 
 const withPlanSpan = (message: string, span: { line: number; column: number; length: number } | undefined): DslQueryPreviewDiagnostic => ({
   ...(span ? { line: span.line, column: span.column, length: span.length } : {}),
@@ -294,9 +370,7 @@ export const previewDslQuery = async (
   plan: DslResolvedSqlQueryPlan,
   options: DslQueryPreviewOptions,
 ): Promise<Result<DslQueryPreviewSuccess>> => {
-  const maxRows = options.maxRows ?? MAX_PREVIEW_ROWS;
-  const limit = resolveDslPreviewLimit(plan, options.limit, maxRows);
-  const fetchLimit = Math.min(limit + 1, maxRows + 1);
+  const bounds = pageBoundsForPlan(plan, options);
 
   try {
     // Full-text search compiles async (relation search batch-reads target
@@ -344,11 +418,18 @@ export const previewDslQuery = async (
     };
 
     if (plan.derivedViewSource) {
-      const compiled = compileDslDerivedViewSourcePlanToSql(plan, { ...options, ...compileInputs, limit: fetchLimit });
+      const compiled = compileDslDerivedViewSourcePlanToSql(plan, {
+        ...options,
+        ...compileInputs,
+        limit: bounds.fetchLimit,
+        offset: bounds.offset,
+        cursorOffset: bounds.cursorOffset,
+        cursorValues: options.cursor?.values ?? undefined,
+      });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 
       const rows = await runPreview<Record<string, unknown>>(compiled.query.sql);
-      const visible = rows.slice(0, limit);
+      const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
       const columns = groupColumns(compiled.query.columns, plan.tableId);
       const previewRows = visible.map((row) => ({
         values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
@@ -358,17 +439,25 @@ export const previewDslQuery = async (
         mode: "groups",
         columns,
         rows: await labelRelationPreviewValues(previewRows, columns, options),
-        limit,
-        truncated: rows.length > limit,
+        limit: bounds.pageSize,
+        truncated,
+        page,
       });
     }
 
     if (isGroupedPlan(plan)) {
-      const compiled = compileDslGroupedQueryPlanToSql(plan, { ...options, ...compileInputs, limit: fetchLimit });
+      const compiled = compileDslGroupedQueryPlanToSql(plan, {
+        ...options,
+        ...compileInputs,
+        limit: bounds.fetchLimit,
+        offset: bounds.offset,
+        cursorOffset: bounds.cursorOffset,
+        cursorValues: options.cursor?.values ?? undefined,
+      });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 
       const rows = await runPreview<Record<string, unknown>>(compiled.query.sql);
-      const visible = rows.slice(0, limit);
+      const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
       const columns = groupColumns(compiled.query.columns, (plan.joins?.length ?? 0) === 0 ? plan.tableId : undefined);
       const previewRows = visible.map((row) => ({
         values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
@@ -378,8 +467,9 @@ export const previewDslQuery = async (
         mode: "groups",
         columns,
         rows: await labelRelationPreviewValues(previewRows, columns, options),
-        limit,
-        truncated: rows.length > limit,
+        limit: bounds.pageSize,
+        truncated,
+        page,
         ...(groupExplodes(plan, options.fieldsByTableId) ? { explode: true } : {}),
       });
     }
@@ -401,14 +491,27 @@ export const previewDslQuery = async (
         ],
         limit: 1,
         truncated: false,
+        page: {
+          size: 1,
+          start: 0,
+          returned: 1,
+          nextCursor: null,
+        },
       });
     }
 
-    const compiled = compileDslQueryPlanToSql(plan, { ...options, ...rowPreviewBounds, limit: fetchLimit });
+    const compiled = compileDslQueryPlanToSql(plan, {
+      ...options,
+      ...rowPreviewBounds,
+      limit: bounds.fetchLimit,
+      offset: bounds.offset,
+      cursorOffset: bounds.cursorOffset,
+      cursorValues: options.cursor?.values ?? undefined,
+    });
     if (!compiled.ok) return fail(err.badInput(compiled.error));
 
     const rows = await runPreview<Record<string, unknown>>(compiled.query.sql);
-    const visible = rows.slice(0, limit);
+    const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
     const columns = rowColumns(compiled.query.columns);
     const previewRows = visible.map((row) => ({
       ...(typeof row.__record_id === "string" && UUID_RE.test(row.__record_id) ? { recordId: row.__record_id } : {}),
@@ -420,8 +523,9 @@ export const previewDslQuery = async (
       mode: "rows",
       columns,
       rows: await labelRelationPreviewValues(previewRows, columns, options),
-      limit,
-      truncated: rows.length > limit,
+      limit: bounds.pageSize,
+      truncated,
+      page,
     });
   } catch (error) {
     if (isTimeout(error)) return fail(err.badInput("This query took too long (over 5s). Add a filter or a smaller limit and try again."));

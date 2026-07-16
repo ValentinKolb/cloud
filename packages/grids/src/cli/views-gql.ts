@@ -27,6 +27,7 @@ import {
   requireRestArg,
 } from "./runtime";
 import {
+  collectGqlResultPages,
   displayValue,
   FORMULA_INPUT,
   FORMULA_REFERENCE,
@@ -64,6 +65,9 @@ export const gqlCommands = [
           "References:",
           ...GQL_REFERENCE.refs.map((item) => `  ${item}`),
           "",
+          "Execution:",
+          ...GQL_REFERENCE.execution.map((item) => `  ${item}`),
+          "",
           "Examples:",
           ...GQL_REFERENCE.examples.map((example) => `  ${example.replace(/\n/g, "\n  ")}`),
         ].join("\n"),
@@ -78,23 +82,33 @@ export const gqlCommands = [
       ...tableFlag,
       ...viewFlag,
       query: GQL_INPUT,
-      limit: flag.int({ min: 1, max: 10_000, description: "Maximum rows" }),
+      pageSize: flag.int({ name: "page-size", min: 1, max: 1000, description: "Rows in one result page" }),
       cursor: flag.string({ description: "Pagination cursor" }),
+      all: flag.boolean({ description: "Follow result cursors until the query ends or --max-rows is reached" }),
+      maxRows: flag.int({ name: "max-rows", min: 1, max: 10_000, description: "Safety cap for --all (default: 10000)" }),
     },
     async run({ ctx, args, flags }) {
+      if (flags.maxRows !== undefined && !flags.all) throw new Error("--max-rows requires --all.");
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const table = await resolveTableFromFlags(ctx, base, flags.table);
       const view = await resolveOptionalView(ctx, table, flags.view);
       const body = {
         query: await readGql(flags.query),
-        ...(flags.limit !== undefined ? { limit: flags.limit } : {}),
-        ...(flags.cursor ? { cursor: flags.cursor } : {}),
         ...(table ? { currentTableId: table.id, currentSource: { kind: "table", tableId: table.id } } : {}),
         ...(view ? { currentTableId: view.tableId, currentSource: { kind: "view", viewId: view.id } } : {}),
       };
+      const execute = (cursor: string | undefined, pageSize: number) =>
+        readApi<DslQueryExecuteResponse>(
+          ctx,
+          `/gql/by-base/${encodeURIComponent(base.id)}/execute`,
+          jsonRequest("POST", { ...body, pageSize, ...(cursor ? { cursor } : {}) }),
+        );
+      const pageSize = flags.pageSize ?? 100;
+      if (!flags.all) return printGqlResult(ctx, await execute(flags.cursor, pageSize));
+
       return printGqlResult(
         ctx,
-        await readApi<DslQueryExecuteResponse>(ctx, `/gql/by-base/${encodeURIComponent(base.id)}/execute`, jsonRequest("POST", body)),
+        await collectGqlResultPages(execute, { cursor: flags.cursor, maxRows: flags.maxRows ?? 10_000, pageSize }),
       );
     },
   }),

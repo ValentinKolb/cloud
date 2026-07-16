@@ -32,6 +32,7 @@ export const loadQueryState = async (
     {
       kind: "query",
       initialQuery: common.chrome.url.searchParams.get("q") ?? "",
+      initialCursor: common.chrome.url.searchParams.get("cursor"),
       queryPath: common.chrome.url.pathname,
       ...(currentSource ? { currentSource } : {}),
     },

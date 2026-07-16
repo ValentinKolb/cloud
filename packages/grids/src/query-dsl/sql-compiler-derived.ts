@@ -2,6 +2,7 @@ import { sql } from "bun";
 import { normalizeRefKey } from "../ref-syntax";
 import { aggregateOutputKey } from "../service/aggregate-capabilities";
 import { compileFormulaPredicateAstToSql, type FormulaSqlFieldResolver, type FormulaSqlType } from "../service/formula-sql-compiler";
+import { compileDslKeyset, type DslKeysetColumn } from "../service/keyset-compiler";
 import { relationLabelFields } from "../service/relations";
 import { compileDirectFieldSearchClause, escapeSearchLikePattern, optionIdsMatchingSearch } from "../service/search";
 import { assertSqlIdentifier } from "../service/sql-ident";
@@ -33,7 +34,13 @@ import {
   sqlGroupKey,
 } from "./sql-compiler-grouping";
 import { compileRelationJoin } from "./sql-compiler-joins";
-import type { DslSqlCompileOptions, DslSqlGroupCompileResult, DslSqlGroupOutputColumn, DslSqlOutputColumn } from "./sql-compiler-types";
+import {
+  type DslSqlCompileOptions,
+  type DslSqlGroupCompileResult,
+  type DslSqlGroupOutputColumn,
+  type DslSqlOutputColumn,
+  dslSqlOffset,
+} from "./sql-compiler-types";
 
 const failGroup = (error: string): DslSqlGroupCompileResult => ({ ok: false, error });
 
@@ -91,8 +98,8 @@ const compileDerivedJoinedSort = (
   options: DslSqlCompileOptions,
   joinAliases: Map<string, string>,
   readableTableIds?: readonly string[],
-): { ok: true; parts: unknown[] } | { ok: false; error: string } => {
-  const parts: unknown[] = [];
+): { ok: true; columns: DslKeysetColumn[] } | { ok: false; error: string } => {
+  const columns: DslKeysetColumn[] = [];
   for (const sort of sorts) {
     const recordAlias = joinAliases.get(sort.joinAlias);
     if (!recordAlias) return { ok: false, error: `joined sort uses unknown join alias "${sort.joinAlias}"` };
@@ -108,11 +115,14 @@ const compileDerivedJoinedSort = (
       computedFieldSql: computedFieldSqlForScope(options, sort.joinAlias),
     });
     if (!projection.ok) return projection;
-    const dir = sort.direction === "desc" ? sql`DESC` : sql`ASC`;
-    const nulls = sort.nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
-    parts.push(sql`${projection.projection} ${dir} ${nulls}`);
+    columns.push({
+      expression: projection.projection,
+      type: projection.sqlType,
+      direction: sort.direction,
+      nullsFirst: sort.nullsFirst,
+    });
   }
-  return { ok: true, parts };
+  return { ok: true, columns };
 };
 
 const derivedColumnFormulaSqlType = (column: DslDerivedViewColumn): FormulaSqlType =>
@@ -181,18 +191,28 @@ const derivedOutputColumn = (column: DslDerivedViewColumn): DslSqlGroupOutputCol
         sqlType: derivedColumnFormulaSqlType(column),
       };
 
-const derivedDefaultOrder = (derived: NonNullable<DslResolvedSqlQueryPlan["derivedViewSource"]>): unknown[] => {
+const derivedDefaultOrder = (derived: NonNullable<DslResolvedSqlQueryPlan["derivedViewSource"]>): DslKeysetColumn[] => {
   const columnsByKey = new Map(derived.columns.map((column) => [column.key, column]));
-  const parts: unknown[] = [];
+  const parts: DslKeysetColumn[] = [];
 
   for (const sort of derived.query.groupSort ?? []) {
     const column = columnsByKey.get(aggregateOutputKey(sort.fieldId, sort.agg));
-    if (column) parts.push(sql`${derivedColumnReference(column)} ${sort.direction === "desc" ? sql`DESC` : sql`ASC`} NULLS LAST`);
+    if (column)
+      parts.push({
+        expression: derivedColumnReference(column),
+        type: derivedColumnFormulaSqlType(column),
+        direction: sort.direction ?? "desc",
+      });
   }
 
   for (const [index, group] of (derived.query.groupBy ?? []).entries()) {
     const column = columnsByKey.get(sqlGroupKey(index));
-    if (column) parts.push(sql`${derivedColumnReference(column)} ${group.direction === "desc" ? sql`DESC` : sql`ASC`} NULLS LAST`);
+    if (column)
+      parts.push({
+        expression: derivedColumnReference(column),
+        type: derivedColumnFormulaSqlType(column),
+        direction: group.direction ?? "asc",
+      });
   }
 
   return parts;
@@ -390,8 +410,6 @@ const derivedAggregateExpression = (
   }
 };
 
-const derivedOrderNulls = (nullsFirst: boolean | undefined): unknown => (nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`);
-
 const compileDslDerivedGroupedViewSourcePlanToSql = (
   plan: DslResolvedSqlQueryPlan,
   sourceSql: unknown,
@@ -430,6 +448,7 @@ const compileDslDerivedGroupedViewSourcePlanToSql = (
   const selectParts: unknown[] = [];
   const groupExprs: unknown[] = [];
   const groupColumns: DslSqlGroupOutputColumn[] = [];
+  const groupKeysetColumns: DslKeysetColumn[] = [];
   for (const [index, group] of groupBy.entries()) {
     const compiled = compileDerivedGroupExpression(group, index, options, joins.joinAliases);
     if (!compiled.ok) return failGroup(compiled.error);
@@ -437,6 +456,12 @@ const compileDslDerivedGroupedViewSourcePlanToSql = (
     selectParts.push(sql`${compiled.expr} AS ${quotedIdentifier(group.key)}`);
     if (compiled.joins) joins.joinSql.push(...compiled.joins);
     groupColumns.push(derivedGroupOutputColumn(group));
+    groupKeysetColumns.push({
+      expression: quotedIdentifier(group.key),
+      type: group.sqlType === "json" ? "unknown" : group.sqlType,
+      direction: group.direction ?? "asc",
+      nullsFirst: group.nullsFirst,
+    });
   }
 
   const aggregateColumns: DslSqlGroupOutputColumn[] = [];
@@ -484,44 +509,55 @@ const compileDslDerivedGroupedViewSourcePlanToSql = (
       : null;
   if (having && !having.ok) return failGroup(`having: ${having.error}`);
 
-  const groupBySql = groupExprs.map((_, index) => sql.unsafe(String(index + 1)));
-  const groupByClause = groupBySql.length > 0 ? sql`GROUP BY ${joinFragments(groupBySql, sql`, `)}` : sql``;
-  const havingClause = having && having.ok ? sql`HAVING ${having.expression.sql}` : sql``;
-  const explicitOrder: unknown[] = [];
+  const aggregateOnly = groupBy.length === 0;
+  const keysetColumns: DslKeysetColumn[] = [];
   for (const sort of derived.groupSort ?? []) {
     const resolved = aggregateExprsByKey.get(sort.key);
     if (!resolved) return failGroup(`group sort references missing aggregate "${sort.key}"`);
-    explicitOrder.push(
-      sql`${quotedIdentifier(sort.key)} ${sort.direction === "desc" ? sql`DESC` : sql`ASC`} ${derivedOrderNulls(sort.nullsFirst)}`,
-    );
+    keysetColumns.push({
+      expression: quotedIdentifier(sort.key),
+      type: resolved.type,
+      direction: sort.direction,
+      nullsFirst: sort.nullsFirst,
+    });
   }
-  for (const group of groupBy) {
-    const dir = group.direction === "desc" ? sql`DESC` : sql`ASC`;
-    explicitOrder.push(sql`${quotedIdentifier(group.key)} ${dir} ${derivedOrderNulls(group.nullsFirst)}`);
-  }
-  const orderBy = explicitOrder.length > 0 ? sql`ORDER BY ${joinFragments(explicitOrder, sql`, `)}` : sql``;
-  const aggregateOnly = groupBy.length === 0;
+  keysetColumns.push(...groupKeysetColumns);
+  const keyset = aggregateOnly ? null : compileDslKeyset(keysetColumns, options.cursorValues);
+  if (keyset && !keyset.ok) return failGroup(keyset.error);
+
+  const groupBySql = groupExprs.map((_, index) => sql.unsafe(String(index + 1)));
+  const groupByClause = groupBySql.length > 0 ? sql`GROUP BY ${joinFragments(groupBySql, sql`, `)}` : sql``;
+  const havingClause = having && having.ok ? sql`HAVING ${having.expression.sql}` : sql``;
   const limit = aggregateOnly ? 1 : Math.min(Math.max(options.limit ?? plan.query.limit ?? 100, 1), 1000);
-  const offset = aggregateOnly ? 0 : Math.min(Math.max(plan.offset ?? 0, 0), 10_000);
+  const offset = aggregateOnly ? 0 : dslSqlOffset(options, plan.offset);
+  const groupedSql = sql`
+    SELECT ${joinFragments(selectParts, sql`, `)}
+    FROM (${sourceSql}) d
+    ${joinFragments(joins.joinSql, sql` `)}
+    ${where}
+    ${groupByClause}
+    ${havingClause}
+  `;
+  const pagedSql = keyset
+    ? sql`
+        SELECT derived_grouped.*, ${keyset.select}
+        FROM (${groupedSql}) derived_grouped
+        WHERE ${keyset.where}
+        ORDER BY ${keyset.orderBy}
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `
+    : sql`${groupedSql} LIMIT ${limit}`;
 
   return {
     ok: true,
     query: {
-      sql: sql`
-        SELECT ${joinFragments(selectParts, sql`, `)}
-        FROM (${sourceSql}) d
-        ${joinFragments(joins.joinSql, sql` `)}
-        ${where}
-        ${groupByClause}
-        ${havingClause}
-        ${orderBy}
-        LIMIT ${limit}
-        OFFSET ${offset}
-      `,
+      sql: pagedSql,
       columns: [...groupColumns, ...aggregateColumns],
       limit,
       offset,
-      cursorable: false,
+      cursorable: keyset !== null,
+      ...(keyset ? { cursorValuesFromRow: keyset.valuesFromRow } : {}),
     },
   };
 };
@@ -557,7 +593,13 @@ export const compileDslDerivedViewSourcePlanToSql = (
     query: derived.query,
     readableTableIds: plan.readableTableIds,
   };
-  const sourceOptions = { ...options, limit: undefined, searchClause: options.viewSourceSearchClause };
+  const sourceOptions = {
+    ...options,
+    limit: undefined,
+    offset: undefined,
+    cursorValues: undefined,
+    searchClause: options.viewSourceSearchClause,
+  };
   const sourceCompiled =
     (derived.query.groupBy?.length ?? 0) > 0
       ? compileDslGroupedQueryPlanToSql(sourcePlan, sourceOptions)
@@ -628,20 +670,57 @@ export const compileDslDerivedViewSourcePlanToSql = (
   }
   const searchCondition = compileDerivedSearchCondition(derived, options, plan.tableId, options.searchClause, plan.readableTableIds);
   if (searchCondition) conditions.push(searchCondition);
-  const where = conditions.length > 0 ? sql`WHERE ${conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`)}` : sql``;
 
-  const explicitOrder = derived.sort.map((sort) => {
-    const dir = sort.direction === "desc" ? sql`DESC` : sql`ASC`;
-    const nulls = sort.nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
-    return sql`${derivedColumnReference(sort.column)} ${dir} ${nulls}`;
-  });
+  const explicitOrder: DslKeysetColumn[] = derived.sort.map((sort) => ({
+    expression: derivedColumnReference(sort.column),
+    type: derivedColumnFormulaSqlType(sort.column),
+    direction: sort.direction,
+    nullsFirst: sort.nullsFirst,
+  }));
   const joinedOrder = compileDerivedJoinedSort(derived.joinedSort ?? [], options, joinAliases, plan.readableTableIds);
   if (!joinedOrder.ok) return failGroup(joinedOrder.error);
-  const orderParts =
-    explicitOrder.length > 0 || joinedOrder.parts.length > 0 ? [...explicitOrder, ...joinedOrder.parts] : derivedDefaultOrder(derived);
-  const orderBy = orderParts.length > 0 ? sql`ORDER BY ${joinFragments(orderParts, sql`, `)}` : sql``;
+  const orderColumns =
+    explicitOrder.length > 0 || joinedOrder.columns.length > 0 ? [...explicitOrder, ...joinedOrder.columns] : derivedDefaultOrder(derived);
+  const orderedDerivedKeys = new Set(
+    explicitOrder.length > 0 || joinedOrder.columns.length > 0
+      ? derived.sort.map((sort) => sort.column.key)
+      : derived.columns.filter((column) => column.kind === "group").map((column) => column.key),
+  );
+  for (const column of derived.columns.filter((candidate) => candidate.kind === "group")) {
+    if (orderedDerivedKeys.has(column.key)) continue;
+    orderColumns.push({ expression: derivedColumnReference(column), type: derivedColumnFormulaSqlType(column), direction: "asc" });
+  }
+  for (const recordAlias of joinAliases.values()) {
+    orderColumns.push({ expression: sql`${sql.unsafe(recordAlias)}.id`, type: "uuid", direction: "asc" });
+  }
+  if (orderColumns.length === 0) {
+    if (options.cursorValues) return failGroup("aggregate-only derived queries do not accept a cursor");
+    const unpagedWhere = conditions.length > 0 ? sql`WHERE ${conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`)}` : sql``;
+    return {
+      ok: true,
+      query: {
+        sql: sql`
+          SELECT ${joinFragments(selectFragments, sql`, `)}
+          FROM (${sourceSql}) d
+          ${joinFragments(joinSql, sql` `)}
+          ${unpagedWhere}
+          LIMIT 1
+        `,
+        columns,
+        limit: 1,
+        offset: 0,
+        cursorable: false,
+      },
+    };
+  }
+  const keyset = compileDslKeyset(orderColumns, options.cursorValues);
+  if (!keyset.ok) return failGroup(keyset.error);
+  selectFragments.push(keyset.select);
+  conditions.push(keyset.where);
+  const pagedWhere = sql`WHERE ${conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`)}`;
+  const orderBy = sql`ORDER BY ${keyset.orderBy}`;
   const limit = Math.min(Math.max(options.limit ?? plan.query.limit ?? 100, 1), 1000);
-  const offset = Math.min(Math.max(plan.offset ?? 0, 0), 10_000);
+  const offset = dslSqlOffset(options, plan.offset);
 
   return {
     ok: true,
@@ -650,7 +729,7 @@ export const compileDslDerivedViewSourcePlanToSql = (
         SELECT ${joinFragments(selectFragments, sql`, `)}
         FROM (${sourceSql}) d
         ${joinFragments(joinSql, sql` `)}
-        ${where}
+        ${pagedWhere}
         ${orderBy}
         LIMIT ${limit}
         OFFSET ${offset}
@@ -658,7 +737,8 @@ export const compileDslDerivedViewSourcePlanToSql = (
       columns,
       limit,
       offset,
-      cursorable: false,
+      cursorable: true,
+      cursorValuesFromRow: keyset.valuesFromRow,
     },
   };
 };

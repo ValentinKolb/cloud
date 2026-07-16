@@ -92,14 +92,15 @@ export type WorkspaceRecordsRoute = {
   bulkSelectionLaunchers: WorkspaceBulkLauncher[];
 };
 
-export type WorkspaceAnalyticalViewRoute = {
-  kind: "analyticalView";
+export type WorkspaceQueryResultViewRoute = {
+  kind: "queryResultView";
   activeTable: Table;
   activeView: View;
   fields: Field[];
   canManageActiveTable: boolean;
   canEditActiveView: boolean;
   activeViewAccessEntries: AccessEntry[];
+  initialCursor: string | null;
   initialResult: DslQueryPreviewResponse | null;
 };
 
@@ -156,6 +157,7 @@ export type WorkspaceWorkflowRunDetail = {
 export type WorkspaceQueryRoute = {
   kind: "query";
   initialQuery: string;
+  initialCursor: string | null;
   initialPreview?: DslQueryPreviewResponse | null;
   queryPath: string;
   currentSource?:
@@ -178,7 +180,7 @@ export type WorkspaceDocumentTemplateRoute = {
 
 export type GridsWorkspaceRoute =
   | WorkspaceRecordsRoute
-  | WorkspaceAnalyticalViewRoute
+  | WorkspaceQueryResultViewRoute
   | WorkspaceDashboardRoute
   | WorkspaceWorkflowsRoute
   | WorkspaceQueryRoute

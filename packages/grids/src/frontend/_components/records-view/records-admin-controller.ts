@@ -152,6 +152,7 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
     const view = options.activeView;
     if (!view || !options.canEditActiveView) return;
     openViewSettingsDialog({
+      baseId: options.baseId,
       baseShortId: options.baseShortId,
       tableShortId: options.tableShortId,
       viewShortId: view.shortId,
@@ -160,7 +161,10 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
       fields: options.fields(),
       initialAccessEntries: options.activeViewAccessEntries ?? [],
       canEditAccess: options.canManageTable,
-      onSaved: (next) => options.setViewDisplayConfig(next.ui.displayConfig ?? { mode: "table" }),
+      onSaved: (next) => {
+        options.setViewDisplayConfig(next.ui.displayConfig ?? { mode: "table" });
+        if (next.source !== view.source) window.location.reload();
+      },
     });
   };
 

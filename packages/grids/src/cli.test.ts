@@ -258,7 +258,7 @@ const workflow = {
   description: null,
   source: "steps:\n  - setVariable:\n      name: ok\n      value: true",
   plan: {
-          schemaVersion: 2,
+    schemaVersion: 2,
     languageId: "grids",
     languageVersion: 1,
     sourceHash: "source",
@@ -418,7 +418,7 @@ describe("grids CLI", () => {
       `/api/grids/gql/by-base/${baseId}/execute`,
     ]);
     expect(calls[1]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ query });
+    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ query, pageSize: 100 });
     expect(tables[0]).toEqual([{ recordId, Name: "Ursula K. Le Guin" }]);
   });
 

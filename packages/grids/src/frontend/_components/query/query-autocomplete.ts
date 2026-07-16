@@ -1,13 +1,13 @@
 import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
 import type { DslQueryAutocompleteResponse, DslQueryCompletionItem } from "../../../contracts";
 
-type CurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string } | undefined;
+export type GqlCurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string };
 
 export type GqlAutocompleteRequest = {
   query: string;
   caret: number;
   currentTableId?: string;
-  currentSource?: CurrentSource;
+  currentSource?: GqlCurrentSource;
 };
 
 type GqlAutocompleteFetcher = (request: GqlAutocompleteRequest, signal: AbortSignal) => Promise<DslQueryAutocompleteResponse>;
@@ -25,7 +25,7 @@ export const toSuggestion = (item: DslQueryCompletionItem): Suggestion => ({
 });
 
 export const buildBackendGqlCompletions = (config: {
-  currentSource?: CurrentSource;
+  currentSource?: GqlCurrentSource;
   fetchAutocomplete: GqlAutocompleteFetcher;
 }): Completion[] => {
   const suggest = (_query: string, ctx: SuggestContext, signal: AbortSignal): Suggestion[] | Promise<Suggestion[]> => {

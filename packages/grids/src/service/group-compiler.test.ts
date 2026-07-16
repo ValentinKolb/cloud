@@ -140,7 +140,10 @@ describe("compileGroupQuery — basic shape", () => {
       fields,
     });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.cursorable).toBe(false);
+    if (r.ok) {
+      expect(r.cursorable).toBe(true);
+      expect(typeof r.cursorValuesFromRow).toBe("function");
+    }
   });
 
   test("preserves explicit null ordering for group and aggregate sorts", () => {
@@ -153,7 +156,7 @@ describe("compileGroupQuery — basic shape", () => {
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(normalizedSql(r.query)).toContain(`ORDER BY "${amount.id}__sum" DESC NULLS FIRST, 1 ASC NULLS FIRST`);
+    expect(normalizedSql(r.query)).toContain(`ORDER BY "${amount.id}__sum" DESC NULLS FIRST, "gk_0" ASC NULLS FIRST`);
   });
 
   test("continues after a null cursor when group keys use nulls first", () => {
@@ -299,17 +302,17 @@ describe("compileGroupQuery — basic shape", () => {
     if (!r.ok) expect(r.error).toContain('Unknown formula field reference "missing"');
   });
 
-  test("rejects cursor pagination for aggregate-sorted groups", () => {
+  test("supports cursor pagination for aggregate-sorted groups", () => {
     const r = compileGroupQuery({
       tableId,
       groupBy: [{ fieldId: author.id }],
       aggregations: [{ fieldId: "*", agg: "count" }],
       groupSort: [{ fieldId: "*", agg: "count", direction: "desc" }],
-      cursor: { keys: ["Alice"] },
+      cursor: { keys: [3, "Alice"] },
       fields,
     });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/cursor pagination/);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(normalizedSql(r.query)).toContain('"*__count" <');
   });
 
   test("rejects offset together with cursor or tail-window grouped queries", () => {

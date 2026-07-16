@@ -1,7 +1,6 @@
-import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import type { Widget } from "../../../service";
-import DatabaseTable from "../table/DatabaseTable";
+import QueryResultTable from "../query/QueryResultTable";
 import SourceAccessHint from "./SourceAccessHint";
 import type { WidgetData } from "./widget-data";
 
@@ -11,27 +10,11 @@ type Props = {
   /** Slug of the parent base — prepended to the view-deep-link in the
    *  header. Only used when `data.fullViewLink` is non-null. */
   baseShortId: string;
-  dateConfig?: DateContext;
 };
 
 /**
- * Embedded view widget — renders the first 25 records of either a
- * saved view OR a raw table inline on the dashboard. Read-only on
- * purpose: drilldown happens via the "Open full view →" header link
- * to the records page (only available for saved-view sources; raw-
- * table sources don't have a natural drilldown destination).
- *
- * Uses `<DatabaseTable>` for rendering — the same presentational
- * component the records page uses. Relations show up as proper
- * `<RecordLink>`s via the pre-fetched `record.expanded` map (no
- * render-time DB calls; the resolver above sets `includeRelations:
- * true` on the record.list call).
- *
- * We don't mount the full RecordsView island here: that would pull
- * in toolbar editors (filter / sort / aggregations) we don't want
- * surfaced from a dashboard cell, and every embedded view would
- * hydrate as its own island, multiplying client bundle cost. The
- * dumb table + header is the right shape for this surface.
+ * Embedded view widget. The server executes the saved GQL exactly and
+ * supplies its first page, including grouped and aggregate-only results.
  */
 export default function ViewWidget(props: Props) {
   const isView = (d: WidgetData): d is Extract<WidgetData, { kind: "view" }> => d.kind === "view";
@@ -52,7 +35,7 @@ export default function ViewWidget(props: Props) {
       </header>
 
       <Show
-        when={isView(props.data)}
+        when={isView(props.data) ? props.data : null}
         fallback={
           <div class="flex-1 flex items-center justify-center text-xs text-dimmed">
             <Show when={props.data.kind === "error"} fallback="Loading…">
@@ -61,33 +44,16 @@ export default function ViewWidget(props: Props) {
           </div>
         }
       >
-        {(() => {
-          // Pack the resolver's separate fields + records into the
-          // RecordList shape DatabaseTable expects. The resolver
-          // already requested includeRelations so each record carries
-          // its own .expanded map.
-          //
-          // The widget owns the frame. The shared table renders flat inside
-          // it so the dashboard does not create a second nested paper.
-          const viewData = props.data as Extract<WidgetData, { kind: "view" }>;
-          return (
-            <div class="flex min-h-0 flex-1 flex-col">
-              <DatabaseTable
-                result={{
-                  items: viewData.records,
-                  fields: viewData.fields,
-                  nextCursor: null,
-                }}
-                baseId={props.baseShortId}
-                tableShortIds={viewData.tableShortIds}
-                viewColumns={viewData.viewColumns}
-                showColumnSubtitles={false}
-                dateConfig={props.dateConfig}
-                class="min-h-0 flex-1 overflow-auto"
-              />
-            </div>
-          );
-        })()}
+        {(viewData) => (
+          <QueryResultTable
+            result={viewData().queryResult}
+            baseShortId={props.baseShortId}
+            tableShortIds={viewData().tableShortIds}
+            fieldsByTable={viewData().fieldsByTable}
+            scrollPreserveKey={`grids-dashboard-view-${props.widget.id}`}
+            surface="flat"
+          />
+        )}
       </Show>
     </div>
   );

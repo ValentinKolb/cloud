@@ -1,7 +1,7 @@
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import { createMemo } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import type { DslQueryPreviewResponse } from "../../../contracts";
-import type { Field, Table } from "../../../service";
+import type { Field } from "../../../service";
 import { FieldValue } from "../table/FieldValue";
 
 type QueryResult = Extract<DslQueryPreviewResponse, { ok: true }>;
@@ -18,55 +18,106 @@ const displayValue = (value: unknown): string => {
 export default function QueryResultTable(props: {
   result: QueryResult;
   baseShortId: string;
-  tables: Table[];
+  tableShortIds: Record<string, string>;
   fieldsByTable: Record<string, Field[]>;
   scrollPreserveKey: string;
+  surface?: "paper" | "flat";
+  loading?: boolean;
+  canGoBack?: boolean;
+  backLabel?: "Previous" | "First page";
+  onPrevious?: () => void;
+  onNext?: (cursor: string) => void;
 }) {
   const rows = createMemo<QueryResultRow[]>(() =>
-    props.result.rows.map((row, index) => ({ ...row, __rowKey: row.recordId ?? `row-${index}` })),
+    props.result.rows.map((row, index) => ({ ...row, __rowKey: row.recordId ? `${row.recordId}:${index}` : `row-${index}` })),
   );
   const columns = createMemo<DataTableColumn<QueryResultRow>[]>(() =>
     props.result.columns.map((column) => ({
       id: column.key,
       header: column.label,
-      subtitle: column.joinAlias ? `${column.joinAlias} · ${column.type}` : column.type,
+      subtitle: column.joinAlias ? `${column.joinAlias} · ${column.aggregate ?? column.type}` : (column.aggregate ?? column.type),
       value: (row) => row.values[column.key],
     })),
   );
-  const tableShortIds = createMemo(() => Object.fromEntries(props.tables.map((table) => [table.id, table.shortId])));
   const fieldForColumn = (column: QueryResultColumn): Field | null => {
     if (column.type === "aggregate" || !column.tableId || !column.fieldId) return null;
     return props.fieldsByTable[column.tableId]?.find((field) => field.id === column.fieldId && !field.deletedAt) ?? null;
   };
 
+  const page = () => props.result.page;
+  const hasPager = () => Boolean(props.canGoBack || page()?.nextCursor);
+  const hasUnpageableRemainder = () => props.result.truncated && !hasPager();
+  const hasFooter = () => hasPager() || hasUnpageableRemainder();
+  const rowRange = () => {
+    const current = page();
+    const returned = current?.returned ?? props.result.rows.length;
+    if (returned === 0) return "No rows";
+    const start = current?.start ?? 0;
+    return `Rows ${start + 1}-${start + returned}`;
+  };
+
   return (
-    <DataTable
-      rows={rows()}
-      columns={columns()}
-      getRowId={(row) => row.__rowKey}
-      class="paper h-full min-h-0 flex-1 overflow-auto"
-      density="compact"
-      fillHeight
-      hoverRows={false}
-      cellContentClass="max-h-24 overflow-auto whitespace-pre-wrap break-words"
-      empty={<span>No rows match this query.</span>}
-      renderCell={({ col, value }) => {
-        const column = props.result.columns.find((item) => item.key === col.id);
-        const field = column ? fieldForColumn(column) : null;
-        if (!field) return <span>{displayValue(value)}</span>;
-        return (
-          <FieldValue
-            field={field}
-            value={value}
-            baseId={props.baseShortId}
-            tableShortIds={tableShortIds()}
-            fieldsByTable={props.fieldsByTable}
-            mode="table"
-            relationValueMode={field.type === "relation" ? "labels" : "ids"}
-          />
-        );
-      }}
-      scrollPreserveKey={props.scrollPreserveKey}
-    />
+    <div class={`${props.surface === "flat" ? "" : "paper"} flex h-full min-h-0 flex-1 flex-col overflow-hidden`}>
+      <DataTable
+        rows={rows()}
+        columns={columns()}
+        getRowId={(row) => row.__rowKey}
+        class="min-h-0 flex-1 overflow-auto"
+        density="compact"
+        fillHeight
+        hoverRows={false}
+        cellContentClass="max-h-24 overflow-auto whitespace-pre-wrap break-words"
+        empty={<span>No rows match this query.</span>}
+        renderCell={({ col, value }) => {
+          const column = props.result.columns.find((item) => item.key === col.id);
+          const field = column ? fieldForColumn(column) : null;
+          if (!field) return <span>{displayValue(value)}</span>;
+          return (
+            <FieldValue
+              field={field}
+              value={value}
+              baseId={props.baseShortId}
+              tableShortIds={props.tableShortIds}
+              fieldsByTable={props.fieldsByTable}
+              mode="table"
+              relationValueMode={field.type === "relation" ? "labels" : "ids"}
+            />
+          );
+        }}
+        scrollPreserveKey={props.scrollPreserveKey}
+      />
+      <Show when={hasFooter()}>
+        <div class="flex shrink-0 items-center justify-between gap-3 bg-[var(--ui-surface-subtle)] px-3 py-2 text-xs text-secondary">
+          <span>
+            {hasUnpageableRemainder()
+              ? `Showing first ${props.result.rows.length} ${props.result.rows.length === 1 ? "row" : "rows"}`
+              : rowRange()}
+          </span>
+          <Show when={hasPager()}>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="btn-input btn-sm"
+                disabled={props.loading || !props.canGoBack}
+                onClick={() => props.onPrevious?.()}
+              >
+                <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-left"} /> {props.backLabel ?? "Previous"}
+              </button>
+              <button
+                type="button"
+                class="btn-input btn-sm"
+                disabled={props.loading || !page()?.nextCursor}
+                onClick={() => {
+                  const cursor = page()?.nextCursor;
+                  if (cursor) props.onNext?.(cursor);
+                }}
+              >
+                Next <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-right"} />
+              </button>
+            </div>
+          </Show>
+        </div>
+      </Show>
+    </div>
   );
 }

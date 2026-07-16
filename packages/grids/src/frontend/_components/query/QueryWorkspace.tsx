@@ -1,21 +1,20 @@
-import { AutocompleteEditor, Panes, type PanesValue, prompts, TextInput } from "@valentinkolb/cloud/ui";
-import { highlight } from "@valentinkolb/stdlib";
+import { Panes, type PanesValue, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { aggregateKindPattern } from "../../../aggregate-catalog";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
+import { GqlSourceEditor } from "./GqlSourceEditor";
 import QueryResultTable from "./QueryResultTable";
-import { buildBackendGqlCompletions } from "./query-autocomplete";
 import { currentSourceForApi, type QueryWorkspaceCurrentSource, visibleFields, visibleViews } from "./query-workspace-model";
 
 type Props = {
   baseId: string;
   baseShortId: string;
   initialQuery: string;
+  initialCursor?: string | null;
   initialPreview?: DslQueryPreviewResponse | null;
   queryPath: string;
   currentSource?: QueryWorkspaceCurrentSource;
@@ -36,7 +35,7 @@ type QuerySourceRow = {
   fromLine: string;
   search: string;
 };
-const MAX_SYNCED_QUERY_HREF_LENGTH = 2800;
+const MAX_SYNCED_QUERY_HREF_LENGTH = 16_384;
 const QUERY_EDITOR_SELECTOR = 'textarea[aria-label="GQL query"]';
 
 type QueryEditorSelection = Pick<HTMLTextAreaElement, "selectionEnd" | "selectionStart">;
@@ -99,26 +98,10 @@ const createQueryWorkspacePanesValue = (): PanesValue => ({
   },
 });
 
-const queryHighlight = highlight.compile(
-  [
-    { kind: "field", match: /"(?:""|[^"])*"/ },
-    { kind: "string", match: /'(?:\\[\s\S]|[^'\\])*'/ },
-    {
-      kind: "keyword",
-      match:
-        /\b(?:from|table|view|select|join|left|as|on|where|formula|group|by|aggregate|having|sort|search|include|deleted|only|nulls|first|last|limit|offset|asc|desc|and|or|not)\b/i,
-    },
-    { kind: "function", match: aggregateKindPattern() },
-    { kind: "placeholder", match: /\{[A-Za-z0-9_-]{1,200}\}/i },
-    { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
-    { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
-  ],
-  { classPrefix: "doc-token-" },
-);
-
-const queryHref = (queryPath: string, query: string) => {
+const queryHref = (queryPath: string, query: string, cursor?: string | null) => {
   const params = new URLSearchParams();
   if (query.trim()) params.set("q", query);
+  if (cursor) params.set("cursor", cursor);
   const search = params.toString();
   return `${queryPath}${search ? `?${search}` : ""}`;
 };
@@ -130,8 +113,8 @@ const openQueryReferenceWindow = (baseShortId: string) => {
   window.open(queryReferenceHref(baseShortId), "grids-gql-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
 };
 
-const safeQueryHref = (queryPath: string, query: string) => {
-  const href = queryHref(queryPath, query);
+const safeQueryHref = (queryPath: string, query: string, cursor?: string | null) => {
+  const href = queryHref(queryPath, query, cursor);
   return href.length <= MAX_SYNCED_QUERY_HREF_LENGTH ? href : queryPath;
 };
 
@@ -156,9 +139,14 @@ function QueryPreview(props: {
   baseShortId: string;
   tables: Table[];
   fieldsByTable: Record<string, Field[]>;
+  canGoBack: boolean;
+  backLabel: "Previous" | "First page";
+  onPrevious: () => void;
+  onNext: (cursor: string) => void;
 }) {
   const success = createMemo(() => (props.preview?.ok ? props.preview : null));
   const diagnostics = createMemo(() => (props.preview && !props.preview.ok ? props.preview.diagnostics : []));
+  const tableShortIds = createMemo(() => Object.fromEntries(props.tables.map((table) => [table.id, table.shortId])));
 
   return (
     <div class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-surface">
@@ -183,7 +171,14 @@ function QueryPreview(props: {
                 <span class="inline-flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
                   <i class="ti ti-alert-triangle" /> Diagnostics
                 </span>
-                <span class="text-dimmed">{plural(diagnostics().length, "issue")}</span>
+                <div class="flex items-center gap-2">
+                  <span class="text-dimmed">{plural(diagnostics().length, "issue")}</span>
+                  <Show when={props.canGoBack}>
+                    <button type="button" class="btn-simple btn-sm" disabled={props.loading} onClick={props.onPrevious}>
+                      <i class="ti ti-chevrons-left" aria-hidden="true" /> {props.backLabel}
+                    </button>
+                  </Show>
+                </div>
               </div>
               <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-3 text-sm">
                 <For each={diagnostics()}>
@@ -211,9 +206,14 @@ function QueryPreview(props: {
             <QueryResultTable
               result={preview()}
               baseShortId={props.baseShortId}
-              tables={props.tables}
+              tableShortIds={tableShortIds()}
               fieldsByTable={props.fieldsByTable}
               scrollPreserveKey="grids-query-preview"
+              loading={props.loading}
+              canGoBack={props.canGoBack}
+              backLabel={props.backLabel}
+              onPrevious={props.onPrevious}
+              onNext={props.onNext}
             />
           )}
         </Show>
@@ -226,6 +226,8 @@ export default function QueryWorkspace(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
   const [preview, setPreview] = createSignal<DslQueryPreviewResponse | null>(props.initialPreview ?? null);
   const [loading, setLoading] = createSignal(false);
+  const [pageCursor, setPageCursor] = createSignal<string | null>(props.initialCursor ?? null);
+  const [pageHistory, setPageHistory] = createSignal<Array<string | null>>([]);
   const [panes, setPanes] = createSignal<PanesValue>(createQueryWorkspacePanesValue());
   const [sourceSearch, setSourceSearch] = createSignal("");
   const apiSource = createMemo(() => currentSourceForApi(props.currentSource));
@@ -266,19 +268,6 @@ export default function QueryWorkspace(props: Props) {
     if (!search) return sourceRows();
     return sourceRows().filter((source) => source.search.includes(search));
   });
-  const completions = createMemo(() =>
-    buildBackendGqlCompletions({
-      currentSource: apiSource(),
-      fetchAutocomplete: async (request, signal) => {
-        const response = await apiClient.gql["by-base"][":baseId"].autocomplete.$post(
-          { param: { baseId: props.baseId }, json: request },
-          { init: { signal } },
-        );
-        if (!response.ok) throw new Error(await errorMessage(response, "Could not load query suggestions."));
-        return response.json();
-      },
-    }),
-  );
   let previewToken = 0;
   let previewAbort: AbortController | undefined;
   let lastPreviewQuery = props.initialPreview !== undefined ? props.initialQuery : "";
@@ -289,18 +278,20 @@ export default function QueryWorkspace(props: Props) {
     if (props.initialPreview !== undefined) {
       setPreview(props.initialPreview);
       setLoading(false);
+      setPageCursor(props.initialCursor ?? null);
+      setPageHistory([]);
       lastPreviewQuery = props.initialQuery;
     }
   });
 
-  const loadPreview = async (source: string) => {
+  const loadPreview = async (source: string, cursor?: string | null): Promise<boolean> => {
     const token = ++previewToken;
     previewAbort?.abort();
     previewAbort = undefined;
     if (!source.trim()) {
       setPreview(null);
       setLoading(false);
-      return;
+      return false;
     }
     const abort = new AbortController();
     previewAbort = abort;
@@ -309,27 +300,32 @@ export default function QueryWorkspace(props: Props) {
       const response = await apiClient.gql["by-base"][":baseId"].execute.$post(
         {
           param: { baseId: props.baseId },
-          json: { query: source, ...(apiSource() ? { currentSource: apiSource() } : {}) },
+          json: { query: source, pageSize: 100, ...(cursor ? { cursor } : {}), ...(apiSource() ? { currentSource: apiSource() } : {}) },
         },
         { init: { signal: abort.signal } },
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not execute query."));
       const data = await response.json();
-      if (token === previewToken) setPreview(data);
+      if (token === previewToken) {
+        setPreview(data);
+        return true;
+      }
     } catch (error) {
-      if (isAbortError(error)) return;
+      if (isAbortError(error)) return false;
       if (token === previewToken) {
         setPreview({
           ok: false,
           diagnostics: [{ message: error instanceof Error ? error.message : "Could not preview query." }],
         });
       }
+      return false;
     } finally {
       if (token === previewToken) {
         previewAbort = undefined;
         setLoading(false);
       }
     }
+    return false;
   };
 
   const previewDebounce = timed.debounce(loadPreview, 250);
@@ -338,7 +334,9 @@ export default function QueryWorkspace(props: Props) {
     const source = query();
     if (source === lastPreviewQuery) return;
     lastPreviewQuery = source;
-    previewDebounce.debouncedFn(source);
+    setPageCursor(null);
+    setPageHistory([]);
+    previewDebounce.debouncedFn(source, null);
   });
 
   onCleanup(() => {
@@ -353,6 +351,11 @@ export default function QueryWorkspace(props: Props) {
     if (props.syncQueryToUrl !== false && typeof window !== "undefined") {
       window.history.replaceState(window.history.state, "", safeQueryHref(props.queryPath, next));
     }
+  };
+
+  const syncPageCursorToUrl = (cursor: string | null) => {
+    if (props.syncQueryToUrl === false || typeof window === "undefined") return;
+    window.history.replaceState(window.history.state, "", safeQueryHref(props.queryPath, query(), cursor));
   };
 
   const insertExample = (source: string) => {
@@ -439,6 +442,21 @@ export default function QueryWorkspace(props: Props) {
   const saveButtonTitle = () => "Save view";
   const saveButtonIcon = () => (saveViewMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-bookmark-plus");
   const handleSave = () => handleSaveAsView();
+  const handleNextPage = async (cursor: string) => {
+    if (!(await loadPreview(query(), cursor))) return;
+    setPageHistory((history) => [...history, pageCursor()]);
+    setPageCursor(cursor);
+    syncPageCursorToUrl(cursor);
+  };
+  const handlePreviousPage = async () => {
+    const history = pageHistory();
+    if (history.length === 0 && !pageCursor()) return;
+    const cursor = history.length > 0 ? (history.at(-1) ?? null) : null;
+    if (!(await loadPreview(query(), cursor))) return;
+    setPageHistory(history.slice(0, -1));
+    setPageCursor(cursor);
+    syncPageCursorToUrl(cursor);
+  };
 
   const firstTable = () => props.tables[0];
   const firstNumericField = () =>
@@ -479,17 +497,21 @@ export default function QueryWorkspace(props: Props) {
             baseShortId={props.baseShortId}
             tables={props.tables}
             fieldsByTable={props.fieldsByTable}
+            canGoBack={pageHistory().length > 0 || pageCursor() !== null}
+            backLabel={pageHistory().length > 0 ? "Previous" : "First page"}
+            onPrevious={handlePreviousPage}
+            onNext={handleNextPage}
           />
         </Panes.Element>
 
         <Panes.Element id="query" title="Query" icon="ti ti-code">
           <section class="flex h-full min-h-0 flex-col overflow-hidden">
             <div ref={(element) => (queryEditorScope = element)} class="min-h-0 flex-1">
-              <AutocompleteEditor
+              <GqlSourceEditor
+                baseId={props.baseId}
+                currentSource={apiSource()}
                 value={query}
                 onInput={onInput}
-                completions={completions()}
-                highlight={queryHighlight}
                 restoreExpansionOnBackspace={false}
                 variant="paper"
                 fill

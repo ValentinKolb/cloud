@@ -190,7 +190,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(lastRecordListParams?.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
   });
 
-  test("routes aggregate-only saved views to the analytical runtime without listing records", async () => {
+  test("routes aggregate-only saved views to the query-result runtime without listing records", async () => {
     const aggregateView = {
       ...savedView,
       id: "66666666-6666-4666-8666-666666666666",
@@ -205,14 +205,15 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     const state = await loadGridsWorkspaceState({
       user,
       baseShortId: base.shortId,
-      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${aggregateView.shortId}`,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${aggregateView.shortId}?cursor=signed-cursor`,
       activeTableSlug: table.shortId,
       activeViewSlug: aggregateView.shortId,
     });
 
     expect(state.kind).toBe("ok");
-    if (state.kind !== "ok" || state.route.kind !== "analyticalView") return;
+    if (state.kind !== "ok" || state.route.kind !== "queryResultView") return;
     expect(state.route.activeView.id).toBe(aggregateView.id);
+    expect(state.route.initialCursor).toBe("signed-cursor");
     expect(state.route.initialResult).toBeNull();
     expect(lastRecordListParams).toBeNull();
   });
@@ -266,7 +267,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.canWriteRecords).toBe(false);
   });
 
-  test("loads an explicitly readable analytical view without parent table access", async () => {
+  test("loads an explicitly readable query-result view without parent table access", async () => {
     const aggregateView = {
       ...savedView,
       id: "66666666-6666-4666-8666-666666666666",
@@ -290,10 +291,41 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     });
 
     expect(state.kind).toBe("ok");
-    if (state.kind !== "ok" || state.route.kind !== "analyticalView") return;
+    if (state.kind !== "ok" || state.route.kind !== "queryResultView") return;
     expect(state.catalog.tables).toEqual([]);
     expect(state.route.activeView.id).toBe(aggregateView.id);
+    expect(state.route.fields).toEqual([]);
     expect(state.route.canManageActiveTable).toBe(false);
+    expect(lastRecordListParams).toBeNull();
+  });
+
+  test("defers hidden-source joins in an explicitly readable view to the trusted query runtime", async () => {
+    const hiddenJoinView = {
+      ...savedView,
+      id: "55555555-5555-4555-8555-555555555555",
+      shortId: "JOIN1",
+      name: "Joined orders",
+      source: `from table {${table.id}} as orders\njoin table {33333333-3333-4333-8333-333333333333} as hidden on orders.id = hidden.id`,
+    };
+    catalogTables = [];
+    catalogTableLevels = {};
+    catalogFieldsByTable = {};
+    lookupTable = table;
+    lookupView = hiddenJoinView;
+    viewLevel = "read";
+
+    const state = await loadGridsWorkspaceState({
+      user,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${hiddenJoinView.shortId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: hiddenJoinView.shortId,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok" || state.route.kind !== "queryResultView") return;
+    expect(state.route.activeView.id).toBe(hiddenJoinView.id);
+    expect(state.route.fields).toEqual([]);
     expect(lastRecordListParams).toBeNull();
   });
 

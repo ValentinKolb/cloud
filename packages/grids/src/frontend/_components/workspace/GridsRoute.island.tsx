@@ -3,7 +3,7 @@ import { createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import DashboardLayout from "../dashboard/DashboardLayout";
 import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor";
 import DocumentTemplateWorkspace from "../documents/DocumentTemplateWorkspace";
-import AnalyticalView from "../query/AnalyticalView";
+import QueryResultView from "../query/QueryResultView";
 import QueryWorkspace from "../query/QueryWorkspace";
 import { createGridsRecordEventsProvider } from "../records-view/grids-record-events-provider";
 import RecordsView from "../records-view/RecordsView";
@@ -12,9 +12,9 @@ import WorkflowsPage from "../workflows/WorkflowsPage";
 import { workspaceMainClass } from "./workspace-layout";
 import type {
   OkWorkspaceState,
-  WorkspaceAnalyticalViewRoute,
   WorkspaceDashboardRoute,
   WorkspaceDocumentTemplateRoute,
+  WorkspaceQueryResultViewRoute,
   WorkspaceQueryRoute,
   WorkspaceRecordsRoute,
   WorkspaceWorkflowsRoute,
@@ -200,6 +200,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
                   baseId={state.base.id}
                   baseShortId={state.base.shortId}
                   initialQuery={query.initialQuery}
+                  initialCursor={query.initialCursor}
                   initialPreview={query.initialPreview}
                   queryPath={query.queryPath}
                   currentSource={query.currentSource}
@@ -210,15 +211,23 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
               );
             })()}
           </Match>
-          <Match when={route.kind === "analyticalView"}>
+          <Match when={route.kind === "queryResultView"}>
             {(() => {
-              const analytical = route as WorkspaceAnalyticalViewRoute;
+              const queryResult = route as WorkspaceQueryResultViewRoute;
               return (
-                <AnalyticalView
+                <QueryResultView
+                  baseId={state.base.id}
                   baseShortId={state.base.shortId}
-                  route={analytical}
-                  tables={state.catalog.tables}
-                  fieldsByTable={state.catalog.fieldsByTable}
+                  route={queryResult}
+                  tables={
+                    state.catalog.tables.some((table) => table.id === queryResult.activeTable.id)
+                      ? state.catalog.tables
+                      : [...state.catalog.tables, queryResult.activeTable]
+                  }
+                  fieldsByTable={{
+                    ...state.catalog.fieldsByTable,
+                    [queryResult.activeTable.id]: queryResult.fields,
+                  }}
                   editMode={state.adminModeRequested}
                 />
               );

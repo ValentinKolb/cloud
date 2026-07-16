@@ -4,7 +4,8 @@ import { aggregateOutputKey } from "../service/aggregate-capabilities";
 import { compileFilter, renderClause } from "../service/filter-compiler";
 import { compileFormulaPredicateAstToSql, type FormulaSqlType } from "../service/formula-sql-compiler";
 import { compileGroupQuery, type GroupHavingRef } from "../service/group-compiler";
-import type { DslResolvedSqlGroupBy, DslResolvedSqlQueryPlan } from "./resolver";
+import { compileDslKeyset, type DslKeysetColumn } from "../service/keyset-compiler";
+import type { DslResolvedSqlQueryPlan } from "./resolver";
 import { aliveFields, fieldById } from "./sql-compiler-fields";
 import { joinFragments } from "./sql-compiler-fragments";
 import {
@@ -21,22 +22,10 @@ import {
 } from "./sql-compiler-grouping";
 import { compileRelationJoin } from "./sql-compiler-joins";
 import { compileViewSourceRecordScope, recordDeletedCondition, scopedFormulaResolverForPlan } from "./sql-compiler-scope";
-import type { DslSqlCompileOptions, DslSqlGroupCompileResult, DslSqlGroupOutputColumn } from "./sql-compiler-types";
+import { type DslSqlCompileOptions, type DslSqlGroupCompileResult, type DslSqlGroupOutputColumn, dslSqlOffset } from "./sql-compiler-types";
 import { compileWherePredicate } from "./sql-compiler-where";
 
 const failGroup = (error: string): DslSqlGroupCompileResult => ({ ok: false, error });
-
-const sqlGroupOrderPart = (group: DslResolvedSqlGroupBy, index: number): unknown => {
-  const dir = group.direction === "desc" ? sql`DESC` : sql`ASC`;
-  const nulls = group.nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
-  return sql`${sql.unsafe(String(index + 1))} ${dir} ${nulls}`;
-};
-
-const sqlGroupAggregateOrderPart = (sort: NonNullable<DslResolvedSqlQueryPlan["sqlGroupSort"]>[number]): unknown => {
-  const dir = sort.direction === "asc" ? sql`ASC` : sql`DESC`;
-  const nulls = sort.nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
-  return sql`${sql.unsafe(`"${aggregateOutputKey(sort.fieldId, sort.agg)}"`)} ${dir} ${nulls}`;
-};
 
 const compileJoinedGroupedQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options: DslSqlCompileOptions): DslSqlGroupCompileResult => {
   if ((plan.query.columns?.length ?? 0) > 0 || (plan.outputColumns?.length ?? 0) > 0 || (plan.joinedColumns?.length ?? 0) > 0) {
@@ -158,6 +147,33 @@ const compileJoinedGroupedQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, optio
     const key = aggregateOutputKey(sort.fieldId, sort.agg);
     if (!aggregateExprsByKey.has(key)) return failGroup(`group sort references missing aggregate "${key}"`);
   }
+  const aggregateOnly = groupBy.length === 0;
+  if (aggregateOnly && groupSort.length > 0) return failGroup("aggregate-only DSL queries cannot sort");
+  if (aggregateOnly && options.cursorValues) return failGroup("aggregate-only DSL queries do not accept a cursor");
+  const groupCursorColumns: DslKeysetColumn[] = groupBy.map((group, index) => ({
+    expression: sql`${sql.unsafe(`"${sqlGroupKey(index)}"`)}`,
+    type: groupColumns[index]!.sqlType === "json" ? "unknown" : groupColumns[index]!.sqlType,
+    direction: group.direction ?? "asc",
+    nullsFirst: group.nullsFirst,
+  }));
+  const keyset = aggregateOnly
+    ? null
+    : compileDslKeyset(
+        [
+          ...groupSort.map((sort) => {
+            const aggregate = aggregateExprsByKey.get(aggregateOutputKey(sort.fieldId, sort.agg))!;
+            return {
+              expression: sql`${sql.unsafe(`"${aggregateOutputKey(sort.fieldId, sort.agg)}"`)}`,
+              type: aggregate.type,
+              direction: sort.direction ?? "desc",
+              nullsFirst: sort.nullsFirst,
+            } satisfies DslKeysetColumn;
+          }),
+          ...groupCursorColumns,
+        ],
+        options.cursorValues,
+      );
+  if (keyset && !keyset.ok) return failGroup(keyset.error);
 
   const conditions: unknown[] = [sql`r.table_id = ${plan.tableId}::uuid`, recordDeletedCondition(plan), renderClause(filter.clause)];
   const viewScope = compileViewSourceRecordScope(plan, fields, options);
@@ -176,31 +192,39 @@ const compileJoinedGroupedQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, optio
   const where = conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`);
   const groupBySql = groupExprs.map((_, index) => sql.unsafe(String(index + 1)));
   const groupByClause = groupBySql.length > 0 ? sql`GROUP BY ${joinFragments(groupBySql, sql`, `)}` : sql``;
-  const orderBySql = [...groupSort.map(sqlGroupAggregateOrderPart), ...groupBy.map(sqlGroupOrderPart)];
-  const orderByClause = orderBySql.length > 0 ? sql`ORDER BY ${joinFragments(orderBySql, sql`, `)}` : sql``;
-  const limit = Math.min(Math.max(options.limit ?? plan.query.limit ?? 100, 1), 1000);
-  const offset = Math.min(Math.max(plan.offset ?? 0, 0), 10_000);
+  const limit = aggregateOnly ? 1 : Math.min(Math.max(options.limit ?? plan.query.limit ?? 100, 1), 1000);
+  const offset = aggregateOnly ? 0 : dslSqlOffset(options, plan.offset);
+  const havingClause = having && having.ok ? sql`HAVING ${having.expression.sql}` : sql``;
+  const groupedSql = sql`
+    SELECT ${joinFragments(selectParts, sql`, `)}
+    FROM grids.records r
+    JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    ${joinFragments(joinSql, sql` `)}
+    WHERE ${where}
+    ${groupByClause}
+    ${havingClause}
+  `;
+  const pagedSql = keyset
+    ? sql`
+        SELECT grouped.*, ${keyset.select}
+        FROM (${groupedSql}) grouped
+        WHERE ${keyset.where}
+        ORDER BY ${keyset.orderBy}
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `
+    : sql`${groupedSql} LIMIT ${limit}`;
 
   return {
     ok: true,
     query: {
-      sql: sql`
-        SELECT ${joinFragments(selectParts, sql`, `)}
-        FROM grids.records r
-        JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
-        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-        ${joinFragments(joinSql, sql` `)}
-        WHERE ${where}
-        ${groupByClause}
-        HAVING ${having && having.ok ? having.expression.sql : sql`TRUE`}
-        ${orderByClause}
-        LIMIT ${limit}
-        OFFSET ${offset}
-      `,
+      sql: pagedSql,
       columns: [...groupColumns, ...aggregateColumns],
       limit,
       offset,
-      cursorable: false,
+      cursorable: keyset !== null,
+      ...(keyset ? { cursorValuesFromRow: keyset.valuesFromRow } : {}),
     },
   };
 };
@@ -238,7 +262,10 @@ export const compileDslGroupedQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, o
     searchClause: options.searchClause,
     extraWhere: extraWhere.where,
     limit: options.limit ?? plan.query.limit,
-    offset: plan.offset,
+    lookahead: false,
+    offset: options.offset ?? plan.offset,
+    cursorOffset: options.cursorOffset,
+    cursor: options.cursorValues ? { keys: options.cursorValues } : null,
     includeDeleted: plan.query.includeDeleted,
     deletedOnly: plan.query.deletedOnly,
     timeZone: options.timeZone,
@@ -254,8 +281,9 @@ export const compileDslGroupedQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, o
       sql: compiled.query,
       columns: groupColumnsFor(plan, fields, aggregations.aggregations),
       limit: Math.min(Math.max(options.limit ?? plan.query.limit ?? 100, 1), 1000),
-      offset: Math.min(Math.max(plan.offset ?? 0, 0), 10_000),
+      offset: dslSqlOffset(options, plan.offset),
       cursorable: compiled.cursorable,
+      cursorValuesFromRow: compiled.cursorValuesFromRow,
     },
   };
 };

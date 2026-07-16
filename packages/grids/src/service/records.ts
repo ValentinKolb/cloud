@@ -292,6 +292,12 @@ export const group = async (params: {
   const hasMore = rows.length > limit;
   const visible = params.fromEnd && hasMore ? rows.slice(-limit) : rows.slice(0, limit);
 
+  const cursorJsonValue = (value: unknown): unknown => {
+    if (typeof value === "bigint") return value.toString();
+    if (value instanceof Date) return value.toISOString();
+    return value ?? null;
+  };
+
   const buckets: GroupBucket[] = visible.map((row) => {
     const keys = compiled.resolvedGroups.map((group, i) => {
       const raw = row[`gk_${i}`];
@@ -321,8 +327,10 @@ export const group = async (params: {
 
   let nextCursor: string | null = null;
   if (hasMore && compiled.cursorable && !params.fromEnd) {
-    const last = buckets[buckets.length - 1]!;
-    nextCursor = JSON.stringify({ k: last.keys });
+    const boundary = visible.at(-1);
+    if (boundary) {
+      nextCursor = JSON.stringify({ k: compiled.cursorValuesFromRow(boundary).map(cursorJsonValue) });
+    }
   }
   // Explode-mode: at least one groupBy dimension is a relation or
   // select field. The `*__count` aggregate then counts

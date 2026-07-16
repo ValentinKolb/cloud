@@ -45,9 +45,12 @@ export const collectDslPlanExtraFieldTableIds = (plan: DslResolvedSqlQueryPlan):
   const tableIds = new Set<string>();
   const derived = plan.derivedViewSource;
   if (!derived?.search) return [];
+  const readableTableIds = new Set(plan.readableTableIds);
 
   for (const column of derived.search.columns) {
-    if (column.type === "relation" && column.targetTableId) tableIds.add(column.targetTableId);
+    if (column.type === "relation" && column.targetTableId && readableTableIds.has(column.targetTableId)) {
+      tableIds.add(column.targetTableId);
+    }
   }
 
   return [...tableIds];

@@ -147,7 +147,9 @@ describe("GQL lookup/rollup fields (C3)", () => {
     expect(text).toContain("grids.try_numeric(r.data->>");
     expect(text).toContain("(SELECT 3) AS gk_1");
     expect(text).toContain("(SELECT 7) AS gk_2");
-    expect(text).toContain("ORDER BY 1 ASC NULLS LAST, 2 DESC NULLS LAST, 3 ASC NULLS LAST");
+    expect(text).toContain('ORDER BY "gk_0" ASC NULLS LAST');
+    expect(text).toContain('"gk_1" DESC NULLS LAST');
+    expect(text).toContain('"gk_2" ASC NULLS LAST');
   });
 
   test("base computed group keys stay out of RecordQuery runtime", () => {

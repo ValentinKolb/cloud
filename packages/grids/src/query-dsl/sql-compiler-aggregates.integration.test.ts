@@ -1,13 +1,40 @@
 import { beforeAll, describe, expect } from "bun:test";
 import { migrate } from "../migrate";
 import type { ExpansionViewer } from "../service/relations";
-import { cleanupFixture, ctx, field, insertDslDbFixture, postgresTest, preview, uuid } from "./sql-compiler.integration-fixtures";
+import { decodeDslResultCursor } from "./result-cursor";
+import {
+  cleanupFixture,
+  ctx,
+  field,
+  insertDslDbFixture,
+  integrationCursorSigningKey,
+  postgresTest,
+  preview,
+  previewPage,
+  uuid,
+} from "./sql-compiler.integration-fixtures";
 
 beforeAll(async () => {
   if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
 });
 
 describe("Query DSL Postgres smoke — computed, labels, and aggregates", () => {
+  postgresTest("paginates grouped results without duplicate buckets", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const source = `from table ${fixture.orders.shortId}\ngroup by STAT1\naggregate count(*) as rows\nsort STAT1 asc`;
+      const first = await previewPage(fixture, source, { pageSize: 1 });
+      const cursor = decodeDslResultCursor(first.page?.nextCursor, integrationCursorSigningKey);
+      expect(cursor).not.toBeNull();
+      const second = await previewPage(fixture, source, { pageSize: 1, cursor });
+      expect(first.rows).toHaveLength(1);
+      expect(second.rows).toHaveLength(1);
+      expect(second.rows[0]?.values.gk_0).not.toBe(first.rows[0]?.values.gk_0);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
   postgresTest("executes date buckets and grouped aggregate variants", async () => {
     const fixture = await insertDslDbFixture();
     try {
@@ -215,6 +242,7 @@ describe("Query DSL Postgres smoke — computed, labels, and aggregates", () => 
 
       expect(result.mode).toBe("groups");
       expect(result.rows).toHaveLength(1);
+      expect(result.columns.find((column) => column.label === "margin")?.aggregate).toBe("sum");
       expect(result.rows[0]?.values.gk_0).toBe("Open");
       expect(Number(result.rows[0]?.values.margin__sum)).toBe(7.5);
     } finally {

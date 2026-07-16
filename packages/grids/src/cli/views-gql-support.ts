@@ -62,6 +62,11 @@ export const GQL_REFERENCE = {
     "from table Books as books\ngroup by Published by year\naggregate count(*) as books, avg(Rating) as avgRating\nsort books desc",
     "from table Items\nsearch 'camera' in Name, Notes\nwhere Available = true\nlimit 50",
   ],
+  execution: [
+    "limit caps the complete logical result across all cursor pages.",
+    "gql run --page-size N reads one page; --cursor continues from an opaque server cursor.",
+    "gql run --all follows cursors up to --max-rows (default 10000).",
+  ],
 };
 
 export const FORMULA_REFERENCE = {
@@ -149,8 +154,51 @@ export const printGqlResult = (ctx: CloudCliContext, payload: DslQueryExecuteRes
     ...payload.columns.map((column) => ({ key: column.key, label: column.label })),
   ];
   ctx.table(rows, columns);
-  if (payload.truncated) ctx.print(`Truncated at ${payload.limit} rows.`);
+  if (payload.truncated && !payload.page?.nextCursor) ctx.print(`Truncated at ${payload.limit} rows.`);
+  if (payload.page?.nextCursor) ctx.print(`next cursor: ${payload.page.nextCursor}`);
   return 0;
+};
+
+export const collectGqlResultPages = async (
+  execute: (cursor: string | undefined, pageSize: number) => Promise<DslQueryExecuteResponse>,
+  options: { cursor?: string; maxRows: number; pageSize: number },
+): Promise<DslQueryExecuteResponse> => {
+  const rows: Extract<DslQueryExecuteResponse, { ok: true }>["rows"] = [];
+  const seenCursors = new Set<string>();
+  let cursor = options.cursor;
+  let firstStart = 0;
+  let latest: Extract<DslQueryExecuteResponse, { ok: true }> | null = null;
+
+  while (rows.length < options.maxRows) {
+    if (cursor && seenCursors.has(cursor)) throw new Error("GQL pagination returned the same cursor twice.");
+    if (cursor) seenCursors.add(cursor);
+
+    const requestedPageSize = Math.min(options.pageSize, options.maxRows - rows.length);
+    const page = await execute(cursor, requestedPageSize);
+    if (!page.ok) return page;
+    if (page.rows.length > requestedPageSize) throw new Error("GQL pagination returned more rows than requested.");
+    if (page.rows.length === 0 && page.page?.nextCursor) {
+      throw new Error("GQL pagination returned a continuation cursor without rows.");
+    }
+    if (!latest) firstStart = page.page?.start ?? 0;
+    latest = page;
+    rows.push(...page.rows);
+    cursor = page.page?.nextCursor ?? undefined;
+    if (!cursor) break;
+  }
+
+  if (!latest) throw new Error("GQL execution returned no page.");
+  return {
+    ...latest,
+    rows,
+    truncated: Boolean(cursor),
+    page: {
+      size: rows.length,
+      start: firstStart,
+      returned: rows.length,
+      nextCursor: cursor ?? null,
+    },
+  };
 };
 
 export const readGql = async (input: CliInputFlagValue): Promise<string> => {

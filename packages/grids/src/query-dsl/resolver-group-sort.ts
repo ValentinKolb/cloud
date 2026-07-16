@@ -34,6 +34,12 @@ export type DslResolvedSqlGroupSort = GroupSortSpec & {
 
 export type DslResolvedSqlSort =
   | {
+      kind: "record";
+      key: "createdAt" | "updatedAt" | "deletedAt";
+      direction: "asc" | "desc";
+      nullsFirst?: boolean;
+    }
+  | {
       kind: "field";
       fieldId: string;
       direction: "asc" | "desc";
@@ -141,6 +147,7 @@ export const resolveQueryPlanSort = (
     const recordSortKey = recordMetaSortKeyForRef(target);
     if (recordSortKey) {
       viewSort.push({ source: "record", key: recordSortKey, direction: item.direction, ...nulls });
+      sqlSort.push({ kind: "record", key: recordSortKey, direction: item.direction, ...nulls });
       continue;
     }
     if (isRecordScopedRef(target)) {

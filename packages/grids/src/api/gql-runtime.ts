@@ -1,6 +1,6 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
-import type { DslQueryPreviewBody, DslQueryPreviewDiagnostic, DslQueryPreviewResponse, RecordQuery } from "../contracts";
+import type { DslQueryPreviewBody, DslQueryPreviewDiagnostic, DslQueryPreviewResponse, DslQuerySurface, RecordQuery } from "../contracts";
 import { canonicalizeDslQuery } from "../query-dsl/canonical";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { dslPreviewDiagnosticForCompilerError, previewDslQuery } from "../query-dsl/preview";
@@ -12,6 +12,7 @@ import {
   resolveDslQueryToQueryPlan,
   resolveDslQueryToRecordQuery,
 } from "../query-dsl/resolver";
+import { type DslResultCursor, decodeDslResultCursor, gqlResultFingerprint } from "../query-dsl/result-cursor";
 import { collectDslFieldTableIds, collectDslPlanExtraFieldTableIds, needsDslViewCatalog } from "../query-dsl/source-plan";
 import type { DslQueryAst } from "../query-dsl/types";
 import { gridsService } from "../service";
@@ -155,17 +156,47 @@ const previewResolvedGqlPlan = async (
   c: Context<AuthContext>,
   plan: DslResolvedSqlQueryPlan,
   fieldsByTableId: Record<string, Field[]>,
-  options: { limit?: number; maxRows?: number },
+  options: {
+    limit?: number;
+    pageSize?: number;
+    maxRows?: number;
+    cursor?: DslResultCursor | null;
+    cursorFingerprint?: string;
+    cursorSigningKey?: string;
+  },
 ): Promise<DslQueryPreviewResponse> => {
   const dateConfig = await getDateConfig(c);
   const result = await previewDslQuery(plan, {
     fieldsByTableId: await fieldsWithPlanExtras(fieldsByTableId, plan),
     timeZone: dateConfig.timeZone,
     limit: options.limit,
+    pageSize: options.pageSize,
+    cursor: options.cursor,
+    cursorFingerprint: options.cursorFingerprint,
+    cursorSigningKey: options.cursorSigningKey,
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
     viewer: currentActorViewer(c),
   });
   return result.ok ? result.data : { ok: false, diagnostics: [dslPreviewDiagnosticForCompilerError(plan, result.error.message)] };
+};
+
+const decodeRuntimeCursor = (
+  token: string | undefined,
+  fingerprint: string,
+  signingKey: string,
+): { ok: true; cursor: DslResultCursor | null } | { ok: false; diagnostics: DslQueryPreviewDiagnostic[] } => {
+  if (!token) return { ok: true, cursor: null };
+  const cursor = decodeDslResultCursor(token, signingKey);
+  if (!cursor || cursor.fingerprint !== fingerprint) {
+    return { ok: false, diagnostics: [{ message: "The result cursor is invalid or no longer matches this query." }] };
+  }
+  return { ok: true, cursor };
+};
+
+const gqlCursorSigningKey = (): string => {
+  const key = process.env.APP_SECRET?.trim();
+  if (!key) throw new Error("APP_SECRET is required for GQL result pagination");
+  return key;
 };
 
 export const canonicalGqlSource = async (
@@ -212,15 +243,38 @@ export const executeGqlSource = async (
 
     const ctx = await buildPermissionedGqlResolverContext(c, baseId, body.currentTableId, body.currentSource, parsed.ast);
     const ast = sourceAst(parsed.ast, body.currentSource, ctx);
+    const canonical = canonicalizeDslQuery(ast, ctx);
+    if (!canonical.ok) {
+      const response = { ok: false as const, diagnostics: canonical.diagnostics };
+      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      return { ok: true as const, response };
+    }
     const resolved = resolveDslQueryToQueryPlan(ast, ctx);
     if (!resolved.ok) {
       const response = { ok: false as const, diagnostics: resolved.diagnostics };
       await trace.end({ stage: "resolve", outcome: "diagnostic", response });
       return { ok: true as const, response };
     }
+    const cursorSigningKey = gqlCursorSigningKey();
+    const sourceScope = body.currentSource
+      ? `${body.currentSource.kind}:${body.currentSource.kind === "table" ? body.currentSource.tableId : body.currentSource.viewId}`
+      : body.currentTableId
+        ? `table:${body.currentTableId}`
+        : "base";
+    const cursorFingerprint = gqlResultFingerprint({ baseId, canonicalSource: canonical.source, scope: sourceScope });
+    const decodedCursor = decodeRuntimeCursor(body.cursor, cursorFingerprint, cursorSigningKey);
+    if (!decodedCursor.ok) {
+      const response = { ok: false as const, diagnostics: decodedCursor.diagnostics };
+      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      return { ok: true as const, response };
+    }
 
     const response = await previewResolvedGqlPlan(c, resolved.plan, ctx.fieldsByTableId, {
       limit: body.limit,
+      pageSize: body.pageSize,
+      cursor: decodedCursor.cursor,
+      cursorFingerprint,
+      cursorSigningKey,
       maxRows: options.maxRows,
     });
     await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
@@ -237,30 +291,37 @@ export const executeSavedViewSource = async (
   c: Context<AuthContext>,
   baseId: string,
   viewId: string,
-  options: { maxRows?: number; tracer?: GqlRuntimeTracer } = {},
+  options: {
+    maxRows?: number;
+    pageSize?: number;
+    cursor?: string;
+    operation?: GqlRuntimeOperation;
+    surface?: NonNullable<DslQuerySurface>;
+    tracer?: GqlRuntimeTracer;
+  } = {},
 ) => {
   const trace = await (options.tracer ?? traceGqlRuntime)({
     baseId,
-    operation: "initial-preview",
-    surface: "ssr",
+    operation: options.operation ?? "execute",
+    surface: options.surface ?? "api",
     currentSource: { kind: "view", viewId },
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
   });
 
   try {
+    const inaccessibleView = async () => {
+      const response = {
+        ok: false as const,
+        diagnostics: [{ message: "View not found or you do not have permission to access it." }],
+      };
+      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      return response;
+    };
     const view = await gridsService.view.get(viewId);
     const table = view ? await gridsService.table.get(view.tableId) : null;
-    if (!view || !table || table.baseId !== baseId) {
-      const response = { ok: false as const, diagnostics: [{ message: "View not found" }] };
-      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
-      return response;
-    }
+    if (!view || !table || table.baseId !== baseId) return inaccessibleView();
     const access = await gateAt(c, { baseId, tableId: table.id, viewId: view.id }, "read");
-    if (!access.ok) {
-      const response = { ok: false as const, diagnostics: [{ message: "You do not have permission to access this view." }] };
-      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
-      return response;
-    }
+    if (!access.ok) return inaccessibleView();
     const parsed = parseGridsQueryDsl(view.source);
     if (!parsed.ok) {
       const response = { ok: false as const, diagnostics: parsed.diagnostics };
@@ -279,7 +340,21 @@ export const executeSavedViewSource = async (
       await trace.end({ stage: "resolve", outcome: "diagnostic", response });
       return response;
     }
-    const response = await previewResolvedGqlPlan(c, resolved.plan, context.fieldsByTableId, { maxRows: options.maxRows });
+    const cursorSigningKey = gqlCursorSigningKey();
+    const cursorFingerprint = gqlResultFingerprint({ baseId, canonicalSource: view.source, scope: `view:${view.id}` });
+    const decodedCursor = decodeRuntimeCursor(options.cursor, cursorFingerprint, cursorSigningKey);
+    if (!decodedCursor.ok) {
+      const response = { ok: false as const, diagnostics: decodedCursor.diagnostics };
+      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      return response;
+    }
+    const response = await previewResolvedGqlPlan(c, resolved.plan, context.fieldsByTableId, {
+      maxRows: options.maxRows,
+      pageSize: options.pageSize,
+      cursor: decodedCursor.cursor,
+      cursorFingerprint,
+      cursorSigningKey,
+    });
     await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
     return response;
   } catch (error) {

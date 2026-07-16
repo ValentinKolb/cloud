@@ -2,6 +2,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import type { ComputedColumnSpec, GroupSortSpec, RecordDisplayConfig, RecordQuery } from "../../../contracts";
 import { parseGridsQueryDsl } from "../../../query-dsl/parser";
 import {
+  type DslResolvedSqlQueryPlan,
   type DslResolverContext,
   type DslResolverDiagnostic,
   type DslTableSource,
@@ -24,6 +25,26 @@ type GroupByRaw = {
   fieldId: string;
   direction?: "asc" | "desc";
   granularity?: "day" | "week" | "month" | "quarter" | "year";
+};
+
+const queryResultFieldIds = (plan: DslResolvedSqlQueryPlan): string[] => {
+  const fieldIds = new Set<string>();
+  for (const column of plan.outputColumns ?? []) {
+    if (column.kind === "field") fieldIds.add(column.fieldId);
+  }
+  for (const group of plan.query.groupBy ?? []) fieldIds.add(group.fieldId);
+  for (const group of plan.sqlGroupBy ?? []) {
+    if (group.tableId === plan.tableId) fieldIds.add(group.fieldId);
+  }
+  for (const aggregation of plan.query.aggregations ?? []) {
+    if (aggregation.fieldId !== "*") fieldIds.add(aggregation.fieldId);
+  }
+  for (const aggregation of plan.sqlAggregations ?? []) {
+    if (aggregation.fieldId !== "*" && (!aggregation.tableId || aggregation.tableId === plan.tableId)) {
+      fieldIds.add(aggregation.fieldId);
+    }
+  }
+  return [...fieldIds];
 };
 
 type AggregationRaw = {
@@ -83,16 +104,18 @@ export const compileViewSource = (
   view: View,
 ):
   | { ok: true; kind: "records"; query: RecordQuery }
-  | { ok: true; kind: "analytical" }
+  | { ok: true; kind: "queryResult"; fieldIds: string[] }
   | { ok: false; diagnostics: Array<Pick<DslResolverDiagnostic, "message">> } => {
   const parsed = parseGridsQueryDsl(view.source);
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
   const context = buildResolverContext(catalog, activeTable.id, parsed.ast);
   const queryPlan = resolveDslQueryToQueryPlan(parsed.ast, context);
   if (!queryPlan.ok) return { ok: false, diagnostics: queryPlan.diagnostics };
-  if (isDslAggregateOnlyPlan(queryPlan.plan)) return { ok: true, kind: "analytical" };
+  if (isDslAggregateOnlyPlan(queryPlan.plan)) {
+    return { ok: true, kind: "queryResult", fieldIds: queryResultFieldIds(queryPlan.plan) };
+  }
   const resolved = resolveDslQueryToRecordQuery(parsed.ast, context);
-  if (!resolved.ok) return { ok: false, diagnostics: resolved.diagnostics };
+  if (!resolved.ok) return { ok: true, kind: "queryResult", fieldIds: queryResultFieldIds(queryPlan.plan) };
   return { ok: true, kind: "records", query: withViewPresentation(resolved.plan.query, view.ui) };
 };
 

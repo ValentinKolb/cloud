@@ -550,6 +550,8 @@ const DslQuerySurfaceSchema = z
   .optional();
 export type DslQuerySurface = z.infer<typeof DslQuerySurfaceSchema>;
 
+export const MAX_GQL_RESULT_CURSOR_LENGTH = 16_384;
+
 export const DslQueryPreviewBodySchema = z.object({
   query: z.string().trim().min(1).max(20_000),
   /** Optional table scope for table/view pages where `from` is implicit. */
@@ -557,13 +559,15 @@ export const DslQueryPreviewBodySchema = z.object({
   currentSource: DslQueryCurrentSourceSchema,
   /** Optional caller surface for privacy-safe runtime observability. */
   surface: DslQuerySurfaceSchema,
+  pageSize: z.number().int().min(1).max(500).optional(),
   limit: z.number().int().min(1).max(500).optional(),
+  cursor: z.string().max(MAX_GQL_RESULT_CURSOR_LENGTH).optional(),
 });
 export type DslQueryPreviewBody = z.infer<typeof DslQueryPreviewBodySchema>;
 
 export const DslQueryExecuteBodySchema = DslQueryPreviewBodySchema.extend({
   limit: z.number().int().min(1).max(10_000).optional(),
-  cursor: z.string().optional(),
+  pageSize: z.number().int().min(1).max(1000).optional(),
   filePreviewFieldIds: z.array(z.string().uuid()).max(3).optional(),
 });
 
@@ -604,6 +608,7 @@ const DslQueryPreviewColumnSchema = z.object({
   joinAlias: z.string().optional(),
   type: z.string(),
   sqlType: z.string(),
+  aggregate: z.string().optional(),
 });
 export type DslQueryPreviewColumn = z.infer<typeof DslQueryPreviewColumnSchema>;
 
@@ -620,6 +625,14 @@ const DslQueryPreviewSuccessSchema = z.object({
   ),
   limit: z.number().int(),
   truncated: z.boolean().optional(),
+  page: z
+    .object({
+      size: z.number().int().min(1),
+      start: z.number().int().min(0),
+      returned: z.number().int().min(0),
+      nextCursor: z.string().nullable(),
+    })
+    .optional(),
   /** Grouped result where one record can contribute to several buckets
    *  (multi-select / relation group keys). Bucket counts can exceed the
    *  record count; the UI should label this. */

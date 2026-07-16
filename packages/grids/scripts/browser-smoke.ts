@@ -24,6 +24,8 @@ type Fixture = {
   table: { id: string; shortId: string };
   view: { id: string; shortId: string };
   chartView: { id: string; shortId: string };
+  statView: { id: string; shortId: string };
+  pagedView: { id: string; shortId: string };
   form: { id: string; publicToken: string };
   dashboard: { id: string; shortId: string };
   records: {
@@ -217,6 +219,17 @@ const createFixture = async (): Promise<Fixture> => {
     sessionToken,
     201,
   );
+  const pagedView = await api<{ id: string; shortId: string }>(
+    "POST",
+    `/api/grids/views/by-table/${table.id}`,
+    {
+      name: "Doubled amounts",
+      shared: true,
+      source: `from table {${table.id}}\nselect formula({${amount.id}} * 2) as doubled\nsort doubled desc`,
+    },
+    sessionToken,
+    201,
+  );
 
   const form = await api<{ id: string; publicToken: string | null }>(
     "POST",
@@ -339,6 +352,8 @@ const createFixture = async (): Promise<Fixture> => {
     table,
     view,
     chartView,
+    statView,
+    pagedView,
     form: { id: form.id, publicToken: form.publicToken },
     dashboard,
     records: { first: firstRecord.id },
@@ -762,6 +777,57 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   });
   await expectVisibleText(page, "Open task amounts", "view route renders");
   await expectVisibleText(page, "Review invoices", "view rows render");
+
+  const firstViewPage = await api<{ ok: boolean; page?: { nextCursor: string | null } }>(
+    "POST",
+    `/api/grids/gql/by-base/${fixture.base.id}/views/${fixture.pagedView.id}/execute`,
+    { pageSize: 1, surface: "records-view" },
+    fixture.sessionToken,
+  );
+  const secondPageCursor = firstViewPage.ok ? firstViewPage.page?.nextCursor : null;
+  if (!secondPageCursor) fail("saved view did not return a pagination cursor");
+  const secondViewPage = await api<{ ok: boolean; rows?: Array<{ values: Record<string, unknown> }> }>(
+    "POST",
+    `/api/grids/gql/by-base/${fixture.base.id}/views/${fixture.pagedView.id}/execute`,
+    { pageSize: 1, cursor: secondPageCursor, surface: "records-view" },
+    fixture.sessionToken,
+  );
+  if (!secondViewPage.ok || secondViewPage.rows?.length !== 1) {
+    const payload = secondPageCursor.split(".")[0];
+    const decoded = payload ? Buffer.from(payload, "base64url").toString("utf8") : "missing cursor payload";
+    fail(`saved view API cursor page failed: ${JSON.stringify(secondViewPage)}; cursor=${decoded}`);
+  }
+  await page.goto(
+    `/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.pagedView.shortId}?cursor=${encodeURIComponent(secondPageCursor)}`,
+    { waitUntil: "domcontentloaded" },
+  );
+  const cursorPageText = await page.locator("body").innerText();
+  if (!cursorPageText.includes("199.98")) {
+    fail(`query-result cursor page did not render the second row: ${cursorPageText.slice(0, 800)}`);
+  }
+  if (!cursorPageText.includes("First page")) {
+    fail(`query-result cursor page did not render backward navigation at ${page.url()}: ${cursorPageText.slice(-800)}`);
+  }
+  await expectVisibleText(page, "199.98", "query-result cursor page SSR renders");
+  await page.waitForTimeout(250);
+  const firstPageButton = page.getByRole("button", { name: "First page" });
+  if ((await firstPageButton.count()) !== 1) fail("query-result backward navigation did not survive hydration");
+  const firstPageResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname === `/api/grids/gql/by-base/${fixture.base.id}/views/${fixture.pagedView.id}/execute`,
+    { timeout: TIMEOUT },
+  );
+  await firstPageButton.click();
+  const firstPageResponse = await firstPageResponsePromise;
+  if (!firstPageResponse.ok()) fail(`query-result first-page request returned ${firstPageResponse.status()}`);
+  await expectVisibleText(page, "300", "query-result pager returns to first page");
+
+  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.statView.shortId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectVisibleText(page, "Total amount", "aggregate-only view route renders");
+  await expectVisibleText(page, "249.99", "aggregate-only view result renders");
 
   await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Operations dashboard", "dashboard route renders");

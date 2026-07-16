@@ -6,7 +6,7 @@ import FormSidebarEntry from "../sidebar/FormSidebarEntry.island";
 import SidebarTableMeta from "../sidebar/SidebarTableMeta";
 import type {
   OkWorkspaceState,
-  WorkspaceAnalyticalViewRoute,
+  WorkspaceQueryResultViewRoute,
   WorkspaceRecordsRoute,
   WorkspaceWorkflowsRoute,
 } from "./workspace-state-model";
@@ -29,7 +29,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
   const state = props.state;
   const route = state.route;
   const recordsRoute = route.kind === "records" ? (route as WorkspaceRecordsRoute) : null;
-  const analyticalViewRoute = route.kind === "analyticalView" ? (route as WorkspaceAnalyticalViewRoute) : null;
+  const queryResultViewRoute = route.kind === "queryResultView" ? (route as WorkspaceQueryResultViewRoute) : null;
   const workflowsRoute = route.kind === "workflows" ? (route as WorkspaceWorkflowsRoute) : null;
   const renderQueryItem = () =>
     state.canUseQueryWorkspace ? (
@@ -99,7 +99,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
           (state.catalog.viewsByTable[table.id] ?? []).map((view) => {
             const active =
               (recordsRoute?.activeTable.id === table.id && recordsRoute.activeView?.id === view.id) ||
-              analyticalViewRoute?.activeView.id === view.id;
+              queryResultViewRoute?.activeView.id === view.id;
             return (
               <SidebarLink
                 href={keepEdit(`/app/grids/${state.base.shortId}/table/${table.shortId}/view/${view.shortId}`, state.adminModeRequested)}

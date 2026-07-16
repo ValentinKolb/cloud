@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { DslTableSource, DslViewSource } from "./resolver";
-import { collectDslFieldTableIds, needsDslViewCatalog } from "./source-plan";
+import type { DslResolvedSqlQueryPlan, DslTableSource, DslViewSource } from "./resolver";
+import { collectDslFieldTableIds, collectDslPlanExtraFieldTableIds, needsDslViewCatalog } from "./source-plan";
 import type { DslQueryAst, DslSourceRef } from "./types";
 
 const ast = (overrides: Partial<DslQueryAst> = {}): DslQueryAst => ({
@@ -70,5 +70,33 @@ describe("DSL source planning", () => {
     const query = ast({ source: source("table", "Missing") });
 
     expect(collectDslFieldTableIds({ ast: query, tables: [orders, customers] })).toEqual([]);
+  });
+
+  test("only hydrates relation-search fields for readable target tables", () => {
+    const relationColumn = {
+      kind: "group" as const,
+      key: "gk_0",
+      label: "Customer",
+      refs: ["Customer"],
+      sqlType: "text" as const,
+      type: "relation",
+      targetTableId: customers.id,
+    };
+    const plan: DslResolvedSqlQueryPlan = {
+      source: orders,
+      tableId: orders.id,
+      query: {},
+      readableTableIds: [orders.id],
+      derivedViewSource: {
+        query: {},
+        columns: [relationColumn],
+        outputColumns: [relationColumn],
+        sort: [],
+        search: { q: "Ada", columns: [relationColumn] },
+      },
+    };
+
+    expect(collectDslPlanExtraFieldTableIds(plan)).toEqual([]);
+    expect(collectDslPlanExtraFieldTableIds({ ...plan, readableTableIds: [orders.id, customers.id] })).toEqual([customers.id]);
   });
 });

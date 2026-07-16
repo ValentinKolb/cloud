@@ -11,15 +11,18 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { DslQueryPreviewDiagnostic } from "../../../contracts";
 import type { Field, View } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
+import { GqlSourceEditor } from "../query/GqlSourceEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 
 type Props = {
+  baseId: string;
   baseShortId: string;
   tableShortId: string;
   viewShortId: string;
@@ -68,7 +71,13 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
         onDirtyChange={setGeneralDirty}
       />
 
-      <QuerySourceSection viewId={props.initialView.id} initial={props.initialView} onSaved={props.onSaved} onDirtyChange={setQueryDirty} />
+      <QuerySourceSection
+        baseId={props.baseId}
+        viewId={props.initialView.id}
+        initial={props.initialView}
+        onSaved={props.onSaved}
+        onDirtyChange={setQueryDirty}
+      />
 
       <PanelDialog.Section title="Permissions" subtitle="Choose who can open this view. Views only support View access." icon="ti ti-lock">
         <ViewPermissions viewId={props.initialView.id} initialEntries={props.initialAccessEntries} canEdit={props.canEditAccess} />
@@ -173,26 +182,89 @@ function GeneralSection(props: {
 }
 
 function QuerySourceSection(props: {
+  baseId: string;
   viewId: string;
   initial: View;
   onSaved?: (view: View) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
+  type ValidationState = "idle" | "checking" | "valid" | "invalid" | "error";
   const draft = createDraft({
     source: props.initial.source,
   });
+  const [validationState, setValidationState] = createSignal<ValidationState>("idle");
+  const [diagnostics, setDiagnostics] = createSignal<DslQueryPreviewDiagnostic[]>([]);
+  const [validationError, setValidationError] = createSignal<string | null>(null);
   const source = () => draft.draft().source;
   const patch = (value: string) => {
     draft.patch({ source: value });
-    props.onDirtyChange?.(true);
+    props.onDirtyChange?.(draft.dirty());
   };
+  let validationToken = 0;
+  let validationAbort: AbortController | undefined;
+  createEffect(() => {
+    const value = source().trim();
+    if (typeof window === "undefined") return;
+    validationToken += 1;
+    validationAbort?.abort();
+    validationAbort = undefined;
+    if (!value) {
+      setValidationState("invalid");
+      setDiagnostics([{ message: "GQL source is required" }]);
+      setValidationError(null);
+      return;
+    }
+
+    const token = validationToken;
+    setValidationState("checking");
+    const timeout = window.setTimeout(async () => {
+      const abort = new AbortController();
+      validationAbort = abort;
+      try {
+        const response = await apiClient.gql["by-base"][":baseId"]["compile-view"].$post(
+          {
+            param: { baseId: props.baseId },
+            json: { query: value, currentTableId: props.initial.tableId, currentSource: { kind: "table", tableId: props.initial.tableId } },
+          },
+          { init: { signal: abort.signal } },
+        );
+        if (token !== validationToken || abort.signal.aborted) return;
+        if (!response.ok) throw new Error(await errorMessage(response, "Could not validate GQL source"));
+        const result = await response.json();
+        if (result.ok) {
+          setDiagnostics([]);
+          setValidationError(null);
+          setValidationState("valid");
+        } else {
+          setDiagnostics(result.diagnostics);
+          setValidationError(null);
+          setValidationState("invalid");
+        }
+      } catch (error) {
+        if (token !== validationToken || abort.signal.aborted) return;
+        setDiagnostics([]);
+        setValidationError(error instanceof Error ? error.message : "Could not validate GQL source");
+        setValidationState("error");
+      }
+    }, 300);
+    onCleanup(() => window.clearTimeout(timeout));
+  });
+  onCleanup(() => validationAbort?.abort());
+
   const mut = mutations.create<View, void>({
     mutation: async () => {
       const trimmed = source().trim();
       if (!trimmed) throw new Error("GQL source is required");
+      const compiledResponse = await apiClient.gql["by-base"][":baseId"]["compile-view"].$post({
+        param: { baseId: props.baseId },
+        json: { query: trimmed, currentTableId: props.initial.tableId, currentSource: { kind: "table", tableId: props.initial.tableId } },
+      });
+      if (!compiledResponse.ok) throw new Error(await errorMessage(compiledResponse, "Could not validate GQL source"));
+      const compiled = await compiledResponse.json();
+      if (!compiled.ok) throw new Error(compiled.diagnostics.map(formatDiagnostic).join("; ") || "Invalid GQL source");
       const res = await apiClient.views[":viewId"].$patch({
         param: { viewId: props.viewId },
-        json: { source: trimmed },
+        json: { source: compiled.source },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save GQL source"));
       return res.json();
@@ -207,27 +279,57 @@ function QuerySourceSection(props: {
 
   return (
     <PanelDialog.Section title="Query" subtitle="The saved GQL source for this view." icon="ti ti-code">
-      <TextInput
+      <label class="text-sm font-medium text-primary" for={`view-source-${props.viewId}`}>
+        GQL source
+      </label>
+      <GqlSourceEditor
+        baseId={props.baseId}
+        currentSource={{ kind: "table", tableId: props.initial.tableId }}
+        id={`view-source-${props.viewId}`}
         name={`view-source-${props.viewId}`}
-        label="GQL source"
         value={source}
         onInput={patch}
-        multiline
-        monospace
         lines={8}
         spellcheck={false}
-        autocapitalize="off"
-        autocomplete="off"
-        icon="ti ti-code"
+        ariaLabel="GQL source"
+        ariaInvalid={validationState() === "invalid" || validationState() === "error"}
+        error={validationState() === "invalid" || validationState() === "error"}
+        variant="paper"
       />
+      <div class="min-h-5 text-xs" aria-live="polite">
+        <Show when={validationState() === "checking"}>
+          <span class="text-dimmed">
+            <i class="ti ti-loader-2 animate-spin" aria-hidden="true" /> Checking GQL source
+          </span>
+        </Show>
+        <Show when={validationState() === "valid"}>
+          <span class="text-success">
+            <i class="ti ti-check" aria-hidden="true" /> GQL source is valid
+          </span>
+        </Show>
+        <Show when={validationError()}>{(message) => <span class="text-danger">{message()}</span>}</Show>
+        <Show when={diagnostics().length > 0}>
+          <ul class="grid gap-1 text-danger">
+            <For each={diagnostics().slice(0, 4)}>{(diagnostic) => <li>{formatDiagnostic(diagnostic)}</li>}</For>
+          </ul>
+        </Show>
+      </div>
       <Show when={draft.dirty()}>
-        <button type="button" class="btn-primary btn-sm self-start" onClick={() => mut.mutate(undefined)} disabled={mut.loading()}>
+        <button
+          type="button"
+          class="btn-primary btn-sm self-start"
+          onClick={() => mut.mutate(undefined)}
+          disabled={mut.loading() || validationState() !== "valid"}
+        >
           {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save query"}
         </button>
       </Show>
     </PanelDialog.Section>
   );
 }
+
+const formatDiagnostic = (diagnostic: DslQueryPreviewDiagnostic): string =>
+  diagnostic.line && diagnostic.column ? `Line ${diagnostic.line}, col ${diagnostic.column}: ${diagnostic.message}` : diagnostic.message;
 
 // =============================================================================
 // Delete

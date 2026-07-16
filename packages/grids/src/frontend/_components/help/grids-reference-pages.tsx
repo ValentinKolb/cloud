@@ -1,4 +1,4 @@
-import { DocInlineCode, DocLead, DocRows, DocSection } from "@valentinkolb/cloud/ui";
+import { DocInlineCode, DocLead, DocNote, DocRows, DocSection } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
 import { AGGREGATE_KINDS } from "../../../aggregate-catalog";
 import { GridsDocPage, QuerySnippet } from "./grids-help-content";
@@ -181,7 +181,7 @@ include deleted | deleted only`}
           {
             title: "limit and offset",
             icon: "ti-list-numbers",
-            text: "Bound the result. Limit accepts 1..10000; offset accepts 0..10000. Sort before using offset so paging is meaningful.",
+            text: "limit accepts 1..10000 and caps the complete result across cursor pages. offset accepts 0..10000 and skips an initial result window.",
           },
           {
             title: "include deleted / deleted only",
@@ -191,6 +191,13 @@ include deleted | deleted only`}
         ]}
       />
     </DocSection>
+
+    <DocNote title="Result pages" variant="tip">
+      The query explorer, saved result views, dashboards, and the CLI execute the same GQL. Page cursors are opaque, signed, and tied to the
+      exact query and source. Changing the query starts again at the first page. In the CLI, use <DocInlineCode>--page-size</DocInlineCode>
+      for one page or <DocInlineCode>--all --max-rows N</DocInlineCode> for a bounded multi-page read. Pages are live reads, not a database
+      snapshot; concurrent record changes can move rows between page requests.
+    </DocNote>
 
     <DocSection title="Names and values">
       <DocRows

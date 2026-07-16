@@ -271,6 +271,39 @@ describe("records SQL formula projection integration", () => {
     }
   });
 
+  postgresTest("group pagination preserves aggregate-sort cursor values", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      await sql`
+        INSERT INTO grids.records (id, table_id, data, version)
+        VALUES
+          (${uuid()}::uuid, ${fixture.tableId}::uuid, ${{ [fixture.priceId]: "0.10", [fixture.quantityId]: "2.00" }}::jsonb, 1),
+          (${uuid()}::uuid, ${fixture.tableId}::uuid, ${{ [fixture.priceId]: "2.00", [fixture.quantityId]: "1.00" }}::jsonb, 1)
+      `;
+
+      const request = {
+        tableId: fixture.tableId,
+        groupBy: [{ fieldId: fixture.priceId, direction: "asc" as const }],
+        aggregations: [{ fieldId: "*" as const, agg: "count" as const }],
+        groupSort: [{ fieldId: "*" as const, agg: "count" as const, direction: "desc" as const }],
+        limit: 1,
+      };
+      const first = await group(request);
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.data.buckets[0]?.values["*__count"]).toBe(2);
+      expect(first.data.nextCursor).not.toBeNull();
+
+      const second = await group({ ...request, cursor: first.data.nextCursor });
+      expect(second.ok).toBe(true);
+      if (!second.ok) return;
+      expect(second.data.buckets[0]?.values["*__count"]).toBe(1);
+      expect(second.data.buckets[0]?.keys[0]).toBe(1);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
   postgresTest("group aggregates SQL formula arguments and applies having to the formula alias", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {
