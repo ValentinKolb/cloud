@@ -313,7 +313,7 @@ export default function DatabaseTable(props: Props) {
         onRowClick={props.onRecordClick}
         rowClass={(record) =>
           props.highlightedIds?.has(record.id)
-            ? "bg-sky-50/45 shadow-[inset_2px_0_0_rgb(56_189_248_/_0.65)] transition-colors dark:bg-sky-950/20"
+            ? "font-medium outline outline-1 -outline-offset-1 outline-[var(--ui-border-strong)]"
             : undefined
         }
         empty="No records"
@@ -349,8 +349,7 @@ export default function DatabaseTable(props: Props) {
           const canMoveLeft = index > 0 && (isColumnOrderEdit || (!!props.onFieldMove && !props.viewColumns));
           const canMoveRight =
             index >= 0 && index < visibleFields().length - 1 && (isColumnOrderEdit || (!!props.onFieldMove && !props.viewColumns));
-          const adminIconClass =
-            "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200";
+          const adminIconClass = "icon-btn app-accent-text h-6 w-6 shrink-0 hover:opacity-75";
           return (
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{renderAdminHeader(field, subtitle, computed)}</div>

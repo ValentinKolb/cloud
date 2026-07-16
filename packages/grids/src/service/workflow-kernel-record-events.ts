@@ -33,11 +33,25 @@ const CONSUMER_GROUP = "workflow-kernel-queue-v1";
 const RETRY_DELAY_MS = 1_000;
 const APPLICATION_MAX_DELIVERY_ATTEMPTS = 20;
 const LEASE_HEARTBEAT_MS = Math.floor(RECORD_EVENT_WORK_LEASE_MS / 3);
+const DELIVERY_FAILURE_BASE_FOREIGN_KEY = "record_event_delivery_failures_base_id_fkey";
 const recordEventWorkMutex = mutex({
   id: "grids:workflow-record-events:v1",
   retryCount: 0,
   defaultTtl: RECORD_EVENT_WORK_LEASE_MS,
 });
+
+export const isDeletedRecordEventBaseError = (error: unknown): boolean => {
+  const postgresError = error as { code?: string; errno?: string; constraint?: string; constraint_name?: string; message?: string } | null;
+  if (postgresError?.code !== "23503" && postgresError?.errno !== "23503") return false;
+  const constraint = postgresError.constraint ?? postgresError.constraint_name;
+  return constraint === DELIVERY_FAILURE_BASE_FOREIGN_KEY || postgresError.message?.includes(DELIVERY_FAILURE_BASE_FOREIGN_KEY) === true;
+};
+
+const acknowledgeObsoleteDelivery = async (delivery: QueueReceived<GridsRecordEvent>, error: unknown): Promise<boolean> => {
+  if (!isDeletedRecordEventBaseError(error)) return false;
+  if (!(await delivery.ack())) throw new Error("obsolete record event acknowledgement was not accepted", { cause: error });
+  return true;
+};
 
 export const processInvalidWorkflowRecordEventDelivery = async (
   delivery: QueueReceived<GridsRecordEvent>,
@@ -60,6 +74,13 @@ export const processInvalidWorkflowRecordEventDelivery = async (
       error: "record event payload is invalid",
     });
   } catch (failureStoreError) {
+    if (await acknowledgeObsoleteDelivery(delivery, failureStoreError)) {
+      log.info("Discarded record event for a deleted base", {
+        baseId: baseId.data,
+        eventId: delivery.messageId,
+      });
+      return;
+    }
     const accepted = await delivery.nack({
       delayMs: workflowRecordEventRetryDelayMs(delivery.attempt),
       reason: "failure_store_unavailable",
@@ -105,6 +126,14 @@ export const processFailedWorkflowRecordEventDelivery = async (
       maxAttempts: APPLICATION_MAX_DELIVERY_ATTEMPTS,
     });
   } catch (failureStoreError) {
+    if (await acknowledgeObsoleteDelivery(delivery, failureStoreError)) {
+      log.info("Discarded record event for a deleted base", {
+        baseId: event.baseId,
+        eventId: delivery.messageId,
+        recordId: event.recordId,
+      });
+      return { dead: true, attempts: delivery.attempt };
+    }
     const accepted = await delivery.nack({
       delayMs: workflowRecordEventRetryDelayMs(delivery.attempt),
       reason: "failure_store_unavailable",

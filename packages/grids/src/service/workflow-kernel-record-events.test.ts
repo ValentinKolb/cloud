@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { QueueReceived } from "@valentinkolb/sync";
 import type { GridsRecordEvent } from "./record-events";
 import {
+  isDeletedRecordEventBaseError,
   processFailedWorkflowRecordEventDelivery,
   processInvalidWorkflowRecordEventDelivery,
   workflowRecordEventRetryDelayMs,
@@ -22,6 +23,17 @@ const invalidDelivery = (input: { ack?: () => Promise<boolean>; nack?: () => Pro
 });
 
 describe("workflow record-event recovery", () => {
+  test("recognizes only the deleted-base foreign-key failure", () => {
+    expect(
+      isDeletedRecordEventBaseError({
+        code: "23503",
+        constraint: "record_event_delivery_failures_base_id_fkey",
+      }),
+    ).toBe(true);
+    expect(isDeletedRecordEventBaseError({ code: "23503", constraint: "another_foreign_key" })).toBe(false);
+    expect(isDeletedRecordEventBaseError(new Error("PostgreSQL unavailable"))).toBe(false);
+  });
+
   test("backs off failed deliveries without exceeding five minutes", () => {
     expect(workflowRecordEventRetryDelayMs(1)).toBe(1_000);
     expect(workflowRecordEventRetryDelayMs(5)).toBe(16_000);
@@ -74,6 +86,22 @@ describe("workflow record-event recovery", () => {
     expect(nack).toHaveBeenCalledWith(expect.objectContaining({ delayMs: 32_000, reason: "failure_store_unavailable" }));
   });
 
+  test("acknowledges invalid work whose base was deleted", async () => {
+    const ack = mock(async () => true);
+    const nack = mock(async () => true);
+    const recordFailure = mock(async () => {
+      throw {
+        code: "23503",
+        constraint: "record_event_delivery_failures_base_id_fkey",
+      };
+    });
+
+    await processInvalidWorkflowRecordEventDelivery(invalidDelivery({ ack, nack }), recordFailure);
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(nack).not.toHaveBeenCalled();
+  });
+
   test("persists dispatch failures and retries with backoff", async () => {
     const nack = mock(async () => true);
     const delivery = { ...invalidDelivery({ nack }), data: validEvent() };
@@ -98,6 +126,24 @@ describe("workflow record-event recovery", () => {
 
     expect(result).toEqual({ attempts: 7, dead: false });
     expect(nack).toHaveBeenCalledWith(expect.objectContaining({ delayMs: 64_000, reason: "failure_store_unavailable" }));
+  });
+
+  test("acknowledges dispatch work whose base was deleted", async () => {
+    const ack = mock(async () => true);
+    const nack = mock(async () => true);
+    const delivery = { ...invalidDelivery({ ack, nack }), attempt: 4, data: validEvent() };
+    const recordFailure = mock(async () => {
+      throw {
+        code: "23503",
+        constraint_name: "record_event_delivery_failures_base_id_fkey",
+      };
+    });
+
+    const result = await processFailedWorkflowRecordEventDelivery(delivery, delivery.data, new Error("dispatch failed"), recordFailure);
+
+    expect(result).toEqual({ attempts: 4, dead: true });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(nack).not.toHaveBeenCalled();
   });
 
   test("acknowledges dispatch failures after the application retry budget", async () => {

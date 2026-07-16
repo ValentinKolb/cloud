@@ -103,7 +103,7 @@ describe("Grids workspace workflow run detail", () => {
   });
 
   test("returns one composed payload for a readable workflow run", async () => {
-    const detail = { run, steps: [], documents: { items: [], total: 0, hasMore: false } };
+    const detail = { run, steps: [], documents: { items: [], total: 0, hasMore: false, nextOffset: null } };
     const app = createWorkspaceApi({
       requireAuthenticated: authenticated,
       getWorkflowRun: async () => run,

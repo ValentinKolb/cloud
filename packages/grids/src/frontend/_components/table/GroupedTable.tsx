@@ -53,6 +53,9 @@ type Props = {
   onColumnSettings?: (columnId: string) => void;
   onColumnMove?: (columnId: string, direction: -1 | 1) => void;
   dateConfig?: DateContext;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 };
 
 export const groupedGroupColumnId = (spec: GroupByCol, index: number): string => `group:${index}:${spec.fieldId}:${spec.granularity ?? ""}`;
@@ -153,8 +156,7 @@ export default function GroupedTable(props: Props) {
           const settings = props.onColumnSettings;
           const move = props.onColumnMove;
           if (!settings && !move) return render();
-          const adminIconClass =
-            "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200";
+          const adminIconClass = "icon-btn app-accent-text h-6 w-6 shrink-0 hover:opacity-75";
           return (
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{render()}</div>
@@ -230,6 +232,12 @@ export default function GroupedTable(props: Props) {
           return formatGroupValue({ value: val, spec: meta.spec, field: f, dateConfig: props.dateConfig });
         }}
       />
+      <Show when={props.hasMore}>
+        <button type="button" class="btn-input btn-input-sm mt-2 self-center" onClick={props.onLoadMore} disabled={props.loadingMore}>
+          {props.loadingMore ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-chevron-down" />}
+          Load more groups
+        </button>
+      </Show>
     </Show>
   );
 }

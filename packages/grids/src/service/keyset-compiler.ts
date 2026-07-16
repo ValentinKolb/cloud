@@ -1,7 +1,8 @@
 import { sql } from "bun";
 import type { FormulaSqlType } from "./formula-sql-compiler";
 
-const joinSql = (parts: unknown[], separator: unknown): unknown => parts.slice(1).reduce((result, part) => sql`${result}${separator}${part}`, parts[0]!);
+const joinSql = (parts: unknown[], separator: unknown): unknown =>
+  parts.slice(1).reduce((result, part) => sql`${result}${separator}${part}`, parts[0]!);
 
 export type DslKeysetType = FormulaSqlType | "uuid";
 
@@ -81,26 +82,37 @@ const after = (column: DslKeysetColumn, value: unknown): unknown => {
 };
 
 const equalPrefix = (columns: DslKeysetColumn[], values: unknown[], length: number): unknown => {
-  const parts = columns.slice(0, length).map((column, index) => sql`${column.expression} IS NOT DISTINCT FROM ${castValue(column.type, values[index])}`);
+  const parts = columns
+    .slice(0, length)
+    .map((column, index) => sql`${column.expression} IS NOT DISTINCT FROM ${castValue(column.type, values[index])}`);
   return parts.length > 0 ? joinSql(parts, sql` AND `) : sql`TRUE`;
 };
 
 export const compileDslKeyset = (
   columns: DslKeysetColumn[],
   values: unknown[] | null | undefined,
-): { ok: true; orderBy: unknown; where: unknown; select: unknown; valuesFromRow: (row: Record<string, unknown>) => unknown[] } | { ok: false; error: string } => {
+):
+  | { ok: true; orderBy: unknown; where: unknown; select: unknown; valuesFromRow: (row: Record<string, unknown>) => unknown[] }
+  | { ok: false; error: string } => {
   if (columns.length === 0) return { ok: false, error: "query result has no stable cursor columns" };
-  if (columns.some((column) => column.type === "unknown")) return { ok: false, error: "query sort contains a value that cannot be cursor-paginated" };
+  if (columns.some((column) => column.type === "unknown"))
+    return { ok: false, error: "query sort contains a value that cannot be cursor-paginated" };
   if (values && (values.length !== columns.length || values.some((value, index) => !validValue(columns[index]!.type, value)))) {
     return { ok: false, error: "cursor values do not match this query ordering" };
   }
 
   const aliases = columns.map((_, index) => `__gql_cursor_${index}`);
   const orderBy = joinSql(
-    columns.map((column) => sql`${column.expression} ${column.direction === "desc" ? sql`DESC` : sql`ASC`} ${column.nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`}`),
+    columns.map(
+      (column) =>
+        sql`${column.expression} ${column.direction === "desc" ? sql`DESC` : sql`ASC`} ${column.nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`}`,
+    ),
     sql`, `,
   );
-  const select = joinSql(columns.map((column, index) => sql`${column.expression} AS ${sql.unsafe(aliases[index]!)}`), sql`, `);
+  const select = joinSql(
+    columns.map((column, index) => sql`${column.expression} AS ${sql.unsafe(aliases[index]!)}`),
+    sql`, `,
+  );
   const where = values
     ? joinSql(
         columns.map((column, index) => sql`(${equalPrefix(columns, values, index)} AND ${after(column, values[index])})`),

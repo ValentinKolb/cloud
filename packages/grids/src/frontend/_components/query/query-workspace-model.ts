@@ -78,6 +78,16 @@ type SourceCatalogSummary = {
 export const visibleFields = (fields: Field[] | undefined): Field[] => (fields ?? []).filter((field) => !field.deletedAt);
 export const visibleViews = (views: View[] | undefined): View[] => (views ?? []).filter((view) => !view.deletedAt);
 
+export const sourceFieldsForSearch = (fields: Field[], search: string, limit = 8): { shown: Field[]; hidden: number } => {
+  const normalized = search.trim().toLowerCase();
+  const matching = normalized ? fields.filter((field) => `${field.name} ${field.type}`.toLowerCase().includes(normalized)) : [];
+  const candidates = matching.length > 0 ? matching : fields;
+  return {
+    shown: candidates.slice(0, limit),
+    hidden: Math.max(0, candidates.length - limit),
+  };
+};
+
 export const sourceCatalogSummary = (
   tables: Table[],
   fieldsByTable: Record<string, Field[]>,

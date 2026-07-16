@@ -110,15 +110,15 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
         </div>
 
         <Show when={childEntries().length > 0}>
-          <div class="flex flex-col gap-2 border-t border-default pt-3">
+          <div class="flex flex-col gap-2 pt-1">
             <div>
               <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">Resource overrides</h3>
               <p class="text-xs text-dimmed">These entries are more specific than base access and can shadow it.</p>
             </div>
-            <div class="overflow-hidden rounded-md border border-default">
+            <div class="flex flex-col">
               <For each={childEntries()}>
                 {(entry) => (
-                  <div class="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-default px-3 py-2 last:border-b-0">
+                  <div class="grid grid-cols-[1fr_auto] items-center gap-3 px-1 py-2">
                     <div class="min-w-0">
                       <div class="truncate text-sm font-medium text-default">
                         {entry.resourceName}

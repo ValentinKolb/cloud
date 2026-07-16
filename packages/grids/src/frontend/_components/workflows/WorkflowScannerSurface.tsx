@@ -1,5 +1,5 @@
 import { dialogCore, PanelDialog, panelDialogOptions, TextInput } from "@valentinkolb/cloud/ui";
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { WorkflowRunEventSummary, WorkflowRunStepSummary } from "../../../lib/workflow-run-events";
 import { errorMessage } from "../utils/api-helpers";
@@ -32,6 +32,7 @@ const dashboardWorkflowRunsApi = apiClient.dashboards as unknown as DashboardWor
 
 import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
 import { acquireScannerStream, stopScannerStream } from "./workflow-scanner-camera";
+import { retainVisibleScannerLogs } from "./workflow-scanner-log";
 import { invokeWorkflowScannerRequest, type WorkflowScannerTransport, workflowScannerResponseKind } from "./workflow-scanner-request";
 
 export type WorkflowScannerState = {
@@ -75,6 +76,7 @@ type ScanAnnouncement = {
 };
 
 const MAX_ACTIVE_SCAN_RUNS = 8;
+const MAX_VISIBLE_SCAN_LOGS = 100;
 
 const isTerminal = (run: WorkflowRunEventSummary): boolean =>
   run.status === "succeeded" || run.status === "failed" || run.status === "canceled" || run.status === "needs_attention";
@@ -176,26 +178,20 @@ export default function WorkflowScannerSurface(props: Props) {
   const [pauseReason, setPauseReason] = createSignal<string | null>(null);
   const [detections, setDetections] = createSignal<ScannerDetection[]>([]);
   const [logs, setLogs] = createSignal<ScanLogItem[]>([]);
+  const [completedCounts, setCompletedCounts] = createSignal({ total: 0, ok: 0, failed: 0 });
   const [activeScanIds, setActiveScanIds] = createSignal<Set<string>>(new Set());
   const [announcements, setAnnouncements] = createSignal<ScanAnnouncement[]>([]);
   const [manualCode, setManualCode] = createSignal("");
   const [videoBox, setVideoBox] = createSignal<VideoBox>({ x: 0, y: 0, width: 1, height: 1 });
   const recentCodes = new Map<string, number>();
+  const scanStatuses = new Map<string, ScanStatus>();
   let announcementId = 0;
   const scannerTransport: WorkflowScannerTransport = {
     invokeDashboard: (input) => apiClient.dashboards[":dashboardId"].widgets[":widgetId"].scan.$post(input),
     invokeLauncher: (input) => apiClient.workflows.launchers[":launcherId"].invoke.scanner.$post(input),
   };
 
-  const counts = createMemo(() => {
-    const items = logs();
-    return {
-      total: items.length,
-      ok: items.filter((item) => item.status === "succeeded").length,
-      failed: items.filter((item) => item.status === "failed").length,
-      active: activeScanIds().size,
-    };
-  });
+  const counts = () => ({ ...completedCounts(), active: activeScanIds().size });
   const announceLog = (item: ScanLogItem) => {
     const announcement = {
       id: ++announcementId,
@@ -205,11 +201,27 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const prependLog = (item: ScanLogItem) => {
-    setLogs((items) => [item, ...items.slice(0, 99)]);
+    scanStatuses.set(item.id, item.status);
+    setCompletedCounts((counts) => ({
+      total: counts.total + 1,
+      ok: counts.ok + (item.status === "succeeded" ? 1 : 0),
+      failed: counts.failed + (item.status === "failed" ? 1 : 0),
+    }));
+    setLogs((items) => {
+      const next = retainVisibleScannerLogs([item, ...items], MAX_VISIBLE_SCAN_LOGS);
+      const visibleIds = new Set(next.map((entry) => entry.id));
+      for (const entry of items) {
+        if (!visibleIds.has(entry.id) && entry.status !== "queued" && entry.status !== "running") scanStatuses.delete(entry.id);
+      }
+      return next;
+    });
     announceLog(item);
   };
 
   const updateLog = (id: string, patch: Partial<ScanLogItem>) => {
+    const previousStatus = scanStatuses.get(id);
+    if (!previousStatus) return;
+    const nextStatus = patch.status ?? previousStatus;
     if (patch.status === "queued" || patch.status === "running") {
       setActiveScanIds((ids) => new Set(ids).add(id));
     } else if (patch.status) {
@@ -219,8 +231,19 @@ export default function WorkflowScannerSurface(props: Props) {
         return next;
       });
     }
+    if (nextStatus !== previousStatus) {
+      setCompletedCounts((counts) => ({
+        ...counts,
+        ok: counts.ok - (previousStatus === "succeeded" ? 1 : 0) + (nextStatus === "succeeded" ? 1 : 0),
+        failed: counts.failed - (previousStatus === "failed" ? 1 : 0) + (nextStatus === "failed" ? 1 : 0),
+      }));
+      scanStatuses.set(id, nextStatus);
+    }
     const current = logs().find((item) => item.id === id);
-    if (!current) return;
+    if (!current) {
+      if (nextStatus === "succeeded" || nextStatus === "failed") scanStatuses.delete(id);
+      return;
+    }
     const next = { ...current, ...patch };
     setLogs((items) => items.map((item) => (item.id === id ? next : item)));
     if (next.status !== current.status || next.message !== current.message) announceLog(next);
@@ -328,6 +351,9 @@ export default function WorkflowScannerSurface(props: Props) {
           item.status === "queued" || item.status === "running" ? { ...item, status: "failed", message: error.message } : item,
         ),
       );
+      setCompletedCounts((counts) => ({ ...counts, failed: counts.failed + revoked.length }));
+      for (const item of revoked) scanStatuses.set(item.id, "failed");
+      setActiveScanIds(new Set<string>());
       for (const item of revoked) announceLog(item);
     },
     onFatal: () => {
@@ -539,7 +565,7 @@ export default function WorkflowScannerSurface(props: Props) {
   return (
     <div class={shellClass}>
       <Show when={props.mode === "page"}>
-        <header class="flex shrink-0 items-center gap-3 border-b border-white/10 px-4 py-3">
+        <header class="flex shrink-0 items-center gap-3 px-4 py-3">
           <a
             href={
               props.state.returnHref ??
@@ -620,7 +646,7 @@ export default function WorkflowScannerSurface(props: Props) {
         </section>
 
         <section class="paper flex min-h-0 flex-col overflow-hidden border-zinc-800 bg-zinc-950">
-          <div class="grid shrink-0 grid-cols-4 border-b border-zinc-800 text-center">
+          <div class="grid shrink-0 grid-cols-4 px-2 py-1 text-center">
             <div class="p-2">
               <p class="text-lg font-semibold">{counts().total}</p>
               <p class="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Scans</p>
@@ -638,7 +664,7 @@ export default function WorkflowScannerSurface(props: Props) {
               <p class="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Errors</p>
             </div>
           </div>
-          <form class="flex shrink-0 items-center gap-2 border-b border-zinc-800 p-2" onSubmit={submitManual}>
+          <form class="flex shrink-0 items-center gap-2 px-2 pb-2" onSubmit={submitManual}>
             <div class="min-w-0 flex-1">
               <TextInput
                 value={manualCode}
@@ -655,7 +681,10 @@ export default function WorkflowScannerSurface(props: Props) {
               <i class="ti ti-scan" aria-hidden="true" /> Scan
             </button>
           </form>
-          <div class="min-h-0 flex-1 overflow-y-auto">
+          <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
+            <Show when={counts().total > logs().length}>
+              <p class="px-3 py-1 text-[11px] text-zinc-500">Showing the latest {MAX_VISIBLE_SCAN_LOGS} scans.</p>
+            </Show>
             <Show
               when={logs().length > 0}
               fallback={<div class="flex h-full items-center justify-center px-4 text-center text-sm text-zinc-500">No scans yet.</div>}
@@ -664,7 +693,7 @@ export default function WorkflowScannerSurface(props: Props) {
                 {(item) => (
                   <button
                     type="button"
-                    class="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-zinc-800 px-3 py-2 text-left transition-colors hover:bg-white/5"
+                    class="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-white/5"
                     onClick={() =>
                       void openScanDetails(
                         item,

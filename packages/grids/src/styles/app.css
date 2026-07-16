@@ -2,56 +2,6 @@
 @source "../**/*.{ts,tsx}";
 @custom-variant dark (&:where(.dark, .dark *));
 
-.grids-sidebar-edit-active {
-  position: relative;
-  background: rgb(16 185 129 / 0.1);
-  color: rgb(5 150 105);
-  font-weight: 500;
-  box-shadow: var(--theme-shadow-elevated);
-}
-
-.grids-sidebar-edit-active:hover {
-  color: rgb(4 120 87);
-  background: rgb(16 185 129 / 0.16);
-}
-
-.grids-sidebar-edit-active::before {
-  content: "";
-  position: absolute;
-  left: 0.25rem;
-  top: 50%;
-  height: 0.875rem;
-  width: 0.125rem;
-  transform: translateY(-50%);
-  border-radius: 9999px;
-  background: rgb(16 185 129);
-  pointer-events: none;
-}
-
-.dark .grids-sidebar-edit-active {
-  background: rgb(6 78 59 / 0.35);
-  color: rgb(52 211 153);
-}
-
-.dark .grids-sidebar-edit-active:hover {
-  background: rgb(6 78 59 / 0.5);
-  color: rgb(167 243 208);
-}
-
-.dark .grids-sidebar-edit-active::before {
-  background: rgb(52 211 153);
-}
-
-.grids-edit-control-surface {
-  border: 1px solid rgb(52 211 153);
-  box-shadow: 0 8px 20px rgb(15 23 42 / 0.1);
-}
-
-.dark .grids-edit-control-surface {
-  border-color: rgb(16 185 129);
-  box-shadow: 0 8px 20px rgb(0 0 0 / 0.35);
-}
-
 .grids-code-display {
   color: rgb(24 24 27);
   display: inline-flex;

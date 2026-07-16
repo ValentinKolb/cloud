@@ -44,7 +44,7 @@ const ROW_MIN_HEIGHT_PX = {
 } as const;
 
 const DASHBOARD_CELL_MAX_HEIGHT = "min(70vh, 820px)";
-const EDIT_ICON_CLASS = "icon-btn text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200";
+const EDIT_ICON_CLASS = "icon-btn";
 
 const runDashboardControlAction = (controlKey: string, action: () => void) => {
   action();
@@ -330,9 +330,9 @@ function DashboardRowGrid(props: {
                 }));
               }}
               type="button"
-              class={`btn-input-success min-h-16 w-16 shrink-0 justify-center ${
+              class={`btn-input min-h-16 w-16 shrink-0 justify-center ${
                 props.cellDnd.intent()?.toRowIdx === props.rowIdx && (props.cellDnd.intent()?.toCellIdx ?? 0) >= props.row.cells.length
-                  ? "bg-emerald-50 dark:bg-emerald-950"
+                  ? "bg-[var(--ui-active)]"
                   : ""
               }`}
               onClick={() => edit().onAddCell(props.rowIdx)}
@@ -371,8 +371,8 @@ function AddRowRail(props: {
     >
       <button
         type="button"
-        class={`btn-input-success btn-input-sm flex min-h-9 w-full items-center justify-center ${
-          active() || props.active ? "bg-emerald-50 dark:bg-emerald-950" : ""
+        class={`btn-input btn-input-sm flex min-h-9 w-full items-center justify-center ${
+          active() || props.active ? "bg-[var(--ui-active)]" : ""
         }`}
         onClick={props.onAdd}
       >
@@ -451,9 +451,7 @@ function RowEditRail(props: {
 }
 
 function DropIndicator() {
-  return (
-    <div class="pointer-events-none my-2 min-h-16 w-1.5 shrink-0 self-stretch rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" />
-  );
+  return <div class="pointer-events-none my-2 min-h-16 w-1.5 shrink-0 self-stretch rounded-full bg-[var(--ui-border-strong)]" />;
 }
 
 function EditCellControls(props: {
@@ -488,7 +486,7 @@ function EditCellControls(props: {
   return (
     <Show when={props.edit}>
       {(edit) => (
-        <div class="grids-edit-control-surface absolute right-2 top-2 z-20 flex items-center gap-0 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] p-1">
+        <div class="absolute right-2 top-2 z-20 flex items-center gap-0 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1">
           <span
             class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`}
             data-dashboard-cell-drag

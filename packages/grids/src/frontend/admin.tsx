@@ -76,7 +76,7 @@ export default ssr<AuthContext>(async (c) => {
               sub={search ? "in filtered bases" : "total"}
               accent={{ tone: "zinc", icon: "ti ti-table" }}
             />
-            <StatCell label="Records" value={summary.totalRecords} sub="non-deleted" accent={{ tone: "emerald", icon: "ti ti-list" }} />
+            <StatCell label="Records" value={summary.totalRecords} sub="non-deleted" accent={{ tone: "zinc", icon: "ti ti-list" }} />
             <StatCell
               label="Orphaned bases"
               value={summary.orphanedBases}
@@ -86,8 +86,8 @@ export default ssr<AuthContext>(async (c) => {
             />
           </StatGrid>
 
-          <section class="paper overflow-hidden" style="view-transition-name: admin-grids-table">
-            <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+          <section class="paper flex flex-col gap-1 overflow-hidden" style="view-transition-name: admin-grids-table">
+            <div class="flex flex-col gap-2 p-3">
               <div>
                 <h2 class="text-xs font-semibold text-primary">Bases</h2>
                 <p class="text-[10px] text-dimmed">
@@ -118,7 +118,7 @@ export default ssr<AuthContext>(async (c) => {
                 if (col.id === "base") {
                   return (
                     <div class="flex min-w-52 items-center gap-2">
-                      <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-blue-500 text-[10px] text-white">
+                      <span class="app-accent-text inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[var(--ui-selected)] text-[10px]">
                         <i class="ti ti-database" />
                       </span>
                       <span class="truncate font-medium text-primary">{base.name}</span>

@@ -195,7 +195,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems scrollPreserveKey={`grids-sidebar-mobile-${state.base.id}`}>
           {state.canUseEditMode && (
-            <SidebarLink href={state.editModeToggleHref}>
+            <SidebarLink href={state.editModeToggleHref} class={state.adminModeRequested ? "font-medium text-primary" : undefined}>
               <AppWorkspace.SidebarItemIcon icon={state.adminModeRequested ? "ti ti-check" : "ti ti-tool"} />
               <AppWorkspace.SidebarItemLabel>{state.adminModeRequested ? "Done editing" : "Edit mode"}</AppWorkspace.SidebarItemLabel>
             </SidebarLink>
@@ -225,7 +225,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
         <AppWorkspace.SidebarBody scrollPreserveKey="grids-sidebar">{renderNavigationSections()}</AppWorkspace.SidebarBody>
         {state.canUseEditMode && (
           <AppWorkspace.SidebarFooter>
-            <SidebarLink href={state.editModeToggleHref} class={state.adminModeRequested ? "grids-sidebar-edit-active" : undefined}>
+            <SidebarLink href={state.editModeToggleHref} class={state.adminModeRequested ? "font-medium text-primary" : undefined}>
               <AppWorkspace.SidebarItemIcon icon={state.adminModeRequested ? "ti ti-check" : "ti ti-tool"} />
               <AppWorkspace.SidebarItemLabel>{state.adminModeRequested ? "Done editing" : "Edit mode"}</AppWorkspace.SidebarItemLabel>
             </SidebarLink>

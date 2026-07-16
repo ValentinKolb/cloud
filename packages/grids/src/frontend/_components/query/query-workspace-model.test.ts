@@ -6,6 +6,7 @@ import {
   previewSummary,
   queryTextStats,
   sourceCatalogSummary,
+  sourceFieldsForSearch,
   visibleFields,
   visibleViews,
 } from "./query-workspace-model";
@@ -130,5 +131,11 @@ describe("query workspace model", () => {
         { [active.id]: [view("open", active.id)], [deleted.id]: [view("old", deleted.id)] },
       ),
     ).toEqual({ tables: 1, fields: 1, views: 1 });
+  });
+
+  test("shows matching fields before the default source field slice", () => {
+    const fields = Array.from({ length: 10 }, (_, index) => field(index === 9 ? "invoice total" : `field-${index}`, "table"));
+    expect(sourceFieldsForSearch(fields, "invoice")).toEqual({ shown: [fields[9]!], hidden: 0 });
+    expect(sourceFieldsForSearch(fields, "table name")).toEqual({ shown: fields.slice(0, 8), hidden: 2 });
   });
 });

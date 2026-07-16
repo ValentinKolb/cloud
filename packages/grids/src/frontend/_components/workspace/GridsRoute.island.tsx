@@ -9,6 +9,7 @@ import { createGridsRecordEventsProvider } from "../records-view/grids-record-ev
 import RecordsView from "../records-view/RecordsView";
 import { WorkflowRunDetailPanel } from "../workflows/WorkflowRunDetailPanel";
 import WorkflowsPage from "../workflows/WorkflowsPage";
+import { createDeferredWorkspaceReload } from "./deferred-workspace-reload";
 import { workspaceMainClass } from "./workspace-layout";
 import type {
   OkWorkspaceState,
@@ -56,7 +57,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
     }
 
     if (route.kind === "dashboard") {
-      let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+      const refresh = createDeferredWorkspaceReload(reloadRoute);
       const providers = (route.recordLiveTableIds ?? []).map((tableId) => {
         const provider = createGridsRecordEventsProvider({
           tableId,
@@ -64,17 +65,16 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
           initialCursor: state.recordEventCursor,
           onEvent: (_event, cursor) => {
             provider.markApplied(cursor);
-            if (refreshTimer) clearTimeout(refreshTimer);
-            refreshTimer = setTimeout(reloadRoute, 200);
+            refresh.schedule();
           },
-          onRevoked: reloadRoute,
+          onRevoked: refresh.reloadNow,
           onFatal: (error) => console.warn("Grids dashboard live updates stopped", error),
         });
         provider.connect();
         return provider;
       });
       onCleanup(() => {
-        if (refreshTimer) clearTimeout(refreshTimer);
+        refresh.dispose();
         for (const provider of providers) provider.dispose();
       });
     }

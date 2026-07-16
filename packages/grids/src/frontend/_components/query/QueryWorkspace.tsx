@@ -8,7 +8,13 @@ import type { Field, Table, View } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { GqlSourceEditor } from "./GqlSourceEditor";
 import QueryResultTable from "./QueryResultTable";
-import { currentSourceForApi, type QueryWorkspaceCurrentSource, visibleFields, visibleViews } from "./query-workspace-model";
+import {
+  currentSourceForApi,
+  type QueryWorkspaceCurrentSource,
+  sourceFieldsForSearch,
+  visibleFields,
+  visibleViews,
+} from "./query-workspace-model";
 
 type Props = {
   baseId: string;
@@ -591,8 +597,9 @@ export default function QueryWorkspace(props: Props) {
                 <div class="space-y-2">
                   <For each={filteredSourceRows()}>
                     {(source) => {
-                      const shown = () => source.fields.slice(0, 8);
-                      const hidden = () => Math.max(0, source.fields.length - shown().length);
+                      const visibleSourceFields = () => sourceFieldsForSearch(source.fields, sourceSearch());
+                      const shown = () => visibleSourceFields().shown;
+                      const hidden = () => visibleSourceFields().hidden;
                       return (
                         <article class="paper px-2.5 py-2">
                           <div class="flex items-start justify-between gap-2">

@@ -1,19 +1,11 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createConfig } from "@valentinkolb/ssr";
+import { describe, expect, test } from "bun:test";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import type { Dashboard, Field } from "../../../service";
+import "../ssr-test-plugin";
 import type { WidgetData } from "./widget-data";
 
-const ssrRoot = await mkdtemp(join(tmpdir(), "grids-dashboard-layout-"));
-const { plugin } = createConfig({ dev: true, rootDir: ssrRoot });
-Bun.plugin(plugin());
 const { default: DashboardLayout } = await import("./DashboardLayout");
-
-afterAll(() => rm(ssrRoot, { recursive: true, force: true }));
 
 const dashboard = {
   id: "00000000-0000-4000-8000-000000000001",

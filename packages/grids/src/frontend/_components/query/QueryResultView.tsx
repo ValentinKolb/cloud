@@ -1,6 +1,6 @@
 import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, Show } from "solid-js";
+import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewResponse } from "../../../contracts";
 import type { Field, Table } from "../../../service";
@@ -49,7 +49,9 @@ export default function QueryResultView(props: {
   const [result, setResult] = createSignal<DslQueryPreviewResponse | null>(props.route.initialResult);
   const [pageCursor, setPageCursor] = createSignal<string | null>(props.route.initialCursor);
   const [pageHistory, setPageHistory] = createSignal<Array<string | null>>([]);
+  const [hydrated, setHydrated] = createSignal(false);
   const tableShortIds = createMemo(() => Object.fromEntries(props.tables.map((table) => [table.id, table.shortId])));
+  onMount(() => setHydrated(true));
   const pageMut = mutations.create<DslQueryPreviewResponse, PageRequest, PageRequest>({
     onBefore: (request) => request,
     mutation: async (request, { abortSignal }) => {
@@ -138,7 +140,7 @@ export default function QueryResultView(props: {
               tableShortIds={tableShortIds()}
               fieldsByTable={props.fieldsByTable}
               scrollPreserveKey={`grids-query-result-view-${props.route.activeView.id}`}
-              loading={pageMut.loading()}
+              loading={!hydrated() || pageMut.loading()}
               canGoBack={pageHistory().length > 0 || pageCursor() !== null}
               backLabel={pageHistory().length > 0 ? "Previous" : "First page"}
               onPrevious={() => {

@@ -151,6 +151,7 @@ export type WorkspaceWorkflowRunDetail = {
     items: DocumentRunSummary[];
     total: number;
     hasMore: boolean;
+    nextOffset: number | null;
   };
 };
 

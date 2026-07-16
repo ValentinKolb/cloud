@@ -1,18 +1,10 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createConfig } from "@valentinkolb/ssr";
+import { describe, expect, test } from "bun:test";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import type { Field, GridRecord } from "../../../service";
+import "../ssr-test-plugin";
 
-const ssrRoot = await mkdtemp(join(tmpdir(), "grids-field-value-"));
-const { plugin } = createConfig({ dev: true, rootDir: ssrRoot });
-Bun.plugin(plugin());
 const { FieldValue } = await import("./FieldValue");
-
-afterAll(() => rm(ssrRoot, { recursive: true, force: true }));
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "name" | "type">): Field => ({
   shortId: overrides.id.slice(0, 5),

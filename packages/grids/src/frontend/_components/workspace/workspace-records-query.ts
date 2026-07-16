@@ -18,6 +18,7 @@ import { gridsService } from "../../../service";
 import { calendarQueryFilter, cardImageFieldIds } from "../records-view/display-mode";
 import { resolveEffectiveQuery } from "../records-view/effective-query";
 import type { RecordsState } from "../records-view/query-url";
+import { nextCursorWithinLimit } from "../records-view/records-pagination";
 import { buildViewer } from "./workspace-state-helpers";
 import type { AuthUser, RuntimeView, WorkspaceCatalog, WorkspaceGroupBucket } from "./workspace-state-model";
 
@@ -203,7 +204,8 @@ const loadGroupedInitialRecords = async (
     filter: query.effectiveFilter,
     recordMeta: query.effectiveRecordMeta,
     search: query.effectiveSearch.q ? { q: query.effectiveSearch.q, fieldIds: query.effectiveSearch.fieldIds } : null,
-    limit: 1000,
+    cursor: args.recordsState.cursor,
+    limit: query.effectiveLimit,
     viewer,
     dateConfig: args.dateConfig,
   });
@@ -211,6 +213,7 @@ const loadGroupedInitialRecords = async (
 
   data.groupedBuckets = groupResult.data.buckets as WorkspaceGroupBucket[];
   data.groupedExplode = groupResult.data.explode;
+  data.records.nextCursor = nextCursorWithinLimit(groupResult.data.nextCursor, data.groupedBuckets.length, query.viewLimit);
   data.relationLabels = await gridsService.relations.buildLabelCacheForGroupedKeys(
     data.groupedBuckets,
     query.effectiveGroupBy.map((group) => group.fieldId),
@@ -243,7 +246,10 @@ const loadListedInitialRecords = async (
     filePreviewFieldIds: cardImageFieldIds(args.displayConfig),
   });
   if (listResult.ok) {
-    data.records = query.viewLimit !== undefined ? { ...listResult.data, nextCursor: null } : listResult.data;
+    data.records = {
+      ...listResult.data,
+      nextCursor: nextCursorWithinLimit(listResult.data.nextCursor, listResult.data.items.length, query.viewLimit),
+    };
     data.aggregates = data.records.aggregates ?? {};
   }
   data.relationLabels = await gridsService.relations.buildLabelCache(data.records.items, args.fields);
@@ -275,7 +281,6 @@ export const loadInitialRecords = async (args: InitialRecordsArgs) => {
       dateConfig: args.dateConfig,
     }) ?? null;
   query.effective.filter = query.effectiveFilter ?? undefined;
-  if (args.displayConfig.mode === "calendar" && query.viewLimit === undefined) query.effectiveLimit = 500;
   const viewer = buildViewer(args.user);
   const data =
     query.effectiveGroupBy.length > 0 && !args.trashMode

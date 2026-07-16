@@ -141,7 +141,7 @@ const createAccess = async (baseId: string, userId: string, permission: "read" |
 
 const dashboardWorkflowPlan = (): WorkflowBoundPlan =>
   ({
-      schemaVersion: 2,
+    schemaVersion: 2,
     languageId: "grids",
     languageVersion: 1,
     sourceHash: "dashboard-source",

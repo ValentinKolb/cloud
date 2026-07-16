@@ -63,7 +63,7 @@ export default function GridsWorkspace(props: { state: OkWorkspaceState }) {
     <>
       <RememberGridsPath path={props.state.rememberPath} />
       <WorkspaceMetadataRefresh baseId={props.state.base.id} initialCursor={props.state.metadataEventCursor} />
-      <AppWorkspace class="cloud-ui-soft min-h-0 flex-1">
+      <AppWorkspace class="min-h-0 flex-1">
         <GridsLayoutHelp />
         <GridsSidebar state={props.state} />
         <GridsRoute state={routeClientState(props.state)} />

@@ -2,7 +2,7 @@ import { CodeDisplay, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DocumentRunSummary } from "../../../contracts";
+import type { DocumentRunSummary, DocumentRunSummaryList } from "../../../contracts";
 import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
 import { downloadPdfResponse } from "../documents/document-download";
 import { requestDocumentRunDownload, requestWorkflowDocumentsDownload } from "../documents/document-transfer-client";
@@ -14,11 +14,25 @@ import {
   formatWorkflowRunDuration as formatDuration,
   workflowRunStatusClass as statusClass,
 } from "./workflow-display";
+import { mergeRefreshedWorkflowRunDocuments, type WorkflowRunDocumentsState } from "./workflow-run-documents";
 import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
 
 const workflowRunDetailApi = apiClient.workspace["workflow-run-detail"] as unknown as {
   $get: (input: { query: { runId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
 };
+
+const workflowRunDocumentsApi = apiClient.workflows.runs as unknown as {
+  [":runId"]: {
+    documents: {
+      $get: (
+        input: { param: { runId: string }; query: { limit: string; offset: string } },
+        options?: { init?: RequestInit },
+      ) => Promise<Response>;
+    };
+  };
+};
+
+const RUN_DOCUMENT_PAGE_SIZE = 100;
 
 const isTerminalRun = (run: GridsWorkflowRun): boolean =>
   run.status === "succeeded" || run.status === "failed" || run.status === "canceled" || run.status === "needs_attention";
@@ -26,22 +40,59 @@ const isTerminalRun = (run: GridsWorkflowRun): boolean =>
 export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: WorkspaceWorkflowRunDetail | null; onClose: () => void }) {
   const [run, setRun] = createSignal<GridsWorkflowRun | null>(props.initialDetail?.run ?? null);
   const [steps, setSteps] = createSignal<GridsWorkflowStepRun[]>(props.initialDetail?.steps ?? []);
-  const [documents, setDocuments] = createSignal<{ items: DocumentRunSummary[]; total: number; hasMore: boolean }>({
+  const [documents, setDocuments] = createSignal<WorkflowRunDocumentsState>({
     items: props.initialDetail?.documents.items ?? [],
     total: props.initialDetail?.documents.total ?? 0,
     hasMore: props.initialDetail?.documents.hasMore ?? false,
+    nextOffset: props.initialDetail?.documents.nextOffset ?? null,
   });
   const [downloadingDocumentId, setDownloadingDocumentId] = createSignal<string | null>(null);
   const [downloadingAll, setDownloadingAll] = createSignal(false);
 
-  const loadMut = mutations.create<void, string>({
+  const loadMoreDocumentsMut = mutations.create<
+    DocumentRunSummaryList,
+    { runId: string; offset: number },
+    { runId: string; offset: number }
+  >({
+    onBefore: (request) => request,
+    mutation: async ({ runId, offset }, { abortSignal }) => {
+      const response = await workflowRunDocumentsApi[":runId"].documents.$get(
+        {
+          param: { runId },
+          query: { limit: String(RUN_DOCUMENT_PAGE_SIZE), offset: String(offset) },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not load more generated documents."));
+      return response.json();
+    },
+    onSuccess: (page, request) => {
+      if (!request || request.runId !== props.runId) return;
+      setDocuments((current) => {
+        if (current.nextOffset !== request.offset) return current;
+        const seen = new Set(current.items.map((document) => document.id));
+        return {
+          items: [...current.items, ...page.items.filter((document) => !seen.has(document.id))],
+          total: page.total ?? current.total,
+          hasMore: page.hasMore ?? false,
+          nextOffset: page.nextOffset ?? null,
+        };
+      });
+    },
+  });
+
+  const loadMut = mutations.create<WorkspaceWorkflowRunDetail, string, string>({
+    onBefore: (runId) => runId,
     mutation: async (runId, { abortSignal }) => {
       const response = await workflowRunDetailApi.$get({ query: { runId } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await errorMessage(response, "Could not load workflow run."));
-      const detail = (await response.json()) as WorkspaceWorkflowRunDetail;
+      return response.json() as Promise<WorkspaceWorkflowRunDetail>;
+    },
+    onSuccess: (detail, requestedRunId) => {
+      if (requestedRunId !== props.runId || detail.run.id !== requestedRunId) return;
       setRun(detail.run);
       setSteps(detail.steps);
-      setDocuments(detail.documents);
+      setDocuments((current) => mergeRefreshedWorkflowRunDocuments(current, detail.documents));
     },
   });
 
@@ -56,7 +107,7 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
     loadedRunId = runId;
     setRun(null);
     setSteps([]);
-    setDocuments({ items: [], total: 0, hasMore: false });
+    setDocuments({ items: [], total: 0, hasMore: false, nextOffset: null });
     loadMut.mutate(runId);
   });
 
@@ -278,6 +329,23 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
                 </div>
               )}
             </For>
+            <Show when={documents().hasMore && documents().nextOffset !== null}>
+              <button
+                type="button"
+                class="btn-input btn-input-sm self-center"
+                disabled={loadMoreDocumentsMut.loading()}
+                onClick={() => {
+                  const offset = documents().nextOffset;
+                  if (offset !== null) loadMoreDocumentsMut.mutate({ runId: props.runId, offset });
+                }}
+              >
+                <i class={loadMoreDocumentsMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"} />
+                Load more documents
+              </button>
+            </Show>
+            <Show when={loadMoreDocumentsMut.error()}>
+              {(error) => <p class="text-xs text-red-600 dark:text-red-400">{error().message}</p>}
+            </Show>
           </div>
         </section>
       </div>

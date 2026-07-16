@@ -1,0 +1,2 @@
+[test]
+preload = ["./src/frontend/_components/ssr-test-plugin.ts"]

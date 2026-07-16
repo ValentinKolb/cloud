@@ -51,6 +51,7 @@ export const createLatestRequestController = () => {
 type RecordsQueryControllerOptions = {
   source: Accessor<RecordsQuerySource>;
   initialValue: TableQueryResult;
+  prepareSource?: (source: RecordsQuerySource) => RecordsQuerySource;
 };
 
 export const createRecordsQueryController = (options: RecordsQueryControllerOptions) => {
@@ -63,7 +64,7 @@ export const createRecordsQueryController = (options: RecordsQueryControllerOpti
       const request = requests.start();
       const epoch = ++fetchEpoch;
       try {
-        const result = await fetchTableQuery(source, { signal: request.signal });
+        const result = await fetchTableQuery(options.prepareSource?.(source) ?? source, { signal: request.signal });
         return { ...result, __recordsFetchEpoch: epoch };
       } finally {
         requests.finish(request);

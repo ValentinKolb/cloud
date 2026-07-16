@@ -2,7 +2,7 @@ import { Dropdown, TextInput } from "@valentinkolb/cloud/ui";
 import type { Accessor, Setter } from "solid-js";
 import { Show } from "solid-js";
 
-type ViewMode = "list" | "folders" | "custom";
+type ViewMode = "list" | "folders";
 
 type Props = {
   canWrite: boolean;
@@ -38,7 +38,6 @@ export default function DocumentBrowserToolbar(props: Props) {
     props.searching
       ? { element: <DisabledItem icon="ti ti-folder" label="Folders" title="Folder view is disabled while searching." /> }
       : { icon: "ti ti-folder", label: "Folders", action: () => props.onMode("folders") },
-    { element: <DisabledItem icon="ti ti-folder-cog" label="Custom" title="Custom folders are not configured yet." /> },
   ];
 
   return (

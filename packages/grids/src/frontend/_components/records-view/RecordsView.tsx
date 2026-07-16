@@ -208,7 +208,7 @@ export default function RecordsView(props: Props) {
         dateConfig: props.dateConfig,
       }),
     };
-    return renderMode() === "calendar" && !withCalendar.limit ? { ...withCalendar, limit: 500 } : withCalendar;
+    return withCalendar;
   };
 
   const queryCurrentSource = (): QueryWorkspaceCurrentSource =>
@@ -1035,6 +1035,9 @@ export default function RecordsView(props: Props) {
                           onRecordClick={onSelectRecord}
                           dateConfig={props.dateConfig}
                           fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
+                          hasMore={!props.trashMode && !!nextCursor()}
+                          loadingMore={data.loading && !!cursor()}
+                          onLoadMore={loadNextFlatPage}
                         />
                       </Show>
                     }
@@ -1078,6 +1081,9 @@ export default function RecordsView(props: Props) {
                   onColumnSettings={openGroupedViewColumnSettings}
                   onColumnMove={moveGroupedViewColumnInline}
                   dateConfig={props.dateConfig}
+                  hasMore={!props.trashMode && !!nextCursor()}
+                  loadingMore={data.loading && !!cursor()}
+                  onLoadMore={loadNextFlatPage}
                 />
               </Show>
             </div>

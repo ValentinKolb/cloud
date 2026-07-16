@@ -674,13 +674,15 @@ export default function WorkflowsPage(props: Props) {
                   <i class="ti ti-flask" /> Dry run
                 </button>
               </Show>
-              <For each={scannerLaunchers()}>
-                {(launcher) => (
-                  <button type="button" class="btn-input btn-sm shrink-0" onClick={() => void openScanner(activeWorkflow()!, launcher)}>
-                    <i class="ti ti-barcode" /> {launcher.name}
-                  </button>
-                )}
-              </For>
+              <Show when={activeWorkflow() && props.canRunActiveWorkflow}>
+                <For each={scannerLaunchers()}>
+                  {(launcher) => (
+                    <button type="button" class="btn-input btn-sm shrink-0" onClick={() => void openScanner(activeWorkflow()!, launcher)}>
+                      <i class="ti ti-barcode" /> {launcher.name}
+                    </button>
+                  )}
+                </For>
+              </Show>
               <Show when={props.editMode && activeWorkflow() && props.canManageActiveWorkflow}>
                 <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openLaunchers(activeWorkflow()!)}>
                   <i class="ti ti-rocket" /> Launchers

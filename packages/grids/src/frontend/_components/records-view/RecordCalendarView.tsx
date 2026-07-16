@@ -16,6 +16,9 @@ export function RecordCalendarView(props: {
   onRecordClick: (record: GridRecord) => void;
   dateConfig?: DateContext;
   fieldsByTable?: Record<string, Field[]>;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }) {
   const dateField = () => {
     const fieldId = props.displayConfig.calendar?.dateFieldId;
@@ -53,7 +56,7 @@ export function RecordCalendarView(props: {
   };
 
   return (
-    <div class="paper min-h-0 flex-1 overflow-hidden">
+    <div class="paper relative min-h-0 flex-1 overflow-hidden">
       <Show
         when={dateField()}
         fallback={
@@ -77,6 +80,17 @@ export function RecordCalendarView(props: {
             if (record) props.onRecordClick(record);
           }}
         />
+        <Show when={props.hasMore}>
+          <button
+            type="button"
+            class="btn-input btn-input-sm absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-sm"
+            onClick={props.onLoadMore}
+            disabled={props.loadingMore}
+          >
+            {props.loadingMore ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-chevron-down" />}
+            Load more events
+          </button>
+        </Show>
       </Show>
     </div>
   );

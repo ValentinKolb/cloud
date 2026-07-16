@@ -76,6 +76,7 @@ let catalogViewsByTable: Record<string, unknown[]> = { [table.id]: [] };
 let lookupTable: typeof table | null = null;
 let lookupView: typeof savedView | null = null;
 let lastRecordListParams: Record<string, unknown> | null = null;
+let lastRecordGroupParams: Record<string, unknown> | null = null;
 let recordGetCalls = 0;
 let recordListRecordForId: unknown | null = null;
 
@@ -131,7 +132,18 @@ mock.module("../../../service", () => ({
         const items = ids?.includes(selectedRecordId) && recordListRecordForId ? [recordListRecordForId] : [];
         return { ok: true, data: { items, aggregates: {}, nextCursor: null, filePreviews: {} } };
       },
-      group: async () => ({ ok: true, data: { buckets: [], explode: false, nextCursor: null } }),
+      group: async (params: Record<string, unknown>) => {
+        lastRecordGroupParams = params;
+        const limit = Number(params.limit ?? 0);
+        return {
+          ok: true,
+          data: {
+            buckets: Array.from({ length: limit }, (_, index) => ({ keys: [`group-${index}`], values: {} })),
+            explode: false,
+            nextCursor: limit > 0 ? "next-group-page" : null,
+          },
+        };
+      },
       get: async () => {
         recordGetCalls += 1;
         return null;
@@ -164,6 +176,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupTable = null;
     lookupView = null;
     lastRecordListParams = null;
+    lastRecordGroupParams = null;
     recordGetCalls = 0;
     recordListRecordForId = null;
   });
@@ -238,6 +251,30 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.kind).toBe("ok");
     if (state.kind !== "ok" || state.route.kind !== "records") return;
     expect(state.route.initialState.query.groupSort).toEqual([{ fieldId: "*", agg: "count", direction: "desc" }]);
+  });
+
+  test("hydrates large grouped limits as bounded cursor pages", async () => {
+    const groupedView = {
+      ...savedView,
+      source: `from table {${table.id}}\ngroup by {${statusField.id}}\naggregate count(*) as rows\nlimit 2500`,
+    };
+    catalogViewsByTable = { [table.id]: [groupedView] };
+    lookupTable = table;
+    lookupView = groupedView;
+
+    const state = await loadGridsWorkspaceState({
+      user,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${groupedView.shortId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: groupedView.shortId,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok" || state.route.kind !== "records") return;
+    expect(lastRecordGroupParams?.limit).toBe(100);
+    expect(state.route.initialData.buckets).toHaveLength(100);
+    expect(state.route.initialData.nextCursor).toBe("next-group-page");
   });
 
   test("loads an explicitly readable view even when the parent table is hidden from the catalog", async () => {

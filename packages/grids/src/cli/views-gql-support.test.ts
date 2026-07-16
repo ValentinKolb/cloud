@@ -2,11 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DslQueryExecuteResponse } from "../contracts";
 import { collectGqlResultPages } from "./views-gql-support";
 
-const page = (
-  values: number[],
-  nextCursor: string | null,
-  start = 0,
-): Extract<DslQueryExecuteResponse, { ok: true }> => ({
+const page = (values: number[], nextCursor: string | null, start = 0): Extract<DslQueryExecuteResponse, { ok: true }> => ({
   ok: true,
   mode: "rows",
   columns: [{ key: "value", label: "Value", type: "number", sqlType: "numeric" }],
@@ -62,9 +58,9 @@ describe("collectGqlResultPages", () => {
   });
 
   test("rejects a non-advancing cursor", async () => {
-    await expect(
-      collectGqlResultPages(async () => page([1], "same"), { cursor: "same", maxRows: 10, pageSize: 2 }),
-    ).rejects.toThrow("GQL pagination returned the same cursor twice.");
+    await expect(collectGqlResultPages(async () => page([1], "same"), { cursor: "same", maxRows: 10, pageSize: 2 })).rejects.toThrow(
+      "GQL pagination returned the same cursor twice.",
+    );
   });
 
   test("rejects a server page that exceeds the requested safety bound", async () => {

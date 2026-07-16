@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { SQL, sql } from "bun";
 import { migrate } from "./migrate";
+import { WORKFLOW_KERNEL_SCHEMA_VERSION } from "./workflows/migrate";
 
 const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
 
@@ -145,7 +146,7 @@ describe("grids schema migration", () => {
           )
         `;
 
-        await database`DELETE FROM grids.workflow_kernel_migrations WHERE version = 1`;
+        await database`DELETE FROM grids.workflow_kernel_migrations WHERE version = ${WORKFLOW_KERNEL_SCHEMA_VERSION}`;
         await migrate(database);
 
         const [document] = await database<Array<{ workflowRunId: string | null }>>`

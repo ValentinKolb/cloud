@@ -26,6 +26,7 @@ export const loadWorkflowRunDetail = async (run: GridsWorkflowRun): Promise<Work
       items: documents.items,
       total: documents.total ?? documents.items.length,
       hasMore: documents.hasMore ?? false,
+      nextOffset: documents.nextOffset ?? null,
     },
   };
 };
