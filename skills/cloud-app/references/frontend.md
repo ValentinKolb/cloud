@@ -416,6 +416,23 @@ import { Avatar } from "@valentinkolb/cloud/ui";
 
 Pass `userId` and `avatarHash` when account data includes them; the component renders the cached `/api/accounts/users/:id/avatar?rev=:hash` image and falls back to stable initials when no profile picture exists. Keep avatars circular and do not override `rounded-full` with app-local border-radius classes. For profile-picture write flows, use `openAvatarUploadDialog`; it wraps the shared `ImageCropper` with square/circle avatar defaults and preserves the avatar size/compression limits. Do not use generic `ImageInput` or hand-written file pickers for account avatars.
 
+### AI context usage
+
+`AiContextIndicator` shows how much of the selected model's context window the latest request used. Import it from `@valentinkolb/cloud/ai/ui`; use it in AI composers or agent workflows where token pressure affects the user's next action. UI Lab: AI → Context usage.
+
+```tsx
+import { AiContextIndicator } from "@valentinkolb/cloud/ai/ui";
+
+<AiContextIndicator
+  usage={latestRequestUsage}
+  loopUsage={latestLoopUsage}
+  contextWindow={model.contextWindow}
+  modelLabel={model.label}
+/>
+```
+
+`usage` describes the latest provider request; `loopUsage` is the cumulative multi-turn agent loop. `contextWindow` enables percentage and remaining-token values. The trigger owns a complete accessible name, and its non-interactive breakdown opens on pointer hover or keyboard focus and closes on Escape. Do not put actions inside this tooltip; use a popover or dialog for interactive content.
+
 ### Prompts System
 
 The prompts system is the primary way to show dialogs, collect input, and display errors.

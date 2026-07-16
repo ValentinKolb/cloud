@@ -19,6 +19,7 @@ export default function Tooltip(props: TooltipProps) {
   let wrapperRef!: HTMLSpanElement;
   let tooltipRef!: HTMLDivElement;
   let openTimer: ReturnType<typeof setTimeout> | undefined;
+  let dismissedUntilLeave = false;
 
   const trigger = () =>
     wrapperRef.querySelector<HTMLElement>("button, a[href], input, select, textarea, [role='button'], [tabindex]:not([tabindex='-1'])") ??
@@ -58,7 +59,7 @@ export default function Tooltip(props: TooltipProps) {
 
   const open = () => {
     clearOpenTimer();
-    if (props.disabled || tooltipRef.matches(":popover-open")) return;
+    if (props.disabled || dismissedUntilLeave || tooltipRef.matches(":popover-open")) return;
     openTimer = setTimeout(() => {
       openTimer = undefined;
       if (props.disabled || !tooltipRef.isConnected) return;
@@ -77,15 +78,29 @@ export default function Tooltip(props: TooltipProps) {
     target.setAttribute("aria-describedby", [...descriptions].join(" "));
 
     const handleFocusOut = (event: FocusEvent) => {
-      if (!wrapperRef.contains(event.relatedTarget as Node | null)) close();
+      if (!wrapperRef.contains(event.relatedTarget as Node | null)) {
+        dismissedUntilLeave = false;
+        close();
+      }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key === "Escape") {
+        dismissedUntilLeave = true;
+        close();
+      }
+    };
+    const handlePointerLeave = () => {
+      dismissedUntilLeave = false;
+      close();
+    };
+    const handlePointerDown = () => {
+      dismissedUntilLeave = true;
+      close();
     };
 
     wrapperRef.addEventListener("pointerenter", open);
-    wrapperRef.addEventListener("pointerleave", close);
-    wrapperRef.addEventListener("pointerdown", close);
+    wrapperRef.addEventListener("pointerleave", handlePointerLeave);
+    wrapperRef.addEventListener("pointerdown", handlePointerDown);
     wrapperRef.addEventListener("focusin", open);
     wrapperRef.addEventListener("focusout", handleFocusOut);
     wrapperRef.addEventListener("keydown", handleKeyDown);
@@ -95,8 +110,8 @@ export default function Tooltip(props: TooltipProps) {
       if (originalDescription) target.setAttribute("aria-describedby", originalDescription);
       else target.removeAttribute("aria-describedby");
       wrapperRef.removeEventListener("pointerenter", open);
-      wrapperRef.removeEventListener("pointerleave", close);
-      wrapperRef.removeEventListener("pointerdown", close);
+      wrapperRef.removeEventListener("pointerleave", handlePointerLeave);
+      wrapperRef.removeEventListener("pointerdown", handlePointerDown);
       wrapperRef.removeEventListener("focusin", open);
       wrapperRef.removeEventListener("focusout", handleFocusOut);
       wrapperRef.removeEventListener("keydown", handleKeyDown);
