@@ -8,7 +8,7 @@
 @layer components {
   .mail-workspace-split {
     display: grid;
-    grid-template-columns: minmax(0, var(--mail-list-width, 26.875rem)) 0.875rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, var(--mail-list-width, 26.875rem)) 1px minmax(0, 1fr);
     min-width: 0;
     min-height: 0;
     flex: 1 1 auto;
@@ -39,6 +39,7 @@
     z-index: 2;
     width: 0.875rem;
     min-width: 0.875rem;
+    justify-self: center;
     cursor: col-resize;
     touch-action: none;
     background: transparent;

@@ -30,6 +30,7 @@ export default ssr<AuthContext>(async (c) => {
         identities={identities.ok ? identities.data : []}
         initialDraft={draft.data}
         returnHref={returnHref}
+        popout={c.req.query("window") === "1"}
       />
     </Layout>
   );

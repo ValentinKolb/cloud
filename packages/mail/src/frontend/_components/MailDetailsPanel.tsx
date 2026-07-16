@@ -202,7 +202,7 @@ export default function MailDetailsPanel(props: {
             </Show>
             <Show when={latestMessage()?.messageId}>
               <dt class="text-dimmed">Message ID</dt>
-              <dd class="truncate font-mono text-2xs text-secondary" title={latestMessage()?.messageId ?? undefined}>
+              <dd class="truncate font-mono text-xs text-secondary" title={latestMessage()?.messageId ?? undefined}>
                 {latestMessage()?.messageId}
               </dd>
             </Show>
@@ -219,7 +219,7 @@ export default function MailDetailsPanel(props: {
                 disabled={!props.canWrite || toggleWatch.loading()}
                 onClick={() => toggleWatch.mutate()}
               >
-                <i class={`ti ${watching() ? "ti-bell-filled" : "ti-bell"}`} aria-hidden="true" /> {watching() ? "Following" : "Follow"}
+                <i class={`ti ${watching() ? "ti-check" : "ti-bell"}`} aria-hidden="true" /> {watching() ? "Following" : "Follow"}
               </button>
             </Tooltip>
           </div>
@@ -297,7 +297,7 @@ export default function MailDetailsPanel(props: {
                     <div class="min-w-0 flex-1">
                       <div class="flex items-center gap-2">
                         <span class="truncate text-xs font-semibold text-primary">{comment.author.displayName}</span>
-                        <time class="text-2xs text-dimmed" dateTime={comment.createdAt}>
+                        <time class="text-xs text-dimmed" dateTime={comment.createdAt}>
                           {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
                         </time>
                         <Show when={comment.author.kind === "user" && comment.author.id === props.currentUserId && !comment.deletedAt}>
@@ -358,7 +358,7 @@ export default function MailDetailsPanel(props: {
                     <span class="min-w-0 flex-1 truncate text-secondary">
                       <span class="font-medium text-primary">{event.actor.displayName}</span> {activityLabel(event.action)}
                     </span>
-                    <time class="shrink-0 text-2xs text-dimmed" dateTime={event.createdAt}>
+                    <time class="shrink-0 text-xs text-dimmed" dateTime={event.createdAt}>
                       {dates.formatDateTimeRelative(event.createdAt, props.dateConfig)}
                     </time>
                   </div>

@@ -79,6 +79,7 @@ export default function MailComposer(props: {
   const [showCc, setShowCc] = createSignal(Boolean(props.initialDraft?.cc.length || props.initialDraft?.bcc.length));
   const [initialized, setInitialized] = createSignal(false);
   const [recovered, setRecovered] = createSignal(false);
+  const [handoffInProgress, setHandoffInProgress] = createSignal(false);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let draftMutationQueue: Promise<void> = Promise.resolve();
@@ -107,7 +108,38 @@ export default function MailComposer(props: {
   });
 
   const serializedContent = () => JSON.stringify(content());
-  const editable = createMemo(() => verifiedIdentities().length > 0 && status() !== "readonly" && (Boolean(lease()) || !draft()));
+  const editable = createMemo(
+    () => verifiedIdentities().length > 0 && status() !== "readonly" && !handoffInProgress() && (Boolean(lease()) || !draft()),
+  );
+
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  };
+
+  const stopScheduledSave = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = null;
+  };
+
+  const startHeartbeat = () => {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(async () => {
+      const activeDraft = draft();
+      const activeLease = lease();
+      if (!activeDraft || !activeLease) return;
+      const heartbeat = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$put({
+        param: { mailboxId: props.mailboxId, draftId: activeDraft.id },
+        json: { token: activeLease.token },
+      });
+      if (!heartbeat.ok) {
+        stopHeartbeat();
+        setLease(null);
+        setStatus("readonly");
+        setStatusMessage("Editing lease expired. Reload or take over the draft.");
+      }
+    }, 10_000);
+  };
 
   const acquireLease = async (currentDraft: MailDraft, takeover = false): Promise<AcquiredDraftLease | null> => {
     const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$post({
@@ -128,22 +160,7 @@ export default function MailComposer(props: {
       return null;
     }
     setLease(acquired);
-    heartbeatTimer = setInterval(async () => {
-      const activeDraft = draft();
-      const activeLease = lease();
-      if (!activeDraft || !activeLease) return;
-      const heartbeat = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$put({
-        param: { mailboxId: props.mailboxId, draftId: activeDraft.id },
-        json: { token: activeLease.token },
-      });
-      if (!heartbeat.ok) {
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
-        setLease(null);
-        setStatus("readonly");
-        setStatusMessage("Editing lease expired. Reload or take over the draft.");
-      }
-    }, 10_000);
+    startHeartbeat();
     return acquired;
   };
 
@@ -296,8 +313,8 @@ export default function MailComposer(props: {
 
   onCleanup(() => {
     disposed = true;
-    if (saveTimer) clearTimeout(saveTimer);
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    stopScheduledSave();
+    stopHeartbeat();
     const currentDraft = draft();
     const currentLease = lease();
     if (currentDraft && currentLease) {
@@ -415,22 +432,56 @@ export default function MailComposer(props: {
     if (props.surface === "full") navigateTo(props.returnHref);
   };
 
-  const openFullSize = () => {
-    void persist().then((currentDraft) => {
-      if (!currentDraft) return;
-      navigateTo(`/app/mail/${props.mailboxId}/compose/${currentDraft.id}?return=${encodeURIComponent(props.returnHref)}`);
+  const releaseLease = async (currentDraft: MailDraft): Promise<void> => {
+    const currentLease = lease();
+    if (!currentLease) return;
+    stopHeartbeat();
+    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$delete({
+      param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
+      json: { token: currentLease.token },
     });
+    if (!response.ok) {
+      startHeartbeat();
+      throw new Error(await readApiError(response, "Could not transfer draft editing"));
+    }
+    setLease(null);
+  };
+
+  const draftHref = (draftId: string, popout = false) =>
+    `/app/mail/${props.mailboxId}/compose/${draftId}?return=${encodeURIComponent(props.returnHref)}${popout ? "&window=1" : ""}`;
+
+  const handoffTo = async (href: string | ((draftId: string) => string), popup?: Window): Promise<void> => {
+    if (handoffInProgress()) return;
+    setHandoffInProgress(true);
+    stopScheduledSave();
+    try {
+      const currentDraft = await persist();
+      if (!currentDraft) throw new Error(statusMessage());
+      await releaseLease(currentDraft);
+      const target = typeof href === "function" ? href(currentDraft.id) : href;
+      if (popup) {
+        popup.name = `mail-draft-${currentDraft.id}`;
+        popup.location.replace(target);
+        props.onClose?.();
+        if (props.surface === "full") navigateTo(props.returnHref);
+        return;
+      }
+      navigateTo(target);
+    } catch (error) {
+      popup?.close();
+      setHandoffInProgress(false);
+      await prompts.error(error instanceof Error ? error.message : "Could not switch composer surface");
+    }
+  };
+
+  const openFullSize = () => {
+    void handoffTo((draftId) => draftHref(draftId));
   };
 
   const openWindow = () => {
-    void persist().then((currentDraft) => {
-      if (!currentDraft) return;
-      window.open(
-        `/app/mail/${props.mailboxId}/compose/${currentDraft.id}?return=${encodeURIComponent(props.returnHref)}&window=1`,
-        `mail-draft-${currentDraft.id}`,
-        "popup,width=1120,height=820,resizable=yes,scrollbars=yes",
-      );
-    });
+    const popup = window.open("about:blank", "", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
+    if (!popup) return void prompts.error("Allow pop-up windows to open this draft in a separate window.");
+    void handoffTo((draftId) => draftHref(draftId, true), popup);
   };
 
   const takeOver = async () => {
@@ -441,7 +492,7 @@ export default function MailComposer(props: {
       confirmText: "Take over",
     });
     if (!confirmed) return;
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    stopHeartbeat();
     const acquired = await acquireLease(currentDraft, true);
     if (acquired) {
       setStatus("saved");
@@ -455,15 +506,21 @@ export default function MailComposer(props: {
     <div class="mail-composer-surface">
       <header class={`flex shrink-0 items-center gap-2 px-3 py-2 ${props.surface === "full" ? "bg-[var(--ui-surface-subtle)]" : ""}`}>
         <Show when={props.surface === "full"}>
-          <Tooltip content="Exit full size">
-            <button type="button" class="icon-btn" aria-label="Exit full size" onClick={() => navigateTo(props.returnHref)}>
-              <i class="ti ti-arrow-left" aria-hidden="true" />
+          <Tooltip content="Minimize composer">
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="Minimize composer"
+              disabled={handoffInProgress()}
+              onClick={() => void handoffTo(props.returnHref)}
+            >
+              <i class="ti ti-minimize" aria-hidden="true" />
             </button>
           </Tooltip>
         </Show>
         <span class="min-w-0 flex-1 truncate text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
         <span
-          class={`text-2xs ${status() === "error" || status() === "readonly" ? "text-red-600 dark:text-red-300" : "text-dimmed"}`}
+          class={`text-xs ${status() === "error" || status() === "readonly" ? "text-red-600 dark:text-red-300" : "text-dimmed"}`}
           role="status"
         >
           {statusMessage()}
@@ -474,13 +531,25 @@ export default function MailComposer(props: {
           </button>
         </Show>
         <Tooltip content="Open in new window">
-          <button type="button" class="icon-btn" aria-label="Open in new window" disabled={!editable()} onClick={openWindow}>
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Open in new window"
+            disabled={!editable() || handoffInProgress()}
+            onClick={openWindow}
+          >
             <i class="ti ti-external-link" aria-hidden="true" />
           </button>
         </Tooltip>
         <Show when={props.surface === "compact"}>
           <Tooltip content="Full-size composer">
-            <button type="button" class="icon-btn" aria-label="Open full-size composer" disabled={!editable()} onClick={openFullSize}>
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="Open full-size composer"
+              disabled={!editable() || handoffInProgress()}
+              onClick={openFullSize}
+            >
               <i class="ti ti-maximize" aria-hidden="true" />
             </button>
           </Tooltip>
@@ -597,7 +666,7 @@ export default function MailComposer(props: {
                 <span class="chip max-w-full" role="listitem">
                   <i class="ti ti-paperclip" aria-hidden="true" />
                   <span class="max-w-48 truncate">{attachment.filename}</span>
-                  <span class="text-2xs text-dimmed">{formatBytes(attachment.byteLength)}</span>
+                  <span class="text-xs text-dimmed">{formatBytes(attachment.byteLength)}</span>
                   <button
                     type="button"
                     class="icon-btn"
@@ -614,7 +683,7 @@ export default function MailComposer(props: {
                 <span class="chip max-w-full" role="listitem">
                   <i class={`ti ${upload.error ? "ti-alert-circle text-red-500" : "ti-loader-2 animate-spin"}`} aria-hidden="true" />
                   <span class="max-w-48 truncate">{upload.file.name}</span>
-                  <span class="text-2xs text-dimmed">{upload.error ?? `${upload.progress}%`}</span>
+                  <span class="text-xs text-dimmed">{upload.error ?? `${upload.progress}%`}</span>
                 </span>
               )}
             </For>

@@ -20,7 +20,12 @@ export default ssr<AuthContext>(async (c) => {
   const returnHref = `/app/mail/${mailboxId}`;
   return () => (
     <Layout c={c} fullPage focusMode title={[{ title: "Mail", href: returnHref }, { title: "New message" }]}>
-      <MailComposerPage mailboxId={mailboxId} identities={identities.ok ? identities.data : []} returnHref={returnHref} />
+      <MailComposerPage
+        mailboxId={mailboxId}
+        identities={identities.ok ? identities.data : []}
+        returnHref={returnHref}
+        popout={c.req.query("window") === "1"}
+      />
     </Layout>
   );
 });

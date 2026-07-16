@@ -48,12 +48,10 @@ export default function MailWorkspace(props: {
       if (!response.ok) return "failed";
       const next = await response.json();
       if (request !== routeRequest) return "stale";
-      const selectionChanged =
-        next.selectedConversationId !== data().selectedConversationId || next.selectedMessageId !== data().selectedMessageId;
       batch(() => {
         setRequestUrl(target.toString());
         setData(next);
-        if (selectionChanged || !next.collaborationState) setDetailsOpen(false);
+        if (!next.collaborationState) setDetailsOpen(false);
       });
       return "applied";
     } catch {

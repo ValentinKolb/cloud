@@ -268,7 +268,7 @@ export default function MailConversationReader(props: {
                           <span class="truncate text-sm font-semibold text-primary">
                             {message.from.map(formatAddress).join(", ") || "Unknown sender"}
                           </span>
-                          <time class="shrink-0 text-2xs text-dimmed" dateTime={message.internalDate}>
+                          <time class="shrink-0 text-xs text-dimmed" dateTime={message.internalDate}>
                             {dates.formatDateTimeRelative(message.internalDate, props.dateConfig)}
                           </time>
                         </span>
@@ -291,7 +291,7 @@ export default function MailConversationReader(props: {
                         </div>
                         <Show when={message.attachments.length > 0}>
                           <div class="mt-4">
-                            <p class="mb-2 text-2xs font-medium uppercase text-dimmed">Received with this message</p>
+                            <p class="mb-2 text-xs font-medium uppercase text-dimmed">Received with this message</p>
                             <div class="flex flex-wrap gap-2">
                               <For each={message.attachments}>
                                 {(attachment) => (
@@ -303,7 +303,7 @@ export default function MailConversationReader(props: {
                                   >
                                     <i class="ti ti-paperclip" aria-hidden="true" />
                                     <span class="max-w-48 truncate">{attachment.filename ?? attachment.contentType}</span>
-                                    <span class="text-2xs text-dimmed">{formatBytes(attachment.sizeBytes)}</span>
+                                    <span class="text-xs text-dimmed">{formatBytes(attachment.sizeBytes)}</span>
                                   </a>
                                 )}
                               </For>

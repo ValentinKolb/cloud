@@ -207,7 +207,7 @@ export default function MailConversationList(props: {
                         <span>{item.preview}</span>
                       </Show>
                     </span>
-                    <span class="flex min-w-0 items-center justify-end gap-1.5 text-2xs text-dimmed">
+                    <span class="flex min-w-0 items-center justify-end gap-1.5 text-xs text-dimmed">
                       <Show when={state}>
                         <span class="hidden max-w-20 truncate xl:inline">{state}</span>
                       </Show>
