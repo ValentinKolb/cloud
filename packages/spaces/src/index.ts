@@ -1,12 +1,12 @@
-import { app } from "./config";
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
+import { websocket } from "hono/bun";
 import apiRoutes from "./api";
-import pageRoutes from "./frontend";
-import { adminPages as adminPageRoutes } from "./frontend";
-import { spacesService } from "./service";
-import { migrate } from "./migrate";
 import { spacesCapabilities } from "./capabilities";
+import { app } from "./config";
+import pageRoutes, { adminPages as adminPageRoutes } from "./frontend";
+import { migrate } from "./migrate";
+import { spacesService } from "./service";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -15,7 +15,7 @@ const router = new Hono<AuthContext>()
   .route("/app/spaces", pageRoutes)
   .route("/admin/spaces", adminPageRoutes);
 
-export default await app.start({
+const result = await app.start({
   capabilities: spacesCapabilities,
   fetch: router.fetch,
   openapi: apiRoutes,
@@ -25,5 +25,6 @@ export default await app.start({
     },
   },
 });
-export { spacesService as service };
+export default { ...result, websocket };
 export type { ApiType } from "./api";
+export { spacesService as service };

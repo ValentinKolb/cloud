@@ -1,4 +1,5 @@
 import { topic } from "@valentinkolb/sync";
+import type { NotificationLiveEvent } from "../../contracts/notification-live";
 import type { NotificationPresentation } from "../../contracts/notification-types";
 import { logger } from "../logging";
 
@@ -7,13 +8,6 @@ const LIVE_TOPIC_PREFIX = "cloud:notifications:live";
 const LIVE_RETENTION_MS = 60 * 60 * 1_000;
 
 const log = logger("notifications:live");
-
-export type NotificationLiveEvent = {
-  type: "cloud-notification";
-  eventId: string;
-  title: string;
-  targetHref?: `/${string}`;
-};
 
 const liveTopic = topic<NotificationLiveEvent>({
   id: LIVE_TOPIC_ID,

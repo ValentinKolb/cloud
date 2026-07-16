@@ -8,8 +8,10 @@
 import { createCoreApiRouter } from "@valentinkolb/cloud/api";
 import { type AppContext, type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
+import { websocket } from "hono/bun";
 import { app } from "./config";
 import { createCoreNotificationSender } from "./notifications";
+import notificationWebSocketRoutes from "./notifications-ws";
 import { createPagesRouter } from "./pages/create";
 import { runCoreSetup, startCoreServices, stopCoreServices } from "./runtime-helpers";
 
@@ -25,10 +27,11 @@ const coreApi = new Hono().route("/", api);
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/api/me/notifications/ws", notificationWebSocketRoutes)
   .route("/api", coreApi)
   .route("/", pages);
 
-export default await app.start({
+const result = await app.start({
   fetch: router.fetch,
   openapi: coreApi,
   lifecycle: {
@@ -43,3 +46,5 @@ export default await app.start({
     },
   },
 });
+
+export default { ...result, websocket };

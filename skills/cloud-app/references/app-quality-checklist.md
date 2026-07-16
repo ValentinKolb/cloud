@@ -30,6 +30,7 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - Do not use native `fetch("/api/<app>...")` for app-internal JSON calls.
 - Do not hide weak route typing with `any`, broad `unknown`, or `response.json() as Type`. If the typed client is weak, fix the Hono route typing.
 - Raw fetch is only for external URLs, file/blob/stream transfer, WebSocket/EventSource/SSE, or smoke/test scripts.
+- Cursor-backed UI event streams use `@valentinkolb/cloud/browser/live`; app code owns typed messages, validation, permissions, and domain updates.
 - API routes validate body/query/params with `v(...)` and app Zod schemas.
 - API routes return service `Result<T>` through `respond(...)` where the shared result model fits.
 - SSR pages repeat permission checks instead of assuming API routes protect server-side service calls.

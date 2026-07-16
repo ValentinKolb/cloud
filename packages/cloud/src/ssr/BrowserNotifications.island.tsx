@@ -1,33 +1,42 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createLiveWebSocket } from "../browser/live-websocket";
 import { notificationTargetMatchesLocation } from "../browser/notification-target";
 import { browserNotificationClient } from "../browser/notifications";
-import { isSafeNotificationTargetHref } from "../contracts/notification-types";
+import {
+  NOTIFICATION_LIVE_WS_TYPE,
+  type NotificationLiveClientMessage,
+  type NotificationLiveEvent,
+  NotificationLiveEventSchema,
+  type NotificationLiveServerMessage,
+  NotificationStreamCursorSchema,
+  parseNotificationLiveServerMessage,
+} from "../contracts/notification-live";
 
-type CloudNotificationMessage = {
-  type: "cloud-notification";
-  eventId: string;
-  title: string;
-  targetHref?: string;
+const cursorStorageKey = (userId: string): string => `cloud.notifications.live-cursor:${userId}`;
+
+const readStoredCursor = (userId: string): string | null => {
+  try {
+    const cursor = sessionStorage.getItem(cursorStorageKey(userId));
+    return NotificationStreamCursorSchema.safeParse(cursor).success ? cursor : null;
+  } catch {
+    return null;
+  }
 };
 
-const isNotificationMessage = (value: unknown): value is CloudNotificationMessage => {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    candidate.type === "cloud-notification" &&
-    typeof candidate.eventId === "string" &&
-    typeof candidate.title === "string" &&
-    (candidate.targetHref === undefined || (typeof candidate.targetHref === "string" && isSafeNotificationTargetHref(candidate.targetHref)))
-  );
+const storeCursor = (userId: string, cursor: string) => {
+  try {
+    sessionStorage.setItem(cursorStorageKey(userId), cursor);
+  } catch {
+    // Private or restricted browsing may disable storage; in-memory resume still works.
+  }
 };
 
-export default function BrowserNotifications() {
-  const [notification, setNotification] = createSignal<CloudNotificationMessage | null>(null);
+export default function BrowserNotifications(props: { userId: string }) {
+  const [notification, setNotification] = createSignal<NotificationLiveEvent | null>(null);
   const seen = new Set<string>();
 
   onMount(() => {
-    const receive = (value: unknown): boolean => {
-      if (!isNotificationMessage(value)) return false;
+    const receive = (value: NotificationLiveEvent) => {
       if (seen.has(value.eventId)) return true;
       seen.add(value.eventId);
       if (seen.size > 500) seen.delete(seen.values().next().value ?? "");
@@ -41,38 +50,50 @@ export default function BrowserNotifications() {
     });
 
     const onMessage = (event: MessageEvent<unknown>) => {
-      if (!receive(event.data)) return;
+      const parsed = NotificationLiveEventSchema.safeParse(event.data);
+      if (!parsed.success) return;
+      receive(parsed.data);
       event.ports[0]?.postMessage({ received: true });
     };
     navigator.serviceWorker?.addEventListener("message", onMessage);
 
-    let source: EventSource | null = null;
-    const connect = () => {
-      if (!("EventSource" in window) || document.visibilityState !== "visible" || source) return;
-      source = new EventSource("/api/me/notifications/events");
-      source.addEventListener("notification", (event) => {
-        if (!(event instanceof MessageEvent) || typeof event.data !== "string") return;
-        try {
-          receive(JSON.parse(event.data));
-        } catch {
-          // Ignore malformed live events; durable history remains available.
+    const initialCursor = readStoredCursor(props.userId);
+    const connection = createLiveWebSocket<NotificationLiveServerMessage>({
+      url: "/api/me/notifications/ws",
+      initialCursor,
+      activity: "visible",
+      subscribe: (cursor) =>
+        ({
+          type: NOTIFICATION_LIVE_WS_TYPE.subscribe,
+          payload: { fromCursor: cursor },
+        }) satisfies NotificationLiveClientMessage,
+      parse: parseNotificationLiveServerMessage,
+      onMessage: (message, controls) => {
+        if (message.type === NOTIFICATION_LIVE_WS_TYPE.ready) {
+          controls.markApplied(message.payload.cursor);
+          storeCursor(props.userId, message.payload.cursor);
+          return;
         }
-      });
-    };
-    const syncVisibility = () => {
-      if (document.visibilityState === "visible") connect();
-      else {
-        source?.close();
-        source = null;
-      }
-    };
-    document.addEventListener("visibilitychange", syncVisibility);
-    connect();
+        if (message.type === NOTIFICATION_LIVE_WS_TYPE.event) {
+          receive(message.payload.event);
+          controls.markApplied(message.payload.cursor);
+          storeCursor(props.userId, message.payload.cursor);
+          return;
+        }
+        if (message.type === NOTIFICATION_LIVE_WS_TYPE.revoked) {
+          controls.terminate({ code: message.payload.code, message: message.payload.message });
+        }
+      },
+      onFatal: (error) => {
+        if (error.code === "login_required" || error.code === "access_denied") window.location.reload();
+        else console.warn("[notifications] Foreground updates stopped", error);
+      },
+    });
+    connection.connect();
 
     onCleanup(() => {
       navigator.serviceWorker?.removeEventListener("message", onMessage);
-      document.removeEventListener("visibilitychange", syncVisibility);
-      source?.close();
+      connection.dispose();
     });
   });
 

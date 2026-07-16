@@ -1039,7 +1039,14 @@ const result = await app.start({ fetch: router.fetch, openapi: apiRoutes });
 export default { ...result, websocket };
 ```
 
-See the `notebooks` app for a complete WebSocket implementation.
+For cursor-backed UI metadata, use `createLiveWebSocket` from
+`@valentinkolb/cloud/browser/live` on the client and a Redis-backed
+`@valentinkolb/sync` topic on the server. The helper owns visibility-aware
+pause/resume, reconnect backoff, applied-cursor resume, and cleanup. The app
+still owns its typed wire messages, runtime validation, resource permissions,
+and event handling. See `packages/spaces/src/ws.ts` for the simple reference,
+Grids for multiple domain subscriptions, and Notebooks only for advanced Yjs
+collaboration.
 
 ## New App Checklist
 

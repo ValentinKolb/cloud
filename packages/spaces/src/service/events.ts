@@ -1,24 +1,11 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { topic } from "@valentinkolb/sync";
+import type { SpaceServiceEvent, SpaceServiceEventData } from "../live-events";
 
 const log = logger("spaces:events");
 const TOPIC_PREFIX = "cloud:spaces:events";
 const TOPIC_RETENTION_MS = 24 * 60 * 60 * 1000;
 const TOPIC_ID = "items";
-
-type SpaceServiceEventData =
-  | {
-      type: "item.created" | "item.updated" | "item.deleted" | "item.moved" | "item.completed" | "item.transferred";
-      spaceId: string;
-      itemId: string;
-    }
-  | {
-      type: "wormhole.created" | "wormhole.updated" | "wormhole.deleted";
-      spaceId: string;
-      wormholeId: string;
-    };
-
-export type SpaceServiceEvent = SpaceServiceEventData & { at: string };
 
 const spaceTopic = topic<SpaceServiceEvent>({
   id: TOPIC_ID,

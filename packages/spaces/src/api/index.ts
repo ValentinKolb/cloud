@@ -67,7 +67,7 @@ import {
 } from "../frontend/[id]/_components/workspace/workspace-types";
 import { spacesService } from "../service";
 import { isSpaceResourceId, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
-import { latestSpaceEventCursor, liveSpaceEvents } from "../service/events";
+import wsRoutes from "../ws";
 
 // ==========================
 // Spaces API
@@ -295,12 +295,13 @@ const requireTagInSpace = async (spaceId: string, tagId: string) => {
   return ok(tag);
 };
 
-// Widgets mount BEFORE the auth middleware so they keep their own
-// `auth.requireRole("*")` gating instead of inheriting `requireRole("user")`.
+// Widgets and WebSockets mount before the HTTP auth middleware because both
+// own their authentication lifecycle.
 import widgetRoutes from "./widgets";
 
 const app = new Hono<AuthContext>()
   .route("/widget", widgetRoutes)
+  .route("/ws", wsRoutes)
   .use(auth.requireRole("authenticated"))
 
   .get(
@@ -399,102 +400,6 @@ const app = new Hono<AuthContext>()
       if (result.kind === "accessDenied") return respond(c, fail(err.forbidden(result.message)));
       if (result.kind === "notFound") return respond(c, fail(err.notFound("Item")));
       return respond(c, ok(result.detail));
-    },
-  )
-
-  .get(
-    "/:id/events",
-    describeRoute({
-      tags: ["Spaces"],
-      summary: "Stream space events",
-      description: "Best-effort server-sent event stream for refreshing mounted space workspaces.",
-      ...requiresAuth,
-      responses: {
-        200: {
-          description: "Server-sent events",
-          content: { "text/event-stream": { schema: { type: "string" } } },
-        },
-      },
-    }),
-    async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, spaceId);
-      if (error) return error;
-
-      const encoder = new TextEncoder();
-      let keepalive: ReturnType<typeof setInterval> | undefined;
-      let checkingAccess = false;
-      let closed = false;
-      const streamAbort = new AbortController();
-      const stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          const send = (event: string, data: unknown, id?: string) => {
-            if (closed) return;
-            controller.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-          };
-          const close = () => {
-            if (closed) return;
-            closed = true;
-            streamAbort.abort();
-            if (keepalive) clearInterval(keepalive);
-            try {
-              controller.close();
-            } catch {
-              // Client disconnects race with server-side access revocation.
-            }
-          };
-          const requestedCursor = c.req.query("after") || null;
-          const startCursor = requestedCursor ?? (await latestSpaceEventCursor(spaceId)) ?? "0-0";
-          send("ready", { spaceId, cursor: startCursor }, startCursor);
-          keepalive = setInterval(() => {
-            if (checkingAccess || closed) return;
-            checkingAccess = true;
-            void checkSpaceAccess(c, spaceId)
-              .then(({ error: accessError }) => {
-                if (accessError) {
-                  send("access.revoked", { spaceId });
-                  close();
-                } else send("ping", { at: new Date().toISOString() });
-              })
-              .catch(() => close())
-              .finally(() => {
-                checkingAccess = false;
-              });
-          }, 8_000);
-          try {
-            for await (const event of liveSpaceEvents({ spaceId, after: startCursor, signal: streamAbort.signal })) {
-              if (closed || streamAbort.signal.aborted) break;
-              const { error: accessError } = await checkSpaceAccess(c, spaceId);
-              if (accessError) {
-                send("access.revoked", { spaceId });
-                close();
-                break;
-              }
-              send(event.data.type, event.data, event.cursor);
-            }
-          } catch (streamError) {
-            if (!closed && !streamAbort.signal.aborted) {
-              send("error", { message: streamError instanceof Error ? streamError.message : "Space event stream failed" });
-            }
-          } finally {
-            if (keepalive) clearInterval(keepalive);
-            close();
-          }
-        },
-        cancel() {
-          closed = true;
-          streamAbort.abort();
-          if (keepalive) clearInterval(keepalive);
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-cache, no-transform",
-          Connection: "keep-alive",
-        },
-      });
     },
   )
 

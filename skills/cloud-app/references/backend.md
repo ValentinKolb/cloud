@@ -1083,3 +1083,34 @@ const startCursor = requestedCursor ?? (await events.latestCursor({ tenantId: re
 Do not read Redis stream keys directly in app code. The topic API owns stream key shape and empty-stream handling.
 
 Use small idempotent events for normal changes (`upsertItem`, `removeItem`). For bulk or uncertain changes, publish an `invalidated` event with scopes so the client refetches a slice. If an event is missed, reload or targeted refetch must reconstruct the correct state from the DB.
+
+### Live WebSocket contract
+
+Use an app-owned `/api/<app>/ws` route for cursor-backed UI events. The gateway
+already proxies WebSocket upgrades and forwards authentication headers. Keep
+the protocol small and explicit:
+
+- The first client message identifies the resource and the last applied cursor.
+- Validate every message at runtime and bound message size and pending work.
+- Resolve current resource permissions before subscribing.
+- If no cursor was supplied, start at `topic.latestCursor()` and return that
+  baseline in a `ready` message.
+- Recheck permission periodically and before delivering each event. Send a
+  revocation message and close with `1008` when access disappears.
+- Abort `topic.live()` and permission timers on socket close.
+- Treat failed `socket.send()` as backpressure and close with `1013`.
+- Use `1012` for a recoverable stream restart; the browser helper reconnects.
+
+Do not put session tokens in WebSocket URLs. Same-origin browser sockets send
+the session cookie, and the gateway forwards it to the app. Do not centralize
+app channels in Core or Gateway: each replaceable app owns its endpoint,
+permission policy, and event projection.
+
+`@valentinkolb/sync/browser` is an in-memory browser implementation of the sync
+primitives, not a server transport. Use the server topic as the replayable
+event log and WebSocket only as its browser delivery channel.
+
+Reference: `packages/spaces/src/ws.ts`. Core notifications demonstrate a
+user-scoped foreground stream alongside Web Push. Grids is the reference for
+several subscription kinds on one endpoint; Notebooks is a separate Yjs
+collaboration case.

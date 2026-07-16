@@ -221,7 +221,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth, focusM
     >
       <TimezoneCookie />
       <AppWorkspaceController appId={currentApp?.id} />
-      {user && <BrowserNotifications />}
+      {user && <BrowserNotifications userId={user.id} />}
       {showRail && <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} />}
       {showRail && (
         <script id="cloud-app-launchpad-data" type="application/json">

@@ -333,9 +333,11 @@ available in notification history.
 
 Apps must not request browser permission directly. The central notification
 settings UI performs explicit opt-in, endpoint registration, and unsupported-
-browser handling. A visible Cloud page receives quiet in-app feedback over an
-authenticated live stream without requiring notification permission. Hidden or
-closed pages use Web Push when the user enabled it on that device.
+browser handling. A visible Cloud page receives quiet in-app feedback over the
+Core notification WebSocket and `createLiveWebSocket`, without requiring
+notification permission. The applied cursor is scoped to the current user so
+navigation can resume without replaying acknowledged events. Hidden or closed
+pages use Web Push when the user enabled it on that device.
 
 Admins inspect typed delivery attempts and the durable app definition catalog
 at `/admin/observability/notifications`. This observability surface stores and
@@ -1103,10 +1105,10 @@ Compound pieces:
 - `AppWorkspace`, `AppWorkspace.Content`, `AppWorkspace.Main`
 - `AppWorkspace` with `resizable?: boolean`
 - `AppWorkspace.Main` with `mobilePane?: string`; ordinary children form the flexible `main` region when MainPanes are present.
-- `AppWorkspace.MainPane` with stable `id`, accessible `label`, `open?`, `defaultSize?`, `minSize?`, `maxSize?`, `resizable?`, and `class?`
+- `AppWorkspace.MainPane` with stable `id`, accessible `label`, `open?`, `defaultSize?`, `minSize?`, `maxSize?`, `resizable?`, `resizeShadow?`, and `class?`
 - `AppWorkspace.Detail` with stable `id?`, `open`, `width?: "sm" | "md" | "lg" | "xl"`, `minWidth?`, `maxWidth?`, `widthClass?`, `viewTransitionName?`, and `resizable?`
 - `AppWorkspace.BottomDrawer` with stable `id?`, `open`, `height?: "sm" | "md" | "lg"`, `minHeight?`, `maxHeight?`, `viewTransitionName?`, and `resizable?`
-- `AppWorkspace.Sidebar` with `resizable?` and opt-in `collapsible?`, plus `SidebarHeader`, `SidebarMobile`, `SidebarMobileItems`, `SidebarDesktop`, `SidebarBody`, `SidebarFooter`, and `SidebarSection`
+- `AppWorkspace.Sidebar` with `resizable?`, `resizeShadow?`, and opt-in `collapsible?`, plus `SidebarHeader`, `SidebarMobile`, `SidebarMobileItems`, `SidebarDesktop`, `SidebarBody`, `SidebarFooter`, and `SidebarSection`
 - `AppWorkspace.SidebarHeader` accepts `showDesktop={false}` when its static app title is redundant on desktop but must remain as the mobile sidebar trigger.
 - `AppWorkspace.SidebarBody` and `SidebarMobileBody` accept `scrollPreserveKey?: string | false`; pass a stable app-specific key when the body is a scrollable navigation/list region.
 - `SidebarSection`, `SidebarBody`, `SidebarFooter`, `SidebarItem`, `SidebarIconGrid`, and `SidebarIconAction` accept `sidebarMode?: "always" | "expanded" | "collapsed"` for a deliberately curated icon-only state.
@@ -2191,6 +2193,50 @@ Allowed raw-fetch exceptions:
   contract. Keep these exceptions explicit and local.
 - Smoke tests, browser scripts, generated CLI clients, and helper methods named
   `fetch` that are not global HTTP fetch calls.
+
+### Cursor-backed live updates
+
+Use `createLiveWebSocket` for best-effort UI metadata that is backed by a
+cursor-capable server topic:
+
+```ts
+import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
+
+const connection = createLiveWebSocket<ServerMessage>({
+  url: "/api/example/ws",
+  initialCursor,
+  activity: "visible",
+  subscribe: (cursor) => ({
+    type: "example.subscribe",
+    payload: { resourceId, fromCursor: cursor },
+  }),
+  parse: parseServerMessage,
+  onMessage: (message, controls) => {
+    applyDomainUpdate(message);
+    controls.markApplied(message.payload.cursor);
+  },
+  onFatal: () => refreshCurrentPath(),
+});
+
+connection.connect();
+onCleanup(connection.dispose);
+```
+
+The app must provide a runtime-validating parser that returns a typed
+discriminated union. Call `markApplied()` only after the event has been accepted
+by the app; reconnects resume from that cursor. Use `controls.terminate()` for
+terminal protocol messages such as permission revocation.
+
+`activity: "visible"` is the default and the correct mode for reconstructible
+metadata: hidden tabs release their socket and replay on return. Use
+`activity: "always"` only when background connectivity is a real product
+requirement. Always dispose the connection from the owning island.
+
+The helper deliberately does not know app message names, permissions, data
+schemas, or UI refresh behavior. Reference: Spaces
+`SpaceLiveEvents.island.tsx`. Grids providers demonstrate records, metadata,
+and workflow-run variants. Do not use this helper for Yjs collaboration or
+finite AI response streams.
 
 ## Common UI Patterns
 

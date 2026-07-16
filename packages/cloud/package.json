@@ -24,6 +24,7 @@
     "./desktop/solid": "./src/desktop/solid.tsx",
     "./server": "./src/server/index.ts",
     "./browser": "./src/server/api-client.ts",
+    "./browser/live": "./src/browser/live-websocket.ts",
     "./browser/notifications": "./src/browser/notifications.ts",
     "./cli": "./src/cli/index.ts",
     "./cli/access": "./src/cli/access.ts",
