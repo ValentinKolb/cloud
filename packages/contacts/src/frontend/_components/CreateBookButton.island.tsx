@@ -64,6 +64,7 @@ export default function CreateBookButton(props: Props) {
     <button
       type="button"
       class={buttonClass()}
+      data-contacts-editor={mutation.loading() ? "true" : undefined}
       disabled={mutation.loading()}
       onClick={() => mutation.mutate(undefined)}
       aria-label="Create new contact book"

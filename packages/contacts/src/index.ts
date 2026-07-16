@@ -1,5 +1,6 @@
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
+import { websocket } from "hono/bun";
 import apiRoutes from "./api";
 import { contactsCapabilities } from "./capabilities";
 import { app } from "./config";
@@ -14,7 +15,7 @@ const router = new Hono<AuthContext>()
   .route("/app/contacts", pageRoutes)
   .route("/admin/contacts", adminPageRoutes);
 
-export default await app.start({
+const result = await app.start({
   capabilities: contactsCapabilities,
   fetch: router.fetch,
   openapi: apiRoutes,
@@ -24,6 +25,7 @@ export default await app.start({
     },
   },
 });
+export default { ...result, websocket };
 export type { ApiType } from "./api";
 export type {
   Contact,

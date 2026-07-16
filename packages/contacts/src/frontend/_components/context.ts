@@ -47,7 +47,9 @@ export const syncContactDetailFromUrl = () => {
   dispatchContactDetailSelect(null, selected.contactId, selected.bookId);
 };
 
-const pushSelectedContactUrl = (contactId: string | null, bookId: string | null) => {
+type ContactHistoryMode = "push" | "replace";
+
+const commitSelectedContactUrl = (contactId: string | null, bookId: string | null, historyMode: ContactHistoryMode) => {
   const url = new URL(window.location.href);
   if (contactId) {
     url.searchParams.set("contact", contactId);
@@ -59,20 +61,25 @@ const pushSelectedContactUrl = (contactId: string | null, bookId: string | null)
   } else {
     url.searchParams.delete("contactBook");
   }
-  if (url.toString() !== window.location.href) history.pushState({}, "", url.toString());
+  if (url.toString() !== window.location.href) history[historyMode === "replace" ? "replaceState" : "pushState"]({}, "", url.toString());
 };
 
 /** Updates detail params without navigation and notifies detail/list islands. */
-export const setSelectedContactInUrl = (config: { contactId: string | null; bookId: string | null; contact?: Contact | null }) => {
+export const setSelectedContactInUrl = (config: {
+  contactId: string | null;
+  bookId: string | null;
+  contact?: Contact | null;
+  history?: ContactHistoryMode;
+}) => {
   withViewTransition(() => {
-    pushSelectedContactUrl(config.contactId, config.bookId);
+    commitSelectedContactUrl(config.contactId, config.bookId, config.history ?? "push");
     dispatchContactDetailSelect(config.contact ?? null, config.contactId, config.bookId);
   });
 };
 
 /** Clears selected contact params from URL and closes the detail panel. */
-export const clearSelectedContactInUrl = () => {
-  setSelectedContactInUrl({ contactId: null, bookId: null, contact: null });
+export const clearSelectedContactInUrl = (history: ContactHistoryMode = "push") => {
+  setSelectedContactInUrl({ contactId: null, bookId: null, contact: null, history });
 };
 
 /** Opens the notes composer in the currently mounted detail panel. */

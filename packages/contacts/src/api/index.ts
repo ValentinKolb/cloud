@@ -32,6 +32,7 @@ import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID } from "../service/access";
 import { isUuid } from "../service/shared";
 import * as vcard from "../service/vcard";
 import { isSafeWebsiteUrl } from "../shared";
+import wsRoutes from "../ws";
 
 const documentRoute = (options: Parameters<typeof describeRoute>[0]) => describeRoute(options) as MiddlewareHandler<AuthContext>;
 
@@ -564,6 +565,7 @@ const adminApi = new Hono<AuthContext>()
 
 /** Contacts API routes for authenticated users and scoped resource credentials. */
 const app = new Hono<AuthContext>()
+  .route("/ws", wsRoutes)
   .use(rateLimit())
   .route("/admin", adminApi)
   .use(auth.requireRole("authenticated"))

@@ -4,8 +4,10 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import { contactsService } from "../../service";
+import { captureContactEventCursor } from "../../service/events";
 import ContactBookUnavailable from "../_components/ContactBookUnavailable";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
+import ContactsLiveEvents from "../_components/ContactsLiveEvents.island";
 import ContactsSidebar from "../_components/ContactsSidebar";
 import ContactsWorkspaceMain from "../_components/ContactsWorkspaceMain";
 import DesktopDetailLayoutSync from "../_components/DesktopDetailLayoutSync.island";
@@ -20,6 +22,8 @@ export default ssr<AuthContext>(async (c) => {
   const perPage = CONTACTS_PER_PAGE;
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
   const activeTagId = c.req.query("tag_id") ?? null;
+  // The cursor must precede the snapshot reads or an event can fall between them.
+  const initialLiveCursor = await captureContactEventCursor();
   const [book, booksResult] = await Promise.all([
     contactsService.book.get({ id: bookId }),
     contactsService.book.list({
@@ -92,6 +96,7 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: book.name }]}>
       <ContactsLayoutHelp />
+      {!book.isSystem ? <ContactsLiveEvents scope={{ kind: "book", bookId }} initialCursor={initialLiveCursor} /> : null}
       <AppWorkspace>
         <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
 

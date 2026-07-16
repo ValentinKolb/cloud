@@ -6,6 +6,7 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid
 import { apiClient } from "@/api/client";
 import type { ContactNote } from "../../service";
 import { readErrorMessage } from "./api";
+import { listenForContactsLiveInvalidation } from "./contacts-live";
 import { CONTACT_NOTE_COMPOSE_EVENT } from "./context";
 
 type Props = {
@@ -32,6 +33,7 @@ export default function ContactNotesSection(props: Props) {
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [editingContent, setEditingContent] = createSignal("");
   let sectionRoot: HTMLDivElement | undefined;
+  let initializedTarget = false;
 
   const loadMutation = mutations.create<ContactNote[], { bookId: string; contactId: string }>({
     mutation: async (target, ctx) => {
@@ -45,25 +47,27 @@ export default function ContactNotesSection(props: Props) {
     onSuccess: setNotes,
   });
 
-  const refresh = () => loadMutation.mutate({ bookId: props.bookId, contactId: props.contactId });
+  const refresh = async (throwOnError = false) => {
+    await loadMutation.mutate({ bookId: props.bookId, contactId: props.contactId });
+    if (throwOnError && loadMutation.error()) throw loadMutation.error();
+  };
 
   // When the user navigates between contacts, the panel reuses this island.
   // First run honours the SSR-provided initialNotes. Subsequent runs (real
   // contact switch) clear the list immediately so the previous contact's
   // notes do not flash in the new contact's panel.
-  let isFirstRun = true;
   createEffect(() => {
     const cid = props.contactId;
-    if (!isFirstRun) {
+    if (initializedTarget) {
       setNotes([]);
+      void refresh();
     }
-    isFirstRun = false;
+    initializedTarget = true;
     setDraft("");
     setComposerOpen(false);
     setEditingId(null);
     setEditingContent("");
     void cid;
-    refresh();
   });
 
   onMount(() => {
@@ -74,7 +78,14 @@ export default function ContactNotesSection(props: Props) {
       requestAnimationFrame(() => sectionRoot?.scrollIntoView({ block: "start", behavior: "smooth" }));
     };
     window.addEventListener(CONTACT_NOTE_COMPOSE_EVENT, openComposer);
-    onCleanup(() => window.removeEventListener(CONTACT_NOTE_COMPOSE_EVENT, openComposer));
+    const stopLiveInvalidations = listenForContactsLiveInvalidation((event) => {
+      if (event.type !== "notes.changed" || event.bookId !== props.bookId || event.contactId !== props.contactId) return;
+      return refresh(true);
+    });
+    onCleanup(() => {
+      stopLiveInvalidations();
+      window.removeEventListener(CONTACT_NOTE_COMPOSE_EVENT, openComposer);
+    });
   });
 
   const createMutation = mutations.create<ContactNote, string>({
@@ -90,7 +101,7 @@ export default function ContactNotesSection(props: Props) {
       setDraft("");
       setComposerOpen(false);
       toast.success("Note added");
-      refresh();
+      void refresh();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -112,7 +123,7 @@ export default function ContactNotesSection(props: Props) {
       setEditingId(null);
       setEditingContent("");
       toast.success("Note updated");
-      refresh();
+      void refresh();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -140,7 +151,7 @@ export default function ContactNotesSection(props: Props) {
     onSuccess: (deletedId) => {
       if (!deletedId) return;
       toast.success("Note deleted");
-      refresh();
+      void refresh();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -168,7 +179,7 @@ export default function ContactNotesSection(props: Props) {
   };
 
   return (
-    <div ref={sectionRoot} class="flex flex-col gap-3">
+    <div ref={sectionRoot} class="flex flex-col gap-3" data-contacts-editor={composerOpen() || editingId() ? "true" : undefined}>
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h3 class="detail-section-label mb-0">Notes</h3>
         <div class="flex items-center gap-2">

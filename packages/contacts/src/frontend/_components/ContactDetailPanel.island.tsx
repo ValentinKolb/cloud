@@ -1,12 +1,16 @@
 import { Dropdown, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";
 import { resolveContactInitials, resolveContactName, safeWebsiteHref } from "../../shared";
+import { readErrorMessage } from "./api";
 import { createContactDetailActions } from "./ContactDetailPanel.actions";
 import ContactNotesSection from "./ContactNotesSection";
 import ContactOrgTreeView from "./ContactOrgTreeView";
 import ContactQuickEdit from "./ContactQuickEdit";
 import ContactTagChip from "./ContactTagChip";
+import { listenForContactsLiveInvalidation } from "./contacts-live";
 import {
   CONTACT_DETAIL_EVENT,
   type ContactDetailPayload,
@@ -45,11 +49,51 @@ const formatAddress = (address: Contact["addresses"][number]) => {
 
 export default function ContactDetailPanel(props: Props) {
   const [contact, setContact] = createSignal<Contact | null>(props.initialContact);
-  const [, setContactId] = createSignal<string | null>(props.initialContactId);
+  const [contactId, setContactId] = createSignal<string | null>(props.initialContactId);
   const [bookId, setBookId] = createSignal<string | null>(props.initialBookId);
   const [detailMode, setDetailMode] = createSignal<"details" | "tree">("details");
   const [quickEditing, setQuickEditing] = createSignal(false);
   const [orgTree, setOrgTree] = createSignal<ContactTree | null>(null);
+
+  const detailMutation = mutations.create<
+    Contact | null,
+    { bookId: string; contactId: string; selectedBookId: string },
+    { target: { bookId: string; contactId: string; selectedBookId: string } }
+  >({
+    onBefore: (target) => ({ target }),
+    mutation: async (target, ctx) => {
+      const response = await apiClient.books[":bookId"].contacts[":contactId"].$get(
+        { param: target },
+        { init: { signal: ctx.abortSignal } },
+      );
+      if (response.status === 403 || response.status === 404) return null;
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to refresh contact"));
+      return await response.json();
+    },
+    onSuccess: (updated, ctx) => {
+      const target = ctx?.target;
+      if (!target || contactId() !== target.contactId || bookId() !== target.selectedBookId) return;
+      if (!updated) {
+        clearSelectedContactInUrl("replace");
+        return;
+      }
+      setContact(updated);
+      setContactId(updated.id);
+      setBookId(updated.bookId);
+      setOrgTree(null);
+      if (updated.bookId !== target.selectedBookId) {
+        setSelectedContactInUrl({ contactId: updated.id, bookId: updated.bookId, contact: updated, history: "replace" });
+      }
+    },
+  });
+
+  const refreshSelectedContact = async (targetBookId?: string) => {
+    const selectedContactId = contactId();
+    const selectedBookId = bookId();
+    if (!selectedContactId || !selectedBookId) return;
+    await detailMutation.mutate({ bookId: targetBookId ?? selectedBookId, contactId: selectedContactId, selectedBookId });
+    if (detailMutation.error()) throw detailMutation.error();
+  };
 
   const findContact = (id: string | null, selectedBookId: string | null) => {
     if (!id || !selectedBookId) return null;
@@ -86,8 +130,28 @@ export default function ContactDetailPanel(props: Props) {
 
     window.addEventListener(CONTACT_DETAIL_EVENT, handleSelect);
     window.addEventListener("popstate", handlePopState);
+    const stopLiveInvalidations = listenForContactsLiveInvalidation((event) => {
+      const selectedContactId = contactId();
+      const selectedBookId = bookId();
+      if (!selectedContactId || !selectedBookId) return;
+      if (event.type === "contact.deleted" && event.contactId === selectedContactId && event.bookId === selectedBookId) {
+        clearSelectedContactInUrl("replace");
+        return;
+      }
+      if (event.type === "contact.moved" && event.contactId === selectedContactId && event.sourceBookId === selectedBookId) {
+        return refreshSelectedContact(event.targetBookId);
+      }
+      const affectsSelectedBook =
+        event.type === "contact.created" || event.type === "contact.updated" || event.type === "contact.deleted"
+          ? event.bookId === selectedBookId
+          : event.type === "contact.moved" && (event.sourceBookId === selectedBookId || event.targetBookId === selectedBookId);
+      if (affectsSelectedBook) {
+        return refreshSelectedContact();
+      }
+    });
 
     onCleanup(() => {
+      stopLiveInvalidations();
       window.removeEventListener(CONTACT_DETAIL_EVENT, handleSelect);
       window.removeEventListener("popstate", handlePopState);
     });

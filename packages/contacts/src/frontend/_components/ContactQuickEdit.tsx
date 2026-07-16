@@ -88,6 +88,7 @@ export default function ContactQuickEdit(props: Props) {
   return (
     <form
       class="flex flex-col gap-4"
+      data-contacts-editor="true"
       onSubmit={(event) => {
         event.preventDefault();
         saveMutation.mutate(undefined);

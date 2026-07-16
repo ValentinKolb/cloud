@@ -7,6 +7,7 @@ import type { Contact, ContactTag } from "../../service";
 import { readErrorMessage } from "./api";
 import ContactsList from "./ContactsList";
 import ContactTagChip from "./ContactTagChip";
+import { listenForContactsLiveInvalidation, requiresContactsResultsRefresh } from "./contacts-live";
 import { buildContactsPaginationBaseHref, buildContactsSearchHref, contactsResultSignature } from "./contacts-search";
 import { syncContactDetailFromUrl } from "./context";
 
@@ -119,18 +120,25 @@ export default function ContactsResults(props: Props) {
     },
   });
 
-  const loadHref = (href: string, options: { commit?: boolean; fallback?: boolean } = {}) => {
-    routeMutation.mutate({
+  const loadHref = async (href: string, options: { commit?: boolean; fallback?: boolean; throwOnError?: boolean } = {}) => {
+    const request = {
       href,
       version: requestVersion,
       commit: options.commit !== false,
       fallback: options.fallback !== false,
-    });
+    };
+    await routeMutation.mutate(request);
+    if (options.throwOnError && request.version === requestVersion && routeMutation.error()) throw routeMutation.error();
   };
 
   const debounce = timed.debounce((value: string) => {
-    loadHref(buildContactsSearchHref(pathWithQuery(), value));
+    void loadHref(buildContactsSearchHref(pathWithQuery(), value));
   }, 200);
+
+  const refreshLiveResults = async () => {
+    requestVersion += 1;
+    await loadHref(state().href, { commit: false, fallback: false, throwOnError: true });
+  };
 
   createEffect(() => {
     if (!focused() && !debounce.isPending() && !routeMutation.loading()) {
@@ -143,11 +151,15 @@ export default function ContactsResults(props: Props) {
       const href = pathWithQuery();
       if (contactsResultSignature(href) === contactsResultSignature(state().href)) return;
       requestVersion += 1;
-      loadHref(href, { commit: false, fallback: true });
+      void loadHref(href, { commit: false, fallback: true });
     };
     window.addEventListener("popstate", handlePopState);
+    const stopLiveInvalidations = listenForContactsLiveInvalidation((event) => {
+      if (requiresContactsResultsRefresh(event)) return refreshLiveResults();
+    });
     onCleanup(() => {
       debounce.cancel();
+      stopLiveInvalidations();
       window.removeEventListener("popstate", handlePopState);
     });
   });
@@ -155,7 +167,7 @@ export default function ContactsResults(props: Props) {
   const commitImmediately = (value: string) => {
     debounce.cancel();
     requestVersion += 1;
-    loadHref(buildContactsSearchHref(pathWithQuery(), value));
+    void loadHref(buildContactsSearchHref(pathWithQuery(), value));
   };
 
   const committedSearch = () => new URL(state().href, "http://contacts.local").searchParams.get("search") ?? "";
