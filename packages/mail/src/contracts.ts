@@ -413,6 +413,13 @@ export const conversationTriageInputSchema = z.discriminatedUnion("kind", [
     idempotencyKey: z.string().trim().min(1).max(150),
     correlationId: z.string().trim().max(200).optional(),
   }),
+  z.object({
+    kind: z.literal("move_to_folder"),
+    sourceFolderId: z.string().uuid(),
+    destinationFolderId: z.string().uuid(),
+    idempotencyKey: z.string().trim().min(1).max(150),
+    correlationId: z.string().trim().max(200).optional(),
+  }),
 ]);
 export type ConversationTriageInput = z.infer<typeof conversationTriageInputSchema>;
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   activateWorkflowInputSchema,
   backfillWorkflowInputSchema,
+  conversationTriageInputSchema,
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
   createWorkflowInputSchema,
@@ -56,6 +57,17 @@ describe("mail draft contracts", () => {
 });
 
 describe("mail message state contracts", () => {
+  test("accepts a bounded conversation move to a concrete folder", () => {
+    expect(
+      conversationTriageInputSchema.safeParse({
+        kind: "move_to_folder",
+        sourceFolderId: "00000000-0000-4000-8000-000000000001",
+        destinationFolderId: "00000000-0000-4000-8000-000000000002",
+        idempotencyKey: "move:test",
+      }).success,
+    ).toBe(true);
+  });
+
   test("keeps system flags and provider keywords in separate namespaces", () => {
     expect(
       messageStateChangeSchema.safeParse({

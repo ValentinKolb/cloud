@@ -144,6 +144,7 @@ export type ConversationSummary = {
   hasAttachments: boolean;
   messageCount: number;
   preview: string | null;
+  folderId: string | null;
 };
 
 type DbConversation = {
@@ -162,6 +163,7 @@ type DbConversation = {
   has_attachments: boolean;
   message_count: number;
   preview: string | null;
+  folder_id: string | null;
 };
 
 export const listConversations = async (params: {
@@ -217,10 +219,19 @@ export const listConversations = async (params: {
       (
         SELECT COUNT(*)::int FROM mail.conversation_messages count_cm WHERE count_cm.conversation_id = c.id
       ) AS message_count,
-      latest.preview
+      latest.preview,
+      latest.folder_id
     FROM mail.conversations c
     LEFT JOIN LATERAL (
-      SELECT LEFT(COALESCE(mc.plain_text, ''), 320) AS preview
+      SELECT
+        LEFT(COALESCE(mc.plain_text, ''), 320) AS preview,
+        (
+          SELECT placement.folder_id
+          FROM mail.message_placements placement
+          WHERE placement.message_id = mc.id AND placement.deleted_at IS NULL
+          ORDER BY placement.updated_at DESC, placement.folder_id DESC
+          LIMIT 1
+        ) AS folder_id
       FROM mail.conversation_messages cm
       JOIN mail.message_contents mc ON mc.id = cm.message_id
       WHERE cm.conversation_id = c.id
@@ -327,6 +338,7 @@ export const listConversations = async (params: {
     hasAttachments: row.has_attachments,
     messageCount: row.message_count,
     preview: row.preview || null,
+    folderId: row.folder_id,
   }));
   const last = items.at(-1);
   const lastRow = pageRows.at(-1);
@@ -528,6 +540,75 @@ export type MessageDetail = MessageSummary & {
   }>;
 };
 
+type DbMessageDetail = DbMessageSummary & {
+  plain_text: string | null;
+  sanitized_html: string | null;
+  selected_headers: Record<string, unknown> | string;
+  attachments: Array<{ id: string; filename: string | null; contentType: string; sizeBytes: number; contentId: string | null }> | string;
+};
+
+const mapMessageDetail = (row: DbMessageDetail): MessageDetail => ({
+  ...mapMessageSummary(row),
+  plainText: row.plain_text,
+  sanitizedHtml: row.sanitized_html,
+  selectedHeaders:
+    typeof row.selected_headers === "string" ? (JSON.parse(row.selected_headers) as Record<string, unknown>) : row.selected_headers,
+  attachments: parseJsonArray(row.attachments),
+});
+
+const messageDetailSelect = sql`
+  ${messageSummarySelect},
+  mc.plain_text,
+  mc.sanitized_html,
+  mc.selected_headers,
+  COALESCE(attachment_rows.items, '[]'::jsonb) AS attachments
+`;
+
+const messageDetailAttachmentJoin = sql`
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'id', a.id,
+        'filename', a.filename,
+        'contentType', a.content_type,
+        'sizeBytes', a.size_bytes,
+        'contentId', a.content_id
+      ) ORDER BY a.id
+    ) AS items
+    FROM mail.attachments a
+    WHERE a.message_id = mc.id
+  ) attachment_rows ON true
+`;
+
+export const listConversationMessageDetails = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+  limit?: number;
+}): Promise<Result<MessageDetail[]>> => {
+  const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
+  if (!access.ok) return access;
+  const limit = Math.min(Math.max(Math.floor(params.limit ?? 50), 1), 100);
+  const rows = await sql<DbMessageDetail[]>`
+    WITH selected_messages AS (
+      SELECT conversation_message.message_id
+      FROM mail.conversation_messages conversation_message
+      JOIN mail.message_contents content ON content.id = conversation_message.message_id
+      WHERE conversation_message.conversation_id = ${params.conversationId}::uuid
+        AND content.mailbox_id = ${params.mailboxId}::uuid
+      ORDER BY content.internal_date DESC, content.id DESC
+      LIMIT ${limit}
+    )
+    SELECT ${messageDetailSelect}
+    FROM selected_messages selected_message
+    JOIN mail.message_contents mc ON mc.id = selected_message.message_id
+    ${messageSummaryJoins}
+    ${messageDetailAttachmentJoin}
+    ORDER BY mc.internal_date, mc.id
+  `;
+  return ok(rows.map(mapMessageDetail));
+};
+
 export const getMessage = async (params: {
   context: MailRequestContext;
   mailboxId: string;
@@ -535,49 +616,15 @@ export const getMessage = async (params: {
 }): Promise<Result<MessageDetail>> => {
   const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
   if (!access.ok) return access;
-  const [row] = await sql<
-    (DbMessageSummary & {
-      plain_text: string | null;
-      sanitized_html: string | null;
-      selected_headers: Record<string, unknown> | string;
-      attachments:
-        | Array<{ id: string; filename: string | null; contentType: string; sizeBytes: number; contentId: string | null }>
-        | string;
-    })[]
-  >`
-    SELECT
-      ${messageSummarySelect},
-      mc.plain_text,
-      mc.sanitized_html,
-      mc.selected_headers,
-      COALESCE(attachment_rows.items, '[]'::jsonb) AS attachments
+  const [row] = await sql<DbMessageDetail[]>`
+    SELECT ${messageDetailSelect}
     FROM mail.message_contents mc
     ${messageSummaryJoins}
-    LEFT JOIN LATERAL (
-      SELECT jsonb_agg(
-        jsonb_build_object(
-          'id', a.id,
-          'filename', a.filename,
-          'contentType', a.content_type,
-          'sizeBytes', a.size_bytes,
-          'contentId', a.content_id
-        ) ORDER BY a.id
-      ) AS items
-      FROM mail.attachments a
-      WHERE a.message_id = mc.id
-    ) attachment_rows ON true
+    ${messageDetailAttachmentJoin}
     WHERE mc.id = ${params.messageId}::uuid AND mc.mailbox_id = ${params.mailboxId}::uuid
   `;
   if (!row) return fail(err.notFound("Message"));
-  const summary = mapMessageSummary(row);
-  return ok({
-    ...summary,
-    plainText: row.plain_text,
-    sanitizedHtml: row.sanitized_html,
-    selectedHeaders:
-      typeof row.selected_headers === "string" ? (JSON.parse(row.selected_headers) as Record<string, unknown>) : row.selected_headers,
-    attachments: parseJsonArray(row.attachments),
-  });
+  return ok(mapMessageDetail(row));
 };
 
 export type AttachmentDownload = {

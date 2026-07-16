@@ -1,10 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import {
-  conversationTriageInputSchema,
-  type ConversationTriageInput,
-  type MailCommand,
-} from "../contracts";
+import { type ConversationTriageInput, conversationTriageInputSchema, type MailCommand } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import type { MailRequestContext } from "./auth";
 import { createActorCommands } from "./commands";
@@ -28,9 +24,11 @@ export const createConversationTriageCommands = async (params: {
   const input = parsed.data;
   const permission = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!permission.ok) return permission;
-  const destination = input.kind === "move_to_role" ? await resolveRoleFolder(params.mailboxId, input.role) : null;
-  if (destination && !destination.ok) return destination;
-  if (destination?.data.id === input.sourceFolderId) return fail(err.badInput("Source and destination folders must differ"));
+  const roleDestination = input.kind === "move_to_role" ? await resolveRoleFolder(params.mailboxId, input.role) : null;
+  if (roleDestination && !roleDestination.ok) return roleDestination;
+  const destinationFolderId =
+    input.kind === "move_to_folder" ? input.destinationFolderId : roleDestination?.ok ? roleDestination.data.id : null;
+  if (destinationFolderId === input.sourceFolderId) return fail(err.badInput("Source and destination folders must differ"));
 
   const execution = await resolveMailExecution({
     mailboxId: params.mailboxId,
@@ -41,7 +39,7 @@ export const createConversationTriageCommands = async (params: {
         folderId: input.sourceFolderId,
         rights: input.kind === "change_state" ? ["write_flags"] : ["read", "move"],
       },
-      ...(destination ? [{ folderId: destination.data.id, rights: ["insert"] }] : []),
+      ...(destinationFolderId ? [{ folderId: destinationFolderId, rights: ["insert"] }] : []),
     ],
   });
   if (!execution.ok) return execution;
@@ -86,7 +84,7 @@ export const createConversationTriageCommands = async (params: {
             kind: "move",
             remoteMessageRefId: target.remote_message_ref_id,
             sourceFolderId: input.sourceFolderId,
-            destinationFolderId: destination!.data.id,
+            destinationFolderId: destinationFolderId!,
             idempotencyKey: `${input.idempotencyKey}:${target.remote_message_ref_id}`,
             correlationId,
           },
