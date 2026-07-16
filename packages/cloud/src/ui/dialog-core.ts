@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
+import { isPointInsideToast } from "./toast";
 
 export type DialogClose<T> = (result?: T) => void;
 
@@ -110,6 +111,10 @@ export const createDialogCore = (): DialogCore => {
       if (event.target !== dialog) return;
       if (!wasRealBackdropClick) return;
       if (behavior === "ignore") return;
+      // The toast rail paints above the modal (top layer) but is inert
+      // while the modal is open, so a click aimed at a toast retargets
+      // to this dialog's backdrop. Don't treat it as a close request.
+      if (isPointInsideToast(event.clientX, event.clientY)) return;
       close();
     };
   };

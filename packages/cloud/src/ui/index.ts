@@ -8,7 +8,7 @@ export { LAYOUT_UPDATE_EVENT, type LayoutBreadcrumb, type LayoutUpdate, layout }
 export * from "./misc";
 export type { PromptSearchInput, PromptSearchItem, PromptSearchOptions } from "./prompts";
 export { createFormState, DialogHeader, prompts } from "./prompts";
-export type { ToastFn, ToastHandle, ToastOptions, ToastVariant } from "./toast";
+export type { ToastAction, ToastFn, ToastHandle, ToastOptions, ToastVariant } from "./toast";
 export { toast } from "./toast";
 export * from "./widgets";
 // NOTE: islands (*.island.tsx) belong inside the consuming app's package, not

@@ -537,7 +537,13 @@ Use `toast.success(...)` for non-blocking success feedback after a write succeed
 toast.success("Notebook created");
 toast("All changes synced", { title: "Saved" });
 toast.error("Network unreachable");
+toast.success("Item moved", {
+  action: { label: "Open destination", href: "/app/example/items/123" },
+  duration: 8_000,
+});
 ```
+
+Use the optional declarative `action` for a short navigation link after a successful write. Keep destructive or state-changing actions out of toasts.
 
 #### prompts.search()
 
