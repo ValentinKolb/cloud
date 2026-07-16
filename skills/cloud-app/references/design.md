@@ -379,34 +379,29 @@ Every visual change is reviewed in light and dark mode together.
 - Reduced-motion users do not receive decorative transitions.
 - Truncated content remains available through an accessible path.
 
-## Preview and rollout
+## Production baseline and migrations
 
-The redesign is initially scoped to UI Lab.
+The modern visual system is the global Cloud production baseline. Apps inherit
+its semantic tokens, component geometry, floating-layer treatment, and
+workspace rules without an opt-in class, app flag, or local style copy.
 
 ```tsx
-<AppWorkspace class="cloud-ui-soft ...">
+<AppWorkspace class="min-h-0 flex-1">...</AppWorkspace>
 ```
 
-The shared canvas detects the marker and applies preview token values to the full shell:
-
-```css
-.cloud-app-canvas:has(.cloud-ui-soft) {
-  /* Preview token overrides. */
-}
-```
-
-Normal `:root` and `.dark` tokens keep the current production values. The preview must not add component props, app config flags, or app-specific style copies.
-
-After visual and interaction review, promote the preview values to the normal tokens and remove `cloud-ui-soft`. That global activation is a separate change because every app inherits it.
+Never reintroduce `cloud-ui-soft` or another rollout marker. New and migrated
+screens should compose shared primitives and semantic variables directly. A
+local app stylesheet may express domain-specific data or editor behaviour, but
+must not fork core surfaces, controls, navigation, details, or overlays.
 
 ## Parallel work rules
 
-- Do not edit an app to make a core preview look correct.
+- Do not edit an app to compensate for a shared primitive defect; fix the primitive.
 - Do not touch files already modified by another active change.
 - Keep public component APIs stable during token migration.
 - Recheck `git status` before every slice and before staging.
 - Stage exact owned paths.
-- Review representative apps before global activation.
+- Review representative apps whenever shared production tokens or primitives change.
 - Before handing off an app migration, search changed markup and styles for `<hr>`, `divide-y`, `border-t`, `border-b`, and decorative inset rules. Remove every ordinary-content separator; document any remaining functional exception in the review notes.
 
 ## Review checklist

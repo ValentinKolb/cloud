@@ -1030,7 +1030,7 @@ the transition from orientation to content.
 ```jsx
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
-<AppWorkspace class="cloud-ui-soft">
+<AppWorkspace>
   <AppWorkspace.Sidebar collapsible>
     <AppWorkspace.SidebarHeader title="My App" icon="ti ti-list" />
     <AppWorkspace.SidebarDesktop>
@@ -1058,9 +1058,8 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 </AppWorkspace>
 ```
 
-`cloud-ui-soft` is the temporary rollout marker. Remove it only when the soft
-tokens and workspace rules are promoted globally in the dedicated rollout
-change.
+The modern Cloud UI is global production styling. Do not add `cloud-ui-soft`,
+feature flags, or app-local copies of shared workspace and control styles.
 
 Use compound components instead of hand-written sidebar/detail classes. `SidebarItem` owns active, icon, mobile, tone, label truncation, trailing metadata, progressive row actions, and the accessible long-label marquee.
 
