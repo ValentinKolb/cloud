@@ -37,7 +37,10 @@ const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Res
       return value;
     },
     print: (value = "") => lines.push(value),
+    write: (value) => lines.push(value),
+    error: (value) => lines.push(value),
     json: (value) => lines.push(JSON.stringify(value, null, 2)),
+    jsonLine: (value) => lines.push(JSON.stringify(value)),
     table: (rows, columns) => {
       tables.push(rows);
       tableColumns.push(columns as CloudCliTableColumn<Record<string, unknown>>[]);
@@ -95,23 +98,19 @@ describe("admin CLI", () => {
   });
 
   test("creates metrics tokens with normalized expiry", async () => {
-    const { ctx, calls, lines } = createContext(
-      ["metrics", "tokens", "create", "grafana"],
-      { "expires-at": "never" },
-      [
-        jsonResponse({
-          token: "cld_metric_secret",
-          credential: {
-            id: "tok_1",
-            name: "grafana",
-            tokenPrefix: "cld_metric",
-            expiresAt: null,
-            lastUsedAt: null,
-            createdAt: "2026-06-29T10:00:00.000Z",
-          },
-        }),
-      ],
-    );
+    const { ctx, calls, lines } = createContext(["metrics", "tokens", "create", "grafana"], { "expires-at": "never" }, [
+      jsonResponse({
+        token: "cld_metric_secret",
+        credential: {
+          id: "tok_1",
+          name: "grafana",
+          tokenPrefix: "cld_metric",
+          expiresAt: null,
+          lastUsedAt: null,
+          createdAt: "2026-06-29T10:00:00.000Z",
+        },
+      }),
+    ]);
 
     await adminCli.run(ctx);
 

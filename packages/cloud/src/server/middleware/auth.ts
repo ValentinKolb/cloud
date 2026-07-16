@@ -3,10 +3,10 @@ import { createMiddleware } from "hono/factory";
 import type { MessageResponse, Role, RoleOrSpecial, User, UserProfile, UserProvider } from "../../contracts/shared";
 import { accounts } from "../../services/accounts";
 import { oauthTokens } from "../../services/oauth-tokens";
-import { session } from "../../services/session";
 import { serviceAccountCredentials } from "../../services/service-account-credentials";
-import { createLoginRedirectUrl } from "../../shared/redirect";
 import type { ServiceAccount } from "../../services/service-accounts";
+import { session } from "../../services/session";
+import { createLoginRedirectUrl } from "../../shared/redirect";
 import type { AccessSubject } from "../services/access";
 
 // ==========================
@@ -24,12 +24,16 @@ export type ServiceAccountRequestActor =
       serviceAccount: ServiceAccount;
       delegatedUser: User;
       scopes: string[];
+      credentialId?: string | null;
+      credentialExpiresAt?: string | null;
     }
   | {
       kind: "service_account";
       serviceAccount: ServiceAccount;
       delegatedUser: null;
       scopes: string[];
+      credentialId?: string | null;
+      credentialExpiresAt?: string | null;
     };
 
 export type RequestActor = UserRequestActor | ServiceAccountRequestActor;
@@ -103,6 +107,8 @@ const loadAuthenticatedActor = async (
       serviceAccount: authResult.serviceAccount,
       delegatedUser: authResult.delegatedUser,
       scopes: authResult.credential.scopes,
+      credentialId: authResult.credential.id,
+      credentialExpiresAt: authResult.credential.expiresAt,
     };
     c.set("actor", actor);
     if (authResult.delegatedUser) {
@@ -131,6 +137,8 @@ const loadAuthenticatedActor = async (
       serviceAccount: authResult.serviceAccount,
       delegatedUser: authResult.delegatedUser,
       scopes: authResult.scopes,
+      credentialId: null,
+      credentialExpiresAt: typeof authResult.payload.exp === "number" ? new Date(authResult.payload.exp * 1_000).toISOString() : null,
     };
     c.set("actor", actor);
     if (authResult.delegatedUser) {

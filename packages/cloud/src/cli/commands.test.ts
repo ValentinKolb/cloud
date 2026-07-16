@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   arg,
+  type CloudCliContext,
+  type CloudCliFlags,
   command,
   confirmFlag,
   defineCliCommands,
   flag,
   paginationFlags,
   readCliInput,
-  type CloudCliContext,
-  type CloudCliFlags,
 } from "./index";
 
 const createContext = (args: string[], flags: CloudCliFlags = {}) => {
@@ -25,7 +25,10 @@ const createContext = (args: string[], flags: CloudCliFlags = {}) => {
     fetch: async () => Response.json({}),
     readJson: async (response) => response.json(),
     print: (value = "") => lines.push(value),
+    write: (value) => lines.push(value),
+    error: (value) => lines.push(value),
     json: (value) => lines.push(JSON.stringify(value, null, 2)),
+    jsonLine: (value) => lines.push(JSON.stringify(value)),
     table: () => undefined,
   };
   return { ctx, lines };
