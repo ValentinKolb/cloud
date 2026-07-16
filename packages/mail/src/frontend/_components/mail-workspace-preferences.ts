@@ -1,25 +1,12 @@
 export type MailWorkspacePreferences = {
   listCollapsed: boolean;
-  listWidth: number;
 };
 
 const MAIL_WORKSPACE_COOKIE = "cloud_mail_workspace";
-export const MAIL_LIST_MIN_WIDTH = 300;
-export const MAIL_LIST_MAX_WIDTH = 620;
-const MAIL_LIST_DEFAULT_WIDTH = 430;
-
-const clampWidth = (value: unknown): number => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return MAIL_LIST_DEFAULT_WIDTH;
-  return Math.round(Math.min(MAIL_LIST_MAX_WIDTH, Math.max(MAIL_LIST_MIN_WIDTH, value)));
-};
 
 const normalizeMailWorkspacePreferences = (value: unknown): MailWorkspacePreferences => {
-  if (!value || typeof value !== "object") return { listCollapsed: false, listWidth: MAIL_LIST_DEFAULT_WIDTH };
-  const candidate = value as { listCollapsed?: unknown; listWidth?: unknown };
-  return {
-    listCollapsed: candidate.listCollapsed === true,
-    listWidth: clampWidth(candidate.listWidth),
-  };
+  if (!value || typeof value !== "object") return { listCollapsed: false };
+  return { listCollapsed: (value as { listCollapsed?: unknown }).listCollapsed === true };
 };
 
 export const readMailWorkspacePreferences = (cookieHeader: string | null | undefined): MailWorkspacePreferences => {

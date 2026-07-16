@@ -17,15 +17,17 @@ describe("AppWorkspace layout state", () => {
       version: 2,
       sidebarWidth: 176,
       sidebarCollapsed: undefined,
+      paneWidths: undefined,
       detailWidths: { primary: 640 },
       drawerHeights: undefined,
     });
   });
 
-  test("normalizes keyed detail and drawer sizes", () => {
+  test("normalizes keyed pane, detail, and drawer sizes", () => {
     expect(
       normalizeAppWorkspaceLayoutState({
         version: 2,
+        paneWidths: { conversations: 420, "unsafe/pane": 999 },
         detailWidths: { contact: 420, "mail/thread": 999, invalid: "320" },
         drawerHeights: { activity: 120 },
       }),
@@ -33,6 +35,7 @@ describe("AppWorkspace layout state", () => {
       version: 2,
       sidebarWidth: undefined,
       sidebarCollapsed: undefined,
+      paneWidths: { conversations: 420, unsafe_pane: 640 },
       detailWidths: { contact: 420, mail_thread: 640 },
       drawerHeights: { activity: 160 },
     });
@@ -50,6 +53,7 @@ describe("AppWorkspace layout state", () => {
       version: 2 as const,
       sidebarWidth: 236,
       sidebarCollapsed: true,
+      paneWidths: { conversations: 430 },
       detailWidths: { contact: 428 },
       drawerHeights: { activity: 260 },
     };
@@ -57,16 +61,24 @@ describe("AppWorkspace layout state", () => {
   });
 
   test("reads the current app cookie and emits SSR variables", () => {
-    const value = serializeAppWorkspaceLayoutState({ version: 2, sidebarWidth: 232, detailWidths: { contact: 416 } });
+    const value = serializeAppWorkspaceLayoutState({
+      version: 2,
+      sidebarWidth: 232,
+      paneWidths: { conversations: 430 },
+      detailWidths: { contact: 416 },
+    });
     const state = readAppWorkspaceLayoutCookie(`theme=dark; ${appWorkspaceCookieName("contacts")}=${value}`, "contacts");
     expect(state).toEqual({
       version: 2,
       sidebarWidth: 232,
       sidebarCollapsed: undefined,
+      paneWidths: { conversations: 430 },
       detailWidths: { contact: 416 },
       drawerHeights: undefined,
     });
-    expect(appWorkspaceLayoutStyle(state)).toBe("--workspace-sidebar-width:232px;--workspace-detail-contact-width:416px");
+    expect(appWorkspaceLayoutStyle(state)).toBe(
+      "--workspace-sidebar-width:232px;--workspace-pane-conversations-width:430px;--workspace-detail-contact-width:416px",
+    );
   });
 
   test("keeps the legacy primary detail variable during migration", () => {
@@ -84,6 +96,7 @@ describe("AppWorkspace layout state", () => {
       version: 2,
       sidebarWidth: 248,
       sidebarCollapsed: true,
+      paneWidths: undefined,
       detailWidths: undefined,
       drawerHeights: undefined,
     });
@@ -114,6 +127,10 @@ describe("AppWorkspace layout state", () => {
     expect(appWorkspaceResizeLimits({ kind: "detail", workspaceSize: 900, reservedSize: 500 })).toEqual({
       min: 288,
       max: 288,
+    });
+    expect(appWorkspaceResizeLimits({ kind: "pane", workspaceSize: 1200, reservedSize: 320 })).toEqual({
+      min: 240,
+      max: 560,
     });
     expect(appWorkspaceResizeLimits({ kind: "sidebar", workspaceSize: 1000, reservedSize: 384, sidebarCollapsible: true })).toEqual({
       min: 64,

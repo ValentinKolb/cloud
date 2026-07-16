@@ -14,6 +14,9 @@ import {
   APP_WORKSPACE_DETAIL_MIN,
   APP_WORKSPACE_DRAWER_MAX,
   APP_WORKSPACE_DRAWER_MIN,
+  APP_WORKSPACE_PANE_DEFAULT,
+  APP_WORKSPACE_PANE_MAX,
+  APP_WORKSPACE_PANE_MIN,
   appWorkspacePanelVariable,
   safeAppWorkspacePanelId,
 } from "./app-workspace-state";
@@ -25,6 +28,13 @@ const SIDEBAR_ITEM_ICON = Symbol("AppWorkspace.SidebarItemIcon");
 const SIDEBAR_ITEM_LABEL = Symbol("AppWorkspace.SidebarItemLabel");
 const SIDEBAR_ITEM_META = Symbol("AppWorkspace.SidebarItemMeta");
 const SIDEBAR_ITEM_ACTION = Symbol("AppWorkspace.SidebarItemAction");
+const MAIN_PANE = Symbol("AppWorkspace.MainPane");
+
+type MainPaneSlot = {
+  readonly kind: typeof MAIN_PANE;
+  readonly props: AppWorkspaceMainPaneProps;
+  readonly domId: string;
+};
 
 type SidebarSlotKind = typeof SIDEBAR_HEADER | typeof SIDEBAR_MOBILE | typeof SIDEBAR_DESKTOP;
 
@@ -94,6 +104,20 @@ export type AppWorkspaceProps = {
 };
 
 export type AppWorkspaceMainProps = {
+  class?: string;
+  mobilePane?: string;
+  "aria-busy"?: boolean | "true" | "false";
+  children: JSX.Element;
+};
+
+export type AppWorkspaceMainPaneProps = {
+  id: string;
+  label: string;
+  open?: boolean;
+  resizable?: boolean;
+  defaultSize?: number;
+  minSize?: number;
+  maxSize?: number;
   class?: string;
   children: JSX.Element;
 };
@@ -251,6 +275,7 @@ export type AppWorkspaceSidebarItemActionProps = {
 type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   Content: (props: AppWorkspaceContentProps) => JSX.Element;
   Main: (props: AppWorkspaceMainProps) => JSX.Element;
+  MainPane: (props: AppWorkspaceMainPaneProps) => JSX.Element;
   Detail: (props: AppWorkspaceDetailProps) => JSX.Element;
   BottomDrawer: (props: AppWorkspaceBottomDrawerProps) => JSX.Element;
   Sidebar: (props: AppWorkspaceSidebarProps) => JSX.Element;
@@ -289,6 +314,14 @@ const isSidebarItemSlot = (value: unknown): value is SidebarItemSlot =>
 const collectSidebarItemSlots = (value: unknown): SidebarItemSlot[] => {
   if (Array.isArray(value)) return value.flatMap(collectSidebarItemSlots);
   return isSidebarItemSlot(value) ? [value] : [];
+};
+
+const isMainPaneSlot = (value: unknown): value is MainPaneSlot =>
+  !!value && typeof value === "object" && "kind" in value && (value as MainPaneSlot).kind === MAIN_PANE;
+
+const flattenMainChildren = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) return value.flatMap(flattenMainChildren);
+  return value === null || value === undefined || typeof value === "boolean" ? [] : [value];
 };
 
 const tablerIconClass = (icon: string | null | undefined, fallback: string): string => {
@@ -410,18 +443,29 @@ const drawerDefaultHeight = (props: AppWorkspaceBottomDrawerProps): number => {
 };
 
 const AppWorkspaceResizeHandle = (props: {
-  kind: "sidebar" | "detail" | "drawer";
+  kind: "sidebar" | "pane" | "detail" | "drawer";
   defaultSize: number;
   minSize: number;
   maxSize: number;
   panelId?: string;
   controls?: string;
+  edge?: "start" | "end";
+  label?: string;
   style?: string;
 }) => (
   <button
     type="button"
     role="separator"
-    aria-label={props.kind === "sidebar" ? "Resize navigation" : props.kind === "detail" ? "Resize detail panel" : "Resize bottom drawer"}
+    aria-label={
+      props.label ??
+      (props.kind === "sidebar"
+        ? "Resize navigation"
+        : props.kind === "pane"
+          ? "Resize workspace pane"
+          : props.kind === "detail"
+            ? "Resize detail panel"
+            : "Resize bottom drawer")
+    }
     aria-controls={props.controls}
     aria-orientation={props.kind === "drawer" ? "horizontal" : "vertical"}
     aria-valuemin={props.minSize}
@@ -429,6 +473,7 @@ const AppWorkspaceResizeHandle = (props: {
     aria-valuenow={props.defaultSize}
     data-app-workspace-resize={props.kind}
     data-workspace-panel-id={props.panelId}
+    data-workspace-resize-edge={props.edge}
     data-workspace-min-size={props.minSize}
     data-workspace-max-size={props.maxSize}
     class={`workspace-resize-handle workspace-resize-handle-${props.kind}`}
@@ -444,11 +489,109 @@ const AppWorkspaceContent = (props: AppWorkspaceContentProps) => (
   </div>
 );
 
-const AppWorkspaceMain = (props: AppWorkspaceMainProps) => (
-  <main class={`workspace-main order-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-2 ${props.class ?? ""}`}>
-    {props.children}
-  </main>
-);
+function AppWorkspaceMainPane(props: AppWorkspaceMainPaneProps): JSX.Element {
+  return {
+    kind: MAIN_PANE,
+    props,
+    domId: `workspace-main-pane-${createUniqueId()}`,
+  } satisfies MainPaneSlot as unknown as JSX.Element;
+}
+
+const AppWorkspaceMain = (props: AppWorkspaceMainProps) => {
+  const rootResizable = useContext(AppWorkspaceResizeContext);
+  const resolved = children(() => props.children);
+  const values = createMemo(() => flattenMainChildren(resolved()));
+  const hasPanes = createMemo(() => values().some(isMainPaneSlot));
+
+  const regions = createMemo(() => {
+    const all = values();
+    const primaryChildren = all.filter((value) => !isMainPaneSlot(value));
+    const primaryIndex = all.findIndex((value) => !isMainPaneSlot(value));
+    let primaryInserted = false;
+    const result: Array<{ type: "primary"; index: number; children: unknown[] } | { type: "pane"; index: number; slot: MainPaneSlot }> = [];
+
+    all.forEach((value, index) => {
+      if (isMainPaneSlot(value)) {
+        if (value.props.open !== false) result.push({ type: "pane", index, slot: value });
+        return;
+      }
+      if (!primaryInserted) {
+        primaryInserted = true;
+        result.push({ type: "primary", index: primaryIndex, children: primaryChildren });
+      }
+    });
+    return result;
+  });
+
+  const renderSplitRegions = () => {
+    const current = regions();
+    const anchor = current.find((region) => region.type === "primary") ?? current[0];
+    if (!anchor) return null;
+    const activeMobilePane = props.mobilePane ?? (anchor.type === "primary" ? "main" : anchor.slot.props.id);
+
+    return current.flatMap((region) => {
+      const isAnchor = region === anchor;
+      if (region.type === "primary") {
+        return (
+          <div
+            class="workspace-main-primary flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            data-workspace-main-region="main"
+            data-workspace-mobile-active={activeMobilePane === "main" ? "true" : "false"}
+          >
+            {region.children as JSX.Element}
+          </div>
+        );
+      }
+
+      const pane = region.slot;
+      const panelId = safeAppWorkspacePanelId(pane.props.id) || "primary";
+      const defaultSize = pane.props.defaultSize ?? APP_WORKSPACE_PANE_DEFAULT;
+      const minSize = pane.props.minSize ?? APP_WORKSPACE_PANE_MIN;
+      const maxSize = Math.max(minSize, pane.props.maxSize ?? APP_WORKSPACE_PANE_MAX);
+      const resizable = !isAnchor && (pane.props.resizable ?? rootResizable);
+      const content = (
+        <section
+          id={pane.domId}
+          aria-label={pane.props.label}
+          class={`workspace-main-pane ${isAnchor ? "workspace-main-pane-primary" : ""} ${pane.props.class ?? ""}`}
+          data-workspace-main-region={pane.props.id}
+          data-workspace-mobile-active={activeMobilePane === pane.props.id ? "true" : "false"}
+          data-workspace-panel-id={panelId}
+          data-workspace-resizable={resizable ? "true" : "false"}
+          style={isAnchor ? undefined : `--workspace-panel-size:var(${appWorkspacePanelVariable("pane", panelId)},${defaultSize}px)`}
+        >
+          {pane.props.children}
+        </section>
+      );
+      if (!resizable) return content;
+
+      const beforeAnchor = region.index < anchor.index;
+      const handle = (
+        <AppWorkspaceResizeHandle
+          kind="pane"
+          panelId={panelId}
+          controls={pane.domId}
+          edge={beforeAnchor ? "end" : "start"}
+          label={`Resize ${pane.props.label}`}
+          defaultSize={defaultSize}
+          minSize={minSize}
+          maxSize={maxSize}
+        />
+      );
+      return beforeAnchor ? [content, handle] : [handle, content];
+    });
+  };
+
+  return (
+    <main
+      class={`workspace-main ${hasPanes() ? "workspace-main-split" : ""} order-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-2 ${props.class ?? ""}`}
+      aria-busy={props["aria-busy"]}
+      data-workspace-main-panes={hasPanes() ? "true" : undefined}
+    >
+      {hasPanes() ? renderSplitRegions() : (resolved() as JSX.Element)}
+    </main>
+  );
+};
 
 const AppWorkspaceDetail = (props: AppWorkspaceDetailProps) => {
   const rootResizable = useContext(AppWorkspaceResizeContext);
@@ -994,6 +1137,7 @@ const AppWorkspace = ((props: AppWorkspaceProps) => (
 )) as AppWorkspaceComponent;
 
 AppWorkspace.Main = AppWorkspaceMain;
+AppWorkspace.MainPane = AppWorkspaceMainPane;
 AppWorkspace.Content = AppWorkspaceContent;
 AppWorkspace.Detail = AppWorkspaceDetail;
 AppWorkspace.BottomDrawer = AppWorkspaceBottomDrawer;

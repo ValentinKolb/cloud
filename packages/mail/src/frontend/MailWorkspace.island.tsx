@@ -9,7 +9,6 @@ import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
 import MailSidebar from "./_components/MailSidebar";
-import MailWorkspaceSplit from "./_components/MailWorkspaceSplit";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
@@ -26,7 +25,6 @@ export default function MailWorkspace(props: {
   const [requestUrl, setRequestUrl] = createSignal(props.requestUrl);
   const [routeLoading, setRouteLoading] = createSignal(false);
   const [listCollapsed, setListCollapsed] = createSignal(props.initialPreferences.listCollapsed);
-  const [listWidth, setListWidth] = createSignal(props.initialPreferences.listWidth);
   const [detailsOpen, setDetailsOpen] = createSignal(false);
   const [composerActive, setComposerActive] = createSignal(false);
   const [settingsOpening, setSettingsOpening] = createSignal(false);
@@ -75,16 +73,11 @@ export default function MailWorkspace(props: {
 
   const persistPreferences = () => {
     if (preferenceTimer) clearTimeout(preferenceTimer);
-    preferenceTimer = setTimeout(() => writeMailWorkspacePreferences({ listCollapsed: listCollapsed(), listWidth: listWidth() }), 120);
+    preferenceTimer = setTimeout(() => writeMailWorkspacePreferences({ listCollapsed: listCollapsed() }), 120);
   };
 
   const setCollapsed = (collapsed: boolean) => {
     setListCollapsed(collapsed);
-    persistPreferences();
-  };
-
-  const updateListWidth = (width: number) => {
-    setListWidth(width);
     persistPreferences();
   };
 
@@ -176,51 +169,50 @@ export default function MailWorkspace(props: {
         onNavigate={navigateWorkspace}
       />
       <AppWorkspace.Content>
-        <AppWorkspace.Main class="relative p-0" aria-busy={routeLoading()}>
-          <MailWorkspaceSplit
-            collapsed={listCollapsed()}
-            hasSelection={hasSelection()}
-            listWidth={listWidth()}
-            onListWidthChange={updateListWidth}
-            list={
-              <MailConversationList
-                mailbox={data().mailbox}
-                mailboxId={data().mailbox.id}
-                requestUrl={requestUrl()}
-                query={data().query}
-                title={data().listTitle}
-                items={data().listItems}
-                error={data().listError}
-                selectedConversationId={data().selectedConversationId}
-                selectedMessageId={data().selectedMessageId}
-                nextCursor={data().nextListCursor}
-                dateConfig={props.dateConfig}
-                canWrite={canWrite()}
-                loading={routeLoading()}
-                onCollapse={() => setCollapsed(true)}
-                onNavigate={navigateWorkspace}
-                onOpenHref={openWorkspaceHref}
-              />
-            }
-            reader={
-              <MailConversationReader
-                mailboxId={data().mailbox.id}
-                requestUrl={requestUrl()}
-                canWrite={canWrite()}
-                identities={data().identities}
-                selectionKey={data().selectedConversationId ?? data().selectedMessageId}
-                selectedConversationId={data().selectedConversationId}
-                subject={data().selectedSubject}
-                messages={data().detailMessages}
-                dateConfig={props.dateConfig}
-                listCollapsed={listCollapsed()}
-                detailsOpen={detailsOpen()}
-                onRestoreList={() => setCollapsed(false)}
-                onToggleDetails={() => canShowDetails() && setDetailsOpen((open) => !open)}
-                onComposerActiveChange={updateComposerActive}
-                onNavigate={navigateWorkspace}
-              />
-            }
+        <AppWorkspace.Main class="p-0" aria-busy={routeLoading()} mobilePane={hasSelection() ? "main" : "conversations"}>
+          <AppWorkspace.MainPane
+            id="conversations"
+            label="Conversation list"
+            open={!listCollapsed() || !hasSelection()}
+            defaultSize={430}
+            minSize={300}
+            maxSize={620}
+          >
+            <MailConversationList
+              mailbox={data().mailbox}
+              mailboxId={data().mailbox.id}
+              requestUrl={requestUrl()}
+              query={data().query}
+              title={data().listTitle}
+              items={data().listItems}
+              error={data().listError}
+              selectedConversationId={data().selectedConversationId}
+              selectedMessageId={data().selectedMessageId}
+              nextCursor={data().nextListCursor}
+              dateConfig={props.dateConfig}
+              canWrite={canWrite()}
+              loading={routeLoading()}
+              onCollapse={() => setCollapsed(true)}
+              onNavigate={navigateWorkspace}
+              onOpenHref={openWorkspaceHref}
+            />
+          </AppWorkspace.MainPane>
+          <MailConversationReader
+            mailboxId={data().mailbox.id}
+            requestUrl={requestUrl()}
+            canWrite={canWrite()}
+            identities={data().identities}
+            selectionKey={data().selectedConversationId ?? data().selectedMessageId}
+            selectedConversationId={data().selectedConversationId}
+            subject={data().selectedSubject}
+            messages={data().detailMessages}
+            dateConfig={props.dateConfig}
+            listCollapsed={listCollapsed()}
+            detailsOpen={detailsOpen()}
+            onRestoreList={() => setCollapsed(false)}
+            onToggleDetails={() => canShowDetails() && setDetailsOpen((open) => !open)}
+            onComposerActiveChange={updateComposerActive}
+            onNavigate={navigateWorkspace}
           />
         </AppWorkspace.Main>
         <AppWorkspace.Detail id="mail-context" open={detailsOpen() && canShowDetails()} width="lg" maxWidth={520}>

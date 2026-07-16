@@ -994,7 +994,7 @@ Canonical callback shape:
 
 ### AppWorkspace
 
-Compound layout for full-height app screens with a left sidebar, a content row containing Main plus optional right details, and an optional bottom drawer. The root is one clipped workbench frame; its regions are not separate outer papers. Source: `packages/cloud/src/ui/misc/AppWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/workspace`.
+Compound layout for full-height app screens with a left sidebar, a Main that may contain simple resizable panes, optional right details, and an optional bottom drawer. The root is one clipped workbench frame; its regions are not separate outer papers. Source: `packages/cloud/src/ui/misc/AppWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/workspace`.
 
 For full-height `AppWorkspace.Main` screens, use the same content spacing as admin stretch pages:
 
@@ -1019,7 +1019,31 @@ Only put `scrollbar-gutter: stable` on the element that actually owns page scrol
 
 Do not add gaps, margins, borders, radii, or shadows between `AppWorkspace.Sidebar`, `AppWorkspace.Content`, `AppWorkspace.Main`, `AppWorkspace.Detail`, and `AppWorkspace.BottomDrawer`. They are internal regions of the unified frame. Sidebar, detail, and drawer use the quiet surface role; main remains neutral.
 
-Main and Detail are siblings inside `AppWorkspace.Content`. Never implement contextual detail as `grid-cols-2`, a flex split, or another column inside `AppWorkspace.Main`. Use `AppWorkspace.Detail` so the shared shell owns responsive stacking and order, width, clipping, scrolling, and visibility. If the main content itself is an IDE-like multi-pane tool rather than a selected-record detail, use `Panes` inside Main instead.
+Main and Detail are siblings inside `AppWorkspace.Content`. Never implement contextual detail as `grid-cols-2`, a flex split, or another column inside `AppWorkspace.Main`. Use `AppWorkspace.Detail` so the shared shell owns responsive stacking and order, width, clipping, scrolling, and visibility. For a simple stable split inside the primary work area—such as Mail's conversation list and reader—use `AppWorkspace.MainPane`. Use `Panes` only when users need tabbed, movable, or nested editor panes.
+
+`AppWorkspace.MainPane` is additive. As soon as Main contains one, all ordinary Main children collectively become the flexible primary region named `main`; explicit MainPanes may appear before or after it. Each pane has a stable purpose-based `id`, its own accessible `label`, shared pointer and keyboard resizing, and per-app SSR-persisted width. Do not persist pane geometry in app state or add an app-local separator. `open` controls the pane; `mobilePane` on Main chooses the one visible region below the desktop breakpoint.
+
+```tsx
+<AppWorkspace.Main
+  class="p-0"
+  mobilePane={selectedConversation() ? "main" : "conversations"}
+>
+  <AppWorkspace.MainPane
+    id="conversations"
+    label="Conversation list"
+    open={!listCollapsed()}
+    defaultSize={430}
+    minSize={300}
+    maxSize={620}
+  >
+    <ConversationList />
+  </AppWorkspace.MainPane>
+
+  <ConversationReader />
+</AppWorkspace.Main>
+```
+
+MainPane is for persistent peer work regions, not selected-record context. If closing the region means "deselect this record", use `AppWorkspace.Detail`. If users rearrange or tab panes, use `Panes`. Otherwise prefer MainPane over a custom grid, pointer handler, resize cookie, or CSS variable.
 
 Multiple Details are additive shell regions, not nested boxes. Use them only when each one preserves distinct context the user needs simultaneously. Give each semantic panel a stable purpose-based `id` such as `record` or `inspector`; do not use a selected record id, because the id also keys SSR-persisted geometry. Open/close state remains controlled by the app. On mobile, keep at most one detail open.
 
@@ -1069,7 +1093,7 @@ feature flags, or app-local copies of shared workspace and control styles.
 
 Use compound components instead of hand-written sidebar/detail classes. `SidebarItem` owns active, icon, mobile, tone, label truncation, trailing metadata, progressive row actions, and the accessible long-label marquee.
 
-Desktop Sidebar, Detail, and BottomDrawer regions are resizable by default. `Layout` restores validated sizes from a per-app cookie during SSR, so the first paint already uses the saved geometry. One Layout-owned controller handles pointer and keyboard resizing for all server-rendered workspaces; do not turn an app page or every region into an island. Vertical separators support Left/Right and horizontal drawer separators support Up/Down; Shift uses larger steps, while Home and End select limits. Resize handles are hidden on mobile. Set `resizable={false}` on the root or one region only when that layout deliberately owns a fixed size.
+Desktop Sidebar, MainPane, Detail, and BottomDrawer regions are resizable by default. `Layout` restores validated sizes from a per-app cookie during SSR, so the first paint already uses the saved geometry. One Layout-owned controller handles pointer and keyboard resizing for all server-rendered workspaces; do not turn an app page or every region into an island. Vertical separators support Left/Right and horizontal drawer separators support Up/Down; Shift uses larger steps, while Home and End select limits. The generous invisible target reveals the same short centered handle on hover, focus, and drag everywhere. Resize handles are hidden on mobile. Set `resizable={false}` on the root or one region only when that layout deliberately owns a fixed size.
 
 Resize behavior is an app-level contract, not a route-level accident. When one primary view of an app has a resizable sidebar, every primary view of that app must keep the same sidebar and resize behavior unless there is a documented UX reason to omit it. Do not replace the workspace with a standalone page merely for search, history, archive, or management. Prefer a modal for temporary collection workflows, or keep the same `AppWorkspace` shell when the workflow genuinely needs its own route.
 
@@ -1078,6 +1102,8 @@ Collapsed desktop navigation is opt-in with `collapsible` on `AppWorkspace.Sideb
 Compound pieces:
 - `AppWorkspace`, `AppWorkspace.Content`, `AppWorkspace.Main`
 - `AppWorkspace` with `resizable?: boolean`
+- `AppWorkspace.Main` with `mobilePane?: string`; ordinary children form the flexible `main` region when MainPanes are present.
+- `AppWorkspace.MainPane` with stable `id`, accessible `label`, `open?`, `defaultSize?`, `minSize?`, `maxSize?`, `resizable?`, and `class?`
 - `AppWorkspace.Detail` with stable `id?`, `open`, `width?: "sm" | "md" | "lg" | "xl"`, `minWidth?`, `maxWidth?`, `widthClass?`, `viewTransitionName?`, and `resizable?`
 - `AppWorkspace.BottomDrawer` with stable `id?`, `open`, `height?: "sm" | "md" | "lg"`, `minHeight?`, `maxHeight?`, `viewTransitionName?`, and `resizable?`
 - `AppWorkspace.Sidebar` with `resizable?` and opt-in `collapsible?`, plus `SidebarHeader`, `SidebarMobile`, `SidebarMobileItems`, `SidebarDesktop`, `SidebarBody`, `SidebarFooter`, and `SidebarSection`
@@ -1138,7 +1164,7 @@ manual scroll code:
 
 ### Panes for editor workspaces
 
-Use `Panes` for new resizable, tabbed editor/query workspaces. It is the preferred primitive for IDE-like surfaces because the app owns the composition explicitly: result panes, editor tabs, context/reference tabs, persistence, and route state stay in the consuming app instead of a hidden shell.
+Use `Panes` for resizable, tabbed, movable editor/query workspaces. For a stable list/reader or navigator/canvas split, prefer `AppWorkspace.MainPane`; it supplies the shared geometry and responsive behavior without making the app own a pane model. `Panes` remains the correct primitive for IDE-like surfaces because the app owns the composition explicitly: result panes, editor tabs, context/reference tabs, persistence, and route state stay in the consuming app instead of a hidden shell.
 
 ```tsx
 import { createPanesValue, Panes, type PanesValue } from "@valentinkolb/cloud/ui";
@@ -1168,7 +1194,7 @@ const [paneValue, setPaneValue] = createSignal<PanesValue>(createPanesValue(["re
 
 Rules:
 
-- Prefer `Panes` inside `AppWorkspace.Main` for query explorers, dashboard editors, report builders, import mapping tools, and other technical workspaces.
+- Prefer `Panes` inside `AppWorkspace.Main` for query explorers, dashboard editors, report builders, import mapping tools, and other technical workspaces whose regions are tabbed, movable, or nested.
 - Keep pane children edge-to-edge unless the pane content itself needs padding. Put padding inside `paper`, editor, table, or panel components, not around every pane.
 - Persist `PanesValue` in the app only when the product actually needs saved layout state.
 - Keep it KISS: no floating windows, nested pane workspaces, or app-specific layout wrappers until a real product need exists.

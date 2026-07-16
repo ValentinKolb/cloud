@@ -2,6 +2,7 @@ export type AppWorkspaceLayoutState = {
   version: 2;
   sidebarWidth?: number;
   sidebarCollapsed?: boolean;
+  paneWidths?: Record<string, number>;
   detailWidths?: Record<string, number>;
   drawerHeights?: Record<string, number>;
 };
@@ -19,8 +20,11 @@ export const APP_WORKSPACE_DRAWER_MIN = 160;
 export const APP_WORKSPACE_DRAWER_MAX = 560;
 export const APP_WORKSPACE_MAIN_MIN = 320;
 export const APP_WORKSPACE_MAIN_MIN_HEIGHT = 240;
+export const APP_WORKSPACE_PANE_DEFAULT = 320;
+export const APP_WORKSPACE_PANE_MIN = 240;
+export const APP_WORKSPACE_PANE_MAX = 640;
 
-export type AppWorkspaceResizeKind = "sidebar" | "detail" | "drawer";
+export type AppWorkspaceResizeKind = "sidebar" | "pane" | "detail" | "drawer";
 
 export const appWorkspaceResizeLimits = (options: {
   kind: AppWorkspaceResizeKind;
@@ -37,13 +41,17 @@ export const appWorkspaceResizeLimits = (options: {
         : APP_WORKSPACE_SIDEBAR_MIN
       : options.kind === "detail"
         ? APP_WORKSPACE_DETAIL_MIN
-        : APP_WORKSPACE_DRAWER_MIN;
+        : options.kind === "pane"
+          ? APP_WORKSPACE_PANE_MIN
+          : APP_WORKSPACE_DRAWER_MIN;
   const defaultMax =
     options.kind === "sidebar"
       ? APP_WORKSPACE_SIDEBAR_MAX
       : options.kind === "detail"
         ? APP_WORKSPACE_DETAIL_MAX
-        : APP_WORKSPACE_DRAWER_MAX;
+        : options.kind === "pane"
+          ? APP_WORKSPACE_PANE_MAX
+          : APP_WORKSPACE_DRAWER_MAX;
   const min = options.min ?? defaultMin;
   const configuredMax = options.max ?? defaultMax;
   const mainMinimum = options.kind === "drawer" ? APP_WORKSPACE_MAIN_MIN_HEIGHT : APP_WORKSPACE_MAIN_MIN;
@@ -91,8 +99,8 @@ const safeAppId = (appId: string): string => appId.replace(/[^A-Za-z0-9_-]/g, "_
 
 export const appWorkspaceCookieName = (appId: string): string => `cloud_workspace_${safeAppId(appId)}`;
 
-export const appWorkspacePanelVariable = (kind: "detail" | "drawer", panelId: string): string =>
-  `--workspace-${kind}-${safeAppWorkspacePanelId(panelId)}-${kind === "detail" ? "width" : "height"}`;
+export const appWorkspacePanelVariable = (kind: "pane" | "detail" | "drawer", panelId: string): string =>
+  `--workspace-${kind}-${safeAppWorkspacePanelId(panelId)}-${kind === "drawer" ? "height" : "width"}`;
 
 export const normalizeAppWorkspaceLayoutState = (value: unknown): AppWorkspaceLayoutState | null => {
   if (!value || typeof value !== "object") return null;
@@ -100,6 +108,7 @@ export const normalizeAppWorkspaceLayoutState = (value: unknown): AppWorkspaceLa
     version?: unknown;
     sidebarWidth?: unknown;
     sidebarCollapsed?: unknown;
+    paneWidths?: unknown;
     detailWidth?: unknown;
     detailWidths?: unknown;
     drawerHeights?: unknown;
@@ -116,12 +125,20 @@ export const normalizeAppWorkspaceLayoutState = (value: unknown): AppWorkspaceLa
         ? undefined
         : { primary: legacyDetailWidth }
       : normalizePanelSizes(candidate.detailWidths, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
+  const paneWidths =
+    candidate.version === 2 ? normalizePanelSizes(candidate.paneWidths, APP_WORKSPACE_PANE_MIN, APP_WORKSPACE_PANE_MAX) : undefined;
   const drawerHeights =
     candidate.version === 2 ? normalizePanelSizes(candidate.drawerHeights, APP_WORKSPACE_DRAWER_MIN, APP_WORKSPACE_DRAWER_MAX) : undefined;
-  if (sidebarWidth === undefined && sidebarCollapsed === undefined && detailWidths === undefined && drawerHeights === undefined)
+  if (
+    sidebarWidth === undefined &&
+    sidebarCollapsed === undefined &&
+    paneWidths === undefined &&
+    detailWidths === undefined &&
+    drawerHeights === undefined
+  )
     return null;
 
-  return { version: 2, sidebarWidth, sidebarCollapsed, detailWidths, drawerHeights };
+  return { version: 2, sidebarWidth, sidebarCollapsed, paneWidths, detailWidths, drawerHeights };
 };
 
 export const parseAppWorkspaceLayoutState = (value: string | null | undefined): AppWorkspaceLayoutState | null => {
@@ -158,6 +175,7 @@ export const appWorkspaceLayoutStyle = (state: AppWorkspaceLayoutState | null | 
       : state.sidebarWidth === undefined
         ? null
         : `--workspace-sidebar-width:${state.sidebarWidth}px`,
+    ...Object.entries(state.paneWidths ?? {}).map(([panelId, width]) => `${appWorkspacePanelVariable("pane", panelId)}:${width}px`),
     ...Object.entries(state.detailWidths ?? {}).flatMap(([panelId, width]) => [
       `${appWorkspacePanelVariable("detail", panelId)}:${width}px`,
       panelId === "primary" ? `--workspace-detail-width:${width}px` : null,

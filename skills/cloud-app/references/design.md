@@ -192,11 +192,13 @@ Dark mode mixes appearance colours into the dark canvas; it does not invert a li
 - The sidebar owns navigation scrolling.
 - Main owns the primary work scroll unless the screen contains independent panes or tables.
 - A contextual right-side detail area is always an `AppWorkspace.Detail` sibling after Main inside `AppWorkspace.Content`. Do not create a second grid or flex column inside `AppWorkspace.Main` to imitate a detail panel; the shared detail region owns responsive order, width, clipping, scrolling, and selection visibility.
+- A stable peer region inside primary work—such as a conversation list beside its reader—is an `AppWorkspace.MainPane`. Ordinary Main children remain the flexible primary region. Do not recreate this with an app-local grid, resize listener, cookie, separator, or CSS variable.
 - Multiple details are appropriate only when each panel preserves a distinct, simultaneously useful context, such as record plus inspector. Give every semantic panel a stable purpose-based `id`; never key saved geometry by the selected entity id.
 - Use `AppWorkspace.BottomDrawer` for secondary activity, logs, preview, or a composer that belongs beneath the main/detail row. Do not use it for primary navigation or duplicate content already visible in a detail panel.
 - Detail and drawer visibility remains app-owned. Persist only geometry in the shared SSR layout cookie; keep shareable record selection URL-backed.
-- Use `Panes` inside Main only for app-owned IDE/editor/query layouts whose panes can be rearranged or tabbed. A contextual record detail or shell drawer is not a `Panes` use case.
+- Use `Panes` inside Main only for app-owned IDE/editor/query layouts whose panes can be rearranged, nested, or tabbed. Use `MainPane` for a stable list/reader or navigator/canvas split. A contextual record detail or shell drawer is neither a `MainPane` nor a `Panes` use case.
 - Detail selection is URL-backed when it must survive reload, sharing, and browser history.
+- Sidebar, MainPane, Detail, and BottomDrawer share one resize controller and one visual affordance: a generous invisible hit target with a short centered handle on hover, focus, and drag. Geometry uses stable purpose-based ids and the per-app SSR cookie. Never implement a local resize handle for one app.
 
 ### Workspace header
 

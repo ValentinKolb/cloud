@@ -3,6 +3,8 @@ import {
   APP_WORKSPACE_DETAIL_MIN,
   APP_WORKSPACE_DRAWER_MAX,
   APP_WORKSPACE_DRAWER_MIN,
+  APP_WORKSPACE_PANE_MAX,
+  APP_WORKSPACE_PANE_MIN,
   APP_WORKSPACE_SIDEBAR_COLLAPSED,
   APP_WORKSPACE_SIDEBAR_MAX,
   APP_WORKSPACE_SIDEBAR_MIN,
@@ -27,6 +29,7 @@ type ActiveResize = {
   pointerId: number;
   startClient: number;
   startSize: number;
+  direction: 1 | -1;
   previousUserSelect: string;
 };
 
@@ -41,8 +44,11 @@ const resizeHandle = (event: Event): HTMLElement | null => eventElement(event)?.
 
 const resizeKind = (handle: HTMLElement): ResizeKind | null => {
   const value = handle.dataset.appWorkspaceResize;
-  return value === "sidebar" || value === "detail" || value === "drawer" ? value : null;
+  return value === "sidebar" || value === "pane" || value === "detail" || value === "drawer" ? value : null;
 };
+
+const resizeDirection = (handle: HTMLElement, kind: ResizeKind): 1 | -1 =>
+  (handle.dataset.workspaceResizeEdge ?? (kind === "sidebar" ? "end" : "start")) === "end" ? 1 : -1;
 
 const workspaceRoot = (handle: HTMLElement): HTMLElement | null => handle.closest<HTMLElement>(".app-workspace");
 
@@ -82,17 +88,47 @@ const numberData = (handle: HTMLElement, key: "workspaceMinSize" | "workspaceMax
 
 const sizeLimits = (root: HTMLElement, handle: HTMLElement, kind: ResizeKind): { min: number; max: number } => {
   const controlled = controlledPanel(root, handle);
+  const main = handle.closest<HTMLElement>(".workspace-main");
+  const panes = main
+    ? Array.from(main.querySelectorAll<HTMLElement>(".workspace-main-pane")).filter(
+        (pane) => pane.closest(".workspace-main") === main && isVisible(pane),
+      )
+    : [];
   const details = rootElements(root, ".workspace-detail").filter(isVisible);
   const sidebarWidth = elementSize(sidebarElement(root), "sidebar");
   const otherDetailWidth = details.reduce((total, detail) => total + (detail === controlled ? 0 : elementSize(detail, "detail")), 0);
   const defaultMin =
-    kind === "sidebar" ? APP_WORKSPACE_SIDEBAR_MIN : kind === "detail" ? APP_WORKSPACE_DETAIL_MIN : APP_WORKSPACE_DRAWER_MIN;
+    kind === "sidebar"
+      ? APP_WORKSPACE_SIDEBAR_MIN
+      : kind === "pane"
+        ? APP_WORKSPACE_PANE_MIN
+        : kind === "detail"
+          ? APP_WORKSPACE_DETAIL_MIN
+          : APP_WORKSPACE_DRAWER_MIN;
   const defaultMax =
-    kind === "sidebar" ? APP_WORKSPACE_SIDEBAR_MAX : kind === "detail" ? APP_WORKSPACE_DETAIL_MAX : APP_WORKSPACE_DRAWER_MAX;
+    kind === "sidebar"
+      ? APP_WORKSPACE_SIDEBAR_MAX
+      : kind === "pane"
+        ? APP_WORKSPACE_PANE_MAX
+        : kind === "detail"
+          ? APP_WORKSPACE_DETAIL_MAX
+          : APP_WORKSPACE_DRAWER_MAX;
   return appWorkspaceResizeLimits({
     kind,
-    workspaceSize: kind === "drawer" ? root.getBoundingClientRect().height : root.getBoundingClientRect().width,
-    reservedSize: kind === "sidebar" ? otherDetailWidth : kind === "detail" ? sidebarWidth + otherDetailWidth : 0,
+    workspaceSize:
+      kind === "drawer"
+        ? root.getBoundingClientRect().height
+        : kind === "pane" && main
+          ? main.getBoundingClientRect().width
+          : root.getBoundingClientRect().width,
+    reservedSize:
+      kind === "sidebar"
+        ? otherDetailWidth
+        : kind === "pane"
+          ? panes.reduce((total, pane) => total + (pane === controlled ? 0 : elementSize(pane, "pane")), 0)
+          : kind === "detail"
+            ? sidebarWidth + otherDetailWidth
+            : 0,
     min: numberData(handle, "workspaceMinSize", defaultMin),
     max: numberData(handle, "workspaceMaxSize", defaultMax),
     sidebarCollapsible: kind === "sidebar" && sidebarCollapsible(root),
@@ -196,6 +232,12 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
         version: 2,
         detailWidths: { ...layoutState.detailWidths, [panelId(handle)]: size },
       };
+    } else if (kind === "pane") {
+      layoutState = {
+        ...layoutState,
+        version: 2,
+        paneWidths: { ...layoutState.paneWidths, [panelId(handle)]: size },
+      };
     } else {
       layoutState = {
         ...layoutState,
@@ -211,6 +253,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     const finished = active;
     active = null;
     delete finished.root.dataset.workspaceResizeActive;
+    delete finished.handle.dataset.workspaceResizeActive;
     const size = applySize(finished.root, finished.handle, finished.kind, currentSize(finished.root, finished.handle, finished.kind));
     persistSize(finished.handle, finished.kind, size);
     if (finished.handle.hasPointerCapture?.(finished.pointerId)) finished.handle.releasePointerCapture(finished.pointerId);
@@ -225,7 +268,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     if (!active || event.pointerId !== active.pointerId) return;
     const currentClient = active.kind === "drawer" ? event.clientY : event.clientX;
     const delta = currentClient - active.startClient;
-    const requested = active.kind === "sidebar" ? active.startSize + delta : active.startSize - delta;
+    const requested = active.startSize + delta * active.direction;
     applySize(active.root, active.handle, active.kind, requested, { snapSidebar: active.kind !== "sidebar" });
   };
 
@@ -244,9 +287,11 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
       pointerId: event.pointerId,
       startClient: kind === "drawer" ? event.clientY : event.clientX,
       startSize: currentSize(root, handle, kind),
+      direction: resizeDirection(handle, kind),
       previousUserSelect: document.body.style.userSelect,
     };
     root.dataset.workspaceResizeActive = kind;
+    handle.dataset.workspaceResizeActive = "true";
     document.body.style.userSelect = "none";
     handle.setPointerCapture?.(event.pointerId);
     window.addEventListener("pointermove", onPointerMove);
@@ -267,22 +312,18 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     let requested: number | null = null;
     if (event.key === "Home") requested = min;
     else if (event.key === "End") requested = max;
-    else if (kind === "drawer" && event.key === "ArrowUp") requested = current + step;
-    else if (kind === "drawer" && event.key === "ArrowDown") requested = current - step;
+    else if (kind === "drawer" && event.key === "ArrowUp") requested = current - step * resizeDirection(handle, kind);
+    else if (kind === "drawer" && event.key === "ArrowDown") requested = current + step * resizeDirection(handle, kind);
     else if (kind !== "drawer" && event.key === "ArrowLeft") {
       requested =
         kind === "sidebar" && sidebarCollapsible(root) && current <= APP_WORKSPACE_SIDEBAR_MIN
           ? APP_WORKSPACE_SIDEBAR_COLLAPSED
-          : kind === "sidebar"
-            ? current - step
-            : current + step;
+          : current - step * resizeDirection(handle, kind);
     } else if (kind !== "drawer" && event.key === "ArrowRight") {
       requested =
         kind === "sidebar" && sidebarCollapsible(root) && current <= APP_WORKSPACE_SIDEBAR_COLLAPSED
           ? (layoutState.sidebarWidth ?? APP_WORKSPACE_SIDEBAR_MIN)
-          : kind === "sidebar"
-            ? current + step
-            : current - step;
+          : current + step * resizeDirection(handle, kind);
     }
     if (requested === null) return;
 
@@ -330,6 +371,8 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
           persisted = layoutState.sidebarCollapsed && sidebarCollapsible(root) ? APP_WORKSPACE_SIDEBAR_COLLAPSED : layoutState.sidebarWidth;
         } else if (kind === "detail") {
           persisted = layoutState.detailWidths?.[panelId(handle)];
+        } else if (kind === "pane") {
+          persisted = layoutState.paneWidths?.[panelId(handle)];
         } else {
           persisted = layoutState.drawerHeights?.[panelId(handle)];
         }
