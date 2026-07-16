@@ -18,14 +18,12 @@ type WorkspaceRequest = {
   spaceId: string;
   href: string;
   cookieHeader?: string;
-  settings?: boolean;
   dateConfig?: DateContext;
 };
 
 type RouteState = {
   url: URL;
   settings: SpaceUserSettings;
-  isSettingsMode: boolean;
   currentView: ViewType;
   hasOverride: boolean;
   filter: FilterState;
@@ -41,9 +39,6 @@ const CALENDAR_VIEWS: CalendarView[] = ["day", "week", "month", "year"];
 const COMMENT_PAGE_SIZE = 50;
 const emptyCommentPage = () => ({ items: [], page: 1, perPage: COMMENT_PAGE_SIZE, total: 0, hasNext: false });
 
-const isSettingsRoute = (params: { settings?: boolean; url: URL }) =>
-  params.settings === true || params.url.pathname.endsWith("/settings") || params.url.searchParams.get("mode") === "settings";
-
 const resolveView = (url: URL, settings: SpaceUserSettings) => {
   const viewParam = url.searchParams.get("view") ?? undefined;
   const hasViewOverride = isValidView(viewParam);
@@ -55,17 +50,15 @@ const parseCalendarTags = (url: URL) => url.searchParams.get("ctags")?.split(","
 const resolveRouteState = (params: WorkspaceRequest): RouteState => {
   const url = new URL(params.href, "http://spaces.local");
   const settings = parseSpaceSettings(params.cookieHeader, params.spaceId);
-  const isSettingsMode = isSettingsRoute({ settings: params.settings, url });
   const { currentView, hasViewOverride } = resolveView(url, settings);
 
   return {
     url,
     settings,
-    isSettingsMode,
     currentView,
     hasOverride: hasViewOverride,
     filter: currentView === "list" || currentView === "table" ? parseFilterFromUrl(url) : defaultFilter,
-    selectedItemId: isSettingsMode ? "" : (url.searchParams.get("item") ?? ""),
+    selectedItemId: url.searchParams.get("item") ?? "",
     calendarViewParam: url.searchParams.get("cv") as CalendarView | null,
     calendarDateParam: url.searchParams.get("cd") ?? undefined,
     calendarTagIds: parseCalendarTags(url),
@@ -285,27 +278,10 @@ const loadSelectedItemState = async (params: {
   return { selectedItem, selectedItemComments };
 };
 
-const loadAccessEntries = async (params: { isAdmin: boolean; isSettingsMode: boolean; spaceId: string }) =>
-  params.isAdmin && params.isSettingsMode ? (await spacesService.access.list({ spaceId: params.spaceId })).items : [];
-
-const loadApiKeys = async (params: { isAdmin: boolean; isSettingsMode: boolean; spaceId: string }) =>
-  params.isAdmin && params.isSettingsMode ? spacesService.access.apiKeys.list({ spaceId: params.spaceId }) : [];
-
-const loadWormholes = async (params: {
-  canWrite: boolean;
-  isAdmin: boolean;
-  isSettingsMode: boolean;
-  spaceId: string;
-  user: AuthUser;
-}): Promise<{ wormholes: SpaceWormhole[]; configuredWormholes: SpaceWormhole[] }> => {
+const loadWormholes = async (params: { canWrite: boolean; spaceId: string; user: AuthUser }): Promise<SpaceWormhole[]> => {
+  if (!params.canWrite) return [];
   const actor = spacesService.wormhole.actorForUser(params.user);
-  const [wormholes, configured] = await Promise.all([
-    params.canWrite ? spacesService.wormhole.listUsable({ sourceSpaceId: params.spaceId, actor }) : [],
-    params.isAdmin && params.isSettingsMode
-      ? spacesService.wormhole.listConfigured({ sourceSpaceId: params.spaceId, actor })
-      : Promise.resolve({ ok: true as const, data: [] }),
-  ]);
-  return { wormholes, configuredWormholes: configured.ok ? configured.data : [] };
+  return spacesService.wormhole.listUsable({ sourceSpaceId: params.spaceId, actor });
 };
 
 const loadWorkspaceData = async (params: {
@@ -315,21 +291,9 @@ const loadWorkspaceData = async (params: {
   request: WorkspaceRequest;
   calendarTagIds: string[];
 }) => {
-  const [accessEntries, apiKeys, wormholeState, itemsResult, kanbanBuckets, calendarState] = await Promise.all([
-    loadAccessEntries({
-      isAdmin: params.permissions.isAdmin,
-      isSettingsMode: params.route.isSettingsMode,
-      spaceId: params.request.spaceId,
-    }),
-    loadApiKeys({
-      isAdmin: params.permissions.isAdmin,
-      isSettingsMode: params.route.isSettingsMode,
-      spaceId: params.request.spaceId,
-    }),
+  const [wormholes, itemsResult, kanbanBuckets, calendarState] = await Promise.all([
     loadWormholes({
       canWrite: params.permissions.canWrite,
-      isAdmin: params.permissions.isAdmin,
-      isSettingsMode: params.route.isSettingsMode,
       spaceId: params.request.spaceId,
       user: params.request.user,
     }),
@@ -359,18 +323,14 @@ const loadWorkspaceData = async (params: {
     }),
   ]);
 
-  return { accessEntries, apiKeys, wormholeState, itemsResult, kanbanBuckets, calendarState };
+  return { wormholes, itemsResult, kanbanBuckets, calendarState };
 };
 
-const buildWorkspaceTitle = (space: SpaceDetail, isSettingsMode: boolean) => {
-  const title: Array<{ title: string; href?: string }> = [
-    { title: "Start", href: "/" },
-    { title: "Spaces", href: "/app/spaces" },
-    { title: space.name, href: `/app/spaces/${space.id}` },
-  ];
-  if (isSettingsMode) title.push({ title: "Settings" });
-  return title;
-};
+const buildWorkspaceTitle = (space: SpaceDetail): Array<{ title: string; href?: string }> => [
+  { title: "Start", href: "/" },
+  { title: "Spaces", href: "/app/spaces" },
+  { title: space.name, href: `/app/spaces/${space.id}` },
+];
 
 const loadEventCursor = async (spaceId: string): Promise<string | null> => {
   try {
@@ -457,7 +417,7 @@ export const loadSpacesViewSnapshot = async (
   if (!context.ok) return context.error;
   const { route, space, permissions, calendarTagIds } = context.value;
 
-  const [itemsResult, kanbanBuckets, calendarState, wormholeState] = await Promise.all([
+  const [itemsResult, kanbanBuckets, calendarState, wormholes] = await Promise.all([
     loadListItems({
       currentView: route.currentView,
       spaceId: params.spaceId,
@@ -484,8 +444,6 @@ export const loadSpacesViewSnapshot = async (
     }),
     loadWormholes({
       canWrite: permissions.canWrite,
-      isAdmin: permissions.isAdmin,
-      isSettingsMode: false,
       spaceId: params.spaceId,
       user: params.user,
     }),
@@ -494,7 +452,7 @@ export const loadSpacesViewSnapshot = async (
     route,
     itemsResult,
     kanbanBuckets,
-    wormholes: wormholeState.wormholes,
+    wormholes,
     calendarState,
     calendarTagIds,
   });
@@ -533,7 +491,7 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
   if (!context.ok) return context.error;
   const { route, space, permissions, calendarTagIds } = context.value;
 
-  const { accessEntries, apiKeys, wormholeState, itemsResult, kanbanBuckets, calendarState } = await loadWorkspaceData({
+  const { wormholes, itemsResult, kanbanBuckets, calendarState } = await loadWorkspaceData({
     route,
     space,
     permissions,
@@ -550,13 +508,12 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
 
   return {
     kind: "ok",
-    title: buildWorkspaceTitle(space, route.isSettingsMode),
+    title: buildWorkspaceTitle(space),
     currentUserId: params.user.id,
     space,
     settings: route.settings,
     currentView: route.currentView,
     hasOverride: route.hasOverride,
-    isSettingsMode: route.isSettingsMode,
     isAdmin: permissions.isAdmin,
     canWrite: permissions.canWrite,
     query: route.url.searchParams.toString(),
@@ -571,9 +528,6 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     calendarWeather: calendarState.calendarWeather,
     selectedItem: selectedItemState.selectedItem,
     selectedItemComments: selectedItemState.selectedItemComments,
-    accessEntries,
-    apiKeys,
-    wormholes: wormholeState.wormholes,
-    configuredWormholes: wormholeState.configuredWormholes,
+    wormholes,
   };
 };

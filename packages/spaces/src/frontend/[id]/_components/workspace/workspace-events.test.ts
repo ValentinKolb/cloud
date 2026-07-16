@@ -22,10 +22,10 @@ describe("Spaces detail navigation classification", () => {
 });
 
 describe("Spaces workspace route parsing", () => {
-  test("accepts workspace and settings routes with valid identifiers", () => {
+  test("accepts only the Space workspace route", () => {
     const id = "11111111-1111-4111-8111-111111111111";
-    expect(parseSpacesWorkspaceHref(`/app/spaces/${id}`)).toEqual({ spaceId: id, settings: false });
-    expect(parseSpacesWorkspaceHref(`/app/spaces/${id}/settings`)).toEqual({ spaceId: id, settings: true });
+    expect(parseSpacesWorkspaceHref(`/app/spaces/${id}`)).toEqual({ spaceId: id });
+    expect(parseSpacesWorkspaceHref(`/app/spaces/${id}/settings`)).toBeNull();
   });
 
   test("rejects malformed identifiers and unsupported nested routes", () => {

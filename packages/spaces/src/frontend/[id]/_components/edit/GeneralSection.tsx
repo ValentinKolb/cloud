@@ -5,7 +5,7 @@ import { apiClient } from "@/api/client";
 import type { SpaceDetail } from "@/contracts";
 import { readErrorMessage } from "./utils";
 
-export function GeneralSection(props: { space: SpaceDetail }) {
+export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: () => void }) {
   const [name, setName] = createSignal(props.space.name);
   const [description, setDescription] = createSignal(props.space.description ?? "");
   const [color, setColor] = createSignal(props.space.color);
@@ -35,9 +35,7 @@ export function GeneralSection(props: { space: SpaceDetail }) {
     onSuccess: () => {
       setHasChanges(false);
       toast.success("Space settings saved");
-      // Name, description, and color are server-rendered shell data. Reloading
-      // here keeps the shell authoritative without turning it into an island.
-      window.location.reload();
+      props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });

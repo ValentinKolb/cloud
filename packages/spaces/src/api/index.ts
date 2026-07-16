@@ -1,4 +1,3 @@
-import { ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
 import {
   type AccessSubject,
   type AuthContext,
@@ -56,6 +55,9 @@ import {
   UpdateWormholeSchema,
   WormholeTransferResultSchema,
 } from "@/contracts";
+import { SpaceApiKeySchema, SpaceSettingsContextSchema } from "@/settings-context";
+import { loadSpaceSettingsContext } from "../frontend/[id]/_components/edit/settings-state";
+import { parseSpaceSettings } from "../frontend/[id]/_components/settings/SpaceSettingsStore";
 import { loadSpaceItemDetail, loadSpacesViewSnapshot } from "../frontend/[id]/_components/workspace/workspace-state";
 import {
   parseSpacesWorkspaceHref,
@@ -84,10 +86,6 @@ const AssignableUsersQuerySchema = z.object({
 const CommentPageQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   per_page: z.coerce.number().int().min(1).max(100).default(50),
-});
-
-const SpaceApiKeySchema = ServiceAccountCredentialSchema.extend({
-  permission: z.enum(["none", "read", "write", "admin"]),
 });
 
 const CreateSpaceApiKeySchema = z.object({
@@ -325,7 +323,7 @@ const app = new Hono<AuthContext>()
       if (!userResult.ok) return respond(c, userResult);
       const href = c.req.valid("query").href;
       const target = parseSpacesWorkspaceHref(href);
-      if (!target || target.settings) return respond(c, fail(err.badInput("Unsupported workspace view route")));
+      if (!target) return respond(c, fail(err.badInput("Unsupported workspace view route")));
       const snapshot = await loadSpacesViewSnapshot({
         user: userResult.data,
         spaceId: target.spaceId,
@@ -336,6 +334,38 @@ const app = new Hono<AuthContext>()
       if (snapshot.kind === "accessDenied") return respond(c, fail(err.forbidden(snapshot.message)));
       if (snapshot.kind === "notFound") return respond(c, fail(err.notFound("Space")));
       return respond(c, ok(snapshot));
+    },
+  )
+
+  .get(
+    "/:id/settings-context",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Get Space settings context",
+      description: "Load the current permission-filtered context required by the lazy Space settings dialog.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceSettingsContextSchema, "Space settings context"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid identifier"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+
+      const spaceId = c.req.param("id") ?? "";
+      if (!isSpaceResourceId(spaceId)) return respond(c, fail(err.badInput("Invalid space identifier")));
+
+      return respond(
+        c,
+        loadSpaceSettingsContext({
+          user: userResult.data,
+          spaceId,
+          settings: parseSpaceSettings(c.req.header("Cookie"), spaceId),
+        }),
+      );
     },
   )
 

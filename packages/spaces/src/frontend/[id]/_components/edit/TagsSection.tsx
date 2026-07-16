@@ -58,7 +58,7 @@ function AddTagButton(props: { onSave: (data: { name: string; color: string }) =
   );
 }
 
-export function TagsSection(props: { spaceId: string; tags: SpaceTag[] }) {
+export function TagsSection(props: { spaceId: string; tags: SpaceTag[]; onWorkspaceChange?: () => void }) {
   const [tags, setTags] = createSignal([...props.tags]);
   const [editingId, setEditingId] = createSignal<string | null>(null);
 
@@ -76,6 +76,7 @@ export function TagsSection(props: { spaceId: string; tags: SpaceTag[] }) {
     onSuccess: (newTag) => {
       setTags([...tags(), newTag as SpaceTag]);
       toast.success("Tag created");
+      props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -95,6 +96,7 @@ export function TagsSection(props: { spaceId: string; tags: SpaceTag[] }) {
       setTags(tags().map((t) => (t.id === (updated as SpaceTag).id ? (updated as SpaceTag) : t)));
       setEditingId(null);
       toast.success("Tag updated");
+      props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -119,6 +121,7 @@ export function TagsSection(props: { spaceId: string; tags: SpaceTag[] }) {
       if (!deleted) return;
       setTags(tags().filter((t) => t.id !== deleted.id));
       toast.success("Tag deleted");
+      props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });

@@ -23,7 +23,7 @@ export default function SpaceEditPanel(props: SpaceEditPanelProps) {
       >
         {canWrite() && (
           <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, description, and color.">
-            <GeneralSection space={props.space} />
+            <GeneralSection space={props.space} onWorkspaceChange={props.onWorkspaceChange} />
           </SettingsModal.Tab>
         )}
 
@@ -38,13 +38,13 @@ export default function SpaceEditPanel(props: SpaceEditPanelProps) {
 
         {canWrite() && (
           <SettingsModal.Tab id="tags" title="Tags" icon="ti ti-tags" description="Vocabulary used to categorize space items.">
-            <TagsSection spaceId={props.space.id} tags={props.space.tags} />
+            <TagsSection spaceId={props.space.id} tags={props.space.tags} onWorkspaceChange={props.onWorkspaceChange} />
           </SettingsModal.Tab>
         )}
 
         {canWrite() && (
           <SettingsModal.Tab id="statuses" title="Statuses" icon="ti ti-columns-3" description="Kanban columns and item workflow states.">
-            <StatusesSection spaceId={props.space.id} columns={props.space.columns} />
+            <StatusesSection spaceId={props.space.id} columns={props.space.columns} onWorkspaceChange={props.onWorkspaceChange} />
           </SettingsModal.Tab>
         )}
 
@@ -56,7 +56,12 @@ export default function SpaceEditPanel(props: SpaceEditPanelProps) {
 
         {isAdmin() && props.accessEntries && (
           <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
-            <AccessSection spaceId={props.space.id} accessEntries={props.accessEntries} apiKeys={props.apiKeys ?? []} />
+            <AccessSection
+              spaceId={props.space.id}
+              accessEntries={props.accessEntries}
+              apiKeys={props.apiKeys ?? []}
+              onWorkspaceChange={props.onWorkspaceChange}
+            />
           </SettingsModal.Tab>
         )}
 

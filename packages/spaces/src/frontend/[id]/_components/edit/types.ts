@@ -8,6 +8,7 @@ export type SpaceEditPanelProps = {
   baseUrl: string;
   initialSettings: SpaceUserSettings;
   onClose?: () => void;
+  onWorkspaceChange?: () => void;
   accessEntries?: AccessEntry[];
   apiKeys?: ResourceApiKey[];
   wormholes?: SpaceWormhole[];

@@ -1,4 +1,3 @@
-import { AccessEntrySchema, PermissionLevelSchema, ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import { z } from "zod";
 import {
@@ -9,6 +8,7 @@ import {
   SpaceItemSchema,
   SpaceWormholeSchema,
 } from "@/contracts";
+import { SpaceUserSettingsSchema } from "@/settings-context";
 import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
 
 type FilterState = ReturnType<typeof parseFilterFromUrl>;
@@ -22,10 +22,8 @@ const WorkspaceAccessDeniedSchema = z.object({
 });
 
 const WorkspaceTitleSchema = z.array(z.object({ title: z.string(), href: z.string().optional() }));
-const SpaceUserSettingsSchema = z.object({ view: z.enum(["list", "table", "kanban", "calendar"]), hideSettings: z.boolean() });
 const CalendarViewSchema = z.enum(["day", "week", "month", "year"]);
 const DayWeatherSchema = z.object({ tempMin: z.number(), tempMax: z.number(), icon: z.string() });
-const SpaceApiKeySchema = ServiceAccountCredentialSchema.extend({ permission: PermissionLevelSchema });
 
 const KanbanBucketInitialSchema = z.object({
   key: z.string(),
@@ -79,7 +77,6 @@ const SpacesWorkspaceStateSchema = z.discriminatedUnion("kind", [
     settings: SpaceUserSettingsSchema,
     currentView: z.enum(["list", "table", "kanban", "calendar"]),
     hasOverride: z.boolean(),
-    isSettingsMode: z.boolean(),
     isAdmin: z.boolean(),
     canWrite: z.boolean(),
     query: z.string(),
@@ -94,10 +91,7 @@ const SpacesWorkspaceStateSchema = z.discriminatedUnion("kind", [
     calendarWeather: z.record(z.string(), DayWeatherSchema),
     selectedItem: SpaceItemSchema.nullable(),
     selectedItemComments: SpaceCommentPageSchema,
-    accessEntries: z.array(AccessEntrySchema),
-    apiKeys: z.array(SpaceApiKeySchema),
     wormholes: z.array(SpaceWormholeSchema),
-    configuredWormholes: z.array(SpaceWormholeSchema),
   }),
 ]);
 export type SpacesWorkspaceState = z.infer<typeof SpacesWorkspaceStateSchema>;
@@ -106,9 +100,7 @@ export const parseSpacesWorkspaceHref = (href: string) => {
   const url = new URL(href, "http://spaces.local");
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts[0] !== "app" || parts[1] !== "spaces" || !parts[2] || !z.uuid().safeParse(parts[2]).success) return null;
-  if (parts.length === 3) return { spaceId: parts[2], settings: false };
-  if (parts.length === 4 && parts[3] === "settings") return { spaceId: parts[2], settings: true };
-  return null;
+  return parts.length === 3 ? { spaceId: parts[2] } : null;
 };
 
 const withViewOverrides = (params: { baseUrl: string; hasViewOverride: boolean; currentView: string }) => {

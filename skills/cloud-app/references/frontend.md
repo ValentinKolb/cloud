@@ -1285,6 +1285,10 @@ list; consistency makes app start pages easier to scan.
 
 Open settings through a bare `prompts.dialog` so `dialogCore` supplies the modal backdrop, focus trap, Escape handling, and backdrop dismissal. Do not render app settings as a third workspace pane or build a second frame around `SettingsModal`. Notebook settings are the reference flow at `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.tsx`.
 
+For resource settings opened from an `AppWorkspace`, keep the trigger a small island and open the modal before loading its data. Fetch one typed, composed settings context inside the dialog with an abortable `mutation.create()` call. The server loader must re-check the current resource permission and omit admin-only data for non-admins. Render loading, error, and retry states inside the same modal frame.
+
+Do not add the settings payload to the workspace SSR state when it is not required for first paint, and do not keep a parallel settings route solely as a data source. After successful writes, update dialog-local state immediately. If a write changes server-rendered workspace data, mark the workspace dirty and refresh it once after the modal closes rather than reloading during editing. Dedicated settings pages remain appropriate when settings are themselves the primary, addressable application surface, such as global administration.
+
 ```tsx
 await prompts.dialog<void>(
   (close) => (

@@ -5,10 +5,12 @@ import SearchButton from "../search/SearchButton.island";
 import type { ViewType } from "../settings/SpaceSettingsStore";
 import CopyICalButton from "./CopyICalButton.island";
 import CreateItemButton from "./CreateItemButton.island";
+import SpaceSettingsButton from "./SpaceSettingsButton.island";
 import type { SpaceContext } from "./types";
 
 type Props = {
   ctx: SpaceContext;
+  baseUrl: string;
   dateConfig?: DateContext;
 };
 
@@ -36,7 +38,6 @@ const getViewIcon = (view: ViewType): string => {
 const buildViewHref = (ctx: SpaceContext, view: ViewType): string => {
   const query = new URLSearchParams(ctx.query);
   query.set("view", view);
-  query.delete("mode");
   return `/app/spaces/${ctx.space.id}?${query.toString()}`;
 };
 
@@ -101,14 +102,12 @@ export default function SpaceSidebar(props: Props) {
           <div style={`view-transition-name:${vt("copy-ical-mobile")}`}>
             <CopyICalButton icalToken={props.ctx.space.icalToken} variant="chip" />
           </div>
-          <AppWorkspace.SidebarItem
-            href={`/app/spaces/${props.ctx.space.id}/settings`}
-            navigation="document"
-            icon="ti ti-settings"
+          <SpaceSettingsButton
+            spaceId={props.ctx.space.id}
+            baseUrl={props.baseUrl}
+            variant="sidebar"
             viewTransitionName={vt("settings-mobile")}
-          >
-            Space settings
-          </AppWorkspace.SidebarItem>
+          />
         </AppWorkspace.SidebarMobileItems>
       </AppWorkspace.SidebarMobile>
 
@@ -201,25 +200,18 @@ export default function SpaceSidebar(props: Props) {
             <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
               <CopyICalButton icalToken={props.ctx.space.icalToken} />
             </div>
-            <AppWorkspace.SidebarItem
-              href={`/app/spaces/${props.ctx.space.id}/settings`}
-              navigation="document"
-              icon="ti ti-settings"
+            <SpaceSettingsButton
+              spaceId={props.ctx.space.id}
+              baseUrl={props.baseUrl}
+              variant="sidebar"
               viewTransitionName={vt("settings-desktop")}
-            >
-              Space settings
-            </AppWorkspace.SidebarItem>
+            />
           </div>
         </AppWorkspace.SidebarFooter>
         <AppWorkspace.SidebarFooter sidebarMode="collapsed">
           <AppWorkspace.SidebarIconGrid>
             <CopyICalButton icalToken={props.ctx.space.icalToken} variant="icon" />
-            <AppWorkspace.SidebarIconAction
-              href={`/app/spaces/${props.ctx.space.id}/settings`}
-              navigation="document"
-              icon="ti ti-settings"
-              label="Space settings"
-            />
+            <SpaceSettingsButton spaceId={props.ctx.space.id} baseUrl={props.baseUrl} variant="icon" />
           </AppWorkspace.SidebarIconGrid>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>

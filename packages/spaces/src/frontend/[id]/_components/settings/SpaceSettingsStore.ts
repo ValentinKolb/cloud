@@ -7,21 +7,15 @@
 
 import { cookies } from "@valentinkolb/stdlib/browser";
 import type { Priority } from "@/contracts";
+import type { SpaceUserSettings, ViewType } from "@/settings-context";
+
+export type { SpaceUserSettings, ViewType } from "@/settings-context";
 
 /** Cookie name for space settings */
 const COOKIE_NAME = "settings-app-spaces";
 
 /** Cookie name for global widget settings (applies across all spaces) */
 const WIDGET_SETTINGS_COOKIE = "settings-widgets";
-
-/** View type */
-export type ViewType = "list" | "table" | "kanban" | "calendar";
-
-/** Settings for a single space (stored in cookie as user defaults) */
-export type SpaceUserSettings = {
-  view: ViewType;
-  hideSettings: boolean;
-};
 
 /** Wrapper that holds per-space settings + global last-opened id */
 export type AllSpacesSettings = {

@@ -3,7 +3,12 @@ import { apiClient } from "@/api/client";
 import type { AccessEntry } from "@/contracts";
 import { readErrorMessage } from "./utils";
 
-export function AccessSection(props: { spaceId: string; accessEntries: AccessEntry[]; apiKeys: ResourceApiKey[] }) {
+export function AccessSection(props: {
+  spaceId: string;
+  accessEntries: AccessEntry[];
+  apiKeys: ResourceApiKey[];
+  onWorkspaceChange?: () => void;
+}) {
   return (
     <div class="flex flex-col gap-6">
       <PermissionEditor
@@ -15,7 +20,9 @@ export function AccessSection(props: { spaceId: string; accessEntries: AccessEnt
             json: { principal, permission },
           });
           if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to grant access"));
-          return res.json();
+          const entry = await res.json();
+          props.onWorkspaceChange?.();
+          return entry;
         }}
         updateAccess={async (accessId, permission) => {
           const res = await apiClient[":id"].access[":accessId"].$patch({
@@ -23,12 +30,14 @@ export function AccessSection(props: { spaceId: string; accessEntries: AccessEnt
             json: { permission },
           });
           if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update permission"));
+          props.onWorkspaceChange?.();
         }}
         revokeAccess={async (accessId) => {
           const res = await apiClient[":id"].access[":accessId"].$delete({
             param: { id: props.spaceId, accessId },
           });
           if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to revoke access"));
+          props.onWorkspaceChange?.();
         }}
       />
       <ResourceApiKeys

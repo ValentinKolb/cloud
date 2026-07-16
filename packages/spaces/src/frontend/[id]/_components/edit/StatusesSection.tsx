@@ -86,7 +86,7 @@ function AddStatusButton(props: { onSave: (data: { name: string; color?: string 
   );
 }
 
-export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[] }) {
+export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]; onWorkspaceChange?: () => void }) {
   const [columns, setColumns] = createSignal([...props.columns]);
   const [editingId, setEditingId] = createSignal<string | null>(null);
 
@@ -104,6 +104,7 @@ export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]
     onSuccess: (newColumn) => {
       setColumns([...columns(), newColumn as SpaceColumn]);
       toast.success("Status created");
+      props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -123,6 +124,7 @@ export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]
       setColumns(columns().map((c) => (c.id === (updated as SpaceColumn).id ? (updated as SpaceColumn) : c)));
       setEditingId(null);
       toast.success("Status updated");
+      props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -147,6 +149,7 @@ export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]
       if (!deleted) return;
       setColumns(columns().filter((c) => c.id !== deleted.id));
       toast.success("Status deleted");
+      props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -161,6 +164,7 @@ export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]
         throw new Error(await readErrorMessage(res, "Failed to reorder"));
       }
     },
+    onSuccess: () => props.onWorkspaceChange?.(),
     onError: (err) => prompts.error(err.message),
   });
 
