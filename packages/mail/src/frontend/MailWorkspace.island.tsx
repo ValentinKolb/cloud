@@ -1,6 +1,6 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import { documentNavigate, type LinkNavigateEvent, navigate, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { documentNavigate, type LinkNavigateEvent, navigate } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { batch, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
@@ -11,6 +11,7 @@ import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
 import MailSidebar from "./_components/MailSidebar";
+import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
@@ -31,8 +32,7 @@ export default function MailWorkspace(props: {
   const [composerActive, setComposerActive] = createSignal(false);
   const [settingsOpening, setSettingsOpening] = createSignal(false);
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
-  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  let refreshPending = false;
+  let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
   let routeRequest = 0;
 
   const replaceWorkspaceRoute = async (href: string): Promise<"applied" | "failed" | "stale"> => {
@@ -83,21 +83,17 @@ export default function MailWorkspace(props: {
     persistPreferences();
   };
 
-  const scheduleRefresh = () => {
-    if (composerActive()) {
-      refreshPending = true;
-      return;
-    }
-    if (refreshTimer) clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => refreshCurrentPath(), 180);
-  };
+  const liveRefresh = createMailLiveRefreshCoordinator({
+    delayMs: 180,
+    isBlocked: composerActive,
+    refresh: () => replaceWorkspaceRoute(`${window.location.pathname}${window.location.search}`),
+    onApplied: (cursor) => markLiveApplied(cursor),
+    onFailed: () => documentNavigate(`${window.location.pathname}${window.location.search}`, { replace: true }),
+  });
 
   const updateComposerActive = (active: boolean) => {
     setComposerActive(active);
-    if (!active && refreshPending) {
-      refreshPending = false;
-      scheduleRefresh();
-    }
+    if (!active) liveRefresh.resume();
   };
 
   const openSettings = async () => {
@@ -119,6 +115,7 @@ export default function MailWorkspace(props: {
   };
 
   onMount(() => {
+    setRequestUrl(window.location.href);
     let reconcileAfterReady = props.data.initialLiveCursor === null;
     const live = createLiveWebSocket<MailLiveServerMessage>({
       url: "/api/mail/ws",
@@ -129,7 +126,11 @@ export default function MailWorkspace(props: {
           type: MAIL_LIVE_WS_TYPE.subscribe,
           payload: { mailboxId: props.data.mailbox.id, fromCursor: cursor },
         }) satisfies MailLiveClientMessage,
-      parse: parseMailLiveServerMessage,
+      parse: (raw) => {
+        const message = parseMailLiveServerMessage(raw);
+        if (!message) throw new Error("Invalid Mail live server message");
+        return message;
+      },
       onMessage: (message, controls) => {
         const messageMailboxId = message.payload.mailboxId;
         if (messageMailboxId && messageMailboxId !== props.data.mailbox.id) {
@@ -137,17 +138,17 @@ export default function MailWorkspace(props: {
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.ready) {
-          controls.markApplied(message.payload.cursor);
           if (reconcileAfterReady) {
             reconcileAfterReady = false;
-            scheduleRefresh();
-          }
+            liveRefresh.schedule(message.payload.cursor);
+          } else controls.markApplied(message.payload.cursor);
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.event) {
-          controls.markApplied(message.payload.cursor);
           const selectedConversationId = data().selectedConversationId;
-          if (!selectedConversationId || message.payload.event.conversationId === selectedConversationId) scheduleRefresh();
+          if (!selectedConversationId || message.payload.event.conversationId === selectedConversationId) {
+            liveRefresh.schedule(message.payload.cursor);
+          } else controls.markApplied(message.payload.cursor);
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.revoked) {
@@ -156,6 +157,7 @@ export default function MailWorkspace(props: {
       },
       onFatal: () => window.location.reload(),
     });
+    markLiveApplied = live.markApplied;
     const handlePopState = () => {
       void replaceWorkspaceRoute(`${window.location.pathname}${window.location.search}`).then((result) => {
         if (result === "failed") documentNavigate(`${window.location.pathname}${window.location.search}`, { replace: true });
@@ -165,13 +167,14 @@ export default function MailWorkspace(props: {
     window.addEventListener("popstate", handlePopState);
     onCleanup(() => {
       live.dispose();
+      markLiveApplied = () => undefined;
       window.removeEventListener("popstate", handlePopState);
     });
   });
 
   onCleanup(() => {
     if (preferenceTimer) clearTimeout(preferenceTimer);
-    if (refreshTimer) clearTimeout(refreshTimer);
+    liveRefresh.dispose();
   });
 
   const canWrite = createMemo(() => rank(data().permission) >= 2);

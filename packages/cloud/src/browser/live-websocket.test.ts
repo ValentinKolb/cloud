@@ -56,16 +56,19 @@ const originalClearTimeout = globalThis.clearTimeout;
 
 let document: FakeDocument;
 let timers: Array<(() => void) | null>;
+let timerDelays: number[];
 
 const installBrowser = () => {
   FakeWebSocket.instances = [];
   timers = [];
+  timerDelays = [];
   document = new FakeDocument();
   (globalThis as unknown as { window: unknown }).window = { location: { origin: "http://localhost:3000" } };
   (globalThis as unknown as { document: unknown }).document = document;
   (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
-  globalThis.setTimeout = ((callback: () => void) => {
+  globalThis.setTimeout = ((callback: () => void, delay = 0) => {
     timers.push(callback);
+    timerDelays.push(delay);
     return timers.length;
   }) as typeof setTimeout;
   globalThis.clearTimeout = ((id: number) => {
@@ -150,6 +153,34 @@ describe("createLiveWebSocket", () => {
     FakeWebSocket.instances[1]!.open();
 
     expect(subscribeCursor(FakeWebSocket.instances[1]!)).toBeNull();
+    connection.dispose();
+  });
+
+  test("only resets reconnect backoff after a valid message", () => {
+    installBrowser();
+    const connection = createLiveWebSocket<{ type: "ready" }>({
+      url: "/api/example/ws",
+      subscribe: () => ({ type: "subscribe" }),
+      parse: (raw) => JSON.parse(raw) as { type: "ready" },
+      onMessage: () => undefined,
+      reconnect: { baseDelayMs: 10, maxDelayMs: 100, jitterMs: 0 },
+    });
+
+    connection.connect();
+    FakeWebSocket.instances[0]!.open();
+    FakeWebSocket.instances[0]!.close(1012);
+    expect(timerDelays.at(-1)).toBe(10);
+
+    runNextTimer();
+    FakeWebSocket.instances[1]!.open();
+    FakeWebSocket.instances[1]!.close(1012);
+    expect(timerDelays.at(-1)).toBe(20);
+
+    runNextTimer();
+    FakeWebSocket.instances[2]!.open();
+    FakeWebSocket.instances[2]!.message({ type: "ready" });
+    FakeWebSocket.instances[2]!.close(1012);
+    expect(timerDelays.at(-1)).toBe(10);
     connection.dispose();
   });
 

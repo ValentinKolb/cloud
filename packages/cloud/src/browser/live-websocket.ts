@@ -148,7 +148,6 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
 
     next.onopen = () => {
       if (socket !== next || disposed || terminated) return;
-      reconnectAttempt = 0;
       try {
         const payload = JSON.stringify(options.subscribe(lastAppliedCursor));
         if (payload === undefined) throw new Error("Live WebSocket subscribe payload is not serializable");
@@ -162,7 +161,10 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
       if (socket !== next || typeof event.data !== "string" || disposed || terminated) return;
       try {
         const message = options.parse(event.data);
-        if (message) options.onMessage(message, controls);
+        if (message) {
+          options.onMessage(message, controls);
+          reconnectAttempt = 0;
+        }
       } catch (error) {
         fatal(
           { code: "client_handler_failed", message: error instanceof Error ? error.message : "Live update handling failed" },

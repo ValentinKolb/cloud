@@ -16,12 +16,18 @@
 import type { ServerWebSocket } from "bun";
 import { matchRoute, type RouteTable } from "./trie";
 
+const MAX_PENDING_FRAMES = 32;
+const MAX_PENDING_BYTES = 1024 * 1024;
+const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
 type ProxyState = {
   appId: string;
   upstream: WebSocket;
   upstreamReady: boolean;
+  closed: boolean;
   /** Frames received from client before upstream is open. Flushed on upstream `open`. */
   pending: (string | ArrayBufferLike | ArrayBufferView)[];
+  pendingBytes: number;
   /**
    * Captured by the `open` websocket handler the first time Bun calls it.
    * Upstream-side event handlers reach this via the closure they share with
@@ -33,6 +39,41 @@ type ProxyState = {
 
 type ProxyData = {
   state: ProxyState;
+};
+
+const frameBytes = (frame: string | ArrayBufferLike | ArrayBufferView): number => {
+  if (typeof frame === "string") return Buffer.byteLength(frame);
+  return frame.byteLength;
+};
+
+const clearPending = (state: ProxyState) => {
+  state.pending = [];
+  state.pendingBytes = 0;
+};
+
+const closeProxy = (state: ProxyState, code: number, reason: string) => {
+  if (state.closed) return;
+  state.closed = true;
+  clearPending(state);
+  try {
+    state.upstream.close(code, reason);
+  } catch {
+    // The upstream connection may never have opened.
+  }
+  try {
+    state.client?.close(code, reason);
+  } catch {
+    // The browser connection may already be closing.
+  }
+};
+
+const sendUpstream = (state: ProxyState, frame: string | ArrayBufferLike | ArrayBufferView): boolean => {
+  try {
+    state.upstream.send(frame as never);
+    return state.upstream.bufferedAmount <= MAX_BUFFERED_BYTES;
+  } catch {
+    return false;
+  }
 };
 
 /**
@@ -89,7 +130,9 @@ export const tryUpgradeWebSocket = (
     appId: match.appId,
     upstream: upstreamSocket,
     upstreamReady: false,
+    closed: false,
     pending: [],
+    pendingBytes: 0,
     client: null,
   };
 
@@ -98,30 +141,52 @@ export const tryUpgradeWebSocket = (
   // the chance to populate it. Earlier indirection via `_captureClient` was
   // assigned AFTER `upgrade()` and therefore missed the open call entirely.
   upstreamSocket.addEventListener("open", () => {
+    if (state.closed) return;
     state.upstreamReady = true;
     // Flush any pending client frames now that upstream accepts them.
-    for (const frame of state.pending) upstreamSocket.send(frame as never);
-    state.pending = [];
+    for (const frame of state.pending) {
+      if (sendUpstream(state, frame)) continue;
+      closeProxy(state, 1013, "proxy backpressure");
+      return;
+    }
+    clearPending(state);
   });
 
   upstreamSocket.addEventListener("message", (event) => {
+    if (state.closed) return;
     // ServerWebSocket.send accepts string | BufferSource. Frame data from
     // the upstream WS comes through as either string or ArrayBuffer; both
     // are valid BufferSource — `as never` bypasses the narrow overload.
-    state.client?.send(event.data as never);
+    const client = state.client;
+    if (!client) {
+      closeProxy(state, 1011, "proxy client unavailable");
+      return;
+    }
+    try {
+      const bytes = frameBytes(event.data as string | ArrayBufferLike | ArrayBufferView);
+      const status = client.send(event.data as never);
+      if (status < 0 || (status === 0 && bytes > 0) || client.getBufferedAmount() > MAX_BUFFERED_BYTES) {
+        closeProxy(state, 1013, "proxy backpressure");
+      }
+    } catch {
+      closeProxy(state, 1011, "proxy send failed");
+    }
   });
 
   upstreamSocket.addEventListener("close", (event) => {
-    state.client?.close(event.code || 1000, event.reason || undefined);
+    closeProxy(state, event.code || 1000, event.reason || "upstream closed");
   });
 
   upstreamSocket.addEventListener("error", () => {
     logFn("WebSocket upstream error", { appId: match.appId });
-    state.client?.close(1011, "upstream error");
+    closeProxy(state, 1011, "upstream error");
   });
 
   const upgraded = server.upgrade(req, { data: { state } });
-  if (!upgraded) return new Response("WebSocket: upgrade failed", { status: 500 });
+  if (!upgraded) {
+    closeProxy(state, 1011, "upgrade failed");
+    return new Response("WebSocket: upgrade failed", { status: 500 });
+  }
   return undefined;
 };
 
@@ -140,20 +205,22 @@ export const websocketHandlers = {
 
   message(ws: ServerWebSocket<ProxyData>, message: string | Buffer) {
     const { state } = ws.data;
+    if (state.closed) return;
     if (state.upstreamReady) {
-      state.upstream.send(message as never);
+      if (!sendUpstream(state, message)) closeProxy(state, 1013, "proxy backpressure");
     } else {
       // Upstream still connecting — queue. Yjs sends sync immediately on connect.
+      const bytes = frameBytes(message);
+      if (state.pending.length >= MAX_PENDING_FRAMES || state.pendingBytes + bytes > MAX_PENDING_BYTES) {
+        closeProxy(state, 1013, "proxy pending queue full");
+        return;
+      }
       state.pending.push(message as string | ArrayBufferLike | ArrayBufferView);
+      state.pendingBytes += bytes;
     }
   },
 
   close(ws: ServerWebSocket<ProxyData>, code: number, reason: string) {
-    const { state } = ws.data;
-    try {
-      state.upstream.close(code || 1000, reason || undefined);
-    } catch {
-      // Upstream already closed/never opened. Nothing to do.
-    }
+    closeProxy(ws.data.state, code || 1000, reason || "client closed");
   },
 };

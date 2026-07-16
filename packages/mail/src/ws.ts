@@ -209,6 +209,10 @@ const startStream = (ctx: WsContext, mailboxId: string, after: string) => {
       for await (const event of liveMailCollaborationEvents({ mailboxId, after, signal: abort.signal })) {
         if (!(await deliverReplayEvent(ctx, mailboxId, abort, event))) break;
       }
+      if (subscriptionIsCurrent(ctx, mailboxId, abort)) {
+        log.warn("Mail WebSocket event stream ended unexpectedly", { mailboxId });
+        closeWithError(ctx, "stream_failed", "Mail event stream ended", 1012);
+      }
     } catch (error) {
       if (abort.signal.aborted || isClosing(ctx)) return;
       log.error("Mail WebSocket event stream failed", {
