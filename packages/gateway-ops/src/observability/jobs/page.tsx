@@ -22,12 +22,7 @@ import {
   minDurationFromFilter,
   parseJobsFilterFromUrl,
 } from "./_components/types";
-import {
-  type BackgroundJobOverviewRow,
-  buildBackgroundJobRows,
-  filterBackgroundJobRows,
-  jobsObservabilityService,
-} from "./service";
+import { type BackgroundJobOverviewRow, buildBackgroundJobRows, filterBackgroundJobRows, jobsObservabilityService } from "./service";
 
 const baseUrl = "/admin/observability/jobs";
 const numberFormat = new Intl.NumberFormat("de-DE");
@@ -278,7 +273,7 @@ const ActionCell = (props: { row: BackgroundJobOverviewRow; filter: JobsFilterSt
 
 const OverviewTable = (props: { rows: BackgroundJobOverviewRow[]; filter: JobsFilterState }) => (
   <section class="paper overflow-hidden">
-    <div class="border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+    <div class="px-3 py-2">
       <h2 class="text-xs font-semibold text-primary">Schedules and job families</h2>
       <p class="text-[10px] text-dimmed">
         Schedules come from sync schedulerControl. Runtime statistics stay SQL-based and are joined by source.
@@ -410,7 +405,7 @@ const SourceRunsTable = (props: {
   selectedRunKey: string | null;
 }) => (
   <section class="paper overflow-hidden">
-    <div class="border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+    <div class="px-3 py-2">
       <h2 class="text-xs font-semibold text-primary">Runs</h2>
       <p class="text-[10px] text-dimmed">
         {formatNumber(props.spans.length)} of {formatNumber(props.total)} runs. Duration filter: {durationLabel(props.filter)}.
@@ -443,7 +438,7 @@ const SourceRunsTable = (props: {
         return "";
       }}
     />
-    <div class="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+    <div class="px-3 py-2">
       <Pagination currentPage={props.pagination.page} totalPages={props.pagination.total_pages} baseUrl={paginationBaseUrl(props.filter)} />
     </div>
   </section>

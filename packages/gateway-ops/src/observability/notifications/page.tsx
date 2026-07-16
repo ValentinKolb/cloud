@@ -194,7 +194,7 @@ export default ssr<AuthContext>(async (c) => {
         </StatGrid>
 
         <section class="paper overflow-hidden" style="view-transition-name: admin-notification-deliveries-table">
-          <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+          <div class="flex flex-col gap-2 px-3 py-2">
             <div>
               <h2 class="text-xs font-semibold text-primary">Delivery attempts</h2>
               <p class="text-[10px] text-dimmed">
@@ -320,7 +320,7 @@ export default ssr<AuthContext>(async (c) => {
         </StatGrid>
 
         <section class="paper overflow-hidden" style="view-transition-name: admin-notification-registry-table">
-          <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+          <div class="flex flex-col gap-2 px-3 py-2">
             <div>
               <h2 class="text-xs font-semibold text-primary">Registered notification kinds</h2>
               <p class="text-[10px] text-dimmed">
@@ -458,7 +458,7 @@ export default ssr<AuthContext>(async (c) => {
       </StatGrid>
 
       <section class="paper overflow-hidden" style="view-transition-name: admin-notification-legacy-table">
-        <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+        <div class="flex flex-col gap-2 px-3 py-2">
           <div>
             <h2 class="text-xs font-semibold text-primary">Legacy email entries</h2>
             <p class="text-[10px] text-dimmed">

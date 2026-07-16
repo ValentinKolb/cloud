@@ -117,7 +117,7 @@ export default function MetricsTokens(props: Props) {
 
   return (
     <section class="paper overflow-hidden">
-      <div class="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+      <div class="flex items-center gap-2 px-3 py-2">
         <div class="min-w-0">
           <h2 class="text-xs font-semibold text-primary">Bearer tokens</h2>
           <p class="text-[10px] text-dimmed">Resource-bound service account tokens with the metrics:read scope.</p>
@@ -130,7 +130,7 @@ export default function MetricsTokens(props: Props) {
       {props.tokens.length > 0 ? (
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs">
-            <thead class="border-b border-zinc-100 text-[10px] uppercase tracking-wide text-dimmed dark:border-zinc-800/60">
+            <thead class="border-b border-zinc-100 text-[10px] uppercase tracking-wide text-dimmed">
               <tr>
                 <th class="px-3 py-2 font-medium">Name</th>
                 <th class="px-3 py-2 font-medium">Prefix</th>
@@ -142,7 +142,7 @@ export default function MetricsTokens(props: Props) {
             </thead>
             <tbody>
               {props.tokens.map((token) => (
-                <tr class="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800/60">
+                <tr class="border-b border-zinc-100 last:border-b-0">
                   <td class="px-3 py-2 font-medium text-primary">{token.name}</td>
                   <td class="px-3 py-2 font-mono text-[11px] text-secondary">{token.tokenPrefix}</td>
                   <td class="px-3 py-2">

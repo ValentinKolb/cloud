@@ -109,7 +109,7 @@ export default ssr<AuthContext>(async (c) => {
           </StatGrid>
 
           <section class="paper overflow-hidden">
-            <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+            <div class="flex flex-col gap-2 px-3 py-2">
               <div>
                 <h2 class="text-xs font-semibold text-primary">Events</h2>
                 <p class="text-[10px] text-dimmed">
