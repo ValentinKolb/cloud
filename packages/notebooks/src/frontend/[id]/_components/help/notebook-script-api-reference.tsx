@@ -338,7 +338,7 @@ const ApiGroupView = (props: ApiGroup) => (
       <p class="font-semibold text-primary">{props.title}</p>
       <p class="mt-1 text-sm text-dimmed">{props.intro}</p>
     </header>
-    <div class="divide-y divide-zinc-200/70 dark:divide-zinc-800">
+    <div class="flex flex-col gap-1 px-1 pb-1">
       <For each={props.entries}>
         {(item) => (
           <article class="grid gap-3 px-3 py-3 text-sm lg:grid-cols-[minmax(9rem,0.65fr)_minmax(16rem,1.15fr)_minmax(14rem,1fr)]">

@@ -173,7 +173,7 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
       <FilesLayoutHelp />
-      <AppWorkspace class="cloud-ui-soft">
+      <AppWorkspace>
         <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 
         <AppWorkspace.Content>

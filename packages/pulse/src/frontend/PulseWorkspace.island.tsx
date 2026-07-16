@@ -1096,7 +1096,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   };
 
   return (
-    <AppWorkspace class={`cloud-ui-soft ${activeView() === "explorer" ? "min-h-0" : "min-h-[760px]"}`}>
+    <AppWorkspace class={`${activeView() === "explorer" ? "min-h-0" : "min-h-[760px]"}`}>
       <PulseLayoutHelp />
       <PulseSidebar
         title={selectedBase()?.name ?? "Pulse"}

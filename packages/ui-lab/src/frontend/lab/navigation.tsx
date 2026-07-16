@@ -125,7 +125,7 @@ export const NavigationEnhancementDemo = () => {
 
         <div class="grid gap-3 md:grid-cols-[14rem_minmax(0,1fr)]">
           <div class="paper flex h-56 flex-col overflow-hidden">
-            <div class="border-b border-zinc-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-dimmed dark:border-zinc-800">
+            <div class="bg-[var(--ui-surface-subtle)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-dimmed">
               Preserved sidebar
             </div>
             <div data-scroll-preserve="ui-lab-nav-demo-sidebar" class="min-h-0 flex-1 overflow-auto p-2">
@@ -141,7 +141,7 @@ export const NavigationEnhancementDemo = () => {
           </div>
 
           <div class="paper flex h-56 flex-col overflow-hidden">
-            <div class="border-b border-zinc-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-dimmed dark:border-zinc-800">
+            <div class="bg-[var(--ui-surface-subtle)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-dimmed">
               Preserved records body
             </div>
             <div data-scroll-preserve="ui-lab-nav-demo-records" class="min-h-0 flex-1 overflow-auto p-2">
@@ -216,7 +216,7 @@ export const AppWorkspaceDemo = () => {
       id="sidebarlayout"
       chip={{ kind: "component", name: "AppWorkspace", from: FROM_UI }}
       description="One clipped workbench frame with quiet navigation and detail regions around a neutral main surface. Apps compose content without hand-rolling outer papers."
-      code={`<AppWorkspace class="cloud-ui-soft">
+      code={`<AppWorkspace>
   <AppWorkspace.Sidebar collapsible>
     <AppWorkspace.SidebarHeader title="Project" subtitle="Q2 sprint" icon="ti ti-folder" />
     <AppWorkspace.SidebarMobile>
@@ -243,7 +243,7 @@ export const AppWorkspaceDemo = () => {
 </AppWorkspace>`}
     >
       <div class="h-96 overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--ui-canvas)] p-2">
-        <AppWorkspace class="cloud-ui-soft">
+        <AppWorkspace>
           <AppWorkspace.Sidebar collapsible>
             <AppWorkspace.SidebarHeader title="Project" subtitle="Q2 sprint" icon="ti ti-folder" />
             <AppWorkspace.SidebarMobile>
@@ -330,8 +330,8 @@ export const AppWorkspaceDemo = () => {
           </AppWorkspace.Sidebar>
 
           <AppWorkspace.Content>
-            <AppWorkspace.Main>
-              <div class="flex h-full min-h-0 flex-col p-4">
+            <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
+              <div class="flex h-full min-h-0 flex-col">
                 <div class="flex min-w-0 items-start justify-between gap-3">
                   <div class="min-w-0">
                     <p class="text-sm font-semibold text-primary">Workspace content</p>
@@ -801,7 +801,7 @@ const closeFile = (id: string) => {
                       onClose={() => closeFile(file.id)}
                     >
                       <div class={`flex h-full min-h-0 flex-col ${file.class}`}>
-                        <div class="border-b border-zinc-200 bg-white/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
+                        <div class="bg-white/70 px-3 py-2 dark:bg-zinc-950/60">
                           <div class="min-w-0">
                             <p class="truncate text-sm font-semibold text-primary">{file.title}</p>
                             <p class="text-xs text-dimmed">{file.badge} editor content stays owned by the tab element.</p>

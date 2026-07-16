@@ -38,7 +38,7 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
   );
 
   return (
-    <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
+    <AppWorkspace class="flex-1 min-h-0">
       <AppWorkspace.Sidebar collapsible>
         <AppWorkspace.SidebarHeader
           title="Tools"

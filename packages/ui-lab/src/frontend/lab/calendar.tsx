@@ -289,7 +289,7 @@ export const CalendarScheduleDemo = () => {
   onDateChange={(date) => setDate(date)}
 />`}
     >
-      <div class="flex items-center justify-between gap-3 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/70">
+      <div class="flex items-center justify-between gap-3 px-3 py-2">
         <span class="text-xs text-dimmed">{demoEvents().length} events visible</span>
         <button
           type="button"
@@ -435,7 +435,7 @@ export const CalendarOverlapDemo = () => {
           onEventResize={updateEventTime}
         />
       </CalendarFrame>
-      <div class="grid gap-1 border-t border-zinc-100 px-3 py-2 text-xs text-dimmed dark:border-zinc-800/70 sm:grid-cols-3">
+      <div class="grid gap-1 px-3 py-2 text-xs text-dimmed sm:grid-cols-3">
         <div>
           Click event: <span class="font-semibold text-primary">{selectedEventTitle()}</span>
         </div>

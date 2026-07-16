@@ -123,64 +123,68 @@ export default ssr<AuthContext>(async (c) => {
         { title: `#${tagParam}` },
       ]}
     >
-      <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
+      <AppWorkspace class="flex-1 min-h-0">
         <NotebookSidebar ctx={ctx} />
-        <AppWorkspace.Main class="flex-col overflow-hidden">
-          {/* SearchBar (full width) + note counter on the right. The
-              tag itself already lives in the breadcrumb above. */}
-          <div class="flex items-center gap-2">
-            <div class="flex-1 min-w-0">
-              <SearchBar
-                value={search}
-                action={baseHref}
-                placeholder={`Search in #${tagParam}…`}
-                ariaLabel={`Search notes tagged ${tagParam}`}
-              />
+        <AppWorkspace.Content>
+          <AppWorkspace.Main class="flex-col overflow-hidden p-[var(--ui-space-shell)]">
+            {/* SearchBar (full width) + note counter on the right. The
+                tag itself already lives in the breadcrumb above. */}
+            <div class="flex items-center gap-2">
+              <div class="flex-1 min-w-0">
+                <SearchBar
+                  value={search}
+                  action={baseHref}
+                  placeholder={`Search in #${tagParam}…`}
+                  ariaLabel={`Search notes tagged ${tagParam}`}
+                />
+              </div>
+              <span class="shrink-0 text-xs text-dimmed tabular-nums">
+                {search
+                  ? `${paginatedResult.total} of ${totalNotesForTag}`
+                  : `${totalNotesForTag} note${totalNotesForTag === 1 ? "" : "s"}`}
+              </span>
             </div>
-            <span class="shrink-0 text-xs text-dimmed tabular-nums">
-              {search ? `${paginatedResult.total} of ${totalNotesForTag}` : `${totalNotesForTag} note${totalNotesForTag === 1 ? "" : "s"}`}
-            </span>
-          </div>
 
-          <div class="mt-2 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
-            {paginatedResult.items.length > 0 ? (
-              <ul class="flex flex-col gap-1">
-                {paginatedResult.items.map((n) => (
-                  <li>
-                    <a
-                      href={buildNoteUrl(notebook.shortId, n.shortId)}
-                      class="list-item flex-col !items-stretch gap-1 !px-3 !py-2.5 no-underline"
-                    >
-                      <div class="flex items-center gap-2">
-                        <i class="ti ti-file-text text-sm shrink-0 text-dimmed" />
-                        <span class="flex-1 truncate text-xs text-primary">{n.title}</span>
-                        <span class="shrink-0 text-[10px] text-dimmed tabular-nums">{formatDate(n.updatedAt)}</span>
-                      </div>
-                      {n.preview && <p class="text-[11px] text-dimmed line-clamp-2 pl-5">{n.preview}</p>}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <Placeholder surface="paper" icon="ti ti-search-off">
-                {search ? (
-                  <p>
-                    No notes tagged #{tagParam} match "{search}".
-                  </p>
-                ) : totalNotesForTag === 0 ? (
-                  <>
-                    <p>No notes tagged #{tagParam}.</p>
-                    <p>The tag may have been removed since the index was last refreshed.</p>
-                  </>
-                ) : (
-                  <p>No results.</p>
-                )}
-              </Placeholder>
-            )}
+            <div class="mt-2 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
+              {paginatedResult.items.length > 0 ? (
+                <ul class="flex flex-col gap-1">
+                  {paginatedResult.items.map((n) => (
+                    <li>
+                      <a
+                        href={buildNoteUrl(notebook.shortId, n.shortId)}
+                        class="list-item flex-col !items-stretch gap-1 !px-3 !py-2.5 no-underline"
+                      >
+                        <div class="flex items-center gap-2">
+                          <i class="ti ti-file-text text-sm shrink-0 text-dimmed" />
+                          <span class="flex-1 truncate text-xs text-primary">{n.title}</span>
+                          <span class="shrink-0 text-[10px] text-dimmed tabular-nums">{formatDate(n.updatedAt)}</span>
+                        </div>
+                        {n.preview && <p class="text-[11px] text-dimmed line-clamp-2 pl-5">{n.preview}</p>}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Placeholder surface="paper" icon="ti ti-search-off">
+                  {search ? (
+                    <p>
+                      No notes tagged #{tagParam} match "{search}".
+                    </p>
+                  ) : totalNotesForTag === 0 ? (
+                    <>
+                      <p>No notes tagged #{tagParam}.</p>
+                      <p>The tag may have been removed since the index was last refreshed.</p>
+                    </>
+                  ) : (
+                    <p>No results.</p>
+                  )}
+                </Placeholder>
+              )}
 
-            <Pagination currentPage={page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
-          </div>
-        </AppWorkspace.Main>
+              <Pagination currentPage={page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
+            </div>
+          </AppWorkspace.Main>
+        </AppWorkspace.Content>
       </AppWorkspace>
     </Layout>
   );

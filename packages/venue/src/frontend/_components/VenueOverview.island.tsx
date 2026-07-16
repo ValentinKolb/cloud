@@ -142,7 +142,6 @@ export default function VenueOverview(props: Props) {
 
   return (
     <AppOverview
-      class="cloud-ui-soft"
       title="Venues"
       subtitle="Staffed locations, public opening status, shifts, menus, and feedback."
       icon="ti ti-building-carousel"

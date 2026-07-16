@@ -85,89 +85,91 @@ export default ssr<AuthContext>(async (c) => {
         ...(selectedNote ? [{ title: selectedNote.title }] : isSettingsMode ? [{ title: "Settings" }] : []),
       ]}
     >
-      <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
+      <AppWorkspace class="flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
         <NotebookLayoutHelp />
         {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} sessionToken={sessionToken!} />}
 
         <NotebookSidebar ctx={ctx} />
 
-        <AppWorkspace.Main>
-          {isSettingsMode ? (
-            <NotebookSettingsPanel
-              notebook={notebook}
-              tree={tree}
-              accessEntries={accessEntries}
-              apiKeys={apiKeys}
-              isAdmin={isAdmin}
-              canWrite={canWrite}
-              dateConfig={dateConfig}
-            />
-          ) : isVersionsMode && selectedNoteId ? (
-            <VersionHistory
-              notebookId={notebook.shortId}
-              noteId={selectedNote?.shortId ?? selectedNoteId}
-              noteTitle={selectedNote?.title ?? ""}
-              isLocked={!!selectedNote?.lockedAt}
-              currentContentMd={selectedNote?.contentMd ?? null}
-              dateConfig={dateConfig}
-              initialVersions={versionHistory?.versions}
-              initialTotal={versionHistory?.total}
-            />
-          ) : isGraphMode && graph ? (
-            <NotebookGraph notebookId={notebook.shortId} selectedNoteId={selectedNoteId} graph={graph} />
-          ) : selectedNote ? (
-            <NoteEditor
-              noteId={selectedNote.id}
-              noteTitle={selectedNote.title}
-              notebookId={notebook.shortId}
-              scriptsEnabled={canRunScripts}
-              noteShortId={selectedNote.shortId}
-              noteCreatedAt={selectedNote.createdAt}
-              noteUpdatedAt={selectedNote.updatedAt}
-              noteLockedAt={selectedNote.lockedAt}
-              noteParentId={selectedNote.parentId}
-              notebookName={notebook.name}
-              appUrl={appUrl}
-              sessionToken={sessionToken!}
-              userId={user.id}
-              displayName={user.displayName}
-              initialSnapshot={selectedNote.yjsSnapshot}
-              initialContent={selectedNote.contentMd}
-              initialPanelOpen={detailPanelOpen}
-              initialRichMode={ctx.settings.richMode}
-              readOnly={readonlyMode}
-            />
-          ) : (
-            <div class="flex-1 flex items-center justify-center">
-              <p class="flex items-center gap-1.5 text-xs text-dimmed">
-                <i class="ti ti-file-text text-sm" />
-                {tree.length === 0 ? "No notes yet" : "Select a note to collaborate"}
-              </p>
-            </div>
-          )}
-        </AppWorkspace.Main>
+        <AppWorkspace.Content>
+          <AppWorkspace.Main>
+            {isSettingsMode ? (
+              <NotebookSettingsPanel
+                notebook={notebook}
+                tree={tree}
+                accessEntries={accessEntries}
+                apiKeys={apiKeys}
+                isAdmin={isAdmin}
+                canWrite={canWrite}
+                dateConfig={dateConfig}
+              />
+            ) : isVersionsMode && selectedNoteId ? (
+              <VersionHistory
+                notebookId={notebook.shortId}
+                noteId={selectedNote?.shortId ?? selectedNoteId}
+                noteTitle={selectedNote?.title ?? ""}
+                isLocked={!!selectedNote?.lockedAt}
+                currentContentMd={selectedNote?.contentMd ?? null}
+                dateConfig={dateConfig}
+                initialVersions={versionHistory?.versions}
+                initialTotal={versionHistory?.total}
+              />
+            ) : isGraphMode && graph ? (
+              <NotebookGraph notebookId={notebook.shortId} selectedNoteId={selectedNoteId} graph={graph} />
+            ) : selectedNote ? (
+              <NoteEditor
+                noteId={selectedNote.id}
+                noteTitle={selectedNote.title}
+                notebookId={notebook.shortId}
+                scriptsEnabled={canRunScripts}
+                noteShortId={selectedNote.shortId}
+                noteCreatedAt={selectedNote.createdAt}
+                noteUpdatedAt={selectedNote.updatedAt}
+                noteLockedAt={selectedNote.lockedAt}
+                noteParentId={selectedNote.parentId}
+                notebookName={notebook.name}
+                appUrl={appUrl}
+                sessionToken={sessionToken!}
+                userId={user.id}
+                displayName={user.displayName}
+                initialSnapshot={selectedNote.yjsSnapshot}
+                initialContent={selectedNote.contentMd}
+                initialPanelOpen={detailPanelOpen}
+                initialRichMode={ctx.settings.richMode}
+                readOnly={readonlyMode}
+              />
+            ) : (
+              <div class="flex-1 flex items-center justify-center">
+                <p class="flex items-center gap-1.5 text-xs text-dimmed">
+                  <i class="ti ti-file-text text-sm" />
+                  {tree.length === 0 ? "No notes yet" : "Select a note to collaborate"}
+                </p>
+              </div>
+            )}
+          </AppWorkspace.Main>
 
-        {showDetailPanel && selectedNote && (
-          <NotebookDetailPanel
-            mode={readonlyMode ? "read" : "edit"}
-            initiallyOpen={readonlyMode ? true : detailPanelOpen}
-            tocItems={tocItems}
-            taskProgress={selectedRouteState?.taskProgress ?? { done: 0, total: 0 }}
-            attachments={panelAttachments}
-            backlinks={backlinks}
-            namedBlocks={namedBlocks}
-            currentNotebookId={notebook.shortId}
-            notebookId={notebook.shortId}
-            noteId={selectedNote.shortId}
-            noteTitle={selectedNote.title}
-            contentMd={selectedNote.contentMd}
-            createdAt={selectedNote.createdAt}
-            updatedAt={selectedNote.updatedAt}
-            lockedAt={selectedNote.lockedAt}
-            isLocked={!!selectedNote.lockedAt}
-          />
-        )}
+          {showDetailPanel && selectedNote && (
+            <NotebookDetailPanel
+              mode={readonlyMode ? "read" : "edit"}
+              initiallyOpen={readonlyMode ? true : detailPanelOpen}
+              tocItems={tocItems}
+              taskProgress={selectedRouteState?.taskProgress ?? { done: 0, total: 0 }}
+              attachments={panelAttachments}
+              backlinks={backlinks}
+              namedBlocks={namedBlocks}
+              currentNotebookId={notebook.shortId}
+              notebookId={notebook.shortId}
+              noteId={selectedNote.shortId}
+              noteTitle={selectedNote.title}
+              contentMd={selectedNote.contentMd}
+              createdAt={selectedNote.createdAt}
+              updatedAt={selectedNote.updatedAt}
+              lockedAt={selectedNote.lockedAt}
+              isLocked={!!selectedNote.lockedAt}
+            />
+          )}
+        </AppWorkspace.Content>
       </AppWorkspace>
     </Layout>
   );

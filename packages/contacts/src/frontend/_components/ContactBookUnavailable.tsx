@@ -9,7 +9,7 @@ type Props = {
 /** Shared recovery state for unavailable contact-book routes. */
 export default function ContactBookUnavailable(props: Props) {
   return (
-    <main class="cloud-ui-soft mx-auto flex min-h-64 max-w-md items-center px-3">
+    <main class="mx-auto flex min-h-64 max-w-md items-center px-3">
       <Placeholder
         state="error"
         variant="panel"

@@ -13,7 +13,7 @@ const HostgroupCard = (props: Props) => {
 
   return (
     <div class="paper overflow-hidden">
-      <div class="flex items-center gap-3 border-b border-zinc-200 bg-zinc-50/80 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-800/40">
+      <div class="flex items-center gap-3 bg-[var(--ui-surface-subtle)] px-3 py-3">
         <i class="ti ti-folder text-lg text-blue-500 shrink-0" />
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">

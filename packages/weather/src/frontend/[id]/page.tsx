@@ -154,7 +154,7 @@ export default ssr<AuthContext>(async (c) => {
   if (!activeLocation) {
     return () => (
       <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: "Not Found" }]}>
-        <AppWorkspace class="cloud-ui-soft">
+        <AppWorkspace>
           <WeatherLayoutHelp />
           <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
           <AppWorkspace.Content>
@@ -197,7 +197,7 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: activeLocation.name }]}
     >
-      <AppWorkspace class="cloud-ui-soft">
+      <AppWorkspace>
         <WeatherLayoutHelp />
         <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 

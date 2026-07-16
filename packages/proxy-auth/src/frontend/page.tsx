@@ -118,7 +118,7 @@ export default ssr<AuthContext>(async (c) => {
               </div>
             </div>
 
-            <h2 class="mb-2 border-t border-blue-300 pt-4 text-sm font-medium dark:border-blue-700">Example Configuration</h2>
+            <h2 class="mb-2 mt-6 text-sm font-medium">Example Configuration</h2>
             <pre class="text-xs bg-blue-50 dark:bg-blue-950/30 p-3 rounded overflow-x-auto">
               {`http:
   middlewares:
@@ -132,7 +132,7 @@ export default ssr<AuthContext>(async (c) => {
         trustForwardHeader: true`}
             </pre>
 
-            <h2 class="mb-2 mt-4 border-t border-blue-300 pt-4 text-sm font-medium dark:border-blue-700">Response Headers</h2>
+            <h2 class="mb-2 mt-6 text-sm font-medium">Response Headers</h2>
             <div class="space-y-1 text-xs">
               <div>
                 <code class="font-mono">X-Forwarded-User</code> <span class="opacity-70">— Username (uid)</span>

@@ -75,7 +75,7 @@ export default function PulseQueryReferenceWindow(props: Props) {
   );
 
   return (
-    <AppWorkspace class="cloud-ui-soft h-screen">
+    <AppWorkspace class="h-screen">
       <AppWorkspace.Sidebar>
         <AppWorkspace.SidebarHeader title="Pulse reference" subtitle={props.baseName} icon="ti ti-book" />
         <AppWorkspace.SidebarMobile>

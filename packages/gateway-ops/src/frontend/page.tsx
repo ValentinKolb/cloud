@@ -197,7 +197,7 @@ export default ssr<AuthContext>(async (c) => {
           {/* ── Apps Table ── */}
           {!isRoutesPage ? (
             <section class="paper overflow-hidden">
-              <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+              <div class="flex flex-col gap-2 px-3 py-3">
                 <div>
                   <h2 class="text-xs font-semibold text-primary">Apps</h2>
                   <p class="text-[10px] text-dimmed">{appRows.length} registered apps</p>
@@ -297,7 +297,7 @@ export default ssr<AuthContext>(async (c) => {
           {/* ── Routes: title + search + table (same pattern as logs) ── */}
           {isRoutesPage ? (
             <section class="paper overflow-hidden">
-              <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+              <div class="flex flex-col gap-2 px-3 py-3">
                 <div>
                   <h2 class="text-xs font-semibold text-primary">Routes</h2>
                   <p class="text-[10px] text-dimmed">

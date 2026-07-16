@@ -91,8 +91,8 @@ export default function GlobalAnnouncements(props: Props) {
 
       <Show when={modalOpen()}>
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm">
-          <section class="flex max-h-[86vh] w-[min(96vw,42rem)] min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white text-zinc-900 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
-            <header class="flex shrink-0 items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <section class="flex max-h-[86vh] w-[min(96vw,42rem)] min-h-0 flex-col gap-1 overflow-hidden rounded-xl bg-white text-zinc-900 shadow-2xl dark:bg-zinc-950 dark:text-zinc-100">
+            <header class="flex shrink-0 items-center gap-3 px-4 pt-4 pb-3">
               <i class="ti ti-speakerphone text-base text-blue-500" />
               <div class="min-w-0">
                 <p class="font-semibold">Announcements</p>
@@ -106,7 +106,7 @@ export default function GlobalAnnouncements(props: Props) {
               <div class="flex flex-col gap-4">
                 <For each={props.announcements}>
                   {(entry) => (
-                    <article class="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+                    <article class="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-900/70">
                       <div class="mb-3 flex items-start justify-between gap-3">
                         <div class="min-w-0">
                           <h2 class="text-base font-semibold text-primary">{entry.title}</h2>
@@ -128,7 +128,7 @@ export default function GlobalAnnouncements(props: Props) {
                 </For>
               </div>
             </main>
-            <footer class="flex shrink-0 justify-end border-t border-zinc-200 bg-white/95 p-3 dark:border-zinc-800 dark:bg-zinc-950/95">
+            <footer class="flex shrink-0 justify-end px-4 pt-1 pb-4">
               <button type="button" class="btn-primary btn-sm" onClick={closeAnnouncements}>
                 Got it
               </button>

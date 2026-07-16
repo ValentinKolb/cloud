@@ -141,7 +141,7 @@ export default function PasskeysSettings(props: Props) {
           </Placeholder>
         }
       >
-        <div class="flex flex-col divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <div class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-2">
           <For each={passkeys()}>
             {(passkey) => (
               <div class="flex items-center gap-3 p-3">

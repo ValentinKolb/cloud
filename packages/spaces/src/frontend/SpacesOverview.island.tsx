@@ -180,7 +180,6 @@ export default function SpacesOverview(props: Props) {
 
   return (
     <AppOverview
-      class="cloud-ui-soft"
       title="Spaces"
       subtitle="Organize tasks, events, calendars, and lightweight project workflows."
       icon="ti ti-layout-kanban"

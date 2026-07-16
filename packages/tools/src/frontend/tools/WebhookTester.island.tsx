@@ -437,7 +437,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   };
 
   return (
-    <AppWorkspace class="cloud-ui-soft min-h-0 flex-1">
+    <AppWorkspace class="min-h-0 flex-1">
       <AppWorkspace.Sidebar>
         <AppWorkspace.SidebarHeader title="Webhook Tester" subtitle="Inspect HTTP calls" icon="ti ti-webhook" />
         <AppWorkspace.SidebarMobile>

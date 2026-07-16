@@ -831,9 +831,9 @@ function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview; show
       </div>
 
       <Show when={props.overview.recentRuns.length > 0}>
-        <div class="overflow-hidden rounded-lg border border-zinc-100 dark:border-zinc-800">
+        <div class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-2">
           {props.overview.recentRuns.map((run) => (
-            <div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-b border-zinc-100 px-2 py-1.5 text-xs last:border-b-0 dark:border-zinc-800">
+            <div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 px-2 py-1.5 text-xs">
               <span class={`badge ${statusClass(run.status)}`}>{run.status}</span>
               <span class="min-w-0">
                 <span class="block truncate text-primary">{run.conversationTitle || run.conversationId}</span>
@@ -1970,7 +1970,7 @@ function TemplateSettingInput(props: FieldInputProps) {
           <i class="ti ti-chevron-down ml-auto text-dimmed transition-transform group-open:rotate-180" />
         </summary>
         <iframe
-          class="h-56 w-full border-t border-zinc-200 bg-white dark:border-zinc-800"
+          class="h-56 w-full bg-white"
           sandbox=""
           srcdoc={preview()}
           title={`${props.entry.label} preview`}

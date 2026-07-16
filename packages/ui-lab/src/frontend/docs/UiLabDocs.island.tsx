@@ -126,7 +126,7 @@ export default function UiLabDocs(props: UiLabDocsProps) {
   return (
     <>
       <UiLabLayoutHelp />
-      <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
+      <AppWorkspace class="flex-1 min-h-0">
         <AppWorkspace.Sidebar>
           <AppWorkspace.SidebarHeader title="UI Lab" subtitle="Components and utilities" icon="ti ti-palette" />
 
@@ -150,8 +150,8 @@ export default function UiLabDocs(props: UiLabDocsProps) {
         </AppWorkspace.Sidebar>
 
         <AppWorkspace.Content>
-          <AppWorkspace.Main>
-            <div ref={mainScroll} class="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
+          <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
+            <div ref={mainScroll} class="min-h-0 flex-1 overflow-y-auto">
               <div class="mx-auto flex max-w-6xl flex-col gap-4">
                 {current() ? (
                   <>

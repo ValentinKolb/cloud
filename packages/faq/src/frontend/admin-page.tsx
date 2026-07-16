@@ -41,9 +41,9 @@ export default ssr<AuthContext>(async (c) => {
 
           {entries.length > 0 ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-faq-list">
-              <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <div class="flex flex-col gap-3 p-3">
                 {entries.map((entry) => (
-                  <div class="flex flex-col gap-2 px-3 py-3">
+                  <div class="flex flex-col gap-2">
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0 flex-1">
                         <div class="flex flex-wrap items-center gap-2">

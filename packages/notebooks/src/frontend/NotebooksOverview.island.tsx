@@ -127,7 +127,6 @@ export default function NotebooksOverview(props: Props) {
 
   return (
     <AppOverview
-      class="cloud-ui-soft"
       title="Notebooks"
       subtitle="Collaborative notes, linked knowledge, scripts, and reusable workspaces."
       icon="ti ti-note"

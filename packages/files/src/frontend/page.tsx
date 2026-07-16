@@ -19,7 +19,7 @@ export default ssr<AuthContext>(async (c) => {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }]}>
         <FilesLayoutHelp />
-        <AppOverview class="cloud-ui-soft" title="Files" subtitle="Browse and manage shared file storage." icon="ti ti-folders">
+        <AppOverview title="Files" subtitle="Browse and manage shared file storage." icon="ti ti-folders">
           <AppOverview.Main title="Storage" description="No accessible file storage is available for your account.">
             <AppOverview.EmptyState
               title="No accessible storage"

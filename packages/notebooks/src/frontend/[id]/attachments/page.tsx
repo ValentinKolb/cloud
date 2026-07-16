@@ -119,18 +119,20 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Attachments" },
       ]}
     >
-      <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
+      <AppWorkspace class="flex-1 min-h-0">
         <NotebookSidebar ctx={ctx} />
-        <AppWorkspace.Main class="flex-col overflow-hidden p-[var(--ui-space-shell)]">
-          {/* Search bar across the full content width. The breadcrumb already
-              labels the page — no additional title above. */}
-          <SearchBar value={search} action={baseHref} placeholder="Search attachments…" ariaLabel="Search attachments" />
+        <AppWorkspace.Content>
+          <AppWorkspace.Main class="flex-col overflow-hidden p-[var(--ui-space-shell)]">
+            {/* Search bar across the full content width. The breadcrumb already
+                labels the page — no additional title above. */}
+            <SearchBar value={search} action={baseHref} placeholder="Search attachments…" ariaLabel="Search attachments" />
 
-          <div class="mt-2 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
-            <AttachmentsOverview notebookId={notebook.shortId} initial={paginatedResult.items} searchQuery={search} />
-            <Pagination currentPage={paginatedResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
-          </div>
-        </AppWorkspace.Main>
+            <div class="mt-2 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
+              <AttachmentsOverview notebookId={notebook.shortId} initial={paginatedResult.items} searchQuery={search} />
+              <Pagination currentPage={paginatedResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
+            </div>
+          </AppWorkspace.Main>
+        </AppWorkspace.Content>
       </AppWorkspace>
     </Layout>
   );

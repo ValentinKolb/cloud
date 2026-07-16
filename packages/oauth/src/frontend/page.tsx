@@ -152,7 +152,7 @@ export default ssr<AuthContext>(async (c) => {
               </div>
             </div>
 
-            <h2 class="mb-2 border-t border-blue-300 pt-4 text-sm font-medium dark:border-blue-700">OAuth Endpoints</h2>
+            <h2 class="mb-2 mt-6 text-sm font-medium">OAuth Endpoints</h2>
             <div class="space-y-2 text-xs font-mono mb-4">
               <div class="flex flex-col gap-0.5">
                 <span class="opacity-70">Authorization Endpoint URL:</span>
@@ -172,7 +172,7 @@ export default ssr<AuthContext>(async (c) => {
               </div>
             </div>
 
-            <h2 class="mb-2 border-t border-blue-300 pt-4 text-sm font-medium dark:border-blue-700">Available Scopes</h2>
+            <h2 class="mb-2 mt-6 text-sm font-medium">Available Scopes</h2>
             <div class="space-y-2 text-xs mb-4">
               <div class="flex gap-2">
                 <code class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-medium">openid</code>
@@ -192,7 +192,7 @@ export default ssr<AuthContext>(async (c) => {
               </div>
             </div>
 
-            <h2 class="mb-2 border-t border-blue-300 pt-4 text-sm font-medium dark:border-blue-700">Claim Mapping</h2>
+            <h2 class="mb-2 mt-6 text-sm font-medium">Claim Mapping</h2>
             <div class="space-y-1 text-xs font-mono">
               <div>
                 <span class="opacity-70">ID Claim:</span> <code>sub</code> or <code>uid</code> <span class="opacity-60">(username)</span>

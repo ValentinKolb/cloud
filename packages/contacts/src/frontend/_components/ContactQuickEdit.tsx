@@ -105,7 +105,7 @@ export default function ContactQuickEdit(props: Props) {
         <TextInput label="Primary phone" type="tel" value={phone} onInput={setPhone} autocomplete="tel" />
       </div>
 
-      <div class="grid gap-4 border-t border-[var(--ui-divider)] pt-4 sm:grid-cols-2">
+      <div class="grid gap-4 sm:grid-cols-2">
         <div>
           <span class="text-label mb-1.5 block text-xs">Organization</span>
           <Show
@@ -141,7 +141,7 @@ export default function ContactQuickEdit(props: Props) {
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ui-divider)] pt-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <button type="button" class="btn-simple btn-sm text-dimmed" onClick={props.onEditAll}>
           Edit all fields <i class="ti ti-arrow-up-right" />
         </button>

@@ -780,10 +780,10 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
 
                         <Show when={metadataRows(item().metadata).length > 0}>
                           <div class="rounded-lg bg-zinc-100/65 p-2 dark:bg-zinc-900/65">
-                            <div class="divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
+                            <div class="flex flex-col gap-1">
                               <For each={metadataRows(item().metadata)}>
                                 {(entry) => (
-                                  <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 py-1.5 text-xs first:pt-0 last:pb-0">
+                                  <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 rounded-md px-1 py-1 text-xs">
                                     <span class="truncate text-dimmed">{entry.label}</span>
                                     <span class="truncate">{entry.value}</span>
                                   </div>

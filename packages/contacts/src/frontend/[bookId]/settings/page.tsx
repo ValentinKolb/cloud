@@ -86,7 +86,7 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
     >
       <ContactsLayoutHelp />
-      <AppWorkspace class="cloud-ui-soft">
+      <AppWorkspace>
         <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
 
         <AppWorkspace.Content>

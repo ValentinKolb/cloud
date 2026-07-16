@@ -253,7 +253,7 @@ const FormulaTable = (props: FormulaGroup) => (
       <p class="font-semibold text-primary">{props.title}</p>
       <p class="mt-1 text-sm text-dimmed">{props.intro}</p>
     </header>
-    <div class="divide-y divide-zinc-200/70 dark:divide-zinc-800">
+    <div class="flex flex-col gap-1 px-1 pb-1">
       <For each={props.items}>
         {(item) => (
           <article class="grid gap-3 px-3 py-3 text-sm lg:grid-cols-[minmax(10rem,0.8fr)_minmax(12rem,1fr)_minmax(12rem,1fr)]">

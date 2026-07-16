@@ -106,7 +106,7 @@ const CreateProxyClient = () => {
               />
             </div>
 
-            <div class="flex items-center gap-2 justify-end border-t border-zinc-200 dark:border-zinc-700 pt-4">
+            <div class="flex items-center justify-end gap-2">
               <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
                 Cancel
               </button>

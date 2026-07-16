@@ -57,7 +57,7 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts" }]}>
       <ContactsLayoutHelp />
-      <AppWorkspace class="cloud-ui-soft">
+      <AppWorkspace>
         <ContactsSidebar books={books} active="all" adminBookIds={adminBookIds} />
 
         <AppWorkspace.Content>

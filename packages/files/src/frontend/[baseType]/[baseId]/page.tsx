@@ -163,7 +163,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
     return () => (
       <Layout c={c} title={buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path)} fullWidth>
         <FilesLayoutHelp />
-        <AppWorkspace class="cloud-ui-soft">
+        <AppWorkspace>
           <BaseSidebar
             bases={basesInfo}
             currentBaseType={baseType}
@@ -243,7 +243,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   return () => (
     <Layout c={c} title={breadcrumbs} fullWidth>
       <FilesLayoutHelp />
-      <AppWorkspace class="cloud-ui-soft">
+      <AppWorkspace>
         <BaseSidebar
           bases={basesInfo}
           currentBaseType={baseType}

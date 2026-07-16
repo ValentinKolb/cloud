@@ -29,7 +29,7 @@ export default ssr(async (c) => {
   return () => (
     <main class="min-h-screen bg-zinc-100 text-zinc-950">
       <div class="mx-auto flex min-h-screen w-full max-w-xl flex-col bg-white px-5 py-6 shadow-sm sm:px-8 sm:py-8">
-        <header class="flex items-center gap-3 border-b border-zinc-200 pb-5">
+        <header class="flex items-center gap-3 pb-5">
           {status.venue.logoBase64 ? (
             <img src={status.venue.logoBase64} alt="" class="size-12 rounded-xl bg-white object-contain p-1 ring-1 ring-zinc-200" />
           ) : (
@@ -54,7 +54,7 @@ export default ssr(async (c) => {
           <PublicFeedbackForm slug={status.venue.slug} accentColor={status.venue.accentColor} variant="page" />
         </section>
 
-        <footer class="border-t border-zinc-200 pt-4">
+        <footer class="pt-4">
           <a href={publicUrl} class="inline-flex items-center gap-2 text-sm font-medium text-zinc-700 no-underline hover:text-zinc-950">
             <i class="ti ti-arrow-left" />
             View {status.venue.name}

@@ -75,7 +75,6 @@ export default function PulseOverview(props: Props) {
     <>
       <PulseLayoutHelp />
       <AppOverview
-        class="cloud-ui-soft"
         title="Pulse"
         subtitle="Metrics, events, states, and realtime dashboards."
         icon="ti ti-activity-heartbeat"

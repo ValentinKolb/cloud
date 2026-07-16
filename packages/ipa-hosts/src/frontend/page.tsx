@@ -97,7 +97,7 @@ export default ssr<AuthContext>(async (c) => {
 
           {ungroupedHostsPage.total > 0 || search ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-hosts-ungrouped">
-              <div class="border-b border-zinc-200 bg-zinc-50/80 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-800/40">
+              <div class="bg-[var(--ui-surface-subtle)] px-3 py-3">
                 <div class="flex items-center gap-3">
                   <i class="ti ti-server-off shrink-0 text-lg text-amber-500" />
                   <div class="min-w-0 flex-1">
@@ -113,7 +113,7 @@ export default ssr<AuthContext>(async (c) => {
                 emptyMessage={search ? `No ungrouped hosts matching "${search}".` : "No mirrored hosts without a hostgroup membership."}
               />
               {ungroupedPagination.total_pages > 1 ? (
-                <div class="border-t border-zinc-200 px-3 py-3 dark:border-zinc-700">
+                <div class="px-3 py-3">
                   <Pagination
                     currentPage={ungroupedPagination.page}
                     totalPages={ungroupedPagination.total_pages}

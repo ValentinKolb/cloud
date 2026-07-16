@@ -226,13 +226,13 @@ export default function ContactNotesSection(props: Props) {
           </Placeholder>
         }
       >
-        <ol class="divide-y divide-[var(--ui-divider)]">
+        <ol class="flex flex-col gap-3">
           <For each={notes()}>
             {(note) => {
               const isOwn = () => note.authorUserId === props.currentUserId;
               const isEditing = () => editingId() === note.id;
               return (
-                <li class="group flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
+                <li class="group flex flex-col gap-1.5">
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <Avatar username={note.authorDisplayName} userId={note.authorUserId} avatarHash={note.authorAvatarHash} size="xs" />
                     <span class="truncate text-xs font-medium text-primary">{note.authorDisplayName}</span>

@@ -51,7 +51,7 @@ function PublicSectionView(props: { section: PublicSection }) {
             const item = raw as Record<string, unknown>;
             const image = typeof item.image === "string" ? item.image : "";
             return (
-              <div class="border-b border-zinc-200 pb-3 last:border-0 last:pb-0">
+              <div>
                 <div class="flex items-start justify-between gap-3">
                   {image ? <img src={image} alt="" class="h-16 w-16 shrink-0 rounded-xl object-cover" /> : null}
                   <div class="min-w-0 flex-1">
@@ -193,9 +193,9 @@ function UpcomingOpenings(props: { status: PublicStatus; display?: boolean }) {
       >
         <h2 class="mb-3 text-base font-semibold text-zinc-950">Upcoming staffed openings</h2>
         {openings().length > 0 ? (
-          <div class="flex flex-col divide-y divide-zinc-200">
+          <div class="flex flex-col gap-3">
             {openings().map((opening) => (
-              <div class="flex items-center justify-between gap-4 py-2 first:pt-0 last:pb-0">
+              <div class="flex items-center justify-between gap-4">
                 <div class="min-w-0">
                   <p class="truncate text-sm font-medium text-zinc-900">{opening.title}</p>
                   <p class="text-xs text-zinc-500">{formatOpeningDate(opening, props.status.venue.timezone)}</p>

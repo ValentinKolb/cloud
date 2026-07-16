@@ -28,10 +28,7 @@ export default function NavMenu(props: NavMenuProps) {
       ? [
           {
             element: (
-              <a
-                href="/me"
-                class="flex border-b border-zinc-200 p-4 dark:border-zinc-800 transition-colors hover:bg-white/30 dark:hover:bg-white/10"
-              >
+              <a href="/me" class="m-1 flex rounded-lg p-3 transition-colors hover:bg-white/30 dark:hover:bg-white/10">
                 <div class="flex items-center gap-3">
                   <Avatar
                     username={props.user.displayName || props.user.uid}

@@ -326,9 +326,9 @@ export default function ContactDetailPanel(props: Props) {
                         </span>
                         <i class="ti ti-chevron-down text-xs text-dimmed transition-transform group-open/details:rotate-180" />
                       </summary>
-                      <div class="mt-3 divide-y divide-[var(--ui-divider)]">
+                      <div class="mt-3 flex flex-col gap-4">
                         <Show when={c().addresses.length > 0}>
-                          <section class="py-3 first:pt-0 last:pb-0">
+                          <section>
                             <h3 class="detail-section-label">Addresses</h3>
                             <For each={c().addresses}>
                               {(address) => (
@@ -347,7 +347,7 @@ export default function ContactDetailPanel(props: Props) {
                         </Show>
 
                         <Show when={c().bankAccounts.length > 0}>
-                          <section class="py-3 first:pt-0 last:pb-0">
+                          <section>
                             <h3 class="detail-section-label">Bank details</h3>
                             <For each={c().bankAccounts}>
                               {(account) => (

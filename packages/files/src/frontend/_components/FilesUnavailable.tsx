@@ -11,7 +11,7 @@ type Props = {
 /** Shared recovery state for unavailable file-storage routes. */
 export default function FilesUnavailable(props: Props) {
   return (
-    <main class="cloud-ui-soft mx-auto flex min-h-64 max-w-md items-center px-3">
+    <main class="mx-auto flex min-h-64 max-w-md items-center px-3">
       <Placeholder
         state="error"
         variant="panel"
