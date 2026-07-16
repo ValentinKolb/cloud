@@ -92,6 +92,7 @@
         "solid-js": "^1.9.10",
         "tailwindcss": "^4.1.18",
         "web-push": "^3.6.7",
+        "yaml": "^2.9.0",
         "zod": "^4.3.4",
       },
       "devDependencies": {
