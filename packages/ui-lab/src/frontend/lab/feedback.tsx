@@ -75,7 +75,7 @@ export const InfoBlocks = () => (
       { kind: "utility", name: "info-block-warning" },
       { kind: "utility", name: "info-block-danger" },
     ]}
-    description="Stackable callouts for non-blocking messages. Each variant has a colour-coded background and border."
+    description="Stackable callouts for non-blocking messages. Variants share a quiet surface and use colour only as a semantic accent."
     code={`<div class="info-block-info">Pure informational note.</div>
 <div class="info-block-success">Operation completed.</div>
 <div class="info-block-warning">Heads up — review before you continue.</div>
