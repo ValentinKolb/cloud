@@ -16,7 +16,8 @@ import { latestWorkflowRunEventCursor, liveWorkflowRunEvents } from "./service/w
 const log = logger("grids:ws");
 const WS_TYPE = gridsWorkspace.wsType;
 const ACCESS_REFRESH_INTERVAL_MS = 15_000;
-const MAX_PENDING_MESSAGES = 100;
+const MAX_CLIENT_MESSAGE_LENGTH = 16_000;
+const MAX_PENDING_MESSAGES = 8;
 const CLOSE_SERVICE_RESTART = 1012;
 
 const SubscribeMessageSchema = z.object({
@@ -65,21 +66,19 @@ type WsContext = {
   socket: ServerWebSocket<unknown>;
   phase: WsPhase;
   sessionToken: string | null;
-  user: User | null;
   subscription: Subscription | null;
   streamAbort: AbortController | null;
   accessRefreshTimeout: ReturnType<typeof setTimeout> | null;
 };
 
 type AccessResult =
-  | { ok: true; user: User; baseId: string; tableId?: string; workflowId?: string }
+  | { ok: true; baseId: string; tableId?: string; workflowId?: string }
   | { ok: false; code: string; message: string; tableId?: string };
 
 const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | null): WsContext => ({
   socket,
   phase: "open",
   sessionToken,
-  user: null,
   subscription: null,
   streamAbort: null,
   accessRefreshTimeout: null,
@@ -95,6 +94,8 @@ export const sendWorkspaceMessage = (socket: ServerWebSocket<unknown>, type: str
 };
 
 const send = sendWorkspaceMessage;
+
+const isClosing = (ctx: Pick<WsContext, "phase">): boolean => ctx.phase === "closing";
 
 const errorTypeFor = (ctx: WsContext): string =>
   ctx.subscription?.kind === "metadata"
@@ -113,25 +114,52 @@ const stopAccessRefresh = (ctx: WsContext) => {
   ctx.accessRefreshTimeout = null;
 };
 
+const stopSubscription = (ctx: WsContext) => {
+  stopAccessRefresh(ctx);
+  stopStream(ctx);
+  ctx.subscription = null;
+};
+
 export const isWorkspaceAccessRefreshCurrent = (
   ctx: Pick<WsContext, "phase" | "sessionToken" | "subscription">,
   subscription: Subscription,
   sessionToken: string,
 ): boolean => ctx.phase === "subscribed" && ctx.subscription === subscription && ctx.sessionToken === sessionToken;
 
-const closeCodeForError = (code: string): number => {
+export const workspaceCloseCodeForError = (code: string): number => {
   if (code === "internal_error") return 1011;
-  if (code === "backpressure") return 1013;
+  if (code === "backpressure" || code === "stream_failed" || code === "stream_ended") return CLOSE_SERVICE_RESTART;
   return 1008;
 };
 
 const closeWithError = (ctx: WsContext, code: string, message: string, tableId?: string) => {
   if (ctx.phase === "closing") return;
+  const errorType = errorTypeFor(ctx);
   ctx.phase = "closing";
-  stopAccessRefresh(ctx);
-  stopStream(ctx);
-  send(ctx.socket, errorTypeFor(ctx), { code, message, tableId });
-  ctx.socket.close(closeCodeForError(code), code);
+  stopSubscription(ctx);
+  send(ctx.socket, errorType, { code, message, tableId });
+  ctx.socket.close(workspaceCloseCodeForError(code), code);
+};
+
+const revokeAccess = (ctx: WsContext, subscription: Subscription, access: Exclude<AccessResult, { ok: true }>) => {
+  if (isClosing(ctx)) return;
+  ctx.phase = "closing";
+  stopSubscription(ctx);
+  send(
+    ctx.socket,
+    subscription.kind === "records"
+      ? WS_TYPE.recordsRevoked
+      : subscription.kind === "metadata"
+        ? WS_TYPE.metadataRevoked
+        : WS_TYPE.workflowRunsRevoked,
+    {
+      code: access.code,
+      message: access.code === "access_denied" ? "Access was revoked" : access.message,
+      baseId: subscription.baseId,
+      tableId: subscription.kind === "records" ? subscription.tableId : undefined,
+    },
+  );
+  ctx.socket.close(1008, access.code);
 };
 
 const resolveSessionUser = async (sessionToken: string | null): Promise<User | null> => {
@@ -159,7 +187,7 @@ const evaluateTableAccess = async (tableId: string, sessionToken: string | null)
     return { ok: false, code: "access_denied", message: "Access denied", tableId: table.id };
   }
 
-  return { ok: true, user, baseId: table.baseId, tableId: table.id };
+  return { ok: true, baseId: table.baseId, tableId: table.id };
 };
 
 const evaluateDashboardRecordAccess = async (dashboardId: string, tableId: string, sessionToken: string | null): Promise<AccessResult> => {
@@ -179,7 +207,7 @@ const evaluateDashboardRecordAccess = async (dashboardId: string, tableId: strin
   });
   if (!canRead) return { ok: false, code: "access_denied", message: "Access denied", tableId };
 
-  return { ok: true, user, baseId: dashboard.baseId, tableId };
+  return { ok: true, baseId: dashboard.baseId, tableId };
 };
 
 const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): Promise<AccessResult> => {
@@ -199,7 +227,7 @@ const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): 
     return { ok: false, code: "access_denied", message: "Access denied" };
   }
 
-  return { ok: true, user, baseId: base.id };
+  return { ok: true, baseId: base.id };
 };
 
 export const isDashboardWorkflowLauncherKind = (kind: string): boolean => kind === "dashboard" || kind === "scanner";
@@ -242,7 +270,30 @@ const evaluateWorkflowAccess = async (
     }
   }
 
-  return { ok: true, user, baseId: workflow.baseId, workflowId: workflow.id };
+  return { ok: true, baseId: workflow.baseId, workflowId: workflow.id };
+};
+
+const evaluateSubscriptionAccess = (subscription: Subscription, sessionToken: string | null): Promise<AccessResult> =>
+  subscription.kind === "records"
+    ? subscription.dashboardId
+      ? evaluateDashboardRecordAccess(subscription.dashboardId, subscription.tableId, sessionToken)
+      : evaluateTableAccess(subscription.tableId, sessionToken)
+    : subscription.kind === "metadata"
+      ? evaluateBaseAccess(subscription.baseId, sessionToken)
+      : evaluateWorkflowAccess(
+          subscription.workflowId,
+          sessionToken,
+          subscription.dashboardId && subscription.dashboardWidgetId
+            ? { id: subscription.dashboardId, widgetId: subscription.dashboardWidgetId }
+            : undefined,
+        );
+
+const ensureCurrentAccess = async (ctx: WsContext, subscription: Subscription): Promise<boolean> => {
+  const access = await evaluateSubscriptionAccess(subscription, ctx.sessionToken);
+  if (ctx.phase !== "subscribed" || ctx.subscription !== subscription) return false;
+  if (access.ok) return true;
+  revokeAccess(ctx, subscription, access);
+  return false;
 };
 
 const startStream = (ctx: WsContext, afterCursor: string | null) => {
@@ -258,10 +309,10 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
     try {
       if (subscription.kind === "records") {
         const tableId = subscription.tableId;
-        send(ctx.socket, WS_TYPE.recordsReady, { tableId });
         for await (const event of liveRecordEvents({ baseId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
           if (event.data.tableId !== tableId) continue;
+          if (!(await ensureCurrentAccess(ctx, subscription))) break;
           const sent = send(
             ctx.socket,
             WS_TYPE.recordsEvent,
@@ -282,9 +333,9 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
           }
         }
       } else if (subscription.kind === "metadata") {
-        send(ctx.socket, WS_TYPE.metadataReady, { baseId });
         for await (const event of liveMetadataEvents({ baseId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
+          if (!(await ensureCurrentAccess(ctx, subscription))) break;
           const sent = send(ctx.socket, WS_TYPE.metadataEvent, {
             baseId,
             cursor: event.cursor,
@@ -297,7 +348,6 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
         }
       } else {
         const workflowId = subscription.workflowId;
-        send(ctx.socket, WS_TYPE.workflowRunsReady, { workflowId });
         for await (const event of liveWorkflowRunEvents({ baseId, workflowId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
           const dashboardScope =
@@ -306,6 +356,7 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
               : undefined;
           const visibleEvent = projectWorkflowRunEvent(event.data, dashboardScope);
           if (!visibleEvent) continue;
+          if (!(await ensureCurrentAccess(ctx, subscription))) break;
           const sent = send(ctx.socket, WS_TYPE.workflowRunsEvent, {
             workflowId,
             cursor: event.cursor,
@@ -317,30 +368,28 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
           }
         }
       }
+
+      if (!abort.signal.aborted && ctx.phase === "subscribed" && ctx.subscription === subscription) {
+        closeWithError(
+          ctx,
+          "stream_ended",
+          subscription.kind === "workflow-runs" ? "Workflow update stream ended" : "Workspace event stream ended",
+          subscription.kind === "records" ? subscription.tableId : undefined,
+        );
+      }
     } catch (error) {
-      if (abort.signal.aborted) return;
+      if (abort.signal.aborted || isClosing(ctx)) return;
       log.error("Workspace event stream failed", {
         baseId,
         kind: subscription.kind,
         error: error instanceof Error ? error.message : String(error),
       });
-      send(
-        ctx.socket,
-        subscription.kind === "records"
-          ? WS_TYPE.recordsError
-          : subscription.kind === "metadata"
-            ? WS_TYPE.metadataError
-            : WS_TYPE.workflowRunsError,
-        {
-          code: "stream_failed",
-          message: "Workspace event stream failed",
-          baseId,
-          tableId: subscription.kind === "records" ? subscription.tableId : undefined,
-        },
+      closeWithError(
+        ctx,
+        "stream_failed",
+        "Workspace event stream failed",
+        subscription.kind === "records" ? subscription.tableId : undefined,
       );
-      stopAccessRefresh(ctx);
-      ctx.phase = "closing";
-      ctx.socket.close(CLOSE_SERVICE_RESTART, "stream_failed");
     } finally {
       if (ctx.streamAbort === abort) ctx.streamAbort = null;
     }
@@ -356,42 +405,12 @@ const startAccessRefresh = (ctx: WsContext) => {
     const subscription = ctx.subscription;
     const sessionToken = ctx.sessionToken;
     try {
-      const access =
-        subscription.kind === "records"
-          ? subscription.dashboardId
-            ? await evaluateDashboardRecordAccess(subscription.dashboardId, subscription.tableId, sessionToken)
-            : await evaluateTableAccess(subscription.tableId, sessionToken)
-          : subscription.kind === "metadata"
-            ? await evaluateBaseAccess(subscription.baseId, sessionToken)
-            : await evaluateWorkflowAccess(
-                subscription.workflowId,
-                sessionToken,
-                subscription.dashboardId && subscription.dashboardWidgetId
-                  ? { id: subscription.dashboardId, widgetId: subscription.dashboardWidgetId }
-                  : undefined,
-              );
+      const access = await evaluateSubscriptionAccess(subscription, sessionToken);
       if (!isWorkspaceAccessRefreshCurrent(ctx, subscription, sessionToken)) return;
       if (!access.ok) {
-        stopStream(ctx);
-        send(
-          ctx.socket,
-          subscription.kind === "records"
-            ? WS_TYPE.recordsRevoked
-            : subscription.kind === "metadata"
-              ? WS_TYPE.metadataRevoked
-              : WS_TYPE.workflowRunsRevoked,
-          {
-            code: access.code,
-            message: access.code === "access_denied" ? "Access was revoked" : access.message,
-            baseId: subscription.baseId,
-            tableId: subscription.kind === "records" ? subscription.tableId : undefined,
-          },
-        );
-        ctx.socket.close(1008, access.code);
-        ctx.phase = "closing";
+        revokeAccess(ctx, subscription, access);
         return;
       }
-      ctx.user = access.user;
       startAccessRefresh(ctx);
     } catch (error) {
       if (!isWorkspaceAccessRefreshCurrent(ctx, subscription, sessionToken)) return;
@@ -404,11 +423,41 @@ const startAccessRefresh = (ctx: WsContext) => {
   }, ACCESS_REFRESH_INTERVAL_MS);
 };
 
+export const resolveWorkspaceEventCursor = async (
+  fromCursor: string | null | undefined,
+  latestCursor: () => Promise<string | null>,
+): Promise<string> => fromCursor ?? (await latestCursor()) ?? "0-0";
+
+const resolveSubscriptionCursor = async (
+  ctx: WsContext,
+  fromCursor: string | null | undefined,
+  latestCursor: () => Promise<string | null>,
+): Promise<string | null> => {
+  try {
+    return await resolveWorkspaceEventCursor(fromCursor, latestCursor);
+  } catch (error) {
+    if (isClosing(ctx)) return null;
+    log.error("Workspace event cursor resolution failed", {
+      subscription: ctx.subscription,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    closeWithError(
+      ctx,
+      "stream_failed",
+      "Workspace event stream failed",
+      ctx.subscription?.kind === "records" ? ctx.subscription.tableId : undefined,
+    );
+    return null;
+  }
+};
+
 const handleSubscribe = async (ctx: WsContext, payload: z.infer<typeof SubscribeMessageSchema.shape.payload>) => {
+  if (isClosing(ctx)) return;
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
   const access = payload.dashboardId
     ? await evaluateDashboardRecordAccess(payload.dashboardId, payload.tableId, sessionToken)
     : await evaluateTableAccess(payload.tableId, sessionToken);
+  if (isClosing(ctx)) return;
   if (!access.ok || !access.tableId) {
     if (access.ok) {
       closeWithError(ctx, "not_found", "Table not found", payload.tableId);
@@ -418,56 +467,86 @@ const handleSubscribe = async (ctx: WsContext, payload: z.infer<typeof Subscribe
     return;
   }
 
-  const baselineCursor = payload.fromCursor ?? (await latestRecordEventCursor(access.baseId)) ?? "0-0";
-
+  const subscription: Subscription = {
+    kind: "records",
+    baseId: access.baseId,
+    tableId: access.tableId,
+    dashboardId: payload.dashboardId,
+  };
+  stopSubscription(ctx);
   ctx.phase = "subscribed";
   ctx.sessionToken = sessionToken;
-  ctx.user = access.user;
-  ctx.subscription = { kind: "records", baseId: access.baseId, tableId: access.tableId, dashboardId: payload.dashboardId };
+  ctx.subscription = subscription;
+  const baselineCursor = await resolveSubscriptionCursor(ctx, payload.fromCursor, () => latestRecordEventCursor(access.baseId));
+  if (!baselineCursor) return;
+  if (isClosing(ctx) || ctx.subscription !== subscription) return;
+  if (!send(ctx.socket, WS_TYPE.recordsReady, { tableId: access.tableId, cursor: baselineCursor })) {
+    closeWithError(ctx, "backpressure", "Live updates exceeded the connection capacity", access.tableId);
+    return;
+  }
   startStream(ctx, baselineCursor);
   startAccessRefresh(ctx);
 };
 
 const handleMetadataSubscribe = async (ctx: WsContext, payload: z.infer<typeof SubscribeMetadataMessageSchema.shape.payload>) => {
+  if (isClosing(ctx)) return;
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
   const access = await evaluateBaseAccess(payload.baseId, sessionToken);
+  if (isClosing(ctx)) return;
   if (!access.ok) {
     closeWithError(ctx, access.code, access.message);
     return;
   }
 
-  const baselineCursor = payload.fromCursor ?? (await latestMetadataEventCursor(access.baseId)) ?? "0-0";
-
+  const subscription: Subscription = { kind: "metadata", baseId: access.baseId };
+  stopSubscription(ctx);
   ctx.phase = "subscribed";
   ctx.sessionToken = sessionToken;
-  ctx.user = access.user;
-  ctx.subscription = { kind: "metadata", baseId: access.baseId };
+  ctx.subscription = subscription;
+  const baselineCursor = await resolveSubscriptionCursor(ctx, payload.fromCursor, () => latestMetadataEventCursor(access.baseId));
+  if (!baselineCursor) return;
+  if (isClosing(ctx) || ctx.subscription !== subscription) return;
+  if (!send(ctx.socket, WS_TYPE.metadataReady, { baseId: access.baseId, cursor: baselineCursor })) {
+    closeWithError(ctx, "backpressure", "Live updates exceeded the connection capacity");
+    return;
+  }
   startStream(ctx, baselineCursor);
   startAccessRefresh(ctx);
 };
 
 const handleWorkflowRunsSubscribe = async (ctx: WsContext, payload: z.infer<typeof SubscribeWorkflowRunsMessageSchema>["payload"]) => {
+  if (isClosing(ctx)) return;
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
   const dashboard =
     payload.dashboardId && payload.dashboardWidgetId ? { id: payload.dashboardId, widgetId: payload.dashboardWidgetId } : undefined;
   const access = await evaluateWorkflowAccess(payload.workflowId, sessionToken, dashboard);
+  if (isClosing(ctx)) return;
   if (!access.ok || !access.workflowId) {
     closeWithError(ctx, access.ok ? "not_found" : access.code, access.ok ? "Workflow not found" : access.message);
     return;
   }
 
-  const baselineCursor = payload.fromCursor ?? (await latestWorkflowRunEventCursor(access.baseId, access.workflowId)) ?? "0-0";
-
-  ctx.phase = "subscribed";
-  ctx.sessionToken = sessionToken;
-  ctx.user = access.user;
-  ctx.subscription = {
+  const subscription: Subscription = {
     kind: "workflow-runs",
     baseId: access.baseId,
     workflowId: access.workflowId,
     dashboardId: payload.dashboardId,
     dashboardWidgetId: payload.dashboardWidgetId,
   };
+  stopSubscription(ctx);
+  ctx.phase = "subscribed";
+  ctx.sessionToken = sessionToken;
+  ctx.subscription = subscription;
+  const workflowId = access.workflowId;
+  const baselineCursor = await resolveSubscriptionCursor(ctx, payload.fromCursor, () =>
+    latestWorkflowRunEventCursor(access.baseId, workflowId),
+  );
+  if (!baselineCursor) return;
+  if (isClosing(ctx) || ctx.subscription !== subscription) return;
+  if (!send(ctx.socket, WS_TYPE.workflowRunsReady, { workflowId, cursor: baselineCursor })) {
+    closeWithError(ctx, "backpressure", "Workflow updates exceeded the connection capacity");
+    return;
+  }
   startStream(ctx, baselineCursor);
   startAccessRefresh(ctx);
 };
@@ -477,13 +556,23 @@ const handleClientMessage = async (ctx: WsContext, raw: string): Promise<void> =
   try {
     parsed = JSON.parse(raw);
   } catch {
-    send(ctx.socket, errorTypeFor(ctx), { code: "invalid_json", message: "Invalid JSON payload" });
+    closeWithError(
+      ctx,
+      "invalid_json",
+      "Invalid JSON payload",
+      ctx.subscription?.kind === "records" ? ctx.subscription.tableId : undefined,
+    );
     return;
   }
 
   const message = ClientMessageSchema.safeParse(parsed);
   if (!message.success) {
-    send(ctx.socket, errorTypeFor(ctx), { code: "invalid_message", message: "Invalid message payload" });
+    closeWithError(
+      ctx,
+      "invalid_message",
+      "Invalid message payload",
+      ctx.subscription?.kind === "records" ? ctx.subscription.tableId : undefined,
+    );
     return;
   }
 
@@ -511,8 +600,13 @@ const app = new Hono().get(
 
       async onMessage(event) {
         if (!ctx || ctx.phase === "closing") return;
-        if (typeof event.data !== "string") {
-          send(ctx.socket, errorTypeFor(ctx), { code: "invalid_message", message: "Only JSON text messages are supported" });
+        if (typeof event.data !== "string" || event.data.length > MAX_CLIENT_MESSAGE_LENGTH) {
+          closeWithError(
+            ctx,
+            "invalid_message",
+            "Invalid websocket subscription",
+            ctx.subscription?.kind === "records" ? ctx.subscription.tableId : undefined,
+          );
           return;
         }
         if (pendingMessages >= MAX_PENDING_MESSAGES) {
@@ -549,10 +643,9 @@ const app = new Hono().get(
 
       async onClose() {
         if (!ctx) return;
-        await processing.catch(() => undefined);
         ctx.phase = "closing";
-        stopAccessRefresh(ctx);
-        stopStream(ctx);
+        stopSubscription(ctx);
+        await processing.catch(() => undefined);
       },
     };
   }),

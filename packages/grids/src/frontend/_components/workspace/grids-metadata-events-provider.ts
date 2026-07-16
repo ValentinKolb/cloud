@@ -1,5 +1,5 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { gridsWorkspace } from "../../../lib/workspace-events";
+import { gridsWorkspace, isGridsStreamCursor } from "../../../lib/workspace-events";
 
 type LiveProviderError = {
   code: string;
@@ -21,7 +21,7 @@ type ProviderMessage = {
   payload?: unknown;
 };
 
-const TERMINAL_ERROR_CODES = new Set(["login_required", "access_denied", "not_found", "internal_error", "backpressure"]);
+const TERMINAL_ERROR_CODES = new Set(["login_required", "access_denied", "not_found", "internal_error"]);
 
 const parseJsonMessage = (raw: string): ProviderMessage | null => {
   try {
@@ -66,7 +66,10 @@ export const createGridsMetadataEventsProvider = (opts: GridsMetadataEventsProvi
     parse: parseJsonMessage,
     onMessage: (message, controls) => {
       if (message.type === gridsWorkspace.wsType.metadataReady) {
+        const payload = message.payload as { baseId?: unknown; cursor?: unknown } | undefined;
+        if (payload?.baseId !== opts.baseId) return;
         opts.onReady?.();
+        controls.markApplied(isGridsStreamCursor(payload.cursor) ? payload.cursor : null);
         return;
       }
 
@@ -91,7 +94,7 @@ export const createGridsMetadataEventsProvider = (opts: GridsMetadataEventsProvi
       if (message.type !== gridsWorkspace.wsType.metadataEvent || !message.payload || typeof message.payload !== "object") return;
       if (!isMetadataEventForBase(message.payload, opts.baseId)) return;
       const payload = message.payload as { cursor?: unknown };
-      opts.onEvent?.(typeof payload.cursor === "string" ? payload.cursor : null);
+      opts.onEvent?.(isGridsStreamCursor(payload.cursor) ? payload.cursor : null);
     },
     onFatal: (error) => {
       if (!revoked) opts.onFatal?.(error);

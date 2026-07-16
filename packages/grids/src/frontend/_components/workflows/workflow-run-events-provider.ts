@@ -1,6 +1,6 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import type { GridsWorkflowRunEvent } from "../../../lib/workflow-run-events";
-import { gridsWorkspace } from "../../../lib/workspace-events";
+import { gridsWorkspace, isGridsStreamCursor } from "../../../lib/workspace-events";
 
 type ProviderError = { code: string; message: string };
 
@@ -19,6 +19,11 @@ type ProviderMessage = {
   type?: unknown;
   payload?: unknown;
 };
+
+const TERMINAL_ERROR_CODES = new Set(["login_required", "access_denied", "not_found"]);
+
+export const isTerminalWorkflowRunLiveErrorCode = (code: unknown): code is string =>
+  typeof code === "string" && TERMINAL_ERROR_CODES.has(code);
 
 const parseMessage = (raw: string): ProviderMessage | null => {
   try {
@@ -57,7 +62,10 @@ export const createWorkflowRunEventsProvider = (options: WorkflowRunEventsProvid
     parse: parseMessage,
     onMessage: (message, controls) => {
       if (message.type === gridsWorkspace.wsType.workflowRunsReady) {
+        const payload = message.payload as { workflowId?: unknown; cursor?: unknown } | undefined;
+        if (payload?.workflowId !== options.workflowId) return;
         options.onReady?.();
+        controls.markApplied(isGridsStreamCursor(payload.cursor) ? payload.cursor : null);
         return;
       }
       if (message.type === gridsWorkspace.wsType.workflowRunsRevoked) {
@@ -71,7 +79,9 @@ export const createWorkflowRunEventsProvider = (options: WorkflowRunEventsProvid
         return;
       }
       if (message.type === gridsWorkspace.wsType.workflowRunsError) {
-        options.onError?.(parseError(message.payload, { code: "stream_failed", message: "Workflow updates failed." }));
+        const error = parseError(message.payload, { code: "stream_failed", message: "Workflow updates failed." });
+        if (isTerminalWorkflowRunLiveErrorCode(error.code)) controls.terminate(error);
+        else options.onError?.(error);
         return;
       }
       if (message.type !== gridsWorkspace.wsType.workflowRunsEvent || !message.payload || typeof message.payload !== "object") return;
@@ -79,7 +89,7 @@ export const createWorkflowRunEventsProvider = (options: WorkflowRunEventsProvid
       if (!payload.event || typeof payload.event !== "object") return;
       const event = payload.event as GridsWorkflowRunEvent;
       if (event.v !== 1 || event.workflowId !== options.workflowId || !event.run || event.run.workflowId !== options.workflowId) return;
-      const cursor = typeof payload.cursor === "string" ? payload.cursor : null;
+      const cursor = isGridsStreamCursor(payload.cursor) ? payload.cursor : null;
       options.onEvent?.(event, cursor);
       controls.markApplied(cursor);
     },

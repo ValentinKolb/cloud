@@ -58,15 +58,6 @@ const metadataTopic = topic<GridsMetadataEvent>({
   limits: { payloadBytes: 16_000 },
 });
 
-const streamKey = (baseId: string): string => `${TOPIC_PREFIX}:${baseId}:${TOPIC_ID}:stream`;
-
-const parseLatestCursor = (raw: unknown): string | null => {
-  if (!Array.isArray(raw)) return null;
-  const first = raw[0];
-  if (!Array.isArray(first)) return null;
-  return typeof first[0] === "string" ? first[0] : null;
-};
-
 export const publishMetadataEvent = async (event: GridsMetadataEvent): Promise<void> => {
   try {
     await metadataTopic.pub({
@@ -92,15 +83,7 @@ export const liveMetadataEvents = (config: { baseId: string; after?: string | nu
     signal: config.signal,
   });
 
-export const latestMetadataEventCursor = async (baseId: string): Promise<string | null> => {
-  try {
-    return parseLatestCursor(await Bun.redis.send("XREVRANGE", [streamKey(baseId), "+", "-", "COUNT", "1"]));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("no such key") || message.includes("ERR no such key")) return null;
-    throw error;
-  }
-};
+export const latestMetadataEventCursor = (baseId: string): Promise<string | null> => metadataTopic.latestCursor({ tenantId: baseId });
 
 export const emitMetadataEvent = (event: Omit<GridsMetadataEvent, "v" | "occurredAt"> & { occurredAt?: string }): Promise<void> =>
   publishMetadataEvent({

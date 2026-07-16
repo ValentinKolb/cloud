@@ -1,5 +1,5 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { gridsWorkspace } from "../../../lib/workspace-events";
+import { gridsWorkspace, isGridsStreamCursor } from "../../../lib/workspace-events";
 import type { LiveRecordEvent } from "./live-refresh";
 import { isLiveRecordEventForTable, isTerminalLiveErrorCode } from "./live-refresh";
 
@@ -60,7 +60,10 @@ export const createGridsRecordEventsProvider = (opts: GridsRecordEventsProviderO
     parse: parseJsonMessage,
     onMessage: (message, controls) => {
       if (message.type === gridsWorkspace.wsType.recordsReady) {
+        const payload = message.payload as { tableId?: unknown; cursor?: unknown } | undefined;
+        if (payload?.tableId !== opts.tableId) return;
         opts.onReady?.();
+        controls.markApplied(isGridsStreamCursor(payload.cursor) ? payload.cursor : null);
         return;
       }
 
@@ -84,7 +87,7 @@ export const createGridsRecordEventsProvider = (opts: GridsRecordEventsProviderO
 
       if (message.type !== gridsWorkspace.wsType.recordsEvent || !message.payload || typeof message.payload !== "object") return;
       const payload = message.payload as { tableId?: unknown; cursor?: unknown; event?: unknown };
-      const cursor = typeof payload.cursor === "string" ? payload.cursor : null;
+      const cursor = isGridsStreamCursor(payload.cursor) ? payload.cursor : null;
       if (opts.dashboardId && payload.tableId === opts.tableId && payload.event === undefined) {
         opts.onEvent?.(null, cursor);
         return;

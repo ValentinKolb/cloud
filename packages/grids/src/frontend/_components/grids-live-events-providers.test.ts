@@ -157,6 +157,46 @@ describe("Grids record live events adapter", () => {
     expect(call.connectCount).toBe(1);
   });
 
+  test("marks the server baseline only after accepting the ready message", () => {
+    const order: string[] = [];
+    createGridsRecordEventsProvider({ tableId: TABLE_ID, onReady: () => order.push("ready") });
+    const call = providerCalls[0]!;
+
+    deliver(call, { type: "grids.records.ready", payload: { tableId: OTHER_TABLE_ID, cursor: "6-8" } }, order);
+    deliver(call, { type: "grids.records.ready", payload: { tableId: TABLE_ID, cursor: "6-9" } }, order);
+
+    expect(order).toEqual(["ready", "mark:6-9"]);
+    expect(call.controlCursors).toEqual(["6-9"]);
+  });
+
+  test("does not mark a ready baseline rejected by the consumer", () => {
+    createGridsRecordEventsProvider({
+      tableId: TABLE_ID,
+      onReady: () => {
+        throw new Error("Ready failed");
+      },
+    });
+    const call = providerCalls[0]!;
+
+    expect(() => deliver(call, { type: "grids.records.ready", payload: { tableId: TABLE_ID, cursor: "6-9" } })).toThrow("Ready failed");
+    expect(call.controlCursors).toEqual([]);
+  });
+
+  test("never persists malformed stream cursors", () => {
+    const cursors: Array<string | null> = [];
+    createGridsRecordEventsProvider({
+      tableId: TABLE_ID,
+      onEvent: (_event, cursor) => cursors.push(cursor),
+    });
+    const call = providerCalls[0]!;
+
+    deliver(call, { type: "grids.records.ready", payload: { tableId: TABLE_ID, cursor: "invalid" } });
+    deliver(call, recordEvent(TABLE_ID, "invalid"));
+
+    expect(call.controlCursors).toEqual([null]);
+    expect(cursors).toEqual([null]);
+  });
+
   test("accepts scoped events without advancing the cursor for the consumer", () => {
     const received: Array<{ event: unknown; cursor: string | null }> = [];
     const provider = createGridsRecordEventsProvider({
@@ -198,6 +238,18 @@ describe("Grids record live events adapter", () => {
 });
 
 describe("Grids metadata live events adapter", () => {
+  test("marks a matching ready baseline after the consumer accepts it", () => {
+    const order: string[] = [];
+    createGridsMetadataEventsProvider({ baseId: BASE_ID, onReady: () => order.push("ready") });
+    const call = providerCalls[0]!;
+
+    deliver(call, { type: "grids.metadata.ready", payload: { baseId: OTHER_BASE_ID, cursor: "7-8" } }, order);
+    deliver(call, { type: "grids.metadata.ready", payload: { baseId: BASE_ID, cursor: "7-9" } }, order);
+
+    expect(order).toEqual(["ready", "mark:7-9"]);
+    expect(call.controlCursors).toEqual(["7-9"]);
+  });
+
   test("subscribes by base and accepts only matching metadata without implicit acknowledgement", () => {
     const cursors: Array<string | null> = [];
     const provider = createGridsMetadataEventsProvider({
@@ -233,14 +285,27 @@ describe("Grids metadata live events adapter", () => {
     const call = providerCalls[0]!;
 
     deliver(call, { type: "grids.metadata.error", payload: { code: "stream_failed", message: "Retry" } });
+    deliver(call, { type: "grids.metadata.error", payload: { code: "backpressure", message: "Retry later" } });
     deliver(call, { type: "grids.metadata.error", payload: { code: "internal_error", message: "Stop" } });
 
-    expect(callbacks).toEqual(["error:stream_failed", "fatal:internal_error"]);
+    expect(callbacks).toEqual(["error:stream_failed", "error:backpressure", "fatal:internal_error"]);
     expect(call.terminations).toEqual([{ code: "internal_error", message: "Stop" }]);
   });
 });
 
 describe("Grids workflow-run live events adapter", () => {
+  test("marks a matching ready baseline after the consumer accepts it", () => {
+    const order: string[] = [];
+    createWorkflowRunEventsProvider({ workflowId: WORKFLOW_ID, onReady: () => order.push("ready") });
+    const call = providerCalls[0]!;
+
+    deliver(call, { type: "grids.workflow-runs.ready", payload: { workflowId: OTHER_WORKFLOW_ID, cursor: "8-8" } }, order);
+    deliver(call, { type: "grids.workflow-runs.ready", payload: { workflowId: WORKFLOW_ID, cursor: "8-9" } }, order);
+
+    expect(order).toEqual(["ready", "mark:8-9"]);
+    expect(call.controlCursors).toEqual(["8-9"]);
+  });
+
   test("subscribes with launcher scope and marks accepted events after the callback", () => {
     const order: string[] = [];
     createWorkflowRunEventsProvider({
@@ -296,6 +361,21 @@ describe("Grids workflow-run live events adapter", () => {
     deliver(call, { type: "grids.workflow-runs.revoked", payload: { code: "access_denied", message: "Denied" } });
 
     expect(callbacks).toEqual(["error:stream_failed", "revoked:access_denied"]);
+    expect(call.terminations).toEqual([{ code: "access_denied", message: "Denied" }]);
+  });
+
+  test("terminates workflow subscriptions on initial authorization failures", () => {
+    const callbacks: string[] = [];
+    createWorkflowRunEventsProvider({
+      workflowId: WORKFLOW_ID,
+      onError: (error) => callbacks.push(`error:${error.code}`),
+      onFatal: (error) => callbacks.push(`fatal:${error.code}`),
+    });
+    const call = providerCalls[0]!;
+
+    deliver(call, { type: "grids.workflow-runs.error", payload: { code: "access_denied", message: "Denied" } });
+
+    expect(callbacks).toEqual(["fatal:access_denied"]);
     expect(call.terminations).toEqual([{ code: "access_denied", message: "Denied" }]);
   });
 });

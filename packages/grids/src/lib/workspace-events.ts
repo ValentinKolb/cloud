@@ -1,5 +1,8 @@
 const GRIDS_STREAM_CURSOR_PATTERN = /^\d+-\d+$/;
 
+export const isGridsStreamCursor = (value: unknown): value is string =>
+  typeof value === "string" && GRIDS_STREAM_CURSOR_PATTERN.test(value);
+
 export const gridsWorkspace = {
   wsType: {
     recordsSubscribe: "grids.records.subscribe",

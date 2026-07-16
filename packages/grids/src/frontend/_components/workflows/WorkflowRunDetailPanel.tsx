@@ -15,7 +15,7 @@ import {
   workflowRunStatusClass as statusClass,
 } from "./workflow-display";
 import { mergeRefreshedWorkflowRunDocuments, type WorkflowRunDocumentsState } from "./workflow-run-documents";
-import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
+import { createWorkflowRunEventsProvider, isTerminalWorkflowRunLiveErrorCode } from "./workflow-run-events-provider";
 
 const workflowRunDetailApi = apiClient.workspace["workflow-run-detail"] as unknown as {
   $get: (input: { query: { runId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
@@ -48,6 +48,7 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
   });
   const [downloadingDocumentId, setDownloadingDocumentId] = createSignal<string | null>(null);
   const [downloadingAll, setDownloadingAll] = createSignal(false);
+  const [pendingLiveRefreshRunId, setPendingLiveRefreshRunId] = createSignal<string | null>(null);
 
   const loadMoreDocumentsMut = mutations.create<
     DocumentRunSummaryList,
@@ -100,11 +101,19 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
     if (!loadMut.loading()) loadMut.mutate(runId);
   };
 
+  createEffect(() => {
+    const runId = pendingLiveRefreshRunId();
+    if (!runId || loadMut.loading()) return;
+    setPendingLiveRefreshRunId(null);
+    if (runId === props.runId) refresh(runId);
+  });
+
   let loadedRunId = props.initialDetail?.run.id ?? null;
   createEffect(() => {
     const runId = props.runId;
     if (loadedRunId === runId) return;
     loadedRunId = runId;
+    setPendingLiveRefreshRunId(null);
     setRun(null);
     setSteps([]);
     setDocuments({ items: [], total: 0, hasMore: false, nextOffset: null });
@@ -124,19 +133,63 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
     const runId = liveRunId();
     if (!runId) return;
     const workflowId = liveWorkflowId();
-    const refreshSelectedRun = () => refresh(runId);
-    const timer = setInterval(refreshSelectedRun, 2500);
+    let streamReady = false;
+    let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+    const refreshSelectedRun = () => {
+      if (loadMut.loading()) {
+        setPendingLiveRefreshRunId(runId);
+        return;
+      }
+      refresh(runId);
+    };
+    const stopFallback = () => {
+      if (fallbackTimer) clearInterval(fallbackTimer);
+      fallbackTimer = null;
+    };
+    const startFallback = () => {
+      if (fallbackTimer || document.visibilityState !== "visible") return;
+      fallbackTimer = setInterval(refreshSelectedRun, 2500);
+    };
+    const syncVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        streamReady = false;
+        stopFallback();
+      } else if (!streamReady) {
+        startFallback();
+      }
+    };
+    document.addEventListener("visibilitychange", syncVisibility);
+    startFallback();
     const events = workflowId
       ? createWorkflowRunEventsProvider({
           workflowId,
+          onReady: () => {
+            streamReady = true;
+            stopFallback();
+            refreshSelectedRun();
+          },
           onEvent: (event) => {
             if (event.run.id === runId) refreshSelectedRun();
+          },
+          onError: () => {
+            streamReady = false;
+            startFallback();
+          },
+          onRevoked: () => {
+            streamReady = false;
+            stopFallback();
+          },
+          onFatal: (error) => {
+            streamReady = false;
+            if (isTerminalWorkflowRunLiveErrorCode(error.code)) stopFallback();
+            else startFallback();
           },
         })
       : null;
     events?.connect();
     onCleanup(() => {
-      clearInterval(timer);
+      document.removeEventListener("visibilitychange", syncVisibility);
+      stopFallback();
       events?.dispose();
     });
   });

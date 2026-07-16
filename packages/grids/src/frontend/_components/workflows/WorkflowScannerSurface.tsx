@@ -30,7 +30,7 @@ type DashboardWorkflowRunsApi = {
 const workflowRunsApi = apiClient.workflows.runs as unknown as WorkflowRunsApi;
 const dashboardWorkflowRunsApi = apiClient.dashboards as unknown as DashboardWorkflowRunsApi;
 
-import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
+import { createWorkflowRunEventsProvider, isTerminalWorkflowRunLiveErrorCode } from "./workflow-run-events-provider";
 import { acquireScannerStream, stopScannerStream } from "./workflow-scanner-camera";
 import { retainVisibleScannerLogs } from "./workflow-scanner-log";
 import { invokeWorkflowScannerRequest, type WorkflowScannerTransport, workflowScannerResponseKind } from "./workflow-scanner-request";
@@ -313,8 +313,46 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const startFallback = () => {
-    if (fallbackTimer || disposed) return;
+    if (fallbackTimer || disposed || document.visibilityState !== "visible") return;
     fallbackTimer = setInterval(() => void refreshActiveRuns(), 2500);
+  };
+
+  const startWatchdog = () => {
+    if (watchdogTimer || disposed || document.visibilityState !== "visible") return;
+    watchdogTimer = setInterval(() => void refreshActiveRuns(), 10_000);
+  };
+
+  const stopForTerminalLiveError = (error: { message: string }) => {
+    streamReady = false;
+    stopFallback();
+    stopWatchdog();
+    setPauseReason(error.message);
+    setCameraError(error.message);
+    stopCamera();
+    const stopped = logs()
+      .filter((item) => item.status === "queued" || item.status === "running")
+      .map((item) => ({ ...item, status: "failed" as const, message: error.message }));
+    setLogs((items) =>
+      items.map((item) =>
+        item.status === "queued" || item.status === "running" ? { ...item, status: "failed", message: error.message } : item,
+      ),
+    );
+    setCompletedCounts((counts) => ({ ...counts, failed: counts.failed + stopped.length }));
+    for (const item of stopped) scanStatuses.set(item.id, "failed");
+    setActiveScanIds(new Set<string>());
+    for (const item of stopped) announceLog(item);
+  };
+
+  const syncLiveVisibility = () => {
+    if (document.visibilityState !== "visible") {
+      streamReady = false;
+      stopFallback();
+      stopWatchdog();
+      return;
+    }
+    startWatchdog();
+    if (!streamReady) startFallback();
+    void refreshActiveRuns();
   };
 
   const runEvents = createWorkflowRunEventsProvider({
@@ -338,27 +376,11 @@ export default function WorkflowScannerSurface(props: Props) {
       streamReady = false;
       startFallback();
     },
-    onRevoked: (error) => {
+    onRevoked: stopForTerminalLiveError,
+    onFatal: (error) => {
       streamReady = false;
-      stopFallback();
-      stopWatchdog();
-      setCameraError(error.message);
-      const revoked = logs()
-        .filter((item) => item.status === "queued" || item.status === "running")
-        .map((item) => ({ ...item, status: "failed" as const, message: error.message }));
-      setLogs((items) =>
-        items.map((item) =>
-          item.status === "queued" || item.status === "running" ? { ...item, status: "failed", message: error.message } : item,
-        ),
-      );
-      setCompletedCounts((counts) => ({ ...counts, failed: counts.failed + revoked.length }));
-      for (const item of revoked) scanStatuses.set(item.id, "failed");
-      setActiveScanIds(new Set<string>());
-      for (const item of revoked) announceLog(item);
-    },
-    onFatal: () => {
-      streamReady = false;
-      startFallback();
+      if (isTerminalWorkflowRunLiveErrorCode(error.code)) stopForTerminalLiveError(error);
+      else startFallback();
     },
   });
 
@@ -533,8 +555,9 @@ export default function WorkflowScannerSurface(props: Props) {
 
   onMount(() => {
     window.addEventListener("resize", updateVideoBox);
+    document.addEventListener("visibilitychange", syncLiveVisibility);
     runEvents.connect();
-    watchdogTimer = setInterval(() => void refreshActiveRuns(), 10_000);
+    startWatchdog();
     submitInitialCode();
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("Camera scanning is not supported in this browser.");
@@ -546,6 +569,7 @@ export default function WorkflowScannerSurface(props: Props) {
   onCleanup(() => {
     disposed = true;
     window.removeEventListener("resize", updateVideoBox);
+    document.removeEventListener("visibilitychange", syncLiveVisibility);
     stopFallback();
     stopWatchdog();
     pendingRunEvents.clear();

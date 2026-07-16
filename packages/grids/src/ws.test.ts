@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { ServerWebSocket } from "bun";
-import { isDashboardWorkflowLauncherKind, isWorkspaceAccessRefreshCurrent, sendWorkspaceMessage } from "./ws";
+import {
+  isDashboardWorkflowLauncherKind,
+  isWorkspaceAccessRefreshCurrent,
+  resolveWorkspaceEventCursor,
+  sendWorkspaceMessage,
+  workspaceCloseCodeForError,
+} from "./ws";
 
 const socket = (status: number) =>
   ({
@@ -22,6 +28,13 @@ describe("Grids websocket delivery", () => {
     } as unknown as ServerWebSocket<unknown>;
     expect(sendWorkspaceMessage(closed, "event")).toBe(false);
   });
+
+  test("reconnects cursor-backed streams after transient delivery failures", () => {
+    expect(workspaceCloseCodeForError("backpressure")).toBe(1012);
+    expect(workspaceCloseCodeForError("stream_failed")).toBe(1012);
+    expect(workspaceCloseCodeForError("internal_error")).toBe(1011);
+    expect(workspaceCloseCodeForError("access_denied")).toBe(1008);
+  });
 });
 
 describe("Grids websocket access refresh", () => {
@@ -42,6 +55,24 @@ describe("Grids websocket access refresh", () => {
     expect(
       isWorkspaceAccessRefreshCurrent({ phase: "closing", sessionToken: "old-session", subscription }, subscription, "old-session"),
     ).toBe(false);
+  });
+});
+
+describe("Grids websocket cursor baseline", () => {
+  test("preserves a client cursor without loading a new baseline", async () => {
+    let latestCalls = 0;
+    const cursor = await resolveWorkspaceEventCursor("7-4", async () => {
+      latestCalls++;
+      return "9-1";
+    });
+
+    expect(cursor).toBe("7-4");
+    expect(latestCalls).toBe(0);
+  });
+
+  test("uses the latest cursor or the empty-stream baseline", async () => {
+    expect(await resolveWorkspaceEventCursor(null, async () => "9-1")).toBe("9-1");
+    expect(await resolveWorkspaceEventCursor(undefined, async () => null)).toBe("0-0");
   });
 });
 
