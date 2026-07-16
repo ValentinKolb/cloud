@@ -115,6 +115,7 @@ export type AppWorkspaceMainPaneProps = {
   label: string;
   open?: boolean;
   resizable?: boolean;
+  resizeShadow?: boolean;
   defaultSize?: number;
   minSize?: number;
   maxSize?: number;
@@ -159,6 +160,7 @@ export type AppWorkspaceBottomDrawerProps = {
 export type AppWorkspaceSidebarProps = {
   class?: string;
   resizable?: boolean;
+  resizeShadow?: boolean;
   collapsible?: boolean;
   children: JSX.Element;
 };
@@ -450,6 +452,7 @@ const AppWorkspaceResizeHandle = (props: {
   panelId?: string;
   controls?: string;
   edge?: "start" | "end";
+  shadow?: boolean;
   label?: string;
   style?: string;
 }) => (
@@ -474,6 +477,7 @@ const AppWorkspaceResizeHandle = (props: {
     data-app-workspace-resize={props.kind}
     data-workspace-panel-id={props.panelId}
     data-workspace-resize-edge={props.edge}
+    data-workspace-resize-shadow={props.shadow ? "true" : undefined}
     data-workspace-min-size={props.minSize}
     data-workspace-max-size={props.maxSize}
     class={`workspace-resize-handle workspace-resize-handle-${props.kind}`}
@@ -572,6 +576,7 @@ const AppWorkspaceMain = (props: AppWorkspaceMainProps) => {
           panelId={panelId}
           controls={pane.domId}
           edge={beforeAnchor ? "end" : "start"}
+          shadow={pane.props.resizeShadow !== false}
           label={`Resize ${pane.props.label}`}
           defaultSize={defaultSize}
           minSize={minSize}
@@ -765,7 +770,14 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
         </div>
       </aside>
       <Show when={resizable()}>
-        <AppWorkspaceResizeHandle kind="sidebar" defaultSize={208} minSize={props.collapsible ? 64 : 176} maxSize={360} />
+        <AppWorkspaceResizeHandle
+          kind="sidebar"
+          edge="end"
+          shadow={props.resizeShadow !== false}
+          defaultSize={208}
+          minSize={props.collapsible ? 64 : 176}
+          maxSize={360}
+        />
       </Show>
     </>
   );

@@ -447,6 +447,24 @@
   transform: translateY(-50%);
 }
 
+.workspace-resize-handle[data-workspace-resize-shadow="true"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--ui-border);
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 6px 0 12px -4px rgb(24 24 27 / 0.16);
+  transition: opacity 150ms ease-out;
+}
+
+.workspace-resize-handle[data-workspace-resize-shadow="true"][data-workspace-resize-edge="start"]::after {
+  box-shadow: -6px 0 12px -4px rgb(24 24 27 / 0.18);
+}
+
 .workspace-resize-handle > span {
   position: absolute;
   top: 50%;
@@ -471,6 +489,8 @@
 
 .workspace-resize-handle:is(:hover, :focus-visible)::before,
 .workspace-resize-handle[data-workspace-resize-active="true"]::before,
+.workspace-resize-handle[data-workspace-resize-shadow="true"]:is(:hover, :focus-visible)::after,
+.workspace-resize-handle[data-workspace-resize-shadow="true"][data-workspace-resize-active="true"]::after,
 .workspace-resize-handle:is(:hover, :focus-visible) > span,
 .workspace-resize-handle[data-workspace-resize-active="true"] > span {
   opacity: 1;
