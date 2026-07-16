@@ -1,20 +1,11 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { NumberInput, PermissionEditor, Placeholder, prompts, Select, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { NumberInput, PermissionEditor, prompts, Select, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { mutation } from "@valentinkolb/stdlib/solid";
+import { createSignal, For } from "solid-js";
 import { apiClient } from "../../api/client";
-import type {
-  ConfigurableFolderRole,
-  ConnectionOwner,
-  Mailbox,
-  MailWorkflow,
-  ProviderBinding,
-  ProviderConnection,
-  SenderIdentity,
-} from "../../contracts";
-import type { MailFolderView } from "../../service/messages";
+import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
+import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
+import { MailConnectionSettings, MailSenderSettings } from "./MailProviderSettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
 import MailWorkflowSettings from "./MailWorkflowSettings";
 
@@ -27,311 +18,96 @@ const FOLDER_ROLES: Array<{ id: ConfigurableFolderRole; label: string; icon: str
 ];
 
 export default function MailboxSettings(props: {
-  mailbox: Mailbox;
-  permission: "read" | "write" | "admin";
+  context: MailboxSettingsContext;
   currentUserId: string;
   currentUserEmail: string | null;
-  accessEntries: AccessEntry[];
-  connections: ProviderConnection[];
-  bindings: ProviderBinding[];
-  folders: MailFolderView[];
-  identities: SenderIdentity[];
-  workflows: MailWorkflow[];
+  reloading: boolean;
+  onReload: () => Promise<void>;
+  onContextChange: (update: (context: MailboxSettingsContext) => MailboxSettingsContext) => void;
+  onWorkspaceChange: () => void;
   onClose: () => void;
+  onDeleted: () => void;
 }) {
-  const [name, setName] = createSignal(props.mailbox.name);
-  const [description, setDescription] = createSignal(props.mailbox.description ?? "");
-  const [searchBackend, setSearchBackend] = createSignal<Mailbox["searchBackend"]>(props.mailbox.searchBackend);
-  const initialPreferences = readMailUserPreferences(props.mailbox.id);
+  const admin = () => props.context.admin!;
+  const [name, setName] = createSignal(props.context.mailbox.name);
+  const [description, setDescription] = createSignal(props.context.mailbox.description ?? "");
+  const [searchBackend, setSearchBackend] = createSignal<Mailbox["searchBackend"]>(props.context.mailbox.searchBackend);
+  const initialPreferences = readMailUserPreferences(props.context.mailbox.id);
   const [composeFormat, setComposeFormat] = createSignal(initialPreferences.composeFormat);
   const [undoSeconds, setUndoSeconds] = createSignal(initialPreferences.undoSeconds);
 
-  const savePreferences = mutations.create<void, void>({
+  const savePreferences = mutation.create<void, void>({
     mutation: async () => {
-      writeMailUserPreferences(props.mailbox.id, { composeFormat: composeFormat(), undoSeconds: undoSeconds() });
+      writeMailUserPreferences(props.context.mailbox.id, { composeFormat: composeFormat(), undoSeconds: undoSeconds() });
     },
     onSuccess: () => toast.success("Mail preferences saved"),
     onError: (error) => prompts.error(error.message),
   });
 
-  const save = mutations.create<void, void>({
+  const saveMailbox = mutation.create<Mailbox, void>({
     mutation: async () => {
       const response = await apiClient.mailboxes[":mailboxId"].$patch({
-        param: { mailboxId: props.mailbox.id },
+        param: { mailboxId: props.context.mailbox.id },
         json: { name: name().trim(), description: description().trim() || null, searchBackend: searchBackend() },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update mailbox"));
+      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (mailbox) => {
+      setName(mailbox.name);
+      setDescription(mailbox.description ?? "");
+      setSearchBackend(mailbox.searchBackend);
+      props.onContextChange((context) => ({ ...context, mailbox }));
       toast.success("Mailbox settings saved");
-      refreshCurrentPath();
+      props.onWorkspaceChange();
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const addProvider = mutations.create<{ requiresConfirmation: boolean; senderCreated: boolean } | null, void>({
-    mutation: async () => {
-      const values = await prompts.form({
-        title: "Connect mail provider",
-        icon: "ti ti-plug-connected",
-        size: "large",
-        fields: {
-          name: {
-            type: "text",
-            label: "Label",
-            description: "The connection name shown in this settings page.",
-            required: true,
-            default: props.mailbox.name,
-          },
-          email: { type: "text", label: "Email address", required: true, default: props.currentUserEmail ?? "" },
-          username: {
-            type: "text",
-            label: "Username",
-            description: "The login name sent to IMAP and SMTP.",
-            required: true,
-            default: props.currentUserEmail ?? "",
-          },
-          imapHost: { type: "text", label: "IMAP host", required: true, placeholder: "imap.example.com" },
-          imapPort: { type: "number", label: "IMAP port", required: true, default: 993, min: 1, max: 65535 },
-          imapTls: {
-            type: "select",
-            label: "IMAP TLS",
-            default: "implicit",
-            options: [
-              { id: "implicit", label: "Implicit TLS" },
-              { id: "starttls", label: "STARTTLS" },
-            ],
-          },
-          smtpHost: { type: "text", label: "SMTP host", required: true, placeholder: "smtp.example.com" },
-          smtpPort: { type: "number", label: "SMTP port", required: true, default: 587, min: 1, max: 65535 },
-          smtpTls: {
-            type: "select",
-            label: "SMTP TLS",
-            default: "starttls",
-            options: [
-              { id: "starttls", label: "STARTTLS" },
-              { id: "implicit", label: "Implicit TLS" },
-            ],
-          },
-          auth: {
-            type: "select",
-            label: "Authentication",
-            default: "password",
-            options: [
-              { id: "password", label: "Password" },
-              { id: "oauth2", label: "OAuth2 access token" },
-            ],
-          },
-          secret: {
-            type: "text",
-            label: "Password or access token",
-            description: "Encrypted after verification and never shown again.",
-            password: true,
-            required: true,
-          },
-          rootPath: { type: "text", label: "Folder root", description: "Optional IMAP root for a shared namespace or delegated folder." },
-          createSender: {
-            type: "boolean",
-            label: "Create the default sender for this address",
-            description: "Recommended for normal mailboxes. Disable only when the remote folder and sender use different accounts.",
-            default: true,
-          },
-        },
-        confirmText: "Verify and connect",
-      });
-      if (!values) return null;
-      const owner: ConnectionOwner =
-        props.mailbox.connectionPolicy === "shared_connection"
-          ? { type: "mailbox", mailboxId: props.mailbox.id }
-          : { type: "user", userId: props.currentUserId };
-      const response = await apiClient.connections.$post({
-        json: {
-          owner,
-          connection: {
-            name: values.name,
-            email: values.email,
-            username: values.username,
-            imap: { host: values.imapHost, port: values.imapPort, tlsMode: values.imapTls === "starttls" ? "starttls" : "implicit" },
-            smtp: { host: values.smtpHost, port: values.smtpPort, tlsMode: values.smtpTls === "implicit" ? "implicit" : "starttls" },
-            secret:
-              values.auth === "oauth2" ? { kind: "oauth2", accessToken: values.secret } : { kind: "password", password: values.secret },
-          },
-        },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Provider verification failed"));
-      const created = await response.json();
-      const bindingResponse = await apiClient.mailboxes[":mailboxId"].bindings.$post({
-        param: { mailboxId: props.mailbox.id },
-        json: { connectionId: created.connection.id, rootPath: values.rootPath || null },
-      });
-      if (!bindingResponse.ok) throw new Error(await readApiError(bindingResponse, "Connection was stored but folder discovery failed"));
-      const binding = await bindingResponse.json();
-      let senderCreated = false;
-      if (values.createSender && !binding.requiresConfirmation) {
-        const senderResponse = await apiClient.mailboxes[":mailboxId"]["sender-identities"].default.setup.$post({
-          param: { mailboxId: props.mailbox.id },
-          json: { bindingId: binding.binding.id, savesSentAutomatically: false },
-        });
-        if (!senderResponse.ok)
-          throw new Error(await readApiError(senderResponse, "Provider connected, but the default sender could not be created"));
-        senderCreated = true;
-      }
-      return { requiresConfirmation: binding.requiresConfirmation, senderCreated };
-    },
-    onSuccess: (result) => {
-      if (!result) return;
-      if (result.requiresConfirmation) toast("Connection requires explicit scope confirmation");
-      toast.success(result.senderCreated ? "Provider and default sender connected" : "Provider connected");
-      refreshCurrentPath();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const confirmBinding = mutations.create<boolean, string>({
-    mutation: async (bindingId) => {
-      const confirmed = await prompts.confirm(
-        "The provider scope could not be matched automatically. Confirm only after checking the account and folder root.",
-        { title: "Confirm remote mailbox", confirmText: "Confirm binding" },
-      );
-      if (!confirmed) return false;
-      const response = await apiClient.mailboxes[":mailboxId"].bindings[":bindingId"].confirm.$post({
-        param: { mailboxId: props.mailbox.id, bindingId },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to confirm binding"));
-      return true;
-    },
-    onSuccess: (confirmed) => {
-      if (!confirmed) return;
-      toast.success("Binding confirmed");
-      refreshCurrentPath();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const addIdentity = mutations.create<boolean, void>({
-    mutation: async () => {
-      const sentFolders = props.folders.filter((folder) => folder.selectable);
-      const values = await prompts.form({
-        title: "Add sender identity",
-        icon: "ti ti-at",
-        fields: {
-          displayName: { type: "text", label: "Display name", description: "The name recipients see." },
-          address: {
-            type: "text",
-            label: "From address",
-            required: true,
-            default: props.connections[0]?.email ?? props.currentUserEmail ?? "",
-          },
-          sentFolder: {
-            type: "select",
-            label: "Sent folder",
-            description: "Required when the provider does not save submitted mail automatically.",
-            clearable: true,
-            default: sentFolders.find((folder) => folder.role === "sent")?.id,
-            options: sentFolders.map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" })),
-          },
-          isDefault: { type: "boolean", label: "Default sender", default: props.identities.length === 0 },
-        },
-        confirmText: "Add identity",
-      });
-      if (!values) return false;
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].$post({
-        param: { mailboxId: props.mailbox.id },
-        json: {
-          displayName: values.displayName,
-          fromAddress: values.address,
-          authenticationPolicy: {
-            interactive: props.mailbox.connectionPolicy === "shared_connection" ? "mailbox" : "actor",
-            automation: "disabled",
-          },
-          sentFolderId: values.sentFolder || null,
-          isDefault: values.isDefault,
-        },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to add sender identity"));
-      return true;
-    },
-    onSuccess: (created) => {
-      if (!created) return;
-      toast.success("Sender identity added");
-      refreshCurrentPath();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const verifyIdentity = mutations.create<boolean, SenderIdentity>({
-    mutation: async (identity) => {
-      const activeBindings = props.bindings.filter((binding) => binding.state === "active");
-      if (activeBindings.length === 0) throw new Error("Connect an active provider binding first.");
-      const values = await prompts.form({
-        title: "Verify sender identity",
-        icon: "ti ti-shield-check",
-        fields: {
-          binding: {
-            type: "select",
-            label: "Provider binding",
-            required: true,
-            default: activeBindings[0]?.id,
-            options: activeBindings.map((binding) => ({ id: binding.id, label: binding.authenticatedPrincipal ?? binding.id })),
-          },
-          recipient: {
-            type: "text",
-            label: "Verification recipient",
-            description: "A real message is sent to this address.",
-            required: true,
-            default: props.currentUserEmail ?? identity.fromAddress,
-          },
-          savesSent: { type: "boolean", label: "Provider saves sent mail automatically", default: false },
-        },
-        confirmText: "Send verification",
-      });
-      if (!values) return false;
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].verify.$post({
-        param: { mailboxId: props.mailbox.id, senderIdentityId: identity.id },
-        json: {
-          bindingId: values.binding,
-          verificationRecipient: values.recipient,
-          savesSentAutomatically: values.savesSent === true,
-        },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Sender verification failed"));
-      return true;
-    },
-    onSuccess: (verified) => {
-      if (!verified) return;
-      toast.success("Sender identity verified");
-      refreshCurrentPath();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const updateFolderRole = mutations.create<void, { role: ConfigurableFolderRole; folderId: string }>({
-    mutation: async ({ role, folderId }) => {
+  const updateFolderRole = mutation.create<
+    { role: ConfigurableFolderRole; folderId: string },
+    { role: ConfigurableFolderRole; folderId: string }
+  >({
+    mutation: async (input) => {
+      const { role, folderId } = input;
       const route = apiClient.mailboxes[":mailboxId"]["folder-roles"][":role"];
-      const param = { mailboxId: props.mailbox.id, role };
+      const param = { mailboxId: props.context.mailbox.id, role };
       const response = folderId ? await route.$put({ param, json: { folderId } }) : await route.$delete({ param });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update folder role"));
+      return input;
     },
-    onSuccess: () => {
+    onSuccess: ({ role, folderId }) => {
+      props.onContextChange((context) => ({
+        ...context,
+        admin: context.admin
+          ? {
+              ...context.admin,
+              folders: context.admin.folders.map((folder) => ({
+                ...folder,
+                configuredRole: folder.id === folderId ? role : folder.configuredRole === role ? null : folder.configuredRole,
+              })),
+            }
+          : null,
+      }));
       toast.success("Folder role updated");
-      refreshCurrentPath();
+      props.onWorkspaceChange();
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const deleteMailbox = mutations.create<boolean, void>({
+  const deleteMailbox = mutation.create<boolean, void>({
     mutation: async () => {
       const confirmed = await prompts.confirm(
         "This removes the Cloud mirror and collaboration data. It does not delete messages from the provider.",
         { title: "Delete mailbox", confirmText: "Delete mailbox", variant: "danger" },
       );
       if (!confirmed) return false;
-      const response = await apiClient.mailboxes[":mailboxId"].$delete({ param: { mailboxId: props.mailbox.id } });
+      const response = await apiClient.mailboxes[":mailboxId"].$delete({ param: { mailboxId: props.context.mailbox.id } });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to delete mailbox"));
       return true;
     },
     onSuccess: (deleted) => {
-      if (deleted) navigateTo("/app/mail");
+      if (deleted) props.onDeleted();
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -377,7 +153,7 @@ export default function MailboxSettings(props: {
         </div>
       </SettingsModal.Tab>
 
-      {props.permission === "admin" && (
+      {props.context.permission === "admin" && props.context.admin && (
         <>
           <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Mailbox identity and synchronization.">
             <div class="flex flex-col gap-3">
@@ -392,7 +168,7 @@ export default function MailboxSettings(props: {
               />
               <Select
                 label="Search ranking"
-                description="Auto uses pg_textsearch when it is available and falls back to PostgreSQL. Matching and permissions stay identical."
+                description="Automatic uses pg_textsearch when available and falls back to PostgreSQL. Matching and permissions stay identical."
                 value={searchBackend}
                 onChange={(value) => setSearchBackend(value as Mailbox["searchBackend"])}
                 options={[
@@ -402,15 +178,19 @@ export default function MailboxSettings(props: {
                 ]}
                 icon="ti ti-search"
               />
-              <div class="info-block-info text-xs">
+              <p class="text-xs text-dimmed">
                 Connection model:{" "}
-                {props.mailbox.connectionPolicy === "shared_connection" ? "Shared connection" : "Personal provider accounts"}
-              </div>
-              <div class="flex justify-end">
-                <button type="button" class="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.loading()}>
-                  <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" /> Save mailbox
-                </button>
-              </div>
+                {props.context.mailbox.connectionPolicy === "shared_connection" ? "Shared connection" : "Personal provider accounts"}
+              </p>
+              <button
+                type="button"
+                class="btn-primary btn-sm self-end"
+                onClick={() => saveMailbox.mutate()}
+                disabled={saveMailbox.loading() || props.reloading || !name().trim()}
+              >
+                <i class={`ti ${saveMailbox.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" /> Save
+                mailbox
+              </button>
             </div>
           </SettingsModal.Tab>
 
@@ -420,62 +200,15 @@ export default function MailboxSettings(props: {
             icon="ti ti-plug-connected"
             description="Encrypted, write-only credentials and verified remote folders."
           >
-            <div class="flex flex-col gap-2">
-              <button
-                type="button"
-                class="btn-primary btn-sm self-start"
-                onClick={() => addProvider.mutate()}
-                disabled={addProvider.loading()}
-              >
-                <i class="ti ti-plus" /> Connect provider
-              </button>
-              <Show
-                when={props.connections.length > 0}
-                fallback={
-                  <Placeholder
-                    title="No provider connection"
-                    description="Connect an IMAP and SMTP provider to synchronize mail."
-                    icon="ti ti-plug-off"
-                  />
-                }
-              >
-                <For each={props.connections}>
-                  {(connection) => (
-                    <div class="paper flex items-center gap-3 p-3">
-                      <i class="ti ti-server text-lg text-dimmed" />
-                      <span class="min-w-0 flex-1">
-                        <span class="block truncate text-sm font-medium">{connection.name}</span>
-                        <span class="block truncate text-xs text-dimmed">
-                          {connection.email} · {connection.imap.host}
-                        </span>
-                      </span>
-                      <span class="badge">{connection.status}</span>
-                    </div>
-                  )}
-                </For>
-              </Show>
-              <For each={props.bindings}>
-                {(binding) => (
-                  <div class="paper flex items-center gap-3 p-3">
-                    <i class="ti ti-folders text-lg text-dimmed" />
-                    <span class="min-w-0 flex-1">
-                      <span class="block text-sm font-medium">{binding.authenticatedPrincipal || "Remote mailbox"}</span>
-                      <span class="block text-xs text-dimmed">{binding.state}</span>
-                    </span>
-                    {binding.state === "pending" && (
-                      <button
-                        type="button"
-                        class="btn-warning btn-sm"
-                        onClick={() => confirmBinding.mutate(binding.id)}
-                        disabled={confirmBinding.loading()}
-                      >
-                        Review
-                      </button>
-                    )}
-                  </div>
-                )}
-              </For>
-            </div>
+            <MailConnectionSettings
+              mailbox={props.context.mailbox}
+              admin={admin()}
+              currentUserId={props.currentUserId}
+              currentUserEmail={props.currentUserEmail}
+              reloading={props.reloading}
+              onReload={props.onReload}
+              onWorkspaceChange={props.onWorkspaceChange}
+            />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
@@ -484,48 +217,25 @@ export default function MailboxSettings(props: {
             icon="ti ti-at"
             description="From addresses verified independently per provider binding."
           >
-            <div class="flex flex-col gap-2">
-              <button
-                type="button"
-                class="btn-primary btn-sm self-start"
-                onClick={() => addIdentity.mutate()}
-                disabled={addIdentity.loading()}
-              >
-                <i class="ti ti-plus" /> Add sender
-              </button>
-              <For each={props.identities}>
-                {(identity) => (
-                  <div class="paper flex items-center gap-3 p-3">
-                    <i class="ti ti-user-circle text-lg text-dimmed" />
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate text-sm font-medium">{identity.displayName || identity.fromAddress}</span>
-                      <span class="block truncate text-xs text-dimmed">{identity.fromAddress}</span>
-                    </span>
-                    <span class="badge">{identity.status}</span>
-                    {identity.status !== "verified" && (
-                      <button
-                        type="button"
-                        class="btn-secondary btn-sm"
-                        onClick={() => verifyIdentity.mutate(identity)}
-                        disabled={verifyIdentity.loading()}
-                      >
-                        Verify
-                      </button>
-                    )}
-                  </div>
-                )}
-              </For>
-            </div>
+            <MailSenderSettings
+              mailbox={props.context.mailbox}
+              admin={admin()}
+              currentUserId={props.currentUserId}
+              currentUserEmail={props.currentUserEmail}
+              reloading={props.reloading}
+              onReload={props.onReload}
+              onWorkspaceChange={props.onWorkspaceChange}
+            />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab id="folders" title="Folders" icon="ti ti-folders" description="Map provider folders to portable Mail actions.">
             <div class="flex flex-col gap-3">
-              <div class="info-block-info text-xs">
+              <p class="text-xs text-dimmed">
                 Inbox is discovered from the provider. These mappings control sent mail, drafts, archive, trash, and junk actions.
-              </div>
+              </p>
               <For each={FOLDER_ROLES}>
                 {(role) => {
-                  const current = () => props.folders.find((folder) => folder.configuredRole === role.id || folder.role === role.id);
+                  const current = () => admin().folders.find((folder) => folder.configuredRole === role.id || folder.role === role.id);
                   return (
                     <Select
                       label={role.label}
@@ -533,8 +243,8 @@ export default function MailboxSettings(props: {
                       icon={role.icon}
                       value={() => current()?.id}
                       selectedLabel={() => current()?.name}
-                      options={props.folders
-                        .filter((folder) => folder.selectable && folder.discoveryState === "active")
+                      options={admin()
+                        .folders.filter((folder) => folder.selectable && folder.discoveryState === "active")
                         .map((folder) => ({
                           id: folder.id,
                           label: folder.name,
@@ -542,7 +252,7 @@ export default function MailboxSettings(props: {
                           icon: "ti ti-folder",
                         }))}
                       clearable
-                      disabled={updateFolderRole.loading()}
+                      disabled={updateFolderRole.loading() || props.reloading}
                       onChange={(folderId) => updateFolderRole.mutate({ role: role.id, folderId })}
                     />
                   );
@@ -557,7 +267,7 @@ export default function MailboxSettings(props: {
             icon="ti ti-route"
             description="Versioned YAML workflows with explicit activation."
           >
-            <MailWorkflowSettings mailboxId={props.mailbox.id} initialWorkflows={props.workflows} />
+            <MailWorkflowSettings mailboxId={props.context.mailbox.id} initialWorkflows={admin().workflows} />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
@@ -567,26 +277,26 @@ export default function MailboxSettings(props: {
             description="Read can view and comment; write can operate mail; admin configures the mailbox."
           >
             <PermissionEditor
-              initialEntries={props.accessEntries.filter((entry) => entry.principal.type !== "service_account")}
+              initialEntries={admin().accessEntries.filter((entry) => entry.principal.type !== "service_account")}
               canEdit
               grantAccess={async (principal, permission) => {
                 const response = await apiClient.mailboxes[":mailboxId"].access.$post({
-                  param: { mailboxId: props.mailbox.id },
+                  param: { mailboxId: props.context.mailbox.id },
                   json: { principal, permission },
                 });
                 if (!response.ok) throw new Error(await readApiError(response, "Failed to grant access"));
-                return await response.json();
+                return response.json();
               }}
               updateAccess={async (accessId, permission) => {
                 const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$patch({
-                  param: { mailboxId: props.mailbox.id, accessId },
+                  param: { mailboxId: props.context.mailbox.id, accessId },
                   json: { permission },
                 });
                 if (!response.ok) throw new Error(await readApiError(response, "Failed to update access"));
               }}
               revokeAccess={async (accessId) => {
                 const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$delete({
-                  param: { mailboxId: props.mailbox.id, accessId },
+                  param: { mailboxId: props.context.mailbox.id, accessId },
                 });
                 if (!response.ok) throw new Error(await readApiError(response, "Failed to revoke access"));
               }}

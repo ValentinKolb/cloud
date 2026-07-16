@@ -45,6 +45,8 @@ export default function MailSidebar(props: {
   viewCounts: ConversationViewCounts;
   canWrite: boolean;
   canAdmin: boolean;
+  settingsOpening: boolean;
+  onOpenSettings: () => void;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
   const [dropFolderId, setDropFolderId] = createSignal<string | null>(null);
@@ -218,9 +220,9 @@ export default function MailSidebar(props: {
               <i class="ti ti-pencil" aria-hidden="true" /> Compose
             </a>
           )}
-          <a href={`/app/mail/${props.mailboxId}/settings`} class="sidebar-item-mobile">
+          <button type="button" class="sidebar-item-mobile" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
             <i class="ti ti-settings" aria-hidden="true" /> Settings
-          </a>
+          </button>
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey={`mail-sidebar-mobile-${props.mailboxId}`}>
           <AppWorkspace.SidebarSection title="Work">{viewItems("mobile")}</AppWorkspace.SidebarSection>
@@ -263,10 +265,10 @@ export default function MailSidebar(props: {
               <span>Sync mailbox</span>
             </button>
           )}
-          <a href={`/app/mail/${props.mailboxId}/settings`} class="sidebar-item w-full">
-            <i class="ti ti-settings" aria-hidden="true" />
+          <button type="button" class="sidebar-item w-full" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
+            <i class={`ti ${props.settingsOpening ? "ti-loader-2 animate-spin" : "ti-settings"}`} aria-hidden="true" />
             <span>Settings</span>
-          </a>
+          </button>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>

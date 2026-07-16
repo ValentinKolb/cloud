@@ -4,6 +4,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { batch, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type { MailboxPageData } from "../service/workspace";
+import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
@@ -17,6 +18,7 @@ export default function MailWorkspace(props: {
   data: MailboxPageData;
   requestUrl: string;
   currentUserId: string;
+  currentUserEmail: string | null;
   dateConfig: DateContext;
   initialPreferences: MailWorkspacePreferences;
 }) {
@@ -27,6 +29,7 @@ export default function MailWorkspace(props: {
   const [listWidth, setListWidth] = createSignal(props.initialPreferences.listWidth);
   const [detailsOpen, setDetailsOpen] = createSignal(false);
   const [composerActive, setComposerActive] = createSignal(false);
+  const [settingsOpening, setSettingsOpening] = createSignal(false);
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let refreshPending = false;
@@ -104,6 +107,24 @@ export default function MailWorkspace(props: {
     }
   };
 
+  const openSettings = async () => {
+    if (settingsOpening()) return;
+    setSettingsOpening(true);
+    try {
+      const result = await openMailboxSettingsDialog({
+        mailboxId: data().mailbox.id,
+        currentUserId: props.currentUserId,
+        currentUserEmail: props.currentUserEmail,
+      });
+      if (result.deleted) return documentNavigate("/app/mail");
+      if (!result.workspaceChanged) return;
+      const refreshResult = await replaceWorkspaceRoute(requestUrl());
+      if (refreshResult === "failed") documentNavigate(requestUrl(), { replace: true });
+    } finally {
+      setSettingsOpening(false);
+    }
+  };
+
   onMount(() => {
     const source = new EventSource(`/api/mail/mailboxes/${data().mailbox.id}/events`);
     const handleEvent = (event: MessageEvent<string>) => {
@@ -152,6 +173,8 @@ export default function MailWorkspace(props: {
         viewCounts={data().viewCounts}
         canWrite={canWrite()}
         canAdmin={canAdmin()}
+        settingsOpening={settingsOpening()}
+        onOpenSettings={() => void openSettings()}
         onNavigate={navigateWorkspace}
       />
       <AppWorkspace.Content>

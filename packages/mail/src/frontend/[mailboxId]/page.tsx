@@ -29,6 +29,7 @@ export default ssr<AuthContext>(async (c) => {
         data={data}
         requestUrl={requestUrl.toString()}
         currentUserId={user.id}
+        currentUserEmail={user.mail}
         dateConfig={dateConfig}
         initialPreferences={workspacePreferences}
       />

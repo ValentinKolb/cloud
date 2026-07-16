@@ -21,6 +21,7 @@ import * as reminders from "./reminders";
 import * as savedViews from "./saved-views";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
+import * as settingsContext from "./settings-context";
 import { enqueueMailboxSync, mailRuntime } from "./sync-runtime";
 import * as triage from "./triage";
 import { createMailWorkflowMaterializationRuntime } from "./workflow-materialization-service";
@@ -55,6 +56,7 @@ export {
   savedViews,
   search,
   senderIdentities,
+  settingsContext,
   triage,
   workflowMaterializationRuntime,
   workflowRuntime,
@@ -84,6 +86,7 @@ export const mailService = {
   savedViews,
   search,
   senderIdentities,
+  settingsContext,
   triage,
   workflows,
   sync: {

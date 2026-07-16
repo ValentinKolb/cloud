@@ -5,10 +5,16 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type { Mailbox } from "../contracts";
 import { readApiError } from "./_components/api-response";
+import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 
 type MailboxWithPermission = Mailbox & { permission: "read" | "write" | "admin" };
 
-export default function MailOverview(props: { mailboxes: MailboxWithPermission[]; initialQuery: string }) {
+export default function MailOverview(props: {
+  mailboxes: MailboxWithPermission[];
+  initialQuery: string;
+  currentUserId: string;
+  currentUserEmail: string | null;
+}) {
   const [query, setQuery] = createSignal(props.initialQuery);
   const filtered = createMemo(() => {
     const normalized = query().trim().toLowerCase();
@@ -57,7 +63,11 @@ export default function MailOverview(props: { mailboxes: MailboxWithPermission[]
     onSuccess: (mailbox) => {
       if (!mailbox) return;
       toast.success("Mailbox created");
-      navigateTo(`/app/mail/${mailbox.id}/settings`);
+      void openMailboxSettingsDialog({
+        mailboxId: mailbox.id,
+        currentUserId: props.currentUserId,
+        currentUserEmail: props.currentUserEmail,
+      }).then((result) => navigateTo(result.deleted ? "/app/mail" : `/app/mail/${mailbox.id}`));
     },
     onError: (error) => prompts.error(error.message),
   });

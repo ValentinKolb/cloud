@@ -6,8 +6,11 @@ import { mailboxes } from "../service";
 import MailOverview from "./MailOverview.island";
 
 export default ssr<AuthContext>(async (c) => {
+  const actor = c.get("actor");
+  const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
+  if (!user) return c.redirect("/");
   const context: MailRequestContext = {
-    actor: c.get("actor"),
+    actor,
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
@@ -17,7 +20,7 @@ export default ssr<AuthContext>(async (c) => {
     : [];
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Mail" }]}>
-      <MailOverview mailboxes={list} initialQuery={c.req.query("q") ?? ""} />
+      <MailOverview mailboxes={list} initialQuery={c.req.query("q") ?? ""} currentUserId={user.id} currentUserEmail={user.mail} />
     </Layout>
   );
 });

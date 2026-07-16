@@ -58,6 +58,7 @@ import {
   savedViews,
   search,
   senderIdentities,
+  settingsContext,
   triage,
 } from "../service";
 import { resolveByteRange } from "../service/byte-range";
@@ -239,6 +240,9 @@ const api = new Hono<AuthContext>()
     const data = await loadMailboxPageData({ context: requestContext(c), mailboxId, requestUrl });
     return respond(c, data ? { ok: true, data } : fail(err.notFound("Mailbox")));
   })
+  .get("/mailboxes/:mailboxId/settings-context", v("param", uuidParamSchema), async (c) =>
+    respond(c, settingsContext.loadMailboxSettingsContext(requestContext(c), c.req.valid("param").mailboxId)),
+  )
   .get("/mailboxes/:mailboxId/health", v("param", uuidParamSchema), async (c) =>
     respond(c, health.getMailboxOperationalHealth(requestContext(c), c.req.valid("param").mailboxId)),
   )
