@@ -10,6 +10,7 @@
   "dependencies": {
     "@simplewebauthn/browser": "^13.3.0",
     "@valentinkolb/cloud": "workspace:*",
+    "@valentinkolb/ssr": "0.11.0",
     "@valentinkolb/stdlib": "0.12.0",
     "hono": "^4.11.1",
     "solid-js": "^1.9.10"

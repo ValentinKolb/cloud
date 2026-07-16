@@ -38,7 +38,7 @@
     "@lezer/highlight": "^1.2.3",
     "@uiw/codemirror-themes": "^4.25.4",
     "@valentinkolb/cloud": "workspace:*",
-    "@valentinkolb/ssr": "0.10.0",
+    "@valentinkolb/ssr": "0.11.0",
     "@valentinkolb/stdlib": "0.12.0",
     "@valentinkolb/sync": "^5.5.2",
     "d3-force": "^3.0.0",

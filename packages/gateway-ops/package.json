@@ -11,7 +11,7 @@
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/stdlib": "0.12.0",
     "@valentinkolb/sync": "^5.5.2",
-    "@valentinkolb/ssr": "0.10.0",
+    "@valentinkolb/ssr": "0.11.0",
     "hono": "^4.11.1",
     "solid-js": "^1.9.10",
     "zod": "^4.3.4"

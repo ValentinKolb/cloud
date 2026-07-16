@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
+    "@valentinkolb/ssr": "0.11.0",
     "@valentinkolb/sync": "^5.5.2",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",
