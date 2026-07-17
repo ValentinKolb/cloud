@@ -6,6 +6,7 @@ import { expectUserBackedActor } from "@/actor";
 import type { DirectoryListing, FileBaseInfo, FileInfo } from "@/contracts";
 import { filesService } from "@/service";
 import { ssr } from "../../../config";
+import { filesHelp } from "../../../help";
 import BaseSidebar from "../../_components/BaseSidebar";
 import FileDetailLayoutSync from "../../_components/FileDetailLayoutSync.island";
 import FileDetailPanel from "../../_components/FileDetailPanel.island";
@@ -124,7 +125,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!baseResult.ok) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Not Found" }]} fullWidth>
-        <FilesLayoutHelp />
+        <FilesLayoutHelp documents={filesHelp.manifest} />
         <FilesUnavailable title="File storage not found" description={baseResult.error} icon="ti ti-folder-off" />
       </Layout>
     );
@@ -138,7 +139,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!accessResult.ok) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Access Denied" }]} fullWidth>
-        <FilesLayoutHelp />
+        <FilesLayoutHelp documents={filesHelp.manifest} />
         <FilesUnavailable title="File storage unavailable" description={accessResult.error} icon="ti ti-lock" />
       </Layout>
     );
@@ -162,7 +163,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!infoResult.ok) {
     return () => (
       <Layout c={c} title={buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path)} fullWidth>
-        <FilesLayoutHelp />
+        <FilesLayoutHelp documents={filesHelp.manifest} />
         <AppWorkspace>
           <BaseSidebar
             bases={basesInfo}
@@ -242,7 +243,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
 
   return () => (
     <Layout c={c} title={breadcrumbs} fullWidth>
-      <FilesLayoutHelp />
+      <FilesLayoutHelp documents={filesHelp.manifest} />
       <AppWorkspace>
         <BaseSidebar
           bases={basesInfo}
@@ -254,34 +255,34 @@ export const renderFilesBasePage = async <E extends AuthContext>(
         <AppWorkspace.Content>
           {/* Main content */}
           <AppWorkspace.Main class="gap-2 p-[var(--ui-space-shell)]">
-          <FileToolbar
-            baseType={baseType}
-            baseId={baseId}
-            currentPath={path}
-            initialFilterQuery={filterQuery ?? ""}
-            initialSelected={initialSelected}
-            allItems={sortedItems.map((i) => i.name)}
-            folderCount={folderCount}
-            fileCount={fileCount}
-            totalSize={formatSize(totalSize)}
-            bases={basesInfo}
-          />
-
-          {/* File list */}
-          <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={listScrollKey}>
-            <FileList
-              items={sortedItems}
+            <FileToolbar
               baseType={baseType}
               baseId={baseId}
               currentPath={path}
-              parentPath={parentPath}
-              settings={fileSettings}
+              initialFilterQuery={filterQuery ?? ""}
               initialSelected={initialSelected}
+              allItems={sortedItems.map((i) => i.name)}
+              folderCount={folderCount}
+              fileCount={fileCount}
+              totalSize={formatSize(totalSize)}
               bases={basesInfo}
-              isFiltered={!!filterQuery?.trim()}
-              selectedFilePath={detailFilePath}
             />
-          </div>
+
+            {/* File list */}
+            <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={listScrollKey}>
+              <FileList
+                items={sortedItems}
+                baseType={baseType}
+                baseId={baseId}
+                currentPath={path}
+                parentPath={parentPath}
+                settings={fileSettings}
+                initialSelected={initialSelected}
+                bases={basesInfo}
+                isFiltered={!!filterQuery?.trim()}
+                selectedFilePath={detailFilePath}
+              />
+            </div>
           </AppWorkspace.Main>
 
           <AppWorkspace.Detail

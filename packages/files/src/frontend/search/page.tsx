@@ -5,6 +5,7 @@ import { expectUserBackedActor } from "@/actor";
 import type { FileBaseInfo, FileInfo, SearchResult } from "@/contracts";
 import { filesService } from "@/service";
 import { ssr } from "../../config";
+import { filesHelp } from "../../help";
 import BaseSidebar from "../_components/BaseSidebar";
 import FileDetailLayoutSync from "../_components/FileDetailLayoutSync.island";
 import FileDetailPanel from "../_components/FileDetailPanel.island";
@@ -64,7 +65,7 @@ export default ssr<AuthContext>(async (c) => {
   if (basesInfo.length === 0) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
-        <FilesLayoutHelp />
+        <FilesLayoutHelp documents={filesHelp.manifest} />
         <FilesUnavailable
           title="No accessible storage"
           description="Ask an administrator to grant access to a home or group file storage."
@@ -172,180 +173,180 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
-      <FilesLayoutHelp />
+      <FilesLayoutHelp documents={filesHelp.manifest} />
       <AppWorkspace>
         <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 
         <AppWorkspace.Content>
           {/* Main content */}
           <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
-          <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="files-search-results">
-            <div class="flex flex-col gap-2">
-              {/* Search form */}
-              <form action="/app/files/search" method="get" class="paper flex flex-col gap-2 p-3">
-                {/* Pattern input */}
-                <div class="group relative flex">
-                  <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
-                    <i class="ti ti-search group-focus-within:hidden" />
-                    <i class="ti ti-pencil hidden app-accent-text group-focus-within:block" />
-                  </div>
-                  <input
-                    type="text"
-                    name="pattern"
-                    value={pattern}
-                    placeholder="**/*.pdf, report*, *.{jpg,png}"
-                    class="input w-full pl-9 pr-9"
-                    autofocus
-                  />
-                  {pattern ? (
-                    <a
-                      href="/app/files/search"
-                      class="absolute right-3 inset-y-0 flex items-center text-dimmed hover:text-primary transition-colors"
-                      aria-label="Clear search"
-                    >
-                      <i class="ti ti-x" />
-                    </a>
-                  ) : (
-                    <button type="submit" class="hidden">
-                      Search
-                    </button>
-                  )}
-                </div>
-
-                {/* Options row */}
-                <div class="flex flex-wrap items-center gap-3 text-xs">
-                  {/* Base selection */}
-                  <details class="relative">
-                    <summary class="inline-flex items-center gap-1 cursor-pointer text-secondary hover:text-primary transition-colors list-none">
-                      <i class="ti ti-database" />
-                      <span>
-                        {selectedBaseIds.size === basesInfo.length ? "All bases" : `${selectedBaseIds.size}/${basesInfo.length} bases`}
-                      </span>
-                      <i class="ti ti-chevron-down text-dimmed text-[10px]" />
-                    </summary>
-                    <div class="dropdown-menu-surface absolute left-0 top-full z-10 mt-1 w-48 p-1">
-                      {basesInfo.map((base) => {
-                        const key = `${base.type}:${base.id}`;
-                        const isSelected = selectedBaseIds.has(key);
-                        return (
-                          <a href={toggleBaseUrl(base)} class="menu-item justify-between">
-                            <span class="flex items-center gap-2 truncate">
-                              <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"} text-dimmed`} />
-                              {base.type === "home" ? base.name.replace("Home (", "").replace(")", "") : base.name}
-                            </span>
-                            {isSelected && <i class="ti ti-check app-accent-text text-xs" />}
-                          </a>
-                        );
-                      })}
+            <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="files-search-results">
+              <div class="flex flex-col gap-2">
+                {/* Search form */}
+                <form action="/app/files/search" method="get" class="paper flex flex-col gap-2 p-3">
+                  {/* Pattern input */}
+                  <div class="group relative flex">
+                    <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
+                      <i class="ti ti-search group-focus-within:hidden" />
+                      <i class="ti ti-pencil hidden app-accent-text group-focus-within:block" />
                     </div>
-                  </details>
+                    <input
+                      type="text"
+                      name="pattern"
+                      value={pattern}
+                      placeholder="**/*.pdf, report*, *.{jpg,png}"
+                      class="input w-full pl-9 pr-9"
+                      autofocus
+                    />
+                    {pattern ? (
+                      <a
+                        href="/app/files/search"
+                        class="absolute right-3 inset-y-0 flex items-center text-dimmed hover:text-primary transition-colors"
+                        aria-label="Clear search"
+                      >
+                        <i class="ti ti-x" />
+                      </a>
+                    ) : (
+                      <button type="submit" class="hidden">
+                        Search
+                      </button>
+                    )}
+                  </div>
 
-                  <label class="flex items-center gap-1.5 cursor-pointer text-secondary">
-                    <input type="checkbox" name="hidden" value="true" checked={showHiddenParam} />
-                    <span>Hidden</span>
-                  </label>
-                  <label class="flex items-center gap-1.5 cursor-pointer text-secondary">
-                    <input type="checkbox" name="dirs" value="true" checked={showDirsParam} />
-                    <span>Folders</span>
-                  </label>
-                </div>
+                  {/* Options row */}
+                  <div class="flex flex-wrap items-center gap-3 text-xs">
+                    {/* Base selection */}
+                    <details class="relative">
+                      <summary class="inline-flex items-center gap-1 cursor-pointer text-secondary hover:text-primary transition-colors list-none">
+                        <i class="ti ti-database" />
+                        <span>
+                          {selectedBaseIds.size === basesInfo.length ? "All bases" : `${selectedBaseIds.size}/${basesInfo.length} bases`}
+                        </span>
+                        <i class="ti ti-chevron-down text-dimmed text-[10px]" />
+                      </summary>
+                      <div class="dropdown-menu-surface absolute left-0 top-full z-10 mt-1 w-48 p-1">
+                        {basesInfo.map((base) => {
+                          const key = `${base.type}:${base.id}`;
+                          const isSelected = selectedBaseIds.has(key);
+                          return (
+                            <a href={toggleBaseUrl(base)} class="menu-item justify-between">
+                              <span class="flex items-center gap-2 truncate">
+                                <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"} text-dimmed`} />
+                                {base.type === "home" ? base.name.replace("Home (", "").replace(")", "") : base.name}
+                              </span>
+                              {isSelected && <i class="ti ti-check app-accent-text text-xs" />}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </details>
 
-                {/* Hidden field for bases */}
-                {basesParam && <input type="hidden" name="bases" value={basesParam} />}
-              </form>
+                    <label class="flex items-center gap-1.5 cursor-pointer text-secondary">
+                      <input type="checkbox" name="hidden" value="true" checked={showHiddenParam} />
+                      <span>Hidden</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 cursor-pointer text-secondary">
+                      <input type="checkbox" name="dirs" value="true" checked={showDirsParam} />
+                      <span>Folders</span>
+                    </label>
+                  </div>
 
-              {/* Shortcuts (when no search) */}
-              {!hasSearch && (
-                <div class="flex flex-wrap gap-1.5">
-                  {SEARCH_SHORTCUTS.map((shortcut) => (
-                    <a href={buildSearchUrl({ pattern: shortcut.pattern })} class="btn-secondary btn-sm">
-                      <i class={`ti ${shortcut.icon}`} />
-                      {shortcut.label}
-                    </a>
-                  ))}
-                </div>
-              )}
+                  {/* Hidden field for bases */}
+                  {basesParam && <input type="hidden" name="bases" value={basesParam} />}
+                </form>
 
-              {/* Search error */}
-              {searchError && (
-                <div class="flex items-center gap-2 text-xs text-red-500 dark:text-red-400">
-                  <i class="ti ti-alert-triangle" />
-                  <span>{searchError}</span>
-                </div>
-              )}
+                {/* Shortcuts (when no search) */}
+                {!hasSearch && (
+                  <div class="flex flex-wrap gap-1.5">
+                    {SEARCH_SHORTCUTS.map((shortcut) => (
+                      <a href={buildSearchUrl({ pattern: shortcut.pattern })} class="btn-secondary btn-sm">
+                        <i class={`ti ${shortcut.icon}`} />
+                        {shortcut.label}
+                      </a>
+                    ))}
+                  </div>
+                )}
 
-              {/* Search results */}
-              {hasSearch && !searchError && (
-                <>
-                  {/* Results navigation */}
-                  {searchResults.length > 0 && (
-                    <div class="flex flex-wrap items-center gap-2 text-sm">
-                      <span class="text-dimmed">Found in:</span>
-                      {searchResults.map((result, i) => (
-                        <>
-                          {i > 0 && <span class="text-dimmed">,</span>}
-                          <a href={`#${result.base.type}-${result.base.id}`} class="text-secondary hover:text-primary transition-colors">
-                            <i class={`ti ${result.base.type === "home" ? "ti-home" : "ti-users-group"} mr-1`} />
+                {/* Search error */}
+                {searchError && (
+                  <div class="flex items-center gap-2 text-xs text-red-500 dark:text-red-400">
+                    <i class="ti ti-alert-triangle" />
+                    <span>{searchError}</span>
+                  </div>
+                )}
+
+                {/* Search results */}
+                {hasSearch && !searchError && (
+                  <>
+                    {/* Results navigation */}
+                    {searchResults.length > 0 && (
+                      <div class="flex flex-wrap items-center gap-2 text-sm">
+                        <span class="text-dimmed">Found in:</span>
+                        {searchResults.map((result, i) => (
+                          <>
+                            {i > 0 && <span class="text-dimmed">,</span>}
+                            <a href={`#${result.base.type}-${result.base.id}`} class="text-secondary hover:text-primary transition-colors">
+                              <i class={`ti ${result.base.type === "home" ? "ti-home" : "ti-users-group"} mr-1`} />
+                              {result.base.name}
+                            </a>
+                          </>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Results grouped by base */}
+                    {searchResults.map((result) => (
+                      <div id={`${result.base.type}-${result.base.id}`} class="flex flex-col gap-2 scroll-mt-4">
+                        {/* Base header */}
+                        <div class="flex items-center gap-2 text-sm">
+                          <i class={`ti ${result.base.type === "home" ? "ti-home" : "ti-users-group"} text-dimmed`} />
+                          <a
+                            href={filePageBaseUrl(result.base.type, result.base.id)}
+                            class="font-medium text-secondary hover:text-primary transition-colors"
+                          >
                             {result.base.name}
                           </a>
-                        </>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Results grouped by base */}
-                  {searchResults.map((result) => (
-                    <div id={`${result.base.type}-${result.base.id}`} class="flex flex-col gap-2 scroll-mt-4">
-                      {/* Base header */}
-                      <div class="flex items-center gap-2 text-sm">
-                        <i class={`ti ${result.base.type === "home" ? "ti-home" : "ti-users-group"} text-dimmed`} />
-                        <a
-                          href={filePageBaseUrl(result.base.type, result.base.id)}
-                          class="font-medium text-secondary hover:text-primary transition-colors"
-                        >
-                          {result.base.name}
-                        </a>
-                        <span class="text-xs text-dimmed">
-                          ({result.files.length}
-                          {result.hasMore ? "+" : ""})
-                        </span>
-                      </div>
-
-                      {/* File list */}
-                      <FileList
-                        items={result.files}
-                        baseType={result.base.type}
-                        baseId={result.base.id}
-                        currentPath=""
-                        parentPath={null}
-                        bases={basesInfo}
-                        hideSelection
-                        useItemPath
-                        forceListView
-                        useFullDetailKey
-                        selectedFilePath={detailBaseType === result.base.type && detailBaseId === result.base.id ? detailFilePath : null}
-                      />
-
-                      {/* More results hint */}
-                      {result.hasMore && (
-                        <div class="flex items-center gap-2 text-xs text-dimmed px-3">
-                          <i class="ti ti-dots" />
-                          <span>More results available - make your search more specific</span>
+                          <span class="text-xs text-dimmed">
+                            ({result.files.length}
+                            {result.hasMore ? "+" : ""})
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  ))}
 
-                  {/* No results state */}
-                  {totalFiles === 0 && (
-                    <Placeholder align="left" icon="ti ti-file-search" class="py-4">
-                      No files match your search
-                    </Placeholder>
-                  )}
-                </>
-              )}
+                        {/* File list */}
+                        <FileList
+                          items={result.files}
+                          baseType={result.base.type}
+                          baseId={result.base.id}
+                          currentPath=""
+                          parentPath={null}
+                          bases={basesInfo}
+                          hideSelection
+                          useItemPath
+                          forceListView
+                          useFullDetailKey
+                          selectedFilePath={detailBaseType === result.base.type && detailBaseId === result.base.id ? detailFilePath : null}
+                        />
+
+                        {/* More results hint */}
+                        {result.hasMore && (
+                          <div class="flex items-center gap-2 text-xs text-dimmed px-3">
+                            <i class="ti ti-dots" />
+                            <span>More results available - make your search more specific</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* No results state */}
+                    {totalFiles === 0 && (
+                      <Placeholder align="left" icon="ti ti-file-search" class="py-4">
+                        No files match your search
+                      </Placeholder>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-          </div>
           </AppWorkspace.Main>
 
           <AppWorkspace.Detail

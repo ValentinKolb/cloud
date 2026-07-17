@@ -4,6 +4,7 @@ import { AppOverview } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { filesService } from "@/service";
 import { ssr } from "../config";
+import { filesHelp } from "../help";
 import FilesLayoutHelp from "./_components/help/FilesLayoutHelp.island";
 
 /**
@@ -18,7 +19,7 @@ export default ssr<AuthContext>(async (c) => {
   if (bases.length === 0) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }]}>
-        <FilesLayoutHelp />
+        <FilesLayoutHelp documents={filesHelp.manifest} />
         <AppOverview title="Files" subtitle="Browse and manage shared file storage." icon="ti ti-folders">
           <AppOverview.Main title="Storage" description="No accessible file storage is available for your account.">
             <AppOverview.EmptyState
