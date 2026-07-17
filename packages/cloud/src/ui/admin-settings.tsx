@@ -102,7 +102,7 @@ export type SettingsSaveBarProps = {
 export function SettingsSaveBar(props: SettingsSaveBarProps) {
   return (
     <Show when={props.changeCount() > 0}>
-      <div class="settings-save-bar sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+      <div class="settings-save-bar sticky bottom-0 z-10 flex items-center justify-between gap-3 px-3 py-2">
         <p class="text-xs text-dimmed">
           <span class="font-medium text-primary">{props.changeCount()}</span> unsaved change{props.changeCount() > 1 ? "s" : ""}
         </p>

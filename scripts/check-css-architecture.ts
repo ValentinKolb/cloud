@@ -38,9 +38,8 @@ const appStylesheets = readdirSync(packagesRoot)
   .filter(existsSync)
   .sort();
 
-// These are migration debt, not accepted architecture. Keeping the list here
-// makes the current baseline executable while preventing new exceptions.
-const transitionalDuplicateUtilities = new Set(["bg-dark", "ellipsis", "no-scrollbar"]);
+// Mail still consumes one compatibility shadow while its active redesign owns
+// that surface. No other legacy theme reference is accepted.
 const transitionalThemeReferences = new Map([["packages/mail/src/frontend/MailOverview.island.tsx", new Set(["--theme-shadow-elevated"])]]);
 
 for (const file of [...sharedStylesheets, ...appStylesheets]) {
@@ -92,16 +91,9 @@ for (const file of sharedStylesheets) {
   }
 }
 for (const [name, owners] of utilityOwners) {
-  if (owners.length < 2 || transitionalDuplicateUtilities.has(name)) continue;
+  if (owners.length < 2) continue;
   report(owners[0]!, `@utility ${name} has multiple owners: ${owners.map((file) => relative(workspaceRoot, file)).join(", ")}`);
 }
-for (const name of transitionalDuplicateUtilities) {
-  const owners = utilityOwners.get(name) ?? [];
-  if (owners.length !== 2) {
-    report(globalStylesheet, `remove ${name} from transitionalDuplicateUtilities after resolving its duplicate ownership`);
-  }
-}
-
 const customPropertyOwners = new Map<string, Set<string>>();
 const customPropertyReferences = new Map<string, Set<string>>();
 for (const file of [...sharedStylesheets, ...appStylesheets]) {

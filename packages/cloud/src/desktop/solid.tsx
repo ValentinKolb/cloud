@@ -332,7 +332,7 @@ ContextMenu.Item = (props) => {
   );
 };
 
-ContextMenu.Divider = () => <hr class="my-1 border-zinc-200 dark:border-zinc-800" />;
+ContextMenu.Divider = () => <div role="separator" class="h-2" />;
 
 const DESKTOP_WORKSPACE_SIDEBAR = Symbol("DesktopWorkspace.Sidebar");
 const DESKTOP_WORKSPACE_TOPBAR = Symbol("DesktopWorkspace.TopBar");

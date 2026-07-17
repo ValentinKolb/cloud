@@ -1245,19 +1245,21 @@ export default function NotesWorkspace(props: {
       </AppWorkspace.Sidebar>
 
       <AppWorkspace.Main>
-        <div class="flex h-full min-h-0 flex-col">
-          <div class="border-b border-zinc-200 p-3 dark:border-zinc-800">
+        <div class="flex h-full min-h-0 flex-col gap-3 p-[var(--ui-space-shell)]">
+          <div class="shrink-0">
             <TextInput value={query} onInput={setQuery} placeholder="Search notes..." clearable icon="ti ti-search" />
           </div>
-          <div class="min-h-0 flex-1 overflow-y-auto">
+          <div class="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-2">
             <For each={props.notes}>
               {(note) => (
                 <button
                   type="button"
-                  class="block w-full border-b border-zinc-100 p-3 text-left hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                  class="group block w-full rounded-[var(--ui-radius-control)] p-3 text-left focus-ui"
                   onClick={() => navigateTo(`/app/notes?item=${note.shortId}`)}
                 >
-                  <span class="block truncate text-sm font-medium text-primary">{note.title}</span>
+                  <span class="block truncate text-sm font-medium text-primary group-hover:text-[var(--ui-app-accent-text)]">
+                    {note.title}
+                  </span>
                   <span class="text-xs text-dimmed">{note.updatedAt}</span>
                 </button>
               )}
@@ -1774,7 +1776,9 @@ sentinel. Keep app code focused on columns, row IDs, and domain-specific cell
 rendering.
 
 For admin resource lists with search, filters, and row actions, keep the
-controls inside the same `paper` as the table. The canonical order is:
+controls and table in one flat working flow. Give the control group a quiet
+surface and let `DataTable` own the actual data boundary; do not wrap both in a
+second paper or draw a rule between them. The canonical order is:
 
 1. table header with title and visible/total count
 2. `SearchBar` on its own full-width row
@@ -1785,8 +1789,8 @@ controls inside the same `paper` as the table. The canonical order is:
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, FilterChip, type DataTableColumn } from "@valentinkolb/cloud/ui";
 
-<section class="paper overflow-hidden">
-  <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+<section class="flex min-h-0 flex-col gap-3">
+  <div class="flex flex-col gap-2 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] px-3 py-2">
     <div>
       <h2 class="text-xs font-semibold text-primary">Resources</h2>
       <p class="text-[10px] text-dimmed">
@@ -1799,7 +1803,7 @@ import { DataTable, FilterChip, type DataTableColumn } from "@valentinkolb/cloud
       <button class="btn-input btn-sm ml-auto">Create</button>
     </div>
   </div>
-  <DataTable rows={items} columns={columns} getRowId={(row) => row.id} class="overflow-x-auto" />
+  <DataTable rows={items} columns={columns} getRowId={(row) => row.id} class="min-h-0 overflow-x-auto" />
 </section>
 ```
 
@@ -2320,7 +2324,7 @@ const deleteItem = mutation.create<{ deleted: boolean; id: string }, Item>({
 
 ```jsx
 <Show when={hasChanges()}>
-  <div class="sticky bottom-0 p-3 paper flex items-center justify-between gap-2 border-t">
+  <div class="settings-save-bar sticky bottom-3 flex items-center justify-between gap-2 rounded-[var(--ui-radius-surface)] p-3">
     <span class="text-xs text-dimmed">{changeCount()} unsaved changes</span>
     <div class="flex gap-2">
       <button class="btn-secondary btn-sm" onClick={discard}>Discard</button>

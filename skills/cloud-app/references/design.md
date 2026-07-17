@@ -133,7 +133,7 @@ The exceptions are narrow: a real data table may expose row or column structure,
 - Detail panels start with a flat, full-width orientation layer. A transparent `detail-stack` below it contains separate `detail-section` papers.
 - Inputs are quiet wells. They need a clear focus state, not a permanently strong outline.
 - Floating layers use one outer shadow and a boundary that remains visible in dark mode.
-- Data-table row separators are functional and may remain visible. Key-value content should prefer alignment and spacing; add a divider only when scanning would otherwise become ambiguous.
+- Data-table row separators are functional and may remain visible. Key-value content uses alignment and spacing without row rules; if its structure genuinely requires explicit row boundaries, it is tabular data and should use the shared data-table treatment instead of styling a detail list like one.
 
 Do not stack papers to manufacture hierarchy. In-flow papers use a boundary without an outer shadow; reserve frame depth for unified workspaces and floating depth for overlays. Do not add a border and shadow when either one already separates the surface. Do not place a full-page paper inside another full-page paper.
 

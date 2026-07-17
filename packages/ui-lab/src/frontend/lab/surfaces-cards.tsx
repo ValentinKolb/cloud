@@ -316,10 +316,9 @@ export const CoreUtilityPatternsDemo = () => (
       </div>
       <div class="paper flex flex-col gap-3 p-3">
         <p class="text-label">Layout and popover surfaces</p>
-        <div class="app-rows h-28 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-          <div class="flex items-center px-3 text-xs text-dimmed">Header row</div>
-          <div class="app-divider" />
-          <div class="grid place-items-center text-xs text-dimmed">Body row</div>
+        <div class="app-rows h-28 overflow-hidden rounded-lg bg-zinc-50 p-3 dark:bg-zinc-900/35">
+          <div class="flex items-center text-xs font-medium text-secondary">Header row</div>
+          <div class="grid flex-1 place-items-center rounded-md bg-white text-xs text-dimmed dark:bg-zinc-900">Body row</div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button type="button" class="btn-input btn-input-md btn-input-active">

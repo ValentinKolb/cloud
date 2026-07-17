@@ -1,4 +1,4 @@
-/* Layout, containers, dividers, and prose styles — flat, solid surfaces */
+/* Layout, containers, and prose styles — flat, solid surfaces */
 @utility section {
   @apply py-5;
 }
@@ -39,10 +39,6 @@
   border: 1px solid var(--ui-dialog-border);
   border-radius: var(--ui-dialog-radius);
   background: var(--ui-dialog-surface);
-}
-
-@utility panel-dialog-divider {
-  border-color: var(--ui-dialog-divider);
 }
 
 @utility panel-dialog-section {
@@ -107,17 +103,6 @@
   @apply overflow-hidden text-ellipsis whitespace-nowrap;
 }
 
-@utility divider {
-  border: none;
-  border-bottom: 1px solid var(--ui-divider);
-  @apply hidden;
-}
-
-@utility divider-v {
-  border: none;
-  border-right: 1px solid var(--ui-divider);
-}
-
 @utility app-cols {
   display: flex;
   flex-direction: column;
@@ -167,12 +152,6 @@
 
 @utility app-rows {
   @apply flex flex-col gap-3;
-}
-
-@utility app-divider {
-  & > * + * {
-    border-top: 1px solid var(--ui-divider);
-  }
 }
 
 .prose {
@@ -499,27 +478,27 @@
 
 .panel-dialog-layout[data-surface="floating"] > .panel-dialog-header {
   border: 0;
-  border-bottom: 1px solid var(--ui-dialog-divider);
   border-radius: 0;
-  background: transparent;
+  background: var(--ui-surface-subtle);
   box-shadow: none;
 }
 
 .panel-dialog-layout[data-surface="floating"] > .panel-dialog-footer {
   border: 0;
-  border-top: 1px solid var(--ui-dialog-divider);
   border-radius: 0;
-  background: transparent;
+  background: var(--ui-surface-subtle);
   box-shadow: none;
 }
 
-.panel-dialog-shell header.panel-dialog-divider {
+.panel-dialog-shell > .panel-dialog-header {
   min-height: 3.25rem;
   padding-inline: 1rem;
+  background: var(--ui-surface-subtle);
 }
 
-.panel-dialog-shell footer.panel-dialog-divider {
+.panel-dialog-shell > .panel-dialog-footer {
   padding: 0.75rem 1rem;
+  background: var(--ui-surface-subtle);
 }
 
 .panel-dialog-body {
@@ -535,8 +514,12 @@
 }
 
 .settings-save-bar {
-  border-color: var(--ui-divider);
   background: var(--ui-surface-raised);
+  box-shadow: 0 -10px 20px -18px rgb(24 24 27 / 0.28);
+}
+
+.dark .settings-save-bar {
+  box-shadow: 0 -10px 20px -18px rgb(0 0 0 / 0.58);
 }
 
 .panel-dialog-tabs {

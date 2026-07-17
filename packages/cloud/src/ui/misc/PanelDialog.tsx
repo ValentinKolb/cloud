@@ -108,7 +108,7 @@ function PanelDialogHeader(props: PanelDialogHeaderProps) {
       class={
         surface === "floating"
           ? "panel-dialog-header paper flex min-h-16 shrink-0 items-center gap-4 px-5"
-          : "panel-dialog-header panel-dialog-divider flex min-h-16 shrink-0 items-center gap-4 border-b px-5"
+          : "panel-dialog-header flex min-h-16 shrink-0 items-center gap-4 px-5"
       }
     >
       <i class={`${props.icon} shrink-0`} />
@@ -155,7 +155,7 @@ function PanelDialogFooter(props: PanelDialogFooterProps) {
       class={
         surface === "floating"
           ? "panel-dialog-footer paper flex shrink-0 items-center justify-between gap-2 p-4"
-          : "panel-dialog-footer panel-dialog-divider flex shrink-0 items-center justify-between gap-2 border-t p-4"
+          : "panel-dialog-footer flex shrink-0 items-center justify-between gap-2 p-4"
       }
     >
       {props.children}

@@ -1275,14 +1275,14 @@ const TimeGridView = (props: {
 };
 
 const YearView = (props: { owner: CalendarProps; date: Date; now: Date; events: NormalizedEvent[] }): JSX.Element => (
-  <div class="grid grid-cols-1 divide-y divide-zinc-100 dark:divide-zinc-800/70 md:grid-cols-3 md:divide-x md:divide-y-0">
+  <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
     <For
       each={Array.from({ length: 12 }, (_, month) =>
         zonedMonthDate(zonedYearMonth(props.date, ownerDateConfig(props.owner)).year, month, ownerDateConfig(props.owner)),
       )}
     >
       {(monthDate) => (
-        <div class="p-3">
+        <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-3">
           <div class="mb-2 text-xs font-semibold text-primary">
             {monthDate.toLocaleDateString(ownerDateConfig(props.owner).locale ?? "en", {
               month: "long",
@@ -1345,7 +1345,7 @@ const MobileMonthView = (props: {
         events={props.events}
         labels={props.labels}
       />
-      <div class="mt-4 border-t border-zinc-100 pt-3 dark:border-zinc-800/70">
+      <div class="mt-4 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-3">
         <div class="mb-2 text-sm font-semibold text-primary">
           {props.selectedDate.toLocaleDateString(dateConfig().locale ?? "en", {
             weekday: "long",

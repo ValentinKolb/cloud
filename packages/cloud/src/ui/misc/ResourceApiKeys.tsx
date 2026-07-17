@@ -222,10 +222,10 @@ export default function ResourceApiKeys(props: ResourceApiKeysProps) {
           </Placeholder>
         }
       >
-        <div class="flex flex-col divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <div class="flex flex-col gap-2">
           <For each={keys()}>
             {(key) => (
-              <div class="group/api-key flex items-center gap-3 p-3">
+              <div class="group/api-key flex items-center gap-3 rounded-lg bg-zinc-50/70 p-3 dark:bg-zinc-900/35">
                 <div class="min-w-0 flex-1">
                   <div class="flex min-w-0 items-center gap-2">
                     <span class="truncate text-sm font-medium text-primary">{key.name}</span>

@@ -115,10 +115,10 @@ export const DocConceptGrid = (props: { items: DocConcept[] }) => (
 );
 
 export const DocRows = (props: { items: DocRow[] }) => (
-  <div class="divide-y divide-zinc-200/70 rounded-md bg-zinc-50/60 ring-1 ring-inset ring-zinc-200/70 dark:divide-zinc-800 dark:bg-zinc-900/25 dark:ring-zinc-800">
+  <div class="grid gap-2">
     <For each={props.items}>
       {(item) => (
-        <article class="grid gap-3 px-3 py-3 md:grid-cols-[2rem_10rem_1fr]">
+        <article class="grid gap-3 rounded-md bg-zinc-50/70 px-3 py-3 dark:bg-zinc-900/35 md:grid-cols-[2rem_10rem_1fr]">
           <Show when={item.icon} fallback={<span aria-hidden="true" />}>
             {(icon) => <i class={`ti ${icon()} mt-0.5 text-lg text-blue-500`} aria-hidden="true" />}
           </Show>

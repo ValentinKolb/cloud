@@ -2,8 +2,8 @@ import type { JSX } from "solid-js";
 
 /**
  * Widget container — frames a stack of `Widget*` blocks with a title-bar
- * header. The body is `divide-y` so blocks separate naturally; each block
- * brings its own padding.
+ * header. Blocks separate through their own spacing and surface treatment;
+ * each block brings its own padding.
  *
  * Designed so Stat / List / Status / Pills blocks can be freely combined
  * vertically — every dashboard widget is a custom composition of those.
