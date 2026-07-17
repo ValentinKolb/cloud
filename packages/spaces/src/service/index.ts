@@ -154,6 +154,7 @@ export const spacesService = {
     get: items.get,
     create: items.create,
     update: items.update,
+    splitRecurring: items.splitRecurring,
     remove: items.remove,
     move: items.move,
     setCompleted: items.setCompleted,
@@ -171,12 +172,14 @@ export const spacesService = {
   comment: {
     list: async (config: {
       itemId: string;
+      recurrenceId?: string | null;
       viewerUserId?: string | null;
       pagination?: PageParams;
       filter?: { query?: string };
     }): Promise<Paginated<SpaceComment>> => {
       return comments.list({
         itemId: config.itemId,
+        recurrenceId: config.recurrenceId,
         viewerUserId: config.viewerUserId,
         pagination: config.pagination,
         query: config.filter?.query,

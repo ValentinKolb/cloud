@@ -17,12 +17,20 @@ import type {
   SpaceItem,
   SpaceItemAssignee,
   SpaceTag,
+  SplitRecurringItem,
   UpdateItem,
 } from "@/contracts";
 import { buildSpacePrincipalCondition, isSpaceResourceId } from "./access";
 import { publishSpaceEvent } from "./events";
 import { rank } from "./rank";
-import { type ExpandedRecurringEvent, expandRecurringEvents, type RecurringEvent, type RecurringOverride } from "./recurrence";
+import {
+  type ExpandedRecurringEvent,
+  expandRecurringEvents,
+  type RecurringEvent,
+  type RecurringOverride,
+  shiftRecurrenceRule,
+  splitRecurringEvent,
+} from "./recurrence";
 
 // ==========================
 // Items Service
@@ -116,6 +124,8 @@ const recurrenceValues = (recurrence: Recurrence | null | undefined) => ({
   dtstart: recurrence?.dtstart ?? null,
   exdate: recurrence?.exdate && recurrence.exdate.length > 0 ? toPgTimestampArray(recurrence.exdate) : null,
 });
+
+const shiftIsoInstant = (value: string, milliseconds: number) => new Date(new Date(value).getTime() + milliseconds).toISOString();
 
 const replaceItemAssignees = async (db: SqlExecutor, itemId: string, userIds: string[]): Promise<void> => {
   await db`DELETE FROM spaces.item_assignees WHERE item_id = ${itemId}`;
@@ -1047,10 +1057,22 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
   const allDay = data.allDay === undefined ? existing.allDay : data.allDay;
   const deadline = data.deadline === undefined ? existing.deadline : data.deadline;
   const priority = data.priority === undefined ? existing.priority : data.priority;
-  const recurrence = data.recurrence === undefined ? existing.recurrence : data.recurrence;
+  let recurrence = data.recurrence === undefined ? existing.recurrence : data.recurrence;
   const recurringEventId = data.recurringEventId === undefined ? existing.recurringEventId : data.recurringEventId;
   const recurrenceId = data.recurrenceId === undefined ? existing.recurrenceId : data.recurrenceId;
   const changingColumn = !!(data.columnId && data.columnId !== existing.columnId);
+  const seriesShiftMilliseconds =
+    existing.recurrence && recurrence && !existing.recurringEventId && existing.startsAt && startsAt
+      ? new Date(startsAt).getTime() - new Date(existing.startsAt).getTime()
+      : 0;
+  if (seriesShiftMilliseconds !== 0 && recurrence && data.recurrence === undefined) {
+    recurrence = {
+      ...recurrence,
+      rrule: shiftRecurrenceRule(recurrence.rrule, seriesShiftMilliseconds),
+      dtstart: startsAt,
+      exdate: recurrence.exdate.map((value) => shiftIsoInstant(value, seriesShiftMilliseconds)),
+    };
+  }
 
   if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt)) {
     return { ok: false, error: "End time must be after start time", status: 400 };
@@ -1145,6 +1167,24 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
     if (data.tagIds !== undefined) {
       await replaceItemTags(tx, id, data.tagIds);
     }
+    if (seriesShiftMilliseconds !== 0) {
+      const interval = sql`(${seriesShiftMilliseconds}::double precision * interval '1 millisecond')`;
+      await tx`
+        UPDATE spaces.items
+        SET recurrence_id = recurrence_id + ${interval},
+            starts_at = starts_at + ${interval},
+            ends_at = ends_at + ${interval},
+            updated_at = now()
+        WHERE recurring_event_id = ${id}
+          AND recurrence_id IS NOT NULL
+      `;
+      await tx`
+        UPDATE spaces.comments
+        SET recurrence_id = recurrence_id + ${interval}
+        WHERE item_id = ${id}
+          AND recurrence_id IS NOT NULL
+      `;
+    }
 
     return updated;
   });
@@ -1159,6 +1199,173 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
   }
 
   await publishSpaceEvent({ type: "item.updated", spaceId: item.spaceId, itemId: item.id });
+  return { ok: true, data: item };
+};
+
+/**
+ * Splits a recurring series and transfers all future occurrence-owned data in
+ * one transaction. This prevents partially split series when any write fails.
+ */
+export const splitRecurring = async (params: {
+  id: string;
+  data: SplitRecurringItem;
+  createdBy: string | null;
+  dateConfig?: DateContext;
+}): Promise<MutationResult<SpaceItem>> => {
+  const result = await sql.begin(async (tx): Promise<MutationResult<{ id: string; spaceId: string; created: boolean }>> => {
+    const [source] = await tx<DbItem[]>`
+      SELECT
+        id, space_id, column_id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority,
+        recurrence_rrule, recurrence_dtstart, recurrence_exdate, recurring_event_id, recurrence_id, rank::text AS rank,
+        completed_at, email_thread_id, created_by, created_at, updated_at
+      FROM spaces.items
+      WHERE id = ${params.id}
+      FOR UPDATE
+    `;
+    if (!source) return { ok: false, error: "Item not found", status: 404 };
+    if (!source.starts_at || !source.ends_at || !source.recurrence_rrule || source.recurring_event_id) {
+      return { ok: false, error: "Item is not a recurring series", status: 400 };
+    }
+
+    const split = splitRecurringEvent({
+      event: {
+        id: source.id,
+        title: source.title,
+        start: source.starts_at,
+        end: source.ends_at,
+        allDay: source.all_day,
+        recurrence: {
+          rrule: source.recurrence_rrule,
+          dtstart: source.recurrence_dtstart ?? source.starts_at,
+          exdate: source.recurrence_exdate ?? [],
+        },
+      },
+      recurrenceId: params.data.recurrenceId,
+      nextStart: params.data.startsAt,
+      dateConfig: params.dateConfig,
+    });
+    if (!split) return { ok: false, error: "Recurring occurrence not found", status: 404 };
+
+    const recurrenceId = new Date(params.data.recurrenceId).toISOString();
+    const shiftMilliseconds = new Date(params.data.startsAt).getTime() - new Date(recurrenceId).getTime();
+    const interval = sql`(${shiftMilliseconds}::double precision * interval '1 millisecond')`;
+    const previousExdate = split.previousExdate.length > 0 ? toPgTimestampArray(split.previousExdate) : null;
+    const nextExdate = split.nextExdate.length > 0 ? toPgTimestampArray(split.nextExdate) : null;
+
+    if (split.isFirstOccurrence) {
+      await tx`
+        UPDATE spaces.items
+        SET starts_at = ${params.data.startsAt}::timestamptz,
+            ends_at = ${params.data.endsAt}::timestamptz,
+            all_day = ${params.data.allDay},
+            recurrence_rrule = ${split.nextRrule},
+            recurrence_dtstart = ${params.data.startsAt}::timestamptz,
+            recurrence_exdate = ${nextExdate ? sql`${nextExdate}::timestamptz[]` : null},
+            updated_at = now()
+        WHERE id = ${source.id}
+      `;
+      await tx`
+        UPDATE spaces.items
+        SET recurrence_id = recurrence_id + ${interval},
+            starts_at = starts_at + ${interval},
+            ends_at = ends_at + ${interval},
+            updated_at = now()
+        WHERE recurring_event_id = ${source.id}
+          AND recurrence_id IS NOT NULL
+      `;
+      await tx`
+        UPDATE spaces.comments
+        SET recurrence_id = recurrence_id + ${interval}
+        WHERE item_id = ${source.id}
+          AND recurrence_id IS NOT NULL
+      `;
+      return { ok: true, data: { id: source.id, spaceId: source.space_id, created: false } };
+    }
+
+    await tx`
+      UPDATE spaces.items
+      SET recurrence_rrule = ${split.previousRrule},
+          recurrence_exdate = ${previousExdate ? sql`${previousExdate}::timestamptz[]` : null},
+          updated_at = now()
+      WHERE id = ${source.id}
+    `;
+
+    const [created] = await tx<{ id: string }[]>`
+      INSERT INTO spaces.items (
+        space_id, column_id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority,
+        recurrence_rrule, recurrence_dtstart, recurrence_exdate, recurring_event_id, recurrence_id, rank,
+        completed_at, email_thread_id, created_by
+      )
+      SELECT
+        space_id,
+        column_id,
+        title,
+        description,
+        location,
+        url,
+        ${params.data.startsAt}::timestamptz,
+        ${params.data.endsAt}::timestamptz,
+        ${params.data.allDay},
+        deadline,
+        priority,
+        ${split.nextRrule},
+        ${params.data.startsAt}::timestamptz,
+        ${nextExdate ? sql`${nextExdate}::timestamptz[]` : null},
+        NULL,
+        NULL,
+        COALESCE((SELECT MAX(rank) + ${rank.step()} FROM spaces.items WHERE column_id = ${source.column_id}), ${rank.step()}),
+        NULL,
+        NULL,
+        ${params.createdBy}::uuid
+      FROM spaces.items
+      WHERE id = ${source.id}
+      RETURNING id
+    `;
+    if (!created) return { ok: false, error: "Failed to create split series", status: 500 };
+
+    await tx`
+      INSERT INTO spaces.item_assignees (item_id, user_id)
+      SELECT ${created.id}, user_id
+      FROM spaces.item_assignees
+      WHERE item_id = ${source.id}
+      ON CONFLICT DO NOTHING
+    `;
+    await tx`
+      INSERT INTO spaces.item_tags (item_id, tag_id)
+      SELECT ${created.id}, tag_id
+      FROM spaces.item_tags
+      WHERE item_id = ${source.id}
+      ON CONFLICT DO NOTHING
+    `;
+    await tx`
+      UPDATE spaces.items
+      SET recurring_event_id = ${created.id},
+          recurrence_id = recurrence_id + ${interval},
+          starts_at = starts_at + ${interval},
+          ends_at = ends_at + ${interval},
+          updated_at = now()
+      WHERE recurring_event_id = ${source.id}
+        AND recurrence_id >= ${recurrenceId}::timestamptz
+    `;
+    await tx`
+      UPDATE spaces.comments
+      SET item_id = ${created.id},
+          recurrence_id = recurrence_id + ${interval}
+      WHERE item_id = ${source.id}
+        AND recurrence_id >= ${recurrenceId}::timestamptz
+    `;
+
+    return { ok: true, data: { id: created.id, spaceId: source.space_id, created: true } };
+  });
+  if (!result.ok) return result;
+
+  const item = await get({ id: result.data.id });
+  if (!item) return { ok: false, error: "Failed to load split series", status: 500 };
+
+  await publishSpaceEvent({ type: "item.updated", spaceId: result.data.spaceId, itemId: params.id });
+  if (result.data.created) {
+    await publishSpaceEvent({ type: "item.created", spaceId: result.data.spaceId, itemId: item.id });
+  }
   return { ok: true, data: item };
 };
 

@@ -44,7 +44,23 @@ type ExpandRecurringEventsParams = {
   rangeStart: string | Date;
   rangeEnd: string | Date;
   expansionLimit?: number;
+  generationLimit?: number;
   dateConfig?: DateContext;
+};
+
+export type ResolvedRecurringOccurrence = {
+  recurrenceId: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+};
+
+export type SplitRecurringEvent = {
+  isFirstOccurrence: boolean;
+  previousRrule: string;
+  previousExdate: string[];
+  nextRrule: string;
+  nextExdate: string[];
 };
 
 const DEFAULT_EXPANSION_LIMIT = 2000;
@@ -61,6 +77,10 @@ const WEEKDAY_INDEX: Record<string, number> = {
 const toDate = (value: string | Date): Date => (value instanceof Date ? new Date(value) : new Date(value));
 const toIso = (date: Date): string => date.toISOString();
 const sameInstantKey = (value: string | Date): string => toIso(toDate(value));
+const compactUtc = (date: Date): string =>
+  `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}T${String(
+    date.getUTCHours(),
+  ).padStart(2, "0")}${String(date.getUTCMinutes()).padStart(2, "0")}${String(date.getUTCSeconds()).padStart(2, "0")}Z`;
 
 const addWallTime = (
   date: Date,
@@ -164,6 +184,7 @@ export const expandRecurringEvents = (params: ExpandRecurringEventsParams): Expa
   const rangeEnd = toDate(params.rangeEnd);
   const dateConfig = params.dateConfig;
   const expansionLimit = params.expansionLimit ?? DEFAULT_EXPANSION_LIMIT;
+  const generationLimit = params.generationLimit ?? Number.POSITIVE_INFINITY;
   const overrides = new Map(
     (params.overrides ?? []).map((event) => [`${event.recurringEventId}:${sameInstantKey(event.recurrenceId)}`, event]),
   );
@@ -187,12 +208,16 @@ export const expandRecurringEvents = (params: ExpandRecurringEventsParams): Expa
     let cursor = seriesStart;
     let done = false;
 
-    while (!done && emitted < expansionLimit) {
+    while (!done && emitted < expansionLimit && generated < generationLimit) {
       const candidates =
         rule.freq === "WEEKLY" ? weeklyCandidates(cursor, rule, zonedWeekday(seriesStart, dateConfig), dateConfig) : [cursor];
 
       for (const candidate of candidates) {
         if (candidate < seriesStart) continue;
+        if (generated >= generationLimit) {
+          done = true;
+          break;
+        }
         if (rule.until && candidate > rule.until) {
           done = true;
           break;
@@ -242,3 +267,129 @@ export const expandRecurringEvents = (params: ExpandRecurringEventsParams): Expa
 
   return output.sort((a, b) => toDate(a.start).getTime() - toDate(b.start).getTime());
 };
+
+/**
+ * Resolves one generated occurrence from its original start instant.
+ *
+ * The original instant is the stable identity used by RFC 5545 overrides and
+ * occurrence-scoped comments. A bounded expansion keeps crafted timestamps
+ * from turning detail or comment requests into unbounded recurrence work.
+ */
+export const resolveRecurringOccurrence = (params: {
+  event: RecurringEvent;
+  recurrenceId: string;
+  dateConfig?: DateContext;
+}): ResolvedRecurringOccurrence | null => {
+  const recurrenceDate = new Date(params.recurrenceId);
+  if (Number.isNaN(recurrenceDate.getTime())) return null;
+  const recurrenceId = recurrenceDate.toISOString();
+  const [occurrence] = expandRecurringEvents({
+    events: [params.event],
+    rangeStart: recurrenceDate,
+    rangeEnd: new Date(recurrenceDate.getTime() + 1),
+    expansionLimit: DEFAULT_EXPANSION_LIMIT,
+    generationLimit: DEFAULT_EXPANSION_LIMIT,
+    dateConfig: params.dateConfig,
+  }).filter((event) => event.recurringInstance?.recurrenceId === recurrenceId);
+  if (!occurrence?.recurringInstance) return null;
+
+  return {
+    recurrenceId,
+    start: toIso(toDate(occurrence.start)),
+    end: toIso(toDate(occurrence.end)),
+    allDay: occurrence.allDay ?? false,
+  };
+};
+
+const recurrenceParts = (rrule: string): string[] =>
+  rrule
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+const withoutRecurrenceBounds = (parts: string[]): string[] =>
+  parts.filter((part) => !part.toUpperCase().startsWith("UNTIL=") && !part.toUpperCase().startsWith("COUNT="));
+
+const withoutUntil = (parts: string[]): string[] => parts.filter((part) => !part.toUpperCase().startsWith("UNTIL="));
+
+const shiftedUntilPart = (rule: RecurrenceRule, milliseconds: number): string[] =>
+  rule.until ? [`UNTIL=${compactUtc(new Date(rule.until.getTime() + milliseconds))}`] : [];
+
+/**
+ * Moves an absolute recurrence boundary together with a shifted series.
+ * COUNT remains unchanged because the number of occurrences does not change.
+ */
+export const shiftRecurrenceRule = (rrule: string, milliseconds: number): string => {
+  if (milliseconds === 0) return rrule;
+  const rule = parseRecurrenceRule(rrule);
+  if (!rule.until) return rrule;
+  return [...withoutUntil(recurrenceParts(rrule)), ...shiftedUntilPart(rule, milliseconds)].join(";");
+};
+
+/**
+ * Splits a recurring event immediately before one generated occurrence.
+ *
+ * The old series keeps preceding exceptions. The new series keeps and shifts
+ * future exceptions, COUNT's remaining cardinality, and an absolute UNTIL
+ * boundary. A bounded ordinal lookup rejects stale or crafted occurrence ids.
+ */
+export const splitRecurringEvent = (params: {
+  event: RecurringEvent;
+  recurrenceId: string;
+  nextStart: string;
+  dateConfig?: DateContext;
+}): SplitRecurringEvent | null => {
+  const occurrence = resolveRecurringOccurrence({
+    event: params.event,
+    recurrenceId: params.recurrenceId,
+    dateConfig: params.dateConfig,
+  });
+  if (!occurrence || !params.event.recurrence) return null;
+
+  const nextStart = new Date(params.nextStart);
+  if (Number.isNaN(nextStart.getTime())) return null;
+  const recurrenceDate = new Date(occurrence.recurrenceId);
+  const shiftMilliseconds = nextStart.getTime() - recurrenceDate.getTime();
+  const rule = parseRecurrenceRule(params.event.recurrence.rrule);
+  const parts = withoutRecurrenceBounds(recurrenceParts(params.event.recurrence.rrule));
+  const previousRrule = [...parts, `UNTIL=${compactUtc(new Date(recurrenceDate.getTime() - 1))}`].join(";");
+
+  const ordinalEvents = expandRecurringEvents({
+    events: [
+      {
+        ...params.event,
+        recurrence: { ...params.event.recurrence, exdate: [] },
+      },
+    ],
+    rangeStart: params.event.recurrence.dtstart ?? params.event.start,
+    rangeEnd: new Date(recurrenceDate.getTime() + 1),
+    expansionLimit: DEFAULT_EXPANSION_LIMIT,
+    generationLimit: DEFAULT_EXPANSION_LIMIT,
+    dateConfig: params.dateConfig,
+  });
+  const ordinal = ordinalEvents.findIndex((event) => event.recurringInstance?.recurrenceId === occurrence.recurrenceId);
+  if (ordinal < 0) return null;
+
+  let remainingCount: number | undefined;
+  if (rule.count !== undefined) {
+    remainingCount = rule.count - ordinal;
+    if (remainingCount < 1) return null;
+  }
+
+  const nextRrule = [
+    ...parts,
+    ...shiftedUntilPart(rule, shiftMilliseconds),
+    ...(remainingCount === undefined ? [] : [`COUNT=${remainingCount}`]),
+  ].join(";");
+  const exdates = (params.event.recurrence.exdate ?? []).map(sameInstantKey);
+
+  return {
+    isFirstOccurrence: ordinal === 0,
+    previousRrule,
+    previousExdate: exdates.filter((value) => value < occurrence.recurrenceId),
+    nextRrule,
+    nextExdate: exdates.filter((value) => value >= occurrence.recurrenceId).map((value) => shiftIso(value, shiftMilliseconds)),
+  };
+};
+
+const shiftIso = (value: string, milliseconds: number): string => new Date(new Date(value).getTime() + milliseconds).toISOString();

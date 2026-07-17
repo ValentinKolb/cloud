@@ -125,13 +125,6 @@ export const summarizeRecurrence = (recurrence: Recurrence | null | undefined): 
   return base;
 };
 
-export const recurrenceUntilBefore = (iso: string): string => {
-  const date = new Date(new Date(iso).getTime() - 1);
-  return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}T${String(
-    date.getUTCHours(),
-  ).padStart(2, "0")}${String(date.getUTCMinutes()).padStart(2, "0")}${String(date.getUTCSeconds()).padStart(2, "0")}Z`;
-};
-
 const compactUtc = (date: Date): string =>
   `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}T${String(
     date.getUTCHours(),

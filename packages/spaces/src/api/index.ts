@@ -46,6 +46,7 @@ import {
   SpaceTagSchema,
   SpaceWormholeDestinationSchema,
   SpaceWormholeSchema,
+  SplitRecurringItemSchema,
   UpdateAccessSchema,
   UpdateColumnSchema,
   UpdateCommentSchema,
@@ -83,7 +84,10 @@ const AssignableUsersQuerySchema = z.object({
   search: z.string().optional(),
   exclude_user_ids: z.string().optional(),
 });
-const CommentPageQuerySchema = z.object({
+const RecurringOccurrenceQuerySchema = z.object({
+  recurrence_id: z.string().datetime().optional(),
+});
+const CommentPageQuerySchema = RecurringOccurrenceQuerySchema.extend({
   page: z.coerce.number().int().min(1).default(1),
   per_page: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -384,6 +388,7 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Item not found"),
       },
     }),
+    v("query", RecurringOccurrenceQuerySchema),
     async (c) => {
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
@@ -396,6 +401,8 @@ const app = new Hono<AuthContext>()
         user: userResult.data,
         spaceId,
         itemId,
+        occurrenceId: c.req.valid("query").recurrence_id,
+        dateConfig: getDateConfig(c),
       });
       if (result.kind === "accessDenied") return respond(c, fail(err.forbidden(result.message)));
       if (result.kind === "notFound") return respond(c, fail(err.notFound("Item")));
@@ -1121,6 +1128,43 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  // Split Recurring Item
+  .post(
+    "/:id/items/:itemId/recurrence/split",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Split recurring item",
+      description: "Atomically split a recurring series and move future occurrence data to the new series.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceItemSchema, "Created recurring series"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Item or occurrence not found"),
+      },
+    }),
+    v("json", SplitRecurringItemSchema),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
+      const data = c.req.valid("json");
+
+      const { user, error } = await checkSpaceAccess(c, spaceId, "write");
+      if (error) return error;
+      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      if (!itemCheck.ok) return respond(c, itemCheck);
+      return respond(
+        c,
+        spacesService.item.splitRecurring({
+          id: itemId,
+          data,
+          createdBy: user?.id ?? null,
+          dateConfig: getDateConfig(c),
+        }),
+      );
+    },
+  )
+
   // Delete Item
   .delete(
     "/:id/items/:itemId",
@@ -1253,6 +1297,7 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Item not found"),
       },
     }),
+    v("query", RecurringOccurrenceQuerySchema),
     async (c) => {
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
@@ -1263,7 +1308,11 @@ const app = new Hono<AuthContext>()
       if (!itemCheck.ok) return respond(c, itemCheck);
 
       const user = getUserBackedActor(c);
-      const result = await spacesService.comment.list({ itemId, viewerUserId: user?.id ?? null });
+      const result = await spacesService.comment.list({
+        itemId,
+        recurrenceId: c.req.valid("query").recurrence_id,
+        viewerUserId: user?.id ?? null,
+      });
       return respond(c, ok(result.items));
     },
   )
@@ -1293,6 +1342,7 @@ const app = new Hono<AuthContext>()
       const user = getUserBackedActor(c);
       const result = await spacesService.comment.list({
         itemId,
+        recurrenceId: query.recurrence_id,
         viewerUserId: user?.id ?? null,
         pagination: { page: query.page, perPage: query.per_page },
       });
@@ -1315,6 +1365,7 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Item not found"),
       },
     }),
+    v("query", RecurringOccurrenceQuerySchema),
     v("json", CreateCommentSchema),
     async (c) => {
       const userResult = requireUserBackedActor(c);
@@ -1332,6 +1383,8 @@ const app = new Hono<AuthContext>()
         c,
         spacesService.comment.create({
           itemId,
+          recurrenceId: c.req.valid("query").recurrence_id,
+          dateConfig: getDateConfig(c),
           userId: user.id,
           content,
         }),

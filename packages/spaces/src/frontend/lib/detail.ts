@@ -2,12 +2,16 @@ import { detailPanel } from "@valentinkolb/stdlib/solid";
 import { SPACES_DETAIL_STATE_EVENT, type SpacesDetailState } from "../[id]/_components/workspace/workspace-events";
 
 export const SPACE_DETAIL_PARAM = "item";
+export const SPACE_OCCURRENCE_PARAM = "occurrence";
 
 export const getDetailItemFromUrl = () => detailPanel.getUrlParam(SPACE_DETAIL_PARAM);
+export const getDetailOccurrenceFromUrl = () => detailPanel.getUrlParam(SPACE_OCCURRENCE_PARAM);
 export const shouldHandleDetailClick = detailPanel.shouldHandleClick;
 
 /** Subscribe to the single detail owner after it has committed URL state. */
-export const subscribeToDetailSelection = (onChange: (change: { itemId: string | null }) => void) => {
+export const subscribeToDetailSelection = (
+  onChange: (change: { itemId: string | null; occurrenceId: string | null; selectionId: string | null }) => void,
+) => {
   const onState = (event: Event) => onChange((event as CustomEvent<SpacesDetailState>).detail);
   window.addEventListener(SPACES_DETAIL_STATE_EVENT, onState);
   return () => window.removeEventListener(SPACES_DETAIL_STATE_EVENT, onState);

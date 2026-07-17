@@ -384,15 +384,13 @@ const EventChip = (props: {
 }): JSX.Element => {
   const dateConfig = () => ownerDateConfig(props.owner);
   const color = () => props.event.color ?? "blue";
-  const selected = () =>
-    Boolean(props.owner.selectedEventId) &&
-    (props.owner.selectedEventId === props.event.id || props.owner.selectedEventId === props.event.dataSpaceItemId);
+  const selected = () => Boolean(props.owner.selectedEventId) && props.owner.selectedEventId === props.event.id;
   const style = () =>
     props.event.colorHex
       ? {
-          "background-color": `color-mix(in srgb, ${props.event.colorHex} ${selected() ? 26 : 14}%, var(--ui-surface))`,
-          "border-color": `color-mix(in srgb, ${props.event.colorHex} ${selected() ? 72 : 32}%, var(--ui-border))`,
-          ...(selected() ? { "box-shadow": `inset 0 0 0 2px color-mix(in srgb, ${props.event.colorHex} 88%, black 12%)` } : {}),
+          "background-color": `color-mix(in srgb, ${props.event.colorHex} ${selected() ? 32 : 21}%, var(--ui-surface-raised))`,
+          "border-color": `color-mix(in srgb, ${props.event.colorHex} ${selected() ? 88 : 48}%, var(--ui-border))`,
+          ...(selected() ? { "box-shadow": `0 0 0 2px color-mix(in srgb, ${props.event.colorHex} 78%, transparent)` } : {}),
         }
       : undefined;
   const isInteractive = () => Boolean(props.owner.onEventClick || props.owner.onEventDoubleClick);
@@ -1214,11 +1212,11 @@ const TimeGridView = (props: {
                                 type="button"
                                 aria-label="Resize event"
                                 draggable={false}
-                                class="absolute inset-x-3 bottom-1 z-20 flex h-4 cursor-ns-resize items-center justify-center rounded-full bg-blue-100/90 text-blue-600 opacity-0 backdrop-blur transition-opacity group-hover:opacity-90 focus:opacity-100 hover:opacity-100 dark:bg-blue-500/20 dark:text-blue-200"
+                                class="absolute inset-x-2 bottom-0 z-20 flex h-2 cursor-ns-resize items-center justify-center rounded-full bg-blue-100/90 text-blue-600 opacity-0 backdrop-blur transition-opacity group-hover:opacity-90 focus:opacity-100 hover:opacity-100 dark:bg-blue-500/20 dark:text-blue-200"
                                 onPointerDown={resizeStart}
                                 onDragStart={(event) => event.preventDefault()}
                               >
-                                <i class="ti ti-grip-horizontal text-[12px]" />
+                                <i class="ti ti-grip-horizontal text-[10px]" />
                               </button>
                             </Show>
                           </div>

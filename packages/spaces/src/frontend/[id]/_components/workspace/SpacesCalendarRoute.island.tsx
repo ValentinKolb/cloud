@@ -34,7 +34,7 @@ export default function SpacesCalendarRoute(props: Props) {
     else window.location.reload();
   });
   onMount(() => {
-    const unsubscribe = subscribeToDetailSelection(({ itemId }) => setSelectedItemId(itemId ?? ""));
+    const unsubscribe = subscribeToDetailSelection(({ selectionId }) => setSelectedItemId(selectionId ?? ""));
     onCleanup(unsubscribe);
   });
 

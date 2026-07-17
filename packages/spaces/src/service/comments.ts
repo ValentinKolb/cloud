@@ -1,6 +1,7 @@
-import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
+import { type DateContext, type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { MutationResult, SpaceComment } from "@/contracts";
+import { resolveRecurringOccurrence } from "./recurrence";
 
 // ==========================
 // Comments Service
@@ -9,6 +10,7 @@ import type { MutationResult, SpaceComment } from "@/contracts";
 type DbComment = {
   id: string;
   item_id: string;
+  recurrence_id: Date | null;
   user_id: string | null;
   user_name: string | null;
   user_avatar_hash?: string | null;
@@ -17,7 +19,50 @@ type DbComment = {
   updated_at: Date;
 };
 
+type SqlExecutor = typeof sql;
+
 const DELETE_WINDOW_MS = 10 * 60 * 1000;
+
+const isValidOccurrenceScope = async (db: SqlExecutor, itemId: string, recurrenceId: string, dateConfig?: DateContext) => {
+  const [item] = await db<
+    {
+      id: string;
+      title: string;
+      starts_at: Date | null;
+      ends_at: Date | null;
+      all_day: boolean;
+      recurrence_rrule: string | null;
+      recurrence_dtstart: Date | null;
+      recurrence_exdate: Date[] | null;
+      recurring_event_id: string | null;
+    }[]
+  >`
+    SELECT id, title, starts_at, ends_at, all_day, recurrence_rrule, recurrence_dtstart, recurrence_exdate, recurring_event_id
+    FROM spaces.items
+    WHERE id = ${itemId}
+    FOR SHARE
+  `;
+  if (!item?.starts_at || !item.ends_at || !item.recurrence_rrule || item.recurring_event_id) return false;
+
+  return Boolean(
+    resolveRecurringOccurrence({
+      event: {
+        id: item.id,
+        title: item.title,
+        start: item.starts_at,
+        end: item.ends_at,
+        allDay: item.all_day,
+        recurrence: {
+          rrule: item.recurrence_rrule,
+          dtstart: item.recurrence_dtstart ?? item.starts_at,
+          exdate: item.recurrence_exdate ?? [],
+        },
+      },
+      recurrenceId,
+      dateConfig,
+    }),
+  );
+};
 
 const canDeleteComment = (row: Pick<DbComment, "user_id" | "created_at">, viewerUserId?: string | null) => {
   if (!viewerUserId || row.user_id !== viewerUserId) return false;
@@ -30,6 +75,7 @@ const canDeleteComment = (row: Pick<DbComment, "user_id" | "created_at">, viewer
 const mapToComment = (row: DbComment, viewerUserId?: string | null): SpaceComment => ({
   id: row.id,
   itemId: row.item_id,
+  recurrenceId: row.recurrence_id?.toISOString() ?? null,
   userId: row.user_id,
   userName: row.user_name,
   userAvatarHash: row.user_avatar_hash ?? null,
@@ -45,6 +91,7 @@ const mapToComment = (row: DbComment, viewerUserId?: string | null): SpaceCommen
  */
 export const list = async (params: {
   itemId: string;
+  recurrenceId?: string | null;
   viewerUserId?: string | null;
   pagination?: PageParams;
   query?: string;
@@ -52,17 +99,21 @@ export const list = async (params: {
   const { page, perPage, offset } = paginate(params.pagination ?? { page: 1, perPage: 50 });
   const query = params.query?.trim();
   const pattern = query ? `%${query}%` : null;
+  const recurrenceId = params.recurrenceId ?? null;
   const [countRow] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM spaces.comments c
     WHERE c.item_id = ${params.itemId}
+      AND c.recurrence_id IS NOT DISTINCT FROM ${recurrenceId}::timestamptz
       AND (${pattern}::text IS NULL OR c.content ILIKE ${pattern})
   `;
   const rows = await sql<DbComment[]>`
-    SELECT c.id, c.item_id, c.user_id, u.display_name AS user_name, u.avatar_hash AS user_avatar_hash, c.content, c.created_at, c.updated_at
+    SELECT c.id, c.item_id, c.recurrence_id, c.user_id, u.display_name AS user_name, u.avatar_hash AS user_avatar_hash,
+           c.content, c.created_at, c.updated_at
     FROM spaces.comments c
     LEFT JOIN auth.users u ON c.user_id = u.id
     WHERE c.item_id = ${params.itemId}
+      AND c.recurrence_id IS NOT DISTINCT FROM ${recurrenceId}::timestamptz
       AND (${pattern}::text IS NULL OR c.content ILIKE ${pattern})
     ORDER BY c.created_at DESC, c.id DESC
     LIMIT ${perPage}
@@ -83,7 +134,8 @@ export const list = async (params: {
  */
 export const get = async (params: { id: string; viewerUserId?: string | null }): Promise<SpaceComment | null> => {
   const [row] = await sql<DbComment[]>`
-    SELECT c.id, c.item_id, c.user_id, u.display_name AS user_name, u.avatar_hash AS user_avatar_hash, c.content, c.created_at, c.updated_at
+    SELECT c.id, c.item_id, c.recurrence_id, c.user_id, u.display_name AS user_name, u.avatar_hash AS user_avatar_hash,
+           c.content, c.created_at, c.updated_at
     FROM spaces.comments c
     LEFT JOIN auth.users u ON c.user_id = u.id
     WHERE c.id = ${params.id}
@@ -94,28 +146,41 @@ export const get = async (params: { id: string; viewerUserId?: string | null }):
 /**
  * Create a new comment
  */
-export const create = async (params: { itemId: string; userId: string; content: string }): Promise<MutationResult<SpaceComment>> => {
+export const create = async (params: {
+  itemId: string;
+  recurrenceId?: string | null;
+  dateConfig?: DateContext;
+  userId: string;
+  content: string;
+}): Promise<MutationResult<SpaceComment>> => {
   const { itemId, userId, content } = params;
+  const recurrenceId = params.recurrenceId ?? null;
 
-  // Verify item exists
-  const [itemExists] = await sql<{ id: string }[]>`
-    SELECT id FROM spaces.items WHERE id = ${itemId}
-  `;
+  const inserted = await sql.begin(async (tx): Promise<MutationResult<DbComment>> => {
+    if (recurrenceId) {
+      if (!(await isValidOccurrenceScope(tx, itemId, recurrenceId, params.dateConfig))) {
+        return { ok: false, error: "Recurring occurrence not found", status: 404 };
+      }
+    } else {
+      const [itemExists] = await tx<{ id: string }[]>`
+        SELECT id
+        FROM spaces.items
+        WHERE id = ${itemId}
+        FOR SHARE
+      `;
+      if (!itemExists) return { ok: false, error: "Item not found", status: 404 };
+    }
 
-  if (!itemExists) {
-    return { ok: false, error: "Item not found", status: 404 };
-  }
+    const [row] = await tx<DbComment[]>`
+      INSERT INTO spaces.comments (item_id, recurrence_id, user_id, content)
+      VALUES (${itemId}, ${recurrenceId}, ${userId}, ${content})
+      RETURNING id, item_id, recurrence_id, user_id, content, created_at, updated_at
+    `;
+    return row ? { ok: true, data: row } : { ok: false, error: "Failed to create comment", status: 500 };
+  });
+  if (!inserted.ok) return inserted;
 
-  const [row] = await sql<DbComment[]>`
-    INSERT INTO spaces.comments (item_id, user_id, content)
-    VALUES (${itemId}, ${userId}, ${content})
-    RETURNING id, item_id, user_id, content, created_at, updated_at
-  `;
-
-  if (!row) {
-    return { ok: false, error: "Failed to create comment", status: 500 };
-  }
-
+  const row = inserted.data;
   // Get user name
   const [user] = await sql<{ display_name: string; avatar_hash: string | null }[]>`
     SELECT display_name, avatar_hash FROM auth.users WHERE id = ${userId}
@@ -152,7 +217,7 @@ export const update = async (params: { id: string; content: string; userId: stri
     UPDATE spaces.comments
     SET content = ${content}, updated_at = now()
     WHERE id = ${id}
-    RETURNING id, item_id, user_id, content, created_at, updated_at
+    RETURNING id, item_id, recurrence_id, user_id, content, created_at, updated_at
   `;
 
   if (!row) {

@@ -27,6 +27,8 @@ type Props = {
   currentUserId: string;
   /** Newest bounded comments page rendered with the detail snapshot. */
   initialCommentsPage: SpaceItemDetail["comments"];
+  commentTarget: SpaceItemDetail["commentTarget"];
+  recurringContext: SpaceItemDetail["recurringContext"];
   dateConfig?: DateContext;
   canWrite: boolean;
 };
@@ -349,6 +351,17 @@ function AssigneesSection(props: {
  */
 export default function ItemDetailPanel(props: Props) {
   const [commentsPage, setCommentsPage] = createSignal(props.initialCommentsPage);
+  const isGeneratedOccurrence = () => Boolean(props.recurringContext && !props.recurringContext.isOverride);
+  const canEditItem = () => props.canWrite && !isGeneratedOccurrence();
+  const scheduleStart = () => props.recurringContext?.startsAt ?? props.item.startsAt;
+  const scheduleEnd = () => props.recurringContext?.endsAt ?? props.item.endsAt;
+  const seriesHref = () => {
+    if (!props.recurringContext) return props.baseUrl;
+    const url = new URL(props.baseUrl, "http://spaces.local");
+    url.searchParams.set("item", props.recurringContext.seriesItemId);
+    url.searchParams.delete("occurrence");
+    return `${url.pathname}?${url.searchParams.toString()}`;
+  };
 
   const patchItem = async (data: Record<string, unknown>) => {
     const res = await apiClient[":id"].items[":itemId"].$patch({
@@ -370,8 +383,12 @@ export default function ItemDetailPanel(props: Props) {
   const loadCommentsPage = async (page: number, signal: AbortSignal) => {
     const res = await apiClient[":id"].items[":itemId"].comments.page.$get(
       {
-        param: { id: props.spaceId, itemId: props.item.id },
-        query: { page: String(page), per_page: String(props.initialCommentsPage.perPage) },
+        param: { id: props.spaceId, itemId: props.commentTarget.itemId },
+        query: {
+          page: String(page),
+          per_page: String(props.initialCommentsPage.perPage),
+          ...(props.commentTarget.recurrenceId ? { recurrence_id: props.commentTarget.recurrenceId } : {}),
+        },
       },
       { init: { signal } },
     );
@@ -600,10 +617,15 @@ export default function ItemDetailPanel(props: Props) {
                   <i class="ti ti-lock" /> Read only
                 </span>
               </Show>
+              <Show when={props.recurringContext}>
+                <span class="inline-flex items-center gap-1.5 font-medium text-secondary">
+                  <i class="ti ti-repeat" /> This occurrence
+                </span>
+              </Show>
             </div>
           </div>
           <div class="flex shrink-0 items-center gap-1">
-            <Show when={props.canWrite}>
+            <Show when={canEditItem()}>
               <Dropdown
                 trigger={
                   <button type="button" class="icon-btn" aria-label="More item actions">
@@ -629,25 +651,40 @@ export default function ItemDetailPanel(props: Props) {
           </div>
         </div>
 
-        <Show when={props.canWrite}>
+        <Show when={props.canWrite || props.recurringContext}>
           <div class="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => completeMutation.mutate(!isCompleted())}
-              disabled={isLoading()}
-              class={`${isCompleted() ? "btn-secondary text-emerald-700 dark:text-emerald-300" : "btn-success-subtle"} btn-sm`}
-            >
-              <Show when={isCompleted() || completeMutation.loading()}>
-                <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} />
-              </Show>
-              <Show when={!isCompleted() && !completeMutation.loading()}>
-                <i class="ti ti-circle-check" />
-              </Show>
-              {isCompleted() ? "Reopen" : "Mark complete"}
-            </button>
-            <button type="button" class="btn-simple btn-sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
-              <i class="ti ti-pencil" /> Edit
-            </button>
+            <Show when={canEditItem()}>
+              <button
+                type="button"
+                onClick={() => completeMutation.mutate(!isCompleted())}
+                disabled={isLoading()}
+                class={`${isCompleted() ? "btn-secondary text-emerald-700 dark:text-emerald-300" : "btn-success-subtle"} btn-sm`}
+              >
+                <Show when={isCompleted() || completeMutation.loading()}>
+                  <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} />
+                </Show>
+                <Show when={!isCompleted() && !completeMutation.loading()}>
+                  <i class="ti ti-circle-check" />
+                </Show>
+                {isCompleted() ? "Reopen" : "Mark complete"}
+              </button>
+              <button type="button" class="btn-simple btn-sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
+                <i class="ti ti-pencil" /> Edit
+              </button>
+            </Show>
+            <Show when={props.recurringContext}>
+              <a
+                href={seriesHref()}
+                class="btn-simple btn-sm"
+                onClick={(event) => {
+                  if (!shouldHandleDetailClick(event, event.currentTarget)) return;
+                  event.preventDefault();
+                  requestSpacesRouteNavigation(seriesHref(), { scroll: "preserve" });
+                }}
+              >
+                <i class="ti ti-repeat" /> View series
+              </a>
+            </Show>
           </div>
         </Show>
       </header>
@@ -657,7 +694,7 @@ export default function ItemDetailPanel(props: Props) {
           <section class="detail-section">
             <SectionHeader
               title={scheduleTitle()}
-              onEdit={props.canWrite ? () => editItemMutation.mutate(undefined) : undefined}
+              onEdit={canEditItem() ? () => editItemMutation.mutate(undefined) : undefined}
               editLabel={isEvent() ? "Edit event time" : "Edit deadline"}
               disabled={isLoading()}
             />
@@ -677,11 +714,11 @@ export default function ItemDetailPanel(props: Props) {
             >
               <dl class="detail-facts">
                 <dt class="detail-fact-key">Start</dt>
-                <dd>{dates.formatDateTime(props.item.startsAt!)}</dd>
+                <dd>{dates.formatDateTime(scheduleStart()!)}</dd>
                 <dt class="detail-fact-key">End</dt>
-                <dd>{dates.formatDateTime(props.item.endsAt!)}</dd>
+                <dd>{dates.formatDateTime(scheduleEnd()!)}</dd>
                 <dt class="detail-fact-key">Duration</dt>
-                <dd>{dates.formatDuration(props.item.startsAt!, props.item.endsAt!)}</dd>
+                <dd>{dates.formatDuration(scheduleStart()!, scheduleEnd()!)}</dd>
                 <Show when={recurrenceSummary()}>
                   <dt class="detail-fact-key">Repeat</dt>
                   <dd>
@@ -700,7 +737,7 @@ export default function ItemDetailPanel(props: Props) {
           <section class="detail-section">
             <SectionHeader
               title="Event details"
-              onEdit={props.canWrite ? () => editItemMutation.mutate(undefined) : undefined}
+              onEdit={canEditItem() ? () => editItemMutation.mutate(undefined) : undefined}
               disabled={isLoading()}
             />
             <dl class="detail-facts">
@@ -724,14 +761,14 @@ export default function ItemDetailPanel(props: Props) {
           <section class="detail-section" style="view-transition-name: space-item-detail-description">
             <SectionHeader
               title="Description"
-              onEdit={props.canWrite ? () => editItemMutation.mutate(undefined) : undefined}
+              onEdit={canEditItem() ? () => editItemMutation.mutate(undefined) : undefined}
               disabled={isLoading()}
             />
             <MarkdownView html={markdown.render(props.item.description!)} smallHeadings class="text-sm" />
           </section>
         </Show>
 
-        <Show when={props.canWrite || props.item.priority || (props.item.tags?.length ?? 0) > 0}>
+        <Show when={canEditItem() || props.item.priority || (props.item.tags?.length ?? 0) > 0}>
           <section class="detail-section">
             <h3 class="detail-section-label">Classify</h3>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -743,7 +780,7 @@ export default function ItemDetailPanel(props: Props) {
                 onChange={(v) => updateMutation.mutate({ priority: v })}
                 loading={isLoading()}
                 allowClear
-                readOnly={!props.canWrite}
+                readOnly={!canEditItem()}
               />
               <div>
                 <h3 class="section-label mb-1">Tags</h3>
@@ -752,14 +789,14 @@ export default function ItemDetailPanel(props: Props) {
                   selectedIds={props.item.tags?.map((t) => t.id) ?? []}
                   onChange={(ids) => updateMutation.mutate({ tagIds: ids })}
                   loading={isLoading()}
-                  readOnly={!props.canWrite}
+                  readOnly={!canEditItem()}
                 />
               </div>
             </div>
           </section>
         </Show>
 
-        <Show when={props.canWrite || (props.item.assignees?.length ?? 0) > 0}>
+        <Show when={canEditItem() || (props.item.assignees?.length ?? 0) > 0}>
           <section class="detail-section">
             <h3 class="detail-section-label">Assignees</h3>
             <AssigneesSection
@@ -767,7 +804,7 @@ export default function ItemDetailPanel(props: Props) {
               assignees={props.item.assignees ?? []}
               onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
               loading={isLoading()}
-              disabled={!props.canWrite}
+              disabled={!canEditItem()}
             />
           </section>
         </Show>
@@ -776,7 +813,8 @@ export default function ItemDetailPanel(props: Props) {
           <section class="detail-section" style="view-transition-name: space-item-detail-comments">
             <CommentsSection
               spaceId={props.spaceId}
-              itemId={props.item.id}
+              itemId={props.commentTarget.itemId}
+              recurrenceId={props.commentTarget.recurrenceId}
               comments={commentsPage().items}
               total={commentsPage().total}
               hasMore={commentsPage().hasNext}

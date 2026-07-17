@@ -4,7 +4,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceTag, SpaceWormhole } from "@/contracts";
-import { getDetailItemFromUrl } from "../../../lib/detail";
+import { getDetailItemFromUrl, getDetailOccurrenceFromUrl } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
 import {
   publishSpacesDetailState,
@@ -30,6 +30,7 @@ type Props = {
 
 type DetailRequest = {
   itemId: string;
+  occurrenceId: string | null;
   href: string;
   history: "push" | "replace" | "none";
 };
@@ -44,6 +45,20 @@ const commitHistory = (request: DetailRequest) => {
   else window.history.pushState(null, "", request.href);
 };
 
+const detailState = (detail: SpaceItemDetail | null) => {
+  if (!detail) return { itemId: null, occurrenceId: null, selectionId: null };
+  const recurring = detail.recurringContext;
+  return {
+    itemId: detail.item.id,
+    occurrenceId: recurring?.recurrenceId ?? null,
+    selectionId: recurring
+      ? recurring.isOverride
+        ? detail.item.id
+        : `${recurring.seriesItemId}:${recurring.recurrenceId}`
+      : detail.item.id,
+  };
+};
+
 export default function ItemDetailRoute(props: Props) {
   const [detail, setDetail] = createSignal<SpaceItemDetail | null>(props.initialDetail);
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -51,13 +66,16 @@ export default function ItemDetailRoute(props: Props) {
     setDetail(null);
     if (replace) window.history.replaceState(null, "", href);
     else window.history.pushState(null, "", href);
-    publishSpacesDetailState(null);
+    publishSpacesDetailState(detailState(null));
   };
   const loadDetail = mutations.create<{ request: DetailRequest; detail: SpaceItemDetail }, DetailRequest, DetailLoadContext>({
     onBefore: (request) => ({ request }),
     mutation: async (request, context) => {
       const response = await apiClient[":id"].items[":itemId"].detail.$get(
-        { param: { id: props.spaceId, itemId: request.itemId } },
+        {
+          param: { id: props.spaceId, itemId: request.itemId },
+          query: request.occurrenceId ? { recurrence_id: request.occurrenceId } : {},
+        },
         { init: { signal: context.abortSignal } },
       );
       if (response.status === 401 || response.status === 403) {
@@ -71,7 +89,7 @@ export default function ItemDetailRoute(props: Props) {
     onSuccess: (result) => {
       setDetail(result.detail);
       commitHistory(result.request);
-      publishSpacesDetailState(result.detail.item.id);
+      publishSpacesDetailState(detailState(result.detail));
     },
     onError: (error, context) => {
       if (error instanceof DetailNotFoundError && context?.request.history === "none") {
@@ -100,12 +118,22 @@ export default function ItemDetailRoute(props: Props) {
   const refreshCurrentDetail = () => {
     const itemId = detail()?.item.id ?? getDetailItemFromUrl();
     if (!itemId) return;
+    const occurrenceId = detail()?.recurringContext?.recurrenceId ?? getDetailOccurrenceFromUrl();
     if (refreshTimer) clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => requestDetail({ itemId, href: window.location.href, history: "none" }), 120);
+    refreshTimer = setTimeout(() => requestDetail({ itemId, occurrenceId, href: window.location.href, history: "none" }), 120);
   };
 
   onMount(() => {
-    publishSpacesDetailState(detail()?.item.id ?? null);
+    publishSpacesDetailState(detailState(detail()));
+    const initialItemId = getDetailItemFromUrl();
+    if (!detail() && initialItemId) {
+      requestDetail({
+        itemId: initialItemId,
+        occurrenceId: getDetailOccurrenceFromUrl(),
+        href: window.location.href,
+        history: "none",
+      });
+    }
 
     const onNavigate = (event: Event) => {
       const request = (event as CustomEvent<SpacesDetailNavigation>).detail;
@@ -114,21 +142,27 @@ export default function ItemDetailRoute(props: Props) {
         closeDetail(request.href, request.replace);
         return;
       }
-      requestDetail({ itemId: request.itemId, href: request.href, history: request.replace ? "replace" : "push" });
+      requestDetail({
+        itemId: request.itemId,
+        occurrenceId: request.occurrenceId,
+        href: request.href,
+        history: request.replace ? "replace" : "push",
+      });
     };
     const onPopState = () => {
       const itemId = getDetailItemFromUrl();
+      const occurrenceId = getDetailOccurrenceFromUrl();
       if (!itemId) {
         loadDetail.abort();
         setDetail(null);
-        publishSpacesDetailState(null);
+        publishSpacesDetailState(detailState(null));
         return;
       }
-      if (detail()?.item.id === itemId) {
-        publishSpacesDetailState(itemId);
+      if (detail()?.item.id === itemId && (detail()?.recurringContext?.recurrenceId ?? null) === occurrenceId) {
+        publishSpacesDetailState(detailState(detail()));
         return;
       }
-      requestDetail({ itemId, href: window.location.href, history: "none" });
+      requestDetail({ itemId, occurrenceId, href: window.location.href, history: "none" });
     };
     const onInvalidated = (event: Event) => {
       const invalidation = (event as CustomEvent<SpacesDataInvalidation>).detail;
@@ -147,7 +181,8 @@ export default function ItemDetailRoute(props: Props) {
     });
   });
 
-  const scrollKey = () => `spaces-detail-${props.spaceId}-${detail()?.item.id ?? "empty"}`;
+  const scrollKey = () =>
+    `spaces-detail-${props.spaceId}-${detail()?.item.id ?? "empty"}-${detail()?.recurringContext?.recurrenceId ?? "series"}`;
 
   return (
     <AppWorkspace.Detail id="space-detail-panel" open={Boolean(detail())} viewTransitionName="space-detail-panel-shell">
@@ -175,6 +210,8 @@ export default function ItemDetailRoute(props: Props) {
               baseUrl={props.baseUrl}
               currentUserId={props.currentUserId}
               initialCommentsPage={current.comments}
+              commentTarget={current.commentTarget}
+              recurringContext={current.recurringContext}
               dateConfig={props.dateConfig}
               canWrite={props.canWrite}
             />

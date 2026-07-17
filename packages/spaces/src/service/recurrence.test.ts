@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { expandRecurringEvents, parseRecurrenceRule } from "./recurrence";
+import {
+  expandRecurringEvents,
+  parseRecurrenceRule,
+  resolveRecurringOccurrence,
+  shiftRecurrenceRule,
+  splitRecurringEvent,
+} from "./recurrence";
 
 const baseEvent = {
   id: "weekly",
@@ -137,5 +143,96 @@ describe("expandRecurringEvents", () => {
       "later:2026-05-06T12:00:00.000Z",
       "later:2026-05-07T12:00:00.000Z",
     ]);
+  });
+});
+
+describe("resolveRecurringOccurrence", () => {
+  test("resolves an included occurrence and rejects excluded or invented instants", () => {
+    const event = {
+      id: "daily",
+      title: "Daily stand-up",
+      start: "2026-07-01T09:00:00.000Z",
+      end: "2026-07-01T09:30:00.000Z",
+      recurrence: {
+        rrule: "FREQ=DAILY;COUNT=4",
+        dtstart: "2026-07-01T09:00:00.000Z",
+        exdate: ["2026-07-03T09:00:00.000Z"],
+      },
+    };
+
+    expect(resolveRecurringOccurrence({ event, recurrenceId: "2026-07-02T09:00:00.000Z" })).toEqual({
+      recurrenceId: "2026-07-02T09:00:00.000Z",
+      start: "2026-07-02T09:00:00.000Z",
+      end: "2026-07-02T09:30:00.000Z",
+      allDay: false,
+    });
+    expect(resolveRecurringOccurrence({ event, recurrenceId: "2026-07-03T09:00:00.000Z" })).toBeNull();
+    expect(resolveRecurringOccurrence({ event, recurrenceId: "2026-07-02T10:00:00.000Z" })).toBeNull();
+  });
+});
+
+describe("recurrence series changes", () => {
+  test("moves an absolute UNTIL boundary with the series", () => {
+    expect(shiftRecurrenceRule("FREQ=DAILY;COUNT=4;UNTIL=20260710T090000Z", 60 * 60 * 1000)).toBe(
+      "FREQ=DAILY;COUNT=4;UNTIL=20260710T100000Z",
+    );
+    expect(shiftRecurrenceRule("FREQ=DAILY;COUNT=4", 60 * 60 * 1000)).toBe("FREQ=DAILY;COUNT=4");
+  });
+
+  test("splits COUNT, UNTIL, and exceptions around the selected occurrence", () => {
+    const event = {
+      id: "daily",
+      title: "Daily stand-up",
+      start: "2026-07-01T09:00:00.000Z",
+      end: "2026-07-01T09:30:00.000Z",
+      recurrence: {
+        rrule: "FREQ=DAILY;COUNT=6;UNTIL=20260710T090000Z",
+        dtstart: "2026-07-01T09:00:00.000Z",
+        exdate: ["2026-07-02T09:00:00.000Z", "2026-07-05T09:00:00.000Z"],
+      },
+    };
+
+    expect(
+      splitRecurringEvent({
+        event,
+        recurrenceId: "2026-07-04T09:00:00.000Z",
+        nextStart: "2026-07-04T10:00:00.000Z",
+      }),
+    ).toEqual({
+      isFirstOccurrence: false,
+      previousRrule: "FREQ=DAILY;UNTIL=20260704T085959Z",
+      previousExdate: ["2026-07-02T09:00:00.000Z"],
+      nextRrule: "FREQ=DAILY;UNTIL=20260710T100000Z;COUNT=3",
+      nextExdate: ["2026-07-05T10:00:00.000Z"],
+    });
+  });
+
+  test("rejects an excluded split occurrence", () => {
+    expect(
+      splitRecurringEvent({
+        event: {
+          ...baseEvent,
+          recurrence: {
+            rrule: "FREQ=DAILY",
+            exdate: ["2026-05-05T09:00:00.000Z"],
+          },
+        },
+        recurrenceId: "2026-05-05T09:00:00.000Z",
+        nextStart: "2026-05-05T10:00:00.000Z",
+      }),
+    ).toBeNull();
+  });
+
+  test("identifies a split at the first occurrence", () => {
+    expect(
+      splitRecurringEvent({
+        event: {
+          ...baseEvent,
+          recurrence: { rrule: "FREQ=DAILY;COUNT=2" },
+        },
+        recurrenceId: baseEvent.start,
+        nextStart: "2026-05-04T10:00:00.000Z",
+      })?.isFirstOccurrence,
+    ).toBe(true);
   });
 });

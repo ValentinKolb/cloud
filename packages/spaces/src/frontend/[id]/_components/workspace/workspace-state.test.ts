@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import type { SpaceItem } from "@/contracts";
 
 const SPACE_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
@@ -8,6 +9,7 @@ const OTHER_SPACE_ID = "66666666-6666-4666-8666-666666666666";
 const calls: string[] = [];
 let permission = "read";
 let itemSpaceId = SPACE_ID;
+let listedCommentRecurrenceId: string | null | undefined;
 
 const space = {
   id: SPACE_ID,
@@ -19,7 +21,7 @@ const space = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 const column = { id: COLUMN_ID, spaceId: SPACE_ID, name: "To Do", color: null, rank: "1024", isDone: false };
-const item = {
+const item: SpaceItem = {
   id: ITEM_ID,
   spaceId: SPACE_ID,
   columnId: COLUMN_ID,
@@ -41,9 +43,11 @@ const item = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
+let loadedItem = item;
 const comment = {
   id: "55555555-5555-4555-8555-555555555555",
   itemId: ITEM_ID,
+  recurrenceId: null,
   userId: USER_ID,
   userName: "Ada",
   userAvatarHash: null,
@@ -86,13 +90,14 @@ mock.module("@/service", () => ({
       listFiltered: async () => ({ items: [item], total: 1, page: 1, pageSize: 50, totalPages: 1 }),
       get: async () => {
         calls.push("item.get");
-        return { ...item, spaceId: itemSpaceId };
+        return { ...loadedItem, spaceId: itemSpaceId };
       },
       calendar: { list: async () => [] },
     },
     comment: {
-      list: async () => {
+      list: async (params: { recurrenceId?: string | null }) => {
         calls.push("comment.list");
+        listedCommentRecurrenceId = params.recurrenceId;
         return { items: [comment], page: 1, perPage: 50, total: 1, hasNext: false };
       },
     },
@@ -114,6 +119,8 @@ beforeEach(() => {
   calls.splice(0);
   permission = "read";
   itemSpaceId = SPACE_ID;
+  loadedItem = item;
+  listedCommentRecurrenceId = undefined;
 });
 
 describe("Spaces workspace SSR state", () => {
@@ -139,8 +146,10 @@ describe("Spaces workspace SSR state", () => {
 
     expect(state.kind).toBe("ok");
     if (state.kind !== "ok") return;
-    expect(state.selectedItem?.id).toBe(ITEM_ID);
-    expect(state.selectedItemComments).toEqual({ items: [comment], page: 1, perPage: 50, total: 1, hasNext: false });
+    expect(state.selectedItemDetail?.item.id).toBe(ITEM_ID);
+    expect(state.selectedItemDetail?.comments).toEqual({ items: [comment], page: 1, perPage: 50, total: 1, hasNext: false });
+    expect(state.selectedItemDetail?.commentTarget).toEqual({ itemId: ITEM_ID, recurrenceId: null });
+    expect(state.selectedItemDetail?.recurringContext).toBeNull();
   });
 
   test("refreshes a view without loading item comments", async () => {
@@ -152,6 +161,39 @@ describe("Spaces workspace SSR state", () => {
 
     expect(snapshot.kind).toBe("list");
     expect(calls).not.toContain("comment.list");
+  });
+
+  test("loads one generated occurrence with an occurrence-scoped comment target", async () => {
+    const recurrenceId = "2026-07-17T09:00:00.000Z";
+    loadedItem = {
+      ...item,
+      startsAt: "2026-07-01T09:00:00.000Z",
+      endsAt: "2026-07-01T09:30:00.000Z",
+      recurrence: {
+        rrule: "FREQ=DAILY",
+        dtstart: "2026-07-01T09:00:00.000Z",
+        exdate: [],
+      },
+    };
+
+    const state = await loadSpacesWorkspaceState({
+      user: { id: USER_ID, roles: ["user"] },
+      spaceId: SPACE_ID,
+      href: `/app/spaces/${SPACE_ID}?view=calendar&item=${ITEM_ID}&occurrence=${encodeURIComponent(recurrenceId)}`,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok") return;
+    expect(state.selectedItemDetail?.recurringContext).toEqual({
+      seriesItemId: ITEM_ID,
+      recurrenceId,
+      startsAt: recurrenceId,
+      endsAt: "2026-07-17T09:30:00.000Z",
+      allDay: false,
+      isOverride: false,
+    });
+    expect(state.selectedItemDetail?.commentTarget).toEqual({ itemId: ITEM_ID, recurrenceId });
+    expect(listedCommentRecurrenceId).toBe(recurrenceId);
   });
 
   test("fails closed before reading cursor or snapshot data", async () => {

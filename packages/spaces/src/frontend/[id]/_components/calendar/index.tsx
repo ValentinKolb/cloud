@@ -20,7 +20,6 @@ import { apiClient } from "@/api/client";
 import { AssignedToFilterSchema, type CalendarItem, ItemTypeSchema, PrioritySchema, type Recurrence, type SpaceItem } from "@/contracts";
 import { readResponseError } from "../../../lib/response";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
-import { recurrenceUntilBefore } from "../shared/recurrence";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import { type CalendarFilter, defaultCalendarFilter, writeCalendarFilter } from "./filter";
 import type { CalendarProps, CalendarView } from "./types";
@@ -34,6 +33,7 @@ const buildCalendarHref = (
   date: Date,
   filter: CalendarFilter,
   item?: string,
+  occurrence?: string,
   dateConfig?: DateContext,
 ) => {
   const url = new URL(baseUrl, "http://spaces.local");
@@ -41,8 +41,14 @@ const buildCalendarHref = (
   url.searchParams.set("cv", view);
   url.searchParams.set("cd", calendar.formatDateKey(date, dateConfig));
   writeCalendarFilter(url, filter);
-  if (item) url.searchParams.set("item", item);
-  else url.searchParams.delete("item");
+  if (item) {
+    url.searchParams.set("item", item);
+    if (occurrence) url.searchParams.set("occurrence", occurrence);
+    else url.searchParams.delete("occurrence");
+  } else {
+    url.searchParams.delete("item");
+    url.searchParams.delete("occurrence");
+  }
   return `${url.pathname}?${url.searchParams.toString()}`;
 };
 
@@ -61,7 +67,8 @@ const toCalendarEvent = (
   dateConfig?: DateContext,
 ): CalendarEvent => {
   const isDeadline = Boolean(item.deadline && !item.startsAt);
-  const detailItemId = item.recurringEventId ?? item.id;
+  const detailItemId = item.isRecurringInstance ? (item.recurringEventId ?? item.id) : item.id;
+  const occurrenceId = item.recurrenceId ?? undefined;
   return {
     id: item.id,
     title: item.title,
@@ -69,8 +76,8 @@ const toCalendarEvent = (
     end: eventEnd(item),
     allDay: item.allDay || !item.startsAt,
     color: priorityColor(item),
-    colorHex: isDeadline ? undefined : (item.tags?.[0]?.color ?? "var(--app-accent, #4d7c0f)"),
-    href: buildCalendarHref(baseUrl, view, date, filter, detailItemId, dateConfig),
+    colorHex: isDeadline ? undefined : (item.tags?.[0]?.color ?? "#0ea5e9"),
+    href: buildCalendarHref(baseUrl, view, date, filter, detailItemId, occurrenceId, dateConfig),
     dataSpaceItemId: detailItemId,
     calendarName: item.spaceName,
     location: item.location ?? undefined,
@@ -99,15 +106,6 @@ const recurrenceIdFromEvent = (event: CalendarEvent): string | null => {
 };
 
 const shiftedIso = (value: string, milliseconds: number): string => new Date(new Date(value).getTime() + milliseconds).toISOString();
-
-const upsertUntil = (rrule: string, until: string) =>
-  [
-    ...rrule
-      .split(";")
-      .filter((part) => !part.startsWith("UNTIL=") && !part.startsWith("COUNT="))
-      .filter(Boolean),
-    `UNTIL=${until}`,
-  ].join(";");
 
 const normalizeCreatePayload = <T extends ItemFormData>(data: T) => ({
   ...data,
@@ -268,14 +266,14 @@ export default function Calendar(props: CalendarProps) {
     },
   ];
   const routeTo = (view: CalendarView, date: Date, replace = false) => {
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.filter, undefined, props.dateConfig), {
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.filter, undefined, undefined, props.dateConfig), {
       replace,
       scroll: "preserve",
     });
   };
   const setFilter = (patch: Partial<CalendarFilter>) => {
     requestSpacesRouteNavigation(
-      buildCalendarHref(props.baseUrl, props.view, props.date, { ...props.filter, ...patch }, undefined, props.dateConfig),
+      buildCalendarHref(props.baseUrl, props.view, props.date, { ...props.filter, ...patch }, undefined, undefined, props.dateConfig),
       {
         replace: true,
         scroll: "preserve",
@@ -283,13 +281,9 @@ export default function Calendar(props: CalendarProps) {
     );
   };
   const selectEvent = (event: CalendarEvent) => {
-    const itemId = event.dataSpaceItemId ?? event.id;
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, props.filter, itemId, props.dateConfig), {
-      scroll: "preserve",
-    });
+    if (event.href) requestSpacesRouteNavigation(event.href, { scroll: "preserve" });
   };
-  const fetchItem = async (event: CalendarEvent) => {
-    const itemId = event.dataSpaceItemId ?? event.id;
+  const fetchItem = async (itemId: string) => {
     const itemRes = await apiClient[":id"].items[":itemId"].$get({ param: { id: props.spaceId, itemId } });
     if (!itemRes.ok) throw new Error(await readResponseError(itemRes, "Could not load event"));
     return itemRes.json();
@@ -334,17 +328,16 @@ export default function Calendar(props: CalendarProps) {
   };
   const splitRecurringSeries = async (parent: SpaceItem, recurrenceId: string, next: CalendarEventTimeChange) => {
     if (!parent.recurrence) throw new Error("Recurring series data is missing");
-    await patchItemTime(parent.id, {
-      recurrence: { ...parent.recurrence, rrule: upsertUntil(parent.recurrence.rrule, recurrenceUntilBefore(recurrenceId)) },
-    });
-    await createItem(
-      createPayloadFromItem(parent, {
+    const res = await apiClient[":id"].items[":itemId"].recurrence.split.$post({
+      param: { id: props.spaceId, itemId: parent.id },
+      json: {
+        recurrenceId,
         startsAt: next.start.toISOString(),
         endsAt: next.end.toISOString(),
         allDay: next.allDay ?? false,
-        recurrence: { ...parent.recurrence, dtstart: next.start.toISOString(), exdate: [] },
-      }),
-    );
+      },
+    });
+    if (!res.ok) throw new Error(await readResponseError(res, "Could not update recurring event"));
   };
   const updateRecurringSeries = async (event: CalendarEvent, parent: SpaceItem, next: CalendarEventTimeChange) => {
     const sourceStart = new Date(event.start);
@@ -356,13 +349,14 @@ export default function Calendar(props: CalendarProps) {
       startsAt,
       endsAt,
       allDay: next.allDay ?? false,
-      recurrence: parent.recurrence ? { ...parent.recurrence, dtstart: startsAt } : undefined,
     });
   };
   const applyRecurringTimeChange = async (event: CalendarEvent, next: CalendarEventTimeChange, scope: RecurringEditScope) => {
     const recurrenceId = recurrenceIdFromEvent(event);
     if (!recurrenceId) return false;
-    const parent = await fetchItem(event);
+    const source = props.items.find((item) => item.id === event.id);
+    const seriesItemId = source?.recurringEventId ?? event.dataSpaceItemId ?? event.id;
+    const parent = await fetchItem(seriesItemId);
 
     if (scope === "occurrence") {
       await updateRecurringOccurrence(event, parent, recurrenceId, next);
@@ -575,10 +569,10 @@ export default function Calendar(props: CalendarProps) {
           </div>
         }
         getViewHref={(view) =>
-          buildCalendarHref(props.baseUrl, view as CalendarView, props.date, props.filter, undefined, props.dateConfig)
+          buildCalendarHref(props.baseUrl, view as CalendarView, props.date, props.filter, undefined, undefined, props.dateConfig)
         }
         getDateHref={(date, view) =>
-          buildCalendarHref(props.baseUrl, view as CalendarView, date, props.filter, undefined, props.dateConfig)
+          buildCalendarHref(props.baseUrl, view as CalendarView, date, props.filter, undefined, undefined, props.dateConfig)
         }
         getEventHref={(event) => event.href}
         selectedEventId={props.selectedItemId}

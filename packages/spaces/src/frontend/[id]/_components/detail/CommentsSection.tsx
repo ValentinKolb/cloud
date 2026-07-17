@@ -10,6 +10,7 @@ import { readResponseError } from "../../../lib/response";
 type Props = {
   spaceId: string;
   itemId: string;
+  recurrenceId: string | null;
   comments: SpaceComment[];
   total: number;
   hasMore: boolean;
@@ -29,6 +30,7 @@ export default function CommentsSection(props: Props) {
     mutation: async (content: string) => {
       const res = await apiClient[":id"].items[":itemId"].comments.$post({
         param: { id: props.spaceId, itemId: props.itemId },
+        query: props.recurrenceId ? { recurrence_id: props.recurrenceId } : {},
         json: { content },
       });
       if (!res.ok) {
@@ -103,7 +105,7 @@ export default function CommentsSection(props: Props) {
   return (
     <div class="flex flex-col gap-3">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h3 class="detail-section-label mb-0">Comments</h3>
+        <h3 class="detail-section-label mb-0">{props.recurrenceId ? "Occurrence comments" : "Comments"}</h3>
         <div class="flex items-center gap-2">
           <span class="inline-flex items-center rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 text-[11px] font-medium text-secondary">
             {props.total} {props.total === 1 ? "comment" : "comments"}
@@ -120,7 +122,7 @@ export default function CommentsSection(props: Props) {
         when={sortedComments().length > 0}
         fallback={
           <Placeholder align="left" class="px-0 py-2">
-            No comments yet.
+            {props.recurrenceId ? "No comments for this occurrence yet." : "No comments yet."}
           </Placeholder>
         }
       >

@@ -58,9 +58,13 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
     query: state.query,
     canWrite: state.canWrite,
   };
-  const initialDetail: SpaceItemDetail | null = state.selectedItem
-    ? { item: state.selectedItem, comments: state.selectedItemComments }
-    : null;
+  const initialDetail: SpaceItemDetail | null = state.selectedItemDetail;
+  const selectedItemId = initialDetail?.item.id ?? "";
+  const selectedCalendarEventId = initialDetail?.recurringContext
+    ? initialDetail.recurringContext.isOverride
+      ? initialDetail.item.id
+      : `${initialDetail.recurringContext.seriesItemId}:${initialDetail.recurringContext.recurrenceId}`
+    : selectedItemId;
 
   return (
     <>
@@ -80,7 +84,7 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
                 tags={state.space.tags}
                 filter={route.filter}
                 initialItemsResult={state.itemsResult}
-                initialSelectedItemId={state.selectedItem?.id ?? ""}
+                initialSelectedItemId={selectedItemId}
                 itemLinkBaseUrl={route.itemLinkBaseUrl}
                 paginationBaseUrl={route.paginationBaseUrl}
                 dateConfig={props.dateConfig}
@@ -95,7 +99,7 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
                 tags={state.space.tags}
                 wormholes={state.wormholes}
                 initialBuckets={state.kanbanBuckets}
-                selectedItemId={state.selectedItem?.id ?? ""}
+                selectedItemId={selectedItemId}
                 dateConfig={props.dateConfig}
                 canWrite={state.canWrite}
               />
@@ -113,7 +117,7 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
                   items: state.calendarItems,
                   weather: state.calendarWeather,
                 }}
-                selectedItemId={state.selectedItem?.id ?? ""}
+                selectedItemId={selectedCalendarEventId}
                 dateConfig={props.dateConfig}
                 canWrite={state.canWrite}
               />

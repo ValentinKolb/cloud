@@ -9,6 +9,13 @@ describe("Spaces detail navigation classification", () => {
     const list = "/app/spaces/one?view=list&status=active";
     expect(isDetailOnlySpacesNavigation(list, `${list}&item=item-1`, ORIGIN)).toBe(true);
     expect(isDetailOnlySpacesNavigation(`${list}&item=item-1`, `${list}&item=item-2`, ORIGIN)).toBe(true);
+    expect(
+      isDetailOnlySpacesNavigation(
+        `${list}&item=item-1&occurrence=2026-07-17T09%3A00%3A00.000Z`,
+        `${list}&item=item-1&occurrence=2026-07-18T09%3A00%3A00.000Z`,
+        ORIGIN,
+      ),
+    ).toBe(true);
     expect(isDetailOnlySpacesNavigation(`${list}&item=item-1`, list, ORIGIN)).toBe(true);
   });
 

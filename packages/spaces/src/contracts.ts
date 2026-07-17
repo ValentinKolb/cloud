@@ -113,6 +113,7 @@ export type SpaceItem = z.infer<typeof SpaceItemSchema>;
 export const SpaceCommentSchema = z.object({
   id: SpaceUuidSchema.describe("Comment UUID"),
   itemId: SpaceUuidSchema.describe("Parent item UUID"),
+  recurrenceId: z.string().datetime().nullable().describe("Recurring occurrence timestamp, or null for an item or entire series"),
   userId: SpaceUuidSchema.nullable().describe("Author user UUID"),
   userName: z.string().nullable().describe("Author display name"),
   userAvatarHash: z.string().nullable().describe("Author avatar hash"),
@@ -282,6 +283,19 @@ export const UpdateItemSchema = z
     path: ["endsAt"],
   });
 export type UpdateItem = z.infer<typeof UpdateItemSchema>;
+
+export const SplitRecurringItemSchema = z
+  .object({
+    recurrenceId: z.string().datetime().describe("Original timestamp of the first occurrence in the new series"),
+    startsAt: z.string().datetime().describe("New start time for the first occurrence"),
+    endsAt: z.string().datetime().describe("New end time for the first occurrence"),
+    allDay: z.boolean().describe("Whether the new series is all-day"),
+  })
+  .refine((data) => new Date(data.endsAt) > new Date(data.startsAt), {
+    message: "End time must be after start time",
+    path: ["endsAt"],
+  });
+export type SplitRecurringItem = z.infer<typeof SplitRecurringItemSchema>;
 
 export const MoveItemSchema = z.object({
   columnId: SpaceUuidSchema.describe("Target column UUID"),

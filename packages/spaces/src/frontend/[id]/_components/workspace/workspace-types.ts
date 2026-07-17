@@ -47,9 +47,23 @@ export const SpaceCommentPageSchema = z.object({
   hasNext: z.boolean(),
 });
 
+export const SpaceItemRecurringContextSchema = z.object({
+  seriesItemId: z.string().uuid(),
+  recurrenceId: z.string().datetime(),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  allDay: z.boolean(),
+  isOverride: z.boolean(),
+});
+
 export const SpaceItemDetailSchema = z.object({
   item: SpaceItemSchema,
   comments: SpaceCommentPageSchema,
+  commentTarget: z.object({
+    itemId: z.string().uuid(),
+    recurrenceId: z.string().datetime().nullable(),
+  }),
+  recurringContext: SpaceItemRecurringContextSchema.nullable(),
 });
 export type SpaceItemDetail = z.infer<typeof SpaceItemDetailSchema>;
 
@@ -90,8 +104,7 @@ const SpacesWorkspaceStateSchema = z.discriminatedUnion("kind", [
     calendarFilter: CalendarFilterSchema,
     calendarItems: z.array(CalendarItemSchema),
     calendarWeather: z.record(z.string(), DayWeatherSchema),
-    selectedItem: SpaceItemSchema.nullable(),
-    selectedItemComments: SpaceCommentPageSchema,
+    selectedItemDetail: SpaceItemDetailSchema.nullable(),
     wormholes: z.array(SpaceWormholeSchema),
   }),
 ]);
@@ -114,6 +127,7 @@ const withViewOverrides = (params: { baseUrl: string; hasViewOverride: boolean; 
 const withoutSelectedItem = (href: string) => {
   const url = new URL(href, "http://localhost");
   url.searchParams.delete(QueryParams.ITEM);
+  url.searchParams.delete(QueryParams.OCCURRENCE);
   const query = url.searchParams.toString();
   return query ? `${url.pathname}?${query}` : url.pathname;
 };

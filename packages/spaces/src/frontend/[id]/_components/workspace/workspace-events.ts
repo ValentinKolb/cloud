@@ -5,11 +5,14 @@ export const SPACES_DATA_INVALIDATED_EVENT = "spaces-data-invalidated";
 export type SpacesDetailNavigation = {
   href: string;
   itemId: string | null;
+  occurrenceId: string | null;
   replace?: boolean;
 };
 
 export type SpacesDetailState = {
   itemId: string | null;
+  occurrenceId: string | null;
+  selectionId: string | null;
 };
 
 type SpacesDataDomain = "view" | "detail";
@@ -20,6 +23,7 @@ export type SpacesDataInvalidation = {
 const routeKeyWithoutItem = (url: URL) => {
   const params = new URLSearchParams(url.search);
   params.delete("item");
+  params.delete("occurrence");
   params.sort();
   return `${url.pathname}?${params.toString()}`;
 };
@@ -30,8 +34,8 @@ export const isDetailOnlySpacesNavigation = (currentHref: string, targetHref: st
   return target.origin === current.origin && routeKeyWithoutItem(target) === routeKeyWithoutItem(current);
 };
 
-export const publishSpacesDetailState = (itemId: string | null) => {
-  window.dispatchEvent(new CustomEvent<SpacesDetailState>(SPACES_DETAIL_STATE_EVENT, { detail: { itemId } }));
+export const publishSpacesDetailState = (detail: SpacesDetailState) => {
+  window.dispatchEvent(new CustomEvent<SpacesDetailState>(SPACES_DETAIL_STATE_EVENT, { detail }));
 };
 
 export const requestSpacesDataRefresh = (domains: SpacesDataDomain[] = ["view", "detail"]) => {
@@ -48,7 +52,12 @@ export const requestSpacesRouteNavigation = (href: string, options: { replace?: 
   if (isDetailOnlySpacesNavigation(current.href, target.href, current.origin)) {
     window.dispatchEvent(
       new CustomEvent<SpacesDetailNavigation>(SPACES_DETAIL_NAVIGATION_EVENT, {
-        detail: { href: `${target.pathname}${target.search}`, itemId: target.searchParams.get("item"), replace: options.replace },
+        detail: {
+          href: `${target.pathname}${target.search}`,
+          itemId: target.searchParams.get("item"),
+          occurrenceId: target.searchParams.get("occurrence"),
+          replace: options.replace,
+        },
       }),
     );
     return;

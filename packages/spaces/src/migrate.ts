@@ -221,6 +221,7 @@ export const migrate = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS spaces.comments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       item_id UUID NOT NULL REFERENCES spaces.items(id) ON DELETE CASCADE,
+      recurrence_id TIMESTAMPTZ,
       user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       content TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -228,9 +229,14 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_comments_item
-    ON spaces.comments(item_id, created_at)
+    ALTER TABLE spaces.comments
+    ADD COLUMN IF NOT EXISTS recurrence_id TIMESTAMPTZ
   `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_comments_item_scope
+    ON spaces.comments(item_id, recurrence_id, created_at)
+  `.simple();
+  await sql`DROP INDEX IF EXISTS spaces.idx_comments_item`.simple();
   console.log("  ✓ spaces.comments table");
 
   await sql`

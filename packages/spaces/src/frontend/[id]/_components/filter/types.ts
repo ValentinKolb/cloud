@@ -23,6 +23,7 @@ export const QueryParams = {
   VIEW: "view",
   // Item selection
   ITEM: "item",
+  OCCURRENCE: "occurrence",
   // Mode
   MODE: "mode",
   CALENDAR_VIEW: "cv",
@@ -68,6 +69,7 @@ export const defaultFilter: FilterState = {
 const PRESERVED_QUERY_PARAMS = [
   QueryParams.VIEW,
   QueryParams.ITEM,
+  QueryParams.OCCURRENCE,
   QueryParams.MODE,
   QueryParams.CALENDAR_VIEW,
   QueryParams.CALENDAR_DATE,

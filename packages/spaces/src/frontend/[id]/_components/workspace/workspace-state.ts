@@ -3,6 +3,7 @@ import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { CalendarItem, ItemListResult, SpaceDetail, SpaceItem, SpaceWormhole, User } from "@/contracts";
 import { spacesService } from "@/service";
 import { latestSpaceEventCursor } from "@/service/events";
+import { resolveRecurringOccurrence } from "@/service/recurrence";
 import { type CalendarFilter, parseCalendarFilter } from "../calendar/filter";
 import type { CalendarView, DayWeather } from "../calendar/types";
 import { defaultFilter, type FilterState, parseFilterFromUrl } from "../filter/types";
@@ -29,6 +30,7 @@ type RouteState = {
   hasOverride: boolean;
   filter: FilterState;
   selectedItemId: string;
+  selectedOccurrenceId: string | null;
   calendarViewParam: CalendarView | null;
   calendarDateParam?: string;
   calendarFilter: CalendarFilter;
@@ -38,7 +40,6 @@ const LIST_PAGE_SIZE = 50;
 const KANBAN_PAGE_SIZE = 30;
 const CALENDAR_VIEWS: CalendarView[] = ["day", "week", "month", "year"];
 const COMMENT_PAGE_SIZE = 50;
-const emptyCommentPage = () => ({ items: [], page: 1, perPage: COMMENT_PAGE_SIZE, total: 0, hasNext: false });
 
 const resolveView = (url: URL, settings: SpaceUserSettings) => {
   const viewParam = url.searchParams.get("view") ?? undefined;
@@ -58,6 +59,7 @@ const resolveRouteState = (params: WorkspaceRequest): RouteState => {
     hasOverride: hasViewOverride,
     filter: currentView === "list" || currentView === "table" ? parseFilterFromUrl(url) : defaultFilter,
     selectedItemId: url.searchParams.get("item") ?? "",
+    selectedOccurrenceId: url.searchParams.get("occurrence"),
     calendarViewParam: url.searchParams.get("cv") as CalendarView | null,
     calendarDateParam: url.searchParams.get("cd") ?? undefined,
     calendarFilter: parseCalendarFilter(url),
@@ -257,28 +259,97 @@ const loadCalendarState = async (params: {
   };
 };
 
+const resolveRecurringDetail = async (params: {
+  item: SpaceItem;
+  occurrenceId: string;
+  spaceId: string;
+  dateConfig?: DateContext;
+}): Promise<SpaceItemDetail["recurringContext"]> => {
+  const occurrenceDate = new Date(params.occurrenceId);
+  if (Number.isNaN(occurrenceDate.getTime())) return null;
+  const recurrenceId = occurrenceDate.toISOString();
+
+  if (params.item.recurringEventId) {
+    if (params.item.recurrenceId !== recurrenceId || !params.item.startsAt || !params.item.endsAt) return null;
+    const series = await spacesService.item.get({ id: params.item.recurringEventId });
+    if (!series || series.spaceId !== params.spaceId || !series.recurrence) return null;
+    return {
+      seriesItemId: series.id,
+      recurrenceId,
+      startsAt: params.item.startsAt,
+      endsAt: params.item.endsAt,
+      allDay: params.item.allDay,
+      isOverride: true,
+    };
+  }
+
+  if (!params.item.recurrence || !params.item.startsAt || !params.item.endsAt) return null;
+  const occurrence = resolveRecurringOccurrence({
+    event: {
+      id: params.item.id,
+      title: params.item.title,
+      start: params.item.startsAt,
+      end: params.item.endsAt,
+      allDay: params.item.allDay,
+      recurrence: {
+        rrule: params.item.recurrence.rrule,
+        dtstart: params.item.recurrence.dtstart ?? params.item.startsAt,
+        exdate: params.item.recurrence.exdate,
+      },
+    },
+    recurrenceId,
+    dateConfig: params.dateConfig,
+  });
+  if (!occurrence) return null;
+  return {
+    seriesItemId: params.item.id,
+    recurrenceId,
+    startsAt: occurrence.start,
+    endsAt: occurrence.end,
+    allDay: occurrence.allDay,
+    isOverride: false,
+  };
+};
+
 const loadSelectedItemState = async (params: {
   selectedItemId: string;
+  selectedOccurrenceId: string | null;
   itemsResult: ItemListResult;
   spaceId: string;
   userId: string;
-}): Promise<{ selectedItem: SpaceItem | null; selectedItemComments: SpaceItemDetail["comments"] }> => {
-  if (!params.selectedItemId) return { selectedItem: null, selectedItemComments: emptyCommentPage() };
+  dateConfig?: DateContext;
+}): Promise<SpaceItemDetail | null> => {
+  if (!params.selectedItemId) return null;
 
   let selectedItem = params.itemsResult.items.find((item) => item.id === params.selectedItemId) ?? null;
   if (!selectedItem) {
     selectedItem = await spacesService.item.get({ id: params.selectedItemId });
     if (selectedItem?.spaceId !== params.spaceId) selectedItem = null;
   }
-  if (!selectedItem) return { selectedItem: null, selectedItemComments: emptyCommentPage() };
+  if (!selectedItem) return null;
 
-  const selectedItemComments = await spacesService.comment.list({
-    itemId: params.selectedItemId,
+  const recurringContext = params.selectedOccurrenceId
+    ? await resolveRecurringDetail({
+        item: selectedItem,
+        occurrenceId: params.selectedOccurrenceId,
+        spaceId: params.spaceId,
+        dateConfig: params.dateConfig,
+      })
+    : null;
+  if (params.selectedOccurrenceId && !recurringContext) return null;
+
+  const commentTarget = {
+    itemId: recurringContext?.seriesItemId ?? selectedItem.id,
+    recurrenceId: recurringContext?.recurrenceId ?? null,
+  };
+  const comments = await spacesService.comment.list({
+    itemId: commentTarget.itemId,
+    recurrenceId: commentTarget.recurrenceId,
     viewerUserId: params.userId,
     pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
   });
 
-  return { selectedItem, selectedItemComments };
+  return { item: selectedItem, comments, commentTarget, recurringContext };
 };
 
 const loadWormholes = async (params: { canWrite: boolean; spaceId: string; user: AuthUser }): Promise<SpaceWormhole[]> => {
@@ -470,6 +541,8 @@ export const loadSpaceItemDetail = async (params: {
   user: AuthUser;
   spaceId: string;
   itemId: string;
+  occurrenceId?: string | null;
+  dateConfig?: DateContext;
 }): Promise<{ kind: "ok"; detail: SpaceItemDetail } | Extract<SpacesWorkspaceState, { kind: "notFound" | "accessDenied" }>> => {
   const [space, permissions] = await Promise.all([
     spacesService.space.get({ id: params.spaceId }),
@@ -480,12 +553,28 @@ export const loadSpaceItemDetail = async (params: {
 
   const item = await spacesService.item.get({ id: params.itemId });
   if (!item || item.spaceId !== params.spaceId) return { kind: "notFound", title: "Not found", message: "Item not found" };
+  const recurringContext = params.occurrenceId
+    ? await resolveRecurringDetail({
+        item,
+        occurrenceId: params.occurrenceId,
+        spaceId: params.spaceId,
+        dateConfig: params.dateConfig,
+      })
+    : null;
+  if (params.occurrenceId && !recurringContext) {
+    return { kind: "notFound", title: "Not found", message: "Recurring occurrence not found" };
+  }
+  const commentTarget = {
+    itemId: recurringContext?.seriesItemId ?? item.id,
+    recurrenceId: recurringContext?.recurrenceId ?? null,
+  };
   const comments = await spacesService.comment.list({
-    itemId: item.id,
+    itemId: commentTarget.itemId,
+    recurrenceId: commentTarget.recurrenceId,
     viewerUserId: params.user.id,
     pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
   });
-  return { kind: "ok", detail: { item, comments } };
+  return { kind: "ok", detail: { item, comments, commentTarget, recurringContext } };
 };
 
 export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promise<SpacesWorkspaceState> => {
@@ -507,11 +596,13 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     calendarFilter,
   });
 
-  const selectedItemState = await loadSelectedItemState({
+  const selectedItemDetail = await loadSelectedItemState({
     selectedItemId: route.selectedItemId,
+    selectedOccurrenceId: route.selectedOccurrenceId,
     itemsResult,
     spaceId: params.spaceId,
     userId: params.user.id,
+    dateConfig: params.dateConfig,
   });
 
   return {
@@ -534,8 +625,7 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     calendarFilter,
     calendarItems: calendarState.calendarItems,
     calendarWeather: calendarState.calendarWeather,
-    selectedItem: selectedItemState.selectedItem,
-    selectedItemComments: selectedItemState.selectedItemComments,
+    selectedItemDetail,
     wormholes,
   };
 };
