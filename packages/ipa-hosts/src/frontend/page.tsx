@@ -4,10 +4,11 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { createPagination } from "../contracts";
+import { ipaHostsHelp } from "../help";
 import { ipaHostsService } from "../service";
-import HostsLayoutHelp from "./HostsLayoutHelp.island";
 import HostgroupCard from "./HostgroupCard";
 import HostSettings from "./HostSettings.island";
+import HostsLayoutHelp from "./HostsLayoutHelp.island";
 import HostsTable from "./HostsTable";
 import NewHostgroup from "./NewHostgroup.island";
 import SyncHosts from "./SyncHosts.island";
@@ -54,7 +55,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Hosts" stretch>
-      <HostsLayoutHelp />
+      <HostsLayoutHelp documents={ipaHostsHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-hosts-title">

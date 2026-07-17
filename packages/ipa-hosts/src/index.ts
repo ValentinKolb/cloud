@@ -1,15 +1,19 @@
-import { app } from "./config";
+import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
-import adminPageRoutes from "./frontend";
-import { ipaHostsService } from "./service";
-import { migrate } from "./migrate";
 import { ipaHosts } from "./backend";
+import { app } from "./config";
+import adminPageRoutes from "./frontend";
+import { ipaHostsHelp } from "./help";
+import { migrate } from "./migrate";
+import { ipaHostsService } from "./service";
+
+const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("admin")).route("/", ipaHostsHelp.router);
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/api/ipa-hosts/help", helpRoutes)
   .route("/api/ipa-hosts", apiRoutes)
   .route("/admin/ipa-hosts", adminPageRoutes);
 
@@ -28,6 +32,6 @@ export default await app.start({
     },
   },
 });
-export { ipaHostsService as service };
 export type { ApiType } from "./api";
 export type { IpaHostsService } from "./service";
+export { ipaHostsService as service };
