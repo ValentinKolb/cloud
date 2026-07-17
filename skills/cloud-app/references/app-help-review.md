@@ -36,6 +36,8 @@ Review method:
    - Help Markdown uses the safe profile: script fences remain inert code and internal links do not force a new tab.
    - Modal and detached floating-window modes preserve the same query, article, cache, and reading position.
    - The floating window remains keyboard operable, viewport-clamped, and usable on mobile.
+   - Standalone Help/reference routes render `Layout.HelpPage` with the same
+     manifest and article endpoint instead of maintaining a parallel document.
 9. Verify commands where applicable:
    - bun run --cwd packages/<APP_PACKAGE> typecheck
    - git diff --check -- <changed-files>

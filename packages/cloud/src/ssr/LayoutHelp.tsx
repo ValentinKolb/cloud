@@ -16,6 +16,12 @@ type HelpTopicBase = {
 export type LayoutHelpTab = HelpTopicBase & { children: JSX.Element };
 export type LayoutHelpProps = LayoutHelpTab;
 export type LayoutHelpDocumentsProps = { documents: readonly HelpDocumentManifest[] };
+export type LayoutHelpPageProps = {
+  documents: readonly HelpDocumentManifest[];
+  initialTopic?: string;
+  includeShortcuts?: boolean;
+  accent?: string;
+};
 
 type HelpTopic = (HelpTopicBase & { kind: "content"; children: JSX.Element }) | (HelpDocumentManifest & { kind: "document" });
 type HelpView = "hub" | "search" | "article";
@@ -47,6 +53,13 @@ const iconClass = (icon?: string) => (icon?.startsWith("ti ") ? icon : `ti ${ico
 const legacyTopicContent = (topic: HelpTopic) => (topic.kind === "content" ? topic.children : null);
 const sortedTopics = () =>
   [...(registry()?.values() ?? [])].sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title));
+const documentTopics = (documents: readonly HelpDocumentManifest[] = []): HelpTopic[] =>
+  documents.map((document) => ({ ...document, kind: "document" }));
+const mergeTopics = (registered: readonly HelpTopic[], documents: readonly HelpDocumentManifest[] = []): HelpTopic[] => {
+  const topics = new Map(registered.map((topic) => [topic.id, topic]));
+  for (const topic of documentTopics(documents)) topics.set(topic.id, topic);
+  return [...topics.values()].sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title));
+};
 
 const registerTopic = (topic: HelpTopic) => {
   const topics = registry();
@@ -115,15 +128,17 @@ const HelpShell = (props: {
   close: () => void;
   detach?: () => void;
   searchHelpApps: GlobalSearchHelpApp[];
+  documents?: readonly HelpDocumentManifest[];
+  includeShortcuts?: boolean;
   accent?: string;
-  floating?: boolean;
+  surface?: "modal" | "floating" | "page";
 }) => {
-  const [externalTopics, setExternalTopics] = createSignal(sortedTopics());
+  const [externalTopics, setExternalTopics] = createSignal(mergeTopics(sortedTopics(), props.documents));
   const [view, setView] = createSignal<HelpView>(props.session.view);
   const [query, setQuery] = createSignal(props.session.query);
   const [activeId, setActiveId] = createSignal<string | null>(props.session.activeId);
   const [payload, setPayload] = createSignal<HelpDocumentPayload | null>(null);
-  const [loading, setLoading] = createSignal(false);
+  const [loading, setLoading] = createSignal(props.session.view === "article");
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [loadAttempt, setLoadAttempt] = createSignal(0);
   const [remoteMatches, setRemoteMatches] = createSignal<ReadonlySet<string>>(new Set());
@@ -147,7 +162,7 @@ const HelpShell = (props: {
     kind: "content",
     children: <Shortcuts openSearchHelp={() => openGlobalSearchHelpDialog(props.searchHelpApps)} />,
   }));
-  const topics = createMemo(() => [shortcutsTopic(), ...externalTopics()]);
+  const topics = createMemo(() => (props.includeShortcuts === false ? externalTopics() : [shortcutsTopic(), ...externalTopics()]));
   const activeTopic = createMemo(() => topics().find((topic) => topic.id === activeId()) ?? null);
   const normalizedQuery = createMemo(() => query().trim().toLocaleLowerCase());
   const results = createMemo(() => {
@@ -219,7 +234,7 @@ const HelpShell = (props: {
       dialog.setAttribute("aria-labelledby", "layout-help-title");
       dialog.setAttribute("aria-describedby", "layout-help-subtitle");
     }
-    const update = () => setExternalTopics(sortedTopics());
+    const update = () => setExternalTopics(mergeTopics(sortedTopics(), props.documents));
     window.addEventListener(HELP_TOPICS_EVENT, update);
     onCleanup(() => window.removeEventListener(HELP_TOPICS_EVENT, update));
     restoreArticleScroll();
@@ -315,11 +330,15 @@ const HelpShell = (props: {
     <div
       ref={root}
       class={`app-accent-scope flex min-h-0 flex-col bg-[var(--ui-surface-raised)] ${
-        props.floating ? "h-full" : "h-[min(86vh,48rem)] overflow-hidden panel-dialog-shell [box-shadow:var(--ui-shadow-float)]"
+        props.surface === "modal"
+          ? "h-[min(86vh,48rem)] overflow-hidden panel-dialog-shell [box-shadow:var(--ui-shadow-float)]"
+          : props.surface === "page"
+            ? "min-h-screen"
+            : "h-full"
       }`}
       style={appAccentStyle(props.accent)}
     >
-      <Show when={!props.floating}>
+      <Show when={props.surface === "modal"}>
         <header class="flex h-16 shrink-0 items-center gap-3 px-5">
           <span class="flex h-9 w-9 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)]">
             <i class="ti ti-help text-lg app-accent-text" />
@@ -481,15 +500,43 @@ const HelpShell = (props: {
   );
 };
 
-const createSession = (): HelpSession => {
-  let activeId: string | null = null;
-  try {
-    activeId = localStorage.getItem(LAST_TOPIC_KEY);
-  } catch {
-    /* Storage is optional. */
+const createSession = (initialTopic?: string): HelpSession => {
+  let activeId: string | null = initialTopic ?? null;
+  if (!activeId && typeof window !== "undefined") {
+    try {
+      activeId = localStorage.getItem(LAST_TOPIC_KEY);
+    } catch {
+      /* Storage is optional. */
+    }
   }
-  return { view: "hub", query: "", activeId, articleScrollTop: 0, articleCache: new Map() };
+  return {
+    view: initialTopic ? "article" : "hub",
+    query: "",
+    activeId,
+    articleScrollTop: 0,
+    articleCache: new Map(),
+  };
 };
+
+/**
+ * Render the shared Help experience as a full page. Apps pass the same
+ * manifest used by `Layout.HelpDocuments`; article bodies still load lazily
+ * from the app-owned authenticated Help API.
+ */
+export function LayoutHelpPage(props: LayoutHelpPageProps) {
+  const session = createSession(props.initialTopic);
+  return (
+    <HelpShell
+      session={session}
+      close={() => {}}
+      searchHelpApps={[]}
+      documents={props.documents}
+      includeShortcuts={props.includeShortcuts}
+      accent={props.accent}
+      surface="page"
+    />
+  );
+}
 
 export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = [], accent?: string) {
   const session = createSession();
@@ -503,6 +550,7 @@ export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = [],
           close={close}
           searchHelpApps={searchHelpApps}
           accent={accent}
+          surface="modal"
           detach={() => {
             close();
             queueMicrotask(() => openFloating?.());
@@ -514,15 +562,18 @@ export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = [],
   };
 
   openFloating = () => {
-    openFloatingWindow((close) => <HelpShell session={session} close={close} searchHelpApps={searchHelpApps} accent={accent} floating />, {
-      title: "Help",
-      icon: "ti ti-help",
-      accent,
-      initialWidth: 760,
-      initialHeight: 680,
-      minWidth: 380,
-      minHeight: 360,
-    });
+    openFloatingWindow(
+      (close) => <HelpShell session={session} close={close} searchHelpApps={searchHelpApps} accent={accent} surface="floating" />,
+      {
+        title: "Help",
+        icon: "ti ti-help",
+        accent,
+        initialWidth: 760,
+        initialHeight: 680,
+        minWidth: 380,
+        minHeight: 360,
+      },
+    );
   };
   openModal();
 }

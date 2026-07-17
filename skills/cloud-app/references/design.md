@@ -325,6 +325,14 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
   management, or app-specific shells without a proven product requirement.
 - Use `ti-app-window` consistently for buttons that detach content into a
   floating window. Do not substitute the generic `ti-window` icon.
+- Long-lived or externally opened app reference pages use
+  `Layout.HelpPage`. Pass the same `HelpDocumentManifest[]` used by
+  `Layout.HelpDocuments`, select the requested article with `initialTopic`,
+  and disable shortcuts when the page is a focused reference surface. Do not
+  build a second full-page renderer for content already available in Help.
+- `Layout.HelpPage` owns only the shared hub, search, article loading, and
+  reading layout. Keep genuinely dynamic, resource-specific inspectors as
+  app UI and link to the matching Help article for stable concepts.
 
 ## Progressive disclosure
 
