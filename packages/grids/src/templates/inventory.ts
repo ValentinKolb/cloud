@@ -1,10 +1,15 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { currentMonthDate, field, form, formula, type GridTemplate, record, table, view } from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
 
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
   name: "Inventory",
-  description: "Items, categories, locations, kits, and simple kit loans.",
+  description: "Manage inventory, loans, forms, direct GQL reporting, documents, email, and a scanner-assisted approval workflow.",
+  highlights: [
+    "Assets, kits, locations, and loan requests",
+    "Availability dashboard powered by direct GQL",
+    "Loan agreement workflow with number scanning",
+  ],
   icon: "ti ti-packages",
   baseName: "Inventory",
   baseDescription: "Manage inventory, locations, kits, and loan requests.",
@@ -600,21 +605,6 @@ export const inventoryTemplate: GridTemplate = {
       },
     },
     {
-      key: "stock_by_category",
-      table: "items",
-      name: "Stock by category",
-      shared: true,
-      source: formula(
-        "from table ",
-        table("items"),
-        "\ngroup by ",
-        field("items.category"),
-        "\naggregate sum(",
-        field("items.quantity"),
-        ") as units, count(*) as items\nsort units desc",
-      ),
-    },
-    {
       key: "open_loans",
       table: "loans",
       name: "Open loans",
@@ -646,33 +636,6 @@ export const inventoryTemplate: GridTemplate = {
           calendar: { dateFieldId: field("loans.due_date") },
         },
       },
-    },
-    {
-      key: "items_count",
-      table: "items",
-      name: "Items count",
-      shared: true,
-      source: formula("from table ", table("items"), "\naggregate count(*) as items"),
-    },
-    {
-      key: "kits_count",
-      table: "kits",
-      name: "Kits count",
-      shared: true,
-      source: formula("from table ", table("kits"), "\naggregate count(*) as kits"),
-    },
-    {
-      key: "open_loans_count",
-      table: "loans",
-      name: "Open loans count",
-      shared: true,
-      source: formula(
-        "from table ",
-        table("loans"),
-        "\nwhere oneof(",
-        field("loans.status"),
-        ", 'requested', 'approved', 'active')\naggregate count(*) as open_loans",
-      ),
     },
   ],
   forms: [
@@ -862,7 +825,11 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Items",
                 icon: "ti ti-packages",
                 format: "integer",
-                source: { kind: "view", viewId: view("items_count") },
+                span: 4,
+                source: {
+                  kind: "gql",
+                  source: formula("from table ", table("items"), "\naggregate count(*) as item_count"),
+                },
               },
               {
                 id: "w_kits",
@@ -870,7 +837,11 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Kits",
                 icon: "ti ti-briefcase",
                 format: "integer",
-                source: { kind: "view", viewId: view("kits_count") },
+                span: 4,
+                source: {
+                  kind: "gql",
+                  source: formula("from table ", table("kits"), "\naggregate count(*) as kit_count"),
+                },
               },
               {
                 id: "w_open_loans",
@@ -878,7 +849,17 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Open loans",
                 icon: "ti ti-calendar-due",
                 format: "integer",
-                source: { kind: "view", viewId: view("open_loans_count") },
+                span: 4,
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("loans"),
+                    "\nwhere oneof(",
+                    field("loans.status"),
+                    ", 'requested', 'approved', 'active')\naggregate count(*) as open_loan_count",
+                  ),
+                },
               },
             ],
           },
@@ -892,20 +873,47 @@ export const inventoryTemplate: GridTemplate = {
                 kind: "view",
                 title: "Available items",
                 source: { kind: "view", viewId: view("available_items") },
+                span: 7,
               },
               {
                 id: "w_add",
                 kind: "form",
                 title: "Add item",
                 formId: form("add_item"),
+                span: 5,
               },
+            ],
+          },
+          {
+            id: "r_stock",
+            kind: "row",
+            height: "md",
+            cells: [
               {
                 id: "w_stock_by_category",
                 kind: "chart",
                 title: "Stock by category",
                 subtitle: "Available units per category",
                 chartType: "bar",
-                source: { kind: "view", viewId: view("stock_by_category") },
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("items"),
+                    "\njoin table ",
+                    table("categories"),
+                    " as category on ",
+                    field("items.category"),
+                    " = category.id\nwhere ",
+                    field("items.status"),
+                    " = 'available'\ngroup by category.",
+                    field("categories.name"),
+                    "\naggregate sum(",
+                    field("items.quantity"),
+                    ") as available_units, count(*) as item_count\nhaving available_units > 0\nsort available_units desc nulls last",
+                  ),
+                },
+                span: 12,
               },
             ],
           },
@@ -922,11 +930,12 @@ export const inventoryTemplate: GridTemplate = {
                 span: 6,
               },
               {
-                id: "w_rules",
-                kind: "markdown",
-                title: "Loan rules",
-                markdown:
-                  "### Loan rules\n\n- Requests start as **requested**.\n- Admins approve requests before pickup.\n- Mark a loan as returned when all kits are back.",
+                id: "w_send_agreement",
+                kind: "workflow-button",
+                title: "Approve a loan",
+                description: "Scan a loan number to approve it and email the agreement.",
+                buttonLabel: "Open loan scanner",
+                launcherId: launcher("approve_loan_scanner"),
                 span: 6,
               },
             ],
@@ -991,8 +1000,8 @@ export const inventoryTemplate: GridTemplate = {
   workflows: [
     {
       key: "send_loan_agreement",
-      name: "Send loan agreement",
-      description: "Generates a loan agreement, creates a private download link, and emails it to the requester.",
+      name: "Approve and send loan agreement",
+      description: "Generates and emails a loan agreement, then marks the loan as approved.",
       source: `inputs:
   loan:
     type: record
@@ -1017,8 +1026,21 @@ steps:
         loanNumber: \${{ inputs.loan.Loan number }}
         requesterName: \${{ inputs.loan.Requester name }}
         dueDate: \${{ inputs.loan.Due date }}
+  - updateRecord:
+      record: inputs.loan
+      set:
+        Status: [approved]
   - succeed:
-      message: Loan agreement sent.`,
+      message: Loan approved and agreement sent.`,
+      enabled: true,
+    },
+  ],
+  workflowLaunchers: [
+    {
+      key: "approve_loan_scanner",
+      workflow: "send_loan_agreement",
+      name: "Scan loan to approve",
+      config: { kind: "scanner", input: "loan", resolve: { by: "field", field: "Loan number" } },
       enabled: true,
     },
   ],

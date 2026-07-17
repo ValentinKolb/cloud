@@ -1,9 +1,29 @@
-import { currentMonthDate, field, form, formula, type GridTemplate, record, table, view } from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
+
+const monthlySpendSource = () =>
+  formula(
+    "from table ",
+    table("transactions"),
+    "\nwhere ",
+    field("transactions.type"),
+    " = 'expense'\ngroup by ",
+    field("transactions.date"),
+    " by month\naggregate sum(",
+    field("transactions.amount"),
+    ") as monthly_spend\nsort ",
+    field("transactions.date"),
+    " asc",
+  );
 
 export const financeTemplate: GridTemplate = {
   id: "finance",
   name: "Personal finance",
-  description: "Accounts, merchants, categories, transactions, budgets, spending charts, and quick expense logging.",
+  description: "Track spending with budgets, direct GQL reporting, receipts, email, and a transaction workflow.",
+  highlights: [
+    "Transactions, budgets, and a purchase form",
+    "Joined spending reports powered by direct GQL",
+    "Receipt email workflow with transaction scanning",
+  ],
   icon: "ti ti-wallet",
   baseName: "Personal Finance",
   baseDescription: "Track personal spending, income, budgets, and recent purchases.",
@@ -206,6 +226,15 @@ export const financeTemplate: GridTemplate = {
           defaultValue: true,
         },
         { key: "notes", name: "Notes", description: "Optional notes about this transaction.", type: "longtext", icon: "ti ti-notes" },
+        {
+          key: "receipt_email",
+          name: "Receipt email",
+          description: "Optional recipient for generated transaction receipts.",
+          type: "text",
+          icon: "ti ti-mail",
+          config: { regex: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$" },
+          defaultValue: "owner@example.com",
+        },
       ],
     },
     {
@@ -564,61 +593,6 @@ export const financeTemplate: GridTemplate = {
       },
     },
     {
-      key: "monthly_income",
-      table: "transactions",
-      name: "Monthly income",
-      shared: true,
-      source: formula(
-        "from table ",
-        table("transactions"),
-        "\nwhere ",
-        field("transactions.type"),
-        " = 'income'\ngroup by ",
-        field("transactions.date"),
-        " by month\naggregate sum(",
-        field("transactions.amount"),
-        ") as income\nsort ",
-        field("transactions.date"),
-        " asc",
-      ),
-    },
-    {
-      key: "monthly_spend",
-      table: "transactions",
-      name: "Monthly spend",
-      shared: true,
-      source: formula(
-        "from table ",
-        table("transactions"),
-        "\nwhere ",
-        field("transactions.type"),
-        " = 'expense'\ngroup by ",
-        field("transactions.date"),
-        " by month\naggregate sum(",
-        field("transactions.amount"),
-        ") as spent\nsort ",
-        field("transactions.date"),
-        " asc",
-      ),
-    },
-    {
-      key: "spend_by_category",
-      table: "transactions",
-      name: "Spend by category",
-      shared: true,
-      source: formula(
-        "from table ",
-        table("transactions"),
-        "\nwhere ",
-        field("transactions.type"),
-        " = 'expense'\ngroup by ",
-        field("transactions.category"),
-        "\naggregate sum(",
-        field("transactions.amount"),
-        ") as spent\nsort spent desc",
-      ),
-    },
-    {
       key: "budgets",
       table: "budgets",
       name: "Monthly budgets",
@@ -636,50 +610,6 @@ export const financeTemplate: GridTemplate = {
         field("budgets.limit"),
         " desc",
       ),
-    },
-    {
-      key: "income_total",
-      table: "transactions",
-      name: "Income total",
-      shared: true,
-      source: formula(
-        "from table ",
-        table("transactions"),
-        "\nwhere ",
-        field("transactions.type"),
-        " = 'income'\naggregate sum(",
-        field("transactions.amount"),
-        ") as income",
-      ),
-    },
-    {
-      key: "spend_total",
-      table: "transactions",
-      name: "Spend total",
-      shared: true,
-      source: formula(
-        "from table ",
-        table("transactions"),
-        "\nwhere ",
-        field("transactions.type"),
-        " = 'expense'\naggregate sum(",
-        field("transactions.amount"),
-        ") as spent",
-      ),
-    },
-    {
-      key: "transactions_count",
-      table: "transactions",
-      name: "Transactions count",
-      shared: true,
-      source: formula("from table ", table("transactions"), "\naggregate count(*) as transactions"),
-    },
-    {
-      key: "budget_total",
-      table: "budgets",
-      name: "Budget total",
-      shared: true,
-      source: formula("from table ", table("budgets"), "\naggregate sum(", field("budgets.limit"), ") as budget"),
     },
   ],
   forms: [
@@ -724,17 +654,115 @@ export const financeTemplate: GridTemplate = {
           },
           { kind: "user_input", fieldId: field("transactions.amount"), label: "Amount", helpText: "Expense amount.", required: true },
           { kind: "user_input", fieldId: field("transactions.notes"), label: "Notes", helpText: "Receipt details or context." },
+          {
+            kind: "user_input",
+            fieldId: field("transactions.receipt_email"),
+            label: "Receipt email",
+            helpText: "Optional address used by the receipt workflow.",
+          },
           { kind: "form_value", fieldId: field("transactions.type"), value: ["expense"] },
           { kind: "form_value", fieldId: field("transactions.cleared"), value: true },
         ],
       },
     },
   ],
+  documentTemplates: [
+    {
+      key: "transaction_receipt",
+      table: "transactions",
+      starterId: "record-detail",
+      name: "Transaction receipt",
+      description: "Printable receipt summary for one transaction.",
+      source: formula(
+        "from table ",
+        table("transactions"),
+        "\nselect ",
+        field("transactions.transaction_ref"),
+        " as reference, ",
+        field("transactions.date"),
+        ", ",
+        field("transactions.merchant_name"),
+        " as merchant_label, ",
+        field("transactions.category_name"),
+        " as category_label, ",
+        field("transactions.type"),
+        ", ",
+        field("transactions.amount"),
+        ", ",
+        field("transactions.cleared"),
+        ", ",
+        field("transactions.notes"),
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
+      ),
+      enabled: true,
+    },
+  ],
+  emailTemplates: [
+    {
+      key: "transaction_receipt_ready",
+      name: "Transaction receipt ready",
+      description: "Sends a private download link for a transaction receipt.",
+      subject: "Receipt {{ data.reference }}",
+      html: `<main style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:640px;margin:0 auto;padding:32px;">
+  <h1 style="font-size:24px;margin:0 0 16px;">Transaction receipt</h1>
+  <p>The receipt for <strong>{{ data.reference }}</strong>{% if data.merchant %} at {{ data.merchant }}{% endif %} is ready.</p>
+  <p style="margin:24px 0;"><a href="{{ data.receipt.url }}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;">Download receipt</a></p>
+  <p style="color:#6b7280;font-size:14px;">This private link expires automatically.</p>
+</main>`,
+      enabled: true,
+    },
+  ],
+  workflows: [
+    {
+      key: "clear_and_send_receipt",
+      name: "Clear and send receipt",
+      description: "Creates a receipt link, emails it, and marks the transaction as cleared.",
+      source: `inputs:
+  transaction:
+    type: record
+    table: Transactions
+    label: Transaction
+    required: true
+steps:
+  - generateDocument:
+      template: Transaction receipt
+      record: inputs.transaction
+      saveAs: receiptPdf
+  - createDocumentLink:
+      document: receiptPdf
+      expiresIn: 30d
+      saveAs: receiptLink
+  - sendEmail:
+      template: Transaction receipt ready
+      to:
+        - email: \${{ inputs.transaction.Receipt email }}
+      data:
+        receipt: \${{ receiptLink }}
+        reference: \${{ inputs.transaction.Transaction reference }}
+        merchant: \${{ inputs.transaction.Merchant name }}
+  - updateRecord:
+      record: inputs.transaction
+      set:
+        Cleared: true
+  - succeed:
+      message: Receipt sent and transaction cleared.`,
+      enabled: true,
+    },
+  ],
+  workflowLaunchers: [
+    {
+      key: "clear_and_send_receipt_scanner",
+      workflow: "clear_and_send_receipt",
+      name: "Scan transaction to send receipt",
+      config: { kind: "scanner", input: "transaction", resolve: { by: "field", field: "Transaction reference" } },
+      enabled: true,
+    },
+  ],
   dashboards: [
     {
       key: "overview",
       name: "Finance overview",
-      description: "Current spending, recent purchases, budgets, and quick logging.",
+      description: "Current spending, recent purchases, budgets, and receipt processing.",
       shared: true,
       config: {
         rows: [
@@ -750,7 +778,19 @@ export const financeTemplate: GridTemplate = {
                 sub: "all recorded",
                 icon: "ti ti-arrow-up-right",
                 format: "currency",
-                source: { kind: "view", viewId: view("income_total") },
+                span: 3,
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("transactions"),
+                    "\nwhere ",
+                    field("transactions.type"),
+                    " = 'income'\naggregate sum(",
+                    field("transactions.amount"),
+                    ") as total_income",
+                  ),
+                },
               },
               {
                 id: "w_spend",
@@ -759,7 +799,26 @@ export const financeTemplate: GridTemplate = {
                 sub: "all recorded",
                 icon: "ti ti-arrow-down-right",
                 format: "currency",
-                source: { kind: "view", viewId: view("spend_total") },
+                span: 3,
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("transactions"),
+                    "\nwhere ",
+                    field("transactions.type"),
+                    " = 'expense'\naggregate sum(",
+                    field("transactions.amount"),
+                    ") as total_spend",
+                  ),
+                },
+                trend: {
+                  source: {
+                    kind: "gql",
+                    source: monthlySpendSource(),
+                  },
+                  windowSize: 12,
+                },
               },
               {
                 id: "w_tx",
@@ -767,7 +826,11 @@ export const financeTemplate: GridTemplate = {
                 title: "Transactions",
                 icon: "ti ti-receipt",
                 format: "integer",
-                source: { kind: "view", viewId: view("transactions_count") },
+                span: 3,
+                source: {
+                  kind: "gql",
+                  source: formula("from table ", table("transactions"), "\naggregate count(*) as transaction_count"),
+                },
               },
               {
                 id: "w_budget",
@@ -776,7 +839,11 @@ export const financeTemplate: GridTemplate = {
                 sub: "this month",
                 icon: "ti ti-chart-pie",
                 format: "currency",
-                source: { kind: "view", viewId: view("budget_total") },
+                span: 3,
+                source: {
+                  kind: "gql",
+                  source: formula("from table ", table("budgets"), "\naggregate sum(", field("budgets.limit"), ") as total_budget"),
+                },
               },
             ],
           },
@@ -791,16 +858,38 @@ export const financeTemplate: GridTemplate = {
                 title: "Spend by category",
                 subtitle: "Expense transactions only",
                 chartType: "donut",
-                source: { kind: "view", viewId: view("spend_by_category") },
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("transactions"),
+                    "\njoin table ",
+                    table("categories"),
+                    " as category on ",
+                    field("transactions.category"),
+                    " = category.id\nwhere ",
+                    field("transactions.type"),
+                    " = 'expense'\ngroup by category.",
+                    field("categories.name"),
+                    "\naggregate sum(",
+                    field("transactions.amount"),
+                    ") as category_spend\nhaving category_spend > 0\nsort category_spend desc nulls last",
+                  ),
+                },
+                span: 6,
               },
               {
                 id: "w_monthly",
                 kind: "chart",
                 title: "Monthly spend",
                 chartType: "bar",
-                source: { kind: "view", viewId: view("monthly_spend") },
+                source: {
+                  kind: "gql",
+                  source: monthlySpendSource(),
+                },
                 format: "currency",
                 yAxisLabel: "EUR",
+                span: 6,
               },
             ],
           },
@@ -809,8 +898,14 @@ export const financeTemplate: GridTemplate = {
             kind: "row",
             height: "lg",
             cells: [
-              { id: "w_recent", kind: "view", title: "Recent transactions", source: { kind: "view", viewId: view("recent_transactions") } },
-              { id: "w_log", kind: "form", title: "Log a purchase", formId: form("log_expense") },
+              {
+                id: "w_recent",
+                kind: "view",
+                title: "Recent transactions",
+                source: { kind: "view", viewId: view("recent_transactions") },
+                span: 7,
+              },
+              { id: "w_log", kind: "form", title: "Log a purchase", formId: form("log_expense"), span: 5 },
             ],
           },
           {
@@ -818,14 +913,52 @@ export const financeTemplate: GridTemplate = {
             kind: "row",
             height: "md",
             cells: [
-              { id: "w_budgets", kind: "view", title: "Monthly budgets", source: { kind: "view", viewId: view("budgets") } },
+              {
+                id: "w_budgets",
+                kind: "view",
+                title: "Monthly budgets",
+                source: { kind: "view", viewId: view("budgets") },
+                span: 6,
+              },
               {
                 id: "w_income_chart",
                 kind: "chart",
                 title: "Monthly income",
                 chartType: "bar",
-                source: { kind: "view", viewId: view("monthly_income") },
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("transactions"),
+                    "\nwhere ",
+                    field("transactions.type"),
+                    " = 'income'\ngroup by ",
+                    field("transactions.date"),
+                    " by month\naggregate sum(",
+                    field("transactions.amount"),
+                    ") as monthly_income\nsort ",
+                    field("transactions.date"),
+                    " asc",
+                  ),
+                },
                 format: "currency",
+                span: 6,
+              },
+            ],
+          },
+          {
+            id: "r_receipts",
+            kind: "row",
+            height: "sm",
+            cells: [
+              {
+                id: "w_send_receipt",
+                kind: "workflow-button",
+                title: "Process a receipt",
+                description: "Scan a transaction reference to send its receipt and mark it cleared.",
+                buttonLabel: "Open transaction scanner",
+                launcherId: launcher("clear_and_send_receipt_scanner"),
+                span: 12,
               },
             ],
           },

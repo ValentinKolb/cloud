@@ -11,6 +11,7 @@ const TemplateSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
+  highlights: z.tuple([z.string(), z.string(), z.string()]),
   icon: z.string(),
 });
 

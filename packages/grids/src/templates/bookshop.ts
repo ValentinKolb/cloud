@@ -1,10 +1,15 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { currentMonthDate, field, form, formula, type GridTemplate, record, table, view } from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
 
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
   name: "Bookshop",
-  description: "Books, authors, customers, orders, relations, forms, charts, and dashboards.",
+  description: "Run a bookshop with catalog data, orders, dashboards, documents, email, and an assisted fulfillment workflow.",
+  highlights: [
+    "Relational catalog and order tracking",
+    "Sales dashboard powered by direct GQL",
+    "Invoice email workflow with order scanning",
+  ],
   icon: "ti ti-books",
   baseName: "Bookshop",
   baseDescription: "Inventory and order tracking for a small bookshop.",
@@ -293,7 +298,7 @@ export const bookshopTemplate: GridTemplate = {
       fields: [
         {
           key: "order_no",
-          name: "Order no.",
+          name: "Order number",
           description: "Automatically assigned order number.",
           type: "id",
           config: { strategy: "date_sequence", prefix: "ORD-", period: "year", padding: 4 },
@@ -373,6 +378,17 @@ export const bookshopTemplate: GridTemplate = {
             targetFieldId: field("customers.name"),
           },
           icon: "ti ti-hierarchy",
+        },
+        {
+          key: "customer_email",
+          name: "Customer email",
+          description: "Email address from the linked customer.",
+          type: "lookup",
+          config: {
+            relationFieldId: field("orders.customer"),
+            targetFieldId: field("customers.email"),
+          },
+          icon: "ti ti-mail",
         },
         {
           key: "book_title",
@@ -661,51 +677,6 @@ export const bookshopTemplate: GridTemplate = {
         },
       },
     },
-    {
-      key: "monthly_revenue",
-      table: "orders",
-      name: "Monthly revenue",
-      shared: true,
-      source: formula(
-        "from table ",
-        table("orders"),
-        "\ngroup by ",
-        field("orders.ordered_at"),
-        " by month\naggregate sum(",
-        field("orders.line_total"),
-        ") as revenue, count(*) as orders\nsort ",
-        field("orders.ordered_at"),
-        " asc",
-      ),
-    },
-    {
-      key: "books_by_genre",
-      table: "books",
-      name: "Books by genre",
-      shared: true,
-      source: formula("from table ", table("books"), "\ngroup by ", field("books.genre"), "\naggregate count(*) as books\nsort books desc"),
-    },
-    {
-      key: "orders_count",
-      table: "orders",
-      name: "Orders count",
-      shared: true,
-      source: formula("from table ", table("orders"), "\naggregate count(*) as orders"),
-    },
-    {
-      key: "total_revenue",
-      table: "orders",
-      name: "Total revenue",
-      shared: true,
-      source: formula("from table ", table("orders"), "\naggregate sum(", field("orders.line_total"), ") as revenue"),
-    },
-    {
-      key: "books_count",
-      table: "books",
-      name: "Books count",
-      shared: true,
-      source: formula("from table ", table("books"), "\naggregate count(*) as books"),
-    },
   ],
   forms: [
     {
@@ -897,11 +868,100 @@ export const bookshopTemplate: GridTemplate = {
       },
     },
   ],
+  documentTemplates: [
+    {
+      key: "order_invoice",
+      table: "orders",
+      starterId: "invoice",
+      name: "Order invoice",
+      description: "Customer invoice generated from one order.",
+      source: formula(
+        "from table ",
+        table("orders"),
+        "\nselect ",
+        field("orders.order_no"),
+        " as invoice_number, ",
+        field("orders.customer_name"),
+        " as recipient_name, ",
+        field("orders.customer_email"),
+        " as recipient_email, ",
+        field("orders.book_title"),
+        " as invoice_item, ",
+        field("orders.qty"),
+        " as invoice_quantity, ",
+        field("orders.line_total"),
+        " as invoice_total, ",
+        field("orders.ordered_at"),
+        " as invoice_date, ",
+        field("orders.status"),
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
+      ),
+      enabled: true,
+    },
+  ],
+  emailTemplates: [
+    {
+      key: "order_invoice_ready",
+      name: "Order invoice ready",
+      description: "Sends a private invoice link to the customer.",
+      subject: "Invoice for order {{ data.orderNumber }}",
+      html: `<main style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:640px;margin:0 auto;padding:32px;">
+  <h1 style="font-size:24px;margin:0 0 16px;">Your invoice is ready</h1>
+  <p>Hello {{ data.customerName | default: "there" }},</p>
+  <p>We prepared the invoice for order <strong>{{ data.orderNumber }}</strong>.</p>
+  <p style="margin:24px 0;"><a href="{{ data.invoice.url }}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;">Download invoice</a></p>
+  <p style="color:#6b7280;font-size:14px;">This private link expires automatically.</p>
+</main>`,
+      enabled: true,
+    },
+  ],
+  workflows: [
+    {
+      key: "send_order_invoice",
+      name: "Send order invoice",
+      description: "Generates an invoice, creates a private link, and emails it to the customer.",
+      source: `inputs:
+  order:
+    type: record
+    table: Orders
+    label: Order
+    required: true
+steps:
+  - generateDocument:
+      template: Order invoice
+      record: inputs.order
+      saveAs: invoicePdf
+  - createDocumentLink:
+      document: invoicePdf
+      expiresIn: 30d
+      saveAs: invoiceLink
+  - sendEmail:
+      template: Order invoice ready
+      to:
+        - email: \${{ inputs.order.Customer email }}
+      data:
+        invoice: \${{ invoiceLink }}
+        orderNumber: \${{ inputs.order.Order number }}
+        customerName: \${{ inputs.order.Customer name }}
+  - succeed:
+      message: Invoice sent.`,
+      enabled: true,
+    },
+  ],
+  workflowLaunchers: [
+    {
+      key: "send_order_invoice_scanner",
+      workflow: "send_order_invoice",
+      name: "Scan order to send invoice",
+      config: { kind: "scanner", input: "order", resolve: { by: "field", field: "Order number" } },
+      enabled: true,
+    },
+  ],
   dashboards: [
     {
       key: "sales",
       name: "Bookshop overview",
-      description: "Revenue, orders, catalog maintenance, and recent books.",
+      description: "Revenue, fulfillment, catalog maintenance, and recent books.",
       shared: true,
       config: {
         rows: [
@@ -916,7 +976,11 @@ export const bookshopTemplate: GridTemplate = {
                 title: "Orders",
                 icon: "ti ti-shopping-cart",
                 format: "integer",
-                source: { kind: "view", viewId: view("orders_count") },
+                span: 4,
+                source: {
+                  kind: "gql",
+                  source: formula("from table ", table("orders"), "\naggregate count(*) as order_count"),
+                },
               },
               {
                 id: "w_revenue",
@@ -924,7 +988,28 @@ export const bookshopTemplate: GridTemplate = {
                 title: "Total revenue",
                 icon: "ti ti-currency-euro",
                 format: "currency",
-                source: { kind: "view", viewId: view("total_revenue") },
+                span: 4,
+                source: {
+                  kind: "gql",
+                  source: formula("from table ", table("orders"), "\naggregate sum(", field("orders.line_total"), ") as total_revenue"),
+                },
+                trend: {
+                  source: {
+                    kind: "gql",
+                    source: formula(
+                      "from table ",
+                      table("orders"),
+                      "\ngroup by ",
+                      field("orders.ordered_at"),
+                      " by month\naggregate sum(",
+                      field("orders.line_total"),
+                      ") as monthly_revenue\nsort ",
+                      field("orders.ordered_at"),
+                      " asc",
+                    ),
+                  },
+                  windowSize: 12,
+                },
               },
               {
                 id: "w_books",
@@ -932,7 +1017,11 @@ export const bookshopTemplate: GridTemplate = {
                 title: "Books",
                 icon: "ti ti-books",
                 format: "integer",
-                source: { kind: "view", viewId: view("books_count") },
+                span: 4,
+                source: {
+                  kind: "gql",
+                  source: formula("from table ", table("books"), "\naggregate count(*) as book_count"),
+                },
               },
             ],
           },
@@ -946,16 +1035,29 @@ export const bookshopTemplate: GridTemplate = {
                 kind: "chart",
                 title: "Monthly revenue",
                 chartType: "line",
-                source: { kind: "view", viewId: view("monthly_revenue") },
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("orders"),
+                    "\ngroup by ",
+                    field("orders.ordered_at"),
+                    " by month\naggregate sum(",
+                    field("orders.line_total"),
+                    ") as monthly_revenue, count(*) as order_count\nsort ",
+                    field("orders.ordered_at"),
+                    " asc",
+                  ),
+                },
                 format: "currency",
-                span: 6,
+                span: 7,
               },
               {
                 id: "w_new_order",
                 kind: "form",
                 title: "New order",
                 formId: form("new_order"),
-                span: 6,
+                span: 5,
               },
             ],
           },
@@ -978,13 +1080,46 @@ export const bookshopTemplate: GridTemplate = {
                 source: { kind: "view", viewId: view("recent_books") },
                 span: 6,
               },
+            ],
+          },
+          {
+            id: "r_fulfillment",
+            kind: "row",
+            height: "md",
+            cells: [
               {
-                id: "w_books_by_genre",
+                id: "w_revenue_by_customer",
                 kind: "chart",
-                title: "Books by genre",
-                chartType: "donut",
-                source: { kind: "view", viewId: view("books_by_genre") },
-                span: 3,
+                title: "Revenue by customer",
+                subtitle: "Joined directly from orders and customers",
+                chartType: "bar",
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("orders"),
+                    "\njoin table ",
+                    table("customers"),
+                    " as customer on ",
+                    field("orders.customer"),
+                    " = customer.id\ngroup by customer.",
+                    field("customers.name"),
+                    "\naggregate sum(",
+                    field("orders.line_total"),
+                    ") as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8",
+                  ),
+                },
+                format: "currency",
+                span: 7,
+              },
+              {
+                id: "w_send_invoice",
+                kind: "workflow-button",
+                title: "Send an invoice",
+                description: "Scan an order number to generate and email its invoice.",
+                buttonLabel: "Open order scanner",
+                launcherId: launcher("send_order_invoice_scanner"),
+                span: 5,
               },
             ],
           },

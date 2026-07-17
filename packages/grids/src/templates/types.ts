@@ -1,4 +1,6 @@
-type TemplateRefKind = "table" | "field" | "record" | "view" | "form" | "dashboard";
+import type { GridsWorkflowLauncherConfig } from "../workflows/contracts";
+
+type TemplateRefKind = "table" | "field" | "record" | "view" | "form" | "dashboard" | "launcher";
 
 export type TemplateRef = {
   $ref: TemplateRefKind;
@@ -103,10 +105,19 @@ type TemplateWorkflow = {
   enabled?: boolean;
 };
 
+type TemplateWorkflowLauncher = {
+  key: string;
+  workflow: string;
+  name: string;
+  config: GridsWorkflowLauncherConfig;
+  enabled?: boolean;
+};
+
 export type GridTemplate = {
   id: string;
   name: string;
   description: string;
+  highlights: [string, string, string];
   icon: string;
   baseName: string;
   baseDescription?: string | null;
@@ -118,6 +129,7 @@ export type GridTemplate = {
   documentTemplates?: TemplateDocumentTemplate[];
   emailTemplates?: TemplateEmailTemplate[];
   workflows?: TemplateWorkflow[];
+  workflowLaunchers?: TemplateWorkflowLauncher[];
   defaultDashboard?: string;
 };
 
@@ -126,6 +138,7 @@ export const field = (key: string): TemplateRef => ({ $ref: "field", key });
 export const record = (key: string): TemplateRef => ({ $ref: "record", key });
 export const view = (key: string): TemplateRef => ({ $ref: "view", key });
 export const form = (key: string): TemplateRef => ({ $ref: "form", key });
+export const launcher = (key: string): TemplateRef => ({ $ref: "launcher", key });
 export const formula = (...parts: Array<string | TemplateRef>): TemplateFormulaExpression => ({ $formula: parts });
 export const currentMonthDate = (day: number, monthOffset = 0): TemplateDateExpression => ({
   $date: "current_month",

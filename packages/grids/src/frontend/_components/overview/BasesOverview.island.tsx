@@ -10,6 +10,7 @@ type TemplateSummary = {
   id: string;
   name: string;
   description: string;
+  highlights: [string, string, string];
   icon: string;
 };
 
@@ -103,21 +104,23 @@ export default function BasesOverview(props: Props) {
   const createFromTemplateMutation = mutations.create<Base | null, TemplateSummary>({
     mutation: async (template) => {
       const result = await prompts.form({
-        title: template.name,
+        title: `Create ${template.name}`,
         icon: template.icon,
         fields: {
           name: {
             type: "text",
             label: "Name",
+            description: "You can rename the base without changing its included setup.",
             placeholder: template.name,
           },
           withSampleData: {
             type: "boolean",
             label: "Include sample data",
+            description: "Recommended. Adds realistic records so the dashboard, views, and workflow are ready to explore.",
             default: true,
           },
         },
-        confirmText: "Create",
+        confirmText: "Create base",
       });
       if (!result) return null;
       const res = await apiClient.templates[":templateId"].$post({
@@ -232,13 +235,24 @@ export default function BasesOverview(props: Props) {
                 class="paper p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
                 onClick={() => createFromTemplate(template)}
                 disabled={createFromTemplateMutation.loading()}
+                aria-label={`Create ${template.name} base`}
               >
                 <span class="w-9 h-9 thumbnail bg-[var(--ui-surface-raised)] flex items-center justify-center shrink-0">
                   <i class={`${template.icon} text-lg text-primary`} />
                 </span>
                 <span class="min-w-0 flex-1">
                   <span class="block text-sm font-semibold text-primary">{template.name}</span>
-                  <span class="block text-xs text-dimmed leading-snug line-clamp-2">{template.description}</span>
+                  <span class="block text-xs text-dimmed leading-snug">{template.description}</span>
+                  <span class="mt-2 grid gap-1" role="list" aria-label={`${template.name} includes`}>
+                    <For each={template.highlights}>
+                      {(highlight) => (
+                        <span class="flex items-start gap-1.5 text-xs text-secondary leading-snug" role="listitem">
+                          <i class="ti ti-check mt-0.5 shrink-0 text-dimmed" aria-hidden="true" />
+                          <span>{highlight}</span>
+                        </span>
+                      )}
+                    </For>
+                  </span>
                 </span>
               </button>
             )}

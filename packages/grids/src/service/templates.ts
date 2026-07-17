@@ -4,6 +4,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { documentTemplateStarterById } from "../document-template-starters";
 import { type GridTemplate, getTemplate, type TemplateDateExpression, type TemplateRef, templates } from "../templates";
+import type { GridsWorkflow } from "../workflows/contracts";
 import * as bases from "./bases";
 import * as dashboards from "./dashboards";
 import * as documents from "./documents";
@@ -17,6 +18,7 @@ import * as tables from "./tables";
 import type { Base, Field } from "./types";
 import * as views from "./views";
 import { createWorkflow } from "./workflow-kernel-store";
+import { createLauncher } from "./workflow-launchers";
 
 const log = logger("grids:templates");
 
@@ -24,6 +26,7 @@ type TemplateSummary = {
   id: string;
   name: string;
   description: string;
+  highlights: [string, string, string];
   icon: string;
 };
 
@@ -41,6 +44,8 @@ type TemplateContext = {
   viewNames: Map<string, string>;
   forms: Map<string, string>;
   dashboards: Map<string, string>;
+  workflows: Map<string, GridsWorkflow>;
+  launchers: Map<string, string>;
 };
 
 type ResultError = Extract<Result<unknown>, { ok: false }>["error"];
@@ -51,17 +56,19 @@ class TemplateError extends Error {
   }
 }
 
-export const list = (): TemplateSummary[] =>
-  templates.map((template) => ({
-    id: template.id,
-    name: template.name,
-    description: template.description,
-    icon: template.icon,
-  }));
+const summarizeTemplate = (template: GridTemplate): TemplateSummary => ({
+  id: template.id,
+  name: template.name,
+  description: template.description,
+  highlights: template.highlights,
+  icon: template.icon,
+});
+
+export const list = (): TemplateSummary[] => templates.map(summarizeTemplate);
 
 export const get = (id: string): TemplateSummary | null => {
   const template = getTemplate(id);
-  return template ? { id: template.id, name: template.name, description: template.description, icon: template.icon } : null;
+  return template ? summarizeTemplate(template) : null;
 };
 
 const requireResult = <T>(result: Result<T>): T => {
@@ -93,18 +100,15 @@ const formatTemplateDate = (expression: TemplateDateExpression, now = new Date()
 };
 
 const resolveRef = (ref: TemplateRef, ctx: TemplateContext): string => {
-  const value =
-    ref.$ref === "table"
-      ? ctx.tables.get(ref.key)
-      : ref.$ref === "field"
-        ? ctx.fields.get(ref.key)?.id
-        : ref.$ref === "record"
-          ? ctx.records.get(ref.key)
-          : ref.$ref === "view"
-            ? ctx.views.get(ref.key)
-            : ref.$ref === "form"
-              ? ctx.forms.get(ref.key)
-              : ctx.dashboards.get(ref.key);
+  const value = {
+    table: () => ctx.tables.get(ref.key),
+    field: () => ctx.fields.get(ref.key)?.id,
+    record: () => ctx.records.get(ref.key),
+    view: () => ctx.views.get(ref.key),
+    form: () => ctx.forms.get(ref.key),
+    dashboard: () => ctx.dashboards.get(ref.key),
+    launcher: () => ctx.launchers.get(ref.key),
+  }[ref.$ref]();
 
   if (!value) throw new TemplateError(err.badInput(`template reference not found: ${ref.$ref}:${ref.key}`));
   return value;
@@ -187,6 +191,21 @@ const resolveGqlValue = (value: unknown, ctx: TemplateContext): unknown => {
     return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveGqlValue(nested, ctx)]));
   }
   return value;
+};
+
+const resolveDashboardValue = (value: unknown, ctx: TemplateContext): unknown => {
+  if (value === undefined) return undefined;
+  if (isRef(value) || isFormulaExpression(value) || isDateExpression(value)) return resolveValue(value, ctx);
+  if (Array.isArray(value)) return value.map((item) => resolveDashboardValue(item, ctx));
+  if (!value || typeof value !== "object") return value;
+
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      record.kind === "gql" && key === "source" ? resolveGqlValue(nested, ctx) : resolveDashboardValue(nested, ctx),
+    ]),
+  );
 };
 
 const createTables = async (template: GridTemplate, baseId: string, actorId: string | null, ctx: TemplateContext) => {
@@ -350,7 +369,7 @@ const createDashboards = async (template: GridTemplate, baseId: string, actorId:
           name: dashboard.name,
           description: dashboard.description ?? null,
           ownerUserId: dashboard.shared === false ? actorId : null,
-          config: resolveValue(dashboard.config, ctx) as Parameters<typeof dashboards.create>[0]["config"],
+          config: resolveDashboardValue(dashboard.config, ctx) as Parameters<typeof dashboards.create>[0]["config"],
         },
         actorId,
       ),
@@ -409,9 +428,9 @@ const createEmailTemplates = async (template: GridTemplate, baseId: string, acto
   }
 };
 
-const createWorkflows = async (template: GridTemplate, baseId: string, actorId: string | null) => {
+const createWorkflows = async (template: GridTemplate, baseId: string, actorId: string | null, ctx: TemplateContext) => {
   for (const definition of template.workflows ?? []) {
-    requireResult(
+    const created = requireResult(
       await createWorkflow(
         baseId,
         {
@@ -423,6 +442,26 @@ const createWorkflows = async (template: GridTemplate, baseId: string, actorId: 
         actorId,
       ),
     );
+    ctx.workflows.set(definition.key, created);
+  }
+};
+
+const createWorkflowLaunchers = async (template: GridTemplate, actorId: string | null, ctx: TemplateContext) => {
+  for (const definition of template.workflowLaunchers ?? []) {
+    const workflow = ctx.workflows.get(definition.workflow);
+    if (!workflow) throw new TemplateError(err.badInput(`template workflow not found: ${definition.workflow}`));
+    const created = requireResult(
+      await createLauncher(
+        workflow,
+        {
+          name: definition.name,
+          config: definition.config,
+          enabled: definition.enabled,
+        },
+        actorId,
+      ),
+    );
+    ctx.launchers.set(definition.key, created.id);
   }
 };
 
@@ -450,6 +489,8 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
     viewNames: new Map(),
     forms: new Map(),
     dashboards: new Map(),
+    workflows: new Map(),
+    launchers: new Map(),
   };
 
   try {
@@ -459,6 +500,10 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
     if (input.withSampleData !== false) await createRecords(template, actorId, ctx);
     await createViews(template, actorId, ctx);
     await createForms(template, actorId, ctx);
+    await createDocumentTemplates(template, actorId, ctx);
+    await createEmailTemplates(template, base.id, actorId);
+    await createWorkflows(template, base.id, actorId, ctx);
+    await createWorkflowLaunchers(template, actorId, ctx);
     await createDashboards(template, base.id, actorId, ctx);
 
     let resultBase = base;
@@ -469,10 +514,6 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
       }
       resultBase = requireResult(await bases.update(base.id, { defaultDashboardId: dashboardId }, actorId));
     }
-
-    await createDocumentTemplates(template, actorId, ctx);
-    await createEmailTemplates(template, base.id, actorId);
-    await createWorkflows(template, base.id, actorId);
     return ok(resultBase);
   } catch (error) {
     await sql`DELETE FROM grids.bases WHERE id = ${base.id}::uuid`.catch(() => {});

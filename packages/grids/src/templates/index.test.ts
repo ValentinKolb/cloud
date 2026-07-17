@@ -22,6 +22,7 @@ import { renderDocumentHtml, renderDocumentSource, validateTemplateWrite } from 
 import { validateEmailTemplateWrite } from "../service/email-templates";
 import type { Field } from "../service/types";
 import { buildWorkflowCatalog } from "../service/workflow-catalog";
+import { validateLauncherConfig } from "../service/workflow-launchers";
 import { bindGridsWorkflow } from "../workflows/binder";
 import { CreateGridsWorkflowSchema } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
@@ -55,6 +56,7 @@ type TemplateTestContext = {
   views: Map<string, string>;
   forms: Map<string, string>;
   dashboards: Map<string, string>;
+  launchers: Map<string, string>;
 };
 
 const testUuid = (index: number): string => `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
@@ -67,6 +69,7 @@ const templateTestContext = (template: GridTemplate): TemplateTestContext => {
   const views = new Map<string, string>();
   const forms = new Map<string, string>();
   const dashboards = new Map<string, string>();
+  const launchers = new Map<string, string>();
 
   for (const table of template.tables) {
     tables.set(table.key, testUuid(index++));
@@ -76,23 +79,21 @@ const templateTestContext = (template: GridTemplate): TemplateTestContext => {
   for (const view of template.views ?? []) views.set(view.key, testUuid(index++));
   for (const form of template.forms ?? []) forms.set(form.key, testUuid(index++));
   for (const dashboard of template.dashboards ?? []) dashboards.set(dashboard.key, testUuid(index++));
+  for (const launcher of template.workflowLaunchers ?? []) launchers.set(launcher.key, testUuid(index++));
 
-  return { tables, fields, records, views, forms, dashboards };
+  return { tables, fields, records, views, forms, dashboards, launchers };
 };
 
 const resolveTestRef = (ref: TemplateRef, ctx: TemplateTestContext): string => {
-  const value =
-    ref.$ref === "table"
-      ? ctx.tables.get(ref.key)
-      : ref.$ref === "field"
-        ? ctx.fields.get(ref.key)
-        : ref.$ref === "record"
-          ? ctx.records.get(ref.key)
-          : ref.$ref === "view"
-            ? ctx.views.get(ref.key)
-            : ref.$ref === "form"
-              ? ctx.forms.get(ref.key)
-              : ctx.dashboards.get(ref.key);
+  const value = {
+    table: () => ctx.tables.get(ref.key),
+    field: () => ctx.fields.get(ref.key),
+    record: () => ctx.records.get(ref.key),
+    view: () => ctx.views.get(ref.key),
+    form: () => ctx.forms.get(ref.key),
+    dashboard: () => ctx.dashboards.get(ref.key),
+    launcher: () => ctx.launchers.get(ref.key),
+  }[ref.$ref]();
   if (!value) throw new Error(`missing template test ref ${ref.$ref}:${ref.key}`);
   return value;
 };
@@ -118,7 +119,8 @@ const indexTemplate = (template: GridTemplate) => {
   const views = new Set((template.views ?? []).map((view) => view.key));
   const forms = new Set((template.forms ?? []).map((form) => form.key));
   const dashboards = new Set((template.dashboards ?? []).map((dashboard) => dashboard.key));
-  return { tables, fields, records, views, forms, dashboards };
+  const launchers = new Set((template.workflowLaunchers ?? []).map((launcher) => launcher.key));
+  return { tables, fields, records, views, forms, dashboards, launchers };
 };
 
 const assertUnique = (values: string[], label: string) => {
@@ -209,6 +211,22 @@ const resolveTemplateGqlValue = (value: unknown, names: ReturnType<typeof templa
   return value;
 };
 
+const resolveDashboardTestValue = (value: unknown, ctx: TemplateTestContext, names: ReturnType<typeof templateNamesForGql>): unknown => {
+  if (value === undefined) return undefined;
+  if (isRef(value) || isCurrentMonthDate(value)) return resolveTestValue(value, ctx);
+  if (isFormulaExpression(value)) return resolveTestValue(value, ctx);
+  if (Array.isArray(value)) return value.map((item) => resolveDashboardTestValue(item, ctx, names));
+  if (!value || typeof value !== "object") return value;
+
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      record.kind === "gql" && key === "source" ? resolveTemplateGqlValue(nested, names) : resolveDashboardTestValue(nested, ctx, names),
+    ]),
+  );
+};
+
 const templateFieldForResolver = (
   templateField: TemplateField,
   tableId: string,
@@ -272,6 +290,16 @@ describe("built-in grid templates", () => {
       templates.map((template) => template.id),
       "template ids",
     );
+  });
+
+  test("template cards explain three concrete outcomes", () => {
+    for (const template of templates) {
+      expect(template.highlights).toHaveLength(3);
+      expect(
+        template.highlights.every((highlight) => highlight.trim().length > 0),
+        `${template.id} highlights`,
+      ).toBe(true);
+    }
   });
 
   test("bookshop template is named without inventory suffix", () => {
@@ -439,7 +467,9 @@ describe("built-in grid templates", () => {
                   ? index.views
                   : ref.$ref === "form"
                     ? index.forms
-                    : index.dashboards;
+                    : ref.$ref === "dashboard"
+                      ? index.dashboards
+                      : index.launchers;
         expect(target.has(ref.key), `${template.id} missing ${ref.$ref}:${ref.key}`).toBe(true);
       }
 
@@ -459,6 +489,14 @@ describe("built-in grid templates", () => {
         (template.workflows ?? []).map((workflow) => workflow.key),
         `${template.id} workflow keys`,
       );
+      assertUnique(
+        (template.workflowLaunchers ?? []).map((launcher) => launcher.key),
+        `${template.id} workflow launcher keys`,
+      );
+      const workflowKeys = new Set((template.workflows ?? []).map((workflow) => workflow.key));
+      for (const launcher of template.workflowLaunchers ?? []) {
+        expect(workflowKeys.has(launcher.workflow), `${template.id}.${launcher.key} workflow`).toBe(true);
+      }
     }
   });
 
@@ -471,19 +509,25 @@ describe("built-in grid templates", () => {
       for (const chart of charts) {
         const source = chart.source;
         const isViewSource = typeof source === "object" && source !== null && "kind" in source && source.kind === "view";
-        expect(isViewSource, `${template.id}.${String(chart.id)} source kind`).toBe(true);
-        if (!isViewSource || !("viewId" in source)) continue;
-        const viewId = source.viewId;
-        expect(isRef(viewId) && viewId.$ref === "view", `${template.id}.${String(chart.id)} view ref`).toBe(true);
-        if (!isRef(viewId)) continue;
+        const isGqlSource = typeof source === "object" && source !== null && "kind" in source && source.kind === "gql";
+        expect(isViewSource || isGqlSource, `${template.id}.${String(chart.id)} source kind`).toBe(true);
 
-        const view = viewsByKey.get(viewId.key);
-        expect(view, `${template.id}.${String(chart.id)} chart view exists`).toBeDefined();
-        const gql = String(resolveTemplateGqlValue(view?.source ?? "", templateNamesForGql(template)));
-        expect(gql, `${template.id}.${viewId.key} chart groupBy`).toContain("group by");
-        expect(gql, `${template.id}.${viewId.key} chart aggregations`).toContain("aggregate");
+        let gql = "";
+        if (isViewSource && "viewId" in source) {
+          const viewId = source.viewId;
+          expect(isRef(viewId) && viewId.$ref === "view", `${template.id}.${String(chart.id)} view ref`).toBe(true);
+          if (!isRef(viewId)) continue;
+          const view = viewsByKey.get(viewId.key);
+          expect(view, `${template.id}.${String(chart.id)} chart view exists`).toBeDefined();
+          gql = String(resolveTemplateGqlValue(view?.source ?? "", templateNamesForGql(template)));
+        } else if (isGqlSource && "source" in source) {
+          gql = String(resolveTemplateGqlValue(source.source, templateNamesForGql(template)));
+        }
+
+        expect(gql, `${template.id}.${String(chart.id)} chart groupBy`).toContain("group by");
+        expect(gql, `${template.id}.${String(chart.id)} chart aggregations`).toContain("aggregate");
         if (chart.format === "currency") {
-          expect(gql, `${template.id}.${viewId.key} currency chart value field`).toMatch(
+          expect(gql, `${template.id}.${String(chart.id)} currency chart value field`).toMatch(
             /aggregate[^\n]*(?:sum|avg|median|min|max|earliest|latest)\(/,
           );
         }
@@ -596,7 +640,8 @@ describe("built-in grid templates", () => {
       }
 
       for (const dashboard of template.dashboards ?? []) {
-        const config = resolveTestValue(dashboard.config, ctx);
+        const names = templateNamesForGql(template);
+        const config = resolveDashboardTestValue(dashboard.config, ctx, names);
         expect(
           CreateDashboardSchema.safeParse({
             name: dashboard.name,
@@ -607,6 +652,28 @@ describe("built-in grid templates", () => {
           `${template.id}.${dashboard.key} dashboard payload`,
         ).toBe(true);
         expect(DashboardConfigSchema.safeParse(config).success, `${template.id}.${dashboard.key} dashboard config`).toBe(true);
+
+        const directSources = dashboardCells({ ...template, dashboards: [dashboard] })
+          .map((cell) => cell.source)
+          .filter(
+            (source): source is { kind: "gql"; source: unknown } =>
+              typeof source === "object" && source !== null && (source as { kind?: unknown }).kind === "gql" && "source" in source,
+          );
+        for (const [sourceIndex, source] of directSources.entries()) {
+          const gql = resolveTemplateGqlValue(source.source, names);
+          expect(typeof gql, `${template.id}.${dashboard.key}.${sourceIndex} dashboard GQL`).toBe("string");
+          if (typeof gql !== "string") continue;
+          const parsed = parseGridsQueryDsl(gql);
+          expect(parsed.ok, `${template.id}.${dashboard.key}.${sourceIndex} dashboard GQL parses`).toBe(true);
+          if (!parsed.ok) continue;
+          const resolved = resolveDslQueryToQueryPlan(parsed.ast, templateResolverContext(template, template.tables[0]?.key ?? "", ctx));
+          expect(
+            resolved.ok,
+            `${template.id}.${dashboard.key}.${sourceIndex} dashboard GQL resolves: ${
+              resolved.ok ? "" : resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ")
+            }`,
+          ).toBe(true);
+        }
       }
 
       const documentTemplateEntries: Array<{ id: string; shortId: string; tableId: string; name: string }> = [];
@@ -732,6 +799,23 @@ describe("built-in grid templates", () => {
           bound.ok,
           `${template.id}.${workflow.key} workflow YAML: ${bound.ok ? "" : bound.diagnostics.map((item) => item.message).join("; ")}`,
         ).toBe(true);
+      }
+
+      const workflowsByKey = new Map((template.workflows ?? []).map((workflow) => [workflow.key, workflow]));
+      for (const launcher of template.workflowLaunchers ?? []) {
+        const workflow = workflowsByKey.get(launcher.workflow);
+        expect(workflow, `${template.id}.${launcher.key} launcher workflow`).toBeDefined();
+        if (!workflow) continue;
+        const compiled = await compileWorkflow(workflow.source, gridsWorkflowManifest);
+        expect(compiled.ok, `${template.id}.${launcher.key} launcher workflow compiles`).toBe(true);
+        if (!compiled.ok) continue;
+        const bound = await bindGridsWorkflow(compiled.ir, workflowCatalog);
+        expect(bound.ok, `${template.id}.${launcher.key} launcher workflow binds`).toBe(true);
+        if (!bound.ok) continue;
+        expect(
+          validateLauncherConfig({ plan: bound.plan } as Parameters<typeof validateLauncherConfig>[0], launcher.config),
+          `${template.id}.${launcher.key} launcher config`,
+        ).toEqual([]);
       }
     }
   });
