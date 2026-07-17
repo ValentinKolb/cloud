@@ -2,7 +2,7 @@
 
 Cloud Mail is a production-oriented shared inbox with a feature-complete IMAP/SMTP baseline, a provider-neutral domain model, local collaboration, structured automation, fast PostgreSQL search, and permission-bound agents.
 
-Status: Draft. Last consistency review: 2026-07-16. This document records accepted direction, implementation progress, and remaining delivery work. External attachment-link defaults are the only newly opened product-policy topic in this revision.
+Status: Draft. Last consistency review: 2026-07-17. This document records accepted direction, implementation progress, and remaining delivery work. External attachment-link defaults are the only newly opened product-policy topic in this revision.
 
 ## Contents
 
@@ -69,7 +69,7 @@ This snapshot records the verified Mail backend, CLI, and core application exper
 | --- | --- | --- | --- |
 | 1. Foundation contracts | Core implemented | Mail package and schema; mailbox access adapter; encrypted write-only mailbox provider connections; one current remote-resource binding with retained historical fences; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; immutable conversation references; versioned response schedules; connector conformance harness; typed API and CLI. | Enhanced connector implementations and final operational polish. |
 | 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; repair and health operations; canonical field-specific structured search with keyset pagination, native FTS and optional `pg_textsearch`; mailbox-local tags with revision-safe API, CLI, Details-panel assignment, audit, activity, and live invalidation; and explicit 20,000- and 100,000-message performance gates. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, and setup UX. |
-| 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; and message-bound plus outgoing attachment UX. | Rich attachment previewers and broader multi-message bulk selection. |
+| 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; message-bound plus outgoing attachment UX; private and mailbox signatures/snippets; default signatures per sender identity; canonical preview/send rendering; and validated mailbox email CSS. | Rich attachment previewers and broader multi-message bulk selection. |
 | 4. Collaboration | Backend and primary UI implemented | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; mailbox-scoped live invalidation; permission-safe API and CLI; and the combined Mail, ownership, comments, reminders, and audit Details panel. | Explicit presence indicators and richer shared-draft takeover and conflict guidance. |
 | 5. Deterministic workflows | Shared-kernel backend and CLI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable move, send, keyword, and collaboration budgets; permission and credential rechecks; durable command waiting; fenced recovery; immutable reference allocation; version-pinned response schedules; guarded RFC-safe automatic replies; typed API and CLI. | Workflow authoring UI, richer Mail actions, run controls, and AI decision nodes. |
 | 6. AI decisions and agents | Not started | Mail is exposed through typed API and CLI operations suitable for later tools. | Mail AI resource, tools, approvals, workflow decision nodes, summaries, classification, suggested drafts, and bulk-plan generation. |
@@ -305,7 +305,7 @@ Eligibility is derived centrally from binding state, verified account identity, 
 
 `mail.remote_namespaces` stores personal, other-user, and shared IMAP namespace prefixes and delimiters as connector metadata for one binding. Binding-specific effective folder rights, their source, and verification time live on `mail.binding_folder_refs`; JMAP and provider connectors populate the same projection without inventing IMAP ACL strings.
 
-`mail.sender_identities` stores an exact display name and `From` address, optional reply-to and envelope sender, signature, compose policy, default Sent/Drafts behavior, and `automation: disabled | mailbox`. Interactive sends always use the mailbox connection. `mail.sender_identity_bindings` records which binding and provider principal passed the verification send; the record is revision-fenced and is invalidated after credential replacement.
+`mail.sender_identities` stores an exact display name and `From` address, optional reply-to and envelope sender, default Sent/Drafts behavior, and `automation: disabled | mailbox`. Signature defaults reference the identity separately so personal and mailbox fallbacks do not become transport configuration. Interactive sends always use the mailbox connection. `mail.sender_identity_bindings` records which binding and provider principal passed the verification send; the record is revision-fenced and is invalidated after credential replacement.
 
 One resolver owns binding selection:
 
@@ -385,7 +385,7 @@ Every conversation also has an opaque technical ID used by storage, APIs, and UR
 
 `mail.saved_views` stores named structured searches and sort/group preferences. `mail.local_tags` stores Cloud-only tags. Remote keywords remain on placements.
 
-`mail.signatures` and `mail.snippets` store versioned Liquid templates, Markdown, CSS references, ownership, and sharing scope.
+`mail.compose_templates` stores current Markdown signature and snippet definitions with a small Liquid-style variable syntax, optimistic revisions, ownership, and private or mailbox scope. Revisions fence concurrent edits and feed audit; they are not a user-visible immutable template history. `mail.compose_signature_defaults` selects a personal or mailbox fallback per sender identity, while `mail.compose_styles` stores validated mailbox CSS overrides.
 
 `mail.response_schedules` stores a mailbox timezone, active date ranges, recurring office hours, and explicit holiday exceptions. Workflows use named schedules as conditions; scheduling is not embedded in template text.
 
@@ -560,7 +560,6 @@ A sender identity is an allowlisted configuration, not a free-form `From` field.
 - display name and exact `From` address;
 - optional `Reply-To` and envelope sender;
 - interactive and automation authentication policy, verified submission binding, and authenticated provider principal;
-- default signature and compose policy;
 - Drafts and Sent folder mappings;
 - verification state and last provider rejection.
 
@@ -672,7 +671,7 @@ The UI must make internal comments visually unmistakable from email. A comment c
 
 ### Shared drafts
 
-Drafts store source Markdown/plain text, rendered MIME preview, intent, source-message context, authorship, last editor, and revision. They belong to the mailbox rather than their creator: a reader can inspect the complete draft, including Bcc recipients, and comment on its conversation; a writer can edit, take over, discard, schedule, or send it. Draft creation and autosave do not notify the mailbox. Review requests use the existing internal comment and mention flow.
+Drafts store source Markdown/plain text, intent, source-message context, authorship, last editor, and revision. Preview is derived from the current source through the canonical renderer rather than stored as another editable authority. They belong to the mailbox rather than their creator: a reader can inspect the complete draft, including Bcc recipients, and comment on its conversation; a writer can edit, take over, discard, schedule, or send it. Draft creation and autosave do not notify the mailbox. Review requests use the existing internal comment and mention flow.
 
 Opening an empty composer does not create durable clutter. The first meaningful change allocates a draft ID, writes every subsequent edit immediately to a durable browser recovery journal, and saves a coalesced revision to PostgreSQL. Navigation, switching conversations, changing composer surface, reload, browser restart, and temporary network loss never discard a draft. Closing a composer only closes the surface; discard is a separate explicit soft-deletion action with recovery. The UI distinguishes saving, saved, offline, and conflict states without announcing routine successful autosaves.
 
@@ -935,15 +934,17 @@ The primary commit action mirrors the draft intent on every surface: **Send** fo
 
 ### Signatures and snippets
 
-Mailbox signatures and team snippets use the existing restricted Liquid engine: strict variables and filters, output escaping, tag allowlist, no dynamic partials, and size limits.
+Mailbox signatures and team snippets support an explicit allowlist of Liquid-style variables such as `{{ actor.display_name }}`. Logic tags, filters, dynamic partials, arbitrary variable paths, and Bcc values are intentionally unsupported. This keeps copied signature source editable inside an otherwise ordinary email body, leaves unrelated braces literal, and lets Markdown and plaintext apply the correct escaping rules.
 
-Variables include explicit mailbox, actor, recipient, contact, conversation, and optional conversation-reference fields. Missing required variables block sending and identify the field.
+Definitions can be private to one user or shared with the mailbox. Mailbox admins manage shared definitions; writers manage their own private definitions. Variables include explicit mailbox, actor, sender, and message fields. Missing required variables block preview and sending and identify the field.
 
-Signatures, snippets, and CSS are versioned. A sent message stores the rendered snapshot and template version so later edits do not rewrite history.
+When a new message draft is created, its selected personal default signature, or the mailbox fallback, is copied into the editable Markdown body exactly once as variable source. The writer can move, replace, or remove it. `/signature` commands insert the same raw source as an invisible, persistent template segment, while ordinary `/snippet` commands resolve variables immediately and insert concrete editable content in the draft's format. Preview and send resolve placeholders only inside these signature segments using the actual current actor; braces typed or quoted elsewhere remain literal.
+
+Mandatory corporate or legal content is intentionally not modeled as a signature; a future compliance footer is a separate send policy. Definitions and CSS use optimistic revisions and audit instead of user-visible version histories. Queueing a send freezes the rendered HTML and plaintext in the outbox snapshot, so later edits to the draft, definition, actor profile, or mailbox CSS cannot rewrite queued or sent output.
 
 ### Mailbox CSS
 
-Mailbox CSS styles outgoing Markdown HTML only. The app validates an allowlist, rejects imports and unsafe URLs, and inlines supported declarations for email-client compatibility. Preview renders through the same pipeline as send.
+Mailbox CSS styles outgoing Markdown HTML only. A minimal readable built-in stylesheet is always applied. Mailbox-admin overrides are parsed, bounded, and allowlisted; imports, active URLs, at-rules, unsafe selectors, and unsupported properties fail closed. Supported declarations are inlined for email-client compatibility. Write, Preview, and resize-only Split views render through the same pipeline used to freeze send output; compact composition exposes Write and Preview without adding another pane.
 
 Incoming HTML never uses mailbox compose CSS.
 
@@ -1476,7 +1477,7 @@ Success: an agent can search, classify, assign, draft, and execute a bounded mai
 
 ### 7. Product-speed pass
 
-- Command registry, configurable shortcuts, focus preservation, prefetch, Split view templates, toggleable conversation list, combined Details panel, full-size and pop-out composer, shared snippets, and keyboard/pointer parity.
+- Command registry, configurable shortcuts, focus preservation, prefetch, toggleable conversation list, combined Details panel, and keyboard/pointer parity.
 - Performance and accessibility gates.
 
 Success: repeated triage is stable, measurable, and usable without a mouse or memorized shortcuts.
@@ -1570,5 +1571,4 @@ A separate ticket store would duplicate conversations, assignment, comments, act
 - [University of Ulm email service and Shared Folders](https://www.uni-ulm.de/einrichtungen/kiz/service-katalog/e-mail-kalender-zusammenarbeit/e-mail/)
 - [Cloud AI resource helper](../packages/cloud/src/ai/resource.ts)
 - [Cloud AI tool and approval helper](../packages/cloud/src/ai/tools.ts)
-- [Cloud Liquid rendering helper](../packages/cloud/src/shared/template-rendering.ts)
 - [Grids workflow DSL](../packages/grids/src/workflows/dsl.ts)

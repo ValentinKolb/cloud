@@ -11,6 +11,9 @@ import {
   conversationPresenceLeaveSchema,
   conversationTriageInputSchema,
   conversationViewSchema,
+  composePreviewInputSchema,
+  composeSuggestionsInputSchema,
+  createComposeTemplateInputSchema,
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
   createMailboxInputSchema,
@@ -22,15 +25,20 @@ import {
   draftContentInputSchema,
   draftEditableContentInputSchema,
   draftLeaseTokenSchema,
+  archiveComposeTemplateInputSchema,
   mailCommandInputSchema,
   mergeConversationsInputSchema,
   providerConnectionInputSchema,
+  renderComposeSnippetInputSchema,
   searchBackendSchema,
   searchRequestSchema,
   setConversationReminderSchema,
+  setComposeSignatureDefaultInputSchema,
   splitConversationInputSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
+  updateComposeTemplateInputSchema,
+  updateMailboxComposeStyleInputSchema,
   updateSavedConversationViewSchema,
   updateSenderIdentityInputSchema,
 } from "../contracts";
@@ -38,6 +46,7 @@ import {
   bindings,
   cancelSendCommand,
   collaboration,
+  composeTemplates,
   commands,
   conversations,
   draftLeases,
@@ -696,6 +705,112 @@ const mailOperationsApi = new Hono<AuthContext>()
   )
   .get("/mailboxes/:mailboxId/sender-identities", v("param", uuidParamSchema), async (c) =>
     respond(c, senderIdentities.listSenderIdentities(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .get("/mailboxes/:mailboxId/compose-templates", v("param", uuidParamSchema), async (c) =>
+    respond(c, composeTemplates.listComposeTemplates(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .post(
+    "/mailboxes/:mailboxId/compose-templates",
+    v("param", uuidParamSchema),
+    v("json", createComposeTemplateInputSchema),
+    async (c) =>
+      respond(
+        c,
+        composeTemplates.createComposeTemplate({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .patch(
+    "/mailboxes/:mailboxId/compose-templates/:templateId",
+    v("param", mailboxAndIdParamSchema("templateId")),
+    v("json", updateComposeTemplateInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; templateId: string };
+      return respond(c, composeTemplates.updateComposeTemplate({ context: requestContext(c), ...params, input: c.req.valid("json") }));
+    },
+  )
+  .delete(
+    "/mailboxes/:mailboxId/compose-templates/:templateId",
+    v("param", mailboxAndIdParamSchema("templateId")),
+    v("json", archiveComposeTemplateInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; templateId: string };
+      return respond(c, composeTemplates.archiveComposeTemplate({ context: requestContext(c), ...params, input: c.req.valid("json") }));
+    },
+  )
+  .get("/mailboxes/:mailboxId/compose-signature-defaults", v("param", uuidParamSchema), async (c) =>
+    respond(c, composeTemplates.listComposeSignatureDefaults(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .put(
+    "/mailboxes/:mailboxId/sender-identities/:senderIdentityId/compose-signature-default",
+    v("param", mailboxAndIdParamSchema("senderIdentityId")),
+    v("json", setComposeSignatureDefaultInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; senderIdentityId: string };
+      return respond(c, composeTemplates.setComposeSignatureDefault({ context: requestContext(c), ...params, input: c.req.valid("json") }));
+    },
+  )
+  .get("/mailboxes/:mailboxId/compose-style", v("param", uuidParamSchema), async (c) =>
+    respond(c, composeTemplates.getMailboxComposeStyle(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .put(
+    "/mailboxes/:mailboxId/compose-style",
+    v("param", uuidParamSchema),
+    v("json", updateMailboxComposeStyleInputSchema),
+    async (c) =>
+      respond(
+        c,
+        composeTemplates.updateMailboxComposeStyle({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/compose-preview",
+    v("param", uuidParamSchema),
+    v("json", composePreviewInputSchema),
+    async (c) =>
+      respond(
+        c,
+        composeTemplates.previewComposeDraft({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/compose-snippet",
+    v("param", uuidParamSchema),
+    v("json", renderComposeSnippetInputSchema),
+    async (c) =>
+      respond(
+        c,
+        composeTemplates.renderComposeSnippet({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/compose-suggestions",
+    v("param", uuidParamSchema),
+    v("json", composeSuggestionsInputSchema),
+    async (c) =>
+      respond(
+        c,
+        composeTemplates.renderComposeSuggestions({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
   )
   .post("/mailboxes/:mailboxId/sender-identities", v("param", uuidParamSchema), v("json", createSenderIdentityInputSchema), async (c) =>
     respond(

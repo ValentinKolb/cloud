@@ -161,6 +161,7 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
         `;
         if (!row) throw new Error("Mailbox insert returned no row");
 
+        await tx`INSERT INTO mail.compose_styles (mailbox_id) VALUES (${row.id}::uuid)`;
         const access = unwrap(await createAccess({ principal: { type: "user", userId: owner.id }, permission: "admin" }, tx));
         await tx`
           INSERT INTO mail.mailbox_access (mailbox_id, access_id)

@@ -1,15 +1,35 @@
-import { MarkdownEditor, prompts, Select, TagsInput, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import {
+  type Completion,
+  AutocompleteEditor,
+  MarkdownEditor,
+  prompts,
+  SegmentedControl,
+  Select,
+  TagsInput,
+  TextInput,
+  Tooltip,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { AcquiredDraftLease, DraftEditableContentInput, DraftIntent, MailDraft, SenderIdentity } from "../../contracts";
+import type {
+  AcquiredDraftLease,
+  ComposePreview,
+  ComposeSuggestion,
+  DraftEditableContentInput,
+  DraftIntent,
+  MailDraft,
+  SenderIdentity,
+} from "../../contracts";
 import { readApiError } from "./api-response";
 import { readMailUserPreferences } from "./MailSettingsStore";
 
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
 type UploadState = { file: File; progress: number; error: string | null };
 type DraftJournal = { revision: number; content: DraftEditableContentInput };
+type ComposeMode = "write" | "preview" | "split";
 
 type ComposerSeed = {
   intent: DraftIntent;
@@ -76,7 +96,15 @@ export default function MailComposer(props: {
   const [body, setBody] = createSignal(props.initialDraft?.body ?? props.seed?.body ?? "");
   const [format, setFormat] = createSignal<"plain" | "markdown">(props.initialDraft?.format ?? preferences.composeFormat);
   const [uploads, setUploads] = createSignal<UploadState[]>([]);
-  const [showCc, setShowCc] = createSignal(Boolean(props.initialDraft?.cc.length || props.initialDraft?.bcc.length));
+  const [showCc, setShowCc] = createSignal(
+    Boolean(props.initialDraft?.cc.length || props.initialDraft?.bcc.length || props.seed?.cc?.length),
+  );
+  const [composeMode, setComposeMode] = createSignal<ComposeMode>("write");
+  const [splitPercent, setSplitPercent] = createSignal(50);
+  const [preview, setPreview] = createSignal<ComposePreview | null>(null);
+  const [previewError, setPreviewError] = createSignal<string | null>(null);
+  const [previewLoading, setPreviewLoading] = createSignal(false);
+  const [previewRevision, setPreviewRevision] = createSignal(0);
   const [initialized, setInitialized] = createSignal(false);
   const [recovered, setRecovered] = createSignal(false);
   const [handoffInProgress, setHandoffInProgress] = createSignal(false);
@@ -85,7 +113,12 @@ export default function MailComposer(props: {
   let draftMutationQueue: Promise<void> = Promise.resolve();
   let initializePromise: Promise<MailDraft | null> | null = null;
   let disposed = false;
+  let previewTimer: ReturnType<typeof setTimeout> | null = null;
+  let previewController: AbortController | null = null;
+  let previewRequest = 0;
   let lastSavedContent = "";
+  let composeBodyEl: HTMLDivElement | undefined;
+  let stopSplitResize: (() => void) | null = null;
   const pendingKey = pendingJournalKey(props.mailboxId, props.seed);
 
   const serializeDraftMutation = <T,>(operation: () => Promise<T>): Promise<T> => {
@@ -109,7 +142,12 @@ export default function MailComposer(props: {
 
   const serializedContent = () => JSON.stringify(content());
   const editable = createMemo(
-    () => verifiedIdentities().length > 0 && status() !== "readonly" && !handoffInProgress() && (Boolean(lease()) || !draft()),
+    () =>
+      verifiedIdentities().length > 0 &&
+      status() !== "preparing" &&
+      status() !== "readonly" &&
+      !handoffInProgress() &&
+      (Boolean(lease()) || !draft()),
   );
 
   const stopHeartbeat = () => {
@@ -120,6 +158,57 @@ export default function MailComposer(props: {
   const stopScheduledSave = () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = null;
+  };
+
+  const stopPreview = () => {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = null;
+    previewController?.abort();
+    previewController = null;
+  };
+
+  const stopResizingSplit = () => {
+    stopSplitResize?.();
+    stopSplitResize = null;
+  };
+
+  const updateSplitPercent = (value: number) => setSplitPercent(Math.min(75, Math.max(25, value)));
+
+  const startResizingSplit = (event: PointerEvent) => {
+    if (!composeBodyEl || composeMode() !== "split") return;
+    event.preventDefault();
+    stopResizingSplit();
+    const rect = composeBodyEl.getBoundingClientRect();
+    const update = (pointer: PointerEvent) => updateSplitPercent(((pointer.clientX - rect.left) / Math.max(rect.width, 1)) * 100);
+    const stop = () => stopResizingSplit();
+    stopSplitResize = () => {
+      window.removeEventListener("pointermove", update);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("blur", stop);
+    };
+    window.addEventListener("pointermove", update);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    window.addEventListener("blur", stop);
+  };
+
+  const resizeSplitWithKeyboard = (event: KeyboardEvent) => {
+    const delta = event.key === "ArrowLeft" ? -2 : event.key === "ArrowRight" ? 2 : 0;
+    if (!delta) return;
+    event.preventDefault();
+    updateSplitPercent(splitPercent() + (event.shiftKey ? delta * 4 : delta));
+  };
+
+  const applyDraftContent = (value: MailDraft) => {
+    setIdentityId(value.senderIdentityId);
+    setTo(addressStrings(value.to));
+    setCc(addressStrings(value.cc));
+    setBcc(addressStrings(value.bcc));
+    setShowCc(Boolean(value.cc.length || value.bcc.length));
+    setSubject(value.subject);
+    setBody(value.body);
+    setFormat(value.format);
   };
 
   const startHeartbeat = () => {
@@ -174,6 +263,7 @@ export default function MailComposer(props: {
       setTo(addressStrings(journal.content.to));
       setCc(addressStrings(journal.content.cc));
       setBcc(addressStrings(journal.content.bcc));
+      setShowCc(Boolean(journal.content.cc.length || journal.content.bcc.length));
       setSubject(journal.content.subject);
       setBody(journal.content.body);
       setFormat(journal.content.format);
@@ -196,18 +286,32 @@ export default function MailComposer(props: {
     if (!currentDraft) {
       setStatus("preparing");
       setStatusMessage("Preparing draft...");
+      const submittedContent = content();
       const response = await apiClient.mailboxes[":mailboxId"].drafts.$post({
         param: { mailboxId: props.mailboxId },
         json: {
           conversationId: props.seed?.conversationId ?? null,
           intent: props.seed?.intent ?? "new",
           sourceMessageId: props.seed?.sourceMessageId ?? null,
-          ...content(),
+          ...submittedContent,
         },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to create draft"));
       currentDraft = await response.json();
       setDraft(currentDraft);
+      const currentContent = content();
+      if (JSON.stringify(currentContent) === JSON.stringify(submittedContent)) {
+        applyDraftContent(currentDraft);
+      } else if (
+        currentContent.senderIdentityId === submittedContent.senderIdentityId &&
+        currentDraft.senderIdentityId === submittedContent.senderIdentityId &&
+        currentDraft.initialSignatureSource
+      ) {
+        const signature = currentDraft.initialSignatureSource;
+        if (!currentContent.body.endsWith(signature)) {
+          setBody([currentContent.body.trimEnd(), signature].filter(Boolean).join("\n\n"));
+        }
+      }
     }
     if (disposed) return null;
     if (existingDraft) recoverJournal(journalKey(props.mailboxId, currentDraft.id), currentDraft.revision);
@@ -293,6 +397,44 @@ export default function MailComposer(props: {
     saveTimer = setTimeout(() => void persist(), 700);
   });
 
+  createEffect(() => {
+    const mode = composeMode();
+    const previewDraft = content();
+    serializedContent();
+    previewRevision();
+    if (mode === "write" || !identityId()) {
+      stopPreview();
+      return;
+    }
+    stopPreview();
+    const request = ++previewRequest;
+    previewTimer = setTimeout(async () => {
+      previewController = new AbortController();
+      setPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        const response = await fetch(`/api/mail/mailboxes/${props.mailboxId}/compose-preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            draft: previewDraft,
+            conversationId: draft()?.conversationId ?? props.seed?.conversationId ?? null,
+          }),
+          signal: previewController.signal,
+        });
+        if (!response.ok) throw new Error(await readApiError(response, "Preview could not be rendered"));
+        const next = (await response.json()) as ComposePreview;
+        if (!disposed && request === previewRequest) setPreview(next);
+      } catch (error) {
+        if (!disposed && request === previewRequest && !(error instanceof DOMException && error.name === "AbortError")) {
+          setPreviewError(error instanceof Error ? error.message : "Preview could not be rendered");
+        }
+      } finally {
+        if (!disposed && request === previewRequest) setPreviewLoading(false);
+      }
+    }, 250);
+  });
+
   onMount(() => {
     if (verifiedIdentities().length === 0) {
       setStatus("readonly");
@@ -315,6 +457,8 @@ export default function MailComposer(props: {
     disposed = true;
     stopScheduledSave();
     stopHeartbeat();
+    stopPreview();
+    stopResizingSplit();
     const currentDraft = draft();
     const currentLease = lease();
     if (currentDraft && currentLease) {
@@ -501,6 +645,114 @@ export default function MailComposer(props: {
   };
 
   const composerIntent = () => draft()?.intent ?? props.seed?.intent ?? "new";
+  const retryPreview = () => setPreviewRevision((revision) => revision + 1);
+
+  const slashCompletion = createMemo<Completion[]>(() => [
+    {
+      trigger: "/",
+      dropdown: true,
+      debounceMs: 180,
+      suggest: async (query, context, signal) => {
+        const response = await fetch(`/api/mail/mailboxes/${props.mailboxId}/compose-suggestions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query,
+            draft: content(),
+            conversationId: draft()?.conversationId ?? props.seed?.conversationId ?? null,
+          }),
+          signal,
+        });
+        if (!response.ok) throw new Error(await readApiError(response, "Compose templates could not be loaded"));
+        const suggestions = (await response.json()) as ComposeSuggestion[];
+        return suggestions.map((suggestion) => ({
+          text: `/${suggestion.shortcut}`,
+          label: suggestion.name,
+          hint: suggestion.kind,
+          textEdit: {
+            start: context.tokenStart,
+            end: context.caret,
+            text: suggestion.markdown,
+          },
+        }));
+      },
+    },
+  ]);
+
+  const writeSurface = () => (
+    <Show
+      when={format() === "markdown"}
+      fallback={
+        <AutocompleteEditor
+          value={body}
+          onInput={(value) => {
+            setBody(value);
+            beginDraft();
+          }}
+          lines={props.surface === "full" ? 26 : 10}
+          placeholder="Write your message"
+          ariaLabel="Message body"
+          spellcheck
+          disabled={!editable()}
+          completions={slashCompletion()}
+          fill={props.surface === "full" && composeMode() === "split"}
+        />
+      }
+    >
+      <MarkdownEditor
+        value={body}
+        onInput={(value) => {
+          setBody(value);
+          beginDraft();
+        }}
+        placeholder="Write your message"
+        ariaLabel="Message body"
+        lines={props.surface === "full" ? 26 : 10}
+        spellcheck
+        disabled={!editable()}
+        completions={slashCompletion()}
+        fill={props.surface === "full" && composeMode() === "split"}
+      />
+    </Show>
+  );
+
+  const previewSurface = () => (
+    <div class="relative h-full min-h-72 overflow-hidden bg-white">
+      <Show
+        when={preview()}
+        fallback={
+          <Show
+            when={previewError()}
+            fallback={<div class="flex h-full min-h-72 items-center justify-center text-sm text-dimmed">Preparing preview...</div>}
+          >
+            {(message) => (
+              <div class="flex h-full min-h-72 flex-col items-center justify-center gap-2 p-4 text-sm text-red-600">
+                <span>{message()}</span>
+                <button type="button" class="btn-secondary btn-sm" onClick={retryPreview}>
+                  Retry
+                </button>
+              </div>
+            )}
+          </Show>
+        }
+      >
+        {(value) => <iframe class="h-full min-h-72 w-full border-0 bg-white" sandbox="" srcdoc={value().html} title="Email preview" />}
+      </Show>
+      <Show when={preview() && previewError()}>
+        <div class="absolute inset-x-2 top-2 flex items-center gap-2 border border-red-200 bg-white px-2 py-1 text-xs text-red-600 shadow-sm">
+          <span class="min-w-0 flex-1 truncate">{previewError()}</span>
+          <button type="button" class="btn-simple btn-xs" onClick={retryPreview}>
+            Retry
+          </button>
+        </div>
+      </Show>
+      <Show when={previewLoading()}>
+        <span class="absolute right-2 top-2 text-xs text-dimmed">
+          <i class="ti ti-loader-2 animate-spin" aria-hidden="true" /> Updating
+        </span>
+      </Show>
+    </div>
+  );
 
   return (
     <div class="mail-composer-surface">
@@ -519,6 +771,16 @@ export default function MailComposer(props: {
           </Tooltip>
         </Show>
         <span class="min-w-0 flex-1 truncate text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
+        <SegmentedControl
+          ariaLabel="Composer view"
+          value={composeMode}
+          onChange={setComposeMode}
+          options={[
+            { value: "write", label: "Write", icon: "ti ti-pencil" },
+            { value: "preview", label: "Preview", icon: "ti ti-eye" },
+            ...(props.surface === "full" ? [{ value: "split" as const, label: "Split", icon: "ti ti-columns" }] : []),
+          ]}
+        />
         <span
           class={`text-xs ${status() === "error" || status() === "readonly" ? "text-red-600 dark:text-red-300" : "text-dimmed"}`}
           role="status"
@@ -588,9 +850,11 @@ export default function MailComposer(props: {
                 disabled={!editable()}
               />
             </div>
-            <button type="button" class="btn-simple btn-sm" onClick={() => setShowCc((value) => !value)}>
-              Cc/Bcc
-            </button>
+            <Show when={!showCc()}>
+              <button type="button" class="btn-simple btn-sm" onClick={() => setShowCc(true)}>
+                Cc/Bcc
+              </button>
+            </Show>
           </div>
           <Show when={showCc()}>
             <span class="text-dimmed">Cc</span>
@@ -627,36 +891,33 @@ export default function MailComposer(props: {
           />
         </div>
 
-        <div class="min-h-72 flex-1 py-2">
-          <Show
-            when={format() === "markdown"}
-            fallback={
-              <TextInput
-                ariaLabel="Message body"
-                value={body}
-                onInput={(value) => {
-                  setBody(value);
-                  beginDraft();
-                }}
-                multiline
-                lines={props.surface === "full" ? 26 : 10}
-                disabled={!editable()}
-              />
-            }
+        <div
+          ref={composeBodyEl}
+          class={`grid min-h-72 flex-1 py-2 ${composeMode() === "split" && props.surface === "full" ? "" : "grid-cols-1"}`}
+          style={
+            composeMode() === "split" && props.surface === "full"
+              ? `grid-template-columns: minmax(0, ${splitPercent()}fr) 0.5rem minmax(0, ${100 - splitPercent()}fr)`
+              : undefined
+          }
+        >
+          <div class={`min-h-0 ${composeMode() === "preview" ? "hidden" : ""}`}>{writeSurface()}</div>
+          <button
+            type="button"
+            role="separator"
+            aria-label="Resize editor and preview"
+            aria-orientation="vertical"
+            aria-valuemin="25"
+            aria-valuemax="75"
+            aria-valuenow={Math.round(splitPercent())}
+            class={`group relative cursor-col-resize bg-transparent ${
+              composeMode() === "split" && props.surface === "full" ? "block" : "hidden"
+            }`}
+            onPointerDown={startResizingSplit}
+            onKeyDown={resizeSplitWithKeyboard}
           >
-            <MarkdownEditor
-              value={body}
-              onInput={(value) => {
-                setBody(value);
-                beginDraft();
-              }}
-              placeholder="Write your message"
-              ariaLabel="Message body"
-              lines={props.surface === "full" ? 26 : 10}
-              spellcheck
-              disabled={!editable()}
-            />
-          </Show>
+            <span class="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--ui-border)] transition group-hover:bg-blue-500 group-focus-visible:bg-blue-500" />
+          </button>
+          <div class={`min-h-0 ${composeMode() === "write" ? "hidden" : ""}`}>{previewSurface()}</div>
         </div>
 
         <Show when={(draft()?.attachments.length ?? 0) > 0 || uploads().length > 0}>

@@ -17,6 +17,8 @@ export const outboundDraftSnapshotSchema = z.object({
   subject: z.string().max(998),
   body: z.string().max(2 * 1024 * 1024),
   format: z.enum(["plain", "markdown"]),
+  renderedText: z.string().max(2 * 1024 * 1024).optional(),
+  renderedHtml: z.string().max(3 * 1024 * 1024).nullable().optional(),
   inReplyTo: z.string().max(998).nullable().default(null),
   references: z.array(z.string().max(998)).max(500).default([]),
   attachments: z
@@ -47,7 +49,12 @@ export const buildMimeStream = (params: {
   date: Date;
   openAttachment: (blobId: string) => Readable;
 }): Readable => {
-  const html = params.snapshot.format === "markdown" ? sanitizeEmailHtml(markdown.renderSync(params.snapshot.body)) : undefined;
+  const html =
+    params.snapshot.renderedHtml === undefined
+      ? params.snapshot.format === "markdown"
+        ? sanitizeEmailHtml(markdown.renderSync(params.snapshot.body))
+        : undefined
+      : (params.snapshot.renderedHtml ?? undefined);
   return new MailComposer({
     from: formatAddress(params.snapshot.from),
     replyTo: params.snapshot.replyTo ?? undefined,
@@ -55,7 +62,7 @@ export const buildMimeStream = (params: {
     cc: params.snapshot.cc.map(formatAddress),
     bcc: params.snapshot.bcc.map(formatAddress),
     subject: params.snapshot.subject,
-    text: params.snapshot.body,
+    text: params.snapshot.renderedText ?? params.snapshot.body,
     html,
     messageId: params.messageId,
     date: params.date,

@@ -6,6 +6,41 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("installs compose templates, signature defaults, and mailbox styles", async () => {
+    await migrate();
+    const [shape] = await sql<{
+      templates_present: boolean;
+      defaults_present: boolean;
+      styles_present: boolean;
+      template_indexes_present: boolean;
+      default_indexes_present: boolean;
+      mailbox_reference_constraints_present: boolean;
+    }[]>`
+      SELECT
+        to_regclass('mail.compose_templates') IS NOT NULL AS templates_present,
+        to_regclass('mail.compose_signature_defaults') IS NOT NULL AS defaults_present,
+        to_regclass('mail.compose_styles') IS NOT NULL AS styles_present,
+        to_regclass('mail.compose_templates_mailbox_shortcut_idx') IS NOT NULL
+          AND to_regclass('mail.compose_templates_private_shortcut_idx') IS NOT NULL AS template_indexes_present,
+        to_regclass('mail.compose_signature_defaults_mailbox_idx') IS NOT NULL
+          AND to_regclass('mail.compose_signature_defaults_user_idx') IS NOT NULL AS default_indexes_present,
+        (
+          SELECT count(*) = 2
+          FROM pg_constraint
+          WHERE conrelid = 'mail.compose_signature_defaults'::regclass
+            AND conname IN ('compose_signature_defaults_sender_fk', 'compose_signature_defaults_template_fk')
+        ) AS mailbox_reference_constraints_present
+    `;
+    expect(shape).toEqual({
+      templates_present: true,
+      defaults_present: true,
+      styles_present: true,
+      template_indexes_present: true,
+      default_indexes_present: true,
+      mailbox_reference_constraints_present: true,
+    });
+  });
+
   test("adds mailbox-consistent local tags and a safe reference-search bridge", async () => {
     await migrate();
     const [shape] = await sql<

@@ -26,6 +26,7 @@ const UPLOAD_ID = "00000000-0000-4000-8000-000000000019";
 const BINDING_ID = "00000000-0000-4000-8000-000000000020";
 const TAG_ID = "00000000-0000-4000-8000-000000000021";
 const REFERENCE_SCHEME_ID = "00000000-0000-4000-8000-000000000022";
+const COMPOSE_TEMPLATE_ID = "00000000-0000-4000-8000-000000000023";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -129,6 +130,88 @@ test("search forwards nested expressions and cursors", async () => {
     cursor: "next-page",
     limit: 50,
   });
+});
+
+test("compose template and style commands preserve exact source input", async () => {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const template = {
+    id: COMPOSE_TEMPLATE_ID,
+    mailboxId: MAILBOX_ID,
+    kind: "signature",
+    scope: "mailbox",
+    ownerUserId: null,
+    name: "Company",
+    shortcut: "company",
+    body: "Regards,\n{{ actor.display_name }}",
+    revision: 1,
+    archivedAt: null,
+    createdAt: "2026-07-17T00:00:00.000Z",
+    updatedAt: "2026-07-17T00:00:00.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const body = request.method === "GET" ? null : await request.json();
+    requests.push({ method: request.method, path: url.pathname, body });
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/compose-templates` && request.method === "POST") return api(template);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/compose-style` && request.method === "GET") {
+      return api({ mailboxId: MAILBOX_ID, customCss: "", revision: 1, updatedAt: "2026-07-17T00:00:00.000Z" });
+    }
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/compose-style` && request.method === "PUT") {
+      return api({ mailboxId: MAILBOX_ID, customCss: ".mail-content { color: #123456; }", revision: 2, updatedAt: "2026-07-17T00:00:01.000Z" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const created = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    [
+      "--json",
+      "mail",
+      "compose",
+      "template",
+      "create",
+      "--mailbox",
+      MAILBOX_ID,
+      "--kind",
+      "signature",
+      "--scope",
+      "mailbox",
+      "--name",
+      "Company",
+      "--shortcut",
+      "company",
+      "--body-stdin",
+    ],
+    "Regards,\n{{ actor.display_name }}",
+  );
+  const styled = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    ["--json", "mail", "compose", "style", "set", "--mailbox", MAILBOX_ID, "--css-stdin"],
+    ".mail-content { color: #123456; }",
+  );
+
+  expect(created.exitCode).toBe(0);
+  expect(styled.exitCode).toBe(0);
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-templates`,
+      body: {
+        kind: "signature",
+        scope: "mailbox",
+        name: "Company",
+        shortcut: "company",
+        body: "Regards,\n{{ actor.display_name }}",
+      },
+    },
+    { method: "GET", path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-style`, body: null },
+    {
+      method: "PUT",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-style`,
+      body: { expectedRevision: 1, customCss: ".mail-content { color: #123456; }" },
+    },
+  ]);
 });
 
 test("local tag CLI creates catalog entries and fences conversation assignments", async () => {

@@ -2696,6 +2696,130 @@ const addConversationReferenceRequestLedger = async (db: SqlClient): Promise<voi
   `;
 };
 
+const addComposeTemplatesAndStyles = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.compose_templates (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('signature', 'snippet')),
+      scope TEXT NOT NULL CHECK (scope IN ('private', 'mailbox')),
+      owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 120),
+      normalized_name TEXT NOT NULL CHECK (char_length(normalized_name) BETWEEN 1 AND 120),
+      shortcut TEXT NOT NULL CHECK (shortcut ~ '^[a-z][a-z0-9_]{0,39}$'),
+      body_template TEXT NOT NULL CHECK (char_length(body_template) BETWEEN 1 AND 200000),
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      archived_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT compose_templates_scope_owner_check CHECK (
+        (scope = 'private' AND owner_user_id IS NOT NULL)
+        OR (scope = 'mailbox' AND owner_user_id IS NULL)
+      )
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX compose_templates_mailbox_shortcut_idx
+    ON mail.compose_templates (mailbox_id, shortcut)
+    WHERE scope = 'mailbox' AND archived_at IS NULL
+  `;
+  await db`
+    CREATE UNIQUE INDEX compose_templates_private_shortcut_idx
+    ON mail.compose_templates (mailbox_id, owner_user_id, shortcut)
+    WHERE scope = 'private' AND archived_at IS NULL
+  `;
+  await db`
+    CREATE INDEX compose_templates_visible_idx
+    ON mail.compose_templates (mailbox_id, kind, scope, normalized_name, id)
+    WHERE archived_at IS NULL
+  `;
+  await db`
+    CREATE UNIQUE INDEX compose_templates_mailbox_id_idx
+    ON mail.compose_templates (mailbox_id, id)
+  `;
+  await db`
+    CREATE UNIQUE INDEX sender_identities_mailbox_id_idx
+    ON mail.sender_identities (mailbox_id, id)
+  `;
+
+  await db`
+    CREATE TABLE mail.compose_signature_defaults (
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      sender_identity_id UUID NOT NULL,
+      user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+      template_id UUID NOT NULL,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT compose_signature_defaults_sender_fk
+        FOREIGN KEY (mailbox_id, sender_identity_id)
+        REFERENCES mail.sender_identities (mailbox_id, id) ON DELETE CASCADE,
+      CONSTRAINT compose_signature_defaults_template_fk
+        FOREIGN KEY (mailbox_id, template_id)
+        REFERENCES mail.compose_templates (mailbox_id, id) ON DELETE CASCADE
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX compose_signature_defaults_mailbox_idx
+    ON mail.compose_signature_defaults (mailbox_id, sender_identity_id)
+    WHERE user_id IS NULL
+  `;
+  await db`
+    CREATE UNIQUE INDEX compose_signature_defaults_user_idx
+    ON mail.compose_signature_defaults (mailbox_id, sender_identity_id, user_id)
+    WHERE user_id IS NOT NULL
+  `;
+  await db`
+    CREATE INDEX compose_signature_defaults_template_idx
+    ON mail.compose_signature_defaults (template_id)
+  `;
+
+  await db`
+    CREATE TABLE mail.compose_styles (
+      mailbox_id UUID PRIMARY KEY REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      custom_css TEXT NOT NULL DEFAULT '' CHECK (char_length(custom_css) <= 100000),
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      updated_by_actor_kind TEXT CHECK (updated_by_actor_kind IS NULL OR updated_by_actor_kind IN ('user', 'service_account')),
+      updated_by_actor_id UUID,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT compose_styles_actor_check CHECK (
+        (updated_by_actor_kind IS NULL AND updated_by_actor_id IS NULL)
+        OR (updated_by_actor_kind IS NOT NULL AND updated_by_actor_id IS NOT NULL)
+      )
+    )
+  `;
+  await db`
+    INSERT INTO mail.compose_styles (mailbox_id)
+    SELECT id FROM mail.mailboxes
+    ON CONFLICT (mailbox_id) DO NOTHING
+  `;
+};
+
+const hardenComposeTemplateReferences = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS compose_templates_mailbox_id_idx
+    ON mail.compose_templates (mailbox_id, id)
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS sender_identities_mailbox_id_idx
+    ON mail.sender_identities (mailbox_id, id)
+  `;
+  await db`
+    ALTER TABLE mail.compose_signature_defaults
+      DROP CONSTRAINT IF EXISTS compose_signature_defaults_sender_identity_id_fkey,
+      DROP CONSTRAINT IF EXISTS compose_signature_defaults_template_id_fkey,
+      DROP CONSTRAINT IF EXISTS compose_signature_defaults_sender_fk,
+      DROP CONSTRAINT IF EXISTS compose_signature_defaults_template_fk,
+      ADD CONSTRAINT compose_signature_defaults_sender_fk
+        FOREIGN KEY (mailbox_id, sender_identity_id)
+        REFERENCES mail.sender_identities (mailbox_id, id) ON DELETE CASCADE,
+      ADD CONSTRAINT compose_signature_defaults_template_fk
+        FOREIGN KEY (mailbox_id, template_id)
+        REFERENCES mail.compose_templates (mailbox_id, id) ON DELETE CASCADE
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -2741,6 +2865,8 @@ const migrations = [
   { version: 42, name: "search_reference_rolling_compatibility", run: installSearchReferenceCompatibility },
   { version: 43, name: "response_policy_execution_repairs", run: repairResponsePolicyExecution },
   { version: 44, name: "conversation_reference_request_ledger", run: addConversationReferenceRequestLedger },
+  { version: 45, name: "compose_templates_and_styles", run: addComposeTemplatesAndStyles },
+  { version: 46, name: "compose_template_reference_hardening", run: hardenComposeTemplateReferences },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

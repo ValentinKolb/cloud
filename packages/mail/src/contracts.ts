@@ -1155,6 +1155,95 @@ export const conversationPresenceLeaveSchema = z.object({ peerId: z.string().uui
 
 export const draftLeaseTokenSchema = z.object({ token: z.string().uuid() }).strict();
 
+export const composeTemplateKindSchema = z.enum(["signature", "snippet"]);
+export type ComposeTemplateKind = z.infer<typeof composeTemplateKindSchema>;
+
+export const composeTemplateScopeSchema = z.enum(["private", "mailbox"]);
+export type ComposeTemplateScope = z.infer<typeof composeTemplateScopeSchema>;
+
+export const composeTemplateShortcutSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(/^[a-z][a-z0-9_]*$/, "Shortcut must start with a letter and use lowercase letters, numbers, or underscores");
+
+export const composeTemplateSchema = z.object({
+  id: z.string().uuid(),
+  mailboxId: z.string().uuid(),
+  kind: composeTemplateKindSchema,
+  scope: composeTemplateScopeSchema,
+  ownerUserId: z.string().uuid().nullable(),
+  name: z.string(),
+  shortcut: composeTemplateShortcutSchema,
+  body: z.string(),
+  revision: z.number().int().positive(),
+  archivedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type ComposeTemplate = z.infer<typeof composeTemplateSchema>;
+
+export const createComposeTemplateInputSchema = z
+  .object({
+    kind: composeTemplateKindSchema,
+    scope: composeTemplateScopeSchema,
+    name: z.string().trim().min(1).max(120),
+    shortcut: composeTemplateShortcutSchema,
+    body: z.string().min(1).max(200_000),
+  })
+  .strict();
+export type CreateComposeTemplateInput = z.infer<typeof createComposeTemplateInputSchema>;
+
+export const updateComposeTemplateInputSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    name: z.string().trim().min(1).max(120).optional(),
+    shortcut: composeTemplateShortcutSchema.optional(),
+    body: z.string().min(1).max(200_000).optional(),
+  })
+  .strict()
+  .refine((value) => value.name !== undefined || value.shortcut !== undefined || value.body !== undefined, "At least one template field is required");
+export type UpdateComposeTemplateInput = z.infer<typeof updateComposeTemplateInputSchema>;
+
+export const archiveComposeTemplateInputSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
+export type ArchiveComposeTemplateInput = z.infer<typeof archiveComposeTemplateInputSchema>;
+
+export const composeSignatureDefaultSchema = z.object({
+  mailboxId: z.string().uuid(),
+  senderIdentityId: z.string().uuid(),
+  userId: z.string().uuid().nullable(),
+  templateId: z.string().uuid(),
+  revision: z.number().int().positive(),
+  updatedAt: z.string().datetime(),
+});
+export type ComposeSignatureDefault = z.infer<typeof composeSignatureDefaultSchema>;
+
+export const setComposeSignatureDefaultInputSchema = z
+  .object({
+    scope: z.enum(["private", "mailbox"]),
+    templateId: z.string().uuid().nullable(),
+    expectedRevision: z.number().int().positive().nullable().default(null),
+  })
+  .strict();
+export type SetComposeSignatureDefaultInput = z.infer<typeof setComposeSignatureDefaultInputSchema>;
+
+export const mailboxComposeStyleSchema = z.object({
+  mailboxId: z.string().uuid(),
+  customCss: z.string(),
+  revision: z.number().int().positive(),
+  updatedAt: z.string().datetime(),
+});
+export type MailboxComposeStyle = z.infer<typeof mailboxComposeStyleSchema>;
+
+export const updateMailboxComposeStyleInputSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    customCss: z.string().max(32 * 1024),
+  })
+  .strict();
+export type UpdateMailboxComposeStyleInput = z.infer<typeof updateMailboxComposeStyleInputSchema>;
+
 export const draftLeaseHolderSchema = z.object({
   kind: z.enum(["user", "service_account"]),
   id: z.string().uuid(),
@@ -1266,6 +1355,7 @@ export const draftSchema = z.object({
   recoveryCopyCount: z.number().int().nonnegative(),
   revision: z.number().int().positive(),
   state: z.enum(["draft", "scheduled", "sending", "sent", "discarded"]),
+  initialSignatureSource: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -1293,6 +1383,47 @@ export const draftContentInputSchema = draftEditableContentInputSchema.extend({
   sourceMessageId: z.string().uuid().nullable().optional(),
 });
 export type DraftContentInput = z.infer<typeof draftContentInputSchema>;
+
+export const composePreviewInputSchema = z
+  .object({
+    draft: draftEditableContentInputSchema,
+    conversationId: z.string().uuid().nullable().default(null),
+  })
+  .strict();
+export type ComposePreviewInput = z.infer<typeof composePreviewInputSchema>;
+
+export const composePreviewSchema = z.object({
+  html: z.string(),
+  text: z.string(),
+});
+export type ComposePreview = z.infer<typeof composePreviewSchema>;
+
+export const renderComposeSnippetInputSchema = z
+  .object({
+    templateId: z.string().uuid(),
+    draft: draftEditableContentInputSchema,
+    conversationId: z.string().uuid().nullable().default(null),
+  })
+  .strict();
+export type RenderComposeSnippetInput = z.infer<typeof renderComposeSnippetInputSchema>;
+
+export const composeSuggestionsInputSchema = z
+  .object({
+    query: z.string().trim().max(40),
+    draft: draftEditableContentInputSchema,
+    conversationId: z.string().uuid().nullable().default(null),
+  })
+  .strict();
+export type ComposeSuggestionsInput = z.infer<typeof composeSuggestionsInputSchema>;
+
+export const composeSuggestionSchema = z.object({
+  templateId: z.string().uuid(),
+  name: z.string(),
+  shortcut: composeTemplateShortcutSchema,
+  kind: composeTemplateKindSchema,
+  markdown: z.string(),
+});
+export type ComposeSuggestion = z.infer<typeof composeSuggestionSchema>;
 
 export const draftRecoveryCopySchema = z.object({
   id: z.string().uuid(),

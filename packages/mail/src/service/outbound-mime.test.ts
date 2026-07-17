@@ -113,4 +113,34 @@ describe("outbound MIME", () => {
     expect(text).toMatch(/^X-Auto-Response-Suppress: All$/im);
     expect(text).not.toMatch(/^Bcc:/im);
   });
+
+  test("uses frozen rendered output instead of re-rendering mutable source", async () => {
+    const snapshot = outboundDraftSnapshotSchema.parse({
+      revision: 2,
+      from: { name: "Support", address: "support@example.com" },
+      replyTo: null,
+      envelopeFrom: null,
+      to: [{ name: null, address: "customer@example.com" }],
+      cc: [],
+      bcc: [],
+      subject: "Frozen output",
+      body: "Hello {{ actor.display_name }}",
+      format: "markdown",
+      renderedText: "Hello Ada",
+      renderedHtml: '<div style="color:#123456"><p>Hello Ada</p></div>',
+      inReplyTo: null,
+      references: [],
+    });
+    const parsed = await simpleParser(
+      await buildMimeSource({
+        snapshot,
+        messageId: "<frozen@example.com>",
+        date: new Date("2026-07-17T10:00:00.000Z"),
+      }),
+    );
+
+    expect(parsed.text).toBe("Hello Ada");
+    expect(parsed.html).toContain("Hello Ada");
+    expect(parsed.html).not.toContain("actor.display_name");
+  });
 });

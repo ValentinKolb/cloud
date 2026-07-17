@@ -1,11 +1,12 @@
 import { NumberInput, PermissionEditor, prompts, Select, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, For } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 import { MailConnectionSettings, MailSenderSettings } from "./MailProviderSettings";
+import MailComposeSettings from "./MailComposeSettings";
 import MailResponsePolicySettings from "./MailResponsePolicySettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
 import MailWorkflowSettings from "./MailWorkflowSettings";
@@ -153,6 +154,26 @@ export default function MailboxSettings(props: {
           </button>
         </div>
       </SettingsModal.Tab>
+
+      <Show when={props.context.compose}>
+        {(compose) => (
+          <SettingsModal.Tab
+            id="compose"
+            title="Compose"
+            icon="ti ti-signature"
+            description="Signatures, snippets, defaults, and branded email design."
+          >
+            <MailComposeSettings
+              mailboxId={props.context.mailbox.id}
+              permission={props.context.permission === "admin" ? "admin" : "write"}
+              initialTemplates={compose().templates}
+              initialDefaults={compose().defaults}
+              initialStyle={compose().style}
+              identities={compose().identities}
+            />
+          </SettingsModal.Tab>
+        )}
+      </Show>
 
       {props.context.permission === "admin" && props.context.admin && (
         <>

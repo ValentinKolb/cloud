@@ -17,13 +17,18 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 import { z } from "zod";
 import {
   type AcquiredDraftLease,
+  type ComposePreview,
+  type ComposeSignatureDefault,
+  type ComposeTemplate,
   type DeletedMailbox,
   type DeletedMailboxPage,
   type DraftAttachmentUpload,
   type DraftIntent,
   type DraftLease,
   type DraftRecoveryCopy,
+  draftEditableContentInputSchema,
   type Mailbox,
+  type MailboxComposeStyle,
   type MailboxHealth,
   type MailboxOperationalHealth,
   type MailCommand,
@@ -1076,6 +1081,211 @@ export default defineCliCommands({
         const updated = await readApi<Mailbox>(ctx, `/mailboxes/${mailbox.id}`, jsonRequest("PATCH", update));
         if (ctx.options.output === "json") ctx.json(updated);
         else ctx.print(`Updated ${updated.name} (${updated.id}).`);
+      },
+    }),
+    command("compose template list", {
+      summary: "List visible signatures and snippets",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const templates = await readApi<ComposeTemplate[]>(ctx, `/mailboxes/${mailbox.id}/compose-templates`);
+        printTable(
+          ctx,
+          templates,
+          templates.map((template) => ({
+            name: template.name,
+            kind: template.kind,
+            scope: template.scope,
+            shortcut: `/${template.shortcut}`,
+            revision: template.revision,
+            id: template.id,
+          })),
+          [
+            { key: "name", label: "NAME" },
+            { key: "kind", label: "KIND" },
+            { key: "scope", label: "SCOPE" },
+            { key: "shortcut", label: "SHORTCUT" },
+            { key: "revision", label: "REV" },
+            { key: "id", label: "ID" },
+          ],
+        );
+      },
+    }),
+    command("compose template create", {
+      summary: "Create a private or mailbox compose template",
+      flags: {
+        ...mailboxFlag,
+        kind: flag.enum(["signature", "snippet"] as const, { required: true }),
+        scope: flag.enum(["private", "mailbox"] as const, { default: "private" }),
+        name: flag.string({ required: true }),
+        shortcut: flag.string({ required: true }),
+        body: flag.input({
+          required: true,
+          stdinName: "body-stdin",
+          fileName: "body-file",
+          description: "Markdown and Liquid template source",
+        }),
+      },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const body = await readCliInput(flags.body, { label: "template body", required: true });
+        const template = await readApi<ComposeTemplate>(
+          ctx,
+          `/mailboxes/${mailbox.id}/compose-templates`,
+          jsonRequest("POST", {
+            kind: flags.kind,
+            scope: flags.scope ?? "private",
+            name: flags.name,
+            shortcut: flags.shortcut,
+            body,
+          }),
+        );
+        if (ctx.options.output === "json") ctx.json(template);
+        else ctx.print(`Created ${template.kind} ${template.name} as /${template.shortcut} (${template.id}).`);
+      },
+    }),
+    command("compose template update", {
+      summary: "Update a compose template at an expected revision",
+      args: { templateId: arg.required({ description: "Compose template id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected template revision" }),
+        name: flag.string(),
+        shortcut: flag.string(),
+        body: flag.input({
+          stdinName: "body-stdin",
+          fileName: "body-file",
+          description: "Replacement Markdown and Liquid source",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const body = await readCliInput(flags.body, { label: "template body", required: false });
+        const update = {
+          expectedRevision: flags.revision!,
+          ...(flags.name !== undefined ? { name: flags.name } : {}),
+          ...(flags.shortcut !== undefined ? { shortcut: flags.shortcut } : {}),
+          ...(body !== null ? { body } : {}),
+        };
+        if (Object.keys(update).length === 1) throw new Error("Pass --name, --shortcut, --body, --body-file, or --body-stdin.");
+        const template = await readApi<ComposeTemplate>(
+          ctx,
+          `/mailboxes/${mailbox.id}/compose-templates/${args.templateId}`,
+          jsonRequest("PATCH", update),
+        );
+        if (ctx.options.output === "json") ctx.json(template);
+        else ctx.print(`Updated ${template.name} to revision ${template.revision}.`);
+      },
+    }),
+    command("compose template archive", {
+      summary: "Archive a compose template",
+      args: { templateId: arg.required({ description: "Compose template id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected template revision" }),
+        yes: confirmFlag("Confirm template archive"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to archive the compose template.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await readApi(
+          ctx,
+          `/mailboxes/${mailbox.id}/compose-templates/${args.templateId}`,
+          jsonRequest("DELETE", { expectedRevision: flags.revision }),
+        );
+        if (ctx.options.output === "json") ctx.json({ archived: true, templateId: args.templateId });
+        else ctx.print(`Archived compose template ${args.templateId}.`);
+      },
+    }),
+    command("compose signature default", {
+      summary: "Set or clear a personal or mailbox default signature",
+      args: { senderIdentityId: arg.required({ description: "Sender identity id" }) },
+      flags: {
+        ...mailboxFlag,
+        scope: flag.enum(["private", "mailbox"] as const, { default: "private" }),
+        template: flag.string({ description: "Signature template id; omit to clear" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const scope = flags.scope ?? "private";
+        const defaults = await readApi<ComposeSignatureDefault[]>(ctx, `/mailboxes/${mailbox.id}/compose-signature-defaults`);
+        const current = defaults.find(
+          (item) => item.senderIdentityId === args.senderIdentityId && (scope === "private" ? item.userId !== null : item.userId === null),
+        );
+        const next = await readApi<ComposeSignatureDefault | null>(
+          ctx,
+          `/mailboxes/${mailbox.id}/sender-identities/${args.senderIdentityId}/compose-signature-default`,
+          jsonRequest("PUT", { scope, templateId: flags.template ?? null, expectedRevision: current?.revision ?? null }),
+        );
+        if (ctx.options.output === "json") ctx.json(next);
+        else ctx.print(next ? `Set ${scope} signature default to ${next.templateId}.` : `Cleared ${scope} signature default.`);
+      },
+    }),
+    command("compose style get", {
+      summary: "Show mailbox email CSS",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const style = await readApi<MailboxComposeStyle>(ctx, `/mailboxes/${mailbox.id}/compose-style`);
+        if (ctx.options.output === "json") ctx.json(style);
+        else ctx.print(style.customCss);
+      },
+    }),
+    command("compose style set", {
+      summary: "Replace mailbox email CSS",
+      flags: {
+        ...mailboxFlag,
+        css: flag.input({
+          required: true,
+          stdinName: "css-stdin",
+          fileName: "css-file",
+          description: "Validated mailbox email CSS",
+        }),
+      },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const [current, customCss] = await Promise.all([
+          readApi<MailboxComposeStyle>(ctx, `/mailboxes/${mailbox.id}/compose-style`),
+          readCliInput(flags.css, { label: "email CSS", required: true }),
+        ]);
+        const style = await readApi<MailboxComposeStyle>(
+          ctx,
+          `/mailboxes/${mailbox.id}/compose-style`,
+          jsonRequest("PUT", { expectedRevision: current.revision, customCss }),
+        );
+        if (ctx.options.output === "json") ctx.json(style);
+        else ctx.print(`Updated mailbox email design to revision ${style.revision}.`);
+      },
+    }),
+    command("compose preview", {
+      summary: "Render a draft payload through the canonical email pipeline",
+      flags: {
+        ...mailboxFlag,
+        draft: flag.input({
+          required: true,
+          stdinName: "draft-stdin",
+          fileName: "draft-file",
+          description: "Draft JSON with sender identity, recipients, subject, body, and format",
+        }),
+      },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const source = await readCliInput(flags.draft, { label: "draft JSON", required: true });
+        if (!source) throw new Error("Draft input is empty.");
+        let value: unknown;
+        try {
+          value = JSON.parse(source);
+        } catch {
+          throw new Error("Draft input must be valid JSON.");
+        }
+        const draft = draftEditableContentInputSchema.parse(value);
+        const preview = await readApi<ComposePreview>(
+          ctx,
+          `/mailboxes/${mailbox.id}/compose-preview`,
+          jsonRequest("POST", { draft, conversationId: null }),
+        );
+        if (ctx.options.output === "json") ctx.json(preview);
+        else ctx.print(preview.html);
       },
     }),
     command("status", {

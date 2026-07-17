@@ -5,6 +5,7 @@ import {
   type ActorCommandInput,
   type ActorRef,
   actorCommandInputSchema,
+  draftEditableContentInputSchema,
   type MailCommand,
   type MailCommandInput,
   type MaintenanceCommandInput,
@@ -14,7 +15,9 @@ import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
+import { renderComposeDraft } from "./compose-templates";
 import { resolveMailExecution } from "./execution";
+import { outboundDraftSnapshotSchema } from "./outbound-mime";
 
 type DbCommand = {
   id: string;
@@ -347,6 +350,7 @@ const createSendOutbox = async (params: {
   commandId: string;
   selectedBindingId: string;
   prepared: PreparedActorCommand;
+  actor: ActorRef;
 }): Promise<void> => {
   const { prepared } = params;
   if (prepared.kind !== "send" || !prepared.draftId || !prepared.senderIdentityId) return;
@@ -398,6 +402,27 @@ const createSendOutbox = async (params: {
     const unavailable = err.badInput("Draft is no longer available");
     throw Object.assign(new Error(unavailable.message), unavailable);
   }
+  const content = draftEditableContentInputSchema.safeParse({
+    senderIdentityId: prepared.senderIdentityId,
+    to: draft.to_addresses,
+    cc: draft.cc_addresses,
+    bcc: draft.bcc_addresses,
+    subject: draft.subject,
+    body: draft.body_markdown,
+    format: draft.body_format,
+  });
+  if (!content.success) {
+    const invalid = err.badInput(content.error.issues[0]?.message ?? "Draft content is invalid");
+    throw Object.assign(new Error(invalid.message), invalid);
+  }
+  const rendered = await renderComposeDraft({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    draft: content.data,
+    actor: params.actor,
+    renderLiquid: draft.origin === "user",
+  });
+  if (!rendered.ok) throw Object.assign(new Error(rendered.error.message), rendered.error);
   const senderDomain = draft.from_address.split("@")[1]?.toLowerCase() || "mail.invalid";
   const stableMessageId = `<${crypto.randomUUID()}@${senderDomain}>`;
   const references = [...(draft.reference_ids ?? []), ...(draft.parent_message_id ? [draft.parent_message_id] : [])].filter(
@@ -409,6 +434,29 @@ const createSendOutbox = async (params: {
   }
   const effectiveScheduledAt = new Date(Math.max(Date.now(), scheduledAt.getTime()));
   const undoUntil = new Date(effectiveScheduledAt.getTime() + prepared.undoSeconds * 1_000);
+  const snapshot = outboundDraftSnapshotSchema.safeParse({
+    revision: Number(draft.revision),
+    from: { name: draft.display_name, address: draft.from_address },
+    replyTo: draft.reply_to,
+    envelopeFrom: draft.envelope_sender,
+    useNullEnvelopeSender: draft.origin === "workflow",
+    automaticReply: draft.origin === "workflow",
+    to: draft.to_addresses,
+    cc: draft.cc_addresses,
+    bcc: draft.bcc_addresses,
+    subject: draft.subject,
+    body: draft.body_markdown,
+    format: draft.body_format,
+    renderedText: rendered.data.text,
+    renderedHtml: rendered.data.html,
+    inReplyTo: draft.parent_message_id,
+    references,
+    attachments: draft.attachments,
+  });
+  if (!snapshot.success) {
+    const message = snapshot.error.issues[0]?.message ?? "Rendered message is too large";
+    throw Object.assign(new Error(message), err.badInput(message));
+  }
   await params.db`
     INSERT INTO mail.outbox_submissions (
       mailbox_id,
@@ -432,23 +480,7 @@ const createSendOutbox = async (params: {
       ${prepared.undoSeconds > 0 ? "undo_window" : "scheduled"},
       ${effectiveScheduledAt},
       ${undoUntil},
-      ${{
-        revision: Number(draft.revision),
-        from: { name: draft.display_name, address: draft.from_address },
-        replyTo: draft.reply_to,
-        envelopeFrom: draft.envelope_sender,
-        useNullEnvelopeSender: draft.origin === "workflow",
-        automaticReply: draft.origin === "workflow",
-        to: draft.to_addresses,
-        cc: draft.cc_addresses,
-        bcc: draft.bcc_addresses,
-        subject: draft.subject,
-        body: draft.body_markdown,
-        format: draft.body_format,
-        inReplyTo: draft.parent_message_id,
-        references,
-        attachments: draft.attachments,
-      }}::jsonb
+      ${snapshot.data}::jsonb
     )
   `;
   await params.db`
@@ -590,6 +622,7 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
     commandId: row.id,
     selectedBindingId: execution.data.bindingId,
     prepared,
+    actor,
   });
   await tx`
     INSERT INTO mail.activity_events (

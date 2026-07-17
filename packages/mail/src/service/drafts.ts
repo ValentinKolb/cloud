@@ -14,6 +14,7 @@ import {
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
+import { resolveDefaultSignatureSource } from "./compose-templates";
 import type { AttachmentDownload } from "./messages";
 
 type DraftActor = Extract<ActorRef, { kind: "user" | "service_account" | "workflow" }>;
@@ -284,6 +285,22 @@ export const createDraft = async (params: {
       if (!identity.ok) return identity;
       const draftContext = await resolveDraftContext({ mailboxId: params.mailboxId, input: parsed.data, db: tx });
       if (!draftContext.ok) return draftContext;
+      const defaultSignature =
+        draftContext.data.intent === "new"
+          ? await resolveDefaultSignatureSource({
+              db: tx,
+              context: params.context,
+              mailboxId: params.mailboxId,
+              senderIdentityId: parsed.data.senderIdentityId,
+            })
+          : null;
+      const initialBody = defaultSignature
+        ? [parsed.data.body.trimEnd(), defaultSignature].filter(Boolean).join("\n\n")
+        : parsed.data.body;
+      const initialContent = draftContentInputSchema.safeParse({ ...parsed.data, body: initialBody });
+      if (!initialContent.success) {
+        return fail(err.badInput(initialContent.error.issues[0]?.message ?? "Default signature makes the draft too large"));
+      }
       const [row] = await tx<DbDraft[]>`
         INSERT INTO mail.drafts AS d (
           mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
@@ -303,7 +320,7 @@ export const createDraft = async (params: {
           ${parsed.data.cc}::jsonb,
           ${parsed.data.bcc}::jsonb,
           ${parsed.data.subject},
-          ${parsed.data.body},
+          ${initialContent.data.body},
           ${parsed.data.format}
         )
         RETURNING ${draftColumns}
@@ -319,7 +336,10 @@ export const createDraft = async (params: {
         targetId: row.id,
         metadata: { revision: Number(row.revision), intent: draftContext.data.intent, sourceMessageId: draftContext.data.sourceMessageId },
       });
-      return ok(mapDraft(row));
+      return ok({
+        ...mapDraft(row),
+        initialSignatureSource: defaultSignature,
+      });
     });
   } catch {
     return fail(err.internal("Failed to create draft"));

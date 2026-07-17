@@ -1,6 +1,7 @@
 import * as mailboxAccess from "./access";
 import * as bindings from "./bindings";
 import * as collaboration from "./collaboration";
+import * as composeTemplates from "./compose-templates";
 import { cancelSendCommand, commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
 import * as conversations from "./conversations";
@@ -38,6 +39,7 @@ export {
   bindings,
   cancelSendCommand,
   collaboration,
+  composeTemplates,
   commandRuntime,
   commands,
   conversations,
@@ -74,6 +76,7 @@ export const mailService = {
   bindings,
   commands,
   collaboration,
+  composeTemplates,
   conversations,
   conversationReferences,
   draftLeases,

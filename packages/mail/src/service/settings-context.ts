@@ -3,6 +3,7 @@ import type { MailboxSettingsContext } from "../settings-context";
 import * as mailboxAccess from "./access";
 import type { MailRequestContext } from "./auth";
 import * as bindings from "./bindings";
+import * as composeTemplates from "./compose-templates";
 import * as conversationReferences from "./conversation-reference";
 import * as mailboxes from "./mailboxes";
 import * as messages from "./messages";
@@ -21,7 +22,27 @@ export const loadMailboxSettingsContext = async (
   const mailboxResult = await mailboxes.getMailbox(context, mailboxId);
   if (!mailboxResult.ok) return fail(mailboxResult.error);
 
-  if (permission !== "admin") return ok({ mailbox: mailboxResult.data, permission, admin: null });
+  let compose: MailboxSettingsContext["compose"] = null;
+  if (permission === "write" || permission === "admin") {
+    const [templateResult, defaultResult, styleResult, identityResult] = await Promise.all([
+      composeTemplates.listComposeTemplates(context, mailboxId),
+      composeTemplates.listComposeSignatureDefaults(context, mailboxId),
+      composeTemplates.getMailboxComposeStyle(context, mailboxId),
+      senderIdentities.listSenderIdentities(context, mailboxId),
+    ]);
+    if (!templateResult.ok) return fail(templateResult.error);
+    if (!defaultResult.ok) return fail(defaultResult.error);
+    if (!styleResult.ok) return fail(styleResult.error);
+    if (!identityResult.ok) return fail(identityResult.error);
+    compose = {
+      templates: templateResult.data,
+      defaults: defaultResult.data,
+      style: styleResult.data,
+      identities: identityResult.data,
+    };
+  }
+
+  if (permission !== "admin") return ok({ mailbox: mailboxResult.data, permission, compose, admin: null });
 
   const [accessResult, connectionResult, bindingResult, folderResult, identityResult, referenceSchemeResult, responseScheduleResult, workflowResult] =
     await Promise.all([
@@ -46,6 +67,7 @@ export const loadMailboxSettingsContext = async (
   return ok({
     mailbox: mailboxResult.data,
     permission,
+    compose,
     admin: {
       accessEntries: accessResult.data,
       connections: connectionResult.data,
