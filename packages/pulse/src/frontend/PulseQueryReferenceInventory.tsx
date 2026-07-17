@@ -8,7 +8,6 @@ import type {
   PulseSignalField,
   PulseSource,
 } from "../contracts";
-import { PulseInventoryReferenceIntro } from "./help/pulse-help-content";
 import {
   buildReferenceEntityChips,
   buildReferenceEventQuery,
@@ -175,7 +174,15 @@ export function PulseQueryReferenceInventory(props: Props) {
 
   return (
     <>
-      <PulseInventoryReferenceIntro />
+      <section class="paper flex flex-col gap-4 p-4">
+        <div>
+          <h2 class="text-base font-semibold text-primary">Inventory</h2>
+          <p class="text-sm text-dimmed">
+            Filter this base by source or entity, then copy scoped snippets into the explorer or Dashboard DSL. Inventory is generated from
+            observed data, so empty sections usually mean the source has not published that kind of signal yet.
+          </p>
+        </div>
+      </section>
       <section class="paper flex flex-col gap-4 p-4">
         <ScopeChipRow
           label="Sources"

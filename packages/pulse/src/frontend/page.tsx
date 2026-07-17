@@ -2,7 +2,9 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import { pulseService } from "../service";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { pulseHelp } from "../help";
 import PulseOverview from "./PulseOverview.island";
+import PulseLayoutHelp from "./PulseLayoutHelp";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -13,6 +15,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Pulse" }]}>
+      <PulseLayoutHelp documents={pulseHelp.manifest} />
       <PulseOverview bases={bases} capabilities={capabilities} initialQuery={url.searchParams.get("q")?.trim() ?? ""} />
     </Layout>
   );

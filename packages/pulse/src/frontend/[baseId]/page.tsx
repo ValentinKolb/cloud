@@ -1,7 +1,9 @@
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
+import { pulseHelp } from "../../help";
 import PulseWorkspace from "../PulseWorkspace.island";
+import PulseLayoutHelp from "../PulseLayoutHelp";
 import { loadPulseWorkspacePageData } from "./page-data";
 
 export default ssr<AuthContext>(async (c) => {
@@ -27,6 +29,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Pulse", href: "/app/pulse" }, { title: data.baseName }]}>
+      <PulseLayoutHelp documents={pulseHelp.manifest} />
       <PulseWorkspace
         initialBases={workspaceProps.initialBases}
         initialCapabilities={workspaceProps.initialCapabilities}

@@ -1,6 +1,8 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
+import { Layout } from "@valentinkolb/cloud/ssr/islands";
 import { navigate } from "@valentinkolb/ssr/nav";
-import { createSignal, For } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import type {
   PulseCurrentState,
   PulseMetricSeries,
@@ -9,7 +11,6 @@ import type {
   PulseSignalField,
   PulseSource,
 } from "../contracts";
-import { PulseDashboardDslHelpPage, PulseQueryDslHelpPage, PulseReferenceOverviewPage } from "./help/pulse-help-content";
 import { PulseQueryReferenceInventory } from "./PulseQueryReferenceInventory";
 import { defaultReferenceTab, isAvailableReferenceTab, type ReferenceTab, referenceTabs } from "./query-reference-tabs";
 
@@ -23,6 +24,7 @@ type Props = {
   sources: PulseSource[];
   series: PulseMetricSeries[];
   fields: PulseSignalField[];
+  documents: readonly HelpDocumentManifest[];
 };
 
 const readInitialTab = (includeDashboardDsl: boolean, initialTab?: ReferenceTab): ReferenceTab => {
@@ -41,6 +43,12 @@ const writeTabParam = (tab: ReferenceTab) => {
 
 export default function PulseQueryReferenceWindow(props: Props) {
   const [activeTab, setActiveTab] = createSignal<ReferenceTab>(readInitialTab(props.includeDashboardDsl, props.initialTab));
+  const activeHelpTopic = createMemo(() => {
+    if (activeTab() === "overview") return "pulse-reference";
+    if (activeTab() === "query") return "pulse-query-language";
+    if (activeTab() === "dashboard") return "pulse-dashboard-dsl";
+    return null;
+  });
 
   const switchTab = (tab: ReferenceTab) => {
     setActiveTab(tab);
@@ -58,10 +66,6 @@ export default function PulseQueryReferenceWindow(props: Props) {
       </For>
     </AppWorkspace.SidebarSection>
   );
-
-  const renderOverview = () => <PulseReferenceOverviewPage includeDashboardDsl={props.includeDashboardDsl} />;
-  const renderQueryDsl = () => <PulseQueryDslHelpPage />;
-  const renderDashboardDsl = () => <PulseDashboardDslHelpPage />;
 
   const renderInventory = () => (
     <PulseQueryReferenceInventory
@@ -87,16 +91,20 @@ export default function PulseQueryReferenceWindow(props: Props) {
       </AppWorkspace.Sidebar>
 
       <AppWorkspace.Content>
-        <AppWorkspace.Main class="overflow-y-auto p-[var(--ui-space-shell)]">
-          <div class="mx-auto flex w-full max-w-7xl flex-col gap-5">
-            {activeTab() === "overview"
-              ? renderOverview()
-              : activeTab() === "query"
-                ? renderQueryDsl()
-                : activeTab() === "dashboard"
-                  ? renderDashboardDsl()
-                  : renderInventory()}
-          </div>
+        <AppWorkspace.Main class="overflow-y-auto">
+          <Show
+            when={activeHelpTopic()}
+            fallback={<div class="mx-auto flex w-full max-w-7xl flex-col gap-5 p-[var(--ui-space-shell)]">{renderInventory()}</div>}
+          >
+            {(topic) => (
+              <Layout.HelpPage
+                documents={props.documents.filter((document) => document.id === topic())}
+                initialTopic={topic()}
+                includeShortcuts={false}
+                embedded
+              />
+            )}
+          </Show>
         </AppWorkspace.Main>
       </AppWorkspace.Content>
     </AppWorkspace>

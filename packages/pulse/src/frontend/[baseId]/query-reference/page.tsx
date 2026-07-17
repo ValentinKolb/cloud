@@ -1,5 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../config";
+import { pulseHelp } from "../../../help";
 import { pulseService } from "../../../service";
 import PulseQueryReferenceWindow from "../../PulseQueryReferenceWindow.island";
 import { readReferenceTab } from "../../query-reference-tabs";
@@ -42,6 +43,7 @@ export default ssr<AuthContext>(async (c) => {
       sources={sourcesResult.ok ? sourcesResult.data : []}
       series={series}
       fields={fieldsResult.ok ? fieldsResult.data : []}
+      documents={pulseHelp.manifest}
     />
   );
 });

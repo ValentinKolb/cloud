@@ -2,7 +2,6 @@ import { AppWorkspace, Panes, type PanesValue, toast } from "@valentinkolb/cloud
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { createSignal } from "solid-js";
 import type { MetricType, PulseDashboard, PulseDashboardConfig, PulseResourceSummary, PulseSource } from "../contracts";
-import PulseLayoutHelp from "./PulseLayoutHelp";
 import { createBaseController } from "./workspace/base-controller";
 import DashboardEditorView from "./workspace/DashboardEditorView";
 import DashboardView, { type DashboardRenderContext } from "./workspace/DashboardView";
@@ -1097,7 +1096,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   return (
     <AppWorkspace class={`${activeView() === "explorer" ? "min-h-0" : "min-h-[760px]"}`}>
-      <PulseLayoutHelp />
       <PulseSidebar
         title={selectedBase()?.name ?? "Pulse"}
         subtitle={`${sources().length} source${sources().length === 1 ? "" : "s"} · ${metrics().length} metric${metrics().length === 1 ? "" : "s"}`}

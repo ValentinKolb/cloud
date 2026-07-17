@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { app } from "./config";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
+import { auth, middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
 import pageRoutes from "./frontend";
+import { pulseHelp } from "./help";
 import { migrate } from "./migrate";
 import { pulseService } from "./service";
 import { pulseRuntime } from "./service/runtime";
@@ -10,6 +11,7 @@ import { pulseRuntime } from "./service/runtime";
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/api/pulse/help", new Hono<AuthContext>().use(auth.requireRole("user")).route("/", pulseHelp.router))
   .route("/api/pulse", apiRoutes)
   .route("/app/pulse", pageRoutes);
 

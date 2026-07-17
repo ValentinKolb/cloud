@@ -21,6 +21,8 @@ export type LayoutHelpPageProps = {
   initialTopic?: string;
   includeShortcuts?: boolean;
   accent?: string;
+  /** Render inside an app-owned pane instead of occupying a standalone page. */
+  embedded?: boolean;
 };
 
 type HelpTopic = (HelpTopicBase & { kind: "content"; children: JSX.Element }) | (HelpDocumentManifest & { kind: "document" });
@@ -131,7 +133,7 @@ const HelpShell = (props: {
   documents?: readonly HelpDocumentManifest[];
   includeShortcuts?: boolean;
   accent?: string;
-  surface?: "modal" | "floating" | "page";
+  surface?: "modal" | "floating" | "page" | "embedded";
 }) => {
   const [externalTopics, setExternalTopics] = createSignal(mergeTopics(sortedTopics(), props.documents));
   const [view, setView] = createSignal<HelpView>(props.session.view);
@@ -533,7 +535,7 @@ export function LayoutHelpPage(props: LayoutHelpPageProps) {
       documents={props.documents}
       includeShortcuts={props.includeShortcuts}
       accent={props.accent}
-      surface="page"
+      surface={props.embedded ? "embedded" : "page"}
     />
   );
 }

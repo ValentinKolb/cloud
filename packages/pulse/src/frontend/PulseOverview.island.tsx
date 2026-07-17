@@ -3,7 +3,6 @@ import { navigate, navigateTo } from "@valentinkolb/ssr/nav";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { PulseBase, PulseCapabilitySnapshot } from "../contracts";
 import { jsonFetch } from "./http";
-import PulseLayoutHelp from "./PulseLayoutHelp";
 
 type Props = {
   bases: PulseBase[];
@@ -72,9 +71,7 @@ export default function PulseOverview(props: Props) {
   };
 
   return (
-    <>
-      <PulseLayoutHelp />
-      <AppOverview
+    <AppOverview
         title="Pulse"
         subtitle="Metrics, events, states, and realtime dashboards."
         icon="ti ti-activity-heartbeat"
@@ -170,7 +167,6 @@ export default function PulseOverview(props: Props) {
             </Show>
           </div>
         </AppOverview.Aside>
-      </AppOverview>
-    </>
+    </AppOverview>
   );
 }
