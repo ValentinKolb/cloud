@@ -5,6 +5,7 @@ import speedtestCliRoutes from "./api/speedtest-cli";
 import webhookRoutes from "./api/webhooks";
 import { app } from "./config";
 import pageRoutes from "./frontend";
+import { toolsHelp } from "./help";
 import { migrate } from "./migrate";
 
 export type { ApiType } from "./api";
@@ -18,6 +19,7 @@ const router = new Hono<AuthContext>()
   .route("/tools/api/speedtest", speedtestRoutes)
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/tools/api/help", toolsHelp.router)
   // CLI script endpoints sit behind settings — they template the public
   // app URL (`settings.app.url`) into the served script.
   .route("/tools/api/speedtest", speedtestCliRoutes)

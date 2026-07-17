@@ -1,6 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js";
+import { toolsHelp } from "@/help";
 import { resolveSpeedtestBase } from "../../api/_url";
 import { ssr } from "../../config";
 import ToolsLayoutHelp from "../_components/help/ToolsLayoutHelp.island";
@@ -55,7 +56,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullPage title={breadcrumbs}>
-      <ToolsLayoutHelp />
+      <ToolsLayoutHelp documents={toolsHelp.manifest} />
       {tool.id === "webhooks" ? (
         renderTool?.({ webhookState, baseHref: `/tools/${tool.id}` })
       ) : (
