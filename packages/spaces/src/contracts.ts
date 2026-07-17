@@ -66,8 +66,8 @@ export type Priority = z.infer<typeof PrioritySchema>;
 
 export const RecurrenceSchema = z.object({
   rrule: z.string().min(1).describe("RFC 5545 RRULE string"),
-  dtstart: z.string().nullable().optional().describe("Recurrence series start timestamp (ISO)"),
-  exdate: z.array(z.string()).default([]).describe("Excluded recurrence instance timestamps (ISO)"),
+  dtstart: z.string().datetime().nullable().optional().describe("Recurrence series start timestamp (ISO)"),
+  exdate: z.array(z.string().datetime()).default([]).describe("Excluded recurrence instance timestamps (ISO)"),
 });
 export type Recurrence = z.infer<typeof RecurrenceSchema>;
 

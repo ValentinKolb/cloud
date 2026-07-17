@@ -1216,7 +1216,7 @@ const TimeGridView = (props: {
                                 onPointerDown={resizeStart}
                                 onDragStart={(event) => event.preventDefault()}
                               >
-                                <i class="ti ti-grip-horizontal text-[10px]" />
+                                <i class="pointer-events-none ti ti-grip-horizontal text-[10px] leading-none" />
                               </button>
                             </Show>
                           </div>

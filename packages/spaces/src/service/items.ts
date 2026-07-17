@@ -1,5 +1,5 @@
 import { type AccessSubject, type AccessUser, listUsersWithAccess } from "@valentinkolb/cloud/server";
-import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { logger, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type {
@@ -26,8 +26,10 @@ import { rank } from "./rank";
 import {
   type ExpandedRecurringEvent,
   expandRecurringEvents,
+  parseRecurrenceRule,
   type RecurringEvent,
   type RecurringOverride,
+  resolveRecurringOccurrence,
   shiftRecurrenceRule,
   splitRecurringEvent,
 } from "./recurrence";
@@ -37,6 +39,7 @@ import {
 // ==========================
 
 type SqlExecutor = typeof sql;
+const log = logger("spaces:items");
 
 type DbItem = {
   id: string;
@@ -219,6 +222,7 @@ const validateRecurrenceInput = async (params: {
   recurrence: Recurrence | null | undefined;
   recurringEventId: string | null | undefined;
   recurrenceId: string | null | undefined;
+  dateConfig?: DateContext;
 }): Promise<MutationResult<void>> => {
   const isSeries = !!params.recurrence?.rrule;
   const isOverride = !!params.recurringEventId || !!params.recurrenceId;
@@ -229,6 +233,13 @@ const validateRecurrenceInput = async (params: {
   if (isSeries && (!params.startsAt || !params.endsAt)) {
     return { ok: false, error: "Recurring events require start and end times", status: 400 };
   }
+  if (isSeries) {
+    try {
+      parseRecurrenceRule(params.recurrence!.rrule);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "Invalid recurrence rule", status: 400 };
+    }
+  }
   if (isOverride) {
     if (!params.recurringEventId || !params.recurrenceId) {
       return { ok: false, error: "Recurring overrides require parent event and recurrence id", status: 400 };
@@ -236,8 +247,19 @@ const validateRecurrenceInput = async (params: {
     if (!params.startsAt || !params.endsAt) {
       return { ok: false, error: "Recurring overrides require start and end times", status: 400 };
     }
-    const [parent] = await sql<{ id: string }[]>`
-      SELECT id
+    const [parent] = await sql<
+      {
+        id: string;
+        title: string;
+        starts_at: Date;
+        ends_at: Date;
+        all_day: boolean;
+        recurrence_rrule: string;
+        recurrence_dtstart: Date | null;
+        recurrence_exdate: Date[] | null;
+      }[]
+    >`
+      SELECT id, title, starts_at, ends_at, all_day, recurrence_rrule, recurrence_dtstart, recurrence_exdate
       FROM spaces.items
       WHERE id = ${params.recurringEventId}
         AND space_id = ${params.spaceId}
@@ -246,6 +268,25 @@ const validateRecurrenceInput = async (params: {
     `;
     if (!parent) {
       return { ok: false, error: "Parent recurring event not found in space", status: 400 };
+    }
+    const occurrence = resolveRecurringOccurrence({
+      event: {
+        id: parent.id,
+        title: parent.title,
+        start: parent.starts_at,
+        end: parent.ends_at,
+        allDay: parent.all_day,
+        recurrence: {
+          rrule: parent.recurrence_rrule,
+          dtstart: parent.recurrence_dtstart ?? parent.starts_at,
+          exdate: parent.recurrence_exdate ?? [],
+        },
+      },
+      recurrenceId: params.recurrenceId!,
+      dateConfig: params.dateConfig,
+    });
+    if (!occurrence) {
+      return { ok: false, error: "Recurring occurrence not found", status: 400 };
     }
   }
 
@@ -935,6 +976,16 @@ export const get = async (params: { id: string }): Promise<SpaceItem | null> => 
   return item;
 };
 
+export const getRecurringOverride = async (params: { recurringEventId: string; recurrenceId: string }): Promise<SpaceItem | null> => {
+  const [row] = await sql<{ id: string }[]>`
+    SELECT id
+    FROM spaces.items
+    WHERE recurring_event_id = ${params.recurringEventId}
+      AND recurrence_id = ${params.recurrenceId}::timestamptz
+  `;
+  return row ? get({ id: row.id }) : null;
+};
+
 /**
  * Create a new item
  */
@@ -942,6 +993,7 @@ export const create = async (params: {
   spaceId: string;
   data: CreateItem;
   createdBy: string | null;
+  dateConfig?: DateContext;
 }): Promise<MutationResult<SpaceItem>> => {
   const { spaceId, data, createdBy } = params;
 
@@ -962,6 +1014,7 @@ export const create = async (params: {
     recurrence: data.recurrence,
     recurringEventId: data.recurringEventId,
     recurrenceId: data.recurrenceId,
+    dateConfig: params.dateConfig,
   });
   if (!recurrenceCheck.ok) return recurrenceCheck;
   const tagCheck = await validateTagIdsInSpace(spaceId, data.tagIds);
@@ -1006,6 +1059,9 @@ export const create = async (params: {
         ${null},
         ${createdBy}::uuid
       )
+      ON CONFLICT (recurring_event_id, recurrence_id)
+      WHERE recurring_event_id IS NOT NULL AND recurrence_id IS NOT NULL
+      DO NOTHING
       RETURNING id
     `;
 
@@ -1023,6 +1079,9 @@ export const create = async (params: {
   });
 
   if (!row) {
+    if (data.recurringEventId && data.recurrenceId) {
+      return { ok: false, error: "This occurrence already has a stored override", status: 409 };
+    }
     return { ok: false, error: "Failed to create item", status: 500 };
   }
 
@@ -1038,7 +1097,7 @@ export const create = async (params: {
 /**
  * Update an item
  */
-export const update = async (params: { id: string; data: UpdateItem }): Promise<MutationResult<SpaceItem>> => {
+export const update = async (params: { id: string; data: UpdateItem; dateConfig?: DateContext }): Promise<MutationResult<SpaceItem>> => {
   const { id, data } = params;
 
   const existing = await get({ id });
@@ -1105,6 +1164,7 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
     recurrence,
     recurringEventId,
     recurrenceId,
+    dateConfig: params.dateConfig,
   });
   if (!recurrenceCheck.ok) return recurrenceCheck;
   const tagCheck = await validateTagIdsInSpace(existing.spaceId, data.tagIds);
@@ -1699,13 +1759,29 @@ export const listCalendar = async (
   const recurringSourceIds = new Set(recurringEvents.map((event) => event.id));
   const recurringOverrideIds = new Set(overrides.map((event) => event.id));
   const regularItems = items.filter((item) => !recurringSourceIds.has(item.id) && !recurringOverrideIds.has(item.id));
-  const expanded = expandRecurringEvents({
-    events: recurringEvents,
-    overrides,
-    rangeStart: from,
-    rangeEnd: to,
-    dateConfig: params.dateConfig,
-  }).map((event) => expandedToCalendarItem(event as ExpandedRecurringEvent & { calendarItem?: CalendarItem }));
+  const overridesBySeries = new Map<string, Array<RecurringOverride & { calendarItem: CalendarItem }>>();
+  for (const override of overrides) {
+    const siblings = overridesBySeries.get(override.recurringEventId) ?? [];
+    siblings.push(override);
+    overridesBySeries.set(override.recurringEventId, siblings);
+  }
+  const expanded = recurringEvents.flatMap((event) => {
+    try {
+      return expandRecurringEvents({
+        events: [event],
+        overrides: overridesBySeries.get(event.id) ?? [],
+        rangeStart: from,
+        rangeEnd: to,
+        dateConfig: params.dateConfig,
+      }).map((occurrence) => expandedToCalendarItem(occurrence as ExpandedRecurringEvent & { calendarItem?: CalendarItem }));
+    } catch (error) {
+      log.warn("Skipping invalid recurring calendar series", {
+        itemId: event.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  });
 
   return [...regularItems, ...expanded].sort((a, b) => {
     const aTime = new Date(a.startsAt ?? a.deadline ?? 0).getTime();

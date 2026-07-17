@@ -437,6 +437,7 @@ export default function Calendar(props: CalendarProps) {
     onError: (error, context) => {
       if (context) clearOptimisticTime(context.eventId);
       prompts.error(error.message);
+      requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
     },
   });
   const updateTime = async (event: CalendarEvent, next: CalendarEventTimeChange, action: "move" | "resize") => {

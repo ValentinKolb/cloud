@@ -5,6 +5,7 @@ const SPACE_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
 const COLUMN_ID = "33333333-3333-4333-8333-333333333333";
 const ITEM_ID = "44444444-4444-4444-8444-444444444444";
+const OVERRIDE_ID = "77777777-7777-4777-8777-777777777777";
 const OTHER_SPACE_ID = "66666666-6666-4666-8666-666666666666";
 const calls: string[] = [];
 let permission = "read";
@@ -44,6 +45,7 @@ const item: SpaceItem = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 let loadedItem = item;
+let loadedOverride: SpaceItem | null = null;
 const comment = {
   id: "55555555-5555-4555-8555-555555555555",
   itemId: ITEM_ID,
@@ -88,10 +90,12 @@ mock.module("@/service", () => ({
     },
     item: {
       listFiltered: async () => ({ items: [item], total: 1, page: 1, pageSize: 50, totalPages: 1 }),
-      get: async () => {
+      get: async (params: { id: string }) => {
         calls.push("item.get");
+        if (params.id === OVERRIDE_ID) return loadedOverride;
         return { ...loadedItem, spaceId: itemSpaceId };
       },
+      getRecurringOverride: async () => loadedOverride,
       calendar: { list: async () => [] },
     },
     comment: {
@@ -120,6 +124,7 @@ beforeEach(() => {
   permission = "read";
   itemSpaceId = SPACE_ID;
   loadedItem = item;
+  loadedOverride = null;
   listedCommentRecurrenceId = undefined;
 });
 
@@ -194,6 +199,49 @@ describe("Spaces workspace SSR state", () => {
     });
     expect(state.selectedItemDetail?.commentTarget).toEqual({ itemId: ITEM_ID, recurrenceId });
     expect(listedCommentRecurrenceId).toBe(recurrenceId);
+  });
+
+  test("resolves a stale series occurrence URL to its stored override", async () => {
+    const recurrenceId = "2026-07-17T09:00:00.000Z";
+    loadedItem = {
+      ...item,
+      startsAt: "2026-07-01T09:00:00.000Z",
+      endsAt: "2026-07-01T09:30:00.000Z",
+      recurrence: {
+        rrule: "FREQ=DAILY",
+        dtstart: "2026-07-01T09:00:00.000Z",
+        exdate: [],
+      },
+    };
+    loadedOverride = {
+      ...loadedItem,
+      id: OVERRIDE_ID,
+      startsAt: "2026-07-17T11:00:00.000Z",
+      endsAt: "2026-07-17T11:30:00.000Z",
+      recurrence: null,
+      recurringEventId: ITEM_ID,
+      recurrenceId,
+    };
+
+    const detail = await loadSpaceItemDetail({
+      user: { id: USER_ID, roles: ["user"] },
+      spaceId: SPACE_ID,
+      itemId: ITEM_ID,
+      occurrenceId: recurrenceId,
+    });
+
+    expect(detail.kind).toBe("ok");
+    if (detail.kind !== "ok") return;
+    expect(detail.detail.item.id).toBe(OVERRIDE_ID);
+    expect(detail.detail.recurringContext).toEqual({
+      seriesItemId: ITEM_ID,
+      recurrenceId,
+      startsAt: "2026-07-17T11:00:00.000Z",
+      endsAt: "2026-07-17T11:30:00.000Z",
+      allDay: false,
+      isOverride: true,
+    });
+    expect(detail.detail.commentTarget).toEqual({ itemId: ITEM_ID, recurrenceId });
   });
 
   test("fails closed before reading cursor or snapshot data", async () => {

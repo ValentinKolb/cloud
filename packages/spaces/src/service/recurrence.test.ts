@@ -29,6 +29,12 @@ describe("parseRecurrenceRule", () => {
     expect(() => parseRecurrenceRule("FREQ=HOURLY")).toThrow("Recurrence rule requires");
     expect(() => parseRecurrenceRule("FREQ=DAILY;INTERVAL=0")).toThrow("INTERVAL");
     expect(() => parseRecurrenceRule("FREQ=DAILY;COUNT=0")).toThrow("COUNT");
+    expect(() => parseRecurrenceRule("FREQ=WEEKLY;BYDAY=MO,NOPE")).toThrow("BYDAY");
+    expect(() => parseRecurrenceRule("FREQ=DAILY;UNTIL=not-a-date")).toThrow("UNTIL");
+    expect(() => parseRecurrenceRule("FREQ=DAILY;UNTIL=20260231T090000Z")).toThrow("UNTIL");
+    expect(() => parseRecurrenceRule("FREQ=DAILY;BYDAY=MO")).toThrow("weekly");
+    expect(() => parseRecurrenceRule("FREQ=DAILY;BYMONTHDAY=2")).toThrow("not supported");
+    expect(() => parseRecurrenceRule("FREQ=DAILY;COUNT")).toThrow("invalid part");
   });
 });
 
@@ -168,6 +174,24 @@ describe("resolveRecurringOccurrence", () => {
     });
     expect(resolveRecurringOccurrence({ event, recurrenceId: "2026-07-03T09:00:00.000Z" })).toBeNull();
     expect(resolveRecurringOccurrence({ event, recurrenceId: "2026-07-02T10:00:00.000Z" })).toBeNull();
+    expect(
+      resolveRecurringOccurrence({
+        event: { ...event, recurrence: { ...event.recurrence, rrule: "FREQ=DAILY;UNTIL=not-a-date" } },
+        recurrenceId: "2026-07-02T09:00:00.000Z",
+      }),
+    ).toBeNull();
+  });
+
+  test("resolves established daily series beyond the calendar expansion page size", () => {
+    const event = {
+      id: "long-running",
+      title: "Daily check",
+      start: "2020-01-01T09:00:00.000Z",
+      end: "2020-01-01T09:15:00.000Z",
+      recurrence: { rrule: "FREQ=DAILY" },
+    };
+
+    expect(resolveRecurringOccurrence({ event, recurrenceId: "2027-01-01T09:00:00.000Z" })?.start).toBe("2027-01-01T09:00:00.000Z");
   });
 });
 

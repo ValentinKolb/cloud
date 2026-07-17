@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { list } from "./comments";
-import { splitRecurring, update } from "./items";
+import { create, splitRecurring, update } from "./items";
 
 const canUseDatabase = async () => {
   try {
@@ -66,6 +66,35 @@ describe("Spaces comment pagination", () => {
       const last = await list({ itemId: item!.id, pagination: { page: 3, perPage: 20 } });
       expect(last.hasNext).toBe(false);
       expect(last.items.map((entry) => entry.content)).toEqual(Array.from({ length: 15 }, (_, index) => `Comment ${index + 1}`));
+
+      const invalidOverride = await create({
+        spaceId: space!.id,
+        data: {
+          columnId: column!.id,
+          title: "Invalid override",
+          startsAt: "2026-07-19T10:00:00.000Z",
+          endsAt: "2026-07-19T10:30:00.000Z",
+          recurringEventId: item!.id,
+          recurrenceId: "2026-07-19T10:00:00.000Z",
+        },
+        createdBy: null,
+      });
+      expect(invalidOverride).toMatchObject({ ok: false, status: 400 });
+
+      const validOverrideInput = {
+        spaceId: space!.id,
+        data: {
+          columnId: column!.id,
+          title: "Valid override",
+          startsAt: "2026-07-19T10:00:00.000Z",
+          endsAt: "2026-07-19T10:30:00.000Z",
+          recurringEventId: item!.id,
+          recurrenceId: "2026-07-19T09:00:00.000Z",
+        },
+        createdBy: null,
+      };
+      expect((await create(validOverrideInput)).ok).toBe(true);
+      expect(await create(validOverrideInput)).toMatchObject({ ok: false, status: 409 });
 
       const firstOccurrence = "2026-07-17T09:00:00.000Z";
       const secondOccurrence = "2026-07-18T09:00:00.000Z";

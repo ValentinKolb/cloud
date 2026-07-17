@@ -1,4 +1,4 @@
-import { dates, type DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 
 export type RecurringFrequency = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
 
@@ -64,6 +64,8 @@ export type SplitRecurringEvent = {
 };
 
 const DEFAULT_EXPANSION_LIMIT = 2000;
+const MAX_OCCURRENCE_LOOKUP_STEPS = 10_000;
+const SUPPORTED_RRULE_PARTS = new Set(["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY"]);
 const WEEKDAY_INDEX: Record<string, number> = {
   SU: 0,
   MO: 1,
@@ -102,6 +104,8 @@ const addWallTime = (
 };
 
 const parseUntil = (value: string): Date => {
+  let parsed: Date;
+  let expectedDateKey: string | undefined;
   if (/^\d{8}T\d{6}Z$/.test(value)) {
     const year = value.slice(0, 4);
     const month = value.slice(4, 6);
@@ -109,20 +113,39 @@ const parseUntil = (value: string): Date => {
     const hour = value.slice(9, 11);
     const minute = value.slice(11, 13);
     const second = value.slice(13, 15);
-    return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
+    parsed = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
+    expectedDateKey = value;
+  } else if (/^\d{8}$/.test(value)) {
+    parsed = new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T23:59:59.999Z`);
+    expectedDateKey = value;
+  } else {
+    parsed = new Date(value);
   }
-  if (/^\d{8}$/.test(value)) {
-    return new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T23:59:59.999Z`);
+  if (Number.isNaN(parsed.getTime())) throw new Error("Recurrence UNTIL must be a valid date");
+  if (
+    expectedDateKey &&
+    (expectedDateKey.length === 8 ? compactUtc(parsed).slice(0, 8) !== expectedDateKey : compactUtc(parsed) !== expectedDateKey)
+  ) {
+    throw new Error("Recurrence UNTIL must be a valid date");
   }
-  return new Date(value);
+  return parsed;
 };
 
 export const parseRecurrenceRule = (rrule: string): RecurrenceRule => {
   const parts = new Map<string, string>();
-  for (const part of rrule.split(";")) {
-    const [key, value] = part.split("=");
-    if (!key || !value) continue;
-    parts.set(key.toUpperCase(), value);
+  for (const rawPart of rrule.split(";")) {
+    const part = rawPart.trim();
+    if (!part) continue;
+    const separator = part.indexOf("=");
+    if (separator <= 0 || separator === part.length - 1) throw new Error("Recurrence rule contains an invalid part");
+    const key = part.slice(0, separator).trim().toUpperCase();
+    const value = part
+      .slice(separator + 1)
+      .trim()
+      .toUpperCase();
+    if (!SUPPORTED_RRULE_PARTS.has(key)) throw new Error(`Recurrence rule part ${key} is not supported`);
+    if (parts.has(key)) throw new Error(`Recurrence rule contains duplicate ${key}`);
+    parts.set(key, value);
   }
 
   const freq = parts.get("FREQ") as RecurringFrequency | undefined;
@@ -141,11 +164,14 @@ export const parseRecurrenceRule = (rrule: string): RecurrenceRule => {
     throw new Error("Recurrence COUNT must be a positive integer");
   }
 
-  const byDay = parts
-    .get("BYDAY")
-    ?.split(",")
-    .map((day) => WEEKDAY_INDEX[day])
-    .filter((day): day is number => day !== undefined);
+  const byDayParts = parts.get("BYDAY")?.split(",") ?? [];
+  if (byDayParts.some((day) => WEEKDAY_INDEX[day] === undefined)) {
+    throw new Error("Recurrence BYDAY must contain valid weekdays");
+  }
+  if (byDayParts.length > 0 && freq !== "WEEKLY") {
+    throw new Error("Recurrence BYDAY is only supported for weekly rules");
+  }
+  const byDay = byDayParts.map((day) => WEEKDAY_INDEX[day]!).filter((day, index, days) => days.indexOf(day) === index);
 
   return {
     freq,
@@ -283,14 +309,19 @@ export const resolveRecurringOccurrence = (params: {
   const recurrenceDate = new Date(params.recurrenceId);
   if (Number.isNaN(recurrenceDate.getTime())) return null;
   const recurrenceId = recurrenceDate.toISOString();
-  const [occurrence] = expandRecurringEvents({
-    events: [params.event],
-    rangeStart: recurrenceDate,
-    rangeEnd: new Date(recurrenceDate.getTime() + 1),
-    expansionLimit: DEFAULT_EXPANSION_LIMIT,
-    generationLimit: DEFAULT_EXPANSION_LIMIT,
-    dateConfig: params.dateConfig,
-  }).filter((event) => event.recurringInstance?.recurrenceId === recurrenceId);
+  let occurrence: ExpandedRecurringEvent | undefined;
+  try {
+    [occurrence] = expandRecurringEvents({
+      events: [params.event],
+      rangeStart: recurrenceDate,
+      rangeEnd: new Date(recurrenceDate.getTime() + 1),
+      expansionLimit: DEFAULT_EXPANSION_LIMIT,
+      generationLimit: MAX_OCCURRENCE_LOOKUP_STEPS,
+      dateConfig: params.dateConfig,
+    }).filter((event) => event.recurringInstance?.recurrenceId === recurrenceId);
+  } catch {
+    return null;
+  }
   if (!occurrence?.recurringInstance) return null;
 
   return {
@@ -363,8 +394,8 @@ export const splitRecurringEvent = (params: {
     ],
     rangeStart: params.event.recurrence.dtstart ?? params.event.start,
     rangeEnd: new Date(recurrenceDate.getTime() + 1),
-    expansionLimit: DEFAULT_EXPANSION_LIMIT,
-    generationLimit: DEFAULT_EXPANSION_LIMIT,
+    expansionLimit: MAX_OCCURRENCE_LOOKUP_STEPS,
+    generationLimit: MAX_OCCURRENCE_LOOKUP_STEPS,
     dateConfig: params.dateConfig,
   });
   const ordinal = ordinalEvents.findIndex((event) => event.recurringInstance?.recurrenceId === occurrence.recurrenceId);

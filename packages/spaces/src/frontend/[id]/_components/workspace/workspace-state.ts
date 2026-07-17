@@ -264,7 +264,7 @@ const resolveRecurringDetail = async (params: {
   occurrenceId: string;
   spaceId: string;
   dateConfig?: DateContext;
-}): Promise<SpaceItemDetail["recurringContext"]> => {
+}): Promise<{ item: SpaceItem; context: NonNullable<SpaceItemDetail["recurringContext"]> } | null> => {
   const occurrenceDate = new Date(params.occurrenceId);
   if (Number.isNaN(occurrenceDate.getTime())) return null;
   const recurrenceId = occurrenceDate.toISOString();
@@ -272,14 +272,34 @@ const resolveRecurringDetail = async (params: {
   if (params.item.recurringEventId) {
     if (params.item.recurrenceId !== recurrenceId || !params.item.startsAt || !params.item.endsAt) return null;
     const series = await spacesService.item.get({ id: params.item.recurringEventId });
-    if (!series || series.spaceId !== params.spaceId || !series.recurrence) return null;
-    return {
-      seriesItemId: series.id,
+    if (!series || series.spaceId !== params.spaceId || !series.recurrence || !series.startsAt || !series.endsAt) return null;
+    const occurrence = resolveRecurringOccurrence({
+      event: {
+        id: series.id,
+        title: series.title,
+        start: series.startsAt,
+        end: series.endsAt,
+        allDay: series.allDay,
+        recurrence: {
+          rrule: series.recurrence.rrule,
+          dtstart: series.recurrence.dtstart ?? series.startsAt,
+          exdate: series.recurrence.exdate,
+        },
+      },
       recurrenceId,
-      startsAt: params.item.startsAt,
-      endsAt: params.item.endsAt,
-      allDay: params.item.allDay,
-      isOverride: true,
+      dateConfig: params.dateConfig,
+    });
+    if (!occurrence) return null;
+    return {
+      item: params.item,
+      context: {
+        seriesItemId: series.id,
+        recurrenceId,
+        startsAt: params.item.startsAt,
+        endsAt: params.item.endsAt,
+        allDay: params.item.allDay,
+        isOverride: true,
+      },
     };
   }
 
@@ -301,13 +321,36 @@ const resolveRecurringDetail = async (params: {
     dateConfig: params.dateConfig,
   });
   if (!occurrence) return null;
-  return {
-    seriesItemId: params.item.id,
+
+  const override = await spacesService.item.getRecurringOverride({
+    recurringEventId: params.item.id,
     recurrenceId,
-    startsAt: occurrence.start,
-    endsAt: occurrence.end,
-    allDay: occurrence.allDay,
-    isOverride: false,
+  });
+  if (override) {
+    if (override.spaceId !== params.spaceId || !override.startsAt || !override.endsAt) return null;
+    return {
+      item: override,
+      context: {
+        seriesItemId: params.item.id,
+        recurrenceId,
+        startsAt: override.startsAt,
+        endsAt: override.endsAt,
+        allDay: override.allDay,
+        isOverride: true,
+      },
+    };
+  }
+
+  return {
+    item: params.item,
+    context: {
+      seriesItemId: params.item.id,
+      recurrenceId,
+      startsAt: occurrence.start,
+      endsAt: occurrence.end,
+      allDay: occurrence.allDay,
+      isOverride: false,
+    },
   };
 };
 
@@ -328,7 +371,7 @@ const loadSelectedItemState = async (params: {
   }
   if (!selectedItem) return null;
 
-  const recurringContext = params.selectedOccurrenceId
+  const recurringDetail = params.selectedOccurrenceId
     ? await resolveRecurringDetail({
         item: selectedItem,
         occurrenceId: params.selectedOccurrenceId,
@@ -336,10 +379,12 @@ const loadSelectedItemState = async (params: {
         dateConfig: params.dateConfig,
       })
     : null;
-  if (params.selectedOccurrenceId && !recurringContext) return null;
+  if (params.selectedOccurrenceId && !recurringDetail) return null;
+  const detailItem = recurringDetail?.item ?? selectedItem;
+  const recurringContext = recurringDetail?.context ?? null;
 
   const commentTarget = {
-    itemId: recurringContext?.seriesItemId ?? selectedItem.id,
+    itemId: recurringContext?.seriesItemId ?? detailItem.id,
     recurrenceId: recurringContext?.recurrenceId ?? null,
   };
   const comments = await spacesService.comment.list({
@@ -349,7 +394,7 @@ const loadSelectedItemState = async (params: {
     pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
   });
 
-  return { item: selectedItem, comments, commentTarget, recurringContext };
+  return { item: detailItem, comments, commentTarget, recurringContext };
 };
 
 const loadWormholes = async (params: { canWrite: boolean; spaceId: string; user: AuthUser }): Promise<SpaceWormhole[]> => {
@@ -553,7 +598,7 @@ export const loadSpaceItemDetail = async (params: {
 
   const item = await spacesService.item.get({ id: params.itemId });
   if (!item || item.spaceId !== params.spaceId) return { kind: "notFound", title: "Not found", message: "Item not found" };
-  const recurringContext = params.occurrenceId
+  const recurringDetail = params.occurrenceId
     ? await resolveRecurringDetail({
         item,
         occurrenceId: params.occurrenceId,
@@ -561,11 +606,13 @@ export const loadSpaceItemDetail = async (params: {
         dateConfig: params.dateConfig,
       })
     : null;
-  if (params.occurrenceId && !recurringContext) {
+  if (params.occurrenceId && !recurringDetail) {
     return { kind: "notFound", title: "Not found", message: "Recurring occurrence not found" };
   }
+  const detailItem = recurringDetail?.item ?? item;
+  const recurringContext = recurringDetail?.context ?? null;
   const commentTarget = {
-    itemId: recurringContext?.seriesItemId ?? item.id,
+    itemId: recurringContext?.seriesItemId ?? detailItem.id,
     recurrenceId: recurringContext?.recurrenceId ?? null,
   };
   const comments = await spacesService.comment.list({
@@ -574,7 +621,7 @@ export const loadSpaceItemDetail = async (params: {
     viewerUserId: params.user.id,
     pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
   });
-  return { kind: "ok", detail: { item, comments, commentTarget, recurringContext } };
+  return { kind: "ok", detail: { item: detailItem, comments, commentTarget, recurringContext } };
 };
 
 export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promise<SpacesWorkspaceState> => {

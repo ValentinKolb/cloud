@@ -1054,6 +1054,7 @@ const app = new Hono<AuthContext>()
       responses: {
         200: jsonResponse(SpaceItemSchema, "Created item"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
+        409: jsonResponse(ErrorResponseSchema, "Occurrence override already exists"),
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
         404: jsonResponse(ErrorResponseSchema, "Space not found"),
       },
@@ -1065,7 +1066,7 @@ const app = new Hono<AuthContext>()
 
       const { user, error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
-      return respond(c, spacesService.item.create({ spaceId, data, createdBy: user?.id ?? null }));
+      return respond(c, spacesService.item.create({ spaceId, data, createdBy: user?.id ?? null, dateConfig: getDateConfig(c) }));
     },
   )
 
@@ -1124,7 +1125,7 @@ const app = new Hono<AuthContext>()
       if (error) return error;
       const itemCheck = await requireItemInSpace(spaceId, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
-      return respond(c, spacesService.item.update({ id: itemId, data }));
+      return respond(c, spacesService.item.update({ id: itemId, data, dateConfig: getDateConfig(c) }));
     },
   )
 

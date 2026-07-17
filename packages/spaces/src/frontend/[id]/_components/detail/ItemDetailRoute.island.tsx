@@ -39,10 +39,21 @@ type DetailLoadContext = { request: DetailRequest };
 
 class DetailNotFoundError extends Error {}
 
-const commitHistory = (request: DetailRequest) => {
-  if (request.history === "none") return;
-  if (request.history === "replace") window.history.replaceState(null, "", request.href);
-  else window.history.pushState(null, "", request.href);
+const canonicalDetailHref = (request: DetailRequest, detail: SpaceItemDetail) => {
+  if (!detail.recurringContext?.isOverride || detail.item.id === request.itemId) return request.href;
+  const url = new URL(request.href, "http://spaces.local");
+  url.searchParams.set("item", detail.item.id);
+  return `${url.pathname}${url.search}${url.hash}`;
+};
+
+const commitHistory = (request: DetailRequest, detail: SpaceItemDetail) => {
+  const href = canonicalDetailHref(request, detail);
+  if (request.history === "none") {
+    if (href !== request.href) window.history.replaceState(null, "", href);
+    return;
+  }
+  if (request.history === "replace") window.history.replaceState(null, "", href);
+  else window.history.pushState(null, "", href);
 };
 
 const detailState = (detail: SpaceItemDetail | null) => {
@@ -88,7 +99,7 @@ export default function ItemDetailRoute(props: Props) {
     },
     onSuccess: (result) => {
       setDetail(result.detail);
-      commitHistory(result.request);
+      commitHistory(result.request, result.detail);
       publishSpacesDetailState(detailState(result.detail));
     },
     onError: (error, context) => {
@@ -124,8 +135,20 @@ export default function ItemDetailRoute(props: Props) {
   };
 
   onMount(() => {
-    publishSpacesDetailState(detailState(detail()));
     const initialItemId = getDetailItemFromUrl();
+    const initialDetail = detail();
+    if (initialItemId && initialDetail) {
+      commitHistory(
+        {
+          itemId: initialItemId,
+          occurrenceId: getDetailOccurrenceFromUrl(),
+          href: window.location.href,
+          history: "none",
+        },
+        initialDetail,
+      );
+    }
+    publishSpacesDetailState(detailState(initialDetail));
     if (!detail() && initialItemId) {
       requestDetail({
         itemId: initialItemId,
