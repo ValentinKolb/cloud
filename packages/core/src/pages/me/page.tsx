@@ -5,6 +5,7 @@ import { getRuntimeContext, hasDedicatedRuntimeRoute, Layout } from "@valentinko
 import { Avatar } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { ssr } from "../../config";
+import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
 import AccountActivity from "./AccountActivity.island";
 import ApiKeysSettings from "./ApiKeysSettings.island";
@@ -93,7 +94,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Profile" }]}>
-      <CoreLayoutHelp />
+      <CoreLayoutHelp documents={coreHelp.manifest} />
       <div class="mx-auto flex max-w-6xl flex-col gap-4 px-2">
         {action === "extend" && (
           <div class="info-block-info text-sm">
@@ -362,7 +363,9 @@ export default ssr<AuthContext>(async (c) => {
                 <i class="ti ti-terminal-2 text-sm" />
                 Cloud CLI
               </h2>
-              <p class="mt-1 text-xs text-dimmed">Work with your favorite Cloud apps from the terminal. The installer can add the agent skill too.</p>
+              <p class="mt-1 text-xs text-dimmed">
+                Work with your favorite Cloud apps from the terminal. The installer can add the agent skill too.
+              </p>
               <code class="mt-4 block overflow-x-auto rounded-md bg-zinc-100 px-3 py-2 font-mono text-[11px] text-secondary dark:bg-zinc-800">
                 {cliInstallCommand}
               </code>

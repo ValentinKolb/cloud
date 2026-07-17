@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
 import { LinkCard, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
+import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -12,7 +13,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Overview">
-      <CoreLayoutHelp />
+      <CoreLayoutHelp documents={coreHelp.manifest} />
       <div class="max-w-6xl mx-auto">
         {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
         <div class="mb-2">

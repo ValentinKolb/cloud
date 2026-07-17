@@ -6,6 +6,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { ssr } from "../../config";
+import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
 import BrowserNotificationSetup from "./BrowserNotificationSetup.island";
 import NotificationHistoryFilters from "./NotificationHistoryFilters.island";
@@ -43,7 +44,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Profile", href: "/me" }, { title: "Notifications" }]}>
-      <CoreLayoutHelp />
+      <CoreLayoutHelp documents={coreHelp.manifest} />
       <div class="mx-auto flex max-w-6xl flex-col gap-2 px-2">
         <header class="px-1 py-2">
           <h1 class="flex items-center gap-2 text-xl font-semibold text-primary">

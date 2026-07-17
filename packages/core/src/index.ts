@@ -6,10 +6,11 @@
  */
 
 import { createCoreApiRouter } from "@valentinkolb/cloud/api";
-import { type AppContext, type AuthContext, middleware } from "@valentinkolb/cloud/server";
+import { type AppContext, type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
 import { app } from "./config";
+import { coreHelp } from "./help";
 import { createCoreNotificationSender } from "./notifications";
 import notificationWebSocketRoutes from "./notifications-ws";
 import { createPagesRouter } from "./pages/create";
@@ -23,11 +24,13 @@ const { api } = createCoreApiRouter({ notifications: notificationSender });
 const pages = createPagesRouter();
 
 const coreApi = new Hono().route("/", api);
+const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("user")).route("/", coreHelp.router);
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
   .route("/api/me/notifications/ws", notificationWebSocketRoutes)
+  .route("/api/core/help", helpRoutes)
   .route("/api", coreApi)
   .route("/", pages);
 
