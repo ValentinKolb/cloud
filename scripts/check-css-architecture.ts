@@ -41,7 +41,6 @@ const appStylesheets = readdirSync(packagesRoot)
 // These are migration debt, not accepted architecture. Keeping the list here
 // makes the current baseline executable while preventing new exceptions.
 const transitionalDuplicateUtilities = new Set(["bg-dark", "ellipsis", "no-scrollbar"]);
-const transitionalThemeStylesheet = "theme-modern.css";
 const transitionalThemeReferences = new Map([["packages/mail/src/frontend/MailOverview.island.tsx", new Set(["--theme-shadow-elevated"])]]);
 
 for (const file of [...sharedStylesheets, ...appStylesheets]) {
@@ -119,9 +118,6 @@ for (const file of [...sharedStylesheets, ...appStylesheets]) {
 
 for (const [property, owners] of customPropertyOwners) {
   if (owners.size < 2) continue;
-  const ownerNames = [...owners].map((file) => file.slice(sharedStylesRoot.length + 1));
-  const isFrozenThemeOverride = owners.size === 2 && ownerNames.includes(transitionalThemeStylesheet);
-  if (isFrozenThemeOverride) continue;
   report([...owners][0]!, `${property} has multiple owner files: ${[...owners].map((file) => relative(workspaceRoot, file)).join(", ")}`);
 }
 
@@ -132,11 +128,6 @@ for (const [property, consumers] of customPropertyReferences) {
   if (runtimePropertyPrefixes.some((prefix) => property.startsWith(prefix))) continue;
   if (componentRuntimeProperties.has(property)) continue;
   report([...consumers][0]!, `${property} is referenced but has no CSS or documented runtime owner`);
-}
-
-const themeStylesheet = join(sharedStylesRoot, transitionalThemeStylesheet);
-if (!existsSync(themeStylesheet) || importedCounts.get(transitionalThemeStylesheet) !== 1) {
-  report(globalStylesheet, `remove the ${transitionalThemeStylesheet} migration exception after deleting its final import`);
 }
 
 for (const file of appStylesheets) {

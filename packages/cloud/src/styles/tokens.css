@@ -179,14 +179,13 @@
 }
 
 @utility slider-track-colors {
-  --slider-fill: rgb(59 130 246);
-  --slider-track: rgb(228 228 231);
+  --slider-fill: var(--color-blue-500);
+  --slider-track: var(--ui-field);
 }
 
 .dark .slider-track-colors,
 .dark.slider-track-colors {
-  --slider-fill: rgb(96 165 250);
-  --slider-track: rgb(63 63 70);
+  --slider-fill: var(--color-blue-400);
 }
 
 @utility text-primary {

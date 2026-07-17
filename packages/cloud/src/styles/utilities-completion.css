@@ -67,7 +67,7 @@
 .ac-editor:focus-within {
   border-color: var(--ui-field-focus-border);
   background: var(--ui-field-focus);
-  box-shadow: var(--ui-control-recess);
+  box-shadow: var(--ui-focus);
 }
 
 .ac-editor[data-variant="paper"] {
@@ -85,7 +85,7 @@
 .ac-editor[data-variant="paper"]:focus-within {
   border-color: var(--ui-field-focus-border);
   background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-surface);
+  box-shadow: var(--ui-shadow-surface), var(--ui-focus);
 }
 
 .ac-editor[data-disabled="true"] {

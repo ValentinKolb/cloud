@@ -26,3 +26,8 @@
 @utility data-table-column-hover {
   background: var(--ui-data-column-hover);
 }
+
+[aria-label="Data table"] {
+  border-color: var(--ui-border);
+  box-shadow: none;
+}

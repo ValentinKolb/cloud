@@ -35,7 +35,6 @@
 @import "./base-popover.css";
 @import "./effects.css";
 @import "./input.css";
-@import "./theme-modern.css";
 
 @theme {
   --color-dark: rgb(9 9 11);
@@ -251,4 +250,13 @@ body {
 solid-client,
 solid-island {
   display: contents;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

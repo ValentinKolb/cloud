@@ -14,6 +14,8 @@
    drift even on nominally monospace fonts. */
 
 .md-editor {
+  --md-editor-hover: var(--ui-field-hover);
+  --md-editor-hover-border: var(--ui-field-hover-border);
   position: relative;
   border: 1px solid var(--ui-field-border);
   border-radius: var(--ui-radius-control);
@@ -25,13 +27,6 @@
   box-shadow: var(--ui-control-recess);
 }
 
-.dark .md-editor {
-  /* Preserve the legacy non-preview dark hover until the soft tokens become
-     the global defaults. The scoped preview resets these aliases below. */
-  --md-editor-hover: rgb(24 24 27 / 0.6);
-  --md-editor-hover-border: var(--color-zinc-800);
-}
-
 .md-editor:hover {
   border-color: var(--md-editor-hover-border, var(--ui-field-hover-border));
   background: var(--md-editor-hover, var(--ui-field-hover));
@@ -40,7 +35,7 @@
 .md-editor:focus-within {
   border-color: var(--ui-field-focus-border);
   background: var(--ui-field-focus);
-  box-shadow: var(--ui-control-recess);
+  box-shadow: var(--ui-focus);
 }
 
 .md-editor[data-variant="paper"] {
@@ -60,7 +55,7 @@
 .md-editor[data-variant="paper"]:focus-within {
   border-color: var(--ui-field-focus-border);
   background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-surface);
+  box-shadow: var(--ui-shadow-surface), var(--ui-focus);
 }
 
 .md-editor[data-variant="paper"] .md-editor-toolbar {

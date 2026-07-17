@@ -65,3 +65,21 @@
 .dark .doc-token-string { color: #ffa657; }
 .dark .doc-token-placeholder { color: #94a3b8; }
 .dark .doc-token-operator { color: #94a3b8; }
+
+.code-display {
+  background: var(--ui-surface-subtle);
+  box-shadow: 0 0 0 1px var(--ui-border);
+}
+
+.structured-data-surface {
+  background: var(--ui-surface-subtle) !important;
+}
+
+.ai-skill-origin-badge {
+  background: var(--ui-surface-muted) !important;
+  color: var(--color-zinc-600) !important;
+}
+
+.dark .ai-skill-origin-badge {
+  color: var(--color-zinc-300) !important;
+}

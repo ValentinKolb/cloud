@@ -232,3 +232,58 @@
    `packages/ui-lab/src/frontend/lab/surfaces-cards.tsx`. Do not reintroduce
    the earlier `.stat-grid / .stat-cell / .stat-value / .stat-label / .stat-sub`
    utilities; app code should import the shared components instead. */
+
+.menu-item {
+  gap: 0.625rem;
+  padding: 0.4375rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.menu-label {
+  padding: 0.625rem 0.75rem 0.25rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+}
+
+.state-placeholder[data-variant="panel"] {
+  min-height: 13rem;
+  padding: 1.5rem;
+}
+
+.state-placeholder-icon-panel {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--ui-radius-control);
+}
+
+.prompt-panel,
+.prompt-search-surface {
+  border: 1px solid var(--ui-dialog-border);
+  border-radius: var(--ui-dialog-radius);
+  background: var(--ui-dialog-surface);
+  box-shadow: var(--ui-shadow-float) !important;
+}
+
+.prompt-panel-danger {
+  border-color: color-mix(in srgb, var(--color-red-500) 28%, var(--ui-dialog-border));
+}
+
+.prompt-panel-success {
+  border-color: color-mix(in srgb, var(--color-green-500) 24%, var(--ui-dialog-border));
+}
+
+.prompt-search-surface > label {
+  background: var(--ui-field);
+}
+
+.prompt-search-surface > label:focus-within {
+  background: var(--ui-field-focus);
+  box-shadow: var(--ui-focus);
+}
+
+#ui-toast-container > div {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-float) !important;
+}
