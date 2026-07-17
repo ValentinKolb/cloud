@@ -3,6 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { expectUserBackedActor } from "@/actor";
 import { spacesService } from "@/service";
 import { ssr } from "../config";
+import { spacesHelp } from "../help";
 import SpacesLayoutHelp from "./_components/help/SpacesLayoutHelp.island";
 import { parseLastSpaceId } from "./[id]/_components/settings/SpaceSettingsStore";
 import SpacesOverview from "./SpacesOverview.island";
@@ -31,7 +32,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Spaces" }]}>
-      <SpacesLayoutHelp />
+      <SpacesLayoutHelp documents={spacesHelp.manifest} />
       <SpacesOverview spaces={userSpaces} initialQuery={initialQuery} />
     </Layout>
   );
