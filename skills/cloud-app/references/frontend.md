@@ -1638,7 +1638,7 @@ Button utilities come from `packages/cloud/src/styles/utilities-buttons.css`: `b
 
 Surface/feedback utilities come from `packages/cloud/src/styles/utilities-layout.css` and `packages/cloud/src/styles/utilities-feedback.css`: `paper`, `dialog-panel`, `paper-highlighted`, `app-cols`, `app-rows`, `info-block`, `info-block-note`, `info-block-info`, `info-block-success`, `info-block-warning`, `info-block-danger`, `status-dot`, `badge`, `chip`, `thumbnail`, `popup`, and `tag`.
 
-Navigation utilities are owned by `packages/cloud/src/styles/utilities-navigation.css`. Prefer `AppWorkspace` for app shells, but if you need lower-level composition the available classes include `sidebar-shell`, `sidebar-header`, `sidebar-mobile`, `sidebar-desktop`, `sidebar-section`, `sidebar-item`, `sidebar-icon-grid`, `sidebar-icon-action`, `rail`, and `rail-item`.
+Navigation utilities are owned by `packages/cloud/src/styles/utilities-navigation.css`. Prefer `AppWorkspace` for app shells, but if you need lower-level composition the available classes include `sidebar-shell`, `sidebar-header`, `sidebar-mobile`, `sidebar-desktop`, `sidebar-group`, `sidebar-item`, `sidebar-icon-grid`, `sidebar-icon-action`, `rail`, and `rail-item`.
 
 ### Detail panels (read view)
 

@@ -97,9 +97,9 @@ Inputs, autocomplete surfaces, and editors must consume the same field roles. Co
 
 - `--ui-data-header`, `--ui-data-divider`, `--ui-data-row-divider`: table structure without decorative grid chrome.
 - `--ui-data-row-hover`, `--ui-data-row-selected`, `--ui-data-column-hover`: independent interactive states; selection must remain distinguishable while scanning.
-- `--ui-dialog-*`: panel surface, boundary, internal divider, section well, icon well, and frame radius.
+- `--ui-dialog-*`: panel surface, boundary, section well, icon well, and frame radius.
 - `--ui-context-menu-*`, `--ui-dropdown-menu-*`: floating menu surface, geometry, and depth.
-- `--ui-menu-border`, `--ui-menu-hover`, `--ui-menu-divider`: shared menu interaction and grouping roles.
+- `--ui-menu-hover`: shared menu hover role.
 
 Data colour belongs inside cells and charts, never in the structural table roles. Floating layers may use stronger depth than in-flow papers, but their menus and dialogs still share the same radius family and spacing rhythm.
 

@@ -14,6 +14,11 @@ solid-island {
 [popover] {
   margin: 0;
   inset: unset;
+  transition:
+    opacity 0.2s,
+    transform 0.2s,
+    overlay 0.2s allow-discrete,
+    display 0.2s allow-discrete;
 }
 
 [popover]:popover-open {
@@ -21,14 +26,6 @@ solid-island {
     opacity: 0;
     transform: translateY(-10px);
   }
-}
-
-[popover] {
-  transition:
-    opacity 0.2s,
-    transform 0.2s,
-    overlay 0.2s allow-discrete,
-    display 0.2s allow-discrete;
 }
 
 .tooltip-surface[popover] {

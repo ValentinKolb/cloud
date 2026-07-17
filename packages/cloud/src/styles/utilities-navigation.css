@@ -115,10 +115,6 @@
   @apply flex items-center justify-center text-white shrink-0;
 }
 
-@utility sidebar-header-text {
-  @apply min-w-0 flex-1;
-}
-
 @utility sidebar-header-title {
   @apply truncate text-sm font-semibold text-primary;
 }
@@ -202,20 +198,8 @@
   @apply dark:bg-red-950/35 dark:text-red-300 dark:hover:bg-red-900/45 dark:hover:text-red-200;
 }
 
-@utility sidebar-section {
-  @apply flex flex-col gap-1;
-}
-
 @utility sidebar-section-title {
   @apply text-[0.6875rem] font-medium normal-case tracking-normal text-dimmed select-none;
-}
-
-@utility sidebar-controls {
-  @apply flex flex-col gap-2;
-}
-
-@utility sidebar-control-row {
-  @apply flex items-center gap-2;
 }
 
 /* Sidebar item primitives */
@@ -739,10 +723,6 @@
   @apply inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] text-dimmed;
 }
 
-@utility sidebar-tree-children {
-  @apply flex flex-col gap-0.5;
-}
-
 @utility list-item-active {
   border-left: 0;
   position: relative;
@@ -809,18 +789,6 @@
 .dark .rail-item-active:hover {
   color: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 45%, white);
   background: transparent;
-}
-
-@utility bottom-bar-item {
-  @apply flex flex-col items-center gap-0.5 text-[10px] py-1.5 px-3 transition-colors text-dimmed;
-
-  &:hover {
-    @apply text-secondary;
-  }
-}
-
-@utility bottom-bar-item-active {
-  @apply text-primary font-medium;
 }
 
 /* Workspace navigation chrome and resource identity. */

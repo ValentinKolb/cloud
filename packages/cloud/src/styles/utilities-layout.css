@@ -71,6 +71,10 @@
 }
 
 .panes-tab-strip {
+  gap: 0.125rem;
+  padding: 0.125rem;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-surface-muted);
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
@@ -379,13 +383,6 @@
   background: var(--ui-surface);
 }
 
-.panes-tab-strip {
-  gap: 0.125rem;
-  padding: 0.125rem;
-  border-radius: var(--ui-radius-control);
-  background: var(--ui-surface-muted);
-}
-
 .panes-tab {
   border-color: transparent !important;
   border-radius: calc(var(--ui-radius-control) - 0.125rem);
@@ -421,8 +418,7 @@
 }
 
 .link-card,
-.widget-surface,
-.widget-card {
+.widget-surface {
   border-color: var(--ui-border);
   background: var(--ui-surface);
   box-shadow: none;
@@ -437,7 +433,10 @@
 }
 
 .widget-card {
+  border-color: var(--ui-border);
   border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
+  box-shadow: none;
 }
 
 .widget-header {
