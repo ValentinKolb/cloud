@@ -20,8 +20,7 @@
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-surface);
   background: var(--ui-surface);
-  /* Gentle inset bevel (clip-safe). Flows through the token so the Layout
-     header's inline `box-shadow: var(--theme-shadow-elevated)` stays consistent. */
+  /* Shared surface depth stays consistent with the Layout header. */
   box-shadow: var(--ui-shadow-surface);
 }
 
@@ -110,13 +109,13 @@
 
 @utility divider {
   border: none;
-  border-bottom: var(--theme-divider);
+  border-bottom: 1px solid var(--ui-divider);
   @apply hidden;
 }
 
 @utility divider-v {
   border: none;
-  border-right: var(--theme-divider);
+  border-right: 1px solid var(--ui-divider);
 }
 
 @utility app-cols {
@@ -172,7 +171,7 @@
 
 @utility app-divider {
   & > * + * {
-    border-top: var(--theme-divider);
+    border-top: 1px solid var(--ui-divider);
   }
 }
 

@@ -420,8 +420,7 @@ const tabButtonClass = (active: boolean) =>
     ? `panes-tab panes-tab-active ${tabButtonBaseClass} border-blue-200 bg-white font-semibold text-blue-700 hover:border-blue-300 dark:border-blue-800 dark:bg-zinc-900 dark:text-blue-300 dark:hover:border-blue-700`
     : `panes-tab ${tabButtonBaseClass} border-zinc-100 bg-white text-secondary hover:border-zinc-200 hover:text-primary dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700`;
 
-const tabButtonShadow = (active: boolean) =>
-  active ? "inset 0 0 0 1px rgb(59 130 246 / 0.22), var(--theme-bevel-top)" : "var(--theme-shadow-elevated)";
+const tabButtonShadow = (active: boolean) => (active ? "inset 0 0 0 1px rgb(59 130 246 / 0.22)" : "var(--ui-shadow-surface)");
 
 const CloseButton = (props: { element: PanesElementSlot }) => (
   <button

@@ -248,7 +248,7 @@ export default function DatabaseTable(props: Props) {
         header: headerLabel(field, computed),
         subtitle: props.showColumnSubtitles === false ? undefined : computed ? "computed" : fieldTypeLabel(field.type).toLowerCase(),
         value: (record) => record.data[field.id],
-        headerClass: computed ? "bg-[var(--theme-list-active-bg)]" : undefined,
+        headerClass: computed ? "bg-[var(--ui-selected)]" : undefined,
       };
     });
 

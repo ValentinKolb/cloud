@@ -312,7 +312,7 @@ export const transformAttachments = (html: string, params: { notebookId: string;
     const filename = shortIdToFilename?.get(shortId) ?? label;
     const icon = fileIcons.getFileIcon({ name: filename, type: "file" });
     const href = buildContentUrl(notebookId, shortId);
-    return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cm-attachment-pill inline-flex items-center gap-1 rounded-md bg-zinc-100/80 px-1.5 py-0.5 text-zinc-700 no-underline shadow-[var(--theme-shadow-elevated)] hover:bg-zinc-200/80 dark:bg-zinc-800/80 dark:text-zinc-300 dark:hover:bg-zinc-700/80" title="${escapeHtml(filename)}"><i class="ti ${icon} text-xs"></i><span>${escapeHtml(label)}</span></a>`;
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cm-attachment-pill inline-flex items-center gap-1 rounded-md bg-zinc-100/80 px-1.5 py-0.5 text-zinc-700 no-underline shadow-[var(--ui-shadow-surface)] hover:bg-zinc-200/80 dark:bg-zinc-800/80 dark:text-zinc-300 dark:hover:bg-zinc-700/80" title="${escapeHtml(filename)}"><i class="ti ${icon} text-xs"></i><span>${escapeHtml(label)}</span></a>`;
   });
 
   return out;

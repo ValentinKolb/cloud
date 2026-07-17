@@ -341,7 +341,7 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
   const toastEl = document.createElement("div");
   toastEl.className =
     `pointer-events-auto cursor-pointer flex items-stretch gap-3 ${TOAST_WIDTH_CLASS} ` +
-    "p-3 rounded-md [box-shadow:var(--theme-shadow-float)] " +
+    "p-3 rounded-md [box-shadow:var(--ui-shadow-float)] " +
     "bg-white dark:bg-zinc-900 " +
     "transition-all duration-200 ease-out " +
     // Initial off-screen state — flipped on the next frame so the

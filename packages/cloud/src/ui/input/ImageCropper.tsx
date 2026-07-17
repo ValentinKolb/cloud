@@ -40,7 +40,7 @@ type DragState = {
 };
 
 const HANDLE_CLASS =
-  "absolute h-4 w-4 appearance-none rounded-full border-2 border-white bg-blue-500 bg-none p-0 shadow-[var(--theme-shadow-elevated)] transition-transform hover:scale-110 focus-ui";
+  "absolute h-4 w-4 appearance-none rounded-full border-2 border-white bg-blue-500 bg-none p-0 shadow-[var(--ui-shadow-surface)] transition-transform hover:scale-110 focus-ui";
 
 const readPointerPosition = (event: PointerEvent, frame: HTMLDivElement | undefined) => {
   if (!frame) return { x: 0, y: 0 };
@@ -328,7 +328,7 @@ export default function ImageCropper(props: ImageCropperProps) {
             <Show when={preview() && crop()}>
               <div
                 ref={frameRef}
-                class="image-cropper-frame relative max-h-[min(58vh,24rem)] w-full max-w-full overflow-hidden rounded-lg bg-zinc-100 shadow-[var(--theme-shadow-elevated)] touch-none select-none dark:bg-zinc-950"
+                class="image-cropper-frame relative max-h-[min(58vh,24rem)] w-full max-w-full overflow-hidden rounded-lg bg-zinc-100 shadow-[var(--ui-shadow-surface)] touch-none select-none dark:bg-zinc-950"
                 style={previewFrameStyle()}
               >
                 <img
@@ -359,7 +359,7 @@ export default function ImageCropper(props: ImageCropperProps) {
                 </div>
                 <button
                   type="button"
-                  class="btn-input btn-sm absolute right-2 top-2 z-20 h-9 w-9 justify-center rounded-full bg-white/90 shadow-[var(--theme-shadow-elevated)] backdrop-blur dark:bg-zinc-950/85"
+                  class="btn-input btn-sm absolute right-2 top-2 z-20 h-9 w-9 justify-center rounded-full bg-white/90 shadow-[var(--ui-shadow-surface)] backdrop-blur dark:bg-zinc-950/85"
                   onClick={rotateRight}
                   disabled={disabled() || !crop() || Boolean(error())}
                   title="Rotate right"

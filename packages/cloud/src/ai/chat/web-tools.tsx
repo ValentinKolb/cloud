@@ -78,7 +78,7 @@ export function WebSearchToolBlock(props: { block: ToolBlock }) {
           description: `${results().length} result${results().length === 1 ? "" : "s"}`,
         }}
       >
-        <div class="max-h-56 max-w-xl overflow-y-auto rounded-md bg-zinc-100/70 p-1 text-xs [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
+        <div class="max-h-56 max-w-xl overflow-y-auto rounded-md bg-zinc-100/70 p-1 text-xs [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
           <Show when={results().length > 0} fallback={<p class="px-2 py-1.5 text-dimmed">No results.</p>}>
             <For each={results()}>{(result) => <WebLinkRow url={result.url} title={result.title} />}</For>
           </Show>
@@ -117,7 +117,7 @@ export function WebExtractToolBlock(props: { block: ToolBlock }) {
           label: title() || domainOf(url()),
         }}
       >
-        <div class="flex max-w-xl flex-col gap-0.5 rounded-md bg-zinc-100/70 px-2 py-1.5 text-xs [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
+        <div class="flex max-w-xl flex-col gap-0.5 rounded-md bg-zinc-100/70 px-2 py-1.5 text-xs [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
           <a
             href={url()}
             target="_blank"

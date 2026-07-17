@@ -572,7 +572,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
       <div
         role="group"
         aria-label="Assistant message composer"
-        class={`relative overflow-visible rounded-lg border bg-white text-primary shadow-[var(--theme-shadow-elevated)] transition-[background-color,border-color,box-shadow] dark:bg-zinc-900 ${
+        class={`relative overflow-visible rounded-lg border bg-white text-primary shadow-[var(--ui-shadow-surface)] transition-[background-color,border-color,box-shadow] dark:bg-zinc-900 ${
           dragActive()
             ? "border-cyan-400 bg-teal-50 dark:border-cyan-500 dark:bg-teal-950/30"
             : "border-cyan-300/80 dark:border-cyan-800/80"

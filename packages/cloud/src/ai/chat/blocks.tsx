@@ -36,7 +36,7 @@ function ThinkingBlockView(props: { text: string; streaming?: boolean }) {
       }
     >
       <ChatUtilityDisclosure meta={{ icon: "ti ti-sparkles", label: "Show reasoning", tone: "ai" }}>
-        <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
+        <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
           {props.text}
         </pre>
       </ChatUtilityDisclosure>
@@ -61,7 +61,7 @@ function CompactionBlockView(props: { block: Extract<AiTurnBlock, { kind: "compa
       <ChatUtilityDisclosure
         meta={{ icon: "ti ti-brain", label: "Show compaction", description: description(), tone: status() === "failed" ? "danger" : "ai" }}
       >
-        <div class="max-w-xl rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
+        <div class="max-w-xl rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
           <Show when={props.block.result} fallback={<p>Older chat context was summarized into compact conversation memory.</p>}>
             {(compactResult) => (
               <dl class="grid grid-cols-2 gap-2">
@@ -86,7 +86,7 @@ function ToolDetailSection(props: { title: string; children: JSX.Element }) {
   return (
     <div class="min-w-0">
       <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-dimmed">{props.title}</p>
-      <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100 p-2 text-[11px] leading-4 text-primary [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
+      <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100 p-2 text-[11px] leading-4 text-primary [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
         {props.children}
       </pre>
     </div>

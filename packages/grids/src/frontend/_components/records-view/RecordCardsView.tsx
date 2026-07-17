@@ -95,7 +95,7 @@ export function RecordCardsView(props: {
                 <button
                   type="button"
                   class={`paper flex min-w-0 flex-col overflow-hidden text-left transition hover:paper-highlighted ${cardPaddingClass[size()]} ${
-                    selected() ? "app-accent-border bg-[var(--theme-list-active-bg)]" : ""
+                    selected() ? "app-accent-border bg-[var(--ui-selected)]" : ""
                   } ${highlighted() ? "bg-[var(--ui-active)]" : ""}`}
                   onClick={() => props.onRecordClick(record)}
                 >

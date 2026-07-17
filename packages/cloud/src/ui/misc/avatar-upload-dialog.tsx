@@ -108,7 +108,7 @@ function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?:
                 userId={props.userId}
                 avatarHash={props.avatarHash}
                 size="xl"
-                class="h-28 w-28 rounded-full text-2xl shadow-[var(--theme-shadow-elevated)]"
+                class="h-28 w-28 rounded-full text-2xl shadow-[var(--ui-shadow-surface)]"
               />
             }
           >

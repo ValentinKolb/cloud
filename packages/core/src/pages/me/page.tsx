@@ -109,7 +109,7 @@ export default ssr<AuthContext>(async (c) => {
                 userId={sessionUser.id}
                 avatarHash={sessionUser.avatarHash}
                 size="lg"
-                class="bg-zinc-100 shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-800"
+                class="bg-zinc-100 shadow-[var(--ui-shadow-surface)] dark:bg-zinc-800"
                 style="view-transition-name: user-avatar"
               />
               <div class="min-w-0 flex-1">

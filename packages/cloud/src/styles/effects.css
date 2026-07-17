@@ -1,7 +1,7 @@
 /* Hover, cursor, and shimmer effects */
 @utility hover-shadow {
   &:hover {
-    box-shadow: var(--theme-shadow-hover);
+    box-shadow: var(--ui-shadow-hover);
   }
 }
 

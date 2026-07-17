@@ -260,7 +260,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth, focusM
       <div class="layout-shell-content flex min-h-0 min-w-0 flex-1 flex-col">
         <header
           class="layout-header paper flex min-h-[2.875rem] shrink-0 items-center justify-between px-2 py-1.5 md:px-3 md:py-2"
-          style="box-shadow: var(--theme-shadow-elevated)"
+          style="box-shadow: var(--ui-shadow-surface)"
         >
           <div class="flex min-w-0 items-center gap-2">
             {!showRail && (

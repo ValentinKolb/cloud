@@ -342,7 +342,7 @@ export default function FileToolbar({
 
         <form
           onSubmit={handleFilterSubmit}
-          class="input flex min-h-[calc((var(--theme-input-py)*2)+1.25rem)] min-w-[14rem] flex-1 items-center gap-2 p-0 pr-2"
+          class="input flex min-h-[calc((var(--ui-input-padding-y)*2)+1.25rem)] min-w-[14rem] flex-1 items-center gap-2 p-0 pr-2"
           role="search"
         >
           <input

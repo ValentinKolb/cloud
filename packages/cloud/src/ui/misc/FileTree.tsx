@@ -259,7 +259,7 @@ export default function FileTree(props: FileTreeProps) {
                     data-state={isSelected() ? "selected" : isDropTarget() ? "drop-target" : "idle"}
                     class={`flex min-w-0 items-center rounded-md transition-colors ${
                       isSelected()
-                        ? "bg-white font-medium text-primary [box-shadow:var(--theme-bevel)] dark:bg-zinc-800"
+                        ? "bg-white font-medium text-primary [box-shadow:var(--ui-control-bevel)] dark:bg-zinc-800"
                         : isDropTarget()
                           ? "bg-cyan-50 text-secondary dark:bg-cyan-950/40"
                           : "text-secondary hover:bg-zinc-200/60 dark:hover:bg-zinc-800/70"

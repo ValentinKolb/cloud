@@ -74,7 +74,7 @@ const Slider = (props: SliderProps) => {
         disabled={disabled()}
         aria-describedby={descId()}
         class="ui-slider w-full h-1.5 appearance-none cursor-pointer
- rounded-full [box-shadow:var(--theme-recess)]
+ rounded-full [box-shadow:var(--ui-control-recess)]
  [&::-webkit-slider-thumb]:appearance-none
  [&::-webkit-slider-thumb]:w-3.5
  [&::-webkit-slider-thumb]:h-3.5
@@ -97,8 +97,8 @@ const Slider = (props: SliderProps) => {
  ]:rounded-none
  ]:bg-(--slider-fill)
  focus-visible:outline-none
- focus-visible:[&::-webkit-slider-thumb]:[box-shadow:var(--theme-focus-ring)]
- focus-visible:[&::-moz-range-thumb]:[box-shadow:var(--theme-focus-ring)]
+ focus-visible:[&::-webkit-slider-thumb]:[box-shadow:var(--ui-focus)]
+ focus-visible:[&::-moz-range-thumb]:[box-shadow:var(--ui-focus)]
  disabled:cursor-not-allowed
  disabled:[&::-webkit-slider-thumb]:bg-zinc-400
  disabled:[&::-moz-range-thumb]:bg-zinc-400"

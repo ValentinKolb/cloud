@@ -138,7 +138,7 @@ export default ssr(async (c) => {
                 <div
                   role="radiogroup"
                   aria-label="Fallback method"
-                  class="mb-5 inline-flex w-full items-stretch rounded-xl border border-zinc-300/50 bg-zinc-200/60 p-0.5 [box-shadow:var(--theme-recess)] dark:border-zinc-700/50 dark:bg-zinc-900/50"
+                  class="mb-5 inline-flex w-full items-stretch rounded-xl border border-zinc-300/50 bg-zinc-200/60 p-0.5 [box-shadow:var(--ui-control-recess)] dark:border-zinc-700/50 dark:bg-zinc-900/50"
                   style={{ "view-transition-name": "login-switch" }}
                 >
                   <a
@@ -147,7 +147,7 @@ export default ssr(async (c) => {
                     aria-checked={isEmailLogin}
                     class={`relative z-0 flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1 text-xs font-medium leading-4 transition-[background-color,color,box-shadow] ${
                       isEmailLogin
-                        ? "z-10 rounded-[0.95rem] bg-white text-zinc-900 [box-shadow:var(--theme-bevel-top),0_1px_3px_-1px_rgb(0_0_0/0.2)] dark:bg-zinc-800/95 dark:text-zinc-100"
+                        ? "z-10 rounded-[0.95rem] bg-white text-zinc-900 [box-shadow:0_1px_3px_-1px_rgb(0_0_0/0.2)] dark:bg-zinc-800/95 dark:text-zinc-100"
                         : "text-zinc-700 hover:bg-zinc-50/65 hover:text-zinc-900 dark:text-zinc-500 dark:hover:bg-zinc-800/35 dark:hover:text-zinc-300"
                     }`}
                   >
@@ -160,7 +160,7 @@ export default ssr(async (c) => {
                     aria-checked={!isEmailLogin}
                     class={`relative z-0 flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1 text-xs font-medium leading-4 transition-[background-color,color,box-shadow] ${
                       !isEmailLogin
-                        ? "z-10 rounded-[0.95rem] bg-white text-zinc-900 [box-shadow:var(--theme-bevel-top),0_1px_3px_-1px_rgb(0_0_0/0.2)] dark:bg-zinc-800/95 dark:text-zinc-100"
+                        ? "z-10 rounded-[0.95rem] bg-white text-zinc-900 [box-shadow:0_1px_3px_-1px_rgb(0_0_0/0.2)] dark:bg-zinc-800/95 dark:text-zinc-100"
                         : "text-zinc-700 hover:bg-zinc-50/65 hover:text-zinc-900 dark:text-zinc-500 dark:hover:bg-zinc-800/35 dark:hover:text-zinc-300"
                     }`}
                   >

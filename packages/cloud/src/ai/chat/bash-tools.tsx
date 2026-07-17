@@ -90,7 +90,7 @@ export function BashToolBlock(props: { block: ToolBlock }) {
           tone: failed() ? "danger" : "neutral",
         }}
       >
-        <div class="max-w-xl overflow-hidden rounded-md bg-zinc-950 font-mono text-[11px] leading-5 text-zinc-100 [box-shadow:var(--theme-recess)] dark:bg-black/60">
+        <div class="max-w-xl overflow-hidden rounded-md bg-zinc-950 font-mono text-[11px] leading-5 text-zinc-100 [box-shadow:var(--ui-control-recess)] dark:bg-black/60">
           <div class="max-h-72 overflow-auto p-2.5">
             <div class="flex">
               <pre class="shrink-0 select-none pr-2 text-cyan-400" aria-hidden="true">

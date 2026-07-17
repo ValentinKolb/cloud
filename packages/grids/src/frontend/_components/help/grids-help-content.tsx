@@ -115,7 +115,7 @@ export const StepList = (props: { items: Step[] }) => (
     <For each={props.items}>
       {(item, index) => (
         <li class="grid grid-cols-[1.75rem_1fr] gap-3">
-          <span class="app-accent-border app-accent-text flex h-6 w-6 items-center justify-center rounded-full border bg-[var(--theme-list-active-bg)] text-xs font-semibold">
+          <span class="app-accent-border app-accent-text flex h-6 w-6 items-center justify-center rounded-full border bg-[var(--ui-selected)] text-xs font-semibold">
             {index() + 1}
           </span>
           <span>

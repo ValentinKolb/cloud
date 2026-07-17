@@ -68,7 +68,7 @@ const renderInlineMarkdown = (raw: string, notebookId?: string): string => {
     .replace(NOTE_LINK_RE, (_match, label: string, shortId: string) => {
       const href = notebookId ? `/app/notebooks/${notebookId}/notes/${shortId}` : `note://${shortId}`;
       const html =
-        `<a class="cm-note-link note-link inline-flex items-center gap-1 rounded-md bg-blue-50/80 px-1.5 py-0.5 text-blue-700 no-underline align-baseline font-medium shadow-[var(--theme-shadow-elevated)] hover:bg-blue-100/80 dark:bg-blue-950/35 dark:text-blue-300 dark:hover:bg-blue-900/35" href="${escapeHtml(href)}">` +
+        `<a class="cm-note-link note-link inline-flex items-center gap-1 rounded-md bg-blue-50/80 px-1.5 py-0.5 text-blue-700 no-underline align-baseline font-medium shadow-[var(--ui-shadow-surface)] hover:bg-blue-100/80 dark:bg-blue-950/35 dark:text-blue-300 dark:hover:bg-blue-900/35" href="${escapeHtml(href)}">` +
         `<i class="ti ti-connection text-xs"></i><span>${escapeHtml(label)}</span></a>`;
       return stashHtml(html, placeholders);
     })

@@ -12,12 +12,24 @@ const report = (file: string, message: string): void => {
   violations.push(`${relative(workspaceRoot, file)}: ${message}`);
 };
 
+const withoutCssComments = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, "");
+
 const readCssFiles = (dir: string): string[] => {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .map((entry) => join(dir, entry))
     .filter((file) => statSync(file).isFile() && file.endsWith(".css"))
     .sort();
+};
+
+const readSourceFiles = (dir: string): string[] => {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).flatMap((entry) => {
+    if (entry === "build" || entry === "dist" || entry === "node_modules") return [];
+    const file = join(dir, entry);
+    if (statSync(file).isDirectory()) return readSourceFiles(file);
+    return /\.(?:css|js|jsx|ts|tsx)$/.test(file) ? [file] : [];
+  });
 };
 
 const sharedStylesheets = readCssFiles(sharedStylesRoot);
@@ -30,10 +42,29 @@ const appStylesheets = readdirSync(packagesRoot)
 // makes the current baseline executable while preventing new exceptions.
 const transitionalDuplicateUtilities = new Set(["bg-dark", "ellipsis", "no-scrollbar"]);
 const transitionalThemeStylesheet = "theme-modern.css";
+const transitionalThemeReferences = new Map([["packages/mail/src/frontend/MailOverview.island.tsx", new Set(["--theme-shadow-elevated"])]]);
 
 for (const file of [...sharedStylesheets, ...appStylesheets]) {
-  const source = readFileSync(file, "utf8");
+  const source = withoutCssComments(readFileSync(file, "utf8"));
   if (source.includes("cloud-soft-ui")) report(file, "legacy cloud-soft-ui selectors are forbidden");
+}
+
+for (const file of readSourceFiles(packagesRoot)) {
+  const source = withoutCssComments(readFileSync(file, "utf8"));
+  const allowed = transitionalThemeReferences.get(relative(workspaceRoot, file)) ?? new Set<string>();
+  for (const match of source.matchAll(/var\(\s*(--theme-[A-Za-z0-9_-]+)/g)) {
+    if (!allowed.has(match[1]!)) report(file, `${match[1]} must use a semantic --ui-* role`);
+  }
+}
+
+for (const [path, properties] of transitionalThemeReferences) {
+  const file = join(workspaceRoot, path);
+  const source = existsSync(file) ? readFileSync(file, "utf8") : "";
+  for (const property of properties) {
+    if (!source.includes(`var(${property})`)) {
+      report(file, `remove the ${property} compatibility exception after migrating this consumer`);
+    }
+  }
 }
 
 const globalSource = readFileSync(globalStylesheet, "utf8");
@@ -55,7 +86,7 @@ for (const name of importedCounts.keys()) {
 
 const utilityOwners = new Map<string, string[]>();
 for (const file of sharedStylesheets) {
-  const source = readFileSync(file, "utf8");
+  const source = withoutCssComments(readFileSync(file, "utf8"));
   for (const match of source.matchAll(/^@utility\s+([A-Za-z0-9_-]+)/gm)) {
     const name = match[1]!;
     utilityOwners.set(name, [...(utilityOwners.get(name) ?? []), file]);
@@ -75,7 +106,7 @@ for (const name of transitionalDuplicateUtilities) {
 const customPropertyOwners = new Map<string, Set<string>>();
 const customPropertyReferences = new Map<string, Set<string>>();
 for (const file of [...sharedStylesheets, ...appStylesheets]) {
-  const source = readFileSync(file, "utf8");
+  const source = withoutCssComments(readFileSync(file, "utf8"));
   const propertiesDefinedInFile = new Set([...source.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)].map((match) => match[1]!));
   for (const property of propertiesDefinedInFile) {
     customPropertyOwners.set(property, new Set([...(customPropertyOwners.get(property) ?? []), file]));
@@ -95,7 +126,7 @@ for (const [property, owners] of customPropertyOwners) {
 }
 
 const runtimePropertyPrefixes = ["--app-", "--color-", "--sidebar-", "--tw-", "--workspace-"];
-const componentRuntimeProperties = new Set(["--ac-h"]);
+const componentRuntimeProperties = new Set(["--ac-h", "--md-h"]);
 for (const [property, consumers] of customPropertyReferences) {
   if (customPropertyOwners.has(property)) continue;
   if (runtimePropertyPrefixes.some((prefix) => property.startsWith(prefix))) continue;

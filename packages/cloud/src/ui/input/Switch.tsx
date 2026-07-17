@@ -26,12 +26,12 @@ const Switch = ({ label, value, onChange, disabled = false }: SwitchInputProps) 
         class={`
  ui-switch-track relative transition-colors
  w-9 h-5 rounded-full
- [box-shadow:var(--theme-recess)]
+ [box-shadow:var(--ui-control-recess)]
 
  bg-zinc-200 dark:bg-zinc-600/40
  peer-checked:bg-blue-500
  
- peer-focus-visible:[box-shadow:var(--theme-focus-ring)]
+ peer-focus-visible:[box-shadow:var(--ui-focus)]
  
  peer-disabled:opacity-50
  `}

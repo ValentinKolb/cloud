@@ -127,7 +127,7 @@ export default function PulseOverview(props: Props) {
                       href={`/app/pulse/${base.id}`}
                       class="paper group flex items-center gap-4 p-4 no-underline transition-all hover:paper-highlighted"
                     >
-                      <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                      <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--ui-shadow-surface)] dark:bg-zinc-950">
                         <i class="ti ti-activity-heartbeat app-accent-text text-lg" />
                       </div>
                       <div class="min-w-0 flex-1">

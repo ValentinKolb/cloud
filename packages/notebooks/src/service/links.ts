@@ -31,7 +31,7 @@ const MARKED_NOTE_LINK_HTML_REGEX =
   /<span class="md-link-widget[^"]*">\s*<span class="md-link-label[^"]*">\[([\s\S]*?)\]<\/span>\s*<a\s[^>]*\bhref="note:\/\/([0-9a-zA-Z]{6})"[^>]*>[\s\S]*?<\/a>\s*<\/span>/g;
 
 const NOTE_PILL_CLASS =
-  "cm-note-link note-link inline-flex items-center gap-1 rounded-md bg-blue-50/80 px-1.5 py-0.5 text-blue-700 no-underline align-baseline font-medium shadow-[var(--theme-shadow-elevated)] hover:bg-blue-100/80 dark:bg-blue-950/35 dark:text-blue-300 dark:hover:bg-blue-900/35";
+  "cm-note-link note-link inline-flex items-center gap-1 rounded-md bg-blue-50/80 px-1.5 py-0.5 text-blue-700 no-underline align-baseline font-medium shadow-[var(--ui-shadow-surface)] hover:bg-blue-100/80 dark:bg-blue-950/35 dark:text-blue-300 dark:hover:bg-blue-900/35";
 
 const renderNotePill = (href: string, label: string): string =>
   `<a class="${NOTE_PILL_CLASS}" href="${href}">` + `<i class="ti ti-connection text-xs"></i>` + `<span>${label}</span>` + `</a>`;

@@ -202,7 +202,7 @@ export default function BasesOverview(props: Props) {
                   class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
                   style={`view-transition-name: grids-base-card-${base.id}`}
                 >
-                  <div class="app-accent-text w-10 h-10 thumbnail bg-[var(--theme-list-active-bg)] flex items-center justify-center shrink-0">
+                  <div class="app-accent-text w-10 h-10 thumbnail bg-[var(--ui-selected)] flex items-center justify-center shrink-0">
                     <i class="ti ti-database text-lg" />
                   </div>
                   <div class="flex-1 min-w-0">
@@ -250,7 +250,7 @@ export default function BasesOverview(props: Props) {
             onClick={createBlank}
             disabled={createBaseMutation.loading()}
           >
-            <span class="app-accent-text w-9 h-9 thumbnail bg-[var(--theme-list-active-bg)] flex items-center justify-center shrink-0">
+            <span class="app-accent-text w-9 h-9 thumbnail bg-[var(--ui-selected)] flex items-center justify-center shrink-0">
               <i class="ti ti-plus text-lg" />
             </span>
             <span class="min-w-0 flex-1">

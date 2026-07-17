@@ -261,7 +261,7 @@ export function CloudSurveyResultBlock(props: { args?: unknown; result: unknown 
           aria-hidden="true"
         />
       </summary>
-      <div class="mt-1 max-w-xl rounded-md bg-zinc-100/70 px-2.5 py-2 [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
+      <div class="mt-1 max-w-xl rounded-md bg-zinc-100/70 px-2.5 py-2 [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
         <Show when={rows().length > 0} fallback={<p class="text-xs text-dimmed">No answers submitted.</p>}>
           <dl class="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-4 gap-y-1.5">
             <For each={rows()}>

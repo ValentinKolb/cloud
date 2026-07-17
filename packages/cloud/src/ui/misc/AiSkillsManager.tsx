@@ -428,7 +428,7 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
                         )}
                       </Show>
 
-                      <div class="flex flex-col gap-2 rounded-lg bg-zinc-50 p-3 [box-shadow:var(--theme-recess)] dark:bg-zinc-900/60">
+                      <div class="flex flex-col gap-2 rounded-lg bg-zinc-50 p-3 [box-shadow:var(--ui-control-recess)] dark:bg-zinc-900/60">
                         <p class="text-sm font-medium text-primary">Executable code</p>
                         <Show
                           when={isWorkspaceSkill()}
@@ -680,7 +680,7 @@ function SkillRow(props: {
 }) {
   const badge = () => (props.skill.origin ? originBadge(props.skill.origin) : null);
   return (
-    <li class="flex items-center gap-3 rounded-lg bg-white px-3 py-2.5 [box-shadow:var(--theme-bevel)] dark:bg-zinc-900">
+    <li class="flex items-center gap-3 rounded-lg bg-white px-3 py-2.5 [box-shadow:var(--ui-control-bevel)] dark:bg-zinc-900">
       <button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={props.onOpen}>
         <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-zinc-100 text-secondary dark:bg-zinc-800">
           <i class="ti ti-wand text-lg" aria-hidden="true" />
@@ -957,7 +957,7 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
               <ul class="flex flex-col gap-1.5">
                 <For each={reviewQueue()}>
                   {(skill) => (
-                    <li class="flex items-center gap-3 rounded-lg bg-white px-3 py-2.5 [box-shadow:var(--theme-bevel)] dark:bg-zinc-900">
+                    <li class="flex items-center gap-3 rounded-lg bg-white px-3 py-2.5 [box-shadow:var(--ui-control-bevel)] dark:bg-zinc-900">
                       <div class="min-w-0 flex-1">
                         <p class="truncate text-sm font-medium text-primary">{skill.slug}</p>
                         <p class="truncate text-xs text-dimmed">

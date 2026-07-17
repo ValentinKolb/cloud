@@ -1083,7 +1083,7 @@ function AiSettingsPanel(props: {
               Every conversation starts with this Liquid template, rendered per turn with the current user, time, app, available tools, and
               memory state. Your global instructions are appended directly after it.
             </p>
-            <pre class="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2.5 font-mono text-[11px] leading-relaxed text-zinc-700 [box-shadow:var(--theme-recess)] dark:bg-zinc-900 dark:text-zinc-300">
+            <pre class="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2.5 font-mono text-[11px] leading-relaxed text-zinc-700 [box-shadow:var(--ui-control-recess)] dark:bg-zinc-900 dark:text-zinc-300">
               {AI_PLATFORM_PROMPT_TEMPLATE}
             </pre>
           </div>

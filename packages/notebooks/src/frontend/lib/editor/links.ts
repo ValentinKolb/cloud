@@ -33,7 +33,7 @@ class LinkWidget extends WidgetType {
       // in a new tab — keeping the editor untouched.
       const el = document.createElement("span");
       el.className =
-        "cm-attachment-pill inline-flex cursor-pointer items-center gap-1 rounded-md bg-zinc-100/80 px-1.5 py-0.5 text-zinc-700 shadow-[var(--theme-shadow-elevated)] hover:bg-zinc-200/80 dark:bg-zinc-800/80 dark:text-zinc-300 dark:hover:bg-zinc-700/80";
+        "cm-attachment-pill inline-flex cursor-pointer items-center gap-1 rounded-md bg-zinc-100/80 px-1.5 py-0.5 text-zinc-700 shadow-[var(--ui-shadow-surface)] hover:bg-zinc-200/80 dark:bg-zinc-800/80 dark:text-zinc-300 dark:hover:bg-zinc-700/80";
       el.title = this.linkData.label;
 
       const icon = document.createElement("i");
@@ -63,7 +63,7 @@ class LinkWidget extends WidgetType {
       // whole pill is clickable and navigates same-window.
       const el = document.createElement("span");
       el.className =
-        "cm-note-link inline-flex cursor-pointer items-center gap-1 rounded-md bg-blue-50/80 px-1.5 py-0.5 text-blue-700 shadow-[var(--theme-shadow-elevated)] hover:bg-blue-100/80 dark:bg-blue-950/35 dark:text-blue-300 dark:hover:bg-blue-900/35";
+        "cm-note-link inline-flex cursor-pointer items-center gap-1 rounded-md bg-blue-50/80 px-1.5 py-0.5 text-blue-700 shadow-[var(--ui-shadow-surface)] hover:bg-blue-100/80 dark:bg-blue-950/35 dark:text-blue-300 dark:hover:bg-blue-900/35";
       el.title = this.linkData.url;
 
       const icon = document.createElement("i");

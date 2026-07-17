@@ -86,7 +86,7 @@ export default function FileDropzone(props: FileDropzoneProps) {
         data-state={dz.invalidDrag() ? "invalid" : dz.isDragging() ? "dragging" : "idle"}
         {...dz.handlers}
       >
-        <span class="file-dropzone-icon flex h-10 w-10 items-center justify-center rounded-lg bg-white text-lg text-blue-600 shadow-[var(--theme-shadow-elevated)] transition-colors group-hover:text-blue-700 dark:bg-zinc-950 dark:text-blue-300">
+        <span class="file-dropzone-icon flex h-10 w-10 items-center justify-center rounded-lg bg-white text-lg text-blue-600 shadow-[var(--ui-shadow-surface)] transition-colors group-hover:text-blue-700 dark:bg-zinc-950 dark:text-blue-300">
           <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : (props.icon ?? "ti-cloud-upload")}`} aria-hidden="true" />
         </span>
         <span class="flex flex-col gap-0.5">

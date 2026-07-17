@@ -80,7 +80,7 @@ const previewPanelClass = "rounded-md border border-zinc-100 bg-white dark:borde
 /** Icon-only action, IDE style — sits in the floating top-right cluster of previews. */
 function OverlayAction(props: { icon: string; title: string; onClick?: () => void; href?: string; download?: string }) {
   const classes =
-    "inline-flex h-7 w-7 items-center justify-center rounded-md bg-white/85 text-secondary backdrop-blur transition-colors hover:text-primary dark:bg-zinc-900/85 [box-shadow:var(--theme-bevel)]";
+    "inline-flex h-7 w-7 items-center justify-center rounded-md bg-white/85 text-secondary backdrop-blur transition-colors hover:text-primary dark:bg-zinc-900/85 [box-shadow:var(--ui-control-bevel)]";
   return (
     <Show
       when={props.href}
