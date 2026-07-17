@@ -456,6 +456,8 @@ suite("mail PostgreSQL foundation", () => {
         id: replyDraft.data.id,
         intent: "reply",
         subject: "Re: Ordered newest inbound",
+        bodyPreview: "Edited reply content",
+        createdByDisplayName: "Mail Integration Test",
         updatedAt: editedReplyDraft.data.updatedAt,
       });
       expect(conversationDrafts.data[0]).not.toHaveProperty("body");

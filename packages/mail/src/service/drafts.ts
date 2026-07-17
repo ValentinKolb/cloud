@@ -62,8 +62,13 @@ type DbConversationDraftSummary = {
   id: string;
   intent: DraftIntent;
   subject: string;
+  body_preview_source: string;
+  created_by_display_name: string;
   updated_at: Date | string;
 };
+
+const DRAFT_BODY_PREVIEW_SOURCE_LENGTH = 1_024;
+const DRAFT_BODY_PREVIEW_LENGTH = 240;
 
 const draftColumns = sql`
   d.id,
@@ -126,6 +131,7 @@ const recoveryColumns = sql`
 const parseArray = <T>(value: T[] | string): T[] => (typeof value === "string" ? (JSON.parse(value) as T[]) : value);
 const parseRecord = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
+const draftBodyPreview = (value: string): string => value.replace(/\s+/gu, " ").trim().slice(0, DRAFT_BODY_PREVIEW_LENGTH);
 
 const mutableActor = (context: MailRequestContext): MutableActor | null => {
   const actor = actorRefFromRequest(context);
@@ -509,8 +515,25 @@ export const listConversationDrafts = async (params: {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
   const rows = await sql<DbConversationDraftSummary[]>`
-    SELECT d.id, d.intent, d.subject, d.updated_at
+    SELECT
+      d.id,
+      d.intent,
+      d.subject,
+      LEFT(d.body_markdown, ${DRAFT_BODY_PREVIEW_SOURCE_LENGTH}) AS body_preview_source,
+      COALESCE(
+        NULLIF(author_user.display_name, ''),
+        author_user.uid,
+        author_service.name,
+        CASE d.author_kind
+          WHEN 'workflow' THEN 'Workflow'
+          WHEN 'user' THEN 'Former user'
+          ELSE 'Former service account'
+        END
+      ) AS created_by_display_name,
+      d.updated_at
     FROM mail.drafts d
+    LEFT JOIN auth.users author_user ON d.author_kind = 'user' AND author_user.id = d.author_id
+    LEFT JOIN auth.service_accounts author_service ON d.author_kind = 'service_account' AND author_service.id = d.author_id
     WHERE d.mailbox_id = ${params.mailboxId}::uuid
       AND d.conversation_id = ${params.conversationId}::uuid
       AND d.origin = 'user'
@@ -523,6 +546,8 @@ export const listConversationDrafts = async (params: {
       id: row.id,
       intent: row.intent,
       subject: row.subject,
+      bodyPreview: draftBodyPreview(row.body_preview_source),
+      createdByDisplayName: row.created_by_display_name,
       updatedAt: toIso(row.updated_at),
     })),
   );

@@ -1,6 +1,6 @@
 import {
-  type Completion,
   AutocompleteEditor,
+  type Completion,
   MarkdownEditor,
   Panes,
   type PanesNode,
@@ -90,6 +90,7 @@ export default function MailComposer(props: {
   initialDraft?: MailDraft | null;
   seed?: ComposerSeed;
   surface: "compact" | "full";
+  popout?: boolean;
   returnHref: string;
   onClose?: () => void;
 }) {
@@ -459,6 +460,7 @@ export default function MailComposer(props: {
   });
 
   createEffect(() => {
+    if (typeof window === "undefined") return;
     const previewDraft = content();
     serializedContent();
     previewRevision();
@@ -520,6 +522,7 @@ export default function MailComposer(props: {
 
   onCleanup(() => {
     disposed = true;
+    if (typeof window === "undefined") return;
     window.removeEventListener("pagehide", onPageHide);
     window.removeEventListener("pageshow", onPageShow);
     stopScheduledSave();
@@ -830,7 +833,7 @@ export default function MailComposer(props: {
   return (
     <div class="mail-composer-surface h-full min-w-0 overflow-hidden">
       <header class={`flex shrink-0 items-center gap-2 px-3 py-2 ${props.surface === "full" ? "bg-[var(--ui-surface-subtle)]" : ""}`}>
-        <Show when={props.surface === "full"}>
+        <Show when={props.surface === "full" && !props.popout}>
           <Tooltip content="Minimize composer">
             <button
               type="button"
@@ -858,17 +861,19 @@ export default function MailComposer(props: {
             {lease() ? "Retry" : "Take over"}
           </button>
         </Show>
-        <Tooltip content="Open in new window">
-          <button
-            type="button"
-            class="icon-btn"
-            aria-label="Open in new window"
-            disabled={!editable() || handoffInProgress()}
-            onClick={openWindow}
-          >
-            <i class="ti ti-app-window" aria-hidden="true" />
-          </button>
-        </Tooltip>
+        <Show when={!props.popout}>
+          <Tooltip content="Open in new window">
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="Open in new window"
+              disabled={!editable() || handoffInProgress()}
+              onClick={openWindow}
+            >
+              <i class="ti ti-app-window" aria-hidden="true" />
+            </button>
+          </Tooltip>
+        </Show>
         <Show when={props.surface === "compact"}>
           <Tooltip content="Full-size composer">
             <button

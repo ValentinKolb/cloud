@@ -45,3 +45,16 @@
     background: var(--ui-surface);
   }
 }
+
+@layer utilities {
+  .mail-compose-action.btn-primary {
+    border-color: color-mix(in srgb, var(--app-accent) 68%, black);
+    background: color-mix(in srgb, var(--app-accent) 80%, black);
+    color: white;
+  }
+
+  .mail-compose-action.btn-primary:hover {
+    border-color: color-mix(in srgb, var(--app-accent) 76%, black);
+    background: color-mix(in srgb, var(--app-accent) 88%, black);
+  }
+}

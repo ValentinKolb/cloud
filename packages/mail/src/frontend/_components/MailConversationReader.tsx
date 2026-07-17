@@ -169,23 +169,38 @@ export default function MailConversationReader(props: {
                 ? "This conversation already has a draft. Continue it or start a separate message."
                 : `This conversation already has ${existingDrafts.length} drafts. Continue one or start a separate message.`}
             </p>
-            <div class="flex max-h-72 flex-col gap-2 overflow-y-auto">
+            <div class="flex max-h-[55vh] flex-col gap-2 overflow-y-auto">
               <For each={existingDrafts}>
                 {(existingDraft) => (
                   <button
                     type="button"
-                    class="flex min-w-0 items-center gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-3 py-2 text-left hover:bg-[var(--ui-hover)]"
+                    class="group flex min-w-0 items-start gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3 text-left hover:bg-[var(--ui-hover)]"
                     onClick={() => close(existingDraft)}
                   >
-                    <i class="ti ti-file-pencil shrink-0 text-dimmed" aria-hidden="true" />
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate text-sm font-medium text-primary">{existingDraft.subject || "(no subject)"}</span>
-                      <span class="block truncate text-xs text-dimmed">
-                        {intentLabel(existingDraft.intent)} · updated{" "}
-                        {dates.formatDateTimeRelative(existingDraft.updatedAt, props.dateConfig)}
+                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] text-dimmed">
+                      <i class="ti ti-file-pencil" aria-hidden="true" />
+                    </span>
+                    <span class="flex min-w-0 flex-1 flex-col gap-1">
+                      <span class="flex min-w-0 items-center gap-2">
+                        <span class="min-w-0 flex-1 truncate text-sm font-medium text-primary">
+                          {existingDraft.subject || "(no subject)"}
+                        </span>
+                        <span class="shrink-0 text-xs font-medium text-secondary group-hover:text-primary">Continue</span>
+                      </span>
+                      <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-dimmed">
+                        <span>
+                          <i class="ti ti-user mr-1" aria-hidden="true" />
+                          Created by {existingDraft.createdByDisplayName}
+                        </span>
+                        <span>
+                          {intentLabel(existingDraft.intent)} · updated{" "}
+                          {dates.formatDateTimeRelative(existingDraft.updatedAt, props.dateConfig)}
+                        </span>
+                      </span>
+                      <span class="line-clamp-2 min-h-5 text-xs leading-5 text-secondary">
+                        {existingDraft.bodyPreview || "No content yet"}
                       </span>
                     </span>
-                    <span class="shrink-0 text-xs font-medium text-secondary">Continue</span>
                   </button>
                 )}
               </For>
@@ -205,7 +220,7 @@ export default function MailConversationReader(props: {
       {
         title: "Continue a draft?",
         icon: "ti ti-file-pencil",
-        size: "medium",
+        size: "large",
       },
     );
     closeDraftDialog = null;

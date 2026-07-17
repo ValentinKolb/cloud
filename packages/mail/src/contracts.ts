@@ -1361,7 +1361,10 @@ export const draftSchema = z.object({
 });
 export type MailDraft = z.infer<typeof draftSchema>;
 
-export type ConversationDraftSummary = Pick<MailDraft, "id" | "intent" | "subject" | "updatedAt">;
+export type ConversationDraftSummary = Pick<MailDraft, "id" | "intent" | "subject" | "updatedAt"> & {
+  bodyPreview: string;
+  createdByDisplayName: string;
+};
 
 export const draftEditableContentInputSchema = z
   .object({
