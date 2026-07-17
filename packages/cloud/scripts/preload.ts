@@ -3,9 +3,9 @@
  * Registers the SSR plugin (Solid.js JSX transform + island bundling)
  * and builds CSS before any app code is imported.
  *
- * Uses bun-plugin-tailwind with root=workspaceRoot so the oxide scanner
- * uses /app as projectRoot → auto-detect scans all packages → all classes generated.
- * No @source directives needed in CSS files.
+ * Uses bun-plugin-tailwind with root=workspaceRoot for stable path resolution.
+ * Each app stylesheet owns an explicit, app-local @source contract so the
+ * development build cannot leak classes from sibling apps.
  */
 import { existsSync, watch } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
@@ -23,9 +23,7 @@ const publicDir = resolve(workspaceRoot, "public");
 await mkdir(publicDir, { recursive: true });
 
 const buildGlobalCss = async () => {
-  // Use styles.css at workspace root as entrypoint so the oxide scanner
-  // walks up to /app/package.json and scans ALL packages for utility classes.
-  // (If the CSS file is inside packages/lib/, it only scans packages/lib/.)
+  // Use the same global entrypoint as the production extras build.
   await Bun.build({
     entrypoints: [resolve(workspaceRoot, "styles.css")],
     outdir: publicDir,
@@ -43,7 +41,7 @@ const buildAppCss = async () => {
     entrypoints: [resolve(workspaceRoot, `packages/${appId}/src/styles/app.css`)],
     outdir: resolve(publicDir, appId),
     naming: "app.css",
-    root: workspaceRoot, // same: auto-detect from /app
+    root: workspaceRoot,
     plugins: [tailwind],
   });
 };

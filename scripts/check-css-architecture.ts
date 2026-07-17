@@ -28,8 +28,6 @@ const appStylesheets = readdirSync(packagesRoot)
 
 // These are migration debt, not accepted architecture. Keeping the list here
 // makes the current baseline executable while preventing new exceptions.
-const transitionalFullTailwindApps = new Set(["gateway", "venue"]);
-const transitionalEmptyApps = new Set(["pulse"]);
 const transitionalDuplicateUtilities = new Set(["bg-dark", "ellipsis", "no-scrollbar"]);
 const transitionalThemeStylesheet = "theme-modern.css";
 
@@ -111,27 +109,15 @@ if (!existsSync(themeStylesheet) || importedCounts.get(transitionalThemeStyleshe
 }
 
 for (const file of appStylesheets) {
-  const packageName = relative(packagesRoot, file).split("/")[0]!;
   const source = readFileSync(file, "utf8");
-
-  if (transitionalEmptyApps.has(packageName)) {
-    if (source.includes("@import") || source.includes("@source")) {
-      report(file, `${packageName} is no longer empty; remove it from transitionalEmptyApps and use the scoped contract`);
-    }
-    continue;
-  }
 
   const hasScopedImport = source.includes('@import "tailwindcss/utilities.css" layer(utilities);');
   const hasFullImport = source.includes('@import "tailwindcss";');
-  if (transitionalFullTailwindApps.has(packageName)) {
-    if (!hasFullImport || hasScopedImport) {
-      report(file, `${packageName} no longer matches its full-Tailwind exception; normalize it and remove the exception`);
-    }
-  } else if (!hasScopedImport || hasFullImport) {
+  if (!hasScopedImport || hasFullImport) {
     report(file, "app styles must use the scoped `tailwindcss/utilities.css` import");
   }
 
-  if (!transitionalFullTailwindApps.has(packageName) && !source.includes('@source "../**/*.{ts,tsx}";')) {
+  if (!source.includes('@source "../**/*.{ts,tsx}";')) {
     report(file, "app styles must scan only their own `../**/*.{ts,tsx}` sources");
   }
   for (const match of source.matchAll(/@source\s+["'](.+?)["'];/g)) {
