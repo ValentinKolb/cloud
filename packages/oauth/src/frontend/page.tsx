@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { oauthHelp } from "@/help";
 import { ssr } from "../config";
 import { oauthService } from "../service";
 import ClientActions from "./_components/ClientActions.island";
@@ -45,7 +46,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="OAuth" stretch>
-      <OAuthLayoutHelp />
+      <OAuthLayoutHelp documents={oauthHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-oauth-title">

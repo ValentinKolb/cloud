@@ -1,14 +1,18 @@
 import { app } from "./config";
 import { Hono } from "hono";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
+import { auth, middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
 import pageRoutes from "./frontend";
 import { oauthService } from "./service";
 import { migrate } from "./migrate";
+import { oauthHelp } from "./help";
+
+const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("admin")).route("/", oauthHelp.router);
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/api/oauth/help", helpRoutes)
   .route("/api/oauth/admin/clients", apiRoutes)
   .route("/", pageRoutes);
 
