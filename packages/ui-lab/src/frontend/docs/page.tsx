@@ -1,8 +1,9 @@
-import { ssr } from "../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
+import { ssr } from "../../config";
+import { uiLabHelp } from "../../help";
 import { findDocPage } from "./registry";
 import UiLabDocs from "./UiLabDocs.island";
 
@@ -45,6 +46,7 @@ export default ssr<AuthContext>(async (c) => {
         section={current.section}
         slug={current.slug}
         markdownHtml={markdownPreview}
+        helpDocuments={uiLabHelp.manifest}
         dockWorkspaceInitialState={dockWorkspaceInitialState}
       />
     </Layout>

@@ -1,4 +1,4 @@
-import { type CloudTheme, getCurrentThemePreference, setThemePreference } from "@valentinkolb/cloud/shared";
+import { type CloudTheme, getCurrentThemePreference, type HelpDocumentManifest, setThemePreference } from "@valentinkolb/cloud/shared";
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import {
   AppWorkspace,
@@ -17,6 +17,7 @@ type UiLabDocsProps = {
   section: string;
   slug: string;
   markdownHtml: string;
+  helpDocuments: readonly HelpDocumentManifest[];
   dockWorkspaceInitialState?: DockWorkspaceState | null;
 };
 
@@ -125,7 +126,7 @@ export default function UiLabDocs(props: UiLabDocsProps) {
 
   return (
     <>
-      <UiLabLayoutHelp />
+      <UiLabLayoutHelp documents={props.helpDocuments} />
       <AppWorkspace class="flex-1 min-h-0">
         <AppWorkspace.Sidebar>
           <AppWorkspace.SidebarHeader title="UI Lab" subtitle="Components and utilities" icon="ti ti-palette" />
