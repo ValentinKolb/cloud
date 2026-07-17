@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { Readable } from "node:stream";
 import { mutex } from "@valentinkolb/sync";
 import { sql } from "bun";
 import type { ConnectorVerification } from "../contracts";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess, updateMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
-import { rediscoverProviderBinding } from "./bindings";
+import { attachProviderBinding, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
 import { executeMutationCommand } from "./command-runtime";
 import { createActorCommand, createMailCommand } from "./commands";
@@ -21,6 +22,7 @@ import {
   submitDueMaintenanceCommands,
 } from "./maintenance-runtime";
 import { createProviderConnection } from "./provider-connections";
+import { createSenderIdentity, disableSenderIdentity, verifySenderIdentity } from "./sender-identities";
 import { claimFence, commitSyncBatch, executeBindingRediscovery, hydrateMessageBatch } from "./sync-runtime";
 import { createConversationTriageCommands } from "./triage";
 
@@ -217,6 +219,76 @@ suite("mail lifecycle control plane", () => {
     }
     if (users.length > 0) {
       await sql`DELETE FROM auth.users WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${users}::jsonb))`;
+    }
+  });
+
+  test("binding attach waits for the mailbox provider barrier before remote verification", async () => {
+    const verify = spyOn(imapSmtpConnector, "verify").mockResolvedValue(fixtureVerification());
+    const discover = spyOn(imapSmtpConnector, "discoverFolders").mockResolvedValue([remoteFolder("INBOX", "10", "inbox")]);
+    const barrierMutex = mutex({ id: "mail:remote-resource-sync", defaultTtl: 30_000, retryCount: 0 });
+    const heldBarrier = await barrierMutex.acquire(`mailbox:${mailboxId}`, 30_000);
+    expect(heldBarrier).not.toBeNull();
+    if (!heldBarrier) {
+      discover.mockRestore();
+      verify.mockRestore();
+      return;
+    }
+
+    try {
+      const attachment = attachProviderBinding({ context: adminContext, mailboxId, connectionId });
+      try {
+        await Bun.sleep(100);
+        expect(verify).not.toHaveBeenCalled();
+        expect(discover).not.toHaveBeenCalled();
+      } finally {
+        await barrierMutex.release(heldBarrier);
+      }
+
+      const result = await attachment;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("CONFLICT");
+      expect(verify).toHaveBeenCalledTimes(1);
+      expect(discover).toHaveBeenCalledTimes(1);
+    } finally {
+      discover.mockRestore();
+      verify.mockRestore();
+    }
+  }, 15_000);
+
+  test("a disabled sender identity cannot be verified or trigger SMTP", async () => {
+    const identity = await createSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      input: {
+        displayName: "Disabled sender",
+        fromAddress: `disabled-${suffix}@example.com`,
+        authenticationPolicy: { automation: "disabled" },
+        isDefault: false,
+      },
+    });
+    expect(identity.ok).toBe(true);
+    if (!identity.ok) return;
+    expect((await disableSenderIdentity({ context: adminContext, mailboxId, senderIdentityId: identity.data.id })).ok).toBe(true);
+
+    const send = spyOn(imapSmtpConnector, "send").mockRejectedValue(new Error("disabled sender reached SMTP"));
+    try {
+      const verified = await verifySenderIdentity({
+        context: adminContext,
+        mailboxId,
+        senderIdentityId: identity.data.id,
+        bindingId,
+        verificationRecipient: `disabled-${suffix}@example.com`,
+        savesSentAutomatically: true,
+      });
+      expect(verified.ok).toBe(false);
+      if (!verified.ok) expect(verified.error.code).toBe("NOT_FOUND");
+      expect(send).not.toHaveBeenCalled();
+      const [status] = await sql<{ status: string }[]>`
+        SELECT status FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid
+      `;
+      expect(status?.status).toBe("disabled");
+    } finally {
+      send.mockRestore();
     }
   });
 
@@ -457,6 +529,53 @@ suite("mail lifecycle control plane", () => {
     }
   });
 
+  test("an in-flight rediscovery cannot reactivate a lifecycle-fenced mailbox", async () => {
+    const verify = spyOn(imapSmtpConnector, "verify").mockResolvedValue(fixtureVerification());
+    const discover = spyOn(imapSmtpConnector, "discoverFolders").mockImplementation(async () => {
+      await Bun.sleep(75);
+      return [remoteFolder("INBOX", "10", "inbox")];
+    });
+    const [resource] = await sql<{ id: string }[]>`
+      SELECT remote_resource_id AS id FROM mail.provider_bindings WHERE id = ${bindingId}::uuid
+    `;
+    try {
+      const rediscovery = rediscoverProviderBinding({ bindingId });
+      await Bun.sleep(15);
+      await sql.begin(async (tx) => {
+        await tx`
+          UPDATE mail.mailboxes
+          SET deleted_at = now(), sync_enabled = false, health = 'paused'
+          WHERE id = ${mailboxId}::uuid
+        `;
+        await tx`
+          UPDATE mail.remote_resources
+          SET status = 'paused', sync_generation = sync_generation + 1
+          WHERE id = ${resource!.id}::uuid
+        `;
+      });
+      await expect(rediscovery).rejects.toMatchObject({ code: "MAILBOX_TRANSPORT_CHANGED" });
+      const [state] = await sql<{ status: string }[]>`
+        SELECT status FROM mail.remote_resources WHERE id = ${resource!.id}::uuid
+      `;
+      expect(state?.status).toBe("paused");
+    } finally {
+      discover.mockRestore();
+      verify.mockRestore();
+      await sql.begin(async (tx) => {
+        await tx`
+          UPDATE mail.mailboxes
+          SET deleted_at = NULL, sync_enabled = true, health = 'bootstrapping'
+          WHERE id = ${mailboxId}::uuid
+        `;
+        await tx`
+          UPDATE mail.remote_resources
+          SET status = 'active', last_error_code = NULL, last_error_message = NULL
+          WHERE id = ${resource!.id}::uuid
+        `;
+      });
+    }
+  });
+
   test("health remains readable when a mailbox has no active provider", async () => {
     const disconnected = await createMailbox(adminContext, {
       name: `Disconnected health ${suffix}`,
@@ -518,7 +637,10 @@ suite("mail lifecycle control plane", () => {
       `;
       expect(runs.find((run) => run.id === first.runId)?.state).toBe("stale_fence");
       expect(runs.find((run) => run.id === second.runId)?.state).toBe("running");
+      await sql`UPDATE mail.mailboxes SET sync_enabled = false WHERE id = ${mailboxId}::uuid`;
+      await expect(claimFence(resource!.id, bindingId, "incremental")).rejects.toMatchObject({ code: "MAILBOX_TRANSPORT_CHANGED" });
     } finally {
+      await sql`UPDATE mail.mailboxes SET sync_enabled = true WHERE id = ${mailboxId}::uuid`;
       await sql`
         UPDATE mail.sync_runs SET state = 'completed', finished_at = now() WHERE id = ${second.runId}::uuid AND state = 'running'
       `;
@@ -765,6 +887,62 @@ suite("mail lifecycle control plane", () => {
       INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
       VALUES (${inboxFolderId}::uuid, ${pausedMessage!.id}::uuid, 10, 999999)
     `;
+    await sql`
+      UPDATE mail.binding_folder_refs
+      SET effective_rights = ARRAY['read']::text[], rights_source = 'acl'
+      WHERE binding_id = ${bindingId}::uuid AND folder_id = ${inboxFolderId}::uuid
+    `;
+    const [hydrationResource] = await sql<{ id: string }[]>`
+      SELECT remote_resource_id AS id FROM mail.provider_bindings WHERE id = ${bindingId}::uuid
+    `;
+    const hydrationMutex = mutex({ id: "mail:remote-resource-sync", defaultTtl: 30_000, retryCount: 0 });
+    const heldHydrationLock = await hydrationMutex.acquire(hydrationResource!.id, 30_000);
+    expect(heldHydrationLock).not.toBeNull();
+    if (!heldHydrationLock) return;
+    const blockedDownload = spyOn(imapSmtpConnector, "downloadSourceBatch").mockRejectedValue(new Error("locked hydration reached IMAP"));
+    try {
+      await expect(
+        hydrateMessageBatch({
+          input: { messageId: pausedMessage!.id },
+          signal: new AbortController().signal,
+          heartbeat: async () => undefined,
+        } as never),
+      ).rejects.toMatchObject({ code: "SYNC_BUSY" });
+      expect(blockedDownload).not.toHaveBeenCalled();
+    } finally {
+      blockedDownload.mockRestore();
+      await hydrationMutex.release(heldHydrationLock);
+    }
+    const fencedDownload = spyOn(imapSmtpConnector, "downloadSourceBatch").mockImplementation(
+      async (_runtime, _folderPath, requests, consume) => {
+        await sql`
+          UPDATE mail.remote_resources
+          SET sync_generation = sync_generation + 1
+          WHERE id = ${hydrationResource!.id}::uuid
+        `;
+        const request = requests[0]!;
+        await consume({
+          ...request,
+          expectedSize: 1,
+          stream: Readable.from(["x"]),
+        });
+      },
+    );
+    try {
+      await expect(
+        hydrateMessageBatch({
+          input: { messageId: pausedMessage!.id },
+          signal: new AbortController().signal,
+          heartbeat: async () => undefined,
+        } as never),
+      ).rejects.toMatchObject({ code: "MAILBOX_TRANSPORT_CHANGED" });
+      const [hydrationState] = await sql<{ hydration_status: string }[]>`
+        SELECT hydration_status FROM mail.message_contents WHERE id = ${pausedMessage!.id}::uuid
+      `;
+      expect(hydrationState?.hydration_status).toBe("envelope");
+    } finally {
+      fencedDownload.mockRestore();
+    }
     const paused = await updateMailbox({ context: adminContext, mailboxId, syncEnabled: false });
     expect(paused.ok && paused.data.health).toBe("paused");
     const download = spyOn(imapSmtpConnector, "downloadSourceBatch").mockRejectedValue(new Error("paused hydration reached IMAP"));
@@ -1295,6 +1473,92 @@ suite("mail lifecycle control plane", () => {
     expect(revokedReplay.ok).toBe(false);
     if (!revokedReplay.ok) expect(revokedReplay.error.code).toBe("FORBIDDEN");
   });
+
+  test("folder provider effects recheck admin permission under the mailbox lock", async () => {
+    const accessId = accessIds[0]!;
+    expect((await updateMailboxAccess({ context: adminContext, mailboxId, accessId, permission: "admin" })).ok).toBe(true);
+    const command = await createActorCommand({
+      context: collaboratorContext,
+      mailboxId,
+      input: {
+        kind: "create_folder",
+        name: `Revoked effect ${suffix}`,
+        subscribe: false,
+        idempotencyKey: `revoked-provider-effect-${suffix}`,
+      },
+      enqueue: false,
+    });
+    expect(command.ok).toBe(true);
+    if (!command.ok) return;
+
+    const enteredDiscovery = Promise.withResolvers<void>();
+    const releaseDiscovery = Promise.withResolvers<void>();
+    const discover = spyOn(imapSmtpConnector, "discoverFolders").mockImplementation(async () => {
+      enteredDiscovery.resolve();
+      await releaseDiscovery.promise;
+      return [remoteFolder("INBOX", "10", "inbox")];
+    });
+    const create = spyOn(imapSmtpConnector, "createFolder").mockRejectedValue(new Error("revoked command reached provider effect"));
+    try {
+      const execution = executeMutationCommand(command.data.id);
+      await enteredDiscovery.promise;
+      expect((await updateMailboxAccess({ context: adminContext, mailboxId, accessId, permission: "write" })).ok).toBe(true);
+      releaseDiscovery.resolve();
+      expect(await execution).toBe("failed");
+      expect(create).not.toHaveBeenCalled();
+      const [stored] = await sql<{ last_error_code: string | null }[]>`
+        SELECT last_error_code FROM mail.commands WHERE id = ${command.data.id}::uuid
+      `;
+      expect(stored?.last_error_code).toBe("ACCESS_REVOKED");
+    } finally {
+      releaseDiscovery.resolve();
+      create.mockRestore();
+      discover.mockRestore();
+      await updateMailboxAccess({ context: adminContext, mailboxId, accessId, permission: "read" });
+    }
+  }, 15_000);
+
+  test("connection creation rechecks admin permission after provider verification", async () => {
+    const accessId = accessIds[0]!;
+    expect((await updateMailboxAccess({ context: adminContext, mailboxId, accessId, permission: "admin" })).ok).toBe(true);
+    const enteredVerification = Promise.withResolvers<void>();
+    const releaseVerification = Promise.withResolvers<void>();
+    const verify = spyOn(imapSmtpConnector, "verify").mockImplementation(async () => {
+      enteredVerification.resolve();
+      await releaseVerification.promise;
+      return fixtureVerification();
+    });
+    try {
+      const creation = createProviderConnection({
+        context: collaboratorContext,
+        mailboxId,
+        input: {
+          name: `Revoked connection ${suffix}`,
+          email: `revoked-${suffix}@example.com`,
+          username: `revoked-${suffix}@example.com`,
+          imap: { host: "imap.example.com", port: 993, tlsMode: "implicit" },
+          smtp: { host: "smtp.example.com", port: 587, tlsMode: "starttls" },
+          secret: { kind: "password", password: "revoked-secret" },
+        },
+      });
+      await enteredVerification.promise;
+      expect((await updateMailboxAccess({ context: adminContext, mailboxId, accessId, permission: "read" })).ok).toBe(true);
+      releaseVerification.resolve();
+      const result = await creation;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
+      const [stored] = await sql<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM mail.provider_connections
+        WHERE owner_mailbox_id = ${mailboxId}::uuid AND name = ${`Revoked connection ${suffix}`}
+      `;
+      expect(stored?.count).toBe(0);
+    } finally {
+      releaseVerification.resolve();
+      verify.mockRestore();
+      await updateMailboxAccess({ context: adminContext, mailboxId, accessId, permission: "read" });
+    }
+  }, 15_000);
 
   test("execution rechecks administration access after command creation", async () => {
     const access = accessIds[0]!;

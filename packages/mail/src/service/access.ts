@@ -10,7 +10,7 @@ import {
 import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result, tryCatch, unwrap } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { auditActorFromRequest, capByCredentialScopes, isPlatformAdmin, isResourceBoundToMailbox, type MailRequestContext } from "./auth";
+import { auditActorFromRequest, capByCredentialScopes, isResourceBoundToMailbox, type MailRequestContext, userBackedActor } from "./auth";
 
 type SqlClient = typeof sql;
 
@@ -54,7 +54,7 @@ const lockMailbox = async (mailboxId: string, db: SqlClient): Promise<boolean> =
   return Boolean(row);
 };
 
-const isCurrentActorActive = async (context: MailRequestContext, db: SqlClient): Promise<boolean> => {
+export const isCurrentActorActive = async (context: MailRequestContext, db: SqlClient = sql): Promise<boolean> => {
   if (context.actor.kind === "user") {
     const [row] = await db<{ active: boolean }[]>`
       SELECT EXISTS (
@@ -84,6 +84,18 @@ const isCurrentActorActive = async (context: MailRequestContext, db: SqlClient):
     ) AS active
   `;
   return row?.active === true;
+};
+
+export const isCurrentPlatformAdmin = async (context: MailRequestContext, db: SqlClient = sql): Promise<boolean> => {
+  const user = userBackedActor(context);
+  if (!user) return false;
+  const [row] = await db<{ admin: boolean }[]>`
+    SELECT admin
+    FROM auth.users
+    WHERE id = ${user.id}::uuid
+      AND (account_expires IS NULL OR account_expires > now())
+  `;
+  return row?.admin === true;
 };
 
 const getPrincipalGrant = async (mailboxId: string, principal: Principal, db: SqlClient): Promise<DbAccess | null> => {
@@ -125,11 +137,29 @@ export const getMailboxPermission = async (
   mailboxId: string,
   db: SqlClient = sql,
 ): Promise<PermissionLevel> => {
+  return getMailboxPermissionForLifecycle(context, mailboxId, false, db);
+};
+
+const getMailboxPermissionForLifecycle = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  includeDeleted: boolean,
+  db: SqlClient,
+): Promise<PermissionLevel> => {
   if (!(await isCurrentActorActive(context, db))) return "none";
   if (!isResourceBoundToMailbox(context, mailboxId)) return "none";
+  const [mailbox] = await db<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM mail.mailboxes
+      WHERE id = ${mailboxId}::uuid
+        AND (${includeDeleted} OR deleted_at IS NULL)
+    ) AS exists
+  `;
+  if (mailbox?.exists !== true) return "none";
 
   let permission: PermissionLevel = "none";
-  if (isPlatformAdmin(context)) {
+  if (await isCurrentPlatformAdmin(context, db)) {
     permission = "admin";
   } else {
     const userId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
@@ -168,6 +198,15 @@ export const getMailboxPermission = async (
   }
 
   return capByCredentialScopes(context, permission);
+};
+
+export const requireMailboxLifecycleAdmin = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  db: SqlClient = sql,
+): Promise<Result<"admin">> => {
+  const permission = await getMailboxPermissionForLifecycle(context, mailboxId, true, db);
+  return permission === "admin" ? ok("admin") : fail(err.forbidden("Access denied"));
 };
 
 export const requireMailboxPermission = async (

@@ -25,7 +25,7 @@ const MailMailboxChangedEventSchema = z
     type: z.literal("mailbox.changed"),
     mailboxId: z.uuid(),
     conversationId: z.null(),
-    reason: z.literal("local_tag"),
+    reason: z.enum(["local_tag", "deleted", "restored"]),
     targetId: z.uuid().nullable(),
     activityId: z.string().min(1).max(128),
     at: z.string().datetime(),

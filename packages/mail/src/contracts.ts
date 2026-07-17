@@ -88,6 +88,10 @@ export const mailboxSchema = z.object({
 });
 export type Mailbox = z.infer<typeof mailboxSchema>;
 
+export const deletedMailboxSchema = mailboxSchema.extend({ deletedAt: z.string().datetime() });
+export type DeletedMailbox = z.infer<typeof deletedMailboxSchema>;
+export type DeletedMailboxPage = { items: Array<DeletedMailbox & { permission: "admin" }>; nextCursor: string | null };
+
 const lifecycleCountsSchema = z.record(z.string(), z.number().int().nonnegative());
 
 export const mailboxOperationalHealthSchema = z.object({
@@ -195,12 +199,14 @@ export const mailSearchFieldSchema = z.enum([
 ]);
 export type MailSearchField = z.infer<typeof mailSearchFieldSchema>;
 
-export const mailSearchTermSchema = z.object({
-  type: z.literal("text"),
-  field: mailSearchFieldSchema,
-  query: z.string().trim().min(1).max(500),
-  match: z.enum(["words", "phrase", "contains", "exact"]).default("words"),
-}).strict();
+export const mailSearchTermSchema = z
+  .object({
+    type: z.literal("text"),
+    field: mailSearchFieldSchema,
+    query: z.string().trim().min(1).max(500),
+    match: z.enum(["words", "phrase", "contains", "exact"]).default("words"),
+  })
+  .strict();
 
 export const mailSearchDateSchema = z
   .object({
@@ -927,7 +933,12 @@ export const updateConversationCollaborationSchema = z
   );
 export type UpdateConversationCollaboration = z.infer<typeof updateConversationCollaborationSchema>;
 
-export const localTagNameSchema = z.string().trim().min(1).max(80).transform((name) => name.replace(/\s+/gu, " "));
+export const localTagNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .transform((name) => name.replace(/\s+/gu, " "));
 export const createLocalTagSchema = z.object({ name: localTagNameSchema }).strict();
 export type CreateLocalTag = z.infer<typeof createLocalTagSchema>;
 

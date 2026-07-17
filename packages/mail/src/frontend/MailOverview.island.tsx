@@ -3,7 +3,7 @@ import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
-import type { Mailbox } from "../contracts";
+import type { DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";
 import { readApiError } from "./_components/api-response";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 
@@ -11,11 +11,15 @@ type MailboxWithPermission = Mailbox & { permission: "read" | "write" | "admin" 
 
 export default function MailOverview(props: {
   mailboxes: MailboxWithPermission[];
+  deletedMailboxes: Array<DeletedMailbox & { permission: "admin" }>;
+  initialDeletedCursor: string | null;
   initialQuery: string;
   currentUserId: string;
   currentUserEmail: string | null;
 }) {
   const [query, setQuery] = createSignal(props.initialQuery);
+  const [deletedMailboxes, setDeletedMailboxes] = createSignal(props.deletedMailboxes);
+  const [deletedCursor, setDeletedCursor] = createSignal(props.initialDeletedCursor);
   const filtered = createMemo(() => {
     const normalized = query().trim().toLowerCase();
     if (!normalized) return props.mailboxes;
@@ -54,6 +58,45 @@ export default function MailOverview(props: {
         currentUserId: props.currentUserId,
         currentUserEmail: props.currentUserEmail,
       }).then((result) => navigateTo(result.deleted ? "/app/mail" : `/app/mail/${mailbox.id}`));
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const restoreMailbox = mutations.create<Mailbox | null, string>({
+    mutation: async (mailboxId) => {
+      const confirmed = await prompts.confirm(
+        "The mailbox will return in paused state. Verify its provider before resuming synchronization.",
+        {
+          title: "Restore mailbox",
+          confirmText: "Restore mailbox",
+        },
+      );
+      if (!confirmed) return null;
+      const response = await apiClient.mailboxes[":mailboxId"].restore.$post({ param: { mailboxId } });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to restore mailbox"));
+      return response.json();
+    },
+    onSuccess: (mailbox) => {
+      if (!mailbox) return;
+      setDeletedMailboxes((current) => current.filter((entry) => entry.id !== mailbox.id));
+      toast.success("Mailbox restored in paused state");
+      navigateTo(`/app/mail/${mailbox.id}`);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const loadDeletedMailboxes = mutations.create<DeletedMailboxPage, string>({
+    mutation: async (cursor) => {
+      const response = await apiClient.mailboxes.deleted.$get({ query: { limit: "100", cursor } });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to load deleted mailboxes"));
+      return response.json();
+    },
+    onSuccess: (page) => {
+      setDeletedMailboxes((current) => {
+        const existing = new Set(current.map((mailbox) => mailbox.id));
+        return [...current, ...page.items.filter((mailbox) => !existing.has(mailbox.id))];
+      });
+      setDeletedCursor(page.nextCursor);
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -151,6 +194,38 @@ export default function MailOverview(props: {
             <span class="block text-xs text-dimmed">Private initially; sharing stays explicit.</span>
           </span>
         </button>
+        <Show when={deletedMailboxes().length > 0}>
+          <div class="mt-2 flex flex-col gap-2">
+            <p class="text-xs font-semibold uppercase text-dimmed">Recently deleted</p>
+            <For each={deletedMailboxes()}>
+              {(mailbox) => (
+                <button
+                  type="button"
+                  class="paper flex w-full items-center gap-3 p-3 text-left hover:paper-highlighted"
+                  disabled={restoreMailbox.loading()}
+                  onClick={() => restoreMailbox.mutate(mailbox.id)}
+                >
+                  <i class="ti ti-restore text-dimmed" aria-hidden="true" />
+                  <span class="min-w-0 flex-1 truncate text-sm font-medium text-primary">{mailbox.name}</span>
+                  <span class="text-xs text-dimmed">Restore</span>
+                </button>
+              )}
+            </For>
+            <Show when={deletedCursor()}>
+              {(cursor) => (
+                <button
+                  type="button"
+                  class="btn btn-subtle btn-sm self-start"
+                  disabled={loadDeletedMailboxes.loading()}
+                  onClick={() => loadDeletedMailboxes.mutate(cursor())}
+                >
+                  <i class="ti ti-chevron-down" aria-hidden="true" />
+                  Load more
+                </button>
+              )}
+            </Show>
+          </div>
+        </Show>
       </AppOverview.Aside>
     </AppOverview>
   );

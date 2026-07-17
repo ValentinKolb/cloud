@@ -4,7 +4,12 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
-import { cancelSendCommand, executeMutationCommand, executeOutboxSubmission } from "./command-runtime";
+import {
+  cancelSendCommand,
+  executeMutationCommand,
+  executeOutboxSubmission,
+  executeOutboxSubmissionWithHeartbeat,
+} from "./command-runtime";
 import { createActorCommand } from "./commands";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
@@ -32,6 +37,7 @@ import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { createAttachmentStream, openAttachment } from "./messages";
 import { createProviderConnection, listProviderConnections, replaceProviderConnection } from "./provider-connections";
+import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
 import { searchMessages } from "./search";
 import { ingestEnvelope } from "./sync-runtime";
 import { createConversationTriageCommands } from "./triage";
@@ -1288,6 +1294,116 @@ suite("mail PostgreSQL foundation", () => {
       WHERE command_id = ${collaboratorCommand.data.id}::uuid
       RETURNING id
     `;
+    const [outboxResource] = await sql<{ id: string }[]>`
+      SELECT binding.remote_resource_id AS id
+      FROM mail.outbox_submissions outbox
+      JOIN mail.provider_bindings binding ON binding.id = outbox.selected_binding_id
+      WHERE outbox.id = ${collaboratorOutbox!.id}::uuid
+    `;
+    expect(outboxResource?.id).toBe(resource!.id);
+    const outboxLock = await mailProviderOperationMutex.acquire(outboxResource!.id, MAIL_PROVIDER_OPERATION_LEASE_MS);
+    expect(outboxLock).not.toBeNull();
+    if (!outboxLock) return;
+    try {
+      const blockedExecution = await executeOutboxSubmission(collaboratorOutbox!.id).catch((error: unknown) => error);
+      expect(blockedExecution).toMatchObject({ code: "REMOTE_RESOURCE_BUSY" });
+    } finally {
+      await mailProviderOperationMutex.release(outboxLock);
+    }
+
+    const preDispatchLeaseFailure = await executeOutboxSubmissionWithHeartbeat(collaboratorOutbox!.id, async () => {
+      throw Object.assign(new Error("Synthetic job lease loss before dispatch"), { code: "COMMAND_JOB_LEASE_LOST" });
+    }).catch((error: unknown) => error);
+    expect(preDispatchLeaseFailure).toMatchObject({ code: "COMMAND_JOB_LEASE_LOST" });
+    const [rolledBackClaim] = await sql<
+      {
+        outbox_state: string;
+        command_state: string;
+        draft_state: string;
+        outbox_attempt: number;
+        command_attempt: number;
+        worker_heartbeat_at: Date | null;
+      }[]
+    >`
+      SELECT
+        o.state AS outbox_state,
+        c.state AS command_state,
+        d.state AS draft_state,
+        o.attempt AS outbox_attempt,
+        c.attempt AS command_attempt,
+        c.worker_heartbeat_at
+      FROM mail.outbox_submissions o
+      JOIN mail.commands c ON c.id = o.command_id
+      JOIN mail.drafts d ON d.id = o.draft_id
+      WHERE o.id = ${collaboratorOutbox!.id}::uuid
+    `;
+    expect(rolledBackClaim).toEqual({
+      outbox_state: "scheduled",
+      command_state: "queued",
+      draft_state: "scheduled",
+      outbox_attempt: 0,
+      command_attempt: 0,
+      worker_heartbeat_at: null,
+    });
+
+    const postEffectLeaseFailure = await executeOutboxSubmissionWithHeartbeat(collaboratorOutbox!.id, async (loaded) => {
+      await sql`
+        UPDATE mail.commands
+        SET provider_effect_started_at = now(), provider_effect_attempt = attempt
+        WHERE id = ${loaded.command.id}::uuid
+      `;
+      throw Object.assign(new Error("Synthetic job lease loss after dispatch started"), { code: "COMMAND_JOB_LEASE_LOST" });
+    }).catch((error: unknown) => error);
+    expect(postEffectLeaseFailure).toMatchObject({ code: "COMMAND_JOB_LEASE_LOST" });
+    const [preservedClaim] = await sql<
+      {
+        outbox_state: string;
+        command_state: string;
+        draft_state: string;
+        outbox_attempt: number;
+        command_attempt: number;
+        provider_effect_attempt: number | null;
+      }[]
+    >`
+      SELECT
+        o.state AS outbox_state,
+        c.state AS command_state,
+        d.state AS draft_state,
+        o.attempt AS outbox_attempt,
+        c.attempt AS command_attempt,
+        c.provider_effect_attempt
+      FROM mail.outbox_submissions o
+      JOIN mail.commands c ON c.id = o.command_id
+      JOIN mail.drafts d ON d.id = o.draft_id
+      WHERE o.id = ${collaboratorOutbox!.id}::uuid
+    `;
+    expect(preservedClaim).toEqual({
+      outbox_state: "sending",
+      command_state: "executing",
+      draft_state: "sending",
+      outbox_attempt: 1,
+      command_attempt: 1,
+      provider_effect_attempt: 1,
+    });
+    await sql.begin(async (tx) => {
+      await tx`
+        UPDATE mail.outbox_submissions
+        SET state = 'scheduled', attempt = 0
+        WHERE id = ${collaboratorOutbox!.id}::uuid
+      `;
+      await tx`
+        UPDATE mail.commands
+        SET
+          state = 'queued',
+          attempt = 0,
+          started_at = NULL,
+          worker_heartbeat_at = NULL,
+          provider_effect_started_at = NULL,
+          provider_effect_attempt = NULL
+        WHERE id = ${collaboratorCommand.data.id}::uuid
+      `;
+      await tx`UPDATE mail.drafts SET state = 'scheduled' WHERE id = ${collaboratorDraft.data.id}::uuid`;
+    });
     expect(await executeOutboxSubmission(collaboratorOutbox!.id)).toBe("failed");
     const [revokedExecution] = await sql<
       {
@@ -1510,7 +1626,14 @@ suite("mail PostgreSQL foundation", () => {
       accounts: [{ id: "sender@example.com", name: "Fixture", locator: {}, namespaces: [] }],
     });
     try {
-      const created = await createProviderConnection({
+      verify.mockClear();
+      const mailboxCredentialLock = await mailProviderOperationMutex.acquire(
+        `mailbox:${mailbox.data.id}`,
+        MAIL_PROVIDER_OPERATION_LEASE_MS,
+      );
+      expect(mailboxCredentialLock).not.toBeNull();
+      if (!mailboxCredentialLock) return;
+      const creation = createProviderConnection({
         context,
         mailboxId: mailbox.data.id,
         input: {
@@ -1522,10 +1645,23 @@ suite("mail PostgreSQL foundation", () => {
           secret: { kind: "password", password: "created-secret" },
         },
       });
+      let created: Awaited<typeof creation>;
+      try {
+        await Bun.sleep(100);
+        expect(verify).not.toHaveBeenCalled();
+      } finally {
+        await mailProviderOperationMutex.release(mailboxCredentialLock);
+        created = await creation;
+      }
       expect(created.ok).toBe(false);
       if (!created.ok) expect(created.error.code).toBe("CONFLICT");
+      expect(verify).toHaveBeenCalledTimes(1);
 
-      const replaced = await replaceProviderConnection({
+      const credentialLock = await mailProviderOperationMutex.acquire(resource!.id, MAIL_PROVIDER_OPERATION_LEASE_MS);
+      expect(credentialLock).not.toBeNull();
+      if (!credentialLock) return;
+      verify.mockClear();
+      const replacement = replaceProviderConnection({
         context,
         connectionId: connection!.id,
         input: {
@@ -1537,7 +1673,20 @@ suite("mail PostgreSQL foundation", () => {
           secret: { kind: "password", password: "replacement-secret" },
         },
       });
+      let replaced: Awaited<typeof replacement>;
+      try {
+        await Bun.sleep(100);
+        const [beforeCredentialRelease] = await sql<{ secret_revision: number }[]>`
+          SELECT secret_revision FROM mail.provider_connections WHERE id = ${connection!.id}::uuid
+        `;
+        expect(beforeCredentialRelease?.secret_revision).toBe(1);
+        expect(verify).not.toHaveBeenCalled();
+      } finally {
+        await mailProviderOperationMutex.release(credentialLock);
+        replaced = await replacement;
+      }
       expect(replaced.ok).toBe(true);
+      expect(verify).toHaveBeenCalledTimes(1);
     } finally {
       verify.mockRestore();
     }

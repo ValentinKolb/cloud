@@ -7,7 +7,7 @@ import {
   stopRuntimeResources,
 } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
-import { type JobCtx, job, mutex, ratelimit, scheduler } from "@valentinkolb/sync";
+import { type JobCtx, job, ratelimit, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
@@ -16,10 +16,12 @@ import { imapSmtpConnector } from "./connectors";
 import { deleteAbandonedDraftAttachmentUploads } from "./draft-uploads";
 import { resolveMailExecution } from "./execution";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
+import { assertMailboxTransportFence, loadMailboxTransportFence } from "./mailbox-lifecycle";
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
+import { mailProviderOperationMutex } from "./provider-operation-lock";
 import { getWorkflowSnapshot } from "./workflow-data";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 import { enqueueMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
@@ -70,9 +72,8 @@ type SyncBatchResult = {
   removed: number;
 };
 
-const syncMutex = mutex({ id: "mail:remote-resource-sync", defaultTtl: SYNC_LEASE_MS, retryCount: 0 });
 const mailboxWorkBudget = ratelimit({ id: "mail:mailbox-provider-work", limit: 300, windowSecs: 60 });
-type SyncLock = NonNullable<Awaited<ReturnType<typeof syncMutex.acquire>>>;
+type SyncLock = NonNullable<Awaited<ReturnType<typeof mailProviderOperationMutex.acquire>>>;
 
 const consumeMailboxWorkBudget = async (remoteResourceId: string): Promise<void> => {
   const result = await mailboxWorkBudget.check(remoteResourceId);
@@ -89,7 +90,7 @@ const retryAfterMs = (error: unknown, fallback: number): number => {
 };
 
 const extendSyncLease = async (lock: SyncLock, phase: string): Promise<void> => {
-  if (await syncMutex.extend(lock, SYNC_LEASE_MS)) return;
+  if (await mailProviderOperationMutex.extend(lock, SYNC_LEASE_MS)) return;
   throw Object.assign(new Error(`Mail sync lease was lost ${phase}`), { code: "SYNC_LEASE_LOST" });
 };
 
@@ -137,12 +138,30 @@ const normalizeSubject = (subject: string): string => {
 export const claimFence = async (resourceId: string, bindingId: string, kind: string): Promise<FenceClaim> =>
   sql.begin(async (tx) => {
     const [resource] = await tx<{ token: string | number; generation: string | number }[]>`
-      UPDATE mail.remote_resources
-      SET current_fence_token = current_fence_token + 1
-      WHERE id = ${resourceId}::uuid
-      RETURNING current_fence_token AS token, sync_generation AS generation
+      UPDATE mail.remote_resources resource
+      SET current_fence_token = resource.current_fence_token + 1
+      FROM mail.mailboxes mailbox
+      WHERE resource.id = ${resourceId}::uuid
+        AND mailbox.id = resource.mailbox_id
+        AND resource.status = 'active'
+        AND mailbox.sync_enabled = true
+        AND mailbox.deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM mail.provider_bindings binding
+          JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+          WHERE binding.id = ${bindingId}::uuid
+            AND binding.remote_resource_id = resource.id
+            AND binding.state = 'active'
+            AND binding.verified_scope_fingerprint = resource.scope_fingerprint
+            AND binding.verified_secret_revision = connection.secret_revision
+            AND connection.status = 'active'
+            AND connection.encrypted_secret IS NOT NULL
+        )
+      RETURNING resource.current_fence_token AS token, resource.sync_generation AS generation
     `;
-    if (!resource) throw new Error("Remote resource disappeared before fence claim");
+    if (!resource)
+      throw Object.assign(new Error("Mailbox transport changed before sync fence claim"), { code: "MAILBOX_TRANSPORT_CHANGED" });
     await tx`
       UPDATE mail.sync_runs
       SET state = 'stale_fence', finished_at = now(), error_code = 'STALE_SYNC_FENCE'
@@ -1055,7 +1074,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
   const folder = await loadSyncFolder(folderId);
   if (!folder) return { hasMore: false, imported: 0, flagsUpdated: 0, removed: 0 };
 
-  const lock = await syncMutex.acquire(folder.remote_resource_id, SYNC_LEASE_MS);
+  const lock = await mailProviderOperationMutex.acquire(folder.remote_resource_id, SYNC_LEASE_MS);
   if (!lock) throw Object.assign(new Error("Mail sync resource is busy"), { code: "SYNC_BUSY" });
   let runId: string | null = null;
   let selectedBindingId: string | null = null;
@@ -1167,7 +1186,8 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
       code !== "SYNC_LEASE_LOST" &&
       code !== "SYNC_JOB_LEASE_LOST" &&
       code !== "STALE_SYNC_FENCE" &&
-      code !== "STALE_SYNC_BINDING"
+      code !== "STALE_SYNC_BINDING" &&
+      code !== "MAILBOX_TRANSPORT_CHANGED"
     ) {
       await recordSyncFailure({
         folderId,
@@ -1179,7 +1199,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
     }
     throw error;
   } finally {
-    await syncMutex.release(lock).catch(() => false);
+    await mailProviderOperationMutex.release(lock).catch(() => false);
   }
 };
 
@@ -1211,6 +1231,7 @@ const syncFolderJob = job<{ folderId: string }, SyncBatchResult | null>({
       }
     }) ?? Promise.resolve(null),
   after: async ({ ctx }) => {
+    if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAILBOX_TRANSPORT_CHANGED") return;
     if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
       ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 5_000) });
       return;
@@ -1268,19 +1289,30 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
         LIMIT 1
       `;
       if (!message) return { hydrated: false };
-      const execution = await resolveMailExecution({
-        mailboxId: message.mailbox_id,
-        operation: "backgroundSync",
-        folderRequirements: [{ folderId: message.folder_id, rights: ["read"] }],
-      });
-      if (!execution.ok || !execution.data.bindingId || !execution.data.connectionId) {
-        throw Object.assign(new Error("No hydration binding"), { code: "NO_HYDRATION_BINDING" });
-      }
-      const folder = execution.data.folders[message.folder_id];
-      if (!folder) throw Object.assign(new Error("No hydration folder locator"), { code: "NO_FOLDER_LOCATOR" });
-      const runtime = await loadResolvedRuntime(execution.data.connectionId, execution.data.secretRevision);
-      await consumeMailboxWorkBudget(message.remote_resource_id);
-      const candidates = await sql<{ id: string; uid: string | number; uid_validity: string | number }[]>`
+      const lock = await mailProviderOperationMutex.acquire(message.remote_resource_id, SYNC_LEASE_MS);
+      if (!lock) throw Object.assign(new Error("Mail remote resource is busy"), { code: "SYNC_BUSY" });
+      try {
+        return await withLeaseHeartbeat({
+          intervalMs: 30_000,
+          heartbeat: () => extendSyncLease(lock, "during message hydration"),
+          work: async (assertProviderLeaseActive) => {
+            const execution = await resolveMailExecution({
+              mailboxId: message.mailbox_id,
+              operation: "backgroundSync",
+              folderRequirements: [{ folderId: message.folder_id, rights: ["read"] }],
+            });
+            if (!execution.ok || !execution.data.bindingId || !execution.data.connectionId) {
+              throw Object.assign(new Error("No hydration binding"), { code: "NO_HYDRATION_BINDING" });
+            }
+            const folder = execution.data.folders[message.folder_id];
+            if (!folder) throw Object.assign(new Error("No hydration folder locator"), { code: "NO_FOLDER_LOCATOR" });
+            const runtime = await loadResolvedRuntime(execution.data.connectionId, execution.data.secretRevision);
+            const transportFence = await loadMailboxTransportFence(message.remote_resource_id);
+            if (!transportFence) {
+              throw Object.assign(new Error("Mailbox transport changed before hydration"), { code: "MAILBOX_TRANSPORT_CHANGED" });
+            }
+            await consumeMailboxWorkBudget(message.remote_resource_id);
+            const candidates = await sql<{ id: string; uid: string | number; uid_validity: string | number }[]>`
         SELECT mc.id, rmr.uid, rmr.uid_validity
         FROM mail.message_contents mc
         JOIN mail.remote_message_refs rmr
@@ -1301,49 +1333,67 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
         ORDER BY (mc.id = ${ctx.input.messageId}::uuid) DESC, mc.internal_date DESC, mc.id DESC
         LIMIT ${HYDRATION_BATCH_SIZE}
       `;
-      if (candidates.length === 0) return { hydrated: false };
+            if (candidates.length === 0) return { hydrated: false };
 
-      let hydrated = false;
-      let requestedMessageError: unknown = null;
-      await imapSmtpConnector.downloadSourceBatch(
-        runtime,
-        folder.path,
-        candidates.map((candidate) => ({
-          key: candidate.id,
-          uidValidity: String(candidate.uid_validity),
-          uid: Number(candidate.uid),
-        })),
-        async (source) => {
-          const claimId = randomUUID();
-          activeClaim = { messageId: source.key, claimId };
-          try {
-            const result = await hydrateMessageFromSource({
-              messageId: source.key,
-              source: source.stream,
-              expectedSize: source.expectedSize,
-              claimId,
-            });
-            const available = result.status === "hydrated" || result.status === "already_complete" || result.status === "deduplicated";
-            hydrated ||= available;
-            if (available) {
-              await publishMailWorkflowDependency({
-                mailboxId: message.mailbox_id,
-                dependency: { kind: "mail.hydration", key: source.key },
-              });
-            }
-          } catch (error) {
-            const code = normalizeSyncErrorCode(error);
-            if (code !== "HYDRATION_NOT_CLAIMED") {
-              log.warn("Mail message hydration failed within a source batch", { messageId: source.key, code });
-              if (source.key === ctx.input.messageId) requestedMessageError = error;
-            }
-          } finally {
-            activeClaim = null;
-          }
-        },
-      );
-      if (requestedMessageError) throw requestedMessageError;
-      return { hydrated };
+            let hydrated = false;
+            let requestedMessageError: unknown = null;
+            await assertProviderLeaseActive();
+            await assertMailboxTransportFence(transportFence);
+            await imapSmtpConnector.downloadSourceBatch(
+              runtime,
+              folder.path,
+              candidates.map((candidate) => ({
+                key: candidate.id,
+                uidValidity: String(candidate.uid_validity),
+                uid: Number(candidate.uid),
+              })),
+              async (source) => {
+                await assertProviderLeaseActive();
+                await assertMailboxTransportFence(transportFence);
+                const claimId = randomUUID();
+                activeClaim = { messageId: source.key, claimId };
+                try {
+                  const result = await hydrateMessageFromSource({
+                    messageId: source.key,
+                    source: source.stream,
+                    expectedSize: source.expectedSize,
+                    claimId,
+                    transportFence,
+                  });
+                  const available =
+                    result.status === "hydrated" || result.status === "already_complete" || result.status === "deduplicated";
+                  hydrated ||= available;
+                  await assertProviderLeaseActive();
+                  await assertMailboxTransportFence(transportFence);
+                  if (available) {
+                    await publishMailWorkflowDependency({
+                      mailboxId: message.mailbox_id,
+                      dependency: { kind: "mail.hydration", key: source.key },
+                    });
+                  }
+                  await assertProviderLeaseActive();
+                  await assertMailboxTransportFence(transportFence);
+                } catch (error) {
+                  const code = normalizeSyncErrorCode(error);
+                  if (code === "SYNC_LEASE_LOST" || code === "MAILBOX_TRANSPORT_CHANGED") throw error;
+                  if (code !== "HYDRATION_NOT_CLAIMED") {
+                    log.warn("Mail message hydration failed within a source batch", { messageId: source.key, code });
+                    if (source.key === ctx.input.messageId) requestedMessageError = error;
+                  }
+                } finally {
+                  activeClaim = null;
+                }
+              },
+            );
+            await assertProviderLeaseActive();
+            await assertMailboxTransportFence(transportFence);
+            if (requestedMessageError) throw requestedMessageError;
+            return { hydrated };
+          },
+        });
+      } finally {
+        await mailProviderOperationMutex.release(lock).catch(() => false);
+      }
     },
   });
 };
@@ -1367,6 +1417,7 @@ const hydrationJob = job<{ messageId: string }, { hydrated: boolean } | null>({
       }
     }) ?? Promise.resolve(null),
   after: async ({ ctx }) => {
+    if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAILBOX_TRANSPORT_CHANGED") return;
     if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
       ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 10_000) });
       return;
@@ -1394,7 +1445,7 @@ export const executeBindingRediscovery = async (
       AND (state IN ('active', 'degraded') OR (${allowCredentialRevision} AND state = 'pending'))
   `;
   if (!binding) throw Object.assign(new Error("Provider binding is unavailable for rediscovery"), { code: "BINDING_UNAVAILABLE" });
-  const lock = await syncMutex.acquire(binding.remote_resource_id, SYNC_LEASE_MS);
+  const lock = await mailProviderOperationMutex.acquire(binding.remote_resource_id, SYNC_LEASE_MS);
   if (!lock) throw Object.assign(new Error("Mail remote resource is busy"), { code: "SYNC_BUSY" });
   try {
     return await withLeaseHeartbeat({
@@ -1409,7 +1460,7 @@ export const executeBindingRediscovery = async (
       },
     });
   } finally {
-    await syncMutex.release(lock).catch(() => false);
+    await mailProviderOperationMutex.release(lock).catch(() => false);
   }
 };
 
@@ -1434,6 +1485,7 @@ const rediscoveryJob = job<{ bindingId: string; allowCredentialRevision: boolean
       }
     }) ?? Promise.resolve(null),
   after: ({ ctx }) => {
+    if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAILBOX_TRANSPORT_CHANGED") return;
     if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
       ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 15_000) });
       return;

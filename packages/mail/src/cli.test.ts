@@ -152,15 +152,7 @@ test("local tag CLI creates catalog entries and fences conversation assignments"
   });
   servers.push(server);
 
-  const created = await runCli(`http://127.0.0.1:${server.port}`, [
-    "--json",
-    "mail",
-    "tag",
-    "create",
-    "Priority",
-    "--mailbox",
-    MAILBOX_ID,
-  ]);
+  const created = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "tag", "create", "Priority", "--mailbox", MAILBOX_ID]);
   const assigned = await runCli(`http://127.0.0.1:${server.port}`, [
     "--json",
     "mail",
@@ -186,6 +178,32 @@ test("local tag CLI creates catalog entries and fences conversation assignments"
       body: { expectedRevision: 7, tagIds: [TAG_ID] },
     },
   ]);
+});
+
+test("deleted mailbox CLI lists and restores retained mailboxes", async () => {
+  const requests: Array<{ method: string; path: string }> = [];
+  const deleted = { ...mailbox, deletedAt: "2026-07-16T12:00:00.000Z", permission: "admin" };
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    requests.push({ method: request.method, path: `${url.pathname}${url.search}` });
+    if (request.method === "GET" && url.pathname === "/api/mail/mailboxes/deleted")
+      return api({ items: [deleted], nextCursor: "next-page" });
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/restore`) {
+      return api({ ...mailbox, health: "paused", healthReason: "Mailbox restored", syncEnabled: false });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const listed = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "mailbox", "deleted", "list"]);
+  const restored = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "mailbox", "restore", MAILBOX_ID, "--yes"]);
+
+  expect(listed.exitCode).toBe(0);
+  expect(JSON.parse(listed.stdout)).toEqual({ items: [deleted], nextCursor: "next-page" });
+  expect(restored.exitCode).toBe(0);
+  expect(JSON.parse(restored.stdout)).toMatchObject({ id: MAILBOX_ID, health: "paused", syncEnabled: false });
+  expect(requests).toContainEqual({ method: "GET", path: "/api/mail/mailboxes/deleted?limit=100" });
+  expect(requests).toContainEqual({ method: "POST", path: `/api/mail/mailboxes/${MAILBOX_ID}/restore` });
 });
 
 test("conversation update sends one optimistic collaboration mutation", async () => {

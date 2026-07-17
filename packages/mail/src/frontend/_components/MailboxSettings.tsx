@@ -98,7 +98,7 @@ export default function MailboxSettings(props: {
   const deleteMailbox = mutation.create<boolean, void>({
     mutation: async () => {
       const confirmed = await prompts.confirm(
-        "This removes the Cloud mirror and collaboration data. It does not delete messages from the provider.",
+        "This pauses the mailbox and hides it from normal use. Provider mail and Cloud data remain retained so an administrator can restore it.",
         { title: "Delete mailbox", confirmText: "Delete mailbox", variant: "danger" },
       );
       if (!confirmed) return false;
@@ -301,13 +301,15 @@ export default function MailboxSettings(props: {
             id="danger"
             title="Danger zone"
             icon="ti ti-alert-triangle"
-            description="Permanently remove the Cloud mirror and collaboration data."
+            description="Move this mailbox into a recoverable deleted state."
             tone="danger"
           >
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="text-sm font-medium text-primary">Delete mailbox</p>
-                <p class="mt-1 text-xs text-dimmed">Messages remain on the provider, but Cloud data and access are removed.</p>
+                <p class="mt-1 text-xs text-dimmed">
+                  Provider mail and Cloud data remain retained; restore starts paused for verification.
+                </p>
               </div>
               <button
                 type="button"

@@ -7,7 +7,7 @@ import {
 } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { job, mutex, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { z } from "zod";
 import type { CommandState, MailCommand, RemoteMessagePrecondition } from "../contracts";
@@ -27,6 +27,7 @@ import {
 import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
 import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
+import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
 const log = logger("mail:commands");
@@ -34,9 +35,7 @@ const STALE_EXECUTION_MINUTES = 10;
 const MUTATION_JOB_LEASE_MS = 3 * 60_000;
 const OUTBOX_JOB_LEASE_MS = 4 * 60_000;
 const JOB_HEARTBEAT_INTERVAL_MS = 30_000;
-const PROVIDER_OPERATION_LEASE_MS = 5 * 60_000;
 const commandTasks = createRuntimeTaskTracker();
-const providerOperationMutex = mutex({ id: "mail:remote-resource-sync", defaultTtl: PROVIDER_OPERATION_LEASE_MS, retryCount: 0 });
 
 type JsonRecord = Record<string, unknown>;
 type SqlClient = typeof sql;
@@ -479,15 +478,40 @@ const persistMutationOutcome = async <T>(work: () => Promise<T>): Promise<T> => 
 type LeaseAssertion = () => Promise<void>;
 const noLeaseAssertion: LeaseAssertion = async () => undefined;
 
+const providerEffectPermission = (kind: DbCommandExecution["kind"]): "write" | "admin" =>
+  ["create_folder", "rename_folder", "delete_folder", "set_folder_subscription"].includes(kind) ? "admin" : "write";
+
 const beginProviderEffect = async (command: DbCommandExecution): Promise<void> =>
   sql.begin(async (tx) => {
-    const [current] = await tx<{ id: string }[]>`
+    const [mailbox] = await tx<{ id: string }[]>`
       SELECT id
-      FROM mail.commands
-      WHERE id = ${command.id}::uuid
-        AND state = 'executing'
-        AND attempt = ${command.attempt}
+      FROM mail.mailboxes
+      WHERE id = ${command.mailbox_id}::uuid AND deleted_at IS NULL
       FOR UPDATE
+    `;
+    if (!mailbox) {
+      throw Object.assign(new Error("Mailbox access was revoked before the provider effect"), { code: "ACCESS_REVOKED" });
+    }
+    const [current] = await tx<{ id: string }[]>`
+      SELECT command.id
+      FROM mail.commands command
+      JOIN mail.provider_bindings binding ON binding.id = command.selected_binding_id
+      JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+      JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+      JOIN mail.mailboxes mailbox ON mailbox.id = command.mailbox_id
+      WHERE command.id = ${command.id}::uuid
+        AND command.state = 'executing'
+        AND command.attempt = ${command.attempt}
+        AND command.selected_secret_revision = ${command.selected_secret_revision}
+        AND binding.state = 'active'
+        AND binding.verified_scope_fingerprint = resource.scope_fingerprint
+        AND binding.verified_secret_revision = command.selected_secret_revision
+        AND connection.secret_revision = command.selected_secret_revision
+        AND connection.status = 'active'
+        AND connection.encrypted_secret IS NOT NULL
+        AND resource.status = 'active'
+        AND mailbox.deleted_at IS NULL
+      FOR UPDATE OF command
     `;
     if (!current) {
       throw Object.assign(new Error("Mail command lease was lost before the provider effect"), { code: "COMMAND_JOB_LEASE_LOST" });
@@ -507,8 +531,11 @@ const beginProviderEffect = async (command: DbCommandExecution): Promise<void> =
         throw Object.assign(new Error("Workflow target was canceled before the provider effect"), { code: "WORKFLOW_CANCELED" });
       }
     }
-    if (!(await commandStillAuthorized(command, "write", tx))) {
-      throw Object.assign(new Error("Mailbox write access was revoked before the provider effect"), { code: "ACCESS_REVOKED" });
+    const requiredPermission = providerEffectPermission(command.kind);
+    if (!(await commandStillAuthorized(command, requiredPermission, tx))) {
+      throw Object.assign(new Error(`Mailbox ${requiredPermission} access was revoked before the provider effect`), {
+        code: "ACCESS_REVOKED",
+      });
     }
     const updated = await tx`
       UPDATE mail.commands
@@ -1196,22 +1223,26 @@ const executeFreshFolderOperation = async (
   if (command.kind === "create_folder") {
     if (before.current) throw Object.assign(new Error("A remote folder with this name already exists"), { code: "FOLDER_ALREADY_EXISTS" });
     await assertAuthorized();
+    await beginProviderEffect(command);
     await imapSmtpConnector.createFolder(operation.runtime, operation.path, operation.subscribed === true);
   } else if (command.kind === "rename_folder") {
     if (!before.current) throw Object.assign(new Error("Remote folder no longer exists"), { code: "FOLDER_UNAVAILABLE" });
     if (before.replacement)
       throw Object.assign(new Error("A remote folder with the new name already exists"), { code: "FOLDER_ALREADY_EXISTS" });
     await assertAuthorized();
+    await beginProviderEffect(command);
     await imapSmtpConnector.renameFolder(operation.runtime, operation.path, operation.newPath!);
   } else if (command.kind === "delete_folder") {
     if (!before.current) throw Object.assign(new Error("Remote folder no longer exists"), { code: "FOLDER_UNAVAILABLE" });
     await assertAuthorized();
     await verifyEmptyFolderDelete(command, operation);
     await assertAuthorized();
+    await beginProviderEffect(command);
     await imapSmtpConnector.deleteFolder(operation.runtime, operation.path);
   } else {
     if (!before.current) throw Object.assign(new Error("Remote folder no longer exists"), { code: "FOLDER_UNAVAILABLE" });
     await assertAuthorized();
+    await beginProviderEffect(command);
     await imapSmtpConnector.setFolderSubscription(operation.runtime, operation.path, operation.subscribed === true);
   }
   await recordCommandTransportMetadata(command, {
@@ -1281,7 +1312,7 @@ const runFolderOperation = async (
     return;
   }
   const operation = await prepareFolderOperation(command);
-  const lock = await providerOperationMutex.acquire(operation.binding.remote_resource_id, PROVIDER_OPERATION_LEASE_MS);
+  const lock = await mailProviderOperationMutex.acquire(operation.binding.remote_resource_id, MAIL_PROVIDER_OPERATION_LEASE_MS);
   if (!lock) {
     await requeueCommand(command, "REMOTE_RESOURCE_BUSY", "Remote mailbox is currently being synchronized or administered");
     return;
@@ -1291,7 +1322,7 @@ const runFolderOperation = async (
       intervalMs: JOB_HEARTBEAT_INTERVAL_MS,
       heartbeat: async () => {
         await assertJobLeaseActive();
-        if (!(await providerOperationMutex.extend(lock, PROVIDER_OPERATION_LEASE_MS))) {
+        if (!(await mailProviderOperationMutex.extend(lock, MAIL_PROVIDER_OPERATION_LEASE_MS))) {
           throw Object.assign(new Error("Remote mailbox operation lease was lost"), { code: "COMMAND_JOB_LEASE_LOST" });
         }
       },
@@ -1299,7 +1330,7 @@ const runFolderOperation = async (
         const assertLeaseActive = async (): Promise<void> => {
           await assertHeartbeatActive();
           await assertJobLeaseActive();
-          if (!(await providerOperationMutex.extend(lock, PROVIDER_OPERATION_LEASE_MS))) {
+          if (!(await mailProviderOperationMutex.extend(lock, MAIL_PROVIDER_OPERATION_LEASE_MS))) {
             throw Object.assign(new Error("Remote mailbox operation lease was lost"), { code: "COMMAND_JOB_LEASE_LOST" });
           }
         };
@@ -1319,7 +1350,7 @@ const runFolderOperation = async (
       },
     });
   } finally {
-    await providerOperationMutex.release(lock).catch(() => false);
+    await mailProviderOperationMutex.release(lock).catch(() => false);
   }
 };
 
@@ -1328,7 +1359,7 @@ const runMessageMutation = async (
   assertJobLeaseActive: LeaseAssertion,
 ): Promise<void> => {
   const binding = await loadPinnedBinding(claimed.command);
-  const lock = await providerOperationMutex.acquire(binding.remote_resource_id, PROVIDER_OPERATION_LEASE_MS);
+  const lock = await mailProviderOperationMutex.acquire(binding.remote_resource_id, MAIL_PROVIDER_OPERATION_LEASE_MS);
   if (!lock) {
     await requeueCommand(claimed.command, "REMOTE_RESOURCE_BUSY", "Remote mailbox is currently being synchronized or changed");
     return;
@@ -1338,7 +1369,7 @@ const runMessageMutation = async (
       intervalMs: JOB_HEARTBEAT_INTERVAL_MS,
       heartbeat: async () => {
         await assertJobLeaseActive();
-        if (!(await providerOperationMutex.extend(lock, PROVIDER_OPERATION_LEASE_MS))) {
+        if (!(await mailProviderOperationMutex.extend(lock, MAIL_PROVIDER_OPERATION_LEASE_MS))) {
           throw Object.assign(new Error("Remote mailbox operation lease was lost"), { code: "COMMAND_JOB_LEASE_LOST" });
         }
       },
@@ -1352,7 +1383,7 @@ const runMessageMutation = async (
       },
     });
   } finally {
-    await providerOperationMutex.release(lock).catch(() => false);
+    await mailProviderOperationMutex.release(lock).catch(() => false);
   }
 };
 
@@ -1605,25 +1636,68 @@ const heartbeatOutboxFence = async (loaded: { outbox: DbOutboxExecution; command
   });
 };
 
-const claimOutbox = async (outboxId: string): Promise<{ previousState: string } | null> =>
+type OutboxClaim = {
+  previousOutboxState: string;
+  previousOutboxAttempt: number;
+  previousOutboxErrorCode: string | null;
+  previousOutboxErrorMessage: string | null;
+  claimedOutboxState: string;
+  claimedOutboxAttempt: number;
+  previousCommandState: string;
+  previousCommandAttempt: number;
+  previousCommandStartedAt: Date | string | null;
+  previousCommandFinishedAt: Date | string | null;
+  previousCommandHeartbeatAt: Date | string | null;
+  previousCommandErrorCode: string | null;
+  previousCommandErrorMessage: string | null;
+  claimedCommandState: string;
+  claimedCommandAttempt: number;
+  draftId: string;
+  previousDraftState: string;
+};
+
+const claimOutbox = async (outboxId: string): Promise<OutboxClaim | null> =>
   sql.begin(async (tx) => {
     const [current] = await tx<
       {
         state: string;
+        attempt: number;
+        last_error_code: string | null;
+        last_error_message: string | null;
         command_id: string;
         command_state: string;
+        command_attempt: number;
+        command_started_at: Date | string | null;
+        command_finished_at: Date | string | null;
+        command_heartbeat_at: Date | string | null;
+        command_error_code: string | null;
+        command_error_message: string | null;
+        draft_id: string;
+        draft_state: string;
         due: boolean;
       }[]
     >`
       SELECT
         o.state,
+        o.attempt,
+        o.last_error_code,
+        o.last_error_message,
         o.command_id,
         c.state AS command_state,
+        c.attempt AS command_attempt,
+        c.started_at AS command_started_at,
+        c.finished_at AS command_finished_at,
+        c.worker_heartbeat_at AS command_heartbeat_at,
+        c.last_error_code AS command_error_code,
+        c.last_error_message AS command_error_message,
+        d.id AS draft_id,
+        d.state AS draft_state,
         GREATEST(o.scheduled_at, COALESCE(o.undo_until, o.scheduled_at)) <= now() AS due
       FROM mail.outbox_submissions o
       JOIN mail.commands c ON c.id = o.command_id
+      JOIN mail.drafts d ON d.id = o.draft_id
       WHERE o.id = ${outboxId}::uuid
-      FOR UPDATE
+      FOR UPDATE OF o, c, d
     `;
     if (!current || !["scheduled", "undo_window", "unknown", "sent_sync_pending"].includes(current.state)) return null;
     if (
@@ -1634,7 +1708,11 @@ const claimOutbox = async (outboxId: string): Promise<{ previousState: string } 
       return null;
     }
     if ((current.state === "scheduled" || current.state === "undo_window") && !current.due) return null;
-    const previousState = current.state;
+    const previousOutboxState = current.state;
+    const claimedOutboxState = current.state === "sent_sync_pending" ? "accepted" : current.state === "unknown" ? "unknown" : "sending";
+    const claimedCommandState = current.state === "sent_sync_pending" ? current.command_state : "executing";
+    const claimedOutboxAttempt = current.attempt + 1;
+    const claimedCommandAttempt = current.command_attempt + (current.state === "sent_sync_pending" ? 0 : 1);
     if (current.state === "scheduled" || current.state === "undo_window") {
       await tx`
         UPDATE mail.outbox_submissions
@@ -1677,7 +1755,78 @@ const claimOutbox = async (outboxId: string): Promise<{ previousState: string } 
         WHERE id = ${outboxId}::uuid AND state = 'sent_sync_pending'
       `;
     }
-    return { previousState };
+    return {
+      previousOutboxState,
+      previousOutboxAttempt: current.attempt,
+      previousOutboxErrorCode: current.last_error_code,
+      previousOutboxErrorMessage: current.last_error_message,
+      claimedOutboxState,
+      claimedOutboxAttempt,
+      previousCommandState: current.command_state,
+      previousCommandAttempt: current.command_attempt,
+      previousCommandStartedAt: current.command_started_at,
+      previousCommandFinishedAt: current.command_finished_at,
+      previousCommandHeartbeatAt: current.command_heartbeat_at,
+      previousCommandErrorCode: current.command_error_code,
+      previousCommandErrorMessage: current.command_error_message,
+      claimedCommandState,
+      claimedCommandAttempt,
+      draftId: current.draft_id,
+      previousDraftState: current.draft_state,
+    };
+  });
+
+const resetUnstartedOutboxClaim = async (outboxId: string, claim: OutboxClaim): Promise<boolean> =>
+  sql.begin(async (tx) => {
+    const [current] = await tx<{ provider_effect_attempt: number | null }[]>`
+      SELECT c.provider_effect_attempt
+      FROM mail.outbox_submissions o
+      JOIN mail.commands c ON c.id = o.command_id
+      JOIN mail.drafts d ON d.id = o.draft_id
+      WHERE o.id = ${outboxId}::uuid
+        AND o.state = ${claim.claimedOutboxState}
+        AND o.attempt = ${claim.claimedOutboxAttempt}
+        AND c.state = ${claim.claimedCommandState}
+        AND c.attempt = ${claim.claimedCommandAttempt}
+        AND d.id = ${claim.draftId}::uuid
+      FOR UPDATE OF o, c, d
+    `;
+    if (!current) return false;
+    if (
+      (claim.previousOutboxState === "scheduled" || claim.previousOutboxState === "undo_window") &&
+      current.provider_effect_attempt === claim.claimedCommandAttempt
+    ) {
+      return false;
+    }
+    await tx`
+      UPDATE mail.outbox_submissions
+      SET
+        state = ${claim.previousOutboxState},
+        attempt = ${claim.previousOutboxAttempt},
+        last_error_code = ${claim.previousOutboxErrorCode},
+        last_error_message = ${claim.previousOutboxErrorMessage},
+        updated_at = now()
+      WHERE id = ${outboxId}::uuid
+    `;
+    await tx`
+      UPDATE mail.commands
+      SET
+        state = ${claim.previousCommandState},
+        attempt = ${claim.previousCommandAttempt},
+        started_at = ${claim.previousCommandStartedAt},
+        finished_at = ${claim.previousCommandFinishedAt},
+        worker_heartbeat_at = ${claim.previousCommandHeartbeatAt},
+        last_error_code = ${claim.previousCommandErrorCode},
+        last_error_message = ${claim.previousCommandErrorMessage},
+        updated_at = now()
+      WHERE id = (SELECT command_id FROM mail.outbox_submissions WHERE id = ${outboxId}::uuid)
+    `;
+    await tx`
+      UPDATE mail.drafts
+      SET state = ${claim.previousDraftState}, updated_at = now()
+      WHERE id = ${claim.draftId}::uuid
+    `;
+    return true;
   });
 
 const loadSenderBinding = async (command: DbCommandExecution, senderIdentityId: string): Promise<DbSenderBinding> => {
@@ -2059,8 +2208,15 @@ const executeFreshOutbox = async (
     return;
   }
 
+  await assertLeaseActive();
   try {
-    await assertLeaseActive();
+    await beginProviderEffect(command);
+  } catch (error) {
+    await finishOutbox({ outbox, command, outboxState: "failed", commandState: "failed", draftState: "draft", error });
+    return;
+  }
+
+  try {
     const result = await imapSmtpConnector.sendSource(prepared.runtime, {
       source: createBlobReadable(prepared.mimeBlobId),
       envelopeFrom: prepared.snapshot.envelopeFrom ?? prepared.snapshot.from.address,
@@ -2140,24 +2296,24 @@ const deferSentCopy = async (outbox: DbOutboxExecution, error?: unknown): Promis
 
 const runClaimedOutbox = async (
   outboxId: string,
-  claim: { previousState: string },
+  claim: OutboxClaim,
   loaded: { outbox: DbOutboxExecution; command: DbCommandExecution },
   assertLeaseActive: LeaseAssertion,
 ): Promise<string | null> => {
   try {
-    if (claim.previousState === "unknown") await reconcileUnknownOutbox(loaded.outbox, loaded.command);
-    else if (claim.previousState === "sent_sync_pending") await reconcileSentCopy(loaded.outbox, loaded.command, assertLeaseActive);
+    if (claim.previousOutboxState === "unknown") await reconcileUnknownOutbox(loaded.outbox, loaded.command);
+    else if (claim.previousOutboxState === "sent_sync_pending") await reconcileSentCopy(loaded.outbox, loaded.command, assertLeaseActive);
     else await executeFreshOutbox(loaded.outbox, loaded.command, assertLeaseActive);
   } catch (error) {
-    if (claim.previousState === "sent_sync_pending") {
+    if (claim.previousOutboxState === "sent_sync_pending") {
       log.warn("Sent copy reconciliation failed", { outboxId, code: normalizeCode(error, "SENT_RECONCILIATION_FAILED") });
       await deferSentCopy(loaded.outbox, error);
     } else {
       await finishOutbox({
         outbox: loaded.outbox,
         command: loaded.command,
-        outboxState: claim.previousState === "unknown" ? "needs_attention" : "unknown",
-        commandState: claim.previousState === "unknown" ? "needs_attention" : "ambiguous",
+        outboxState: claim.previousOutboxState === "unknown" ? "needs_attention" : "unknown",
+        commandState: claim.previousOutboxState === "unknown" ? "needs_attention" : "ambiguous",
         draftState: "sent",
         error,
       });
@@ -2167,21 +2323,55 @@ const runClaimedOutbox = async (
   return state?.state ?? null;
 };
 
-const executeOutboxSubmissionWithHeartbeat = async (
+const loadOutboxRemoteResourceId = async (outboxId: string): Promise<string | null> => {
+  const [resource] = await sql<{ id: string }[]>`
+    SELECT resource.id
+    FROM mail.outbox_submissions outbox
+    JOIN mail.provider_bindings binding ON binding.id = outbox.selected_binding_id
+    JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+    WHERE outbox.id = ${outboxId}::uuid
+  `;
+  return resource?.id ?? null;
+};
+
+export const executeOutboxSubmissionWithHeartbeat = async (
   outboxId: string,
   heartbeat?: (fence: { outbox: DbOutboxExecution; command: DbCommandExecution }) => Promise<void>,
 ): Promise<string | null> => {
-  const claim = await claimOutbox(outboxId);
-  if (!claim) return null;
-  const loaded = await loadOutbox(outboxId);
-  if (!loaded) return null;
-  const work = (assertLeaseActive: LeaseAssertion) => runClaimedOutbox(outboxId, claim, loaded, assertLeaseActive);
-  if (!heartbeat) return work(noLeaseAssertion);
-  return withLeaseHeartbeat({
-    intervalMs: JOB_HEARTBEAT_INTERVAL_MS,
-    heartbeat: () => heartbeat(loaded),
-    work,
-  });
+  const remoteResourceId = await loadOutboxRemoteResourceId(outboxId);
+  if (!remoteResourceId) return null;
+  const lock = await mailProviderOperationMutex.acquire(remoteResourceId, MAIL_PROVIDER_OPERATION_LEASE_MS);
+  if (!lock) throw Object.assign(new Error("Remote mailbox is currently being synchronized or changed"), { code: "REMOTE_RESOURCE_BUSY" });
+  let claim: OutboxClaim | null = null;
+  try {
+    claim = await claimOutbox(outboxId);
+    if (!claim) return null;
+    const activeClaim = claim;
+    const loaded = await loadOutbox(outboxId);
+    if (!loaded) throw Object.assign(new Error("Claimed outbox submission is unavailable"), { code: "OUTBOX_UNAVAILABLE" });
+    return await withLeaseHeartbeat({
+      intervalMs: JOB_HEARTBEAT_INTERVAL_MS,
+      heartbeat: async () => {
+        if (!(await mailProviderOperationMutex.extend(lock, MAIL_PROVIDER_OPERATION_LEASE_MS))) {
+          throw Object.assign(new Error("Remote mailbox operation lease was lost"), { code: "COMMAND_JOB_LEASE_LOST" });
+        }
+        await heartbeat?.(loaded);
+      },
+      work: (assertLeaseActive) => runClaimedOutbox(outboxId, activeClaim, loaded, assertLeaseActive),
+    });
+  } catch (error) {
+    if (claim) {
+      await resetUnstartedOutboxClaim(outboxId, claim).catch((rollbackError: unknown) => {
+        log.warn("Failed to reset an unstarted outbox claim", {
+          outboxId,
+          code: normalizeCode(rollbackError, "OUTBOX_CLAIM_RESET_FAILED"),
+        });
+      });
+    }
+    throw error;
+  } finally {
+    await mailProviderOperationMutex.release(lock).catch(() => false);
+  }
 };
 
 export const executeOutboxSubmission = async (outboxId: string): Promise<string | null> => executeOutboxSubmissionWithHeartbeat(outboxId);

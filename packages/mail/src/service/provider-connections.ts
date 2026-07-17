@@ -8,6 +8,7 @@ import { auditActorFromRequest, type MailRequestContext, permissionFromScopes } 
 import { imapSmtpConnector } from "./connectors";
 import { EndpointPolicyError } from "./connectors/endpoint-policy";
 import { logDatabaseFailure } from "./database-errors";
+import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
 
 type SqlClient = typeof sql;
 
@@ -140,9 +141,6 @@ export const createProviderConnection = async (params: {
   const ownerAccess = await authorizeMailbox(params.context, params.mailboxId);
   if (!ownerAccess.ok) return ownerAccess;
 
-  const verification = await verifyProviderConnection(params.input);
-  if (!verification.ok) return verification;
-
   let encryptedSecret: string;
   try {
     encryptedSecret = await encryptSecret(params.input.secret);
@@ -151,15 +149,23 @@ export const createProviderConnection = async (params: {
   }
 
   try {
-    return await sql.begin(async (tx) => {
-      const recheck = await authorizeMailbox(params.context, params.mailboxId, tx);
-      if (!recheck.ok) return recheck;
-      const [locked] = await tx<{ id: string }[]>`
-        SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
-      `;
-      if (!locked) return fail(err.notFound("Mailbox"));
+    const barrier = await withMailboxProviderOperationBarrier(params.mailboxId, [], async (assertLeaseActive) => {
+      const currentAccess = await authorizeMailbox(params.context, params.mailboxId);
+      if (!currentAccess.ok) return currentAccess;
+      await assertLeaseActive();
+      const verification = await verifyProviderConnection(params.input);
+      if (!verification.ok) return verification;
+      await assertLeaseActive();
 
-      const [row] = await tx<DbProviderConnection[]>`
+      return sql.begin(async (tx) => {
+        const [locked] = await tx<{ id: string }[]>`
+          SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
+        `;
+        if (!locked) return fail(err.notFound("Mailbox"));
+        const recheck = await authorizeMailbox(params.context, params.mailboxId, tx);
+        if (!recheck.ok) return recheck;
+
+        const [row] = await tx<DbProviderConnection[]>`
         INSERT INTO mail.provider_connections AS pc (
           owner_mailbox_id,
           name,
@@ -201,38 +207,41 @@ export const createProviderConnection = async (params: {
           now()
         )
         RETURNING ${connectionColumns}
-      `;
-      if (!row) throw new Error("Provider connection insert returned no row");
-      await audit.record(
-        {
-          action: "mail.provider_connection.create",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "provider_connection", id: row.id, label: row.name },
-          requestId: params.context.requestId,
-          metadata: {
-            mailboxId: params.mailboxId,
-            connectorKind: row.connector_kind,
-            secretKind: row.secret_kind,
-            imapHost: row.imap_host,
-            smtpHost: row.smtp_host,
+        `;
+        if (!row) throw new Error("Provider connection insert returned no row");
+        await audit.record(
+          {
+            action: "mail.provider_connection.create",
+            outcome: "allowed",
+            actor: auditActorFromRequest(params.context),
+            target: { type: "provider_connection", id: row.id, label: row.name },
+            requestId: params.context.requestId,
+            metadata: {
+              mailboxId: params.mailboxId,
+              connectorKind: row.connector_kind,
+              secretKind: row.secret_kind,
+              imapHost: row.imap_host,
+              smtpHost: row.smtp_host,
+            },
           },
-        },
-        tx,
-      );
-      return ok({ connection: mapConnection(row), verification: verification.data });
+          tx,
+        );
+        await assertLeaseActive();
+        return ok({ connection: mapConnection(row), verification: verification.data });
+      });
     });
+    return barrier.acquired ? barrier.value : fail(err.conflict("Provider work is still running; retry connection creation shortly"));
   } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === "MAIL_PROVIDER_OPERATION_LEASE_LOST") {
+      return fail(err.conflict("Provider state changed during connection verification; retry the operation"));
+    }
     if (isUniqueViolation(error)) return fail(err.conflict("Provider connection"));
     logDatabaseFailure(log.error, "store", "provider connection", error);
     return fail(err.internal("Failed to store provider connection"));
   }
 };
 
-export const listProviderConnections = async (
-  context: MailRequestContext,
-  mailboxId: string,
-): Promise<Result<ProviderConnection[]>> => {
+export const listProviderConnections = async (context: MailRequestContext, mailboxId: string): Promise<Result<ProviderConnection[]>> => {
   const access = await authorizeMailbox(context, mailboxId);
   if (!access.ok) return access;
   const rows = await sql<DbProviderConnection[]>`
@@ -254,6 +263,19 @@ const loadConnectionRow = async (connectionId: string, db: SqlClient = sql, lock
   `;
   return row ?? null;
 };
+
+const listConnectionRemoteResourceIds = async (connectionId: string, db: SqlClient = sql): Promise<string[]> => {
+  const rows = await db<{ id: string }[]>`
+    SELECT DISTINCT binding.remote_resource_id AS id
+    FROM mail.provider_bindings binding
+    WHERE binding.connection_id = ${connectionId}::uuid
+    ORDER BY binding.remote_resource_id
+  `;
+  return rows.map((row) => row.id);
+};
+
+const sameResourceIds = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
 
 const invalidateSenderBindingVerifications = async (db: SqlClient, bindingIds: string[], code: string): Promise<void> => {
   if (bindingIds.length === 0) return;
@@ -312,8 +334,6 @@ export const replaceProviderConnection = async (params: {
   const allowed = await authorizeMailbox(params.context, current.owner_mailbox_id);
   if (!allowed.ok) return allowed;
 
-  const verification = await verifyProviderConnection(params.input);
-  if (!verification.ok) return verification;
   let encryptedSecret: string;
   try {
     encryptedSecret = await encryptSecret(params.input.secret);
@@ -322,13 +342,35 @@ export const replaceProviderConnection = async (params: {
   }
 
   try {
-    return await sql.begin(async (tx) => {
-      const locked = await loadConnectionRow(params.connectionId, tx, true);
-      if (!locked) return fail(err.notFound("Provider connection"));
-      if (locked.status === "revoked") return fail(err.badInput("Revoked provider connections cannot be replaced"));
-      const recheck = await authorizeMailbox(params.context, locked.owner_mailbox_id, tx);
-      if (!recheck.ok) return recheck;
-      const [row] = await tx<DbProviderConnection[]>`
+    const resourceIds = await listConnectionRemoteResourceIds(params.connectionId);
+    const barrier = await withMailboxProviderOperationBarrier(current.owner_mailbox_id, resourceIds, async (assertLeaseActive) => {
+      const latest = await loadConnectionRow(params.connectionId);
+      if (!latest) return fail(err.notFound("Provider connection"));
+      if (latest.status === "revoked") return fail(err.badInput("Revoked provider connections cannot be replaced"));
+      const currentAccess = await authorizeMailbox(params.context, latest.owner_mailbox_id);
+      if (!currentAccess.ok) return currentAccess;
+      if (!sameResourceIds(resourceIds, await listConnectionRemoteResourceIds(params.connectionId))) {
+        return fail(err.conflict("Provider bindings changed before credential verification; retry the operation"));
+      }
+      await assertLeaseActive();
+      const verification = await verifyProviderConnection(params.input);
+      if (!verification.ok) return verification;
+      await assertLeaseActive();
+
+      return sql.begin(async (tx) => {
+        const [mailbox] = await tx<{ id: string }[]>`
+          SELECT id FROM mail.mailboxes WHERE id = ${current.owner_mailbox_id}::uuid FOR UPDATE
+        `;
+        if (!mailbox) return fail(err.notFound("Mailbox"));
+        const locked = await loadConnectionRow(params.connectionId, tx, true);
+        if (!locked) return fail(err.notFound("Provider connection"));
+        if (locked.status === "revoked") return fail(err.badInput("Revoked provider connections cannot be replaced"));
+        const recheck = await authorizeMailbox(params.context, locked.owner_mailbox_id, tx);
+        if (!recheck.ok) return recheck;
+        if (!sameResourceIds(resourceIds, await listConnectionRemoteResourceIds(params.connectionId, tx))) {
+          return fail(err.conflict("Provider bindings changed during credential replacement; retry the operation"));
+        }
+        const [row] = await tx<DbProviderConnection[]>`
         UPDATE mail.provider_connections pc
         SET
           name = ${params.input.name.trim()},
@@ -352,9 +394,9 @@ export const replaceProviderConnection = async (params: {
           last_error_message = NULL
         WHERE pc.id = ${params.connectionId}::uuid
         RETURNING ${connectionColumns}
-      `;
-      if (!row) throw new Error("Provider connection update returned no row");
-      const affectedBindings = await tx<{ id: string; remote_resource_id: string }[]>`
+        `;
+        if (!row) throw new Error("Provider connection update returned no row");
+        const affectedBindings = await tx<{ id: string; remote_resource_id: string }[]>`
         UPDATE mail.provider_bindings
         SET
           state = 'pending',
@@ -363,15 +405,15 @@ export const replaceProviderConnection = async (params: {
         WHERE connection_id = ${params.connectionId}::uuid
           AND state <> 'revoked'
         RETURNING id, remote_resource_id
-      `;
-      if (affectedBindings.length > 0) {
-        await invalidateSenderBindingVerifications(
-          tx,
-          affectedBindings.map((binding) => binding.id),
-          "CREDENTIAL_REVERIFICATION_REQUIRED",
-        );
-        const affectedResourceIds = [...new Set(affectedBindings.map((binding) => binding.remote_resource_id))];
-        await tx`
+        `;
+        if (affectedBindings.length > 0) {
+          await invalidateSenderBindingVerifications(
+            tx,
+            affectedBindings.map((binding) => binding.id),
+            "CREDENTIAL_REVERIFICATION_REQUIRED",
+          );
+          const affectedResourceIds = [...new Set(affectedBindings.map((binding) => binding.remote_resource_id))];
+          await tx`
           UPDATE mail.remote_resources resource
           SET
             status = 'connection_required',
@@ -391,8 +433,8 @@ export const replaceProviderConnection = async (params: {
                 AND connection.status = 'active'
                 AND connection.encrypted_secret IS NOT NULL
             )
-        `;
-        await tx`
+          `;
+          await tx`
           UPDATE mail.mailboxes mailbox
           SET
             health = 'connection_required',
@@ -404,26 +446,32 @@ export const replaceProviderConnection = async (params: {
               FROM jsonb_array_elements_text(${affectedResourceIds}::jsonb)
             )
             AND resource.status = 'connection_required'
-        `;
-      }
-      await audit.record(
-        {
-          action: "mail.provider_connection.replace",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "provider_connection", id: row.id, label: row.name },
-          requestId: params.context.requestId,
-          metadata: {
-            secretReplaced: true,
-            secretKind: row.secret_kind,
-            invalidatedBindings: affectedBindings.length,
+          `;
+        }
+        await audit.record(
+          {
+            action: "mail.provider_connection.replace",
+            outcome: "allowed",
+            actor: auditActorFromRequest(params.context),
+            target: { type: "provider_connection", id: row.id, label: row.name },
+            requestId: params.context.requestId,
+            metadata: {
+              secretReplaced: true,
+              secretKind: row.secret_kind,
+              invalidatedBindings: affectedBindings.length,
+            },
           },
-        },
-        tx,
-      );
-      return ok({ connection: mapConnection(row), verification: verification.data });
+          tx,
+        );
+        await assertLeaseActive();
+        return ok({ connection: mapConnection(row), verification: verification.data });
+      });
     });
+    return barrier.acquired ? barrier.value : fail(err.conflict("Provider work is still running; retry credential replacement shortly"));
   } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === "MAIL_PROVIDER_OPERATION_LEASE_LOST") {
+      return fail(err.conflict("Provider state changed during credential verification; retry the operation"));
+    }
     if (isUniqueViolation(error)) return fail(err.conflict("Provider connection"));
     logDatabaseFailure(log.error, "replace", "provider connection", error);
     return fail(err.internal("Failed to replace provider connection"));
@@ -431,30 +479,43 @@ export const replaceProviderConnection = async (params: {
 };
 
 export const revokeProviderConnection = async (context: MailRequestContext, connectionId: string): Promise<Result<void>> => {
+  const current = await loadConnectionRow(connectionId);
+  if (!current) return fail(err.notFound("Provider connection"));
+  const preflight = await authorizeMailbox(context, current.owner_mailbox_id);
+  if (!preflight.ok) return preflight;
   try {
-    return await sql.begin(async (tx) => {
-      const row = await loadConnectionRow(connectionId, tx, true);
-      if (!row) return fail(err.notFound("Provider connection"));
-      const allowed = await authorizeMailbox(context, row.owner_mailbox_id, tx);
-      if (!allowed.ok) return allowed;
-      await tx`
+    const resourceIds = await listConnectionRemoteResourceIds(connectionId);
+    const barrier = await withMailboxProviderOperationBarrier(current.owner_mailbox_id, resourceIds, async (assertLeaseActive) =>
+      sql.begin(async (tx) => {
+        const [mailbox] = await tx<{ id: string }[]>`
+          SELECT id FROM mail.mailboxes WHERE id = ${current.owner_mailbox_id}::uuid FOR UPDATE
+        `;
+        if (!mailbox) return fail(err.notFound("Mailbox"));
+        const row = await loadConnectionRow(connectionId, tx, true);
+        if (!row) return fail(err.notFound("Provider connection"));
+        const allowed = await authorizeMailbox(context, row.owner_mailbox_id, tx);
+        if (!allowed.ok) return allowed;
+        if (!sameResourceIds(resourceIds, await listConnectionRemoteResourceIds(connectionId, tx))) {
+          return fail(err.conflict("Provider bindings changed during credential revocation; retry the operation"));
+        }
+        await tx`
         UPDATE mail.provider_connections
         SET status = 'revoked', encrypted_secret = NULL, last_error_code = NULL, last_error_message = NULL
         WHERE id = ${connectionId}::uuid
-      `;
-      const affectedBindings = await tx<{ id: string; remote_resource_id: string }[]>`
+        `;
+        const affectedBindings = await tx<{ id: string; remote_resource_id: string }[]>`
         UPDATE mail.provider_bindings
         SET state = 'revoked', last_error_code = 'CONNECTION_REVOKED', last_error_message = 'Provider connection revoked'
         WHERE connection_id = ${connectionId}::uuid AND state <> 'revoked'
         RETURNING id, remote_resource_id
-      `;
-      await invalidateSenderBindingVerifications(
-        tx,
-        affectedBindings.map((binding) => binding.id),
-        "CONNECTION_REVOKED",
-      );
-      for (const resourceId of new Set(affectedBindings.map((item) => item.remote_resource_id))) {
-        const [active] = await tx<{ exists: boolean }[]>`
+        `;
+        await invalidateSenderBindingVerifications(
+          tx,
+          affectedBindings.map((binding) => binding.id),
+          "CONNECTION_REVOKED",
+        );
+        for (const resourceId of new Set(affectedBindings.map((item) => item.remote_resource_id))) {
+          const [active] = await tx<{ exists: boolean }[]>`
           SELECT EXISTS (
             SELECT 1
             FROM mail.provider_bindings binding
@@ -467,34 +528,37 @@ export const revokeProviderConnection = async (context: MailRequestContext, conn
               AND connection.status = 'active'
               AND connection.encrypted_secret IS NOT NULL
           ) AS exists
-        `;
-        if (!active?.exists) {
-          await tx`
+          `;
+          if (!active?.exists) {
+            await tx`
             UPDATE mail.remote_resources rr
             SET status = 'connection_required', last_error_code = 'NO_ACTIVE_BINDING', last_error_message = 'No active provider binding remains'
             WHERE rr.id = ${resourceId}::uuid
-          `;
-          await tx`
+            `;
+            await tx`
             UPDATE mail.mailboxes m
             SET health = 'connection_required', health_reason = 'No active provider binding remains'
             FROM mail.remote_resources rr
             WHERE rr.id = ${resourceId}::uuid AND m.id = rr.mailbox_id
-          `;
+            `;
+          }
         }
-      }
-      await audit.record(
-        {
-          action: "mail.provider_connection.revoke",
-          outcome: "allowed",
-          actor: auditActorFromRequest(context),
-          target: { type: "provider_connection", id: row.id, label: row.name },
-          requestId: context.requestId,
-          metadata: { credentialDestroyed: true },
-        },
-        tx,
-      );
-      return ok();
-    });
+        await audit.record(
+          {
+            action: "mail.provider_connection.revoke",
+            outcome: "allowed",
+            actor: auditActorFromRequest(context),
+            target: { type: "provider_connection", id: row.id, label: row.name },
+            requestId: context.requestId,
+            metadata: { credentialDestroyed: true },
+          },
+          tx,
+        );
+        await assertLeaseActive();
+        return ok();
+      }),
+    );
+    return barrier.acquired ? barrier.value : fail(err.conflict("Provider work is still running; retry revocation shortly"));
   } catch {
     return fail(err.internal("Failed to revoke provider connection"));
   }

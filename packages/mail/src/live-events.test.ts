@@ -77,6 +77,26 @@ describe("Mail live protocol", () => {
         },
       }).success,
     ).toBeTrue();
+    for (const reason of ["deleted", "restored"] as const) {
+      expect(
+        MailLiveServerMessageSchema.safeParse({
+          type: MAIL_LIVE_WS_TYPE.event,
+          payload: {
+            mailboxId: MAILBOX_ID,
+            cursor: "15-1",
+            event: {
+              type: "mailbox.changed",
+              mailboxId: MAILBOX_ID,
+              conversationId: null,
+              reason,
+              targetId: null,
+              activityId: `lifecycle-${reason}`,
+              at: "2026-07-16T20:02:00.000Z",
+            },
+          },
+        }).success,
+      ).toBeTrue();
+    }
     expect(parseMailLiveServerMessage("not-json")).toBeNull();
     expect(parseMailLiveServerMessage(JSON.stringify({ type: MAIL_LIVE_WS_TYPE.event, payload: {} }))).toBeNull();
   });

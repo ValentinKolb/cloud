@@ -261,6 +261,11 @@ export const resolveMailExecution = async (params: {
   if (!mailbox) return fail(err.notFound("Mailbox"));
 
   const localReadAllowed = params.operation === "actorRead";
+  if (mailbox.remote_resource_id && mailbox.remote_resource_status !== "active") {
+    return localReadAllowed
+      ? ok(localExecution(params.mailboxId, mailbox.remote_resource_id))
+      : fail(err.forbidden("Mailbox transport is paused"));
+  }
   if (!mailbox.remote_resource_id || !mailbox.scope_fingerprint) {
     return localReadAllowed ? ok(localExecution(params.mailboxId, null)) : fail(err.forbidden("An active provider binding is required"));
   }

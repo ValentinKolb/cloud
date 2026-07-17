@@ -11,6 +11,17 @@ Use `cld mail` to configure Cloud mailboxes and operate mirrored IMAP mail throu
 - `sync`, `rediscover`, and `repair` create durable maintenance commands. A confirmed maintenance command proves that work was accepted or the repair transaction completed; folder sync progress remains visible through `status` and `mailbox wait`.
 - Do not delete remote messages, revoke credentials, or delete mailbox resources without an explicit user request.
 
+Mailbox deletion is reversible. It retains the Cloud mirror and never deletes provider mail. A restored mailbox remains paused until an admin verifies diagnostics and explicitly enables synchronization again.
+
+```bash
+cld mail delete <mailbox-id> --yes
+cld --json mail mailbox deleted list
+cld mail mailbox restore <mailbox-id> --yes
+cld --json mail status --mailbox <mailbox-id>
+cld mail rediscover --mailbox <mailbox-id> --wait
+cld mail configure --mailbox <mailbox-id> --sync enabled
+```
+
 ## Configure a mailbox
 
 Create a mailbox and make it the default for later commands:

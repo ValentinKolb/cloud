@@ -17,6 +17,8 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 import { z } from "zod";
 import {
   type AcquiredDraftLease,
+  type DeletedMailbox,
+  type DeletedMailboxPage,
   type DraftAttachmentUpload,
   type DraftIntent,
   type DraftLease,
@@ -951,6 +953,41 @@ export default defineCliCommands({
         }
       },
     }),
+    command("mailbox deleted list", {
+      summary: "List recoverable deleted mailboxes you administer",
+      flags: {
+        limit: flag.int({ min: 1, max: 200, default: 100 }),
+        cursor: flag.string({ description: "Opaque cursor returned by a previous page" }),
+      },
+      run: async ({ ctx, flags }) => {
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 100) });
+        if (flags.cursor) query.set("cursor", flags.cursor);
+        const page = await readApi<DeletedMailboxPage>(ctx, `/mailboxes/deleted?${query}`);
+        printTable(
+          ctx,
+          page,
+          page.items.map((mailbox: DeletedMailbox) => ({ name: mailbox.name, deletedAt: mailbox.deletedAt, id: mailbox.id })),
+          [
+            { key: "name", label: "NAME" },
+            { key: "deletedAt", label: "DELETED AT" },
+            { key: "id", label: "ID" },
+          ],
+        );
+        if (ctx.options.output === "text" && page.nextCursor) ctx.print(`Next cursor: ${page.nextCursor}`);
+      },
+    }),
+    command("mailbox restore", {
+      summary: "Restore a deleted mailbox in paused diagnostic state",
+      args: { mailboxId: arg.required({ description: "Deleted mailbox id" }) },
+      flags: { yes: confirmFlag("Confirm mailbox restore") },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to restore the deleted mailbox.");
+        if (!isUuid(args.mailboxId)) throw new Error("Mailbox id must be a UUID.");
+        const restored = await readApi<Mailbox>(ctx, `/mailboxes/${args.mailboxId}/restore`, { method: "POST" });
+        if (ctx.options.output === "json") ctx.json(restored);
+        else ctx.print(`Restored ${restored.name} in paused state. Verify the provider, then explicitly resume synchronization.`);
+      },
+    }),
     command("mailbox wait", {
       summary: "Wait for a mailbox health state",
       args: { mailbox: arg.optional({ description: "Mailbox id or exact name; defaults to `cld mail use`" }) },
@@ -1366,7 +1403,11 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Pass --yes to delete the local tag.");
         if (!flags.revision) throw new Error("Missing expected tag revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        await readApi(ctx, `/mailboxes/${mailbox.id}/local-tags/${args.tagId}`, jsonRequest("DELETE", { expectedRevision: flags.revision }));
+        await readApi(
+          ctx,
+          `/mailboxes/${mailbox.id}/local-tags/${args.tagId}`,
+          jsonRequest("DELETE", { expectedRevision: flags.revision }),
+        );
         if (ctx.options.output === "json") ctx.json({ deleted: true, tagId: args.tagId });
         else ctx.print(`Deleted local tag ${args.tagId}.`);
       },
@@ -1693,10 +1734,7 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const state = await readApi<ConversationLocalTags>(
-          ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/local-tags`,
-        );
+        const state = await readApi<ConversationLocalTags>(ctx, `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/local-tags`);
         if (ctx.options.output === "json") ctx.json(state);
         else {
           ctx.print(`Conversation revision: ${state.conversationRevision}`);
@@ -3393,15 +3431,15 @@ export default defineCliCommands({
       },
     }),
     command("delete", {
-      summary: "Delete a mailbox resource (provider mail remains untouched)",
+      summary: "Move a mailbox into recoverable deleted state",
       args: { mailbox: arg.required() },
       flags: { yes: confirmFlag("Confirm mailbox deletion") },
       run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to delete the mailbox resource.");
+        if (!flags.yes) throw new Error("Pass --yes to delete the mailbox.");
         const mailbox = await resolveMailbox(ctx, args.mailbox);
         await readApi(ctx, `/mailboxes/${mailbox.id}`, { method: "DELETE" });
         if (ctx.options.output === "json") ctx.json({ deleted: true, mailboxId: mailbox.id });
-        else ctx.print(`Deleted ${mailbox.name}.`);
+        else ctx.print(`Deleted ${mailbox.name}. Provider mail and the Cloud mirror remain retained for restore.`);
       },
     }),
     ...mailboxAccessCommands,

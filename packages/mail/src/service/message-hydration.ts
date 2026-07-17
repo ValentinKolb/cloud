@@ -5,6 +5,7 @@ import { sql } from "bun";
 import { type AttachmentStream, type Headers, MailParser, type MessageText } from "mailparser";
 import sanitizeHtml from "sanitize-html";
 import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
+import { assertMailboxTransportFence, type MailboxTransportFence } from "./mailbox-lifecycle";
 import { type StoredBlob, storeReadableBlob } from "./message-blobs";
 import { splitSearchText } from "./search-chunks";
 
@@ -23,6 +24,9 @@ type HydratedPart = {
 type ClaimedMessage = {
   id: string;
   mime_structure: Record<string, unknown> | string;
+  resume_hydration_status: "envelope" | "headers" | "body" | "failed";
+  resume_hydration_attempt: number;
+  resume_hydration_error_code: string | null;
 };
 
 type MessageIdentityProjection = {
@@ -150,21 +154,33 @@ const readableFromText = (value: string): Readable => Readable.from([Buffer.from
 
 const claimMessage = async (messageId: string, claimId: string): Promise<ClaimedMessage | "complete" | null> => {
   const [claimed] = await sql<ClaimedMessage[]>`
-    UPDATE mail.message_contents
+    WITH candidate AS (
+      SELECT id, hydration_status, hydration_attempt, hydration_error_code
+      FROM mail.message_contents
+      WHERE id = ${messageId}::uuid
+        AND hydration_status <> 'complete'
+        AND hydration_attempt < 5
+        AND (
+          hydration_status <> 'hydrating'
+          OR hydration_claimed_at < now() - interval '15 minutes'
+        )
+      FOR UPDATE
+    )
+    UPDATE mail.message_contents message
     SET
       hydration_status = 'hydrating',
-      hydration_attempt = hydration_attempt + 1,
+      hydration_attempt = message.hydration_attempt + 1,
       hydration_claim_id = ${claimId}::uuid,
       hydration_claimed_at = now(),
       hydration_error_code = NULL
-    WHERE id = ${messageId}::uuid
-      AND hydration_status <> 'complete'
-      AND hydration_attempt < 5
-      AND (
-        hydration_status <> 'hydrating'
-        OR hydration_claimed_at < now() - interval '15 minutes'
-      )
-    RETURNING id, mime_structure
+    FROM candidate
+    WHERE message.id = candidate.id
+    RETURNING
+      message.id,
+      message.mime_structure,
+      CASE WHEN candidate.hydration_status = 'hydrating' THEN 'headers' ELSE candidate.hydration_status END AS resume_hydration_status,
+      candidate.hydration_attempt AS resume_hydration_attempt,
+      candidate.hydration_error_code AS resume_hydration_error_code
   `;
   if (claimed) return claimed;
   const [current] = await sql<{ hydration_status: string }[]>`
@@ -443,6 +459,7 @@ export const hydrateMessageFromSource = async (params: {
   source: Readable;
   expectedSize?: number | null;
   claimId?: string;
+  transportFence?: MailboxTransportFence;
 }): Promise<{ status: "hydrated" | "already_complete" | "deduplicated"; sourceHash?: string; canonicalMessageId?: string }> => {
   const claimId = params.claimId ?? randomUUID();
   const claimed = await claimMessage(params.messageId, claimId);
@@ -563,6 +580,7 @@ export const hydrateMessageFromSource = async (params: {
         FOR UPDATE
       `;
       if (!current) throw Object.assign(new Error("Message hydration claim was lost"), { code: "HYDRATION_CLAIM_LOST" });
+      if (params.transportFence) await assertMailboxTransportFence(params.transportFence, tx);
       const duplicate = await mergeVerifiedDuplicate({ db: tx, messageId: params.messageId, sourceHash });
       canonicalMessageId = duplicate.canonicalMessageId;
       if (canonicalMessageId) return;
@@ -661,15 +679,29 @@ export const hydrateMessageFromSource = async (params: {
   } catch (error) {
     params.source.destroy();
     await parsePipeline.catch(() => undefined);
-    await sql`
-      UPDATE mail.message_contents
-      SET
-        hydration_status = 'failed',
-        hydration_error_code = ${normalizeErrorCode(error)},
-        hydration_claim_id = NULL,
-        hydration_claimed_at = NULL
-      WHERE id = ${params.messageId}::uuid AND hydration_claim_id = ${claimId}::uuid
-    `.catch(() => undefined);
+    const transportChanged = normalizeErrorCode(error) === "MAILBOX_TRANSPORT_CHANGED";
+    if (transportChanged) {
+      await sql`
+        UPDATE mail.message_contents
+        SET
+          hydration_status = ${claimed.resume_hydration_status},
+          hydration_attempt = ${claimed.resume_hydration_attempt},
+          hydration_error_code = ${claimed.resume_hydration_error_code},
+          hydration_claim_id = NULL,
+          hydration_claimed_at = NULL
+        WHERE id = ${params.messageId}::uuid AND hydration_claim_id = ${claimId}::uuid
+      `;
+    } else {
+      await sql`
+        UPDATE mail.message_contents
+        SET
+          hydration_status = 'failed',
+          hydration_error_code = ${normalizeErrorCode(error)},
+          hydration_claim_id = NULL,
+          hydration_claimed_at = NULL
+        WHERE id = ${params.messageId}::uuid AND hydration_claim_id = ${claimId}::uuid
+      `.catch(() => undefined);
+    }
     throw error;
   }
 };

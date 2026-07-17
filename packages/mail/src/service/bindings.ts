@@ -7,8 +7,9 @@ import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { imapSmtpConnector } from "./connectors";
 import { logDatabaseFailure } from "./database-errors";
-import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { getProviderConnection, type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
+import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
+import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
 
 type SqlClient = typeof sql;
 
@@ -73,6 +74,19 @@ const mapBinding = (row: DbBinding): ProviderBinding => {
 };
 
 const sha256 = sha256Json;
+
+const listMailboxRemoteResourceIds = async (mailboxId: string, db: SqlClient = sql): Promise<string[]> => {
+  const rows = await db<{ id: string }[]>`
+    SELECT id
+    FROM mail.remote_resources
+    WHERE mailbox_id = ${mailboxId}::uuid
+    ORDER BY id
+  `;
+  return rows.map((row) => row.id);
+};
+
+const sameResourceIds = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
 
 const relativePathFor = (folder: RemoteFolder): string => (folder.path.toUpperCase() === "INBOX" ? "INBOX" : folder.path);
 
@@ -375,11 +389,7 @@ const upsertProjectedFolderRef = async (params: {
   `;
 };
 
-const updateProjectedFolderParents = async (
-  db: SqlClient,
-  folders: FolderEvidence[],
-  folderIds: Map<string, string>,
-): Promise<void> => {
+const updateProjectedFolderParents = async (db: SqlClient, folders: FolderEvidence[], folderIds: Map<string, string>): Promise<void> => {
   for (const folder of folders) {
     const folderId = folderIds.get(folder.relativePath);
     if (!folderId) continue;
@@ -656,6 +666,7 @@ const REDISCOVERY_SUPERSEDED_CODES = new Set([
   "BINDING_UNAVAILABLE",
   "CONNECTION_UNAVAILABLE",
   "CREDENTIAL_REVISION_CHANGED",
+  "MAILBOX_TRANSPORT_CHANGED",
 ]);
 
 export const rediscoverProviderBinding = async (params: {
@@ -674,6 +685,7 @@ export const rediscoverProviderBinding = async (params: {
       verified_secret_revision: number;
       secret_revision: number;
       scope_fingerprint: string;
+      sync_generation: string | number;
     }[]
   >`
     SELECT
@@ -686,7 +698,8 @@ export const rediscoverProviderBinding = async (params: {
       binding.verification_evidence,
       binding.verified_secret_revision,
       connection.secret_revision,
-      resource.scope_fingerprint
+      resource.scope_fingerprint,
+      resource.sync_generation
     FROM mail.provider_bindings binding
     JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
     JOIN mail.provider_connections connection ON connection.id = binding.connection_id
@@ -715,7 +728,8 @@ export const rediscoverProviderBinding = async (params: {
       imapSmtpConnector.verify(snapshot.runtime),
       imapSmtpConnector.discoverFolders(snapshot.runtime),
     ]);
-    if (folders.length === 0) throw Object.assign(new Error("The provider account contains no visible folders"), { code: "REMOTE_ACCOUNT_EMPTY" });
+    if (folders.length === 0)
+      throw Object.assign(new Error("The provider account contains no visible folders"), { code: "REMOTE_ACCOUNT_EMPTY" });
     const evidence = await buildScopeEvidence({ verification, folders, runtime: snapshot.runtime });
     const previousEvidence =
       typeof current.verification_evidence === "string"
@@ -737,6 +751,8 @@ export const rediscoverProviderBinding = async (params: {
           connection_status: string;
           has_secret: boolean;
           discovery_generation: string | number;
+          sync_generation: string | number;
+          mailbox_deleted_at: Date | string | null;
         }[]
       >`
         SELECT
@@ -748,14 +764,20 @@ export const rediscoverProviderBinding = async (params: {
           connection.secret_revision,
           connection.status AS connection_status,
           connection.encrypted_secret IS NOT NULL AS has_secret,
-          resource.discovery_generation
+          resource.discovery_generation,
+          resource.sync_generation,
+          mailbox.deleted_at AS mailbox_deleted_at
         FROM mail.provider_bindings binding
         JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
         JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+        JOIN mail.mailboxes mailbox ON mailbox.id = resource.mailbox_id
         WHERE binding.id = ${params.bindingId}::uuid
-        FOR UPDATE OF binding, resource, connection
+        FOR UPDATE OF binding, resource, connection, mailbox
       `;
       if (!locked) throw Object.assign(new Error("Provider binding disappeared during rediscovery"), { code: "BINDING_UNAVAILABLE" });
+      if (locked.mailbox_deleted_at || Number(locked.sync_generation) !== Number(current.sync_generation)) {
+        throw Object.assign(new Error("Mailbox transport changed during rediscovery"), { code: "MAILBOX_TRANSPORT_CHANGED" });
+      }
       if (locked.secret_revision !== snapshot.secretRevision) {
         throw Object.assign(new Error("Provider credentials changed during rediscovery"), { code: "CREDENTIAL_REVISION_CHANGED" });
       }
@@ -865,83 +887,100 @@ export const attachProviderBinding = async (params: {
   if (!connectionResult.ok) return connectionResult;
   if (connectionResult.data.mailboxId !== params.mailboxId) return fail(err.badInput("Provider connection belongs to another mailbox"));
 
-  let runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
-  let verifiedSecretRevision: number;
-  let verification: ConnectorVerification;
-  let folders: RemoteFolder[];
   try {
-    const snapshot = await loadProviderConnectionRuntimeSnapshot(params.connectionId);
-    runtime = snapshot.runtime;
-    verifiedSecretRevision = snapshot.secretRevision;
-    [verification, folders] = await Promise.all([imapSmtpConnector.verify(runtime), imapSmtpConnector.discoverFolders(runtime)]);
-  } catch {
-    return fail(err.badInput("Provider binding verification failed"));
-  }
-  if (folders.length === 0) return fail(err.badInput("The provider account contains no visible folders"));
+    const resourceIds = await listMailboxRemoteResourceIds(params.mailboxId);
+    const barrier = await withMailboxProviderOperationBarrier(params.mailboxId, resourceIds, async (assertLeaseActive) => {
+      if (!sameResourceIds(resourceIds, await listMailboxRemoteResourceIds(params.mailboxId))) {
+        return fail(err.conflict("Mailbox provider bindings changed before verification; retry the operation"));
+      }
+      const currentConnection = await getProviderConnection(params.context, params.connectionId);
+      if (!currentConnection.ok) return currentConnection;
+      if (currentConnection.data.mailboxId !== params.mailboxId) {
+        return fail(err.badInput("Provider connection belongs to another mailbox"));
+      }
 
-  let evidence: ScopeEvidence;
-  try {
-    evidence = await buildScopeEvidence({ verification, folders, runtime });
-  } catch {
-    return fail(err.badInput("Remote resource fingerprint verification failed"));
-  }
-  const evidenceFingerprint = sha256(evidence);
-  const account = verification.accounts[0];
-  if (!account) return fail(err.badInput("The provider did not expose a remote account"));
+      let runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
+      let verifiedSecretRevision: number;
+      let verification: ConnectorVerification;
+      let folders: RemoteFolder[];
+      try {
+        const snapshot = await loadProviderConnectionRuntimeSnapshot(params.connectionId);
+        runtime = snapshot.runtime;
+        verifiedSecretRevision = snapshot.secretRevision;
+        await assertLeaseActive();
+        [verification, folders] = await Promise.all([imapSmtpConnector.verify(runtime), imapSmtpConnector.discoverFolders(runtime)]);
+        await assertLeaseActive();
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code === "MAIL_PROVIDER_OPERATION_LEASE_LOST") throw error;
+        return fail(err.badInput("Provider binding verification failed"));
+      }
+      if (folders.length === 0) return fail(err.badInput("The provider account contains no visible folders"));
 
-  try {
-    return await sql.begin(async (tx) => {
-      const [lockedMailbox] = await tx<{ id: string }[]>`
+      let evidence: ScopeEvidence;
+      try {
+        evidence = await buildScopeEvidence({ verification, folders, runtime });
+      } catch {
+        return fail(err.badInput("Remote resource fingerprint verification failed"));
+      }
+      const evidenceFingerprint = sha256(evidence);
+      const account = verification.accounts[0];
+      if (!account) return fail(err.badInput("The provider did not expose a remote account"));
+
+      return sql.begin(async (tx) => {
+        const [lockedMailbox] = await tx<{ id: string }[]>`
         SELECT id
         FROM mail.mailboxes
         WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
         FOR UPDATE
       `;
-      if (!lockedMailbox) return fail(err.notFound("Mailbox"));
-      const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
-      if (!permission.ok) return permission;
-      const [lockedConnection] = await tx<
-        {
-          status: string;
-          secret_revision: number;
-          owner_mailbox_id: string;
-        }[]
-      >`
+        if (!lockedMailbox) return fail(err.notFound("Mailbox"));
+        const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
+        if (!permission.ok) return permission;
+        if (!sameResourceIds(resourceIds, await listMailboxRemoteResourceIds(params.mailboxId, tx))) {
+          return fail(err.conflict("Mailbox provider bindings changed during verification; retry the operation"));
+        }
+        const [lockedConnection] = await tx<
+          {
+            status: string;
+            secret_revision: number;
+            owner_mailbox_id: string;
+          }[]
+        >`
         SELECT status, secret_revision, owner_mailbox_id
         FROM mail.provider_connections
         WHERE id = ${params.connectionId}::uuid
         FOR UPDATE
       `;
-      if (!lockedConnection || lockedConnection.status !== "active") return fail(err.badInput("Provider connection is no longer active"));
-      if (lockedConnection.owner_mailbox_id !== params.mailboxId) {
-        return fail(err.badInput("Provider connection belongs to another mailbox"));
-      }
-      if (lockedConnection.secret_revision !== verifiedSecretRevision) {
-        return fail(err.conflict("Provider credentials changed during remote verification"));
-      }
+        if (!lockedConnection || lockedConnection.status !== "active") return fail(err.badInput("Provider connection is no longer active"));
+        if (lockedConnection.owner_mailbox_id !== params.mailboxId) {
+          return fail(err.badInput("Provider connection belongs to another mailbox"));
+        }
+        if (lockedConnection.secret_revision !== verifiedSecretRevision) {
+          return fail(err.conflict("Provider credentials changed during remote verification"));
+        }
 
-      let [resource] = await tx<
-        {
-          id: string;
-          scope_fingerprint: string;
-          discovery_generation: string | number;
-        }[]
-      >`
-        SELECT id, scope_fingerprint, discovery_generation
-        FROM mail.remote_resources
-        WHERE mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE
-      `;
-      let comparison: EvidenceComparison = { state: "verified", reason: "Initial verified provider binding" };
-
-      if (!resource) {
-        [resource] = await tx<
+        let [resource] = await tx<
           {
             id: string;
             scope_fingerprint: string;
             discovery_generation: string | number;
           }[]
         >`
+        SELECT id, scope_fingerprint, discovery_generation
+        FROM mail.remote_resources
+        WHERE mailbox_id = ${params.mailboxId}::uuid
+        FOR UPDATE
+      `;
+        let comparison: EvidenceComparison = { state: "verified", reason: "Initial verified provider binding" };
+
+        if (!resource) {
+          [resource] = await tx<
+            {
+              id: string;
+              scope_fingerprint: string;
+              discovery_generation: string | number;
+            }[]
+          >`
           INSERT INTO mail.remote_resources (
             mailbox_id,
             connector_kind,
@@ -962,8 +1001,8 @@ export const attachProviderBinding = async (params: {
           )
           RETURNING id, scope_fingerprint, discovery_generation
         `;
-      } else {
-        const [prior] = await tx<{ verification_evidence: ScopeEvidence | string }[]>`
+        } else {
+          const [prior] = await tx<{ verification_evidence: ScopeEvidence | string }[]>`
           SELECT verification_evidence
           FROM mail.provider_bindings
           WHERE remote_resource_id = ${resource.id}::uuid
@@ -971,24 +1010,24 @@ export const attachProviderBinding = async (params: {
           ORDER BY (state = 'active') DESC, last_verified_at DESC NULLS LAST, created_at
           LIMIT 1
         `;
-        if (!prior) return fail(err.internal("Remote resource has no trusted verification evidence"));
-        const existingEvidence =
-          typeof prior.verification_evidence === "string"
-            ? (JSON.parse(prior.verification_evidence) as ScopeEvidence)
-            : prior.verification_evidence;
-        comparison = compareEvidence(existingEvidence, evidence);
-        if (comparison.state === "different") return fail(err.badInput(comparison.reason));
-        await tx`
+          if (!prior) return fail(err.internal("Remote resource has no trusted verification evidence"));
+          const existingEvidence =
+            typeof prior.verification_evidence === "string"
+              ? (JSON.parse(prior.verification_evidence) as ScopeEvidence)
+              : prior.verification_evidence;
+          comparison = compareEvidence(existingEvidence, evidence);
+          if (comparison.state === "different") return fail(err.badInput(comparison.reason));
+          await tx`
           UPDATE mail.remote_resources
           SET discovery_generation = discovery_generation + 1
           WHERE id = ${resource.id}::uuid
           RETURNING discovery_generation
         `;
-        resource.discovery_generation = Number(resource.discovery_generation) + 1;
-      }
-      if (!resource) throw new Error("Remote resource insert returned no row");
+          resource.discovery_generation = Number(resource.discovery_generation) + 1;
+        }
+        if (!resource) throw new Error("Remote resource insert returned no row");
 
-      const [binding] = await tx<DbBinding[]>`
+        const [binding] = await tx<DbBinding[]>`
         INSERT INTO mail.provider_bindings AS pb (
           remote_resource_id,
           connection_id,
@@ -1028,57 +1067,63 @@ export const attachProviderBinding = async (params: {
           pb.created_at,
           pb.updated_at
       `;
-      if (!binding) throw new Error("Provider binding insert returned no row");
-      await tx`DELETE FROM mail.remote_namespaces WHERE binding_id = ${binding.id}::uuid`;
+        if (!binding) throw new Error("Provider binding insert returned no row");
+        await tx`DELETE FROM mail.remote_namespaces WHERE binding_id = ${binding.id}::uuid`;
 
-      await projectFolders({
-        db: tx,
-        remoteResourceId: resource.id,
-        bindingId: binding.id,
-        discoveryGeneration: Number(resource.discovery_generation),
-        evidence,
-      });
-      if (evidence.namespaces.length > 0) {
-        const namespaceRows = evidence.namespaces.map((namespace) => ({
-          binding_id: binding.id,
-          kind: namespace.kind,
-          prefix: namespace.prefix,
-          delimiter: namespace.delimiter,
-        }));
-        await tx`
+        await projectFolders({
+          db: tx,
+          remoteResourceId: resource.id,
+          bindingId: binding.id,
+          discoveryGeneration: Number(resource.discovery_generation),
+          evidence,
+        });
+        if (evidence.namespaces.length > 0) {
+          const namespaceRows = evidence.namespaces.map((namespace) => ({
+            binding_id: binding.id,
+            kind: namespace.kind,
+            prefix: namespace.prefix,
+            delimiter: namespace.delimiter,
+          }));
+          await tx`
           INSERT INTO mail.remote_namespaces ${sql(namespaceRows, "binding_id", "kind", "prefix", "delimiter")}
           ON CONFLICT (binding_id, kind, prefix) DO UPDATE SET delimiter = EXCLUDED.delimiter, discovered_at = now()
         `;
-      }
-      await tx`
+        }
+        await tx`
         UPDATE mail.remote_resources
         SET status = 'active', last_error_code = NULL, last_error_message = NULL
         WHERE id = ${resource.id}::uuid
       `;
-      await tx`
+        await tx`
         UPDATE mail.mailboxes
         SET health = 'bootstrapping', health_reason = 'Initial synchronization pending'
         WHERE id = ${params.mailboxId}::uuid
       `;
 
-      await audit.record(
-        {
-          action: "mail.provider_binding.attach",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "mailbox", id: params.mailboxId },
-          requestId: params.context.requestId,
-          metadata: {
-            bindingId: binding.id,
-            connectionId: params.connectionId,
-            comparisonReason: comparison.reason,
+        await audit.record(
+          {
+            action: "mail.provider_binding.attach",
+            outcome: "allowed",
+            actor: auditActorFromRequest(params.context),
+            target: { type: "mailbox", id: params.mailboxId },
+            requestId: params.context.requestId,
+            metadata: {
+              bindingId: binding.id,
+              connectionId: params.connectionId,
+              comparisonReason: comparison.reason,
+            },
           },
-        },
-        tx,
-      );
-      return ok(mapBinding(binding));
+          tx,
+        );
+        await assertLeaseActive();
+        return ok(mapBinding(binding));
+      });
     });
+    return barrier.acquired ? barrier.value : fail(err.conflict("Provider work is still running; retry binding shortly"));
   } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === "MAIL_PROVIDER_OPERATION_LEASE_LOST") {
+      return fail(err.conflict("Provider state changed during binding verification; retry the operation"));
+    }
     if (isUniqueViolation(error)) return fail(err.conflict("Provider binding"));
     logDatabaseFailure(log.error, "attach", "provider binding", error);
     return fail(err.internal("Failed to attach provider binding"));

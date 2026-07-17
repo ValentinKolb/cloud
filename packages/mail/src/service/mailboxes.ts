@@ -2,17 +2,26 @@ import { createAccess, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result, tryCatch, unwrap } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { CreateMailboxInput, Mailbox } from "../contracts";
-import { getMailboxPermission, requireMailboxPermission } from "./access";
+import { z } from "zod";
+import type { CreateMailboxInput, DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";
+import {
+  getMailboxPermission,
+  isCurrentActorActive,
+  isCurrentPlatformAdmin,
+  requireMailboxLifecycleAdmin,
+  requireMailboxPermission,
+} from "./access";
 import {
   actorRefFromRequest,
   auditActorFromRequest,
   capByCredentialScopes,
-  isPlatformAdmin,
   isResourceBoundToMailbox,
   type MailRequestContext,
   userBackedActor,
 } from "./auth";
+import { publishMailMailboxEvent } from "./events";
+import { pauseDeletedMailboxExecution, pauseMailboxTransport } from "./mailbox-lifecycle";
+import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
 
 type DbMailbox = {
   id: string;
@@ -22,6 +31,8 @@ type DbMailbox = {
   health_reason: string | null;
   sync_enabled: boolean;
   search_backend: Mailbox["searchBackend"];
+  deleted_at: Date | string | null;
+  deleted_cursor_us: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -40,10 +51,90 @@ const mapMailbox = (row: DbMailbox): Mailbox => ({
   updatedAt: toIso(row.updated_at),
 });
 
+const mapDeletedMailbox = (row: DbMailbox): DeletedMailbox => {
+  if (!row.deleted_at) throw new Error("Deleted mailbox row has no deletion timestamp");
+  return { ...mapMailbox(row), deletedAt: toIso(row.deleted_at) };
+};
+
 const mailboxColumns = sql`
   m.id, m.name, m.description, m.health, m.health_reason,
-  m.sync_enabled, m.search_backend, m.created_at, m.updated_at
+  m.sync_enabled, m.search_backend, m.deleted_at,
+  CASE
+    WHEN m.deleted_at IS NULL THEN NULL
+    ELSE (extract(epoch FROM m.deleted_at) * 1000000)::bigint::text
+  END AS deleted_cursor_us,
+  m.created_at, m.updated_at
 `;
+
+const deletedMailboxCursorSchema = z
+  .object({ version: z.literal(2), deletedAtMicros: z.string().regex(/^\d+$/), id: z.string().uuid() })
+  .strict();
+type DeletedMailboxCursor = z.infer<typeof deletedMailboxCursorSchema>;
+
+const decodeDeletedMailboxCursor = (value?: string): Result<DeletedMailboxCursor | null> => {
+  if (!value) return ok(null);
+  try {
+    const parsed = deletedMailboxCursorSchema.safeParse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+    return parsed.success ? ok(parsed.data) : fail(err.badInput("Invalid deleted mailbox cursor"));
+  } catch {
+    return fail(err.badInput("Invalid deleted mailbox cursor"));
+  }
+};
+
+const deletedMailboxPage = (rows: DbMailbox[], limit: number): DeletedMailboxPage => {
+  const pageRows = rows.slice(0, limit);
+  const last = pageRows.at(-1);
+  return {
+    items: pageRows.map((row) => ({ ...mapDeletedMailbox(row), permission: "admin" })),
+    nextCursor:
+      rows.length > limit && last
+        ? Buffer.from(
+            JSON.stringify({
+              version: 2,
+              deletedAtMicros: last.deleted_cursor_us,
+              id: last.id,
+            }),
+          ).toString("base64url")
+        : null,
+  };
+};
+
+const recordMailboxLifecycleActivity = async (params: {
+  db: typeof sql;
+  context: MailRequestContext;
+  mailboxId: string;
+  action: "mailbox.deleted" | "mailbox.restored";
+  metadata: Record<string, unknown>;
+}): Promise<string> => {
+  const actor = actorRefFromRequest(params.context);
+  const [activity] = await params.db<{ id: string | number }[]>`
+    INSERT INTO mail.activity_events (
+      mailbox_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+    ) VALUES (
+      ${params.mailboxId}::uuid,
+      ${actor.kind},
+      ${actor.kind === "user" ? actor.userId : actor.kind === "service_account" ? actor.serviceAccountId : null}::uuid,
+      ${params.action},
+      'confirmed',
+      'mailbox',
+      ${params.mailboxId}::uuid,
+      ${params.metadata}::jsonb
+    )
+    RETURNING id
+  `;
+  if (!activity) throw new Error("Mailbox lifecycle activity insert returned no row");
+  return String(activity.id);
+};
+
+const listMailboxRemoteResourceIds = async (mailboxId: string, db: typeof sql = sql): Promise<string[]> => {
+  const rows = await db<{ id: string }[]>`
+    SELECT id
+    FROM mail.remote_resources
+    WHERE mailbox_id = ${mailboxId}::uuid
+    ORDER BY id
+  `;
+  return rows.map((row) => row.id);
+};
 
 export const createMailbox = async (context: MailRequestContext, input: CreateMailboxInput): Promise<Result<Mailbox>> => {
   const owner = userBackedActor(context);
@@ -66,7 +157,7 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
             ${owner.id}::uuid,
             ${context.actor.kind === "service_account" ? context.actor.serviceAccount.id : null}::uuid
           )
-          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, created_at, updated_at
+          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, deleted_at, created_at, updated_at
         `;
         if (!row) throw new Error("Mailbox insert returned no row");
 
@@ -118,6 +209,91 @@ export const getMailbox = async (context: MailRequestContext, mailboxId: string)
   return row ? ok(mapMailbox(row)) : fail(err.notFound("Mailbox"));
 };
 
+export const getDeletedMailbox = async (context: MailRequestContext, mailboxId: string): Promise<Result<DeletedMailbox>> => {
+  const allowed = await requireMailboxLifecycleAdmin(context, mailboxId);
+  if (!allowed.ok) return allowed;
+  const [row] = await sql<DbMailbox[]>`
+    SELECT ${mailboxColumns}
+    FROM mail.mailboxes m
+    WHERE m.id = ${mailboxId}::uuid AND m.deleted_at IS NOT NULL
+  `;
+  return row ? ok(mapDeletedMailbox(row)) : fail(err.notFound("Deleted mailbox"));
+};
+
+export const listDeletedMailboxes = async (
+  context: MailRequestContext,
+  params: { limit?: number; cursor?: string } = {},
+): Promise<Result<DeletedMailboxPage>> => {
+  const boundedLimit = Math.min(Math.max(Math.floor(params.limit ?? 100), 1), 200);
+  const cursor = decodeDeletedMailboxCursor(params.cursor);
+  if (!cursor.ok) return cursor;
+  if (!(await isCurrentActorActive(context)) || capByCredentialScopes(context, "admin") !== "admin") {
+    return ok({ items: [], nextCursor: null });
+  }
+  if (context.actor.kind === "service_account" && context.actor.serviceAccount.kind === "resource_bound") {
+    const mailboxId = context.actor.serviceAccount.resourceId;
+    if (!mailboxId || !isResourceBoundToMailbox(context, mailboxId) || cursor.data) return ok({ items: [], nextCursor: null });
+    const mailbox = await getDeletedMailbox(context, mailboxId);
+    return mailbox.ok ? ok({ items: [{ ...mailbox.data, permission: "admin" }], nextCursor: null }) : ok({ items: [], nextCursor: null });
+  }
+
+  if (await isCurrentPlatformAdmin(context)) {
+    const rows = await sql<DbMailbox[]>`
+      SELECT ${mailboxColumns}
+      FROM mail.mailboxes m
+      WHERE m.deleted_at IS NOT NULL
+        AND (
+          ${cursor.data?.id ?? null}::uuid IS NULL
+          OR (
+            (extract(epoch FROM m.deleted_at) * 1000000)::bigint,
+            m.id
+          ) < (${cursor.data?.deletedAtMicros ?? null}::bigint, ${cursor.data?.id ?? null}::uuid)
+        )
+      ORDER BY m.deleted_at DESC, m.id DESC
+      LIMIT ${boundedLimit + 1}
+    `;
+    return ok(deletedMailboxPage(rows, boundedLimit));
+  }
+
+  const userId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
+  const serviceAccountId = context.accessSubject.type === "service_account" ? context.accessSubject.serviceAccountId : null;
+  const rows = await sql<DbMailbox[]>`
+    WITH RECURSIVE subject_groups(group_id, path) AS (
+      SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
+      FROM auth.user_groups_v2 ug
+      WHERE ug.user_id = ${userId}::uuid
+
+      UNION ALL
+
+      SELECT gg.parent_group_id, sg.path || gg.parent_group_id
+      FROM auth.group_groups_v2 gg
+      JOIN subject_groups sg ON sg.group_id = gg.child_group_id
+      WHERE NOT gg.parent_group_id = ANY(sg.path)
+    )
+    SELECT DISTINCT ${mailboxColumns}
+    FROM mail.mailboxes m
+    JOIN mail.mailbox_access ma ON ma.mailbox_id = m.id
+    JOIN auth.access a ON a.id = ma.access_id
+    WHERE m.deleted_at IS NOT NULL
+      AND a.permission = 'admin'
+      AND (
+        ${cursor.data?.id ?? null}::uuid IS NULL
+        OR (
+          (extract(epoch FROM m.deleted_at) * 1000000)::bigint,
+          m.id
+        ) < (${cursor.data?.deletedAtMicros ?? null}::bigint, ${cursor.data?.id ?? null}::uuid)
+      )
+      AND (
+        a.user_id = ${userId}::uuid
+        OR a.service_account_id = ${serviceAccountId}::uuid
+        OR a.group_id IN (SELECT group_id FROM subject_groups)
+      )
+    ORDER BY m.deleted_at DESC, m.id DESC
+    LIMIT ${boundedLimit + 1}
+  `;
+  return ok(deletedMailboxPage(rows, boundedLimit));
+};
+
 export const listMailboxes = async (
   context: MailRequestContext,
   limit = 100,
@@ -132,7 +308,7 @@ export const listMailboxes = async (
     return permission === "none" ? ok([]) : ok([{ ...mailbox.data, permission }]);
   }
 
-  if (isPlatformAdmin(context)) {
+  if (await isCurrentPlatformAdmin(context)) {
     const rows = await sql<DbMailbox[]>`
       SELECT ${mailboxColumns}
       FROM mail.mailboxes m
@@ -225,7 +401,7 @@ export const updateMailbox = async (params: {
               ELSE health_reason
             END
           WHERE id = ${params.mailboxId}::uuid
-          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, created_at, updated_at
+          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, deleted_at, created_at, updated_at
         `;
         if (!row) throw new Error("Mailbox update returned no row");
         await audit.record(
@@ -245,33 +421,156 @@ export const updateMailbox = async (params: {
   );
 };
 
-export const deleteMailbox = async (context: MailRequestContext, mailboxId: string): Promise<Result<void>> =>
-  tryCatch(
+export const deleteMailbox = async (context: MailRequestContext, mailboxId: string): Promise<Result<void>> => {
+  const allowed = await requireMailboxLifecycleAdmin(context, mailboxId);
+  if (!allowed.ok) return allowed;
+  const resourceIds = await listMailboxRemoteResourceIds(mailboxId);
+
+  let transitioned = false;
+  let activityId: string | null = null;
+  const result = await tryCatch(
+    async () => {
+      const barrier = await withMailboxProviderOperationBarrier(mailboxId, resourceIds, async (assertLeaseActive) => {
+        await sql.begin(async (tx) => {
+          const [row] = await tx<{ id: string; name: string; deleted_at: Date | string | null }[]>`
+            SELECT id, name, deleted_at FROM mail.mailboxes WHERE id = ${mailboxId}::uuid FOR UPDATE
+          `;
+          if (!row) {
+            const notFound = err.notFound("Mailbox");
+            throw Object.assign(new Error(notFound.message), notFound);
+          }
+          unwrap(
+            row.deleted_at
+              ? await requireMailboxLifecycleAdmin(context, mailboxId, tx)
+              : await requireMailboxPermission(context, mailboxId, "admin", tx),
+          );
+          if (row.deleted_at) return;
+          const currentResourceIds = await listMailboxRemoteResourceIds(mailboxId, tx);
+          if (currentResourceIds.length !== resourceIds.length || currentResourceIds.some((id, index) => id !== resourceIds[index])) {
+            const conflict = err.conflict("Mailbox provider bindings changed during deletion; retry the operation");
+            throw Object.assign(new Error(conflict.message), conflict);
+          }
+          await tx`
+            UPDATE mail.mailboxes
+            SET
+              deleted_at = now(),
+              sync_enabled = false,
+              health = 'paused',
+              health_reason = 'Mailbox deleted; provider transport and execution are paused',
+              updated_at = now()
+            WHERE id = ${mailboxId}::uuid
+          `;
+          transitioned = true;
+          const execution = await pauseDeletedMailboxExecution(mailboxId, tx);
+          activityId = await recordMailboxLifecycleActivity({
+            db: tx,
+            context,
+            mailboxId,
+            action: "mailbox.deleted",
+            metadata: { execution },
+          });
+          await audit.record(
+            {
+              action: "mail.mailbox.delete",
+              outcome: "allowed",
+              actor: auditActorFromRequest(context),
+              target: { type: "mailbox", id: mailboxId, label: row.name },
+              requestId: context.requestId,
+              metadata: { execution },
+            },
+            tx,
+          );
+          await assertLeaseActive();
+        });
+      });
+      if (!barrier.acquired) {
+        const conflict = err.conflict("Mailbox provider work is still running; retry deletion shortly");
+        throw Object.assign(new Error(conflict.message), conflict);
+      }
+    },
+    () => err.internal("Failed to delete mailbox"),
+  );
+  if (result.ok && transitioned && activityId) {
+    await publishMailMailboxEvent({
+      mailboxId,
+      conversationId: null,
+      reason: "deleted",
+      targetId: null,
+      activityId,
+    });
+  }
+  return result;
+};
+
+export const restoreMailbox = async (context: MailRequestContext, mailboxId: string): Promise<Result<Mailbox>> => {
+  let transitioned = false;
+  let activityId: string | null = null;
+  const result = await tryCatch(
     () =>
       sql.begin(async (tx) => {
-        const [row] = await tx<{ id: string; name: string }[]>`
-          SELECT id, name FROM mail.mailboxes WHERE id = ${mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
+        const [current] = await tx<DbMailbox[]>`
+          SELECT ${mailboxColumns}
+          FROM mail.mailboxes m
+          WHERE m.id = ${mailboxId}::uuid
+          FOR UPDATE OF m
         `;
-        if (!row) {
+        if (!current) {
           const notFound = err.notFound("Mailbox");
           throw Object.assign(new Error(notFound.message), notFound);
         }
-        unwrap(await requireMailboxPermission(context, mailboxId, "admin", tx));
-        await tx`
+        unwrap(await requireMailboxLifecycleAdmin(context, mailboxId, tx));
+        if (!current.deleted_at) return mapMailbox(current);
+
+        await pauseMailboxTransport({
+          mailboxId,
+          code: "MAILBOX_RESTORED_PAUSED",
+          message: "Mailbox was restored; provider diagnostics and explicit synchronization resume are required",
+          db: tx,
+        });
+        const [restored] = await tx<DbMailbox[]>`
           UPDATE mail.mailboxes
-          SET deleted_at = now(), sync_enabled = false, health = 'paused', health_reason = 'Mailbox deleted'
-          WHERE id = ${mailboxId}::uuid
+          SET
+            deleted_at = NULL,
+            sync_enabled = false,
+            health = 'paused',
+            health_reason = 'Mailbox restored; provider diagnostics are required before synchronization can resume',
+            updated_at = now()
+          WHERE id = ${mailboxId}::uuid AND deleted_at IS NOT NULL
+          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, deleted_at, created_at, updated_at
         `;
+        if (!restored) throw new Error("Mailbox restore returned no row");
+        transitioned = true;
+        const deletedAt = toIso(current.deleted_at);
+        activityId = await recordMailboxLifecycleActivity({
+          db: tx,
+          context,
+          mailboxId,
+          action: "mailbox.restored",
+          metadata: { deletedAt, syncEnabled: false, providerDiagnosticsRequired: true },
+        });
         await audit.record(
           {
-            action: "mail.mailbox.delete",
+            action: "mail.mailbox.restore",
             outcome: "allowed",
             actor: auditActorFromRequest(context),
-            target: { type: "mailbox", id: mailboxId, label: row.name },
+            target: { type: "mailbox", id: mailboxId, label: restored.name },
             requestId: context.requestId,
+            metadata: { deletedAt, syncEnabled: false, providerDiagnosticsRequired: true },
           },
           tx,
         );
+        return mapMailbox(restored);
       }),
-    () => err.internal("Failed to delete mailbox"),
+    () => err.internal("Failed to restore mailbox"),
   );
+  if (result.ok && transitioned && activityId) {
+    await publishMailMailboxEvent({
+      mailboxId,
+      conversationId: null,
+      reason: "restored",
+      targetId: null,
+      activityId,
+    });
+  }
+  return result;
+};
