@@ -3,6 +3,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { getUserBackedActor } from "../actor";
+import { dashboardHelp } from "../help";
 import { dashboardSettingsService } from "../service";
 import {
   DASHBOARD_MAX_HREF_LENGTH,
@@ -61,7 +62,8 @@ const apiRoutes = new Hono<AuthContext>()
     const user = requireUserBackedActor(c);
     if (!user.ok) return respond(c, user);
     return respond(c, ok(await dashboardSettingsService.save(user.data.id, c.req.valid("json"))));
-  });
+  })
+  .route("/help", dashboardHelp.router);
 
 export default apiRoutes;
 export type ApiType = typeof apiRoutes;

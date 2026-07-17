@@ -8,6 +8,7 @@ import { Placeholder, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, W
 import { gradients } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
 import { expectUserBackedActor } from "@/actor";
+import { dashboardHelp } from "@/help";
 import { ssr } from "../config";
 import { dashboardSettingsService } from "../service";
 import {
@@ -241,7 +242,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title="Dashboard">
-      <DashboardLayoutHelp />
+      <DashboardLayoutHelp documents={dashboardHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
         <div class="mx-auto flex w-full max-w-[68rem] flex-col gap-6 p-4 sm:p-6 lg:p-8">
           <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between" style="view-transition-name: page-title">
