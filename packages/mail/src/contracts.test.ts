@@ -144,15 +144,36 @@ describe("mail collaboration contracts", () => {
 });
 
 describe("mail workflow contracts", () => {
+  test("accepts only the canonical discriminated search AST", () => {
+    const expressions = [
+      { type: "text", field: "participants", query: "customer@example.com", match: "exact" },
+      { type: "text", field: "attachment_name", query: "invoice", match: "contains" },
+      { type: "text", field: "comment", query: "follow up", match: "words" },
+      { type: "text", field: "reference", query: "SUP-42", match: "exact" },
+      { type: "text", field: "folder", query: "Support", match: "phrase" },
+      { type: "text", field: "tag", query: "Priority", match: "exact" },
+      { type: "text", field: "keyword", query: "RemoteImportant", match: "exact" },
+      { type: "date", field: "internal_date", operator: "after", value: "2026-07-01T00:00:00.000Z" },
+      { type: "size", field: "attachment", operator: "at_least", bytes: 1024 },
+      { type: "work_status", value: "waiting" },
+      { type: "response_needed", value: true },
+      { type: "assignee", userId: null },
+      { type: "snoozed", value: false },
+    ];
+    for (const expression of expressions) expect(mailSearchExpressionSchema.safeParse(expression).success).toBe(true);
+    expect(mailSearchExpressionSchema.safeParse({ field: "subject", query: "legacy" }).success).toBe(false);
+    expect(mailSearchExpressionSchema.safeParse({ and: expressions }).success).toBe(false);
+  });
+
   test("rejects deeply nested search expressions without overflowing the stack", () => {
-    let expression: unknown = { field: "subject", query: "invoice", match: "contains" };
-    for (let depth = 0; depth < 10_000; depth += 1) expression = { not: expression };
+    let expression: unknown = { type: "text", field: "subject", query: "invoice", match: "contains" };
+    for (let depth = 0; depth < 10_000; depth += 1) expression = { type: "not", expression };
 
     expect(() => mailSearchExpressionSchema.safeParse(expression)).not.toThrow();
     expect(mailSearchExpressionSchema.safeParse(expression).success).toBe(false);
 
-    const cyclic: { not?: unknown } = {};
-    cyclic.not = cyclic;
+    const cyclic: { type: "not"; expression?: unknown } = { type: "not" };
+    cyclic.expression = cyclic;
     expect(() => mailSearchExpressionSchema.safeParse(cyclic)).not.toThrow();
     expect(mailSearchExpressionSchema.safeParse(cyclic).success).toBe(false);
   });

@@ -87,9 +87,9 @@ export const validateSearchComplexity = (expression: MailSearchExpression): Resu
   const visit = (node: MailSearchExpression, depth: number): boolean => {
     nodes += 1;
     if (depth > 8 || nodes > 100) return false;
-    if ("and" in node) return node.and.every((child) => visit(child, depth + 1));
-    if ("or" in node) return node.or.every((child) => visit(child, depth + 1));
-    if ("not" in node) return visit(node.not, depth + 1);
+    if (node.type === "and" || node.type === "or") return node.expressions.every((child) => visit(child, depth + 1));
+    if (node.type === "not") return visit(node.expression, depth + 1);
+    if (node.type !== "text") return true;
     queryCharacters += node.query.length;
     wordCount += node.query.trim().split(/\s+/u).filter(Boolean).length;
     return queryCharacters <= 5_000 && wordCount <= 500;
@@ -97,7 +97,7 @@ export const validateSearchComplexity = (expression: MailSearchExpression): Resu
   return visit(expression, 1) ? ok() : fail(err.badInput("Search expression is too complex"));
 };
 
-const ftsMatch = (document: SqlFragment, query: string, match: "words" | "phrase" | "contains" | "exact"): SqlFragment => {
+const ftsMatch = (document: SqlFragment, query: string, match: "words" | "phrase"): SqlFragment => {
   if (match === "phrase") return sql`${document} @@ phraseto_tsquery('simple', ${query})`;
   return sql`${document} @@ plainto_tsquery('simple', ${query})`;
 };
@@ -126,8 +126,9 @@ const bodyChunkMatch = (query: string, match: "words" | "phrase"): SqlFragment =
 
 const textMatch = (value: SqlFragment, query: string, match: "words" | "phrase" | "contains" | "exact"): SqlFragment => {
   if (match === "exact") return sql`lower(COALESCE(${value}, '')) = ${query.toLowerCase()}`;
-  const pattern = `%${escapeLikePattern(query.toLowerCase())}%`;
-  return sql`lower(COALESCE(${value}, '')) LIKE ${pattern} ESCAPE '\\'`;
+  const tokens = match === "words" ? wordTokens(query) : [query];
+  const parts = tokens.map((token) => sql`lower(COALESCE(${value}, '')) LIKE ${`%${escapeLikePattern(token.toLowerCase())}%`} ESCAPE '\\'`);
+  return parts.slice(1).reduce((combined, part) => sql`(${combined} AND ${part})`, parts[0]!);
 };
 
 const addressMatch = (
@@ -138,18 +139,61 @@ const addressMatch = (
   const roleClause = role ? sql`ma.role = ${role}` : sql`ma.role IN ('from', 'reply_to', 'to', 'cc', 'bcc')`;
   const valueClause =
     match === "exact"
-      ? sql`ma.normalized_email = ${query.toLowerCase()}`
-      : sql`(
-          ma.normalized_email LIKE ${`%${escapeLikePattern(query.toLowerCase())}%`} ESCAPE '\\'
-          OR lower(COALESCE(ma.display_name, '')) LIKE ${`%${escapeLikePattern(query.toLowerCase())}%`} ESCAPE '\\'
-        )`;
+      ? sql`(lower(ma.email) = ${query.toLowerCase()} OR lower(COALESCE(ma.display_name, '')) = ${query.toLowerCase()})`
+      : textMatch(sql`(ma.email || ' ' || COALESCE(ma.display_name, ''))`, query, match);
   return sql`EXISTS (
     SELECT 1 FROM mail.message_addresses ma
     WHERE ma.message_id = mc.id AND ${roleClause} AND ${valueClause}
   )`;
 };
 
-const compileTerm = (term: Extract<MailSearchExpression, { field: string }>): SqlFragment => {
+const attachmentNameMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+  SELECT 1 FROM mail.attachments attachment
+  WHERE attachment.message_id = mc.id AND ${textMatch(sql`attachment.filename`, query, match)}
+)`;
+
+const commentMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+  SELECT 1
+  FROM mail.conversation_comments comment
+  WHERE comment.conversation_id = cm.conversation_id
+    AND comment.deleted_at IS NULL
+    AND ${textMatch(sql`comment.body_markdown`, query, match)}
+)`;
+
+const folderMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+  SELECT 1
+  FROM mail.message_placements folder_placement
+  JOIN mail.folders folder ON folder.id = folder_placement.folder_id
+  LEFT JOIN mail.binding_folder_refs folder_ref ON folder_ref.folder_id = folder.id
+  WHERE folder_placement.message_id = mc.id
+    AND folder_placement.deleted_at IS NULL
+    AND ${textMatch(sql`(folder.name || ' ' || folder.role || ' ' || COALESCE(folder_ref.remote_path, ''))`, query, match)}
+)`;
+
+const tagMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+  SELECT 1
+  FROM mail.conversation_local_tags assignment
+  JOIN mail.local_tags tag ON tag.id = assignment.tag_id AND tag.mailbox_id = assignment.mailbox_id
+  WHERE assignment.conversation_id = cm.conversation_id
+    AND ${textMatch(sql`tag.name`, query, match)}
+)`;
+
+const keywordMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+  SELECT 1
+  FROM mail.message_placements keyword_placement
+  CROSS JOIN LATERAL unnest(keyword_placement.keywords) keyword(value)
+  WHERE keyword_placement.message_id = mc.id
+    AND keyword_placement.deleted_at IS NULL
+    AND ${textMatch(sql`keyword.value`, query, match)}
+)`;
+
+const referenceMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment =>
+  sql`mail.search_reference_matches(mc.id, ${query}, ${match})`;
+
+const combineOr = (parts: SqlFragment[]): SqlFragment =>
+  parts.slice(1).reduce((combined, part) => sql`(${combined} OR ${part})`, parts[0]!);
+
+const compileTextTerm = (term: Extract<MailSearchExpression, { type: "text" }>): SqlFragment => {
   const query = term.query.trim();
   if (term.field === "subject") {
     return term.match === "words" || term.match === "phrase"
@@ -164,49 +208,120 @@ const compileTerm = (term: Extract<MailSearchExpression, { field: string }>): Sq
   if (term.field === "from" || term.field === "to" || term.field === "cc" || term.field === "bcc") {
     return addressMatch(term.field, query, term.match);
   }
-  if (term.field === "message_id") return textMatch(sql`mc.message_id`, query, term.match);
-
-  if (term.match === "words") {
-    const tokens = wordTokens(query).map(
-      (token) => sql`(
-      ${ftsMatch(sql`mc.subject_search_document`, token, "words")}
-      OR ${bodyChunkMatch(token, "words")}
-      OR ${addressMatch(null, token, "contains")}
-      OR ${textMatch(sql`mc.message_id`, token, "contains")}
-    )`,
-    );
-    return tokens.slice(1).reduce((combined, part) => sql`(${combined} AND ${part})`, tokens[0]!);
-  }
-  if (term.match === "phrase") {
-    return sql`(
-      ${ftsMatch(sql`mc.subject_search_document`, query, "phrase")}
-      OR ${bodyChunkMatch(query, "phrase")}
-      OR ${addressMatch(null, query, "contains")}
-      OR ${textMatch(sql`mc.message_id`, query, "contains")}
+  if (term.field === "recipients") {
+    const recipient =
+      term.match === "exact"
+        ? sql`(lower(ma.email) = ${query.toLowerCase()} OR lower(COALESCE(ma.display_name, '')) = ${query.toLowerCase()})`
+        : textMatch(sql`(ma.email || ' ' || COALESCE(ma.display_name, ''))`, query, term.match);
+    return sql`EXISTS (
+      SELECT 1 FROM mail.message_addresses ma
+      WHERE ma.message_id = mc.id AND ma.role IN ('to', 'cc', 'bcc')
+        AND ${recipient}
     )`;
   }
-  const document = sql`(${textMatch(sql`mc.subject`, query, term.match)} OR ${textMatch(sql`mc.plain_text`, query, term.match)})`;
-  return sql`(${document} OR ${addressMatch(null, query, term.match)} OR ${textMatch(sql`mc.message_id`, query, term.match)})`;
+  if (term.field === "participants") return addressMatch(null, query, term.match);
+  if (term.field === "message_id") return textMatch(sql`mc.message_id`, query, term.match);
+  if (term.field === "attachment_name") return attachmentNameMatch(query, term.match);
+  if (term.field === "comment") return commentMatch(query, term.match);
+  if (term.field === "reference") return referenceMatch(query, term.match);
+  if (term.field === "folder") return folderMatch(query, term.match);
+  if (term.field === "tag") return tagMatch(query, term.match);
+  if (term.field === "keyword") return keywordMatch(query, term.match);
+
+  const body =
+    term.match === "words" || term.match === "phrase"
+      ? bodyChunkMatch(query, term.match)
+      : textMatch(sql`mc.plain_text`, query, term.match);
+  const subject =
+    term.match === "words" || term.match === "phrase"
+      ? ftsMatch(sql`mc.subject_search_document`, query, term.match)
+      : textMatch(sql`mc.subject`, query, term.match);
+  return combineOr([
+    subject,
+    body,
+    addressMatch(null, query, term.match),
+    textMatch(sql`mc.message_id`, query, term.match),
+    attachmentNameMatch(query, term.match),
+    commentMatch(query, term.match),
+    referenceMatch(query, term.match),
+    folderMatch(query, term.match),
+    tagMatch(query, term.match),
+    keywordMatch(query, term.match),
+  ]);
 };
 
 export const compileSearchExpression = (expression: MailSearchExpression): SqlFragment => {
-  if ("and" in expression) {
-    const parts = expression.and.map(compileSearchExpression);
+  if (expression.type === "and") {
+    const parts = expression.expressions.map(compileSearchExpression);
     return parts.slice(1).reduce((combined, part) => sql`(${combined} AND ${part})`, parts[0]!);
   }
-  if ("or" in expression) {
-    const parts = expression.or.map(compileSearchExpression);
+  if (expression.type === "or") {
+    const parts = expression.expressions.map(compileSearchExpression);
     return parts.slice(1).reduce((combined, part) => sql`(${combined} OR ${part})`, parts[0]!);
   }
-  if ("not" in expression) return sql`NOT (${compileSearchExpression(expression.not)})`;
-  return compileTerm(expression);
+  if (expression.type === "not") return sql`NOT (${compileSearchExpression(expression.expression)})`;
+  if (expression.type === "text") return compileTextTerm(expression);
+  if (expression.type === "date") {
+    const field = expression.field === "internal_date" ? sql`mc.internal_date` : sql`mc.sent_at`;
+    if (expression.operator === "before") return sql`${field} < ${expression.value}::timestamptz`;
+    if (expression.operator === "on_or_before") return sql`${field} <= ${expression.value}::timestamptz`;
+    if (expression.operator === "after") return sql`${field} > ${expression.value}::timestamptz`;
+    return sql`${field} >= ${expression.value}::timestamptz`;
+  }
+  if (expression.type === "size") {
+    const size = expression.field === "message" ? sql`mc.size_bytes` : sql`attachment_size.size_bytes`;
+    const comparison =
+      expression.operator === "less_than"
+        ? sql`${size} < ${expression.bytes}::bigint`
+        : expression.operator === "at_most"
+          ? sql`${size} <= ${expression.bytes}::bigint`
+          : expression.operator === "equal"
+            ? sql`${size} = ${expression.bytes}::bigint`
+            : expression.operator === "at_least"
+              ? sql`${size} >= ${expression.bytes}::bigint`
+              : sql`${size} > ${expression.bytes}::bigint`;
+    return expression.field === "message"
+      ? comparison
+      : sql`EXISTS (
+          SELECT 1 FROM mail.attachments attachment_size
+          WHERE attachment_size.message_id = mc.id AND ${comparison}
+        )`;
+  }
+  if (expression.type === "work_status") {
+    return sql`EXISTS (SELECT 1 FROM mail.conversations state WHERE state.id = cm.conversation_id AND state.work_status = ${expression.value})`;
+  }
+  if (expression.type === "response_needed") {
+    return sql`EXISTS (
+      SELECT 1 FROM mail.conversations state
+      WHERE state.id = cm.conversation_id AND state.response_needed = ${expression.value}
+    )`;
+  }
+  if (expression.type === "assignee") {
+    return expression.userId
+      ? sql`EXISTS (
+          SELECT 1 FROM mail.conversations state
+          WHERE state.id = cm.conversation_id AND state.assignee_user_id = ${expression.userId}::uuid
+        )`
+      : sql`EXISTS (SELECT 1 FROM mail.conversations state WHERE state.id = cm.conversation_id AND state.assignee_user_id IS NULL)`;
+  }
+  return expression.value
+    ? sql`EXISTS (
+        SELECT 1 FROM mail.conversations state
+        WHERE state.id = cm.conversation_id AND state.snoozed_until > now()
+      )`
+    : sql`EXISTS (
+        SELECT 1 FROM mail.conversations state
+        WHERE state.id = cm.conversation_id AND (state.snoozed_until IS NULL OR state.snoozed_until <= now())
+      )`;
 };
 
 const positiveQueries = (expression: MailSearchExpression, negated = false): string[] => {
-  if ("and" in expression) return expression.and.flatMap((child) => positiveQueries(child, negated));
-  if ("or" in expression) return expression.or.flatMap((child) => positiveQueries(child, negated));
-  if ("not" in expression) return positiveQueries(expression.not, !negated);
-  return negated ? [] : [expression.query];
+  if (expression.type === "and" || expression.type === "or") {
+    return expression.expressions.flatMap((child) => positiveQueries(child, negated));
+  }
+  if (expression.type === "not") return positiveQueries(expression.expression, !negated);
+  if (negated || expression.type !== "text" || !["any", "subject", "body"].includes(expression.field)) return [];
+  return [expression.query];
 };
 
 const parseAddressRows = (value: unknown[] | string): Array<{ name: string | null; address: string }> => {

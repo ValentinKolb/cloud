@@ -23,7 +23,7 @@ const runSearch = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
             context,
             mailboxId: mailbox.id,
             request: {
-              expression: { field: "any", query: input.query, match: "words" },
+              expression: { type: "text", field: "any", query: input.query, match: "words" },
               sort: "relevance",
               limit: Math.min(input.limit, 10),
             },

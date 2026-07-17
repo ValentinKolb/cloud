@@ -2243,6 +2243,91 @@ const hardCutMailboxOwnedConnections = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addStructuredSearchAndLocalTags = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.conversations
+    ADD CONSTRAINT conversations_id_mailbox_unique UNIQUE (id, mailbox_id)
+  `;
+  await db`
+    CREATE TABLE mail.local_tags (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      name TEXT NOT NULL CHECK (name = btrim(name) AND char_length(name) BETWEEN 1 AND 80),
+      normalized_name TEXT NOT NULL CHECK (
+        normalized_name = lower(regexp_replace(btrim(name), '\\s+', ' ', 'g'))
+        AND char_length(normalized_name) BETWEEN 1 AND 80
+      ),
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, normalized_name),
+      UNIQUE (id, mailbox_id)
+    )
+  `;
+  await db`CREATE INDEX local_tags_mailbox_name_idx ON mail.local_tags (mailbox_id, normalized_name, id)`;
+  await db`
+    CREATE TRIGGER local_tags_touch_updated_at
+    BEFORE UPDATE ON mail.local_tags
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+  await db`
+    CREATE TABLE mail.conversation_local_tags (
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      conversation_id UUID NOT NULL,
+      tag_id UUID NOT NULL,
+      assigned_by_actor_kind TEXT NOT NULL CHECK (assigned_by_actor_kind IN ('user', 'service_account')),
+      assigned_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (conversation_id, tag_id),
+      FOREIGN KEY (conversation_id, mailbox_id)
+        REFERENCES mail.conversations(id, mailbox_id) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id, mailbox_id)
+        REFERENCES mail.local_tags(id, mailbox_id) ON DELETE CASCADE
+    )
+  `;
+  await db`CREATE INDEX conversation_local_tags_tag_idx ON mail.conversation_local_tags (mailbox_id, tag_id, conversation_id)`;
+
+  await db`
+    CREATE OR REPLACE FUNCTION mail.search_reference_matches(
+      searched_message_id UUID,
+      searched_query TEXT,
+      searched_match TEXT
+    ) RETURNS BOOLEAN
+    LANGUAGE plpgsql
+    STABLE
+    AS $$
+    DECLARE
+      matched BOOLEAN;
+    BEGIN
+      IF to_regclass('mail.conversation_references') IS NULL THEN
+        RETURN false;
+      END IF;
+      EXECUTE $query$
+        SELECT EXISTS (
+          SELECT 1
+          FROM mail.conversation_messages link
+          JOIN mail.conversation_references reference_row
+            ON reference_row.conversation_id = link.conversation_id
+          WHERE link.message_id = $1
+            AND CASE
+              WHEN $3 = 'exact' THEN lower(COALESCE(to_jsonb(reference_row)->>'value', '')) = lower($2)
+              WHEN $3 = 'words' THEN NOT EXISTS (
+                SELECT 1
+                FROM regexp_split_to_table(lower(btrim($2)), '\\s+') token
+                WHERE strpos(lower(COALESCE(to_jsonb(reference_row)->>'value', '')), token) = 0
+              )
+              ELSE strpos(lower(COALESCE(to_jsonb(reference_row)->>'value', '')), lower($2)) > 0
+            END
+        )
+      $query$ INTO matched USING searched_message_id, searched_query, searched_match;
+      RETURN matched;
+    END;
+    $$
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -2280,6 +2365,7 @@ const migrations = [
   { version: 34, name: "hardened_draft_continuity", run: hardenDurableDraftContinuity },
   { version: 35, name: "mailbox_owned_provider_connections", run: hardCutMailboxOwnedConnections },
   { version: 36, name: "mailbox_owned_provider_binding_invariants", run: hardCutMailboxOwnedConnections },
+  { version: 37, name: "structured_search_local_tags", run: addStructuredSearchAndLocalTags },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

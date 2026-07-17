@@ -59,6 +59,24 @@ describe("Mail live protocol", () => {
 
     for (const message of messages) expect(MailLiveServerMessageSchema.safeParse(message).success).toBeTrue();
     expect(parseMailLiveServerMessage(JSON.stringify(event))).toEqual(event);
+    expect(
+      MailLiveServerMessageSchema.safeParse({
+        type: MAIL_LIVE_WS_TYPE.event,
+        payload: {
+          mailboxId: MAILBOX_ID,
+          cursor: "14-1",
+          event: {
+            type: "mailbox.changed",
+            mailboxId: MAILBOX_ID,
+            conversationId: null,
+            reason: "local_tag",
+            targetId: null,
+            activityId: "43",
+            at: "2026-07-16T20:01:00.000Z",
+          },
+        },
+      }).success,
+    ).toBeTrue();
     expect(parseMailLiveServerMessage("not-json")).toBeNull();
     expect(parseMailLiveServerMessage(JSON.stringify({ type: MAIL_LIVE_WS_TYPE.event, payload: {} }))).toBeNull();
   });

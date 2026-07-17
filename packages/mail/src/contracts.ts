@@ -175,14 +175,55 @@ export type StandardMessageFlag = z.infer<typeof standardMessageFlagSchema>;
 export const addressRoleSchema = z.enum(["from", "reply_to", "to", "cc", "bcc"]);
 export type AddressRole = z.infer<typeof addressRoleSchema>;
 
-export const mailSearchFieldSchema = z.enum(["any", "subject", "body", "from", "to", "cc", "bcc", "message_id"]);
+export const mailSearchFieldSchema = z.enum([
+  "any",
+  "subject",
+  "body",
+  "from",
+  "to",
+  "cc",
+  "bcc",
+  "recipients",
+  "participants",
+  "message_id",
+  "attachment_name",
+  "comment",
+  "reference",
+  "folder",
+  "tag",
+  "keyword",
+]);
 export type MailSearchField = z.infer<typeof mailSearchFieldSchema>;
 
 export const mailSearchTermSchema = z.object({
+  type: z.literal("text"),
   field: mailSearchFieldSchema,
   query: z.string().trim().min(1).max(500),
   match: z.enum(["words", "phrase", "contains", "exact"]).default("words"),
-});
+}).strict();
+
+export const mailSearchDateSchema = z
+  .object({
+    type: z.literal("date"),
+    field: z.enum(["internal_date", "sent_at"]),
+    operator: z.enum(["before", "on_or_before", "after", "on_or_after"]),
+    value: z.string().datetime(),
+  })
+  .strict();
+
+export const mailSearchSizeSchema = z
+  .object({
+    type: z.literal("size"),
+    field: z.enum(["message", "attachment"]),
+    operator: z.enum(["less_than", "at_most", "equal", "at_least", "greater_than"]),
+    bytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+
+export const mailSearchWorkStatusSchema = z.object({ type: z.literal("work_status"), value: z.enum(["open", "waiting", "done"]) }).strict();
+export const mailSearchResponseNeededSchema = z.object({ type: z.literal("response_needed"), value: z.boolean() }).strict();
+export const mailSearchAssigneeSchema = z.object({ type: z.literal("assignee"), userId: z.string().uuid().nullable() }).strict();
+export const mailSearchSnoozedSchema = z.object({ type: z.literal("snoozed"), value: z.boolean() }).strict();
 
 const MAX_BOOLEAN_TREE_DEPTH = 8;
 const MAX_BOOLEAN_TREE_NODES = 100;
@@ -217,16 +258,28 @@ const boundedTreeInputSchema = (params: { label: string; children: (value: Recor
 
 export type MailSearchExpression =
   | z.infer<typeof mailSearchTermSchema>
-  | { and: MailSearchExpression[] }
-  | { or: MailSearchExpression[] }
-  | { not: MailSearchExpression };
+  | z.infer<typeof mailSearchDateSchema>
+  | z.infer<typeof mailSearchSizeSchema>
+  | z.infer<typeof mailSearchWorkStatusSchema>
+  | z.infer<typeof mailSearchResponseNeededSchema>
+  | z.infer<typeof mailSearchAssigneeSchema>
+  | z.infer<typeof mailSearchSnoozedSchema>
+  | { type: "and"; expressions: MailSearchExpression[] }
+  | { type: "or"; expressions: MailSearchExpression[] }
+  | { type: "not"; expression: MailSearchExpression };
 
 const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> = z.lazy(() =>
-  z.union([
+  z.discriminatedUnion("type", [
     mailSearchTermSchema,
-    z.object({ and: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
-    z.object({ or: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
-    z.object({ not: mailSearchExpressionRecursiveSchema }).strict(),
+    mailSearchDateSchema,
+    mailSearchSizeSchema,
+    mailSearchWorkStatusSchema,
+    mailSearchResponseNeededSchema,
+    mailSearchAssigneeSchema,
+    mailSearchSnoozedSchema,
+    z.object({ type: z.literal("and"), expressions: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
+    z.object({ type: z.literal("or"), expressions: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
+    z.object({ type: z.literal("not"), expression: mailSearchExpressionRecursiveSchema }).strict(),
   ]),
 );
 
@@ -236,32 +289,82 @@ const mailSearchExpressionOpenApi = {
     {
       type: "object",
       properties: {
+        type: { const: "text" },
         field: { type: "string", enum: mailSearchFieldSchema.options },
         query: { type: "string", minLength: 1, maxLength: 500 },
         match: { type: "string", enum: ["words", "phrase", "contains", "exact"], default: "words" },
       },
-      required: ["field", "query"],
-    },
-    {
-      type: "object",
-      properties: {
-        and: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
-      },
-      required: ["and"],
+      required: ["type", "field", "query"],
       additionalProperties: false,
     },
     {
       type: "object",
       properties: {
-        or: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
+        type: { const: "date" },
+        field: { type: "string", enum: ["internal_date", "sent_at"] },
+        operator: { type: "string", enum: ["before", "on_or_before", "after", "on_or_after"] },
+        value: { type: "string", format: "date-time" },
       },
-      required: ["or"],
+      required: ["type", "field", "operator", "value"],
       additionalProperties: false,
     },
     {
       type: "object",
-      properties: { not: { $dynamicRef: "#MailSearchExpression" } },
-      required: ["not"],
+      properties: {
+        type: { const: "size" },
+        field: { type: "string", enum: ["message", "attachment"] },
+        operator: { type: "string", enum: ["less_than", "at_most", "equal", "at_least", "greater_than"] },
+        bytes: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+      },
+      required: ["type", "field", "operator", "bytes"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { type: { const: "work_status" }, value: { type: "string", enum: ["open", "waiting", "done"] } },
+      required: ["type", "value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { type: { const: "response_needed" }, value: { type: "boolean" } },
+      required: ["type", "value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { type: { const: "assignee" }, userId: { type: ["string", "null"], format: "uuid" } },
+      required: ["type", "userId"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { type: { const: "snoozed" }, value: { type: "boolean" } },
+      required: ["type", "value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { const: "and" },
+        expressions: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
+      },
+      required: ["type", "expressions"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { const: "or" },
+        expressions: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
+      },
+      required: ["type", "expressions"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { type: { const: "not" }, expression: { $dynamicRef: "#MailSearchExpression" } },
+      required: ["type", "expression"],
       additionalProperties: false,
     },
   ],
@@ -270,9 +373,8 @@ const mailSearchExpressionOpenApi = {
 const validatedMailSearchExpressionSchema = boundedTreeInputSchema({
   label: "Search expressions",
   children: (value) => [
-    ...(Array.isArray(value.and) ? value.and : []),
-    ...(Array.isArray(value.or) ? value.or : []),
-    ...(value.not === undefined ? [] : [value.not]),
+    ...(Array.isArray(value.expressions) ? value.expressions : []),
+    ...(value.expression === undefined ? [] : [value.expression]),
   ],
 }).pipe(mailSearchExpressionRecursiveSchema) as z.ZodType<MailSearchExpression>;
 
@@ -824,6 +926,30 @@ export const updateConversationCollaborationSchema = z
     "At least one collaboration field is required",
   );
 export type UpdateConversationCollaboration = z.infer<typeof updateConversationCollaborationSchema>;
+
+export const localTagNameSchema = z.string().trim().min(1).max(80).transform((name) => name.replace(/\s+/gu, " "));
+export const createLocalTagSchema = z.object({ name: localTagNameSchema }).strict();
+export type CreateLocalTag = z.infer<typeof createLocalTagSchema>;
+
+export const updateLocalTagSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    name: localTagNameSchema,
+  })
+  .strict();
+export type UpdateLocalTag = z.infer<typeof updateLocalTagSchema>;
+
+export const deleteLocalTagSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
+export type DeleteLocalTag = z.infer<typeof deleteLocalTagSchema>;
+
+export const setConversationLocalTagsSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    tagIds: z.array(z.string().uuid()).max(50),
+  })
+  .strict()
+  .refine((input) => new Set(input.tagIds).size === input.tagIds.length, { message: "Tag ids must be unique", path: ["tagIds"] });
+export type SetConversationLocalTags = z.infer<typeof setConversationLocalTagsSchema>;
 
 const mentionUserIdsSchema = z
   .array(z.string().uuid())

@@ -11,6 +11,7 @@ import * as events from "./events";
 import * as execution from "./execution";
 import * as folders from "./folders";
 import * as health from "./health";
+import * as localTags from "./local-tags";
 import * as mailboxes from "./mailboxes";
 import * as hydration from "./message-hydration";
 import * as messages from "./messages";
@@ -45,6 +46,7 @@ export {
   events,
   folders,
   health,
+  localTags,
   mailboxAccess,
   mailboxes,
   mailRuntime,
@@ -75,6 +77,7 @@ export const mailService = {
   execution,
   events,
   health,
+  localTags,
   folders,
   hydration,
   mailboxes,

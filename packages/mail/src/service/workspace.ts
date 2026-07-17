@@ -14,6 +14,8 @@ import * as collaboration from "./collaboration";
 import * as drafts from "./drafts";
 import { latestMailCollaborationEventCursor } from "./events";
 import * as mailboxes from "./mailboxes";
+import type { ConversationLocalTags, LocalTag } from "./local-tags";
+import * as localTags from "./local-tags";
 import type { ConversationSummary, ConversationViewCounts, MailFolderView, MessageDetail } from "./messages";
 import * as messages from "./messages";
 import type { ConversationReminder } from "./reminders";
@@ -68,22 +70,28 @@ const optionalUuidSearchParam = (url: URL, name: string): string | null => {
 };
 
 const searchExpressionFromUrl = (url: URL, query: string): MailSearchExpression | null => {
-  if (query) return { field: "any", query, match: "words" };
+  if (query) return { type: "text", field: "any", query, match: "words" };
   const terms: MailSearchExpression[] = [];
   for (const [parameter, fields] of [
     ["from", ["from"]],
     ["to", ["to", "cc"]],
     ["subject", ["subject"]],
     ["body", ["body"]],
+    ["attachment", ["attachment_name"]],
+    ["comment", ["comment"]],
+    ["reference", ["reference"]],
+    ["folderName", ["folder"]],
+    ["tag", ["tag"]],
+    ["keyword", ["keyword"]],
   ] as const) {
     const value = url.searchParams.get(parameter)?.trim();
     if (!value) continue;
-    const fieldTerms = fields.map((field) => ({ field, query: value, match: "words" as const }));
-    terms.push(fieldTerms.length === 1 ? fieldTerms[0]! : { or: fieldTerms });
+    const fieldTerms = fields.map((field) => ({ type: "text" as const, field, query: value, match: "words" as const }));
+    terms.push(fieldTerms.length === 1 ? fieldTerms[0]! : { type: "or", expressions: fieldTerms });
   }
   if (terms.length === 0) return null;
   if (terms.length === 1) return terms[0]!;
-  return url.searchParams.get("combine") === "all" ? { and: terms } : { or: terms };
+  return url.searchParams.get("combine") === "all" ? { type: "and", expressions: terms } : { type: "or", expressions: terms };
 };
 
 export type MailboxPageData = {
@@ -108,6 +116,8 @@ export type MailboxPageData = {
   listTitle: string;
   detailMessages: MessageDetail[];
   collaborationState: ConversationCollaboration | null;
+  localTags: LocalTag[];
+  conversationLocalTags: ConversationLocalTags | null;
   comments: ConversationComment[];
   assignableUsers: MailAssignableUser[];
   activity: MailActivityEvent[];
@@ -118,12 +128,20 @@ export type MailboxPageData = {
 
 type MailSelectionDetail = Pick<
   MailboxPageData,
-  "detailMessages" | "collaborationState" | "comments" | "assignableUsers" | "activity" | "reminder" | "collaborationError"
+  | "detailMessages"
+  | "collaborationState"
+  | "conversationLocalTags"
+  | "comments"
+  | "assignableUsers"
+  | "activity"
+  | "reminder"
+  | "collaborationError"
 >;
 
 const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
   detailMessages: [],
   collaborationState: null,
+  conversationLocalTags: null,
   comments: [],
   assignableUsers: [],
   activity: [],
@@ -149,9 +167,10 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
 });
 
 const loadConversationDetails = async (params: { context: MailRequestContext; mailboxId: string; conversationId: string }) => {
-  const [detailResult, stateResult, commentsResult, usersResult, activityResult, reminderResult] = await Promise.all([
+  const [detailResult, stateResult, tagResult, commentsResult, usersResult, activityResult, reminderResult] = await Promise.all([
     messages.listConversationMessageDetails({ ...params, limit: 100 }),
     collaboration.getConversationCollaboration(params),
+    localTags.getConversationLocalTags(params),
     collaboration.listConversationComments({ ...params, limit: 100 }),
     collaboration.listAssignableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
     collaboration.listActivity({ ...params, limit: 30 }),
@@ -161,6 +180,7 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
   return {
     detailMessages: detailResult.ok ? detailResult.data : [],
     collaborationState: stateResult.ok ? stateResult.data : null,
+    conversationLocalTags: tagResult.ok ? tagResult.data : null,
     comments: commentsResult.ok ? commentsResult.data.items : [],
     assignableUsers: usersResult.ok ? usersResult.data : [],
     activity: activityResult.ok ? activityResult.data.items : [],
@@ -281,13 +301,14 @@ export const loadMailboxPageData = async (params: {
     });
   }
 
-  const [mailboxResult, folderResult, identityResult, viewCountsResult, savedViewResult, draftResult] = await Promise.all([
+  const [mailboxResult, folderResult, identityResult, viewCountsResult, savedViewResult, draftResult, localTagResult] = await Promise.all([
     mailboxes.getMailbox(params.context, params.mailboxId),
     messages.listFolders(params.context, params.mailboxId),
     senderIdentities.listSenderIdentities(params.context, params.mailboxId),
     messages.getConversationViewCounts({ context: params.context, mailboxId: params.mailboxId }),
     savedViews.listSavedConversationViews({ context: params.context, mailboxId: params.mailboxId }),
     drafts.listDrafts(params.context, params.mailboxId, 20),
+    localTags.listLocalTags(params.context, params.mailboxId),
   ]);
   if (!mailboxResult.ok) return null;
 
@@ -333,6 +354,7 @@ export const loadMailboxPageData = async (params: {
     folders,
     identities: identityResult.ok ? identityResult.data : [],
     drafts: draftResult.ok ? draftResult.data : [],
+    localTags: localTagResult.ok ? localTagResult.data : [],
     activeView,
     savedViewId,
     savedViews: savedViewResult.ok ? savedViewResult.data : [],

@@ -1,10 +1,11 @@
-import { Avatar, DateTimeInput, MarkdownEditor, Placeholder, prompts, Select, Switch, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { Avatar, DateTimeInput, MarkdownEditor, MultiSelect, Placeholder, prompts, Select, Switch, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "../../service/collaboration";
+import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
 import type { MessageDetail } from "../../service/messages";
 import type { ConversationReminder } from "../../service/reminders";
 import { readApiError } from "./api-response";
@@ -24,6 +25,8 @@ export default function MailDetailsPanel(props: {
   currentUserId: string;
   canWrite: boolean;
   initialState: ConversationCollaboration;
+  initialLocalTags: LocalTag[];
+  initialConversationLocalTags: ConversationLocalTags;
   initialComments: ConversationComment[];
   assignableUsers: MailAssignableUser[];
   activity: MailActivityEvent[];
@@ -34,6 +37,8 @@ export default function MailDetailsPanel(props: {
   onClose: () => void;
 }) {
   const [state, setState] = createSignal(props.initialState);
+  const [availableTags, setAvailableTags] = createSignal(props.initialLocalTags);
+  const [tagState, setTagState] = createSignal(props.initialConversationLocalTags);
   const [comments, setComments] = createSignal(props.initialComments);
   const [commentBody, setCommentBody] = createSignal("");
   const [commentError, setCommentError] = createSignal<string | null>(null);
@@ -47,6 +52,8 @@ export default function MailDetailsPanel(props: {
   createEffect(() => {
     props.conversationId;
     setState(props.initialState);
+    setAvailableTags(props.initialLocalTags);
+    setTagState(props.initialConversationLocalTags);
     setComments(props.initialComments);
     setReminderValue(props.initialReminder);
     setCommentBody("");
@@ -62,12 +69,54 @@ export default function MailDetailsPanel(props: {
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update conversation"));
       return await response.json();
     },
-    onSuccess: setState,
+    onSuccess: (next) => {
+      setState(next);
+      setTagState((current) => ({ ...current, conversationRevision: next.revision }));
+    },
     onError: async (error) => {
       await prompts.error(error.message, { title: "Conversation changed" });
       refreshCurrentPath();
     },
   });
+
+  const updateTags = mutations.create<ConversationLocalTags, string[]>({
+    mutation: async (tagIds) => {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put({
+        param: { mailboxId: props.mailboxId, conversationId: props.conversationId },
+        json: { expectedRevision: state().revision, tagIds },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update local tags"));
+      return await response.json();
+    },
+    onSuccess: (next) => {
+      setTagState(next);
+      setState((current) => ({ ...current, revision: next.conversationRevision }));
+    },
+    onError: async (error) => {
+      await prompts.error(error.message, { title: "Conversation changed" });
+      refreshCurrentPath();
+    },
+  });
+
+  const createTag = async () => {
+    const values = await prompts.form({
+      title: "Create local tag",
+      icon: "ti ti-tag-plus",
+      fields: { name: { type: "text", label: "Name", required: true } },
+      confirmText: "Create tag",
+    });
+    if (!values) return;
+    const response = await apiClient.mailboxes[":mailboxId"]["local-tags"].$post({
+      param: { mailboxId: props.mailboxId },
+      json: { name: String(values.name ?? "") },
+    });
+    if (!response.ok) return prompts.error(await readApiError(response, "Failed to create local tag"));
+    const created = await response.json();
+    setAvailableTags((current) =>
+      [...current.filter((tag) => tag.id !== created.id), created].sort((left, right) => left.name.localeCompare(right.name)),
+    );
+    toast.success(`Created ${created.name}`);
+  };
 
   const toggleWatch = mutations.create<ConversationCollaboration, void>({
     mutation: async () => {
@@ -207,6 +256,26 @@ export default function MailDetailsPanel(props: {
               </dd>
             </Show>
           </dl>
+        </section>
+
+        <section class="detail-section">
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <h3 class="detail-section-label mb-0">Local tags</h3>
+            <Tooltip content="Create local tag">
+              <button type="button" class="icon-btn" aria-label="Create local tag" disabled={!props.canWrite} onClick={() => void createTag()}>
+                <i class="ti ti-tag-plus" aria-hidden="true" />
+              </button>
+            </Tooltip>
+          </div>
+          <MultiSelect
+            value={() => tagState().tags.map((tag) => tag.id)}
+            onChange={(tagIds) => updateTags.mutate(tagIds)}
+            options={availableTags().map((tag) => ({ id: tag.id, label: tag.name, icon: "ti ti-tag" }))}
+            selectedOptions={() => tagState().tags.map((tag) => ({ id: tag.id, label: tag.name, icon: "ti ti-tag" }))}
+            placeholder="Select local tags"
+            clearable
+            disabled={!props.canWrite || updateTags.loading() || update.loading()}
+          />
         </section>
 
         <section class="detail-section">

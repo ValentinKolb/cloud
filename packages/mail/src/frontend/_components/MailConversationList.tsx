@@ -64,13 +64,30 @@ export default function MailConversationList(props: {
         to: { type: "text", label: "To or Cc", default: requestUrl().searchParams.get("to") ?? "" },
         subject: { type: "text", label: "Subject", default: requestUrl().searchParams.get("subject") ?? "" },
         body: { type: "text", label: "Message body", default: requestUrl().searchParams.get("body") ?? "" },
+        attachment: { type: "text", label: "Attachment name", default: requestUrl().searchParams.get("attachment") ?? "" },
+        comment: { type: "text", label: "Internal comment", default: requestUrl().searchParams.get("comment") ?? "" },
+        reference: { type: "text", label: "Reference", default: requestUrl().searchParams.get("reference") ?? "" },
+        folderName: { type: "text", label: "Folder", default: requestUrl().searchParams.get("folderName") ?? "" },
+        tag: { type: "text", label: "Local tag", default: requestUrl().searchParams.get("tag") ?? "" },
+        keyword: { type: "text", label: "Provider keyword", default: requestUrl().searchParams.get("keyword") ?? "" },
       },
       confirmText: "Search",
     });
     if (!values) return;
     const currentUrl = requestUrl();
     const next = new URL(buildMailListHref(currentUrl, true), currentUrl.origin);
-    for (const field of ["from", "to", "subject", "body"] as const) {
+    for (const field of [
+      "from",
+      "to",
+      "subject",
+      "body",
+      "attachment",
+      "comment",
+      "reference",
+      "folderName",
+      "tag",
+      "keyword",
+    ] as const) {
       const value = (values[field] ?? "").trim();
       if (value) next.searchParams.set(field, value);
       else next.searchParams.delete(field);

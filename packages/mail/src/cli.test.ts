@@ -24,6 +24,7 @@ const REMINDER_ID = "00000000-0000-4000-8000-000000000017";
 const SAVED_VIEW_ID = "00000000-0000-4000-8000-000000000018";
 const UPLOAD_ID = "00000000-0000-4000-8000-000000000019";
 const BINDING_ID = "00000000-0000-4000-8000-000000000020";
+const TAG_ID = "00000000-0000-4000-8000-000000000021";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -104,19 +105,87 @@ test("search forwards nested expressions and cursors", async () => {
   const result = await runCli(
     `http://127.0.0.1:${server.port}`,
     ["--json", "mail", "search", "--mailbox", MAILBOX_ID, "--expression-stdin", "--cursor", "next-page", "--sort", "newest"],
-    JSON.stringify({ and: [{ field: "subject", query: "invoice", match: "contains" }, { not: { field: "from", query: "bot" } }] }),
+    JSON.stringify({
+      type: "and",
+      expressions: [
+        { type: "text", field: "subject", query: "invoice", match: "contains" },
+        { type: "not", expression: { type: "text", field: "from", query: "bot" } },
+      ],
+    }),
   );
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
   expect(requestBody).toEqual({
     expression: {
-      and: [{ field: "subject", query: "invoice", match: "contains" }, { not: { field: "from", query: "bot", match: "words" } }],
+      type: "and",
+      expressions: [
+        { type: "text", field: "subject", query: "invoice", match: "contains" },
+        { type: "not", expression: { type: "text", field: "from", query: "bot", match: "words" } },
+      ],
     },
     sort: "newest",
     cursor: "next-page",
     limit: 50,
   });
+});
+
+test("local tag CLI creates catalog entries and fences conversation assignments", async () => {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const tag = {
+    id: TAG_ID,
+    mailboxId: MAILBOX_ID,
+    name: "Priority",
+    revision: 1,
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:00.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const body = request.method === "GET" ? null : await request.json();
+    requests.push({ method: request.method, path: url.pathname, body });
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/local-tags` && request.method === "POST") return api(tag);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/local-tags` && request.method === "PUT") {
+      return api({ conversationId: CONVERSATION_ID, conversationRevision: 8, tags: [tag] });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const created = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "tag",
+    "create",
+    "Priority",
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const assigned = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "tag",
+    "set",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "7",
+    "--tag",
+    TAG_ID,
+  ]);
+
+  expect(created.exitCode).toBe(0);
+  expect(assigned.exitCode).toBe(0);
+  expect(requests).toEqual([
+    { method: "POST", path: `/api/mail/mailboxes/${MAILBOX_ID}/local-tags`, body: { name: "Priority" } },
+    {
+      method: "PUT",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/local-tags`,
+      body: { expectedRevision: 7, tagIds: [TAG_ID] },
+    },
+  ]);
 });
 
 test("conversation update sends one optimistic collaboration mutation", async () => {
@@ -787,7 +856,7 @@ test("message wait polls indexed search for the expected message", async () => {
     }
     searches += 1;
     const body = (await request.json()) as { expression?: unknown };
-    expect(body.expression).toEqual({ field: "subject", query: "smoke-marker", match: "exact" });
+    expect(body.expression).toEqual({ type: "text", field: "subject", query: "smoke-marker", match: "exact" });
     return api({
       items:
         searches === 1

@@ -98,15 +98,20 @@ Search fields independently. Repeated fields use AND by default; pass `--or` to 
 ```bash
 cld --json mail search --from sender@example.com --subject invoice --match contains --sort newest
 cld --json mail search --body overdue --body reminder --or --cursor <next-cursor>
+cld --json mail search --attachment-name invoice --comment approved --tag Priority
 ```
 
 For nested AND, OR, and NOT expressions, pass the shared search contract through a file or stdin:
 
 ```json
 {
-  "and": [
-    { "field": "subject", "query": "invoice", "match": "contains" },
-    { "not": { "field": "from", "query": "bot@example.com", "match": "exact" } }
+  "type": "and",
+  "expressions": [
+    { "type": "text", "field": "subject", "query": "invoice", "match": "contains" },
+    {
+      "type": "not",
+      "expression": { "type": "text", "field": "from", "query": "bot@example.com", "match": "exact" }
+    }
   ]
 }
 ```
@@ -132,6 +137,17 @@ cld --json mail conversation collaboration <conversation-id>
 cld --json mail conversation update <conversation-id> --revision <revision> --assignee <user-id> --status waiting
 cld --json mail conversation watch <conversation-id> <user-id>
 cld --json mail conversation activity <conversation-id>
+```
+
+Create and manage Cloud-local tags independently from provider keywords. Conversation assignment is optimistic and uses the current conversation revision:
+
+```bash
+cld --json mail tag create "Priority"
+cld --json mail tag list
+cld --json mail tag rename <tag-id> "Urgent" --revision <tag-revision>
+cld --json mail conversation tag set <conversation-id> --revision <conversation-revision> --tag <tag-id>
+cld --json mail conversation tag list <conversation-id>
+cld --json mail tag delete <tag-id> --revision <tag-revision> --yes
 ```
 
 Add, edit, or tombstone internal Markdown comments. Use `comment users` to resolve mentionable user ids:
@@ -169,7 +185,7 @@ cld --json mail conversation split <conversation-id> --revision <revision> --mes
 cld --json mail conversation merge <target-id> <source-id> --target-revision <revision> --source-revision <revision> --yes
 ```
 
-Live presence, reply-composer leases, and SSE heartbeats are intentionally browser transport concerns rather than durable CLI operations.
+Live presence, reply-composer leases, and cursor-based WebSocket invalidation are browser transport concerns rather than durable CLI operations.
 
 ## Automate mail with workflows
 
@@ -421,6 +437,7 @@ Execution is an explicit two-request commitment. First create a preflight:
   "query": {
     "type": "search",
     "expression": {
+      "type": "text",
       "field": "subject",
       "query": "invoice",
       "match": "contains"
@@ -446,6 +463,7 @@ Then send the same version, occurrence time, inputs, and query to `/invoke`, `/o
   "query": {
     "type": "search",
     "expression": {
+      "type": "text",
       "field": "subject",
       "query": "invoice",
       "match": "contains"

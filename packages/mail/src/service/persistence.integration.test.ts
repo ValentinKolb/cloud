@@ -949,9 +949,10 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       request: {
         expression: {
-          and: [
-            { field: "from", query: "alice@example.com", match: "exact" },
-            { field: "body", query: "unique integration", match: "phrase" },
+          type: "and",
+          expressions: [
+            { type: "text", field: "from", query: "alice@example.com", match: "exact" },
+            { type: "text", field: "body", query: "unique integration", match: "phrase" },
           ],
         },
         sort: "relevance",
@@ -1089,7 +1090,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       request: {
-        expression: { field: "body", query: "longtoken109999", match: "words" },
+        expression: { type: "text", field: "body", query: "longtoken109999", match: "words" },
         sort: "relevance",
         limit: 10,
       },
@@ -1101,7 +1102,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       request: {
-        expression: { field: "any", query: "body", match: "words" },
+        expression: { type: "text", field: "any", query: "body", match: "words" },
         sort: "newest",
         limit: 1,
       },
@@ -1113,7 +1114,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       request: {
-        expression: { field: "any", query: "different query", match: "words" },
+        expression: { type: "text", field: "any", query: "different query", match: "words" },
         sort: "newest",
         limit: 1,
         cursor: searchCursor ?? undefined,
@@ -1126,7 +1127,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       request: {
-        expression: { field: "any", query: "body", match: "words" },
+        expression: { type: "text", field: "any", query: "body", match: "words" },
         sort: "newest",
         limit: 1,
         cursor: Buffer.from(JSON.stringify(mismatchedBackendCursor)).toString("base64url"),

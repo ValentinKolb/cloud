@@ -11,7 +11,7 @@ import type {
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { listCurrentMailboxUsers } from "./collaborators";
-import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
+import { type MailConversationChangedEvent, publishMailCollaborationEvent } from "./events";
 import { resolveMailExecution } from "./execution";
 import { enqueueCollaborationNotifications } from "./notification-outbox";
 
@@ -132,7 +132,7 @@ type MutableCommentRow = {
 
 export type CollaborationMutation<T> = {
   value: T;
-  event: Omit<MailCollaborationEvent, "type" | "at"> | null;
+  event: Omit<MailConversationChangedEvent, "type" | "at"> | null;
 };
 
 type DateCursor = { version: 1; date: string; id: string };

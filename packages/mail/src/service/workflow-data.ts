@@ -120,10 +120,9 @@ const searchExpressionUsesBody = (expression: MailSearchExpression): boolean => 
   const remaining: MailSearchExpression[] = [expression];
   while (remaining.length > 0) {
     const current = remaining.pop()!;
-    if ("and" in current) remaining.push(...current.and);
-    else if ("or" in current) remaining.push(...current.or);
-    else if ("not" in current) remaining.push(current.not);
-    else if (current.field === "body" || current.field === "any") return true;
+    if (current.type === "and" || current.type === "or") remaining.push(...current.expressions);
+    else if (current.type === "not") remaining.push(current.expression);
+    else if (current.type === "text" && (current.field === "body" || current.field === "any")) return true;
   }
   return false;
 };

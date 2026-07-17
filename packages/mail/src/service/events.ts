@@ -1,10 +1,10 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { topic } from "@valentinkolb/sync";
-import type { MailCollaborationEvent } from "../live-events";
+import type { MailCollaborationEvent, MailConversationChangedEvent, MailMailboxChangedEvent } from "../live-events";
 
 const log = logger("mail:events");
 
-export type { MailCollaborationEvent } from "../live-events";
+export type { MailCollaborationEvent, MailConversationChangedEvent, MailMailboxChangedEvent } from "../live-events";
 
 const collaborationTopic = topic<MailCollaborationEvent>({
   id: "collaboration",
@@ -13,8 +13,10 @@ const collaborationTopic = topic<MailCollaborationEvent>({
   limits: { payloadBytes: 8_000 },
 });
 
-export const publishMailCollaborationEvent = async (event: Omit<MailCollaborationEvent, "type" | "at">): Promise<void> => {
-  const payload: MailCollaborationEvent = {
+export const publishMailCollaborationEvent = async (
+  event: Omit<MailConversationChangedEvent, "type" | "at">,
+): Promise<void> => {
+  const payload: MailConversationChangedEvent = {
     type: "conversation.changed",
     ...event,
     at: new Date().toISOString(),
@@ -30,6 +32,30 @@ export const publishMailCollaborationEvent = async (event: Omit<MailCollaboratio
     log.warn("Failed to publish Mail collaboration event", {
       mailboxId: payload.mailboxId,
       conversationId: payload.conversationId,
+      activityId: payload.activityId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+export const publishMailMailboxEvent = async (
+  event: Omit<MailMailboxChangedEvent, "type" | "at">,
+): Promise<void> => {
+  const payload: MailMailboxChangedEvent = {
+    type: "mailbox.changed",
+    ...event,
+    at: new Date().toISOString(),
+  };
+  try {
+    await collaborationTopic.pub({
+      tenantId: payload.mailboxId,
+      orderingKey: payload.mailboxId,
+      idempotencyKey: `activity:${payload.activityId}`,
+      data: payload,
+    });
+  } catch (error) {
+    log.warn("Failed to publish Mail mailbox event", {
+      mailboxId: payload.mailboxId,
       activityId: payload.activityId,
       error: error instanceof Error ? error.message : String(error),
     });

@@ -3,7 +3,7 @@ import { sql } from "bun";
 import type { MergeConversationsInput, SplitConversationInput } from "../contracts";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
-import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
+import { type MailConversationChangedEvent, publishMailCollaborationEvent } from "./events";
 import { MAIL_NOTIFICATION_DEFINITION_IDS } from "./notification-targets";
 
 type SqlClient = typeof sql;
@@ -281,7 +281,7 @@ const insertThreadActivity = async (params: {
   return String(activity.id);
 };
 
-const publishEvents = async (events: Array<Omit<MailCollaborationEvent, "type" | "at">>): Promise<void> => {
+const publishEvents = async (events: Array<Omit<MailConversationChangedEvent, "type" | "at">>): Promise<void> => {
   await Promise.all(events.map((event) => publishMailCollaborationEvent(event)));
 };
 
@@ -295,7 +295,7 @@ export const mergeConversations = async (params: {
     return fail(err.badInput("Source and target conversation must be different"));
   }
   try {
-    const events: Array<Omit<MailCollaborationEvent, "type" | "at">> = [];
+    const events: Array<Omit<MailConversationChangedEvent, "type" | "at">> = [];
     const result = await sql.begin(async (tx): Promise<Result<MergeConversationsResult>> => {
       const allowed = await lockMailbox(params.context, params.mailboxId, tx);
       if (!allowed.ok) return allowed;
@@ -417,7 +417,7 @@ export const splitConversation = async (params: {
   input: SplitConversationInput;
 }): Promise<Result<SplitConversationResult>> => {
   try {
-    const events: Array<Omit<MailCollaborationEvent, "type" | "at">> = [];
+    const events: Array<Omit<MailConversationChangedEvent, "type" | "at">> = [];
     const result = await sql.begin(async (tx): Promise<Result<SplitConversationResult>> => {
       const allowed = await lockMailbox(params.context, params.mailboxId, tx);
       if (!allowed.ok) return allowed;

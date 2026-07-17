@@ -63,6 +63,7 @@ import { resolveByteRange } from "../service/byte-range";
 import type { AttachmentDownload } from "../service/messages";
 import { loadMailboxPageData } from "../service/workspace";
 import wsRoutes from "../ws";
+import localTagRoutes from "./local-tags";
 import workflowRoutes from "./workflows";
 
 const uuidParamSchema = z.object({ mailboxId: z.string().uuid() });
@@ -222,6 +223,7 @@ const api = new Hono<AuthContext>()
   .use(rateLimit())
   .route("/ws", wsRoutes)
   .use(auth.requireRole("authenticated"))
+  .route("/", localTagRoutes)
   .get("/mailboxes", v("query", limitQuerySchema), async (c) =>
     respond(c, mailboxes.listMailboxes(requestContext(c), c.req.valid("query").limit)),
   )

@@ -46,6 +46,7 @@ import {
 } from "./contracts";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
 import type { MergeConversationsResult, SplitConversationResult } from "./service/conversations";
+import type { ConversationLocalTags, LocalTag } from "./service/local-tags";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { ConversationReminder } from "./service/reminders";
 import type { SavedConversationView } from "./service/saved-views";
@@ -564,7 +565,15 @@ const searchTermFlags = {
   to: flag.stringList({ description: "Search recipient; repeatable" }),
   cc: flag.stringList({ description: "Search Cc recipient; repeatable" }),
   bcc: flag.stringList({ description: "Search Bcc recipient; repeatable" }),
+  recipients: flag.stringList({ description: "Search To, Cc, and Bcc recipients; repeatable" }),
+  participants: flag.stringList({ description: "Search all message participants; repeatable" }),
   messageId: flag.stringList({ name: "message-id", description: "Search Message-ID; repeatable" }),
+  attachmentName: flag.stringList({ name: "attachment-name", description: "Search attachment names; repeatable" }),
+  comment: flag.stringList({ description: "Search internal comments; repeatable" }),
+  reference: flag.stringList({ description: "Search conversation references; repeatable" }),
+  folder: flag.stringList({ description: "Search remote folders; repeatable" }),
+  tag: flag.stringList({ description: "Search Cloud-local tags; repeatable" }),
+  keyword: flag.stringList({ description: "Search remote provider keywords; repeatable" }),
   or: flag.boolean({ description: "OR terms instead of AND" }),
   match: flag.enum(["words", "phrase", "contains", "exact"] as const, { default: "words", description: "Term matching mode" }),
   expression: flag.input({
@@ -615,6 +624,18 @@ const printCollaborators = (ctx: CloudCliContext, users: MailAssignableUser[]): 
     ],
   );
 
+const printLocalTags = (ctx: CloudCliContext, tags: LocalTag[]): void =>
+  printTable(
+    ctx,
+    tags,
+    tags.map((tag) => ({ name: tag.name, revision: tag.revision, id: tag.id })),
+    [
+      { key: "name", label: "NAME" },
+      { key: "revision", label: "REVISION" },
+      { key: "id", label: "TAG ID" },
+    ],
+  );
+
 type SearchTermFlagValues = {
   any: string[];
   subject: string[];
@@ -623,7 +644,15 @@ type SearchTermFlagValues = {
   to: string[];
   cc: string[];
   bcc: string[];
+  recipients: string[];
+  participants: string[];
   messageId: string[];
+  attachmentName: string[];
+  comment: string[];
+  reference: string[];
+  folder: string[];
+  tag: string[];
+  keyword: string[];
   or: boolean;
   match: "words" | "phrase" | "contains" | "exact" | undefined;
   expression: Parameters<typeof readCliInput>[0];
@@ -639,20 +668,45 @@ const buildSimpleSearchExpression = (flags: SearchTermFlagValues): MailSearchExp
     ["to", "to"],
     ["cc", "cc"],
     ["bcc", "bcc"],
+    ["recipients", "recipients"],
+    ["participants", "participants"],
     ["messageId", "message_id"],
+    ["attachmentName", "attachment_name"],
+    ["comment", "comment"],
+    ["reference", "reference"],
+    ["folder", "folder"],
+    ["tag", "tag"],
+    ["keyword", "keyword"],
   ] as const;
   for (const [flagName, field] of fields) {
-    for (const query of flags[flagName]) terms.push({ field, query, match: flags.match ?? "words" });
+    for (const query of flags[flagName]) terms.push({ type: "text", field, query, match: flags.match ?? "words" });
   }
   if (terms.length === 0) throw new Error("Pass at least one search term such as --any, --subject, --body, or --from.");
-  return terms.length === 1 ? terms[0]! : flags.or ? { or: terms } : { and: terms };
+  return terms.length === 1 ? terms[0]! : flags.or ? { type: "or", expressions: terms } : { type: "and", expressions: terms };
 };
 
 const resolveSearchExpression = async (flags: SearchTermFlagValues): Promise<MailSearchExpression> => {
   const input = await readCliInput(flags.expression, { label: "search expression", trimFinalNewline: true });
   if (!input) return buildSimpleSearchExpression(flags);
   if (
-    [flags.any, flags.subject, flags.body, flags.from, flags.to, flags.cc, flags.bcc, flags.messageId].some((values) => values.length > 0)
+    [
+      flags.any,
+      flags.subject,
+      flags.body,
+      flags.from,
+      flags.to,
+      flags.cc,
+      flags.bcc,
+      flags.recipients,
+      flags.participants,
+      flags.messageId,
+      flags.attachmentName,
+      flags.comment,
+      flags.reference,
+      flags.folder,
+      flags.tag,
+      flags.keyword,
+    ].some((values) => values.length > 0)
   ) {
     throw new Error("Search expression input cannot be combined with term flags.");
   }
@@ -1259,6 +1313,64 @@ export default defineCliCommands({
         );
       },
     }),
+    command("tag list", {
+      summary: "List Cloud-local mailbox tags",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        printLocalTags(ctx, await readApi<LocalTag[]>(ctx, `/mailboxes/${mailbox.id}/local-tags`));
+      },
+    }),
+    command("tag create", {
+      summary: "Create a Cloud-local mailbox tag",
+      args: { name: arg.required({ description: "Tag name" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const tag = await readApi<LocalTag>(ctx, `/mailboxes/${mailbox.id}/local-tags`, jsonRequest("POST", { name: args.name }));
+        if (ctx.options.output === "json") ctx.json(tag);
+        else ctx.print(`Created ${tag.name} (${tag.id}), revision ${tag.revision}.`);
+      },
+    }),
+    command("tag rename", {
+      summary: "Rename a Cloud-local mailbox tag",
+      args: {
+        tagId: arg.required({ description: "Tag id" }),
+        name: arg.required({ description: "New tag name" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current tag revision" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.revision) throw new Error("Missing expected tag revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const tag = await readApi<LocalTag>(
+          ctx,
+          `/mailboxes/${mailbox.id}/local-tags/${args.tagId}`,
+          jsonRequest("PATCH", { expectedRevision: flags.revision, name: args.name }),
+        );
+        if (ctx.options.output === "json") ctx.json(tag);
+        else ctx.print(`Renamed tag to ${tag.name}; revision ${tag.revision}.`);
+      },
+    }),
+    command("tag delete", {
+      summary: "Delete a Cloud-local mailbox tag and its assignments",
+      args: { tagId: arg.required({ description: "Tag id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current tag revision" }),
+        yes: confirmFlag("Confirm local tag deletion"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to delete the local tag.");
+        if (!flags.revision) throw new Error("Missing expected tag revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await readApi(ctx, `/mailboxes/${mailbox.id}/local-tags/${args.tagId}`, jsonRequest("DELETE", { expectedRevision: flags.revision }));
+        if (ctx.options.output === "json") ctx.json({ deleted: true, tagId: args.tagId });
+        else ctx.print(`Deleted local tag ${args.tagId}.`);
+      },
+    }),
     command("message get", {
       summary: "Read one mirrored message",
       args: { messageId: arg.required({ description: "Message content id" }) },
@@ -1573,6 +1685,46 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         printCollaboration(ctx, await readApi(ctx, collaborationPath(mailbox.id, args.conversationId)));
+      },
+    }),
+    command("conversation tag list", {
+      summary: "Show Cloud-local tags assigned to a conversation",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const state = await readApi<ConversationLocalTags>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/local-tags`,
+        );
+        if (ctx.options.output === "json") ctx.json(state);
+        else {
+          ctx.print(`Conversation revision: ${state.conversationRevision}`);
+          printLocalTags(ctx, state.tags);
+        }
+      },
+    }),
+    command("conversation tag set", {
+      summary: "Replace the Cloud-local tags assigned to a conversation",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current conversation revision" }),
+        tag: flag.stringList({ description: "Local tag id; repeatable; omit all to clear" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.revision) throw new Error("Missing expected conversation revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const state = await readApi<ConversationLocalTags>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/local-tags`,
+          jsonRequest("PUT", { expectedRevision: flags.revision, tagIds: flags.tag }),
+        );
+        if (ctx.options.output === "json") ctx.json(state);
+        else {
+          ctx.print(`Conversation revision: ${state.conversationRevision}`);
+          printLocalTags(ctx, state.tags);
+        }
       },
     }),
     command("conversation update", {

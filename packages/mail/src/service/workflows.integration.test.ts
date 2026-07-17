@@ -956,7 +956,12 @@ suite("mail canonical workflow runtime", () => {
     const workflow = await createWorkflowFixture(hydratedKeywordSource(), "Frozen hydration");
     const query = {
       type: "search" as const,
-      expression: { field: "message_id" as const, query: `<workflow-${suffix}@example.com>`, match: "exact" as const },
+      expression: {
+        type: "text" as const,
+        field: "message_id" as const,
+        query: `<workflow-${suffix}@example.com>`,
+        match: "exact" as const,
+      },
     };
     const prepared = await preflight(workflow, writerContext, query);
     const run = unwrap(

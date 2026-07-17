@@ -8,19 +8,38 @@ export const MAIL_LIVE_WS_TYPE = {
   error: "mail.live.error",
 } as const;
 
-export const MailCollaborationEventSchema = z
+const MailConversationChangedEventSchema = z
   .object({
     type: z.literal("conversation.changed"),
     mailboxId: z.uuid(),
     conversationId: z.uuid(),
-    reason: z.enum(["collaboration", "watcher", "comment", "inbound", "threading", "reminder"]),
+    reason: z.enum(["collaboration", "watcher", "comment", "inbound", "threading", "reminder", "local_tag"]),
     targetId: z.uuid().nullable(),
     activityId: z.string().min(1).max(128),
     at: z.string().datetime(),
   })
   .strict();
 
+const MailMailboxChangedEventSchema = z
+  .object({
+    type: z.literal("mailbox.changed"),
+    mailboxId: z.uuid(),
+    conversationId: z.null(),
+    reason: z.literal("local_tag"),
+    targetId: z.uuid().nullable(),
+    activityId: z.string().min(1).max(128),
+    at: z.string().datetime(),
+  })
+  .strict();
+
+export const MailCollaborationEventSchema = z.discriminatedUnion("type", [
+  MailConversationChangedEventSchema,
+  MailMailboxChangedEventSchema,
+]);
+
 export type MailCollaborationEvent = z.infer<typeof MailCollaborationEventSchema>;
+export type MailConversationChangedEvent = Extract<MailCollaborationEvent, { type: "conversation.changed" }>;
+export type MailMailboxChangedEvent = Extract<MailCollaborationEvent, { type: "mailbox.changed" }>;
 
 export const MailLiveCursorSchema = z.string().regex(/^\d+-\d+$/);
 const MailLiveRevocationCodeSchema = z.enum(["login_required", "not_found", "access_denied"]);

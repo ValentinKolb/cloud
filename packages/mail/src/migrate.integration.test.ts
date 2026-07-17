@@ -6,6 +6,17 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("adds mailbox-consistent local tags and a safe reference-search bridge", async () => {
+    await migrate();
+    const [shape] = await sql<{ tags_present: boolean; assignments_present: boolean; reference_without_table: boolean }[]>`
+      SELECT
+        to_regclass('mail.local_tags') IS NOT NULL AS tags_present,
+        to_regclass('mail.conversation_local_tags') IS NOT NULL AS assignments_present,
+        mail.search_reference_matches(gen_random_uuid(), 'SUP-42', 'exact') = false AS reference_without_table
+    `;
+    expect(shape).toEqual({ tags_present: true, assignments_present: true, reference_without_table: true });
+  });
+
   test("enforces mailbox-owned current provider connections and bindings", async () => {
     await migrate();
     const [shape] = await sql<

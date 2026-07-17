@@ -7,7 +7,23 @@ export const buildMailListHref = (requestUrl: URL, clearSearch = false): string 
   next.searchParams.delete("conversation");
   next.searchParams.delete("message");
   if (clearSearch) {
-    for (const parameter of ["q", "from", "to", "subject", "body", "combine", "cursor"]) next.searchParams.delete(parameter);
+    for (const parameter of [
+      "q",
+      "from",
+      "to",
+      "subject",
+      "body",
+      "attachment",
+      "comment",
+      "reference",
+      "folderName",
+      "tag",
+      "keyword",
+      "combine",
+      "cursor",
+    ]) {
+      next.searchParams.delete(parameter);
+    }
   }
   return `${next.pathname}${next.search}`;
 };

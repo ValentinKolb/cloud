@@ -63,12 +63,12 @@ This document uses two decision states:
 
 ## Implementation progress
 
-This snapshot records the verified Mail backend, CLI, and core application experience on 2026-07-16. It tracks delivered behavior, not architectural decisions; the delivery plan remains the source of truth for unfinished scope.
+This snapshot records the verified Mail backend, CLI, and core application experience on 2026-07-17. It tracks delivered behavior, not architectural decisions; the delivery plan remains the source of truth for unfinished scope.
 
 | Delivery slice | State | Implemented | Remaining |
 | --- | --- | --- | --- |
 | 1. Foundation contracts | In progress | Mail package and schema; mailbox access adapter; encrypted write-only mailbox provider connections; one current remote-resource binding with retained historical fences; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; connector conformance harness; typed API and CLI. | Conversation references and response schedules. |
-| 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; repair and health operations; field-specific structured search with keyset pagination, native FTS, optional `pg_textsearch`, and explicit 20,000- and 100,000-message performance gates. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, and setup UX. |
+| 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; repair and health operations; canonical field-specific structured search with keyset pagination, native FTS and optional `pg_textsearch`; mailbox-local tags with revision-safe API, CLI, Details-panel assignment, audit, activity, and live invalidation; and explicit 20,000- and 100,000-message performance gates. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, and setup UX. |
 | 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; and message-bound plus outgoing attachment UX. | Rich attachment previewers and broader multi-message bulk selection. |
 | 4. Collaboration | Backend and primary UI implemented | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; mailbox-scoped live invalidation; permission-safe API and CLI; and the combined Mail, ownership, comments, reminders, and audit Details panel. | Explicit presence indicators and richer shared-draft takeover and conflict guidance. |
 | 5. Deterministic workflows | Shared-kernel backend and CLI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable effect budgets; permission and credential rechecks; durable command waiting; fenced recovery; typed API and CLI. | Visual editor, richer Mail actions, guarded automatic replies, and AI decision nodes. |
@@ -588,37 +588,19 @@ Search supports a simple global query and a structured Thunderbird-style express
 
 ```ts
 type MailSearchExpression =
-  | { all: MailSearchExpression[] }
-  | { any: MailSearchExpression[] }
-  | { not: MailSearchExpression }
-  | {
-      field:
-        | "any"
-        | "body"
-        | "subject"
-        | "sender"
-        | "to"
-        | "cc"
-        | "bcc"
-        | "recipients"
-        | "participants"
-        | "attachmentName"
-        | "comment"
-        | "reference"
-        | "folder"
-        | "tag"
-        | "keyword"
-        | "date"
-        | "size"
-        | "state";
-      operator: string;
-      value: unknown;
-    };
+  | { type: "and" | "or"; expressions: MailSearchExpression[] }
+  | { type: "not"; expression: MailSearchExpression }
+  | { type: "text"; field: TextField; query: string; match: "words" | "phrase" | "contains" | "exact" }
+  | { type: "date"; field: "internal_date" | "sent_at"; operator: DateOperator; value: string }
+  | { type: "size"; field: "message" | "attachment"; operator: SizeOperator; bytes: number }
+  | { type: "work_status"; value: "open" | "waiting" | "done" }
+  | { type: "response_needed" | "snoozed"; value: boolean }
+  | { type: "assignee"; userId: string | null };
 ```
 
-The public schema defines field-specific operators and values. The API limits nesting depth, clause count, and string size. It never accepts raw SQL, PostgreSQL query syntax, or regular expressions in the initial surface.
+`TextField` covers `any`, subject, body, sender and recipient roles, combined recipients and participants, message ID, attachment name, internal comment, conversation reference, provider folder, Cloud-local tag, and remote keyword. The public schema defines field-specific operators and values. The API limits nesting depth, clause count, aggregate query text, and individual string size. It never accepts raw SQL, PostgreSQL query syntax, or regular expressions.
 
-The simple search box compiles to an `any` group over subject, body, sender, recipients, attachment names, internal comments, and conversation references. Advanced search exposes field, operator, value, and match-all/match-any controls. Saved views store the same AST.
+The simple search box compiles to an `or` expression over subject, body, sender, recipients, attachment names, internal comments, and conversation references. Advanced search exposes field, operator, value, and match-all/match-any controls. The discriminated AST is the only accepted search representation; no legacy parser or parallel query language is retained for Mail search.
 
 Authorization always wraps the user expression:
 

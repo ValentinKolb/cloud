@@ -241,9 +241,10 @@ suite("mail large-mailbox performance", () => {
         mailboxId: ids.mailboxId,
         request: {
           expression: {
-            and: [
-              { field: "from", query: "needle@example.com", match: "exact" },
-              { field: "body", query: "quarterly cobalt", match: "phrase" },
+            type: "and",
+            expressions: [
+              { type: "text", field: "from", query: "needle@example.com", match: "exact" },
+              { type: "text", field: "body", query: "quarterly cobalt", match: "phrase" },
             ],
           },
           sort: "relevance",

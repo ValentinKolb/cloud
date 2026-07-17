@@ -116,7 +116,7 @@ export default function MailWorkspace(props: {
 
   onMount(() => {
     setRequestUrl(window.location.href);
-    let reconcileAfterReady = props.data.initialLiveCursor === null;
+    let readyReceived = false;
     const live = createLiveWebSocket<MailLiveServerMessage>({
       url: "/api/mail/ws",
       initialCursor: props.data.initialLiveCursor,
@@ -138,15 +138,15 @@ export default function MailWorkspace(props: {
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.ready) {
-          if (reconcileAfterReady) {
-            reconcileAfterReady = false;
+          if (props.data.initialLiveCursor === null || readyReceived) {
             liveRefresh.schedule(message.payload.cursor);
           } else controls.markApplied(message.payload.cursor);
+          readyReceived = true;
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.event) {
           const selectedConversationId = data().selectedConversationId;
-          if (!selectedConversationId || message.payload.event.conversationId === selectedConversationId) {
+          if (!message.payload.event.conversationId || !selectedConversationId || message.payload.event.conversationId === selectedConversationId) {
             liveRefresh.schedule(message.payload.cursor);
           } else controls.markApplied(message.payload.cursor);
           return;
@@ -180,7 +180,7 @@ export default function MailWorkspace(props: {
   const canWrite = createMemo(() => rank(data().permission) >= 2);
   const canAdmin = createMemo(() => rank(data().permission) >= 3);
   const hasSelection = createMemo(() => data().detailMessages.length > 0);
-  const canShowDetails = createMemo(() => Boolean(data().selectedConversationId && data().collaborationState));
+  const canShowDetails = createMemo(() => Boolean(data().selectedConversationId && data().collaborationState && data().conversationLocalTags));
 
   return (
     <AppWorkspace>
@@ -248,13 +248,15 @@ export default function MailWorkspace(props: {
           />
         </AppWorkspace.Main>
         <AppWorkspace.Detail id="mail-context" open={detailsOpen() && canShowDetails()} width="lg" maxWidth={520}>
-          <Show when={data().selectedConversationId && data().collaborationState}>
+          <Show when={data().selectedConversationId && data().collaborationState && data().conversationLocalTags}>
             <MailDetailsPanel
               mailboxId={data().mailbox.id}
               conversationId={data().selectedConversationId!}
               currentUserId={props.currentUserId}
               canWrite={canWrite()}
               initialState={data().collaborationState!}
+              initialLocalTags={data().localTags}
+              initialConversationLocalTags={data().conversationLocalTags!}
               initialComments={data().comments}
               assignableUsers={data().assignableUsers}
               activity={data().activity}

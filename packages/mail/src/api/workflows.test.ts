@@ -112,10 +112,10 @@ describe("Mail workflow OpenAPI contracts", () => {
     const schema = (requestSchema as { content: { "application/json": { schema: any } } }).content["application/json"].schema;
     const expression = schema.properties.query.oneOf[1].properties.expression;
     expect(expression.$dynamicAnchor).toBe("MailSearchExpression");
-    expect(expression.oneOf).toHaveLength(4);
-    expect(expression.oneOf[1].properties.and.items).toEqual({ $dynamicRef: "#MailSearchExpression" });
-    expect(expression.oneOf[2].properties.or.items).toEqual({ $dynamicRef: "#MailSearchExpression" });
-    expect(expression.oneOf[3].properties.not).toEqual({ $dynamicRef: "#MailSearchExpression" });
+    expect(expression.oneOf).toHaveLength(10);
+    expect(expression.oneOf[7].properties.expressions.items).toEqual({ $dynamicRef: "#MailSearchExpression" });
+    expect(expression.oneOf[8].properties.expressions.items).toEqual({ $dynamicRef: "#MailSearchExpression" });
+    expect(expression.oneOf[9].properties.expression).toEqual({ $dynamicRef: "#MailSearchExpression" });
     expect(expression.$ref).toBeUndefined();
   });
 });
