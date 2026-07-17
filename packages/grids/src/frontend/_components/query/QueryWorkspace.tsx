@@ -112,7 +112,7 @@ const queryHref = (queryPath: string, query: string, cursor?: string | null) => 
   return `${queryPath}${search ? `?${search}` : ""}`;
 };
 
-const queryReferenceHref = (baseShortId: string) => `/app/grids/${encodeURIComponent(baseShortId)}/reference/gql?defaultTab=gql`;
+const queryReferenceHref = (_baseShortId: string) => "/app/grids/help/grids-gql";
 
 const openQueryReferenceWindow = (baseShortId: string) => {
   if (typeof window === "undefined") return;

@@ -13,6 +13,7 @@ import tableRecordsPage from "./[baseId]/table/[tableId]/page";
 import viewRecordsPage from "./[baseId]/table/[tableId]/view/[viewId]/page";
 import adminPage from "./admin";
 import indexPage from "./page";
+import helpPage from "./help/page";
 import publicFormPage from "./public/forms/[token]/page";
 
 /** Admin pages mounted at `/admin/grids` — platform-admin only. */
@@ -57,6 +58,8 @@ export const publicRoutes = new Hono<AuthContext>()
  */
 export default new Hono<AuthContext>()
   .get("/", auth.requireRole("user", auth.redirectToLogin), ...indexPage)
+  .get("/help", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
+  .get("/help/:topic", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
   // Old edit URLs redirect to the canonical in-context edit mode.
   .get("/:baseId/table/:tableId/view/:viewId/edit", auth.requireRole("user", auth.redirectToLogin), (c) =>
     c.redirect(`/app/grids/${c.req.param("baseId")}/table/${c.req.param("tableId")}/view/${c.req.param("viewId")}?edit=true`, 302),

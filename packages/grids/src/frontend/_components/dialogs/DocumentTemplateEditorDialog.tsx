@@ -72,7 +72,7 @@ export function openDocumentTemplateEditorDialog(args: {
   return dialogCore.open<void>((close) => <DocumentTemplateEditorDialog args={args} close={close} />, panelDialogWorkspaceOptions);
 }
 
-const templateReferenceHref = (baseShortId: string) => `/app/grids/${encodeURIComponent(baseShortId)}/reference/templates`;
+const templateReferenceHref = (_baseShortId: string) => "/app/grids/help/grids-documents-pdfs";
 
 const openTemplateReferenceWindow = (baseShortId: string) => {
   window.open(templateReferenceHref(baseShortId), "grids-template-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");

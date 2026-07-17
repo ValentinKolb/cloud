@@ -23,7 +23,7 @@ const previewValue = (value: unknown): string => {
 const formulaReferenceHref = (args: { baseShortId?: string; tableShortId?: string; currentFieldId?: string }) => {
   if (!args.baseShortId || !args.tableShortId) return null;
   const params = args.currentFieldId ? `?field=${encodeURIComponent(args.currentFieldId)}` : "";
-  return `/app/grids/${encodeURIComponent(args.baseShortId)}/table/${encodeURIComponent(args.tableShortId)}/formula-reference${params}`;
+  return `/app/grids/help/grids-formulas${params}`;
 };
 
 const openReferenceWindow = (href: string | null) => {

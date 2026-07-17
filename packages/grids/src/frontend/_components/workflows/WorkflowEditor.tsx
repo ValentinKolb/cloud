@@ -70,7 +70,7 @@ const workflowHighlight = highlight.compile(
   { classPrefix: "doc-token-" },
 );
 
-const workflowReferenceHref = (baseShortId: string) => `/app/grids/${encodeURIComponent(baseShortId)}/reference/workflows`;
+const workflowReferenceHref = (_baseShortId: string) => "/app/grids/help/grids-workflows";
 
 const openWorkflowReferenceWindow = (baseShortId: string) => {
   if (typeof window === "undefined") return;
