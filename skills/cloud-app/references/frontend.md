@@ -2798,31 +2798,70 @@ a request/claim protocol for one capable owner, not general pub/sub; handlers
 should return `false` when they cannot fully handle the href. For normal page
 changes, use `navigateTo()`.
 
-### Registry Bridge Pattern
+### App Help: Markdown as the Source of Truth
 
-Use a registry bridge when multiple independently-rendered islands need to
-contribute UI to one shared shell location. `LayoutHelp` uses a global tab map
-plus a custom event; registering returns a cleanup function.
+End-user help is app-owned Markdown. The same source must remain useful to the
+in-product reader, CLI or agent consumers, and reviewers. Do not duplicate a
+second JSX help corpus or hide article content in client bundles.
 
-Source:
+Define an explicit, server-owned collection:
 
-- `packages/cloud/src/ssr/LayoutHelp.tsx`
+```ts
+import { defineHelpCollection } from "@valentinkolb/cloud/server";
+import start from "./documents/start.help.md" with { type: "text" };
 
-```tsx
-import { Layout } from "@valentinkolb/cloud/ssr/islands";
-
-export function MyFeatureHelp() {
-  return (
-    <Layout.Help id="my-feature" title="My Feature" icon="ti ti-help">
-      <p class="text-sm text-dimmed">Feature-specific help.</p>
-    </Layout.Help>
-  );
-}
+export const appHelp = defineHelpCollection({
+  basePath: "/api/example/help",
+  sources: [start],
+});
 ```
 
-The pattern is useful for shell-level slots such as help, command menus, or
-global inspectors. Keep registry state private to the owning shell component;
-app code should use the shell's public component API.
+Each document uses strict frontmatter and normal Markdown:
+
+```md
+---
+id: getting-started
+title: Getting started
+icon: ti ti-rocket
+description: Learn the app's core workflow.
+order: 10
+---
+
+Article content starts here.
+```
+
+Mount `appHelp.router` inside the app's authenticated API. Register only the
+small manifest through a hydrated bridge:
+
+```tsx
+// AppLayoutHelp.island.tsx
+import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
+import { Layout } from "@valentinkolb/cloud/ssr/islands";
+
+export default function AppLayoutHelp(props: { documents: readonly HelpDocumentManifest[] }) {
+  return <Layout.HelpDocuments documents={props.documents} />;
+}
+
+// page.tsx (server)
+<AppLayoutHelp documents={appHelp.manifest} />;
+```
+
+`Layout.HelpDocuments` registers topics in a browser-side shell registry and
+must therefore run inside a `.island.tsx` component. A plain SSR wrapper renders
+no visible output and never registers its documents. Pass the server-created
+manifest into the island; do not import the help collection itself into the
+client bundle.
+
+The reader fetches the active article lazily. Help Markdown uses the safe help
+rendering profile: fenced `script` examples are displayed as code and never
+become executable script carriers; internal links stay in the current tab.
+`Layout.Help` with JSX children remains a compatibility bridge while an app is
+being migrated, not the target architecture for new help.
+
+The shared reader owns search, task-first navigation, article loading, modal
+focus handling, and detaching into the reusable floating utility window. App
+code owns content, explicit ordering, authentication, and factual accuracy.
+Do not add per-app dialog or window implementations.
 
 ### Optimistic Mutation Context
 

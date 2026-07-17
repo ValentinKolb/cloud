@@ -7,9 +7,9 @@ import {
   DialogHeader,
   openSpotlightSearch,
   prompts,
-  SpotlightButton,
   SPOTLIGHT_SHORTCUT,
   SPOTLIGHT_SHORTCUT_LABEL,
+  SpotlightButton,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { createSignal } from "solid-js";
@@ -49,7 +49,7 @@ export const DialogHeaderDemo = () => (
     code={`prompts.dialog<void>(
   (close) => (
     <>
-      <DialogHeader title="Custom flow" icon="ti ti-window" close={close} />
+      <DialogHeader title="Custom flow" icon="ti-app-window" close={close} />
       <div>Dialog body…</div>
     </>
   ),
@@ -57,7 +57,7 @@ export const DialogHeaderDemo = () => (
 );`}
   >
     <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <DialogHeader title="Custom flow" icon="ti ti-window" close={() => {}} />
+      <DialogHeader title="Custom flow" icon="ti-app-window" close={() => {}} />
       <p class="text-sm text-secondary">
         Use this when the prompt body needs custom layout, but should keep Cloud dialog header semantics.
       </p>

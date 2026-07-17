@@ -20,7 +20,15 @@ const encodeScriptSource = (source: string): string => {
   return btoa(unescape(encodeURIComponent(source)));
 };
 
-export function codeExtension(): MarkedExtension {
+export type CodeExtensionOptions = {
+  /**
+   * Notebook read mode executes fenced `script` blocks. Documentation must
+   * never do that: examples in help are source code, not executable content.
+   */
+  executableScripts?: boolean;
+};
+
+export function codeExtension(options: CodeExtensionOptions = {}): MarkedExtension {
   return {
     renderer: {
       code(token: Tokens.Code): string {
@@ -59,7 +67,7 @@ export function codeExtension(): MarkedExtension {
         // when scripts are active) so view-source / accessibility
         // tooling sees the original code. Skip the carrier when
         // there's no source — empty fences shouldn't activate.
-        if (isScript) {
+        if (isScript && options.executableScripts !== false) {
           const sourceB64 = encodeScriptSource(text);
           return (
             `<div class="md-script-block my-3" data-script-source="${sourceB64}">` +

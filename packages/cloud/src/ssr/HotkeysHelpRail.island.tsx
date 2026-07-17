@@ -13,7 +13,7 @@ export default function HotkeysHelpRail(props: { searchHelpApps?: GlobalSearchHe
   hotkeys.create(() => ({
     "shift+/": {
       label: "Open shortcut help",
-      desc: "Show all currently registered keyboard shortcuts.",
+      desc: "Open end-user help, guides, and keyboard shortcuts.",
       run: openHelp,
     },
   }));
@@ -23,8 +23,8 @@ export default function HotkeysHelpRail(props: { searchHelpApps?: GlobalSearchHe
       type="button"
       class="rail-item text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-500/10 dark:hover:bg-blue-500/15"
       onClick={openHelp}
-      aria-label="Open keyboard shortcuts help"
-      title="Keyboard shortcuts (Shift+/)"
+      aria-label="Open help"
+      title="Help (Shift+/)"
     >
       <i class="ti ti-help-circle text-base" />
     </button>

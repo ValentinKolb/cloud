@@ -18,6 +18,7 @@ import {
   FilterChip,
   type FilterChipSection,
   normalizePanesValue,
+  openFloatingWindow,
   Pagination,
   PanelDialog,
   Panes,
@@ -1147,6 +1148,43 @@ export const PanelDialogDemo = () => {
           </div>
         </div>
       </div>
+    </DemoCard>
+  );
+};
+
+export const FloatingWindowDemo = () => {
+  const openDemo = () =>
+    openFloatingWindow(
+      (close) => (
+        <div class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5">
+          <div>
+            <h3 class="font-semibold text-primary">Reference beside your work</h3>
+            <p class="mt-1 text-sm text-dimmed">Move or resize this non-modal window while the app stays usable.</p>
+          </div>
+          <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4 text-sm text-secondary">
+            Use this primitive for long-lived utilities such as Help or an app-scoped assistant. Short decisions still belong in a dialog.
+          </div>
+          <button type="button" class="btn-secondary btn-sm mt-auto self-end" onClick={close}>
+            Done
+          </button>
+        </div>
+      ),
+      { title: "FloatingWindow", icon: "ti-app-window", initialWidth: 520, initialHeight: 420 },
+    );
+
+  return (
+    <DemoCard
+      id="floating-window"
+      chip={{ kind: "component", name: "FloatingWindow", from: FROM_UI }}
+      description="Non-modal utility surface with move, resize, focus ordering, keyboard controls, viewport clamping, and a mobile inset fallback. Use openFloatingWindow for imperative workflows."
+      code={`openFloatingWindow(
+  (close) => <HelpReader onClose={close} />,
+  { title: "Help", icon: "ti ti-help" },
+);`}
+    >
+      <button type="button" class="btn-secondary btn-sm" onClick={openDemo}>
+        <i class="ti-app-window" /> Open floating window
+      </button>
     </DemoCard>
   );
 };

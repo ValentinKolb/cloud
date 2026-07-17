@@ -27,7 +27,16 @@ Review method:
    - No condescending words that minimize the reader's difficulty.
    - No vague claims such as "many features" without concrete support.
 7. Check that overview-page help and global Layout.Help content do not contradict each other.
-8. Verify commands where applicable:
+8. Check the help delivery contract:
+   - Markdown is the canonical article source; there is no parallel JSX copy.
+   - The collection uses an explicit source list and stable frontmatter IDs.
+   - The manifest is small and article bodies load lazily from an authenticated app route.
+   - The manifest is passed from the server into a `.island.tsx` registrar;
+     `Layout.HelpDocuments` is not hidden inside a non-hydrated SSR component.
+   - Help Markdown uses the safe profile: script fences remain inert code and internal links do not force a new tab.
+   - Modal and detached floating-window modes preserve the same query, article, cache, and reading position.
+   - The floating window remains keyboard operable, viewport-clamped, and usable on mobile.
+9. Verify commands where applicable:
    - bun run --cwd packages/<APP_PACKAGE> typecheck
    - git diff --check -- <changed-files>
    - rg -n "\b(just|simply|obviously|very|quite|basically|powerful|seamless|robust|of course)\b" <changed-help-files>

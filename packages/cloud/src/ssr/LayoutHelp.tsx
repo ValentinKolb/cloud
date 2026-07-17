@@ -1,306 +1,521 @@
+import type { HelpDocumentManifest, HelpDocumentPayload, HelpSearchPayload } from "@valentinkolb/cloud/shared";
 import { hotkeys } from "@valentinkolb/stdlib/solid";
 import { children, createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { prompts } from "../ui";
+import { MarkdownView, openFloatingWindow, prompts } from "../ui";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 
-export type LayoutHelpTab = {
+type HelpTopicBase = {
   id: string;
   title: string;
   icon?: string;
   description?: string;
   order?: number;
-  children: JSX.Element;
 };
 
+export type LayoutHelpTab = HelpTopicBase & { children: JSX.Element };
 export type LayoutHelpProps = LayoutHelpTab;
+export type LayoutHelpDocumentsProps = { documents: readonly HelpDocumentManifest[] };
 
-const HELP_TABS_EVENT = "cloud:layout-help-tabs";
-const LAST_TAB_KEY = "cloud.layoutHelp.activeTab";
+type HelpTopic = (HelpTopicBase & { kind: "content"; children: JSX.Element }) | (HelpDocumentManifest & { kind: "document" });
+type HelpView = "hub" | "search" | "article";
+type HelpSession = {
+  view: HelpView;
+  query: string;
+  activeId: string | null;
+  articleScrollTop: number;
+  articleCache: Map<string, HelpDocumentPayload>;
+};
+
+const HELP_TOPICS_EVENT = "cloud:layout-help-topics";
+const LAST_TOPIC_KEY = "cloud.layoutHelp.activeTopic";
 
 declare global {
   interface Window {
-    __cloudLayoutHelpTabs?: Map<string, LayoutHelpTab>;
+    __cloudLayoutHelpTopics?: Map<string, HelpTopic>;
   }
 }
 
-const getRegistry = () => {
+const registry = () => {
   if (typeof window === "undefined") return null;
-  window.__cloudLayoutHelpTabs ??= new Map<string, LayoutHelpTab>();
-  return window.__cloudLayoutHelpTabs;
+  window.__cloudLayoutHelpTopics ??= new Map<string, HelpTopic>();
+  return window.__cloudLayoutHelpTopics;
 };
 
-const emitTabsChanged = () => {
-  if (typeof window !== "undefined") window.dispatchEvent(new Event(HELP_TABS_EVENT));
-};
-
-const readLastTab = () => {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(LAST_TAB_KEY);
-  } catch {
-    return null;
-  }
-};
-
-const writeLastTab = (id: string) => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(LAST_TAB_KEY, id);
-  } catch {
-    // Help still works if localStorage is blocked.
-  }
-};
-
-const registeredTabs = () => {
-  const registry = getRegistry();
-  if (!registry) return [];
-  return [...registry.values()].sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title));
-};
-
+const emitTopicsChanged = () => window.dispatchEvent(new Event(HELP_TOPICS_EVENT));
 const iconClass = (icon?: string) => (icon?.startsWith("ti ") ? icon : `ti ${icon ?? "ti-circle"}`);
+const legacyTopicContent = (topic: HelpTopic) => (topic.kind === "content" ? topic.children : null);
+const sortedTopics = () =>
+  [...(registry()?.values() ?? [])].sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title));
 
-export function registerLayoutHelpTab(tab: LayoutHelpTab) {
-  const registry = getRegistry();
-  if (!registry) return () => {};
-  registry.set(tab.id, tab);
-  emitTabsChanged();
+const registerTopic = (topic: HelpTopic) => {
+  const topics = registry();
+  if (!topics) return () => {};
+  topics.set(topic.id, topic);
+  emitTopicsChanged();
   return () => {
-    if (registry.get(tab.id) === tab) {
-      registry.delete(tab.id);
-      emitTabsChanged();
-    }
+    if (topics.get(topic.id) !== topic) return;
+    topics.delete(topic.id);
+    emitTopicsChanged();
   };
-}
+};
 
 export function LayoutHelp(props: LayoutHelpProps) {
   const resolved = children(() => props.children);
-
-  onMount(() => {
-    const dispose = registerLayoutHelpTab({
-      id: props.id,
-      title: props.title,
-      icon: props.icon,
-      description: props.description,
-      order: props.order,
-      children: resolved(),
-    });
-    onCleanup(dispose);
-  });
-
+  onMount(() => onCleanup(registerTopic({ ...props, kind: "content", children: resolved() })));
   return null;
 }
 
-const ShortcutsHelp = (props: { openSearchHelp: () => void }) => {
-  const entries = createMemo(() =>
-    [...hotkeys.entries()].sort((a, b) => {
-      const labelSort = a.label.localeCompare(b.label);
-      return labelSort !== 0 ? labelSort : a.keys.localeCompare(b.keys);
-    }),
-  );
+/** Register an app's server-prepared Markdown manifest with the shared help UI. */
+export function LayoutHelpDocuments(props: LayoutHelpDocumentsProps) {
+  onMount(() => {
+    const disposers = props.documents.map((document) => registerTopic({ ...document, kind: "document" }));
+    onCleanup(() => disposers.forEach((dispose) => dispose()));
+  });
+  return null;
+}
 
+const Shortcuts = (props: { openSearchHelp: () => void }) => {
+  const entries = createMemo(() => [...hotkeys.entries()].sort((a, b) => a.label.localeCompare(b.label) || a.keys.localeCompare(b.keys)));
   return (
-    <div class="space-y-4">
-      <div class="info-block-info flex items-start gap-2 text-xs">
-        <i class="ti ti-info-circle mt-0.5 shrink-0" />
-        <span>Shortcuts change with the current app and view. This list updates automatically.</span>
-      </div>
-
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40"
-        onClick={props.openSearchHelp}
-      >
-        <i class="ti ti-search text-sm" />
-        Show search help
+    <div class="flex flex-col gap-3">
+      <p class="text-sm leading-relaxed text-dimmed">Shortcuts follow the current app and view. This list updates automatically.</p>
+      <button type="button" class="btn-secondary btn-sm self-start" onClick={props.openSearchHelp}>
+        <i class="ti ti-search" /> Search help
       </button>
-
       <div class="flex flex-col gap-2">
         <For each={entries()}>
           {(entry) => (
-            <div class="rounded-lg bg-zinc-50/80 p-2.5 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/45 dark:ring-zinc-800">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-medium text-primary">{entry.label}</p>
-                  <p class="mt-0.5 text-xs text-dimmed">{entry.desc || "No description provided."}</p>
-                </div>
-                <div
-                  class="flex shrink-0 items-center gap-1.5"
-                  role="group"
-                  aria-label={entry.keysPretty.map((part) => part.ariaLabel).join(" + ")}
-                >
-                  <For each={entry.keysPretty}>
-                    {(part) => (
-                      <kbd class="inline-flex min-w-6 justify-center rounded-md bg-white px-1.5 py-1 text-[11px] font-medium leading-none text-primary ring-1 ring-inset ring-zinc-300 dark:bg-zinc-950 dark:ring-zinc-700">
-                        {part.key}
-                      </kbd>
-                    )}
-                  </For>
-                </div>
+            <div class="flex items-start justify-between gap-4 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] px-3 py-2.5">
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-primary">{entry.label}</p>
+                <Show when={entry.desc}>
+                  <p class="mt-0.5 text-xs text-dimmed">{entry.desc}</p>
+                </Show>
+              </div>
+              <div class="flex shrink-0 gap-1" role="group" aria-label={entry.keysPretty.map((part) => part.ariaLabel).join(" + ")}>
+                <For each={entry.keysPretty}>
+                  {(part) => (
+                    <kbd class="rounded bg-[var(--ui-surface-raised)] px-1.5 py-1 text-[11px] ring-1 ring-black/10 dark:ring-white/10">
+                      {part.key}
+                    </kbd>
+                  )}
+                </For>
               </div>
             </div>
           )}
         </For>
-        <Show when={entries().length === 0}>
-          <div class="rounded-lg bg-zinc-50/80 p-3 text-xs text-dimmed ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/45 dark:ring-zinc-800">
-            No shortcuts registered yet.
+      </div>
+    </div>
+  );
+};
+
+const HelpShell = (props: {
+  session: HelpSession;
+  close: () => void;
+  detach?: () => void;
+  searchHelpApps: GlobalSearchHelpApp[];
+  floating?: boolean;
+}) => {
+  const [externalTopics, setExternalTopics] = createSignal(sortedTopics());
+  const [view, setView] = createSignal<HelpView>(props.session.view);
+  const [query, setQuery] = createSignal(props.session.query);
+  const [activeId, setActiveId] = createSignal<string | null>(props.session.activeId);
+  const [payload, setPayload] = createSignal<HelpDocumentPayload | null>(null);
+  const [loading, setLoading] = createSignal(false);
+  const [loadError, setLoadError] = createSignal<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = createSignal(0);
+  const [remoteMatches, setRemoteMatches] = createSignal<ReadonlySet<string>>(new Set());
+  const [searching, setSearching] = createSignal(false);
+  let root: HTMLDivElement | undefined;
+  let scrollArea: HTMLDivElement | undefined;
+  let requestVersion = 0;
+  let searchVersion = 0;
+
+  const restoreArticleScroll = () =>
+    requestAnimationFrame(() => {
+      if (scrollArea && view() === "article") scrollArea.scrollTop = props.session.articleScrollTop;
+    });
+
+  const shortcutsTopic = createMemo<HelpTopic>(() => ({
+    id: "shortcuts",
+    title: "Shortcuts",
+    icon: "ti ti-keyboard",
+    description: "Keyboard actions for the current page.",
+    order: 0,
+    kind: "content",
+    children: <Shortcuts openSearchHelp={() => openGlobalSearchHelpDialog(props.searchHelpApps)} />,
+  }));
+  const topics = createMemo(() => [shortcutsTopic(), ...externalTopics()]);
+  const activeTopic = createMemo(() => topics().find((topic) => topic.id === activeId()) ?? null);
+  const normalizedQuery = createMemo(() => query().trim().toLocaleLowerCase());
+  const results = createMemo(() => {
+    const value = normalizedQuery();
+    if (!value) return topics();
+    const matches = remoteMatches();
+    return topics().filter(
+      (topic) => [topic.title, topic.description].some((part) => part?.toLocaleLowerCase().includes(value)) || matches.has(topic.id),
+    );
+  });
+
+  createEffect(() => {
+    const value = normalizedQuery();
+    const urls = [
+      ...new Set(
+        externalTopics()
+          .filter((topic): topic is HelpDocumentManifest & { kind: "document" } => topic.kind === "document")
+          .map((topic) => topic.searchUrl),
+      ),
+    ];
+    const version = ++searchVersion;
+    setRemoteMatches(new Set<string>());
+    setSearching(false);
+    if (!value || urls.length === 0) return;
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void Promise.all(
+        urls.map(async (url) => {
+          const response = await fetch(`${url}?q=${encodeURIComponent(value)}`, {
+            signal: controller.signal,
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) throw new Error(`Help search failed (${response.status})`);
+          const payload = (await response.json()) as Partial<HelpSearchPayload>;
+          return Array.isArray(payload.ids) ? payload.ids.filter((id): id is string => typeof id === "string") : [];
+        }),
+      )
+        .then((groups) => {
+          if (version === searchVersion) setRemoteMatches(new Set<string>(groups.flat()));
+        })
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          // Metadata matches stay usable if full-text search is temporarily unavailable.
+        })
+        .finally(() => {
+          if (version === searchVersion) setSearching(false);
+        });
+    }, 120);
+
+    onCleanup(() => {
+      window.clearTimeout(timer);
+      controller.abort();
+      if (version === searchVersion) searchVersion++;
+    });
+  });
+
+  const syncSession = () => {
+    props.session.view = view();
+    props.session.query = query();
+    props.session.activeId = activeId();
+  };
+  createEffect(syncSession);
+
+  onMount(() => {
+    const dialog = root?.closest("dialog");
+    if (dialog) {
+      dialog.setAttribute("aria-labelledby", "layout-help-title");
+      dialog.setAttribute("aria-describedby", "layout-help-subtitle");
+    }
+    const update = () => setExternalTopics(sortedTopics());
+    window.addEventListener(HELP_TOPICS_EVENT, update);
+    onCleanup(() => window.removeEventListener(HELP_TOPICS_EVENT, update));
+    restoreArticleScroll();
+  });
+
+  createEffect(() => {
+    loadAttempt();
+    const topic = activeTopic();
+    const version = ++requestVersion;
+    setPayload(null);
+    setLoadError(null);
+    setLoading(false);
+    if (!topic || topic.kind !== "document" || view() !== "article") return;
+    const cached = props.session.articleCache.get(topic.url);
+    if (cached) {
+      setPayload(cached);
+      restoreArticleScroll();
+      return;
+    }
+
+    const controller = new AbortController();
+    setLoading(true);
+    void fetch(topic.url, { signal: controller.signal, headers: { Accept: "application/json" } })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Help request failed (${response.status})`);
+        const value = (await response.json()) as Partial<HelpDocumentPayload>;
+        if (
+          value.id !== topic.id ||
+          typeof value.html !== "string" ||
+          typeof value.markdown !== "string" ||
+          typeof value.title !== "string"
+        ) {
+          throw new Error("Help server returned an invalid document");
+        }
+        const document = value as HelpDocumentPayload;
+        props.session.articleCache.set(topic.url, document);
+        if (version === requestVersion) {
+          setPayload(document);
+          restoreArticleScroll();
+        }
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (version === requestVersion) setLoadError(error instanceof Error ? error.message : "Could not load help");
+      })
+      .finally(() => {
+        if (version === requestVersion) setLoading(false);
+      });
+    onCleanup(() => {
+      controller.abort();
+      if (version === requestVersion) requestVersion++;
+    });
+  });
+
+  const openTopic = (id: string) => {
+    props.session.articleScrollTop = 0;
+    setActiveId(id);
+    setView("article");
+    try {
+      localStorage.setItem(LAST_TOPIC_KEY, id);
+    } catch {
+      /* Help does not depend on storage. */
+    }
+  };
+  const goBack = () => setView(query().trim() ? "search" : "hub");
+
+  const TopicList = (listProps: { items: HelpTopic[] }) => (
+    <div class="flex flex-col gap-1">
+      <For each={listProps.items}>
+        {(topic) => (
+          <button
+            type="button"
+            class="group flex w-full items-center gap-3 rounded-[var(--ui-radius-surface)] px-3 py-2.5 text-left hover:bg-[var(--ui-surface-subtle)] focus-ui"
+            onClick={() => openTopic(topic.id)}
+          >
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)] text-dimmed group-hover:app-accent-text">
+              <i class={`${iconClass(topic.icon)} text-base`} />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm font-medium text-primary group-hover:app-accent-text">{topic.title}</span>
+              <Show when={topic.description}>
+                {(description) => <span class="mt-0.5 block truncate text-xs text-dimmed">{description()}</span>}
+              </Show>
+            </span>
+            <i class="ti ti-chevron-right shrink-0 text-xs text-dimmed" />
+          </button>
+        )}
+      </For>
+    </div>
+  );
+
+  return (
+    <div
+      ref={root}
+      class={`flex min-h-0 flex-col bg-[var(--ui-surface-raised)] ${
+        props.floating ? "h-full" : "h-[min(86vh,48rem)] overflow-hidden panel-dialog-shell [box-shadow:var(--ui-shadow-float)]"
+      }`}
+    >
+      <Show when={!props.floating}>
+        <header class="flex h-16 shrink-0 items-center gap-3 px-5">
+          <span class="flex h-9 w-9 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)]">
+            <i class="ti ti-help text-lg app-accent-text" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <h2 id="layout-help-title" class="font-semibold">
+              Help
+            </h2>
+            <p id="layout-help-subtitle" class="text-xs text-dimmed">
+              Guides, workflows, and shortcuts
+            </p>
           </div>
+          <Show when={props.detach}>
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="Open help in floating window"
+              title="Keep help open beside the app"
+              onClick={props.detach}
+            >
+              <i class="ti-app-window" />
+            </button>
+          </Show>
+          <button type="button" class="icon-btn" aria-label="Close help" onClick={props.close}>
+            <i class="ti ti-x" />
+          </button>
+        </header>
+      </Show>
+
+      <div
+        ref={scrollArea}
+        class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5"
+        onScroll={(event) => {
+          if (view() === "article") props.session.articleScrollTop = event.currentTarget.scrollTop;
+        }}
+      >
+        <Show when={view() === "hub"}>
+          <div class="mx-auto flex max-w-3xl flex-col gap-6">
+            <div>
+              <h3 class="text-xl font-semibold text-primary">How can we help?</h3>
+              <p class="mt-1 text-sm text-dimmed">Find a task, concept, or shortcut for the current app.</p>
+            </div>
+            <label class="field flex h-11 items-center gap-2 px-3">
+              <i class="ti ti-search text-dimmed" />
+              <input
+                class="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                value={query()}
+                placeholder="Search help…"
+                onInput={(event) => {
+                  setQuery(event.currentTarget.value);
+                  if (event.currentTarget.value.trim()) setView("search");
+                }}
+              />
+            </label>
+            <section aria-labelledby="help-start-title">
+              <h4 id="help-start-title" class="mb-2 text-xs font-semibold uppercase tracking-wide text-dimmed">
+                Start here
+              </h4>
+              <TopicList items={topics().slice(0, 5)} />
+            </section>
+            <Show when={topics().length > 5}>
+              <section aria-labelledby="help-all-title">
+                <h4 id="help-all-title" class="mb-2 text-xs font-semibold uppercase tracking-wide text-dimmed">
+                  All topics
+                </h4>
+                <TopicList items={topics().slice(5)} />
+              </section>
+            </Show>
+          </div>
+        </Show>
+
+        <Show when={view() === "search"}>
+          <div class="mx-auto flex max-w-3xl flex-col gap-4">
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="Back to help"
+                onClick={() => {
+                  setQuery("");
+                  setView("hub");
+                }}
+              >
+                <i class="ti ti-arrow-left" />
+              </button>
+              <label class="field flex h-11 flex-1 items-center gap-2 px-3">
+                <i class="ti ti-search text-dimmed" />
+                <input
+                  autofocus
+                  class="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                  value={query()}
+                  placeholder="Search help…"
+                  onInput={(event) => setQuery(event.currentTarget.value)}
+                />
+              </label>
+            </div>
+            <p class="flex items-center gap-1.5 text-xs text-dimmed" aria-live="polite">
+              <Show when={searching()}>
+                <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+              </Show>
+              {results().length} {results().length === 1 ? "result" : "results"}
+            </p>
+            <TopicList items={results()} />
+            <Show when={results().length === 0 && !searching()}>
+              <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-6 text-center">
+                <i class="ti ti-search-off text-xl text-dimmed" />
+                <p class="mt-2 text-sm font-medium">No help topic matches this search.</p>
+              </div>
+            </Show>
+          </div>
+        </Show>
+
+        <Show when={view() === "article" && activeTopic()}>
+          {(topic) => (
+            <article class="mx-auto max-w-3xl">
+              <button
+                type="button"
+                class="mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-dimmed hover:text-primary focus-ui"
+                onClick={goBack}
+              >
+                <i class="ti ti-arrow-left" /> Back
+              </button>
+              <header class="mb-6 flex items-start gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)] app-accent-text">
+                  <i class={`${iconClass(topic().icon)} text-lg`} />
+                </span>
+                <div>
+                  <h3 class="text-xl font-semibold text-primary">{topic().title}</h3>
+                  <Show when={topic().description}>{(description) => <p class="mt-1 text-sm text-dimmed">{description()}</p>}</Show>
+                </div>
+              </header>
+              <Show when={topic().kind === "content"}>{legacyTopicContent(topic())}</Show>
+              <Show when={topic().kind === "document"}>
+                <Show when={loading()}>
+                  <div class="flex items-center gap-2 py-8 text-sm text-dimmed">
+                    <i class="ti ti-loader-2 animate-spin" /> Loading help…
+                  </div>
+                </Show>
+                <Show when={loadError()}>
+                  {(message) => (
+                    <div class="info-block-danger">
+                      <p class="font-medium">Could not load this topic</p>
+                      <p class="mt-1 text-sm">{message()}</p>
+                      <button type="button" class="btn-secondary btn-sm mt-3" onClick={() => setLoadAttempt((value) => value + 1)}>
+                        Try again
+                      </button>
+                    </div>
+                  )}
+                </Show>
+                <Show when={payload()}>{(document) => <MarkdownView html={document().html} class="help-document" />}</Show>
+              </Show>
+            </article>
+          )}
         </Show>
       </div>
     </div>
   );
 };
 
-const LayoutHelpDialog = (props: { close: () => void; searchHelpApps: GlobalSearchHelpApp[] }) => {
-  const [externalTabs, setExternalTabs] = createSignal(registeredTabs());
-  const allTabs = createMemo<LayoutHelpTab[]>(() => [
-    {
-      id: "shortcuts",
-      title: "Shortcuts",
-      icon: "ti ti-keyboard",
-      description: "Keyboard actions for the current page.",
-      order: 0,
-      children: (
-        <ShortcutsHelp
-          openSearchHelp={() => {
-            props.close();
-            queueMicrotask(() => openGlobalSearchHelpDialog(props.searchHelpApps));
-          }}
-        />
-      ),
-    },
-    ...externalTabs(),
-  ]);
-  const initialTab = () => {
-    const last = readLastTab();
-    return allTabs().some((tab) => tab.id === last) ? last! : (allTabs()[0]?.id ?? "shortcuts");
-  };
-  const [activeId, setActiveId] = createSignal(initialTab());
-
-  onMount(() => {
-    const update = () => setExternalTabs(registeredTabs());
-    window.addEventListener(HELP_TABS_EVENT, update);
-    update();
-    onCleanup(() => window.removeEventListener(HELP_TABS_EVENT, update));
-  });
-
-  createEffect(() => {
-    const tabs = allTabs();
-    if (!tabs.some((tab) => tab.id === activeId())) {
-      const last = readLastTab();
-      setActiveId(tabs.some((tab) => tab.id === last) ? last! : (tabs[0]?.id ?? "shortcuts"));
-    }
-  });
-
-  const selectTab = (id: string) => {
-    setActiveId(id);
-    writeLastTab(id);
-  };
-
-  const tabId = (id: string) => `layout-help-tab-${id}`;
-  const panelId = (id: string) => `layout-help-panel-${id}`;
-  const moveTabFocus = (currentId: string, direction: -1 | 1 | "first" | "last") => {
-    const tabs = allTabs();
-    const currentIndex = tabs.findIndex((tab) => tab.id === currentId);
-    const nextIndex =
-      direction === "first" ? 0 : direction === "last" ? tabs.length - 1 : (currentIndex + direction + tabs.length) % tabs.length;
-    const next = tabs[nextIndex];
-    if (!next) return;
-    selectTab(next.id);
-    document.getElementById(tabId(next.id))?.focus();
-  };
-
-  return (
-    <div class="flex h-[min(90vh,52rem)] w-full flex-col gap-3">
-      <div class="paper flex items-center justify-between gap-4 px-5 py-4">
-        <div class="flex min-w-0 items-center gap-3">
-          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-500 text-white">
-            <i class="ti ti-help text-xl" />
-          </div>
-          <div class="min-w-0">
-            <h2 class="truncate text-lg font-semibold text-primary">Help</h2>
-            <p class="truncate text-sm text-dimmed">Shortcuts, app help, and guides.</p>
-          </div>
-        </div>
-        <button type="button" class="icon-btn ml-auto shrink-0" onClick={props.close} aria-label="Close help">
-          <i class="ti ti-x" />
-        </button>
-      </div>
-
-      <div class="grid min-h-0 flex-1 gap-3 md:grid-cols-[14rem_1fr]">
-        <div
-          class="paper flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-col md:overflow-x-hidden md:overflow-y-auto"
-          aria-label="Help topics"
-          role="tablist"
-        >
-          <For each={allTabs()}>
-            {(tab) => {
-              const active = () => tab.id === activeId();
-              return (
-                <button
-                  type="button"
-                  class={`flex min-w-40 items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition md:min-w-0 ${
-                    active()
-                      ? "bg-blue-50 text-blue-600 dark:bg-blue-950/45 dark:text-blue-300"
-                      : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
-                  }`}
-                  onClick={() => selectTab(tab.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "ArrowRight" || event.key === "ArrowDown") moveTabFocus(tab.id, 1);
-                    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") moveTabFocus(tab.id, -1);
-                    else if (event.key === "Home") moveTabFocus(tab.id, "first");
-                    else if (event.key === "End") moveTabFocus(tab.id, "last");
-                    else return;
-                    event.preventDefault();
-                  }}
-                  id={tabId(tab.id)}
-                  role="tab"
-                  aria-controls={panelId(tab.id)}
-                  aria-selected={active()}
-                  tabIndex={active() ? 0 : -1}
-                >
-                  <i class={`${iconClass(tab.icon)} shrink-0 text-base`} />
-                  <span class="min-w-0 flex-1 truncate">{tab.title}</span>
-                </button>
-              );
-            }}
-          </For>
-        </div>
-
-        <section class="paper min-h-0 overflow-hidden">
-          <For each={allTabs()}>
-            {(tab) => (
-              <div
-                class={`${tab.id === activeId() ? "block" : "hidden"} h-full overflow-y-auto px-5 py-5 pr-4`}
-                id={panelId(tab.id)}
-                role="tabpanel"
-                aria-labelledby={tabId(tab.id)}
-                tabIndex={0}
-              >
-                <div class="mb-5 flex items-start gap-3">
-                  <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
-                    <i class={`${iconClass(tab.icon)} text-lg`} />
-                  </div>
-                  <div class="min-w-0">
-                    <h3 class="text-base font-semibold text-primary">{tab.title}</h3>
-                    <Show when={tab.description}>
-                      <p class="mt-0.5 text-sm text-dimmed">{tab.description}</p>
-                    </Show>
-                  </div>
-                </div>
-                {tab.children}
-              </div>
-            )}
-          </For>
-        </section>
-      </div>
-    </div>
-  );
+const createSession = (): HelpSession => {
+  let activeId: string | null = null;
+  try {
+    activeId = localStorage.getItem(LAST_TOPIC_KEY);
+  } catch {
+    /* Storage is optional. */
+  }
+  return { view: "hub", query: "", activeId, articleScrollTop: 0, articleCache: new Map() };
 };
 
 export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = []) {
-  void prompts.dialog<void>((close) => <LayoutHelpDialog close={close} searchHelpApps={searchHelpApps} />, {
-    surface: "bare",
-    header: false,
-    size: "wide",
-  });
+  const session = createSession();
+  let openFloating: (() => void) | undefined;
+
+  const openModal = () => {
+    void prompts.dialog<void>(
+      (close) => (
+        <HelpShell
+          session={session}
+          close={close}
+          searchHelpApps={searchHelpApps}
+          detach={() => {
+            close();
+            queueMicrotask(() => openFloating?.());
+          }}
+        />
+      ),
+      { surface: "bare", header: false, size: "wide" },
+    );
+  };
+
+  openFloating = () => {
+    openFloatingWindow((close) => <HelpShell session={session} close={close} searchHelpApps={searchHelpApps} floating />, {
+      title: "Help",
+      icon: "ti ti-help",
+      initialWidth: 760,
+      initialHeight: 680,
+      minWidth: 380,
+      minHeight: 360,
+    });
+  };
+  openModal();
 }

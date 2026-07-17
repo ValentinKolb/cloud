@@ -7,19 +7,21 @@
 
 import { Marked } from "marked";
 import sanitizeHtml from "sanitize-html";
-import { infoBlocksExtension } from "./extensions/info-blocks";
-import { taskListExtension } from "./extensions/task-list";
-import { tablesExtension } from "./extensions/tables";
-import { linksExtension } from "./extensions/links";
-import { imagesExtension } from "./extensions/images";
+import { markdownClient } from "./client";
 import { codeExtension } from "./extensions/code";
+import { imagesExtension } from "./extensions/images";
+import { infoBlocksExtension } from "./extensions/info-blocks";
 import { katexExtension } from "./extensions/katex";
+import { linksExtension } from "./extensions/links";
 import { markExtension } from "./extensions/mark";
 import { subSupExtension } from "./extensions/sub-sup";
-import { markdownClient } from "./client";
+import { tablesExtension } from "./extensions/tables";
+import { taskListExtension } from "./extensions/task-list";
 
 // Create a configured marked instance
-const createMarked = () => {
+type MarkdownProfile = "content" | "help";
+
+const createMarked = (profile: MarkdownProfile = "content") => {
   const marked = new Marked();
 
   marked.use({
@@ -32,10 +34,10 @@ const createMarked = () => {
   marked.use(infoBlocksExtension());
   marked.use(taskListExtension());
   marked.use(tablesExtension());
-  marked.use(linksExtension());
+  marked.use(linksExtension({ internalTarget: profile === "help" ? "_self" : "_blank" }));
   marked.use(imagesExtension());
   marked.use(katexExtension());
-  marked.use(codeExtension());
+  marked.use(codeExtension({ executableScripts: profile === "content" }));
   // Inline-style decorators come last so they run after structural tokenizers.
   marked.use(markExtension());
   marked.use(subSupExtension());
@@ -44,6 +46,7 @@ const createMarked = () => {
 };
 
 const marked = createMarked();
+const helpMarked = createMarked("help");
 
 const sanitizeRenderedHtml = (html: string): string =>
   sanitizeHtml(html, {
@@ -159,6 +162,22 @@ export function renderMarkdownSync(content: string): string {
   if (typeof html !== "string") return "";
 
   return sanitizeRenderedHtml(html);
+}
+
+/**
+ * Render trusted documentation Markdown without enabling notebook runtime
+ * features. In particular, `script` fences remain visible source examples.
+ */
+export function renderHelpMarkdown(content: string): string {
+  if (!content || typeof content !== "string") return "";
+  const html = helpMarked.parse(content);
+  return typeof html === "string" ? sanitizeRenderedHtml(html) : "";
+}
+
+/** Plain text used by lightweight client-side help search indexes. */
+export function markdownToPlainText(content: string): string {
+  const html = renderHelpMarkdown(content);
+  return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).replace(/\s+/g, " ").trim();
 }
 
 export { marked };

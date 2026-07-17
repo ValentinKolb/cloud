@@ -113,6 +113,7 @@ import {
   DockWorkspaceDemo,
   EntitySearchDemo,
   FilterChipDemo,
+  FloatingWindowDemo,
   NavigationEnhancementDemo,
   PaginationDemo,
   PanelDialogDemo,
@@ -596,6 +597,20 @@ export const uiLabDocs: UiLabDocSection[] = [
       ),
       page(
         "layout",
+        "floating-window",
+        "FloatingWindow",
+        "ti-app-window",
+        "Movable and resizable non-modal utility surface for long-lived reference workflows.",
+        ["floating-window"],
+        () => (
+          <DemoGrid columns="one">
+            <FloatingWindowDemo />
+          </DemoGrid>
+        ),
+        { aliases: ["openFloatingWindow"] },
+      ),
+      page(
+        "layout",
         "permissions",
         "Access Controls",
         "ti ti-users-group",
@@ -760,7 +775,7 @@ export const uiLabDocs: UiLabDocSection[] = [
         "feedback",
         "prompts",
         "Prompts",
-        "ti ti-window",
+        "ti-app-window",
         "Alert, error, confirm, search, form, custom dialog, size, and bare-dialog prompt flows.",
         [
           "prompts-alert",

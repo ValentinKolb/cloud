@@ -9,7 +9,16 @@
 import type { MarkedExtension, Tokens } from "marked";
 import { escapeHtml, LINK_STYLES } from "../shared";
 
-export function linksExtension(): MarkedExtension {
+export type LinksExtensionOptions = {
+  /** Open external links in a new tab by default. */
+  externalTarget?: "_blank" | "_self";
+  /** Existing content keeps `_blank`; help opts into in-app navigation. */
+  internalTarget?: "_blank" | "_self";
+};
+
+const isExternalHref = (href: string) => /^(?:https?:)?\/\//i.test(href);
+
+export function linksExtension(options: LinksExtensionOptions = {}): MarkedExtension {
   return {
     renderer: {
       link(token: Tokens.Link): string {
@@ -19,10 +28,13 @@ export function linksExtension(): MarkedExtension {
         const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
 
         // Match CodeMirror style: [label] with arrow icon
+        const target = isExternalHref(href) ? (options.externalTarget ?? "_blank") : (options.internalTarget ?? "_blank");
+        const targetAttrs = target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+
         return (
           `<span class="${LINK_STYLES.wrapper}">` +
           `<span class="${LINK_STYLES.label}">[${escapeHtml(text)}]</span>` +
-          `<a href="${escapeHtml(href)}"${titleAttr} target="_blank" rel="noopener noreferrer" ` +
+          `<a href="${escapeHtml(href)}"${titleAttr}${targetAttrs} ` +
           `class="${LINK_STYLES.icon}">` +
           `<i class="ti ti-arrow-up-right text-xs"></i>` +
           `</a>` +

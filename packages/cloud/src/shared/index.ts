@@ -9,6 +9,7 @@ export type { AiPromptContextInput, AiToolPromptHint } from "./ai-platform-promp
 export { AI_PLATFORM_PROMPT_TEMPLATE, aiPromptContext, renderAiPlatformPrompt } from "./ai-platform-prompt";
 export * from "./branding";
 export * from "./email-html";
+export type * from "./help";
 export type * from "./icons";
 export { icons } from "./icons";
 export * from "./login-method";

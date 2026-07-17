@@ -60,7 +60,7 @@ export function infoBlocksExtension(): MarkedExtension {
           return src.match(/^:::/)?.index;
         },
         tokenizer(src: string) {
-          const match = src.match(/^:::(\w+)\s*\n([\s\S]*?)\n:::/);
+          const match = src.match(/^:::(\w+)(?:[ \t]+([^\n]+))?\s*\n([\s\S]*?)\n:::/);
           if (!match) return undefined;
 
           const typeStr = match[1]?.toLowerCase() as BlockType;
@@ -70,19 +70,21 @@ export function infoBlocksExtension(): MarkedExtension {
             type: "infoBlock",
             raw: match[0],
             blockType: typeStr,
-            content: match[2]?.trim() ?? "",
+            title: match[2]?.trim(),
+            content: match[3]?.trim() ?? "",
           };
         },
         renderer(token: Tokens.Generic) {
           const blockType = token.blockType as BlockType;
           const config = blockConfig[blockType];
           const content = escapeHtml(token.content as string);
+          const title = escapeHtml((token.title as string | undefined) ?? config.label);
           const renderedContent = renderInlineContent(content);
 
           return `<div class="info-block ${config.classes} p-4 rounded my-2">
   <div class="flex items-center gap-1.5 font-semibold mb-1">
     <i class="ti ${config.icon} shrink-0"></i>
-    <span>${config.label}</span>
+    <span>${title}</span>
   </div>
   <div>${renderedContent}</div>
 </div>`;

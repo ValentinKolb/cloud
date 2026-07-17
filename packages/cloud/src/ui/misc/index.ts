@@ -92,6 +92,14 @@ export {
   formatFileViewSize,
   registerFileViewRenderer,
 } from "./FileView";
+export {
+  default as FloatingWindow,
+  type FloatingWindowClose,
+  type FloatingWindowProps,
+  type FloatingWindowRect,
+  type OpenFloatingWindowOptions,
+  openFloatingWindow,
+} from "./FloatingWindow";
 export type { LightboxImage } from "./Lightbox";
 export { default as Lightbox } from "./Lightbox";
 export { default as LinkCard } from "./LinkCard";

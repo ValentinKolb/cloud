@@ -2,7 +2,15 @@ export { api, respond, respondMessage } from "./api";
 export type { CreateApiClientConfig } from "./api-client";
 export { api as apiClient } from "./api-client";
 export type { AppContext } from "./app-context";
-export type { AuthContext, RateLimitConfig, RateLimitRouteOverride } from "./middleware";
+export { defineHelpCollection, type HelpCollection } from "./help";
+export type {
+  AuthContext,
+  RateLimitConfig,
+  RateLimitRouteOverride,
+  RequestActor,
+  ServiceAccountRequestActor,
+  UserRequestActor,
+} from "./middleware";
 export {
   auth,
   imageResponse,
@@ -38,7 +46,6 @@ export type {
   ServiceError,
   ServiceErrorCode,
 } from "./services";
-export type { RequestActor, ServiceAccountRequestActor, UserRequestActor } from "./middleware";
 
 export {
   buildAccessPrincipalCondition,
