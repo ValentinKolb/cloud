@@ -147,7 +147,8 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     icon: "ti ti-receipt",
     category: "Commercial",
     bestFor: "Customer invoices and billing records.",
-    expectedData: "One invoice record plus selected line-item fields from GQL.",
+    expectedData:
+      "One row per invoice item. Alias invoice_number, invoice_date, recipient_name, recipient_email, invoice_item, invoice_quantity, invoice_unit_price, and invoice_line_total.",
     page: "A4 portrait",
     source: recordSource,
     headerHtml: businessHeader,
@@ -158,12 +159,31 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
 .payment-note { margin-top: 8mm; }
 .total-due { font-size: 14pt; font-weight: 900; color: #0f172a; }`,
     html: `<main>
+  {% assign hasInvoice = false %}
+  {% if rows.size > 0 %}{% assign invoice = rows[0] %}{% assign hasInvoice = true %}{% endif %}
+  {% assign invoiceTotal = 0 %}
+  {% assign invoiceNumberColumns = columns | where: "key", "invoice_number" %}
+  {% assign invoiceDateColumns = columns | where: "key", "invoice_date" %}
+  {% assign recipientNameColumns = columns | where: "key", "recipient_name" %}
+  {% assign recipientEmailColumns = columns | where: "key", "recipient_email" %}
+  {% assign itemColumns = columns | where: "key", "invoice_item" %}
+  {% assign quantityColumns = columns | where: "key", "invoice_quantity" %}
+  {% assign unitPriceColumns = columns | where: "key", "invoice_unit_price" %}
+  {% assign lineTotalColumns = columns | where: "key", "invoice_line_total" %}
   <section class="letter-layout avoid-break">
     <div>
       <div class="letter-sender">{{ business.senderLine | default: business.legalName | default: app.name }}</div>
       <div class="recipient-window">
-        <p class="strong">Customer Company</p>
-        <p>Accounts Payable<br>Customer Street 8<br>20095 Hamburg<br>Germany</p>
+        {% if hasInvoice %}
+          {% if recipientNameColumns.size > 0 %}
+            <p class="strong">{{ invoice[recipientNameColumns[0].key] | default: "Recipient not provided" }}</p>
+          {% else %}
+            <p class="strong">Recipient not provided</p>
+          {% endif %}
+          {% if recipientEmailColumns.size > 0 %}<p>{{ invoice[recipientEmailColumns[0].key] }}</p>{% endif %}
+        {% else %}
+          <p class="strong">Recipient not provided</p>
+        {% endif %}
       </div>
     </div>
     <aside class="letter-contact">
@@ -180,15 +200,24 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
       <p class="fine-print" style="margin-top: 2mm;">Services and goods according to the itemized statement below.</p>
     </div>
     <div class="document-number">
-      <strong>{{ document.number | default: "INV-0001" }}</strong><br>
-      {% if document.generatedAt %}{{ document.generatedAt }}{% else %}<span>Issue date <span class="form-line"></span></span>{% endif %}
+      {% if hasInvoice %}
+        <strong>{% if invoiceNumberColumns.size > 0 %}{{ invoice[invoiceNumberColumns[0].key] | default: document.number | default: "Invoice" }}{% else %}{{ document.number | default: "Invoice" }}{% endif %}</strong><br>
+        {% if invoiceDateColumns.size > 0 %}{{ invoice[invoiceDateColumns[0].key] | default: document.generatedAt | default: "Issue date not provided" }}{% else %}{{ document.generatedAt | default: "Issue date not provided" }}{% endif %}
+      {% else %}
+        <strong>{{ document.number | default: "Invoice" }}</strong><br>
+        {{ document.generatedAt | default: "Issue date not provided" }}
+      {% endif %}
     </div>
   </section>
 
   <section class="compact-grid avoid-break">
     <div class="soft-box">
-      <div class="document-kicker">Customer no.</div>
-      <p class="strong">C-00001</p>
+      <div class="document-kicker">Invoice reference</div>
+      {% if hasInvoice %}
+        <p class="strong">{% if invoiceNumberColumns.size > 0 %}{{ invoice[invoiceNumberColumns[0].key] | default: document.number | default: "-" }}{% else %}{{ document.number | default: "-" }}{% endif %}</p>
+      {% else %}
+        <p class="strong">{{ document.number | default: "-" }}</p>
+      {% endif %}
     </div>
     <div class="soft-box">
       <div class="document-kicker">Payment terms</div>
@@ -200,13 +229,43 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     </div>
   </section>
 
-  <div class="invoice-table">${rowsTable}</div>
+  <div class="invoice-table">
+    {% if itemColumns.size > 0 and quantityColumns.size > 0 and unitPriceColumns.size > 0 and lineTotalColumns.size > 0 %}
+    <table>
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="right">Quantity</th>
+          <th class="right">Unit price</th>
+          <th class="right">Line total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% assign lineTotal = row[lineTotalColumns[0].key] | default: 0 %}
+          {% assign invoiceTotal = invoiceTotal | plus: lineTotal %}
+          <tr>
+            <td>{{ row[itemColumns[0].key] | default: "-" }}</td>
+            <td class="right">{{ row[quantityColumns[0].key] | default: 0 }}</td>
+            <td class="right">{{ row[unitPriceColumns[0].key] | default: 0 | round: 2 }} EUR</td>
+            <td class="right"><strong>{{ lineTotal | round: 2 }} EUR</strong></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="muted">No invoice items were returned by the template query.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      ${rowsTable}
+    {% endif %}
+  </div>
 
+  {% if lineTotalColumns.size > 0 %}
   <section class="summary-card soft-box avoid-break">
-    <div class="summary-row"><span>Subtotal</span><strong>0.00 EUR</strong></div>
-    <div class="summary-row"><span>VAT</span><strong>0.00 EUR</strong></div>
-    <div class="summary-row"><span>Total due</span><span class="total-due">0.00 EUR</span></div>
+    <div class="summary-row"><span>Subtotal</span><strong>{{ invoiceTotal | round: 2 }} EUR</strong></div>
+    <div class="summary-row"><span>Total due</span><span class="total-due">{{ invoiceTotal | round: 2 }} EUR</span></div>
   </section>
+  {% endif %}
 
   <section class="grid-2 payment-note avoid-break">
     <div>

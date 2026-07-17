@@ -325,6 +325,70 @@ describe("document rendering", () => {
     }
   });
 
+  test("invoice starter renders customer, multiple items, and calculated totals", async () => {
+    const invoice = DOCUMENT_TEMPLATE_STARTERS.find((starter) => starter.id === "invoice");
+    expect(invoice).toBeDefined();
+    if (!invoice) return;
+
+    const rendered = await renderDocumentHtml(
+      { html: invoice.html, pageCss: invoice.pageCss },
+      {
+        app: { name: "Example Cloud" },
+        business: {
+          legalName: "Example Books GmbH",
+          senderLine: "Example Books GmbH",
+          address: "Book Street 1\n10117 Berlin",
+          contactEmail: "billing@example.test",
+          phone: "+49 30 123",
+          url: "https://books.example.test",
+          paymentTerms: "14 days net",
+          iban: null,
+        },
+        document: { number: "DOC-2026-0042", generatedAt: "2026-07-17" },
+        rows: [
+          {
+            invoice_number: "ORD-2026-0042",
+            invoice_date: "2026-07-16",
+            recipient_name: "Ada Lovelace",
+            recipient_email: "ada@example.test",
+            invoice_item: "The Hobbit",
+            invoice_quantity: 2,
+            invoice_unit_price: 9.99,
+            invoice_line_total: 19.98,
+          },
+          {
+            invoice_number: "ORD-2026-0042",
+            invoice_date: "2026-07-16",
+            recipient_name: "Ada Lovelace",
+            recipient_email: "ada@example.test",
+            invoice_item: "The Left Hand of Darkness",
+            invoice_quantity: 1,
+            invoice_unit_price: 11.99,
+            invoice_line_total: 11.99,
+          },
+        ],
+        columns: [
+          { key: "invoice_number", label: "Invoice number" },
+          { key: "invoice_date", label: "Invoice date" },
+          { key: "recipient_name", label: "Recipient" },
+          { key: "recipient_email", label: "Email" },
+          { key: "invoice_item", label: "Item" },
+          { key: "invoice_quantity", label: "Quantity" },
+          { key: "invoice_unit_price", label: "Unit price" },
+          { key: "invoice_line_total", label: "Line total" },
+        ],
+      },
+    );
+
+    expect(rendered.ok, rendered.ok ? "" : rendered.error.message).toBe(true);
+    if (!rendered.ok) return;
+    expect(rendered.data).toContain("Ada Lovelace");
+    expect(rendered.data).toContain("The Hobbit");
+    expect(rendered.data).toContain("The Left Hand of Darkness");
+    expect(rendered.data).toContain("31.97 EUR");
+    expect(rendered.data).not.toContain("Customer Company");
+  });
+
   test("renders GQL source templates with the same constrained Liquid context", async () => {
     const result = await renderDocumentSource(
       { source: "from table Invoices\nwhere record.id = '{{ record.id }}'" },

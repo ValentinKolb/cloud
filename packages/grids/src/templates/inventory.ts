@@ -4,11 +4,11 @@ import { currentMonthDate, field, form, formula, type GridTemplate, launcher, re
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
   name: "Inventory",
-  description: "Manage inventory, loans, forms, direct GQL reporting, documents, email, and a scanner-assisted approval workflow.",
+  description: "Manage inventory, loans, forms, direct GQL reporting, documents, email, and scanner-assisted agreement delivery.",
   highlights: [
     "Assets, kits, locations, and loan requests",
     "Availability dashboard powered by direct GQL",
-    "Loan agreement workflow with number scanning",
+    "Approved-loan agreement delivery with number scanning",
   ],
   icon: "ti ti-packages",
   baseName: "Inventory",
@@ -136,10 +136,12 @@ export const inventoryTemplate: GridTemplate = {
           config: {
             options: [
               { id: "available", label: "Available", color: "#22c55e" },
+              { id: "reserved", label: "Reserved", color: "#3b82f6" },
               { id: "in_use", label: "In use", color: "#f59e0b" },
               { id: "maintenance", label: "Maintenance", color: "#ef4444" },
             ],
           },
+          required: true,
           defaultValue: ["available"],
         },
         {
@@ -290,11 +292,13 @@ export const inventoryTemplate: GridTemplate = {
           config: {
             options: [
               { id: "available", label: "Available", color: "#22c55e" },
+              { id: "reserved", label: "Reserved", color: "#3b82f6" },
               { id: "incomplete", label: "Incomplete", color: "#f59e0b" },
               { id: "internal", label: "Internal only", color: "#3b82f6" },
               { id: "retired", label: "Retired", color: "#94a3b8" },
             ],
           },
+          required: true,
           defaultValue: ["available"],
         },
         {
@@ -351,6 +355,7 @@ export const inventoryTemplate: GridTemplate = {
           description: "Email address for loan communication.",
           type: "text",
           config: { regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" },
+          required: true,
           icon: "ti ti-mail",
         },
         {
@@ -365,6 +370,7 @@ export const inventoryTemplate: GridTemplate = {
           name: "Kits",
           description: "Kits requested or borrowed in this loan.",
           type: "relation",
+          required: true,
           icon: "ti ti-briefcase",
           config: { targetTableId: table("kits"), cardinality: "multiple" },
         },
@@ -373,6 +379,7 @@ export const inventoryTemplate: GridTemplate = {
           name: "Requested from",
           description: "Requested start date for the loan.",
           type: "date",
+          required: true,
           icon: "ti ti-calendar-plus",
         },
         {
@@ -380,7 +387,18 @@ export const inventoryTemplate: GridTemplate = {
           name: "Due date",
           description: "Expected return date for borrowed kits.",
           type: "date",
+          required: true,
           icon: "ti ti-calendar-due",
+        },
+        {
+          key: "schedule_valid",
+          name: "Schedule valid",
+          description: "Whether the return date is on or after the requested start date.",
+          type: "formula",
+          config: {
+            expression: formula(field("loans.start_date"), " <= ", field("loans.due_date")),
+          },
+          icon: "ti ti-calendar-check",
         },
         {
           key: "returned_at",
@@ -404,7 +422,24 @@ export const inventoryTemplate: GridTemplate = {
               { id: "rejected", label: "Rejected", color: "#ef4444" },
             ],
           },
+          required: true,
           defaultValue: ["requested"],
+        },
+        {
+          key: "availability_confirmed",
+          name: "Availability confirmed",
+          description: "An admin has checked the selected kits, their items, and the requested dates before approval.",
+          type: "boolean",
+          defaultValue: false,
+          icon: "ti ti-calendar-check",
+        },
+        {
+          key: "agreement_sent",
+          name: "Agreement sent",
+          description: "Prevents a successfully completed agreement workflow from being replayed.",
+          type: "boolean",
+          defaultValue: false,
+          icon: "ti ti-mail-check",
         },
         {
           key: "purpose",
@@ -529,12 +564,14 @@ export const inventoryTemplate: GridTemplate = {
       table: "loans",
       values: {
         requester_name: "Mara Example",
-        requester_email: "mara@example.com",
+        requester_email: "mara@example.test",
         organization: "Design team",
         kits: [record("kits.video")],
         start_date: currentMonthDate(10),
         due_date: currentMonthDate(12),
         status: ["requested"],
+        availability_confirmed: true,
+        agreement_sent: false,
         purpose: "Record a short product interview.",
       },
     },
@@ -543,12 +580,14 @@ export const inventoryTemplate: GridTemplate = {
       table: "loans",
       values: {
         requester_name: "Jonas Example",
-        requester_email: "jonas@example.com",
+        requester_email: "jonas@example.test",
         organization: "Training team",
         kits: [record("kits.video")],
         start_date: currentMonthDate(18),
         due_date: currentMonthDate(20),
-        status: ["approved"],
+        status: ["rejected"],
+        availability_confirmed: false,
+        agreement_sent: false,
         purpose: "Prepare a team training recording.",
       },
     },
@@ -613,6 +652,8 @@ export const inventoryTemplate: GridTemplate = {
         "from table ",
         table("loans"),
         "\nselect ",
+        field("loans.loan_no"),
+        ", ",
         field("loans.requester_name"),
         ", ",
         field("loans.organization"),
@@ -623,6 +664,8 @@ export const inventoryTemplate: GridTemplate = {
         ", ",
         field("loans.due_date"),
         ", ",
+        field("loans.schedule_valid"),
+        ", ",
         field("loans.status"),
         "\nwhere oneof(",
         field("loans.status"),
@@ -631,6 +674,16 @@ export const inventoryTemplate: GridTemplate = {
         " asc",
       ),
       ui: {
+        columns: [
+          { fieldId: field("loans.loan_no"), format: { kind: "barcode", bcid: "code128", showText: true } },
+          { fieldId: field("loans.requester_name") },
+          { fieldId: field("loans.organization") },
+          { fieldId: field("loans.kits") },
+          { fieldId: field("loans.start_date") },
+          { fieldId: field("loans.due_date") },
+          { fieldId: field("loans.schedule_valid") },
+          { fieldId: field("loans.status") },
+        ],
         displayConfig: {
           mode: "calendar",
           calendar: { dateFieldId: field("loans.due_date") },
@@ -784,12 +837,14 @@ export const inventoryTemplate: GridTemplate = {
             fieldId: field("loans.start_date"),
             label: "Start date",
             helpText: "First planned day of use.",
+            required: true,
           },
           {
             kind: "user_input",
             fieldId: field("loans.due_date"),
             label: "Due date",
             helpText: "Planned return date.",
+            required: true,
           },
           {
             kind: "user_input",
@@ -802,6 +857,8 @@ export const inventoryTemplate: GridTemplate = {
             fieldId: field("loans.status"),
             value: ["requested"],
           },
+          { kind: "form_value", fieldId: field("loans.availability_confirmed"), value: false },
+          { kind: "form_value", fieldId: field("loans.agreement_sent"), value: false },
         ],
       },
     },
@@ -825,7 +882,7 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Items",
                 icon: "ti ti-packages",
                 format: "integer",
-                span: 4,
+                span: 3,
                 source: {
                   kind: "gql",
                   source: formula("from table ", table("items"), "\naggregate count(*) as item_count"),
@@ -837,7 +894,7 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Kits",
                 icon: "ti ti-briefcase",
                 format: "integer",
-                span: 4,
+                span: 3,
                 source: {
                   kind: "gql",
                   source: formula("from table ", table("kits"), "\naggregate count(*) as kit_count"),
@@ -849,7 +906,7 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Open loans",
                 icon: "ti ti-calendar-due",
                 format: "integer",
-                span: 4,
+                span: 3,
                 source: {
                   kind: "gql",
                   source: formula(
@@ -858,6 +915,27 @@ export const inventoryTemplate: GridTemplate = {
                     "\nwhere oneof(",
                     field("loans.status"),
                     ", 'requested', 'approved', 'active')\naggregate count(*) as open_loan_count",
+                  ),
+                },
+              },
+              {
+                id: "w_value",
+                kind: "stat",
+                title: "Inventory value",
+                sub: "replacement value",
+                icon: "ti ti-currency-euro",
+                format: "currency",
+                span: 3,
+                source: {
+                  kind: "gql",
+                  source: formula(
+                    "from table ",
+                    table("items"),
+                    "\naggregate sum(formula(",
+                    field("items.quantity"),
+                    " * ",
+                    field("items.replacement_value"),
+                    ")) as inventory_value",
                   ),
                 },
               },
@@ -932,10 +1010,10 @@ export const inventoryTemplate: GridTemplate = {
               {
                 id: "w_send_agreement",
                 kind: "workflow-button",
-                title: "Approve a loan",
-                description: "Scan a loan number to approve it and email the agreement.",
+                title: "Send an agreement",
+                description: "Scan an approved loan number to generate and email its agreement.",
                 buttonLabel: "Open loan scanner",
-                launcherId: launcher("approve_loan_scanner"),
+                launcherId: launcher("send_loan_agreement_scanner"),
                 span: 6,
               },
             ],
@@ -1000,8 +1078,8 @@ export const inventoryTemplate: GridTemplate = {
   workflows: [
     {
       key: "send_loan_agreement",
-      name: "Approve and send loan agreement",
-      description: "Generates and emails a loan agreement, then marks the loan as approved.",
+      name: "Send approved loan agreement",
+      description: "Generates and emails an agreement after an admin has approved the loan and confirmed availability.",
       source: `inputs:
   loan:
     type: record
@@ -1009,6 +1087,47 @@ export const inventoryTemplate: GridTemplate = {
     label: Loan
     required: true
 steps:
+  - if:
+      notEquals:
+        - \${{ inputs.loan.Status }}
+        - [approved]
+    then:
+      - fail:
+          message: Approve this loan after checking availability before sending its agreement.
+  - if:
+      equals:
+        - \${{ inputs.loan.Agreement sent }}
+        - true
+    then:
+      - fail:
+          message: This agreement was already sent. Open the generated documents to download or share it again.
+  - if:
+      notEquals:
+        - \${{ inputs.loan.Availability confirmed }}
+        - true
+    then:
+      - fail:
+          message: Confirm kit, item, and date availability before sending the agreement.
+  - if:
+      notEquals:
+        - \${{ inputs.loan.Schedule valid }}
+        - true
+    then:
+      - fail:
+          message: The due date must be on or after the requested start date.
+  - if:
+      not:
+        exists: inputs.loan.Requester email
+    then:
+      - fail:
+          message: Add a requester email address before sending this agreement.
+  - if:
+      endsWith:
+        - \${{ inputs.loan.Requester email }}
+        - .test
+    then:
+      - fail:
+          message: Replace the sample requester email before sending a real agreement.
   - generateDocument:
       template: Loan agreement
       record: inputs.loan
@@ -1029,17 +1148,17 @@ steps:
   - updateRecord:
       record: inputs.loan
       set:
-        Status: [approved]
+        Agreement sent: true
   - succeed:
-      message: Loan approved and agreement sent.`,
+      message: "Agreement for loan \${{ inputs.loan.Loan number }} sent."`,
       enabled: true,
     },
   ],
   workflowLaunchers: [
     {
-      key: "approve_loan_scanner",
+      key: "send_loan_agreement_scanner",
       workflow: "send_loan_agreement",
-      name: "Scan loan to approve",
+      name: "Scan loan to send agreement",
       config: { kind: "scanner", input: "loan", resolve: { by: "field", field: "Loan number" } },
       enabled: true,
     },

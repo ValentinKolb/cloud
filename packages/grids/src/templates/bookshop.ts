@@ -248,9 +248,10 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "email",
           name: "Email",
-          description: "Contact email address.",
+          description: "Contact address used for order invoices.",
           type: "text",
           config: { regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" },
+          required: true,
           icon: "ti ti-mail",
         },
         {
@@ -294,7 +295,7 @@ export const bookshopTemplate: GridTemplate = {
     {
       key: "orders",
       name: "Orders",
-      description: "Order lines.",
+      description: "Customer orders and their fulfillment state.",
       fields: [
         {
           key: "order_no",
@@ -313,38 +314,6 @@ export const bookshopTemplate: GridTemplate = {
           required: true,
           icon: "ti ti-user",
           config: { targetTableId: table("customers"), cardinality: "single" },
-        },
-        {
-          key: "book",
-          name: "Book",
-          description: "Book sold in this order line.",
-          type: "relation",
-          required: true,
-          icon: "ti ti-book",
-          config: { targetTableId: table("books"), cardinality: "single" },
-        },
-        {
-          key: "qty",
-          name: "Quantity",
-          description: "Number of copies sold.",
-          type: "number",
-          required: true,
-          config: { min: 1, integerOnly: true },
-          icon: "ti ti-calculator",
-        },
-        {
-          key: "line_total",
-          name: "Line total",
-          description: "Total revenue for this order line.",
-          type: "number",
-          required: true,
-          config: {
-            precision: 16,
-            decimalPlaces: 2,
-            unit: "EUR",
-            unitPosition: "suffix",
-          },
-          icon: "ti ti-currency-euro",
         },
         {
           key: "ordered_at",
@@ -367,6 +336,24 @@ export const bookshopTemplate: GridTemplate = {
               { id: "delivered", label: "Delivered", color: "#22c55e" },
             ],
           },
+          required: true,
+          defaultValue: ["new"],
+        },
+        {
+          key: "invoice_ready",
+          name: "Ready to invoice",
+          description: "Confirm that all order lines are complete before the invoice workflow can run.",
+          type: "boolean",
+          defaultValue: false,
+          icon: "ti ti-file-check",
+        },
+        {
+          key: "invoice_sent",
+          name: "Invoice sent",
+          description: "Prevents a completed invoice workflow from being replayed accidentally.",
+          type: "boolean",
+          defaultValue: false,
+          icon: "ti ti-mail-check",
         },
         {
           key: "customer_name",
@@ -390,13 +377,83 @@ export const bookshopTemplate: GridTemplate = {
           },
           icon: "ti ti-mail",
         },
+      ],
+    },
+    {
+      key: "order_lines",
+      name: "Order lines",
+      description: "Itemized books and immutable sale prices for each order.",
+      fields: [
+        {
+          key: "line_no",
+          name: "Line number",
+          description: "Generated identifier for this order line.",
+          type: "id",
+          config: { strategy: "sequence", prefix: "LINE-", padding: 5 },
+          presentable: true,
+          icon: "ti ti-list-numbers",
+        },
+        {
+          key: "order",
+          name: "Order",
+          description: "Order this line belongs to.",
+          type: "relation",
+          required: true,
+          icon: "ti ti-shopping-cart",
+          config: { targetTableId: table("orders"), cardinality: "single" },
+        },
+        {
+          key: "book",
+          name: "Book",
+          description: "Book sold on this line.",
+          type: "relation",
+          required: true,
+          icon: "ti ti-book",
+          config: { targetTableId: table("books"), cardinality: "single" },
+        },
+        {
+          key: "quantity",
+          name: "Quantity",
+          description: "Number of copies sold.",
+          type: "number",
+          required: true,
+          defaultValue: "1",
+          config: { min: 1, integerOnly: true },
+          icon: "ti ti-calculator",
+        },
+        {
+          key: "unit_price",
+          name: "Unit price",
+          description: "Price captured when the order is placed; later catalog price changes do not alter the invoice.",
+          type: "number",
+          required: true,
+          config: {
+            precision: 16,
+            decimalPlaces: 2,
+            min: "0",
+            unit: "EUR",
+            unitPosition: "suffix",
+          },
+          icon: "ti ti-currency-euro",
+        },
+        {
+          key: "line_total",
+          name: "Line total",
+          description: "Quantity multiplied by the captured unit price.",
+          type: "formula",
+          config: {
+            expression: formula(field("order_lines.quantity"), " * ", field("order_lines.unit_price")),
+            format: { kind: "decimal", precision: 2, thousandsSeparator: true },
+          },
+          icon: "ti ti-calculator",
+        },
         {
           key: "book_title",
           name: "Book title",
           description: "Lookup from the linked book.",
           type: "lookup",
           config: {
-            relationFieldId: field("orders.book"),
+            relationFieldId: field("order_lines.book"),
             targetFieldId: field("books.title"),
           },
           icon: "ti ti-hierarchy",
@@ -529,7 +586,7 @@ export const bookshopTemplate: GridTemplate = {
       table: "customers",
       values: {
         name: "Alice Becker",
-        email: "alice@example.com",
+        email: "alice@example.test",
         phone: "+49 731 1234567",
         joined: "2025-03-12",
         notes: "Loves fantasy.",
@@ -541,7 +598,7 @@ export const bookshopTemplate: GridTemplate = {
       table: "customers",
       values: {
         name: "Bob Schmidt",
-        email: "bob@example.com",
+        email: "bob@example.test",
         phone: "+49 731 7654321",
         joined: "2025-06-04",
         source: ["store"],
@@ -552,11 +609,10 @@ export const bookshopTemplate: GridTemplate = {
       table: "orders",
       values: {
         customer: [record("customers.alice")],
-        book: [record("books.hobbit")],
-        qty: 2,
-        line_total: "19.98",
         ordered_at: currentMonthDate(3),
         status: ["delivered"],
+        invoice_ready: false,
+        invoice_sent: true,
       },
     },
     {
@@ -564,11 +620,10 @@ export const bookshopTemplate: GridTemplate = {
       table: "orders",
       values: {
         customer: [record("customers.bob")],
-        book: [record("books.abc")],
-        qty: 1,
-        line_total: "8.50",
         ordered_at: currentMonthDate(8),
         status: ["shipped"],
+        invoice_ready: false,
+        invoice_sent: true,
       },
     },
     {
@@ -576,35 +631,60 @@ export const bookshopTemplate: GridTemplate = {
       table: "orders",
       values: {
         customer: [record("customers.alice")],
-        book: [record("books.left_hand")],
-        qty: 1,
-        line_total: "11.99",
         ordered_at: currentMonthDate(13),
         status: ["new"],
+        invoice_ready: true,
+        invoice_sent: false,
       },
     },
     {
-      key: "orders.4",
-      table: "orders",
+      key: "order_lines.1_hobbit",
+      table: "order_lines",
       values: {
-        customer: [record("customers.bob")],
+        order: [record("orders.1")],
         book: [record("books.hobbit")],
-        qty: 1,
-        line_total: "9.99",
-        ordered_at: currentMonthDate(18),
-        status: ["delivered"],
+        quantity: "2",
+        unit_price: "9.99",
       },
     },
     {
-      key: "orders.5",
-      table: "orders",
+      key: "order_lines.1_left_hand",
+      table: "order_lines",
       values: {
-        customer: [record("customers.alice")],
+        order: [record("orders.1")],
         book: [record("books.left_hand")],
-        qty: 3,
-        line_total: "35.97",
-        ordered_at: currentMonthDate(23),
-        status: ["shipped"],
+        quantity: "1",
+        unit_price: "11.99",
+      },
+    },
+    {
+      key: "order_lines.2_abc",
+      table: "order_lines",
+      values: {
+        order: [record("orders.2")],
+        book: [record("books.abc")],
+        quantity: "1",
+        unit_price: "8.50",
+      },
+    },
+    {
+      key: "order_lines.3_hobbit",
+      table: "order_lines",
+      values: {
+        order: [record("orders.3")],
+        book: [record("books.hobbit")],
+        quantity: "1",
+        unit_price: "9.99",
+      },
+    },
+    {
+      key: "order_lines.3_left_hand",
+      table: "order_lines",
+      values: {
+        order: [record("orders.3")],
+        book: [record("books.left_hand")],
+        quantity: "3",
+        unit_price: "11.99",
       },
     },
   ],
@@ -657,20 +737,30 @@ export const bookshopTemplate: GridTemplate = {
         "from table ",
         table("orders"),
         "\nselect ",
+        field("orders.order_no"),
+        ", ",
         field("orders.ordered_at"),
         ", ",
         field("orders.customer"),
         ", ",
-        field("orders.book"),
-        ", ",
-        field("orders.qty"),
-        ", ",
         field("orders.status"),
+        ", ",
+        field("orders.invoice_ready"),
+        ", ",
+        field("orders.invoice_sent"),
         "\nsort ",
         field("orders.ordered_at"),
         " asc\nlimit 100",
       ),
       ui: {
+        columns: [
+          { fieldId: field("orders.order_no"), format: { kind: "barcode", bcid: "code128", showText: true } },
+          { fieldId: field("orders.ordered_at") },
+          { fieldId: field("orders.customer") },
+          { fieldId: field("orders.status") },
+          { fieldId: field("orders.invoice_ready") },
+          { fieldId: field("orders.invoice_sent") },
+        ],
         displayConfig: {
           mode: "calendar",
           calendar: { dateFieldId: field("orders.ordered_at") },
@@ -821,6 +911,7 @@ export const bookshopTemplate: GridTemplate = {
                   fieldId: field("customers.email"),
                   label: "Email",
                   helpText: "Order contact address.",
+                  required: true,
                 },
                 {
                   fieldId: field("customers.phone"),
@@ -829,28 +920,6 @@ export const bookshopTemplate: GridTemplate = {
                 },
               ],
             },
-          },
-          {
-            kind: "user_input",
-            fieldId: field("orders.book"),
-            label: "Book",
-            helpText: "Book being sold.",
-            required: true,
-          },
-          {
-            kind: "user_input",
-            fieldId: field("orders.qty"),
-            label: "Quantity",
-            helpText: "Number of copies.",
-            required: true,
-            defaultValue: 1,
-          },
-          {
-            kind: "user_input",
-            fieldId: field("orders.line_total"),
-            label: "Line total",
-            helpText: "Total price for this order line.",
-            required: true,
           },
           {
             kind: "user_input",
@@ -864,6 +933,50 @@ export const bookshopTemplate: GridTemplate = {
             fieldId: field("orders.status"),
             value: ["new"],
           },
+          { kind: "form_value", fieldId: field("orders.invoice_ready"), value: false },
+          { kind: "form_value", fieldId: field("orders.invoice_sent"), value: false },
+        ],
+      },
+    },
+    {
+      key: "add_order_line",
+      table: "order_lines",
+      name: "Add order line",
+      config: {
+        title: "Add order line",
+        description: "Add a book and capture the sale price used on the invoice.",
+        submitLabel: "Add line",
+        successMessage: "Order line added.",
+        fields: [
+          {
+            kind: "user_input",
+            fieldId: field("order_lines.order"),
+            label: "Order",
+            helpText: "Order this item belongs to.",
+            required: true,
+          },
+          {
+            kind: "user_input",
+            fieldId: field("order_lines.book"),
+            label: "Book",
+            helpText: "Book sold on this line.",
+            required: true,
+          },
+          {
+            kind: "user_input",
+            fieldId: field("order_lines.quantity"),
+            label: "Quantity",
+            helpText: "Number of copies.",
+            required: true,
+            defaultValue: "1",
+          },
+          {
+            kind: "user_input",
+            fieldId: field("order_lines.unit_price"),
+            label: "Unit price",
+            helpText: "Capture the agreed sale price; the line total is calculated automatically.",
+            required: true,
+          },
         ],
       },
     },
@@ -874,27 +987,47 @@ export const bookshopTemplate: GridTemplate = {
       table: "orders",
       starterId: "invoice",
       name: "Order invoice",
-      description: "Customer invoice generated from one order.",
+      description: "Customer invoice with every line belonging to one order.",
       source: formula(
         "from table ",
+        table("order_lines"),
+        " as line\njoin table ",
         table("orders"),
+        " as order on line.",
+        field("order_lines.order"),
+        " = order.id",
         "\nselect ",
+        "order.",
         field("orders.order_no"),
         " as invoice_number, ",
+        "order.",
         field("orders.customer_name"),
         " as recipient_name, ",
+        "order.",
         field("orders.customer_email"),
         " as recipient_email, ",
-        field("orders.book_title"),
+        "line.",
+        field("order_lines.book_title"),
         " as invoice_item, ",
-        field("orders.qty"),
+        "line.",
+        field("order_lines.quantity"),
         " as invoice_quantity, ",
-        field("orders.line_total"),
-        " as invoice_total, ",
+        "line.",
+        field("order_lines.unit_price"),
+        " as invoice_unit_price, ",
+        "line.",
+        field("order_lines.line_total"),
+        " as invoice_line_total, ",
+        "order.",
         field("orders.ordered_at"),
         " as invoice_date, ",
+        "order.",
         field("orders.status"),
-        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
+        "\nwhere ",
+        field("order_lines.order"),
+        " = '{{ record.id }}'\nsort line.",
+        field("order_lines.line_no"),
+        " asc",
       ),
       enabled: true,
     },
@@ -927,6 +1060,33 @@ export const bookshopTemplate: GridTemplate = {
     label: Order
     required: true
 steps:
+  - if:
+      equals:
+        - \${{ inputs.order.Invoice sent }}
+        - true
+    then:
+      - fail:
+          message: This invoice was already sent. Open the generated documents to download or share it again.
+  - if:
+      not:
+        exists: inputs.order.Customer email
+    then:
+      - fail:
+          message: Add a customer email address before sending the invoice.
+  - if:
+      endsWith:
+        - \${{ inputs.order.Customer email }}
+        - .test
+    then:
+      - fail:
+          message: Replace the sample customer email before sending a real invoice.
+  - if:
+      notEquals:
+        - \${{ inputs.order.Ready to invoice }}
+        - true
+    then:
+      - fail:
+          message: Add every order line, then mark the order as ready to invoice.
   - generateDocument:
       template: Order invoice
       record: inputs.order
@@ -943,8 +1103,13 @@ steps:
         invoice: \${{ invoiceLink }}
         orderNumber: \${{ inputs.order.Order number }}
         customerName: \${{ inputs.order.Customer name }}
+  - updateRecord:
+      record: inputs.order
+      set:
+        Ready to invoice: false
+        Invoice sent: true
   - succeed:
-      message: Invoice sent.`,
+      message: "Invoice \${{ inputs.order.Order number }} sent to \${{ inputs.order.Customer email }}."`,
       enabled: true,
     },
   ],
@@ -991,19 +1156,34 @@ steps:
                 span: 4,
                 source: {
                   kind: "gql",
-                  source: formula("from table ", table("orders"), "\naggregate sum(", field("orders.line_total"), ") as total_revenue"),
+                  source: formula(
+                    "from table ",
+                    table("order_lines"),
+                    "\naggregate sum(formula(",
+                    field("order_lines.quantity"),
+                    " * ",
+                    field("order_lines.unit_price"),
+                    ")) as total_revenue",
+                  ),
                 },
                 trend: {
                   source: {
                     kind: "gql",
                     source: formula(
                       "from table ",
+                      table("order_lines"),
+                      " as line\njoin table ",
                       table("orders"),
-                      "\ngroup by ",
+                      " as order on line.",
+                      field("order_lines.order"),
+                      " = order.id\ngroup by order.",
                       field("orders.ordered_at"),
-                      " by month\naggregate sum(",
-                      field("orders.line_total"),
-                      ") as monthly_revenue\nsort ",
+                      " by month\naggregate sum(formula(",
+                      "line.",
+                      field("order_lines.quantity"),
+                      " * line.",
+                      field("order_lines.unit_price"),
+                      ")) as monthly_revenue\nsort order.",
                       field("orders.ordered_at"),
                       " asc",
                     ),
@@ -1039,25 +1219,40 @@ steps:
                   kind: "gql",
                   source: formula(
                     "from table ",
+                    table("order_lines"),
+                    " as line\njoin table ",
                     table("orders"),
-                    "\ngroup by ",
+                    " as order on line.",
+                    field("order_lines.order"),
+                    " = order.id\ngroup by order.",
                     field("orders.ordered_at"),
-                    " by month\naggregate sum(",
-                    field("orders.line_total"),
-                    ") as monthly_revenue, count(*) as order_count\nsort ",
+                    " by month\naggregate sum(formula(",
+                    "line.",
+                    field("order_lines.quantity"),
+                    " * line.",
+                    field("order_lines.unit_price"),
+                    ")) as monthly_revenue, count(*) as order_line_count\nsort ",
+                    "order.",
                     field("orders.ordered_at"),
                     " asc",
                   ),
                 },
                 format: "currency",
-                span: 7,
+                span: 6,
               },
               {
                 id: "w_new_order",
                 kind: "form",
                 title: "New order",
                 formId: form("new_order"),
-                span: 5,
+                span: 3,
+              },
+              {
+                id: "w_add_order_line",
+                kind: "form",
+                title: "Add order line",
+                formId: form("add_order_line"),
+                span: 3,
               },
             ],
           },
@@ -1097,16 +1292,23 @@ steps:
                   kind: "gql",
                   source: formula(
                     "from table ",
+                    table("order_lines"),
+                    " as line\njoin table ",
                     table("orders"),
-                    "\njoin table ",
+                    " as order on line.",
+                    field("order_lines.order"),
+                    " = order.id\njoin table ",
                     table("customers"),
-                    " as customer on ",
+                    " as customer on order.",
                     field("orders.customer"),
                     " = customer.id\ngroup by customer.",
                     field("customers.name"),
-                    "\naggregate sum(",
-                    field("orders.line_total"),
-                    ") as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8",
+                    "\naggregate sum(formula(",
+                    "line.",
+                    field("order_lines.quantity"),
+                    " * line.",
+                    field("order_lines.unit_price"),
+                    ")) as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8",
                   ),
                 },
                 format: "currency",

@@ -146,12 +146,13 @@ export const financeTemplate: GridTemplate = {
           presentable: true,
           icon: "ti ti-id",
         },
-        { key: "date", name: "Date", description: "Transaction date.", type: "date", icon: "ti ti-calendar" },
+        { key: "date", name: "Date", description: "Transaction date.", type: "date", required: true, icon: "ti ti-calendar" },
         {
           key: "merchant",
           name: "Merchant",
           description: "Merchant or payee for this transaction.",
           type: "relation",
+          required: true,
           icon: "ti ti-building-store",
           config: { targetTableId: table("merchants"), cardinality: "single" },
         },
@@ -160,6 +161,7 @@ export const financeTemplate: GridTemplate = {
           name: "Account",
           description: "Account this transaction belongs to.",
           type: "relation",
+          required: true,
           icon: "ti ti-credit-card",
           config: { targetTableId: table("accounts"), cardinality: "single" },
         },
@@ -168,6 +170,7 @@ export const financeTemplate: GridTemplate = {
           name: "Category",
           description: "Budget or reporting category for this transaction.",
           type: "relation",
+          required: true,
           icon: "ti ti-tag",
           config: { targetTableId: table("categories"), cardinality: "single" },
         },
@@ -200,6 +203,7 @@ export const financeTemplate: GridTemplate = {
           name: "Type",
           description: "Transaction direction for income, expense, or transfer reporting.",
           type: "select",
+          required: true,
           icon: "ti ti-arrows-exchange",
           config: {
             options: [
@@ -214,6 +218,7 @@ export const financeTemplate: GridTemplate = {
           name: "Amount",
           description: "Transaction amount in euros.",
           type: "number",
+          required: true,
           icon: "ti ti-currency-euro",
           config: { precision: 16, decimalPlaces: 2, min: "0", unit: "EUR", unitPosition: "suffix" },
         },
@@ -223,17 +228,26 @@ export const financeTemplate: GridTemplate = {
           description: "Whether the transaction has cleared the account.",
           type: "boolean",
           icon: "ti ti-circle-check",
-          defaultValue: true,
+          defaultValue: false,
         },
         { key: "notes", name: "Notes", description: "Optional notes about this transaction.", type: "longtext", icon: "ti ti-notes" },
         {
           key: "receipt_email",
           name: "Receipt email",
-          description: "Optional recipient for generated transaction receipts.",
+          description: "Recipient used by the receipt workflow.",
           type: "text",
+          required: true,
           icon: "ti ti-mail",
           config: { regex: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$" },
-          defaultValue: "owner@example.com",
+          defaultValue: "receipts@example.test",
+        },
+        {
+          key: "receipt_sent",
+          name: "Receipt sent",
+          description: "Prevents a completed receipt workflow from being replayed accidentally.",
+          type: "boolean",
+          icon: "ti ti-mail-check",
+          defaultValue: false,
         },
       ],
     },
@@ -255,6 +269,7 @@ export const financeTemplate: GridTemplate = {
           name: "Category",
           description: "Expense category this budget limits.",
           type: "relation",
+          required: true,
           icon: "ti ti-tag",
           config: { targetTableId: table("categories"), cardinality: "single" },
         },
@@ -263,6 +278,7 @@ export const financeTemplate: GridTemplate = {
           name: "Limit",
           description: "Planned spending limit for the month and category.",
           type: "number",
+          required: true,
           icon: "ti ti-currency-euro",
           config: { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
         },
@@ -523,6 +539,11 @@ export const financeTemplate: GridTemplate = {
       table: "budgets",
       values: { month: currentMonthDate(1), category: [record("categories.food")], limit: "160.00" },
     },
+    {
+      key: "budgets.previous_groceries",
+      table: "budgets",
+      values: { month: currentMonthDate(1, -1), category: [record("categories.groceries")], limit: "400.00" },
+    },
   ],
   views: [
     {
@@ -534,6 +555,8 @@ export const financeTemplate: GridTemplate = {
         "from table ",
         table("transactions"),
         "\nselect ",
+        field("transactions.transaction_ref"),
+        ", ",
         field("transactions.date"),
         ", ",
         field("transactions.merchant"),
@@ -553,6 +576,7 @@ export const financeTemplate: GridTemplate = {
       ),
       ui: {
         columns: [
+          { fieldId: field("transactions.transaction_ref"), format: { kind: "barcode", bcid: "code128", showText: true } },
           { fieldId: field("transactions.date") },
           { fieldId: field("transactions.merchant") },
           { fieldId: field("transactions.merchant_website"), label: "Merchant QR", format: { kind: "barcode", bcid: "qrcode" } },
@@ -658,10 +682,12 @@ export const financeTemplate: GridTemplate = {
             kind: "user_input",
             fieldId: field("transactions.receipt_email"),
             label: "Receipt email",
-            helpText: "Optional address used by the receipt workflow.",
+            helpText: "Recipient used by the receipt workflow.",
+            required: true,
           },
           { kind: "form_value", fieldId: field("transactions.type"), value: ["expense"] },
-          { kind: "form_value", fieldId: field("transactions.cleared"), value: true },
+          { kind: "form_value", fieldId: field("transactions.cleared"), value: false },
+          { kind: "form_value", fieldId: field("transactions.receipt_sent"), value: false },
         ],
       },
     },
@@ -690,6 +716,8 @@ export const financeTemplate: GridTemplate = {
         field("transactions.amount"),
         ", ",
         field("transactions.cleared"),
+        ", ",
+        field("transactions.receipt_sent"),
         ", ",
         field("transactions.notes"),
         "\nwhere record.id = '{{ record.id }}'\nlimit 1",
@@ -724,6 +752,33 @@ export const financeTemplate: GridTemplate = {
     label: Transaction
     required: true
 steps:
+  - if:
+      notEquals:
+        - \${{ inputs.transaction.Type }}
+        - [expense]
+    then:
+      - fail:
+          message: Receipts can only be sent for expense transactions.
+  - if:
+      equals:
+        - \${{ inputs.transaction.Receipt sent }}
+        - true
+    then:
+      - fail:
+          message: This receipt was already sent. Open the generated documents to download or share it again.
+  - if:
+      not:
+        exists: inputs.transaction.Receipt email
+    then:
+      - fail:
+          message: Add a receipt email address before processing this transaction.
+  - if:
+      endsWith:
+        - \${{ inputs.transaction.Receipt email }}
+        - .test
+    then:
+      - fail:
+          message: Replace the sample receipt email before sending a real receipt.
   - generateDocument:
       template: Transaction receipt
       record: inputs.transaction
@@ -744,8 +799,9 @@ steps:
       record: inputs.transaction
       set:
         Cleared: true
+        Receipt sent: true
   - succeed:
-      message: Receipt sent and transaction cleared.`,
+      message: "Receipt \${{ inputs.transaction.Transaction reference }} sent and transaction cleared."`,
       enabled: true,
     },
   ],
@@ -842,7 +898,17 @@ steps:
                 span: 3,
                 source: {
                   kind: "gql",
-                  source: formula("from table ", table("budgets"), "\naggregate sum(", field("budgets.limit"), ") as total_budget"),
+                  source: formula(
+                    "from table ",
+                    table("budgets"),
+                    "\nwhere YEAR(",
+                    field("budgets.month"),
+                    ") = YEAR(TODAY()) and MONTH(",
+                    field("budgets.month"),
+                    ") = MONTH(TODAY())\naggregate sum(",
+                    field("budgets.limit"),
+                    ") as total_budget",
+                  ),
                 },
               },
             ],

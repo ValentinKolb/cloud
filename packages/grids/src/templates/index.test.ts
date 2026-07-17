@@ -414,6 +414,124 @@ describe("built-in grid templates", () => {
     }
   });
 
+  test("bookshop models itemized orders and invoices as business-safe resources", () => {
+    const template = templates.find((item) => item.id === "bookshop");
+    expect(template).toBeDefined();
+    if (!template) return;
+
+    const customers = template.tables.find((table) => table.key === "customers");
+    const orders = template.tables.find((table) => table.key === "orders");
+    const lines = template.tables.find((table) => table.key === "order_lines");
+    expect(customers?.fields.find((item) => item.key === "email")?.required).toBe(true);
+    expect(orders?.fields.some((item) => item.key === "book")).toBe(false);
+    expect(orders?.fields.find((item) => item.key === "invoice_ready")?.defaultValue).toBe(false);
+    expect(orders?.fields.find((item) => item.key === "invoice_sent")?.defaultValue).toBe(false);
+    expect(lines?.fields.find((item) => item.key === "unit_price")?.required).toBe(true);
+    expect((lines?.fields.find((item) => item.key === "line_total")?.config as { expression?: unknown })?.expression).toEqual(
+      formula(field("order_lines.quantity"), " * ", field("order_lines.unit_price")),
+    );
+
+    const orderLineRecords = (template.records ?? []).filter((item) => item.table === "order_lines");
+    const lineCounts = new Map<string, number>();
+    for (const item of orderLineRecords) {
+      const order = refsIn(item.values.order)[0]?.key;
+      if (order) lineCounts.set(order, (lineCounts.get(order) ?? 0) + 1);
+    }
+    expect(Math.max(...lineCounts.values())).toBeGreaterThan(1);
+
+    const invoice = template.documentTemplates?.find((item) => item.key === "order_invoice");
+    const invoiceSource = resolveTemplateGqlValue(invoice?.source, templateNamesForGql(template));
+    expect(invoiceSource).toContain('from table "Order lines" as line');
+    expect(invoiceSource).toContain("as invoice_unit_price");
+    expect(invoiceSource).toContain("as invoice_line_total");
+    expect(invoiceSource).not.toContain("limit 1");
+
+    const workflow = template.workflows?.find((item) => item.key === "send_order_invoice")?.source ?? "";
+    expect(workflow).toContain("Ready to invoice");
+    expect(workflow).toContain("Invoice sent");
+    expect(workflow).toContain("Replace the sample customer email");
+    expect(workflow).toContain("Invoice sent: true");
+  });
+
+  test("inventory agreement delivery requires explicit approval and is safe to replay", () => {
+    const template = templates.find((item) => item.id === "inventory");
+    expect(template).toBeDefined();
+    if (!template) return;
+
+    const loans = template.tables.find((table) => table.key === "loans");
+    for (const key of ["requester_email", "kits", "start_date", "due_date"]) {
+      expect(loans?.fields.find((item) => item.key === key)?.required, `inventory loans.${key} required`).toBe(true);
+    }
+    expect(loans?.fields.find((item) => item.key === "availability_confirmed")?.defaultValue).toBe(false);
+    expect(loans?.fields.find((item) => item.key === "agreement_sent")?.defaultValue).toBe(false);
+    expect((loans?.fields.find((item) => item.key === "schedule_valid")?.config as { expression?: unknown })?.expression).toEqual(
+      formula(field("loans.start_date"), " <= ", field("loans.due_date")),
+    );
+    expect(
+      (template.records ?? [])
+        .filter((item) => item.table === "loans")
+        .some((item) => Array.isArray(item.values.status) && item.values.status[0] === "approved"),
+    ).toBe(false);
+
+    const workflow = template.workflows?.find((item) => item.key === "send_loan_agreement")?.source ?? "";
+    expect(workflow).toContain("Approve this loan after checking availability");
+    expect(workflow).toContain("Availability confirmed");
+    expect(workflow).toContain("The due date must be on or after");
+    expect(workflow).toContain("Agreement sent: true");
+    expect(workflow).not.toContain("Status: [approved]");
+    expect(workflow).toContain("Replace the sample requester email");
+
+    const valueWidget = dashboardCells(template).find((cell) => cell.id === "w_value");
+    expect(valueWidget).toMatchObject({ kind: "stat", title: "Inventory value", format: "currency" });
+    const openLoans = template.views?.find((item) => item.key === "open_loans");
+    expect((openLoans?.ui as { columns?: Array<Record<string, unknown>> })?.columns?.[0]).toMatchObject({
+      fieldId: field("loans.loan_no"),
+      format: { kind: "barcode", bcid: "code128", showText: true },
+    });
+  });
+
+  test("finance workflows start from pending transactions and budget only the current month", () => {
+    const template = templates.find((item) => item.id === "finance");
+    expect(template).toBeDefined();
+    if (!template) return;
+
+    const transactions = template.tables.find((table) => table.key === "transactions");
+    for (const key of ["date", "merchant", "account", "category", "type", "amount", "receipt_email"]) {
+      expect(transactions?.fields.find((item) => item.key === key)?.required, `finance transactions.${key} required`).toBe(true);
+    }
+    expect(transactions?.fields.find((item) => item.key === "cleared")?.defaultValue).toBe(false);
+    expect(transactions?.fields.find((item) => item.key === "receipt_sent")?.defaultValue).toBe(false);
+
+    const formFields = (template.forms?.find((item) => item.key === "log_expense")?.config.fields ?? []) as Array<Record<string, unknown>>;
+    expect(
+      formFields.find((item) => item.kind === "form_value" && isRef(item.fieldId) && item.fieldId.key === "transactions.cleared")?.value,
+    ).toBe(false);
+    expect(
+      formFields.find((item) => item.kind === "form_value" && isRef(item.fieldId) && item.fieldId.key === "transactions.receipt_sent")
+        ?.value,
+    ).toBe(false);
+
+    const workflow = template.workflows?.find((item) => item.key === "clear_and_send_receipt")?.source ?? "";
+    expect(workflow).toContain("Receipts can only be sent for expense transactions");
+    expect(workflow).toContain("Receipt sent: true");
+    expect(workflow).toContain("Replace the sample receipt email");
+
+    const budgetWidget = dashboardCells(template).find((cell) => cell.id === "w_budget");
+    const budgetSource = resolveTemplateGqlValue(
+      (budgetWidget?.source as { source?: unknown } | undefined)?.source,
+      templateNamesForGql(template),
+    );
+    expect(budgetSource).toContain("YEAR(TODAY())");
+    expect(budgetSource).toContain("MONTH(TODAY())");
+    expect((template.records ?? []).some((item) => item.key === "budgets.previous_groceries")).toBe(true);
+
+    const recentTransactions = template.views?.find((item) => item.key === "recent_transactions");
+    expect((recentTransactions?.ui as { columns?: Array<Record<string, unknown>> })?.columns?.[0]).toMatchObject({
+      fieldId: field("transactions.transaction_ref"),
+      format: { kind: "barcode", bcid: "code128", showText: true },
+    });
+  });
+
   test("form input entries include help text", () => {
     for (const template of templates) {
       for (const form of template.forms ?? []) {
