@@ -9,6 +9,7 @@ import {
   SpaceWormholeSchema,
 } from "@/contracts";
 import { SpaceUserSettingsSchema } from "@/settings-context";
+import { type CalendarFilter, CalendarFilterSchema, writeCalendarFilter } from "../calendar/filter";
 import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
 
 type FilterState = ReturnType<typeof parseFilterFromUrl>;
@@ -59,7 +60,7 @@ export const SpacesViewSnapshotSchema = z.discriminatedUnion("kind", [
     kind: z.literal("calendar"),
     view: CalendarViewSchema,
     date: z.string().datetime(),
-    tagIds: z.array(z.string()),
+    filter: CalendarFilterSchema,
     items: z.array(CalendarItemSchema),
     weather: z.record(z.string(), DayWeatherSchema),
   }),
@@ -86,7 +87,7 @@ const SpacesWorkspaceStateSchema = z.discriminatedUnion("kind", [
     kanbanBuckets: z.array(KanbanBucketInitialSchema),
     calendarView: CalendarViewSchema,
     calendarDate: z.string().datetime(),
-    calendarTagIds: z.array(z.string()),
+    calendarFilter: CalendarFilterSchema,
     calendarItems: z.array(CalendarItemSchema),
     calendarWeather: z.record(z.string(), DayWeatherSchema),
     selectedItem: SpaceItemSchema.nullable(),
@@ -136,7 +137,7 @@ export const buildSpacesItemLinkBaseUrl = (params: {
   hasViewOverride: boolean;
   calendarView?: string;
   calendarDate?: string;
-  calendarTagIds?: string[];
+  calendarFilter?: CalendarFilter;
   dateConfig?: DateContext;
 }) =>
   withoutSelectedItem(
@@ -156,7 +157,7 @@ const buildCalendarUrl = (
     currentView: string;
     calendarView?: string;
     calendarDate?: string;
-    calendarTagIds?: string[];
+    calendarFilter?: CalendarFilter;
     dateConfig?: DateContext;
   },
 ) => {
@@ -164,7 +165,7 @@ const buildCalendarUrl = (
   const url = new URL(baseSpaceUrl, "http://localhost");
   if (params.calendarView) url.searchParams.set("cv", params.calendarView);
   if (params.calendarDate) url.searchParams.set("cd", calendar.formatDateKey(params.calendarDate, params.dateConfig));
-  if (params.calendarTagIds && params.calendarTagIds.length > 0) url.searchParams.set("ctags", params.calendarTagIds.join(","));
+  if (params.calendarFilter) writeCalendarFilter(url, params.calendarFilter);
   const query = url.searchParams.toString();
   return query ? `${url.pathname}?${query}` : url.pathname;
 };

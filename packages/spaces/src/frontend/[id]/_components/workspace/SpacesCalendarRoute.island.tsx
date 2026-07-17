@@ -1,14 +1,16 @@
 import type { DateContext } from "@valentinkolb/stdlib";
-import { createSignal } from "solid-js";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import type { CalendarItem, SpaceColumn, SpaceTag } from "@/contracts";
+import { subscribeToDetailSelection } from "../../../lib/detail";
 import Calendar from "../calendar";
+import type { CalendarFilter } from "../calendar/filter";
 import type { CalendarView, DayWeather } from "../calendar/types";
 import { useSpacesViewRefresh } from "./view-refresh";
 
 type CalendarState = {
   view: CalendarView;
   date: string;
-  tagIds: string[];
+  filter: CalendarFilter;
   items: CalendarItem[];
   weather: Record<string, DayWeather>;
 };
@@ -26,9 +28,14 @@ type Props = {
 
 export default function SpacesCalendarRoute(props: Props) {
   const [state, setState] = createSignal(props.initialState);
+  const [selectedItemId, setSelectedItemId] = createSignal(props.selectedItemId);
   useSpacesViewRefresh((snapshot) => {
     if (snapshot.kind === "calendar") setState(snapshot);
     else window.location.reload();
+  });
+  onMount(() => {
+    const unsubscribe = subscribeToDetailSelection(({ itemId }) => setSelectedItemId(itemId ?? ""));
+    onCleanup(unsubscribe);
   });
 
   return (
@@ -38,8 +45,8 @@ export default function SpacesCalendarRoute(props: Props) {
         items={state().items}
         columns={props.columns}
         tags={props.tags}
-        selectedTagIds={state().tagIds}
-        selectedItemId={props.selectedItemId}
+        filter={state().filter}
+        selectedItemId={selectedItemId()}
         view={state().view}
         date={new Date(state().date)}
         baseUrl={props.baseUrl}

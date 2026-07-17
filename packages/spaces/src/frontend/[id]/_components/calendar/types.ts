@@ -1,5 +1,6 @@
 import type { DateContext } from "@valentinkolb/stdlib";
 import type { CalendarItem, SpaceColumn, SpaceTag } from "@/contracts";
+import type { CalendarFilter } from "./filter";
 
 export type CalendarView = "day" | "week" | "month" | "year";
 
@@ -15,7 +16,7 @@ export type CalendarProps = {
   items: CalendarItem[];
   columns: SpaceColumn[];
   tags: SpaceTag[];
-  selectedTagIds: string[];
+  filter: CalendarFilter;
   selectedItemId?: string;
   view: CalendarView;
   date: Date;

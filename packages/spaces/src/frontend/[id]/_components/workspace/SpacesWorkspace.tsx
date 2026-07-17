@@ -29,7 +29,7 @@ const routeContext = (state: OkWorkspaceState, dateConfig?: DateContext) => {
     hasViewOverride: state.hasOverride && url.searchParams.has("view"),
     calendarView: state.calendarView,
     calendarDate: state.calendarDate,
-    calendarTagIds: state.calendarTagIds,
+    calendarFilter: state.calendarFilter,
     dateConfig,
   });
   return {
@@ -109,7 +109,7 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
                 initialState={{
                   view: state.calendarView,
                   date: state.calendarDate,
-                  tagIds: state.calendarTagIds,
+                  filter: state.calendarFilter,
                   items: state.calendarItems,
                   weather: state.calendarWeather,
                 }}

@@ -3,10 +3,12 @@ import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type {
+  AssignedToFilter,
   CalendarItem,
   CreateItem,
   ItemFilter,
   ItemListResult,
+  ItemType,
   MutationResult,
   OverlapItem,
   Priority,
@@ -822,8 +824,7 @@ export const searchAcross = async (params: {
   const { query, kinds, limit } = params;
   if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) return [];
   const principalMatch = buildSpacePrincipalCondition(params.subject);
-  const bindingMatch =
-    params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
+  const bindingMatch = params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
   const trimmed = query.trim();
   // Empty query is valid — used by tag-only searches like `#task` or `#event`.
   // Pattern becomes `%%` which ILIKE-matches every row; the title-match
@@ -1364,7 +1365,47 @@ type CalendarAccessParams = {
   subject: AccessSubject;
   boundSpaceId?: string | null;
   spaceId?: string;
+  type?: ItemType;
+  assignedTo?: AssignedToFilter;
+  priorities?: Priority[];
+  columnIds?: string[];
   tagIds?: string[];
+};
+
+const calendarTypeMatch = (type?: ItemType) => {
+  if (type === "task") return sql`(i.starts_at IS NULL OR i.ends_at IS NULL) AND i.deadline IS NOT NULL`;
+  if (type === "event") return sql`i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL`;
+  return sql`true`;
+};
+
+const calendarPriorityMatch = (priorities?: Priority[]) =>
+  priorities && priorities.length > 0 ? sql`i.priority = ANY(${toPgTextArray(priorities)}::text[])` : sql`true`;
+
+const calendarColumnMatch = (columnIds?: string[]) =>
+  columnIds && columnIds.length > 0 ? sql`i.column_id = ANY(${toPgUuidArray(columnIds)}::uuid[])` : sql`true`;
+
+const calendarTagMatch = (tagIds?: string[]) =>
+  tagIds && tagIds.length > 0
+    ? sql`EXISTS (
+        SELECT 1
+        FROM spaces.item_tags it
+        WHERE it.item_id = i.id
+          AND it.tag_id = ANY(${toPgUuidArray(tagIds)}::uuid[])
+      )`
+    : sql`true`;
+
+const calendarAssignmentMatch = (assignedTo: AssignedToFilter | undefined, subject: AccessSubject) => {
+  if (assignedTo === "assigned") return sql`EXISTS (SELECT 1 FROM spaces.item_assignees ia WHERE ia.item_id = i.id)`;
+  if (assignedTo === "unassigned") return sql`NOT EXISTS (SELECT 1 FROM spaces.item_assignees ia WHERE ia.item_id = i.id)`;
+  if (assignedTo === "me") {
+    return subject.type === "user"
+      ? sql`EXISTS (
+          SELECT 1 FROM spaces.item_assignees ia
+          WHERE ia.item_id = i.id AND ia.user_id = ${subject.userId}::uuid
+        )`
+      : sql`false`;
+  }
+  return sql`true`;
 };
 
 /**
@@ -1381,18 +1422,13 @@ export const listCalendar = async (
   const { from, to } = params;
   if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) return [];
   const principalMatch = buildSpacePrincipalCondition(params.subject);
-  const bindingMatch =
-    params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
+  const bindingMatch = params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
   const requestedSpaceMatch = params.spaceId ? sql`s.id = ${params.spaceId}::uuid` : sql`true`;
-  const tagMatch =
-    params.tagIds && params.tagIds.length > 0
-      ? sql`EXISTS (
-          SELECT 1
-          FROM spaces.item_tags it
-          WHERE it.item_id = i.id
-            AND it.tag_id = ANY(${toPgUuidArray(params.tagIds)}::uuid[])
-        )`
-      : sql`true`;
+  const typeMatch = calendarTypeMatch(params.type);
+  const priorityMatch = calendarPriorityMatch(params.priorities);
+  const columnMatch = calendarColumnMatch(params.columnIds);
+  const tagMatch = calendarTagMatch(params.tagIds);
+  const assignmentMatch = calendarAssignmentMatch(params.assignedTo, params.subject);
 
   // Use subquery to get accessible space IDs first, then query items
   const rows = await sql<DbCalendarItem[]>`
@@ -1413,7 +1449,11 @@ export const listCalendar = async (
     JOIN spaces.spaces s ON i.space_id = s.id
     WHERE i.space_id IN (SELECT id FROM accessible_spaces)
       AND i.completed_at IS NULL
+      AND ${typeMatch}
+      AND ${priorityMatch}
+      AND ${columnMatch}
       AND ${tagMatch}
+      AND ${assignmentMatch}
       AND (
         (
           i.recurrence_rrule IS NULL
@@ -1481,11 +1521,7 @@ export type TaskItem = {
 /**
  * List tasks assigned to a specific user (across all spaces they have access to)
  */
-export const listMyTasks = async (params: {
-  userId: string;
-  minPriority?: Priority;
-  limit?: number;
-}): Promise<TaskItem[]> => {
+export const listMyTasks = async (params: { userId: string; minPriority?: Priority; limit?: number }): Promise<TaskItem[]> => {
   const { userId, minPriority, limit = 20 } = params;
   const principalMatch = buildSpacePrincipalCondition({ type: "user", userId });
 
@@ -1569,8 +1605,7 @@ export const checkOverlap = async (
   const { from, to, excludeItemId } = params;
   if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) return [];
   const principalMatch = buildSpacePrincipalCondition(params.subject);
-  const bindingMatch =
-    params.subject.type === "service_account" ? sql`i.space_id = ${params.boundSpaceId}::uuid` : sql`true`;
+  const bindingMatch = params.subject.type === "service_account" ? sql`i.space_id = ${params.boundSpaceId}::uuid` : sql`true`;
 
   const rows = await sql<DbOverlapItem[]>`
     SELECT i.id AS item_id, i.space_id, s.name AS space_name, i.title, i.starts_at, i.ends_at

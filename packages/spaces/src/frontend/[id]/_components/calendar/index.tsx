@@ -15,28 +15,32 @@ import {
 import type { DateContext } from "@valentinkolb/stdlib";
 import { dates as calendar } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { CalendarItem, SpaceItem } from "@/contracts";
-import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
+import { AssignedToFilterSchema, type CalendarItem, ItemTypeSchema, PrioritySchema, type Recurrence, type SpaceItem } from "@/contracts";
+import { readResponseError } from "../../../lib/response";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
 import { recurrenceUntilBefore } from "../shared/recurrence";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
-import CalendarDetailNavigation from "./CalendarDetailNavigation";
+import { type CalendarFilter, defaultCalendarFilter, writeCalendarFilter } from "./filter";
 import type { CalendarProps, CalendarView } from "./types";
 
 const eventStart = (item: CalendarItem) => item.startsAt ?? item.deadline ?? calendar.today().toISOString();
 const eventEnd = (item: CalendarItem) => item.endsAt ?? item.deadline ?? eventStart(item);
 
-const CALENDAR_TAGS_PARAM = "ctags";
-
-const buildCalendarHref = (baseUrl: string, view: CalendarView, date: Date, tagIds: string[], item?: string, dateConfig?: DateContext) => {
+const buildCalendarHref = (
+  baseUrl: string,
+  view: CalendarView,
+  date: Date,
+  filter: CalendarFilter,
+  item?: string,
+  dateConfig?: DateContext,
+) => {
   const url = new URL(baseUrl, "http://spaces.local");
   url.searchParams.set("view", "calendar");
   url.searchParams.set("cv", view);
   url.searchParams.set("cd", calendar.formatDateKey(date, dateConfig));
-  if (tagIds.length > 0) url.searchParams.set(CALENDAR_TAGS_PARAM, tagIds.join(","));
-  else url.searchParams.delete(CALENDAR_TAGS_PARAM);
+  writeCalendarFilter(url, filter);
   if (item) url.searchParams.set("item", item);
   else url.searchParams.delete("item");
   return `${url.pathname}?${url.searchParams.toString()}`;
@@ -53,7 +57,7 @@ const toCalendarEvent = (
   baseUrl: string,
   view: CalendarView,
   date: Date,
-  tagIds: string[],
+  filter: CalendarFilter,
   dateConfig?: DateContext,
 ): CalendarEvent => {
   const isDeadline = Boolean(item.deadline && !item.startsAt);
@@ -65,8 +69,8 @@ const toCalendarEvent = (
     end: eventEnd(item),
     allDay: item.allDay || !item.startsAt,
     color: priorityColor(item),
-    colorHex: isDeadline ? undefined : item.spaceColor,
-    href: buildCalendarHref(baseUrl, view, date, tagIds, detailItemId, dateConfig),
+    colorHex: isDeadline ? undefined : (item.tags?.[0]?.color ?? "var(--app-accent, #4d7c0f)"),
+    href: buildCalendarHref(baseUrl, view, date, filter, detailItemId, dateConfig),
     dataSpaceItemId: detailItemId,
     calendarName: item.spaceName,
     location: item.location ?? undefined,
@@ -90,8 +94,11 @@ const isRecurringCalendarEvent = (event: CalendarEvent) => Boolean(event.recurre
 const recurrenceIdFromEvent = (event: CalendarEvent): string | null => {
   const value = event.recurrence?.recurrenceId;
   if (!value) return null;
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
+
+const shiftedIso = (value: string, milliseconds: number): string => new Date(new Date(value).getTime() + milliseconds).toISOString();
 
 const upsertUntil = (rrule: string, until: string) =>
   [
@@ -102,7 +109,7 @@ const upsertUntil = (rrule: string, until: string) =>
     `UNTIL=${until}`,
   ].join(";");
 
-const normalizeCreatePayload = (data: ItemFormData) => ({
+const normalizeCreatePayload = <T extends ItemFormData>(data: T) => ({
   ...data,
   location: data.location ?? undefined,
   url: data.url ?? undefined,
@@ -121,7 +128,8 @@ const createPayloadFromItem = (item: SpaceItem, overrides: Partial<ItemFormData>
   allDay: overrides.allDay ?? item.allDay,
   deadline: overrides.deadline ?? item.deadline ?? undefined,
   priority: overrides.priority ?? item.priority ?? undefined,
-  recurrence: overrides.recurrence ?? item.recurrence,
+  // An explicit null turns one generated occurrence into a non-recurring override.
+  recurrence: "recurrence" in overrides ? overrides.recurrence : item.recurrence,
   assigneeIds: overrides.assigneeIds ?? item.assignees?.map((assignee) => assignee.id),
   tagIds: overrides.tagIds ?? item.tags?.map((tag) => tag.id),
 });
@@ -130,33 +138,35 @@ const chooseRecurringEditScope = async (): Promise<RecurringEditScope | null> =>
   (await dialogCore.open<RecurringEditScope | null>(
     (close) => (
       <PanelDialog>
-        <PanelDialog.Header title="Edit recurring event" icon="ti ti-repeat" close={() => close(null)} />
+        <PanelDialog.Header
+          title="Edit recurring event"
+          subtitle="Choose how this change should affect the series."
+          icon="ti ti-repeat"
+          close={() => close(null)}
+        />
         <PanelDialog.Body>
-          <PanelDialog.Section
-            title="Apply changes"
-            subtitle="Choose how this edit should affect the recurring series."
-            icon="ti ti-calendar-repeat"
-          >
-            <div class="grid grid-cols-1 gap-2">
-              {[
-                ["occurrence", "This occurrence", "Only this visible event instance changes.", "ti ti-calendar-event"],
-                ["future", "This and future", "Split the series from this occurrence onward.", "ti ti-arrow-forward-up"],
-                ["series", "Entire series", "Update the source event and all generated occurrences.", "ti ti-repeat"],
-              ].map(([scope, label, description, icon]) => (
-                <button
-                  type="button"
-                  class="btn-input btn-input-md h-auto justify-start p-3 text-left [align-items:flex-start]"
-                  onClick={() => close(scope as RecurringEditScope)}
-                >
-                  <i class={`${icon} mt-0.5 text-base text-blue-500`} />
-                  <span class="min-w-0">
-                    <span class="block text-sm font-medium text-primary">{label}</span>
-                    <span class="block text-xs text-dimmed">{description}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </PanelDialog.Section>
+          <div class="flex flex-col gap-2 py-1">
+            {[
+              ["occurrence", "This occurrence", "Only this visible event instance changes.", "ti ti-calendar-event"],
+              ["future", "This and future", "Split the series from this occurrence onward.", "ti ti-arrow-forward-up"],
+              ["series", "Entire series", "Update the source event and all generated occurrences.", "ti ti-repeat"],
+            ].map(([scope, label, description, icon]) => (
+              <button
+                type="button"
+                class="group flex min-h-16 items-center gap-3 rounded-[var(--ui-radius-control)] px-2 py-2 text-left outline-none transition-colors focus-visible:shadow-[var(--ui-focus)]"
+                onClick={() => close(scope as RecurringEditScope)}
+              >
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)] text-dimmed transition-colors group-hover:text-blue-500 group-focus-visible:text-blue-500">
+                  <i class={`${icon} text-base`} />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-sm font-medium text-primary">{label}</span>
+                  <span class="block text-xs text-dimmed">{description}</span>
+                </span>
+                <i class="ti ti-chevron-right shrink-0 text-sm text-dimmed opacity-50 transition-[opacity,transform] group-hover:translate-x-0.5 group-hover:opacity-100 group-focus-visible:opacity-100" />
+              </button>
+            ))}
+          </div>
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <span />
@@ -170,9 +180,41 @@ const chooseRecurringEditScope = async (): Promise<RecurringEditScope | null> =>
   )) ?? null;
 
 export default function Calendar(props: CalendarProps) {
-  const rootId = `space-calendar-${props.spaceId}`;
+  const [optimisticTimes, setOptimisticTimes] = createSignal<Record<string, CalendarEventTimeChange>>({});
   const events = () =>
-    props.items.map((item) => toCalendarEvent(item, props.baseUrl, props.view, props.date, props.selectedTagIds, props.dateConfig));
+    props.items.map((item) => {
+      const event = toCalendarEvent(item, props.baseUrl, props.view, props.date, props.filter, props.dateConfig);
+      const optimistic = optimisticTimes()[item.id];
+      return optimistic ? { ...event, start: optimistic.start, end: optimistic.end, allDay: optimistic.allDay } : event;
+    });
+  const clearOptimisticTime = (eventId: string) => {
+    const current = optimisticTimes();
+    if (!(eventId in current)) return;
+    const next = { ...current };
+    delete next[eventId];
+    setOptimisticTimes(next);
+  };
+  let previousItems = props.items;
+  createEffect(() => {
+    const items = props.items;
+    const itemsChanged = items !== previousItems;
+    previousItems = items;
+    const current = optimisticTimes();
+    if (!itemsChanged) return;
+    const settled = Object.entries(current).filter(([eventId, optimistic]) => {
+      const item = items.find((candidate) => candidate.id === eventId);
+      return (
+        !item ||
+        (new Date(eventStart(item)).getTime() === optimistic.start.getTime() &&
+          new Date(eventEnd(item)).getTime() === optimistic.end.getTime() &&
+          Boolean(item.allDay) === Boolean(optimistic.allDay))
+      );
+    });
+    if (settled.length === 0) return;
+    const next = { ...current };
+    for (const [eventId] of settled) delete next[eventId];
+    setOptimisticTimes(next);
+  });
   const dayBadges = () =>
     Object.fromEntries(
       Object.entries(props.weather ?? {}).map(([date, weather]) => [
@@ -189,28 +231,67 @@ export default function Calendar(props: CalendarProps) {
       options: props.tags.map((tag) => ({ value: tag.id, label: tag.name, color: tag.color })),
     },
   ];
+  const scopeOptions: FilterChipSection[] = [
+    {
+      label: "Type",
+      options: [
+        { value: "type:all", label: "Events & deadlines", icon: "ti ti-calendar" },
+        { value: "type:event", label: "Events", icon: "ti ti-calendar-event" },
+        { value: "type:task", label: "Deadlines", icon: "ti ti-calendar-due" },
+      ],
+    },
+    {
+      label: "Assignment",
+      options: [
+        { value: "assigned:all", label: "Anyone", icon: "ti ti-users" },
+        { value: "assigned:assigned", label: "Assigned", icon: "ti ti-user-check" },
+        { value: "assigned:me", label: "Me", icon: "ti ti-user" },
+        { value: "assigned:unassigned", label: "Unassigned", icon: "ti ti-user-off" },
+      ],
+    },
+  ];
+  const priorityOptions: FilterChipSection[] = [
+    {
+      multiple: true,
+      options: [
+        { value: "urgent", label: "Urgent", color: "#ef4444" },
+        { value: "high", label: "High", color: "#f97316" },
+        { value: "medium", label: "Medium", color: "#eab308" },
+        { value: "low", label: "Low", color: "#3b82f6" },
+      ],
+    },
+  ];
+  const columnOptions = (): FilterChipSection[] => [
+    {
+      multiple: true,
+      options: props.columns.map((column) => ({ value: column.id, label: column.name, color: column.color ?? undefined })),
+    },
+  ];
   const routeTo = (view: CalendarView, date: Date, replace = false) => {
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.selectedTagIds, undefined, props.dateConfig), {
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.filter, undefined, props.dateConfig), {
       replace,
       scroll: "preserve",
     });
   };
-  const setTags = (tagIds: string[]) => {
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, tagIds, undefined, props.dateConfig), {
-      replace: true,
-      scroll: "preserve",
-    });
+  const setFilter = (patch: Partial<CalendarFilter>) => {
+    requestSpacesRouteNavigation(
+      buildCalendarHref(props.baseUrl, props.view, props.date, { ...props.filter, ...patch }, undefined, props.dateConfig),
+      {
+        replace: true,
+        scroll: "preserve",
+      },
+    );
   };
   const selectEvent = (event: CalendarEvent) => {
     const itemId = event.dataSpaceItemId ?? event.id;
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, props.selectedTagIds, itemId, props.dateConfig), {
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, props.filter, itemId, props.dateConfig), {
       scroll: "preserve",
     });
   };
   const fetchItem = async (event: CalendarEvent) => {
     const itemId = event.dataSpaceItemId ?? event.id;
     const itemRes = await apiClient[":id"].items[":itemId"].$get({ param: { id: props.spaceId, itemId } });
-    if (!itemRes.ok) throw new Error("Could not load event");
+    if (!itemRes.ok) throw new Error(await readResponseError(itemRes, "Could not load event"));
     return itemRes.json();
   };
   const createItem = async (data: ItemFormData & { recurringEventId?: string; recurrenceId?: string }) => {
@@ -218,80 +299,109 @@ export default function Calendar(props: CalendarProps) {
       param: { id: props.spaceId },
       json: normalizeCreatePayload(data),
     });
-    if (!res.ok) throw new Error("Could not create event");
+    if (!res.ok) throw new Error(await readResponseError(res, "Could not create event"));
   };
-  const patchItem = async (itemId: string, data: Partial<ItemFormData>) => {
-    const json: Record<string, unknown> = {};
-    if ("columnId" in data) json.columnId = data.columnId;
-    if ("title" in data) json.title = data.title;
-    if ("description" in data) json.description = data.description ?? null;
-    if ("location" in data) json.location = data.location ?? null;
-    if ("url" in data) json.url = data.url ?? null;
-    if ("priority" in data) json.priority = data.priority ?? null;
-    if ("recurrence" in data) json.recurrence = data.recurrence;
-    if ("deadline" in data) json.deadline = data.deadline ?? null;
-    if ("startsAt" in data) json.startsAt = data.startsAt ?? null;
-    if ("endsAt" in data) json.endsAt = data.endsAt ?? null;
-    if ("allDay" in data) json.allDay = data.allDay;
-    if ("assigneeIds" in data) json.assigneeIds = data.assigneeIds;
-    if ("tagIds" in data) json.tagIds = data.tagIds;
+  const patchItemTime = async (
+    itemId: string,
+    data: { startsAt?: string; endsAt?: string; allDay?: boolean; recurrence?: Recurrence | null },
+  ) => {
     const res = await apiClient[":id"].items[":itemId"].$patch({
       param: { id: props.spaceId, itemId },
-      json,
+      json: data,
     });
-    if (!res.ok) throw new Error("Could not update event");
+    if (!res.ok) throw new Error(await readResponseError(res, "Could not update event"));
   };
-  const applyRecurringTimeChange = async (event: CalendarEvent, next: CalendarEventTimeChange) => {
+  const updateRecurringOccurrence = async (
+    event: CalendarEvent,
+    parent: SpaceItem,
+    recurrenceId: string,
+    next: CalendarEventTimeChange,
+  ) => {
+    const time = {
+      startsAt: next.start.toISOString(),
+      endsAt: next.end.toISOString(),
+      allDay: next.allDay ?? false,
+    };
+    if (event.id !== `${parent.id}:${recurrenceId}`) {
+      await patchItemTime(event.id, time);
+      return;
+    }
+    await createItem({
+      ...createPayloadFromItem(parent, { ...time, recurrence: null }),
+      recurringEventId: parent.id,
+      recurrenceId,
+    });
+  };
+  const splitRecurringSeries = async (parent: SpaceItem, recurrenceId: string, next: CalendarEventTimeChange) => {
+    if (!parent.recurrence) throw new Error("Recurring series data is missing");
+    await patchItemTime(parent.id, {
+      recurrence: { ...parent.recurrence, rrule: upsertUntil(parent.recurrence.rrule, recurrenceUntilBefore(recurrenceId)) },
+    });
+    await createItem(
+      createPayloadFromItem(parent, {
+        startsAt: next.start.toISOString(),
+        endsAt: next.end.toISOString(),
+        allDay: next.allDay ?? false,
+        recurrence: { ...parent.recurrence, dtstart: next.start.toISOString(), exdate: [] },
+      }),
+    );
+  };
+  const updateRecurringSeries = async (event: CalendarEvent, parent: SpaceItem, next: CalendarEventTimeChange) => {
+    const sourceStart = new Date(event.start);
+    const sourceEnd = new Date(event.end ?? event.start);
+    if (Number.isNaN(sourceStart.getTime()) || Number.isNaN(sourceEnd.getTime())) throw new Error("Recurring event time is invalid");
+    const startsAt = shiftedIso(parent.startsAt ?? sourceStart.toISOString(), next.start.getTime() - sourceStart.getTime());
+    const endsAt = shiftedIso(parent.endsAt ?? sourceEnd.toISOString(), next.end.getTime() - sourceEnd.getTime());
+    await patchItemTime(parent.id, {
+      startsAt,
+      endsAt,
+      allDay: next.allDay ?? false,
+      recurrence: parent.recurrence ? { ...parent.recurrence, dtstart: startsAt } : undefined,
+    });
+  };
+  const applyRecurringTimeChange = async (event: CalendarEvent, next: CalendarEventTimeChange, scope: RecurringEditScope) => {
     const recurrenceId = recurrenceIdFromEvent(event);
     if (!recurrenceId) return false;
     const parent = await fetchItem(event);
-    const scope = await chooseRecurringEditScope();
-    if (!scope) return true;
 
     if (scope === "occurrence") {
-      await createItem({
-        ...createPayloadFromItem(parent, {
-          startsAt: next.start.toISOString(),
-          endsAt: next.end.toISOString(),
-          allDay: next.allDay ?? false,
-          recurrence: null,
-        }),
-        recurringEventId: parent.id,
-        recurrenceId,
-      });
+      await updateRecurringOccurrence(event, parent, recurrenceId, next);
       return true;
     }
 
     if (scope === "future") {
-      const parentRecurrence = parent.recurrence;
-      if (!parentRecurrence) throw new Error("Recurring series data is missing");
-      await patchItem(parent.id, {
-        recurrence: { ...parentRecurrence, rrule: upsertUntil(parentRecurrence.rrule, recurrenceUntilBefore(recurrenceId)) },
-      });
-      await createItem(
-        createPayloadFromItem(parent, {
-          startsAt: next.start.toISOString(),
-          endsAt: next.end.toISOString(),
-          allDay: next.allDay ?? false,
-          recurrence: { ...parentRecurrence, dtstart: next.start.toISOString(), exdate: [] },
-        }),
-      );
+      await splitRecurringSeries(parent, recurrenceId, next);
       return true;
     }
 
-    await patchItem(parent.id, {
-      startsAt: next.start.toISOString(),
-      endsAt: next.end.toISOString(),
-      allDay: next.allDay ?? false,
-      recurrence: parent.recurrence ? { ...parent.recurrence, dtstart: next.start.toISOString() } : undefined,
-    });
+    await updateRecurringSeries(event, parent, next);
     return true;
   };
-  const updateEventTime = mutations.create<void, { event: CalendarEvent; next: CalendarEventTimeChange }>({
-    mutation: async ({ event, next }) => {
+  const updateEventTime = mutations.create<
+    boolean,
+    { event: CalendarEvent; next: CalendarEventTimeChange; action: "move" | "resize"; recurringScope?: RecurringEditScope },
+    { eventId: string; next: CalendarEventTimeChange; action: "move" | "resize" }
+  >({
+    onBefore: ({ event, next, action }) => {
+      const sourceItem = props.items.find((item) => item.id === event.id);
+      const optimistic = sourceItem?.deadline && !sourceItem.startsAt ? { ...next, end: next.start, allDay: true } : next;
+      setOptimisticTimes({ ...optimisticTimes(), [event.id]: optimistic });
+      return { eventId: event.id, next, action };
+    },
+    mutation: async ({ event, next, recurringScope }) => {
+      const sourceItem = props.items.find((item) => item.id === event.id);
+      if (sourceItem?.deadline && !sourceItem.startsAt) {
+        const itemId = event.dataSpaceItemId ?? event.id;
+        const res = await apiClient[":id"].items[":itemId"].$patch({
+          param: { id: props.spaceId, itemId },
+          json: { deadline: next.start.toISOString(), startsAt: null, endsAt: null, allDay: true },
+        });
+        if (!res.ok) throw new Error(await readResponseError(res, "Could not update deadline"));
+        return true;
+      }
       if (isRecurringCalendarEvent(event)) {
-        await applyRecurringTimeChange(event, next);
-        return;
+        if (!recurringScope) return false;
+        return applyRecurringTimeChange(event, next, recurringScope);
       }
       const itemId = event.dataSpaceItemId ?? event.id;
       const res = await apiClient[":id"].items[":itemId"].$patch({
@@ -303,11 +413,47 @@ export default function Calendar(props: CalendarProps) {
           allDay: next.allDay ?? false,
         },
       });
-      if (!res.ok) throw new Error("Could not update event time");
+      if (!res.ok) throw new Error(await readResponseError(res, "Could not update event time"));
+      return true;
     },
-    onSuccess: () => requestCurrentSpacesRouteRefresh({ scroll: "preserve" }),
-    onError: (error) => prompts.error(error.message),
+    onSuccess: (changed, context) => {
+      if (!changed) {
+        if (context) clearOptimisticTime(context.eventId);
+        return;
+      }
+      if (!context) {
+        requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
+        return;
+      }
+      const target = context.next.allDay
+        ? context.next.start.toLocaleDateString(props.dateConfig?.locale ?? "en", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            timeZone: props.dateConfig?.timeZone,
+          })
+        : context.next.start.toLocaleTimeString(props.dateConfig?.locale ?? "en", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: props.dateConfig?.timeZone,
+          });
+      toast.success(context.action === "resize" ? "Event duration updated" : `Event moved to ${target}`);
+      requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
+    },
+    onError: (error, context) => {
+      if (context) clearOptimisticTime(context.eventId);
+      prompts.error(error.message);
+    },
   });
+  const updateTime = async (event: CalendarEvent, next: CalendarEventTimeChange, action: "move" | "resize") => {
+    let recurringScope: RecurringEditScope | undefined;
+    if (isRecurringCalendarEvent(event)) {
+      const scope = await chooseRecurringEditScope();
+      if (!scope) return;
+      recurringScope = scope;
+    }
+    updateEventTime.mutate({ event, next, action, recurringScope });
+  };
   const createEvent = mutations.create<boolean, CalendarEventTimeChange>({
     mutation: async (slot) => {
       const result = await dialogCore.open<ItemFormData | null>(
@@ -321,7 +467,8 @@ export default function Calendar(props: CalendarProps) {
               startsAt: slot.start.toISOString(),
               endsAt: slot.end.toISOString(),
               allDay: slot.allDay ?? false,
-              tagIds: props.selectedTagIds,
+              tagIds: props.filter.tagIds,
+              columnId: props.filter.columnIds.length === 1 ? props.filter.columnIds[0] : undefined,
             }}
             onSubmit={(data) => close(data)}
             onCancel={() => close(null)}
@@ -339,7 +486,7 @@ export default function Calendar(props: CalendarProps) {
           ...normalizeCreatePayload(result),
         },
       });
-      if (!res.ok) throw new Error("Could not create event");
+      if (!res.ok) throw new Error(await readResponseError(res, "Could not create event"));
       return true;
     },
     onSuccess: (created) => {
@@ -349,112 +496,17 @@ export default function Calendar(props: CalendarProps) {
     },
     onError: (error) => prompts.error(error.message),
   });
-  const editEvent = mutations.create<boolean, CalendarEvent>({
-    mutation: async (event) => {
-      const parent = await fetchItem(event);
-      const recurrenceId = recurrenceIdFromEvent(event);
-      if (!recurrenceId) {
-        return editItemWithDialog({
-          spaceId: props.spaceId,
-          item: parent,
-          columns: props.columns,
-          tags: props.tags,
-          dateConfig: props.dateConfig,
-        });
-      }
-
-      const scope = await chooseRecurringEditScope();
-      if (!scope) return false;
-      if (scope === "series") {
-        return editItemWithDialog({
-          spaceId: props.spaceId,
-          item: parent,
-          columns: props.columns,
-          tags: props.tags,
-          dateConfig: props.dateConfig,
-        });
-      }
-
-      const formItem: SpaceItem = {
-        ...parent,
-        startsAt: new Date(event.start).toISOString(),
-        endsAt: event.end ? new Date(event.end).toISOString() : parent.endsAt,
-        allDay: event.allDay ?? parent.allDay,
-        recurrence: scope === "future" ? parent.recurrence : null,
-      };
-      const result = await dialogCore.open<ItemFormData | null>(
-        (close) => (
-          <ItemForm
-            spaceId={props.spaceId}
-            item={formItem}
-            columns={props.columns}
-            tags={props.tags}
-            onSubmit={(data) => close(data)}
-            onCancel={() => close(null)}
-            submitLabel="Save Item"
-            title={scope === "future" ? "Edit future events" : "Edit occurrence"}
-            icon={scope === "future" ? "ti ti-arrow-forward-up" : "ti ti-calendar-event"}
-            dateConfig={props.dateConfig}
-          />
-        ),
-        panelDialogFixedOptions,
-      );
-      if (!result) return false;
-
-      if (scope === "occurrence") {
-        await createItem({ ...result, recurrence: null, recurringEventId: parent.id, recurrenceId });
-        return true;
-      }
-
-      const parentRecurrence = parent.recurrence;
-      if (!parentRecurrence) throw new Error("Recurring series data is missing");
-      await patchItem(parent.id, {
-        recurrence: { ...parentRecurrence, rrule: upsertUntil(parentRecurrence.rrule, recurrenceUntilBefore(recurrenceId)) },
-      });
-      await createItem({
-        ...result,
-        recurrence: result.recurrence ?? { ...parentRecurrence, dtstart: result.startsAt ?? recurrenceId, exdate: [] },
-      });
-      return true;
-    },
-    onSuccess: handleEditItemSuccess,
-    onError: (error) => prompts.error(error.message),
-  });
   const defaultNewEventSlot = (): CalendarEventTimeChange => {
-    const start = new Date(props.date);
-    start.setHours(9, 0, 0, 0);
+    const dateKey = calendar.formatDateKey(props.date, props.dateConfig);
+    const start = props.dateConfig?.timeZone
+      ? new Date(calendar.zonedDateTimeToInstant(`${dateKey}T09:00`, props.dateConfig.timeZone, { disambiguation: "compatible" }))
+      : new Date(`${dateKey}T09:00:00`);
     const end = new Date(start.getTime() + 60 * 60 * 1000);
     return { start, end, allDay: false };
   };
 
   return (
-    <div id={rootId} class="flex min-h-0 flex-1 flex-col gap-[var(--ui-space-shell)]">
-      <CalendarDetailNavigation rootId={rootId} />
-      <Show when={props.tags.length > 0 || props.canWrite}>
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <Show when={props.tags.length > 0}>
-            <FilterChip
-              label="Tags"
-              icon="ti ti-tag"
-              options={tagOptions()}
-              value={props.selectedTagIds}
-              defaultValue={[]}
-              onChange={setTags}
-            />
-          </Show>
-          <Show when={props.canWrite}>
-            <button
-              type="button"
-              class="btn-secondary btn-sm ml-auto"
-              disabled={createEvent.loading()}
-              onClick={() => createEvent.mutate(defaultNewEventSlot())}
-            >
-              <i class={`ti ${createEvent.loading() ? "ti-loader-2 animate-spin" : "ti-calendar-plus"}`} />
-              New event
-            </button>
-          </Show>
-        </div>
-      </Show>
+    <div class="flex min-h-0 flex-1 flex-col">
       <CoreCalendar
         class="flex-1"
         view={props.view}
@@ -465,21 +517,77 @@ export default function Calendar(props: CalendarProps) {
         withWeekNumbers
         dayBadges={dayBadges()}
         dateConfig={props.dateConfig}
+        toolbarActions={
+          <Show when={props.canWrite}>
+            <button
+              type="button"
+              class="btn-primary btn-sm"
+              disabled={createEvent.loading()}
+              onClick={() => createEvent.mutate(defaultNewEventSlot())}
+            >
+              <i class={`ti ${createEvent.loading() ? "ti-loader-2 animate-spin" : "ti-calendar-plus"}`} />
+              New event
+            </button>
+          </Show>
+        }
+        toolbarContent={
+          <div class="no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-100 bg-zinc-50/65 px-2 py-2 dark:border-zinc-800/70 dark:bg-zinc-950/35">
+            <FilterChip
+              label="Scope"
+              icon="ti ti-filter"
+              options={scopeOptions}
+              value={[`type:${props.filter.type}`, `assigned:${props.filter.assignedTo}`]}
+              defaultValue={[`type:${defaultCalendarFilter.type}`, `assigned:${defaultCalendarFilter.assignedTo}`]}
+              isActive={props.filter.type !== defaultCalendarFilter.type || props.filter.assignedTo !== defaultCalendarFilter.assignedTo}
+              onChange={(values) => {
+                const type = values.find((value) => value.startsWith("type:"))?.slice(5);
+                const assignedTo = values.find((value) => value.startsWith("assigned:"))?.slice(9);
+                setFilter({
+                  type: ItemTypeSchema.catch(defaultCalendarFilter.type).parse(type),
+                  assignedTo: AssignedToFilterSchema.catch(defaultCalendarFilter.assignedTo).parse(assignedTo),
+                });
+              }}
+            />
+            <FilterChip
+              label="Priority"
+              icon="ti ti-flag"
+              options={priorityOptions}
+              value={props.filter.priorities}
+              onChange={(priorities) => setFilter({ priorities: PrioritySchema.array().catch([]).parse(priorities) })}
+            />
+            <FilterChip
+              label="Status"
+              icon="ti ti-layout-kanban"
+              options={columnOptions()}
+              value={props.filter.columnIds}
+              onChange={(columnIds) => setFilter({ columnIds })}
+            />
+            <Show when={props.tags.length > 0}>
+              <FilterChip
+                label="Tags"
+                icon="ti ti-tag"
+                options={tagOptions()}
+                value={props.filter.tagIds}
+                onChange={(tagIds) => setFilter({ tagIds })}
+              />
+            </Show>
+            <span class="ml-auto shrink-0 text-xs text-dimmed">{props.items.length} shown</span>
+          </div>
+        }
         getViewHref={(view) =>
-          buildCalendarHref(props.baseUrl, view as CalendarView, props.date, props.selectedTagIds, undefined, props.dateConfig)
+          buildCalendarHref(props.baseUrl, view as CalendarView, props.date, props.filter, undefined, props.dateConfig)
         }
         getDateHref={(date, view) =>
-          buildCalendarHref(props.baseUrl, view as CalendarView, date, props.selectedTagIds, undefined, props.dateConfig)
+          buildCalendarHref(props.baseUrl, view as CalendarView, date, props.filter, undefined, props.dateConfig)
         }
         getEventHref={(event) => event.href}
         selectedEventId={props.selectedItemId}
         onViewChange={(view: CoreCalendarView) => routeTo(view as CalendarView, props.date)}
         onDateChange={(date, view) => routeTo(view as CalendarView, date)}
         onEventClick={selectEvent}
-        onEventDrop={props.canWrite ? (event, next) => updateEventTime.mutate({ event, next }) : undefined}
-        onEventResize={props.canWrite ? (event, next) => updateEventTime.mutate({ event, next }) : undefined}
-        onEventDoubleClick={props.canWrite ? (event) => editEvent.mutate(event) : undefined}
-        onSlotDoubleClick={props.canWrite ? (slot) => createEvent.mutate(slot) : undefined}
+        onEventDrop={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "move") : undefined}
+        onEventResize={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "resize") : undefined}
+        onSlotClick={props.canWrite && !createEvent.loading() ? (slot) => createEvent.mutate(slot) : undefined}
       />
     </div>
   );
