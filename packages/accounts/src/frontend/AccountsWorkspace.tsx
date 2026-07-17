@@ -1,5 +1,6 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
+import { accountsHelp } from "../help";
 import AccountsLayoutHelp from "./AccountsLayoutHelp.island";
 import AccountsNavSidebar, { type AccountsNavActiveKey } from "./AccountsNavSidebar";
 
@@ -14,7 +15,7 @@ type Props = {
 export default function AccountsWorkspace(props: Props) {
   return (
     <AppWorkspace class="h-full">
-      <AccountsLayoutHelp />
+      <AccountsLayoutHelp documents={accountsHelp.manifest} />
       <AccountsNavSidebar active={props.active} isAdmin={props.isAdmin} pendingRequests={props.pendingRequests} />
       <AppWorkspace.Content>
         <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
