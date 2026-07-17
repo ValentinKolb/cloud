@@ -12,6 +12,7 @@ import type {
   GroupBySpec,
   RecordDisplayConfig,
   RecordQuery,
+  TableAuditPolicy,
   TableQueryResult,
 } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
@@ -71,6 +72,7 @@ type Props = {
   tableDescription: string | null;
   tableIcon?: string | null;
   tableColumns: FieldColumnSpec[];
+  tableAuditPolicy: TableAuditPolicy;
   /** Table-level setting: when true, records should be created through forms. */
   disableDirectInsert: boolean;
   /** Short-id of the base — for the path-based URL builder. Threaded
@@ -136,6 +138,7 @@ export default function RecordsView(props: Props) {
   const [tableDescription, setTableDescription] = createSignal(props.tableDescription);
   const [tableIcon, setTableIcon] = createSignal(props.tableIcon ?? null);
   const [tableColumns, setTableColumns] = createSignal<FieldColumnSpec[]>(props.tableColumns);
+  const [tableAuditPolicy, setTableAuditPolicy] = createSignal<TableAuditPolicy>(props.tableAuditPolicy);
   const [tableDisplayConfig, setTableDisplayConfig] = createSignal<RecordDisplayConfig>(
     props.activeView ? { mode: "table" } : props.displayConfig,
   );
@@ -731,6 +734,8 @@ export default function RecordsView(props: Props) {
     setTableColumns,
     tableDisplayConfig,
     setTableDisplayConfig,
+    tableAuditPolicy,
+    setTableAuditPolicy,
     disableDirectInsert,
     setDisableDirectInsert,
     fields,
@@ -1128,6 +1133,7 @@ export default function RecordsView(props: Props) {
                   tableId={props.tableId}
                   tableName={tableName()}
                   fields={fields()}
+                  auditPolicy={tableAuditPolicy()}
                   record={selectedRecord}
                   detail={selectedRecordDetail}
                   documentTemplates={props.documentTemplates}

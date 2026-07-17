@@ -36,6 +36,13 @@ type RecordListBodyFlags = {
   deletedOnly?: boolean;
 };
 
+const AUDIT_INPUT = flag.input({
+  name: "audit",
+  fileName: "audit-file",
+  valueLabel: "json",
+  description: "Audit answers as JSON keyed by audit-question UUID",
+});
+
 export const composeRecordListBody = (query: Record<string, unknown>, flags: RecordListBodyFlags): Record<string, unknown> => {
   if (flags.source) {
     return { source: flags.source, query: Object.keys(query).length > 0 ? query : undefined, cursor: flags.cursor };
@@ -258,6 +265,7 @@ export const recordCommands = [
       ...tableFlag,
       record: flag.string({ description: "Record UUID" }),
       body: JSON_BODY_INPUT,
+      audit: AUDIT_INPUT,
       ifVersion: flag.int({ name: "if-version", min: 0, description: "Optimistic version guard" }),
     },
     async run({ ctx, args, flags }) {
@@ -265,43 +273,56 @@ export const recordCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
       const body = await readJsonInput<Record<string, unknown>>(flags.body, "record update JSON", true);
+      const answers = await readJsonInput<Record<string, string>>(flags.audit, "record audit answers", false);
       const record = await readApi<GridRecord>(
         ctx,
         `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}`,
-        jsonRequest("PATCH", body, flags.ifVersion !== undefined ? { "If-Match": String(flags.ifVersion) } : {}),
+        jsonRequest(
+          "PATCH",
+          { values: body, audit: answers ? { answers } : undefined },
+          flags.ifVersion !== undefined ? { "If-Match": String(flags.ifVersion) } : {},
+        ),
       );
       printJsonOrMessage(ctx, record, `Updated record ${record.id}.`);
     },
   }),
   command("records delete", {
-    summary: "Delete a record",
+    summary: "Move a record to trash",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }), yes: confirmFlag("Delete this record") },
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      record: flag.string({ description: "Record UUID" }),
+      audit: AUDIT_INPUT,
+      yes: confirmFlag("Move this record to trash"),
+    },
     async run({ ctx, args, flags }) {
-      if (!flags.yes) throw new Error("Pass --yes to delete.");
+      if (!flags.yes) throw new Error("Pass --yes to move the record to trash.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const answers = await readJsonInput<Record<string, string>>(flags.audit, "record audit answers", false);
       await readApi<MessageResponse>(
         ctx,
-        `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}`,
-        jsonRequest("DELETE"),
+        `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/trash`,
+        jsonRequest("POST", { audit: answers ? { answers } : undefined }),
       );
-      printJsonOrMessage(ctx, { deleted: recordId }, `Deleted record ${recordId}.`);
+      printJsonOrMessage(ctx, { deleted: recordId }, `Moved record ${recordId} to trash.`);
     },
   }),
   command("records restore", {
-    summary: "Restore a deleted record",
+    summary: "Restore a record from trash",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }) },
+    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }), audit: AUDIT_INPUT },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const answers = await readJsonInput<Record<string, string>>(flags.audit, "record audit answers", false);
       await readApi<MessageResponse>(
         ctx,
         `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/restore`,
-        jsonRequest("POST"),
+        jsonRequest("POST", { audit: answers ? { answers } : undefined }),
       );
       printJsonOrMessage(ctx, { restored: recordId }, `Restored record ${recordId}.`);
     },

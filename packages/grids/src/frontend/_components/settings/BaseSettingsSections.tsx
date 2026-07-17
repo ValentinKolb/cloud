@@ -397,10 +397,11 @@ export function DangerZone(props: { baseId: string; baseName: string }) {
   });
 
   const handleDelete = async () => {
-    const confirmed = await prompts.confirm(
-      `This permanently deletes "${props.baseName}" and all of its tables, fields, records, and audit history. This cannot be undone.`,
-      { title: "Delete base?", variant: "danger", confirmText: "Delete" },
-    );
+    const confirmed = await prompts.confirm(`Move "${props.baseName}" and its tables out of the active app? The grid remains restorable.`, {
+      title: "Move grid to trash?",
+      variant: "danger",
+      confirmText: "Move to trash",
+    });
     if (!confirmed) return;
     deleteMut.mutate(undefined);
   };

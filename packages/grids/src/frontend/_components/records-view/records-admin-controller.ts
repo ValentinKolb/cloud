@@ -3,7 +3,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { FieldColumnSpec, RecordDisplayConfig } from "../../../contracts";
+import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy } from "../../../contracts";
 import type { Field, Form, View } from "../../../service";
 import {
   createFieldFromPrompt,
@@ -33,6 +33,8 @@ type RecordsAdminControllerOptions = {
   setTableColumns: Setter<FieldColumnSpec[]>;
   tableDisplayConfig: Accessor<RecordDisplayConfig>;
   setTableDisplayConfig: Setter<RecordDisplayConfig>;
+  tableAuditPolicy: Accessor<TableAuditPolicy>;
+  setTableAuditPolicy: Setter<TableAuditPolicy>;
   disableDirectInsert: Accessor<boolean>;
   setDisableDirectInsert: Setter<boolean>;
   fields: Accessor<Field[]>;
@@ -68,6 +70,7 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
     icon: options.tableIcon(),
     columns: options.tableColumns(),
     displayConfig: options.tableDisplayConfig(),
+    auditPolicy: options.tableAuditPolicy(),
     disableDirectInsert: options.disableDirectInsert(),
   });
 
@@ -99,6 +102,7 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
         options.setTableIcon(table.icon ?? null);
         options.setTableColumns(table.columns);
         options.setTableDisplayConfig(table.displayConfig);
+        options.setTableAuditPolicy(table.auditPolicy);
         options.setDisableDirectInsert(table.disableDirectInsert);
       },
     });

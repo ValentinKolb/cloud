@@ -36,6 +36,13 @@ const recordValues = (description: string): WorkflowFieldSchema => ({
   description,
 });
 
+const auditAnswers: WorkflowFieldSchema = {
+  kind: "record",
+  values: value("Answer value or select-option UUID."),
+  optional: true,
+  description: "Audit answers keyed by the table audit-question UUID.",
+};
+
 const saveAs = identifier("Name used to reference this action output in later steps.", true);
 
 export const gridsWorkflowManifest: WorkflowLanguageManifest = {
@@ -128,6 +135,7 @@ export const gridsWorkflowManifest: WorkflowLanguageManifest = {
       config: object({
         record: text("Record input or output reference.", false, 500),
         set: recordValues("Fields and values to update."),
+        audit: auditAnswers,
       }),
     },
     {

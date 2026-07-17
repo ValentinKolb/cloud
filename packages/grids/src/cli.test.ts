@@ -55,6 +55,7 @@ const documentRunId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const documentLinkId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const fileId = "12121212-1212-4212-8212-121212121212";
 const accessId = "23232323-2323-4232-8232-232323232323";
+const auditQuestionId = "34343434-3434-4434-8434-343434343434";
 
 const jsonResponse = (value: unknown, status = 200) => Response.json(value, { status });
 
@@ -529,6 +530,48 @@ describe("grids CLI", () => {
     expect(calls[2]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ [fieldId]: "Octavia Butler" });
     expect(lines).toEqual([`Created record ${recordId}.`]);
+  });
+
+  test("sends audit answers through update, trash, and restore contracts", async () => {
+    const audit = { [auditQuestionId]: "Annual inventory review" };
+    const update = createContext(
+      ["records", "update", baseId, "Authors", recordId],
+      { body: JSON.stringify({ [fieldId]: "Octavia Butler" }), audit: JSON.stringify(audit) },
+      [jsonResponse(base), jsonResponse([table]), jsonResponse({ ...record, data: { [fieldId]: "Octavia Butler" } })],
+    );
+
+    await gridsCli.run(update.ctx);
+
+    expect(update.calls[2]?.path).toBe(`/api/grids/records/${tableId}/${recordId}`);
+    expect(update.calls[2]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(String(update.calls[2]?.init?.body))).toEqual({
+      values: { [fieldId]: "Octavia Butler" },
+      audit: { answers: audit },
+    });
+
+    const remove = createContext(["records", "delete", baseId, "Authors", recordId], { audit: JSON.stringify(audit), yes: true }, [
+      jsonResponse(base),
+      jsonResponse([table]),
+      new Response(null, { status: 204 }),
+    ]);
+
+    await gridsCli.run(remove.ctx);
+
+    expect(remove.calls[2]?.path).toBe(`/api/grids/records/${tableId}/${recordId}/trash`);
+    expect(remove.calls[2]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(remove.calls[2]?.init?.body))).toEqual({ audit: { answers: audit } });
+
+    const restore = createContext(["records", "restore", baseId, "Authors", recordId], { audit: JSON.stringify(audit) }, [
+      jsonResponse(base),
+      jsonResponse([table]),
+      new Response(null, { status: 204 }),
+    ]);
+
+    await gridsCli.run(restore.ctx);
+
+    expect(restore.calls[2]?.path).toBe(`/api/grids/records/${tableId}/${recordId}/restore`);
+    expect(restore.calls[2]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(restore.calls[2]?.init?.body))).toEqual({ audit: { answers: audit } });
   });
 
   test("imports records atomically through the backend import endpoint", async () => {

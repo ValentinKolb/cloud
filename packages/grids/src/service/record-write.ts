@@ -1,10 +1,12 @@
 import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import type { RecordMutationAudit } from "../contracts";
 import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
 import { logAudit, type SqlClient } from "./audit";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { requireTableAlive } from "./parent-checks";
+import { buildRecordAuditContext, loadTableAuditPolicy } from "./record-audit";
 import { captureRecordEventSnapshot, notifyRecordEventOutbox } from "./record-event-outbox";
 import { buildPersistedUpdateData, buildRecordDiff, mapRecordRow, splitRelationsFromData } from "./record-persistence";
 import { get } from "./record-read";
@@ -336,7 +338,7 @@ export const createMany = async (
 
 type UpdateRecordInTransactionResult = {
   record: GridRecord;
-  outboxId: string;
+  outboxId: string | null;
 };
 
 export const updateInTransaction = async (
@@ -346,7 +348,7 @@ export const updateInTransaction = async (
   payload: Record<string, unknown>,
   actorId: string | null,
   ifMatchVersion?: number,
-  opts: { dateConfig?: DateContext } = {},
+  opts: { dateConfig?: DateContext; audit?: RecordMutationAudit } = {},
 ): Promise<Result<UpdateRecordInTransactionResult>> => {
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
@@ -374,6 +376,11 @@ export const updateInTransaction = async (
 
   // Build the diff up front so we can pass it into the transaction.
   const diff = buildRecordDiff(existing.data, validated.data);
+  const auditPolicy = await loadTableAuditPolicy(client, tableId);
+  if (!auditPolicy.ok) return auditPolicy;
+  const auditContext = buildRecordAuditContext(auditPolicy.data, "update", Object.keys(diff), opts.audit);
+  if (!auditContext.ok) return auditContext;
+  if (Object.keys(diff).length === 0) return ok({ record: existing, outboxId: null });
   const eventPayload = {
     v: 1,
     type: "record.updated",
@@ -406,7 +413,7 @@ export const updateInTransaction = async (
     eventType: "record.updated",
   });
   if (Object.keys(diff).length > 0) {
-    await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff }, client);
+    await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff, context: auditContext.data }, client);
   }
   const record = mapRecordRow(row);
   for (const [fieldId, toIds] of split.relations) record.data[fieldId] = toIds;
@@ -420,11 +427,21 @@ export const update = async (
   payload: Record<string, unknown>,
   actorId: string | null,
   ifMatchVersion?: number,
-  opts: { includeRelations?: boolean; viewer?: ExpansionViewer; dateConfig?: DateContext } = {},
+  opts: {
+    includeRelations?: boolean;
+    viewer?: ExpansionViewer;
+    dateConfig?: DateContext;
+    audit?: RecordMutationAudit;
+  } = {},
 ): Promise<Result<GridRecord>> => {
   const fields = await listFields(tableId);
   const updated = await sql
-    .begin((tx) => updateInTransaction(tx, tableId, recordId, payload, actorId, ifMatchVersion, { dateConfig: opts.dateConfig }))
+    .begin((tx) =>
+      updateInTransaction(tx, tableId, recordId, payload, actorId, ifMatchVersion, {
+        dateConfig: opts.dateConfig,
+        audit: opts.audit,
+      }),
+    )
     .catch((error: unknown) => {
       const conflict = recordUniqueConflict<UpdateRecordInTransactionResult>(error, fields);
       if (conflict) return conflict;
@@ -434,11 +451,16 @@ export const update = async (
 
   const record = await get(tableId, recordId, opts);
   if (!record) return fail(err.notFound("Record"));
-  notifyRecordEventOutbox(updated.data.outboxId);
+  if (updated.data.outboxId) notifyRecordEventOutbox(updated.data.outboxId);
   return ok(record);
 };
 
-export const softDelete = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
+export const softDelete = async (
+  tableId: string,
+  recordId: string,
+  actorId: string | null,
+  audit?: RecordMutationAudit,
+): Promise<Result<void>> => {
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   const eventPayload = {
@@ -450,6 +472,10 @@ export const softDelete = async (tableId: string, recordId: string, actorId: str
   };
   const deleted = await sql
     .begin(async (tx): Promise<Result<string>> => {
+      const auditPolicy = await loadTableAuditPolicy(tx, tableId);
+      if (!auditPolicy.ok) return auditPolicy;
+      const auditContext = buildRecordAuditContext(auditPolicy.data, "delete", [], audit);
+      if (!auditContext.ok) return auditContext;
       const [row] = await tx<Array<{ outbox_id: string }>>`
         UPDATE grids.records
         SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
@@ -470,7 +496,7 @@ export const softDelete = async (tableId: string, recordId: string, actorId: str
         recordId,
         eventType: "record.deleted",
       });
-      await logAudit({ tableId, recordId, userId: actorId, action: "deleted" }, tx);
+      await logAudit({ tableId, recordId, userId: actorId, action: "deleted", context: auditContext.data }, tx);
       return ok(row.outbox_id);
     })
     .catch((error: unknown) => {
@@ -482,7 +508,12 @@ export const softDelete = async (tableId: string, recordId: string, actorId: str
   return ok();
 };
 
-export const restore = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
+export const restore = async (
+  tableId: string,
+  recordId: string,
+  actorId: string | null,
+  audit?: RecordMutationAudit,
+): Promise<Result<void>> => {
   const fields = await listFields(tableId);
   const eventPayload = {
     v: 1,
@@ -495,6 +526,10 @@ export const restore = async (tableId: string, recordId: string, actorId: string
     .begin(async (tx): Promise<Result<string>> => {
       const parentAlive = await requireTableAlive(tableId, tx);
       if (!parentAlive.ok) return parentAlive;
+      const auditPolicy = await loadTableAuditPolicy(tx, tableId);
+      if (!auditPolicy.ok) return auditPolicy;
+      const auditContext = buildRecordAuditContext(auditPolicy.data, "restore", [], audit);
+      if (!auditContext.ok) return auditContext;
       const [row] = await tx<Array<{ outbox_id: string }>>`
         UPDATE grids.records
         SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
@@ -508,7 +543,7 @@ export const restore = async (tableId: string, recordId: string, actorId: string
         recordId,
         eventType: "record.restored",
       });
-      await logAudit({ tableId, recordId, userId: actorId, action: "restored" }, tx);
+      await logAudit({ tableId, recordId, userId: actorId, action: "restored", context: auditContext.data }, tx);
       return ok(row.outbox_id);
     })
     .catch((error: unknown) => {

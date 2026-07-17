@@ -358,8 +358,8 @@ else
   fail "cross-table rollup" "expected 99.99, got '$ROLLUP'"
 fi
 
-# File field: upload/list/download/delete. The bytes live in
-# grids.files and cascade from record/field/table/base hard deletes.
+# File field: upload/list/download/delete. The bytes live in grids.files;
+# the explicit file delete below verifies their normal lifecycle.
 FILE_TMP=$(mktemp)
 printf "hello grids smoke" > "$FILE_TMP"
 UPLOAD_TMP=$(mktemp)

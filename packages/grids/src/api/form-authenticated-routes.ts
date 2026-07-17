@@ -158,8 +158,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
       "/:formId",
       describeRoute({
         tags: ["Grids:Form"],
-        summary: "Delete a form (soft-delete; restorable for 30 days)",
-        responses: { 204: { description: "Deleted" } },
+        summary: "Move a form to trash",
+        responses: { 204: { description: "Moved to trash" } },
       }),
       async (context) => {
         const formId = uuidParam(context, "formId");

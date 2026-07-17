@@ -209,7 +209,12 @@ describe("Grids workflow kernel action ports", () => {
     const paths: Array<{ kind: string; path: Array<string | number> | undefined }> = [];
     const services = { ...commonServices(), updateRecord: update };
     const ports = createGridsWorkflowActionPorts({ workflow, services, effectIntents: executingIntents() });
-    const step = actionStep("updateRecord", { record: "inputs.item", set: { Status: "Done" } });
+    const auditQuestionId = "00000000-0000-4000-8000-000000000099";
+    const step = actionStep("updateRecord", {
+      record: "inputs.item",
+      set: { Status: "Done" },
+      audit: { [auditQuestionId]: "Scheduled lifecycle update" },
+    });
     const ctx = context("execute", step, {
       plan: boundPlan({ "steps.0.updateRecord.set.Status": FIELD_ID }),
       resolveReference: async (_reference, path) => {
@@ -230,8 +235,16 @@ describe("Grids workflow kernel action ports", () => {
     expect(paths).toEqual([
       { kind: "resolve", path: ["steps", 0, "updateRecord", "record"] },
       { kind: "evaluate", path: ["steps", 0, "updateRecord", "set", "Status"] },
+      { kind: "evaluate", path: ["steps", 0, "updateRecord", "audit", auditQuestionId] },
     ]);
-    expect(update).toHaveBeenCalledWith(TABLE_ID, RECORD_ID, { [FIELD_ID]: "Done" }, ctx.invocation.actor.userId, expect.anything());
+    expect(update).toHaveBeenCalledWith(
+      TABLE_ID,
+      RECORD_ID,
+      { [FIELD_ID]: "Done" },
+      { answers: { [auditQuestionId]: "Scheduled lifecycle update" } },
+      ctx.invocation.actor.userId,
+      expect.anything(),
+    );
   });
 
   test("stores only a fingerprint and field ids for record effect intent matching", async () => {

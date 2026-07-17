@@ -1,6 +1,6 @@
 import { Placeholder } from "@valentinkolb/cloud/ui";
 import { For, Show } from "solid-js";
-import type { AuditEntry } from "../../../service";
+import type { AuditEntry, Field } from "../../../service";
 
 type AuditEntryWithUser = AuditEntry & { userDisplayName: string | null };
 
@@ -31,7 +31,16 @@ export function formatRecordRelativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export default function RecordHistorySection(props: { entries: AuditEntryWithUser[] }) {
+const displayValue = (value: unknown): string => {
+  if (value === null || value === undefined || value === "") return "Empty";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.length === 0 ? "Empty" : value.map(displayValue).join(", ");
+  return JSON.stringify(value);
+};
+
+export default function RecordHistorySection(props: { entries: AuditEntryWithUser[]; fields: Field[] }) {
+  const fieldNames = () => new Map(props.fields.map((field) => [field.id, field.name]));
   return (
     <details class="detail-section-compact group">
       <summary class="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-secondary">
@@ -49,32 +58,18 @@ export default function RecordHistorySection(props: { entries: AuditEntryWithUse
         <For each={props.entries}>
           {(entry) => {
             const fieldsChanged = entry.diff ? Object.keys(entry.diff) : [];
+            const changedLabels = fieldsChanged.map((fieldId) => fieldNames().get(fieldId) ?? fieldId);
             const summary =
               fieldsChanged.length === 0
                 ? null
                 : fieldsChanged.length <= 3
-                  ? fieldsChanged.join(", ")
-                  : `${fieldsChanged.slice(0, 3).join(", ")} +${fieldsChanged.length - 3} more`;
+                  ? changedLabels.join(", ")
+                  : `${changedLabels.slice(0, 3).join(", ")} +${fieldsChanged.length - 3} more`;
             return (
               <details class="text-xs">
                 <summary class="cursor-pointer select-none flex items-baseline gap-2">
                   <i class={`ti ${ACTION_ICONS[entry.action] ?? "ti-circle"} ${ACTION_COLORS[entry.action] ?? "text-dimmed"} text-xs`} />
                   <span class="capitalize text-secondary">{entry.action}</span>
-                  {/* Actor attribution. The audit row carries both a
-                      `userId` (UUID of the actor at write time, or
-                      null) and a `userDisplayName` resolved at read
-                      time via JOIN to auth.users (null when the user
-                      is gone OR when no user was ever associated).
-                      Three states, three distinct strings:
-                        - name resolved        → "by <name>"
-                        - userId null          → "via public form"
-                          (every null-actor audit on records comes
-                          from the anonymous form-submit path; see
-                          submitFormResponse in api/form-api-shared.ts)
-                        - userId set, name nil → "by deleted user"
-                          (italic to mark it as a phantom — the
-                          actor existed but is no longer in auth.users)
-                  */}
                   <Show
                     when={entry.userDisplayName}
                     fallback={
@@ -95,10 +90,37 @@ export default function RecordHistorySection(props: { entries: AuditEntryWithUse
                 <Show when={summary}>
                   <p class="ml-5 text-[11px] text-dimmed">changed {summary}</p>
                 </Show>
+                <Show when={(entry.context?.answers.length ?? 0) > 0}>
+                  <dl class="ml-5 mt-2 grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+                    <For each={entry.context?.answers ?? []}>
+                      {(answer) => (
+                        <>
+                          <dt class="text-dimmed">{answer.label}</dt>
+                          <dd class="whitespace-pre-wrap text-secondary">{answer.optionLabel ?? answer.value}</dd>
+                        </>
+                      )}
+                    </For>
+                  </dl>
+                </Show>
                 <Show when={entry.diff && fieldsChanged.length > 0}>
-                  <pre class="ml-5 mt-1 max-h-40 overflow-auto rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2 font-mono text-[10px] text-secondary">
-                    {JSON.stringify(entry.diff, null, 2)}
-                  </pre>
+                  <dl class="ml-5 mt-2 flex flex-col gap-2">
+                    <For each={fieldsChanged}>
+                      {(fieldId) => {
+                        const change = entry.diff?.[fieldId];
+                        return (
+                          <div class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2 text-[11px]">
+                            <dt class="font-medium text-secondary">{fieldNames().get(fieldId) ?? fieldId}</dt>
+                            <dd class="mt-1 grid grid-cols-[3rem_minmax(0,1fr)] gap-x-2 gap-y-1">
+                              <span class="text-dimmed">Before</span>
+                              <span class="break-words text-secondary">{displayValue(change?.old)}</span>
+                              <span class="text-dimmed">After</span>
+                              <span class="break-words text-secondary">{displayValue(change?.new)}</span>
+                            </dd>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </dl>
                 </Show>
               </details>
             );

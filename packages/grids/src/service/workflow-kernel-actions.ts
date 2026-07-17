@@ -22,7 +22,7 @@ import type {
 import type { DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { app } from "../config";
-import type { DocumentRun, DocumentTemplate, EmailTemplate, GridRecord, Table } from "../contracts";
+import type { DocumentRun, DocumentTemplate, EmailTemplate, GridRecord, RecordMutationAudit, Table } from "../contracts";
 import { createWorkflowNotificationSender, type WorkflowNotificationSender } from "../notifications";
 import type { GridsWorkflow, GridsWorkflowPrincipal } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
@@ -89,6 +89,7 @@ export type GridsWorkflowActionServices = {
     tableId: string,
     recordId: string,
     values: Record<string, unknown>,
+    audit: RecordMutationAudit | undefined,
     actorId: string | null,
     client?: SqlClient,
   ): Promise<ServiceResult<GridRecord>>;
@@ -315,10 +316,13 @@ const defaultServices = (options: CreateGridsWorkflowActionPortsOptions): GridsW
       const created = await createRecordInTransaction(client, tableId, values, actorId, { dateConfig: config });
       return created.ok ? { ok: true, data: created.data.record } : created;
     },
-    updateRecord: async (tableId, recordId, values, actorId, client) => {
+    updateRecord: async (tableId, recordId, values, audit, actorId, client) => {
       const config = await dateContext();
-      if (!client) return updateRecord(tableId, recordId, values, actorId, undefined, { dateConfig: config });
-      const updated = await updateRecordInTransaction(client, tableId, recordId, values, actorId, undefined, { dateConfig: config });
+      if (!client) return updateRecord(tableId, recordId, values, actorId, undefined, { dateConfig: config, audit });
+      const updated = await updateRecordInTransaction(client, tableId, recordId, values, actorId, undefined, {
+        dateConfig: config,
+        audit,
+      });
       return updated.ok ? { ok: true, data: updated.data.record } : updated;
     },
     getDocumentTemplate: getTemplate,
@@ -907,6 +911,24 @@ const evaluatedFieldPayload = async (
   return payload;
 };
 
+const evaluatedAuditAnswers = async (
+  context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
+  step: WorkflowActionStep,
+): Promise<RecordMutationAudit | undefined> => {
+  if (step.config.audit === undefined) return undefined;
+  const raw = objectConfig(step.config.audit, `${step.action}.audit`);
+  const answers: Record<string, string> = {};
+  for (const [questionId, value] of Object.entries(raw)) {
+    const path = [...actionPath(step), "audit", questionId];
+    const evaluated = await context.evaluate(value, path);
+    if (typeof evaluated !== "string") {
+      throw actionError("WORKFLOW_VALUE_INVALID", `${step.action}.audit.${questionId} must resolve to text`);
+    }
+    answers[questionId] = evaluated;
+  }
+  return { answers };
+};
+
 const restoredIntentOutcome = (prepared: Exclude<PreparedEffectIntent, { state: "execute" }>): WorkflowStepOutcome => {
   if (prepared.state === "succeeded") return { state: "completed", ...(prepared.output === undefined ? {} : { output: prepared.output }) };
   return prepared.state === "failed" ? { state: "failed", error: prepared.error } : { state: "needs_attention", error: prepared.error };
@@ -1016,7 +1038,8 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         const record = await recordReference(context, step, "record");
         await currentRecord(services, options, context, record, "write");
         const values = await evaluatedFieldPayload(context, step, "set");
-        const requestFingerprint = await hashWorkflowJson(toJsonValue(values));
+        const audit = await evaluatedAuditAnswers(context, step);
+        const requestFingerprint = await hashWorkflowJson(toJsonValue({ values, audit: audit ?? null }));
         return executeTransactional(
           effectIntents,
           context,
@@ -1028,7 +1051,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           },
           async (client) => {
             const updated = requireServiceResult(
-              await services.updateRecord(record.tableId, record.recordId, values, actorId(context), client),
+              await services.updateRecord(record.tableId, record.recordId, values, audit, actorId(context), client),
             );
             await services.audit(
               {
@@ -1056,6 +1079,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         const record = await recordReference(context, step, "record");
         await currentRecord(services, options, context, record, "write");
         await evaluatedFieldPayload(context, step, "set");
+        await evaluatedAuditAnswers(context, step);
         return { state: "planned", output: record, effects: [effectDescription(context, step.action)] };
       }),
     null,

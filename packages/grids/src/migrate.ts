@@ -119,6 +119,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       icon TEXT,
       columns JSONB NOT NULL DEFAULT '[]'::jsonb,
       display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb,
+      audit_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
       position INT NOT NULL DEFAULT 0,
       disable_direct_insert BOOLEAN NOT NULL DEFAULT FALSE,
       deleted_at TIMESTAMPTZ,
@@ -127,6 +128,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       CONSTRAINT tables_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
+  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS audit_policy JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
   // Hot-path index: list live tables of a base in order.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base_live ON grids.tables(base_id, position) WHERE deleted_at IS NULL`.simple();
   const [duplicateTableName] = await sql<Array<{ baseId: string; name: string }>>`
@@ -253,8 +255,8 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   // files — small per-record blobs stored directly in Postgres
   // ──────────────────────────────────────────────────────────────────
   // File field values do not live in records.data. The blob table is the
-  // source of truth and cascades from records/fields, so hard-pruning a
-  // record/table/base or removing a file field lets Postgres clean up bytes.
+  // source of truth, and foreign-key cascades keep its lifecycle tied to
+  // records and fields.
   await sql`
     CREATE TABLE IF NOT EXISTS grids.files (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -746,8 +748,8 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // audit log
   // ──────────────────────────────────────────────────────────────────
-  // No FK on record_id: records are soft-deletable and may be hard-pruned
-  // later, but the audit history must survive.
+  // No FK on record_id: audit history remains readable independently from
+  // the record lifecycle.
   await sql`
     CREATE TABLE IF NOT EXISTS grids.audit_log (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -757,11 +759,13 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
       user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       action TEXT NOT NULL,
       diff JSONB,
+      context JSONB,
       ip TEXT,
       user_agent TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  await sql`ALTER TABLE grids.audit_log ADD COLUMN IF NOT EXISTS context JSONB`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_record ON grids.audit_log(record_id, created_at DESC) WHERE record_id IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_table ON grids.audit_log(table_id, created_at DESC) WHERE table_id IS NOT NULL`.simple();
   console.log("  ✓ grids.audit_log");

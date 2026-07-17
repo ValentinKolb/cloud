@@ -89,7 +89,7 @@ export default function BaseSettingsPanel(props: Props) {
           id="danger"
           title="Danger zone"
           icon="ti ti-alert-triangle"
-          description="Permanently delete this base and all of its contents."
+          description="Move this grid and its contents to trash. It remains restorable."
           tone="danger"
         >
           <DangerZone baseId={props.base.id} baseName={props.base.name} />

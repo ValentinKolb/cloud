@@ -39,6 +39,7 @@ const table = {
   icon: null,
   columns: [],
   displayConfig: { mode: "table" as const },
+  auditPolicy: {},
   position: 0,
   disableDirectInsert: false,
   deletedAt: null,

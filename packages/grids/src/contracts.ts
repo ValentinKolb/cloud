@@ -58,6 +58,144 @@ export const RecordDisplayConfigSchema = z
   .default({ mode: "table" });
 export type RecordDisplayConfig = z.infer<typeof RecordDisplayConfigSchema>;
 
+// ── Record audit requirements ─────────────────────────────────────────────
+//
+// Audit questions are intentionally smaller than normal Grids fields. They
+// describe immutable operation metadata, not values that belong to a record.
+const AuditQuestionBaseSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(1_000).optional(),
+  required: z.boolean().default(false),
+});
+
+export const AuditQuestionSchema = z.discriminatedUnion("type", [
+  AuditQuestionBaseSchema.extend({ type: z.literal("text") }).strict(),
+  AuditQuestionBaseSchema.extend({ type: z.literal("longtext") }).strict(),
+  AuditQuestionBaseSchema.extend({
+    type: z.literal("select"),
+    options: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            label: z.string().trim().min(1).max(200),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+  }).strict(),
+]);
+export type AuditQuestion = z.infer<typeof AuditQuestionSchema>;
+
+const uniqueNormalizedValues = (values: string[]): boolean => {
+  const normalized = values.map((value) => value.trim().toLowerCase());
+  return new Set(normalized).size === normalized.length;
+};
+
+const AuditQuestionsSchema = z
+  .array(AuditQuestionSchema)
+  .max(20)
+  .superRefine((questions, ctx) => {
+    if (new Set(questions.map((question) => question.id)).size !== questions.length) {
+      ctx.addIssue({ code: "custom", message: "Audit question IDs must be unique" });
+    }
+    if (!uniqueNormalizedValues(questions.map((question) => question.label))) {
+      ctx.addIssue({ code: "custom", message: "Audit question labels must be unique" });
+    }
+    questions.forEach((question, questionIndex) => {
+      if (question.type !== "select") return;
+      if (new Set(question.options.map((option) => option.id)).size !== question.options.length) {
+        ctx.addIssue({
+          code: "custom",
+          path: [questionIndex, "options"],
+          message: "Select option IDs must be unique",
+        });
+      }
+      if (!uniqueNormalizedValues(question.options.map((option) => option.label))) {
+        ctx.addIssue({
+          code: "custom",
+          path: [questionIndex, "options"],
+          message: "Select option labels must be unique",
+        });
+      }
+    });
+  })
+  .default([]);
+
+const AuditRequirementSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    questions: AuditQuestionsSchema,
+  })
+  .strict()
+  .superRefine((requirement, ctx) => {
+    if (requirement.enabled && requirement.questions.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["questions"], message: "Enabled audit requirements need at least one question" });
+    }
+  });
+export type AuditRequirement = z.infer<typeof AuditRequirementSchema>;
+
+const AuditUpdateRequirementSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    questions: AuditQuestionsSchema,
+    scope: z.enum(["all", "selected"]).default("all"),
+    fieldIds: z.array(z.string().uuid()).max(200).default([]),
+  })
+  .strict()
+  .superRefine((requirement, ctx) => {
+    if (requirement.enabled && requirement.questions.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["questions"], message: "Enabled audit requirements need at least one question" });
+    }
+    if (requirement.enabled && requirement.scope === "selected" && requirement.fieldIds.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["fieldIds"], message: "Select at least one field" });
+    }
+    if (new Set(requirement.fieldIds).size !== requirement.fieldIds.length) {
+      ctx.addIssue({ code: "custom", path: ["fieldIds"], message: "Selected field IDs must be unique" });
+    }
+  });
+export type AuditUpdateRequirement = z.infer<typeof AuditUpdateRequirementSchema>;
+
+export const TableAuditPolicySchema = z
+  .object({
+    delete: AuditRequirementSchema.optional(),
+    restore: AuditRequirementSchema.optional(),
+    update: AuditUpdateRequirementSchema.optional(),
+  })
+  .strict()
+  .default({});
+export type TableAuditPolicy = z.infer<typeof TableAuditPolicySchema>;
+
+export const RecordMutationAuditSchema = z
+  .object({
+    answers: z.record(z.string().uuid(), z.string().max(10_000)).default({}),
+  })
+  .strict();
+export type RecordMutationAudit = z.infer<typeof RecordMutationAuditSchema>;
+
+export const RecordAuditContextSchema = z
+  .object({
+    version: z.literal(1),
+    operation: z.enum(["delete", "restore", "update"]),
+    questions: z.array(AuditQuestionSchema),
+    answers: z.array(
+      z
+        .object({
+          questionId: z.string().uuid(),
+          label: z.string(),
+          type: z.enum(["text", "longtext", "select"]),
+          required: z.boolean(),
+          value: z.string(),
+          optionLabel: z.string().optional(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type RecordAuditContext = z.infer<typeof RecordAuditContextSchema>;
+
 // ── Base ──────────────────────────────────────────────────────────────────
 export const BaseSchema = z.object({
   id: z.string().uuid(),
@@ -102,6 +240,7 @@ export const TableSchema = z.object({
   icon: IconNameSchema,
   columns: z.array(z.lazy(() => FieldColumnSpecSchema)),
   displayConfig: RecordDisplayConfigSchema,
+  auditPolicy: TableAuditPolicySchema,
   position: z.number().int(),
   disableDirectInsert: z.boolean(),
   deletedAt: z.string().datetime().nullable(),
@@ -124,6 +263,7 @@ export const UpdateTableSchema = z.object({
   icon: IconNameSchema,
   columns: z.array(z.lazy(() => FieldColumnSpecSchema)).optional(),
   displayConfig: RecordDisplayConfigSchema.optional(),
+  auditPolicy: TableAuditPolicySchema.optional(),
   disableDirectInsert: z.boolean().optional(),
 });
 
@@ -200,6 +340,19 @@ export const GridRecordSchema = z.object({
 export type GridRecord = z.infer<typeof GridRecordSchema>;
 
 export const RecordPayloadSchema = z.record(z.string(), z.unknown());
+
+export const RecordUpdateBodySchema = z
+  .object({
+    values: RecordPayloadSchema,
+    audit: RecordMutationAuditSchema.optional(),
+  })
+  .strict();
+
+export const RecordOperationBodySchema = z
+  .object({
+    audit: RecordMutationAuditSchema.optional(),
+  })
+  .strict();
 
 const FilterLeafSchema = z.object({
   fieldId: z.string(),
@@ -1374,7 +1527,7 @@ export const FieldListSchema = z.array(FieldSchema);
 
 // ── Field-dependents preflight ────────────────────────────────────────────
 const FieldDependentSchema = z.object({
-  type: z.enum(["view", "form", "formula", "lookup", "rollup", "relation_display"]),
+  type: z.enum(["view", "form", "formula", "lookup", "rollup", "relation_display", "audit_policy"]),
   resourceId: z.string().uuid(),
   resourceName: z.string(),
   context: z.string().optional(),

@@ -1,7 +1,14 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { type DocumentTemplate, FieldColumnSpecSchema, RecordDisplayConfigSchema, type View, ViewUiSettingsSchema } from "../contracts";
+import {
+  type DocumentTemplate,
+  FieldColumnSpecSchema,
+  RecordDisplayConfigSchema,
+  TableAuditPolicySchema,
+  type View,
+  ViewUiSettingsSchema,
+} from "../contracts";
 import { listForBase as listDashboardsForBase } from "./dashboards";
 import { type Form, normalizeFormConfig, toRenderableForm } from "./forms";
 import { parseJsonbRow } from "./jsonb";
@@ -59,6 +66,7 @@ const mapTable = (row: DbRow): Table => ({
   icon: (row.icon as string | null) ?? null,
   columns: parseColumns(row.columns),
   displayConfig: parseDisplayConfig(row.display_config),
+  auditPolicy: TableAuditPolicySchema.parse(parseJsonbRow<unknown>(row.audit_policy, {})),
   position: row.position as number,
   disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,

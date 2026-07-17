@@ -5,7 +5,7 @@ import { err, fail, ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { ExportBodySchema, GridRecordSchema, RecordPayloadSchema } from "../contracts";
+import { ExportBodySchema, GridRecordSchema, RecordOperationBodySchema, RecordPayloadSchema, RecordUpdateBodySchema } from "../contracts";
 import { gridsService } from "../service";
 import { validateRecordQueryForTable } from "../service/query-validation";
 import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
@@ -262,10 +262,11 @@ const app = new Hono<AuthContext>()
       summary: "Update a record (optimistic lock via If-Match: <version>)",
       responses: {
         200: jsonResponse(GridRecordSchema, "Updated"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input or missing audit answers"),
         409: jsonResponse(ErrorResponseSchema, "Version conflict"),
       },
     }),
-    v("json", RecordPayloadSchema),
+    v("json", RecordUpdateBodySchema),
     async (c) => {
       const tableId = c.req.param("tableId")!;
       const recordId = c.req.param("recordId")!;
@@ -275,21 +276,27 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const ifMatchHeader = c.req.header("If-Match");
       const ifMatchVersion = ifMatchHeader ? Number(ifMatchHeader) : undefined;
+      const body = c.req.valid("json");
       return respond(c, async () =>
-        gridsService.record.update(tableId, recordId, c.req.valid("json"), currentActorUserId(c), ifMatchVersion, {
+        gridsService.record.update(tableId, recordId, body.values, currentActorUserId(c), ifMatchVersion, {
           dateConfig: await getDateConfig(c),
+          audit: body.audit,
         }),
       );
     },
   )
 
-  .delete(
-    "/:tableId/:recordId",
+  .post(
+    "/:tableId/:recordId/trash",
     describeRoute({
       tags: ["Grids:Record"],
-      summary: "Soft-delete a record",
-      responses: { 204: { description: "Deleted" } },
+      summary: "Move a record to trash",
+      responses: {
+        204: { description: "Moved to trash" },
+        400: jsonResponse(ErrorResponseSchema, "Invalid input or missing audit answers"),
+      },
     }),
+    v("json", RecordOperationBodySchema),
     async (c) => {
       const tableId = c.req.param("tableId")!;
       const recordId = c.req.param("recordId")!;
@@ -297,7 +304,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const result = await gridsService.record.softDelete(tableId, recordId, currentActorUserId(c));
+      const result = await gridsService.record.softDelete(tableId, recordId, currentActorUserId(c), c.req.valid("json").audit);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -358,8 +365,12 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Restore a soft-deleted record",
-      responses: { 204: { description: "Restored" } },
+      responses: {
+        204: { description: "Restored" },
+        400: jsonResponse(ErrorResponseSchema, "Invalid input or missing audit answers"),
+      },
     }),
+    v("json", RecordOperationBodySchema),
     async (c) => {
       const tableId = c.req.param("tableId")!;
       const recordId = c.req.param("recordId")!;
@@ -367,7 +378,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const result = await gridsService.record.restore(tableId, recordId, currentActorUserId(c));
+      const result = await gridsService.record.restore(tableId, recordId, currentActorUserId(c), c.req.valid("json").audit);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },

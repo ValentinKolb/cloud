@@ -1,4 +1,12 @@
-import type { DocumentProfile, Field, FieldColumnSpec, GridRecord, RecordDisplayConfig } from "../contracts";
+import type {
+  DocumentProfile,
+  Field,
+  FieldColumnSpec,
+  GridRecord,
+  RecordAuditContext,
+  RecordDisplayConfig,
+  TableAuditPolicy,
+} from "../contracts";
 
 export type { Base, Field, GridRecord, Table } from "../contracts";
 
@@ -79,6 +87,7 @@ export type AuditEntry = {
   userId: string | null;
   action: AuditAction;
   diff: Record<string, { old: unknown; new: unknown }> | null;
+  context: RecordAuditContext | null;
   ip: string | null;
   userAgent: string | null;
   createdAt: string;
@@ -132,6 +141,7 @@ export type UpdateTableInput = {
   icon?: string | null;
   columns?: FieldColumnSpec[];
   displayConfig?: RecordDisplayConfig;
+  auditPolicy?: TableAuditPolicy;
   disableDirectInsert?: boolean;
 };
 

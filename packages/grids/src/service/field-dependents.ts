@@ -1,10 +1,11 @@
 import { sql } from "bun";
+import { TableAuditPolicySchema } from "../contracts";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { normalizeRefKey } from "../ref-syntax";
 
 export type FieldDependent = {
   /** Kind of resource that references the field. */
-  type: "view" | "form" | "formula" | "lookup" | "rollup" | "relation_display";
+  type: "view" | "form" | "formula" | "lookup" | "rollup" | "relation_display" | "audit_policy";
   /** ID of the dependent resource. */
   resourceId: string;
   /** Human label for error messages. */
@@ -129,6 +130,31 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
         blocking: false,
       });
     }
+  }
+
+  // ── record audit policy ────────────────────────────────────────
+  // Selected-field update requirements are compliance configuration,
+  // not presentation metadata. Silently dropping them would weaken the
+  // policy, so the user must update the policy before deleting the field.
+  const [tableRow] = await sql<{ name: string; audit_policy: unknown }[]>`
+    SELECT name, audit_policy
+    FROM grids.tables
+    WHERE id = ${sourceTableId}::uuid AND deleted_at IS NULL
+  `;
+  const auditPolicy = TableAuditPolicySchema.safeParse(tableRow?.audit_policy ?? {});
+  if (
+    auditPolicy.success &&
+    auditPolicy.data.update?.enabled &&
+    auditPolicy.data.update.scope === "selected" &&
+    auditPolicy.data.update.fieldIds.includes(fieldId)
+  ) {
+    dependents.push({
+      type: "audit_policy",
+      resourceId: sourceTableId,
+      resourceName: `${tableRow?.name ?? "Table"} audit requirements`,
+      context: "update fields",
+      blocking: true,
+    });
   }
 
   // ── computed / link field configs across the whole base ──────

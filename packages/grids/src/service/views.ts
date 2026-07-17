@@ -361,8 +361,7 @@ export const update = async (id: string, input: UpdateViewServiceInput, actorId:
 };
 
 /**
- * Soft-deletes the view. Hard purge happens via maintenance job after
- * the grace period; the row stays restorable until then.
+ * Soft-deletes the view. The row stays restorable.
  */
 export const remove = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(id);

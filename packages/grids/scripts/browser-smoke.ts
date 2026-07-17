@@ -558,11 +558,13 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
     method: "PATCH",
     path: `/api/grids/records/${fixture.table.id}/${created.id}`,
     body: {
-      [fixture.fields.title]: updatedTitle,
-      [fixture.fields.amount]: "12.34",
-      [fixture.fields.status]: ["open"],
-      [fixture.fields.notes]: "Updated from live smoke",
-      [fixture.fields.due]: "2026-05-29",
+      values: {
+        [fixture.fields.title]: updatedTitle,
+        [fixture.fields.amount]: "12.34",
+        [fixture.fields.status]: ["open"],
+        [fixture.fields.notes]: "Updated from live smoke",
+        [fixture.fields.due]: "2026-05-29",
+      },
     },
   });
   await expectVisibleText(pageB, updatedTitle, "live update appears in second tab");
@@ -587,9 +589,10 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
   await pageB.goto(`${tablePath}?record=${created.id}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(pageB, "History", "live detail panel route opens");
   await browserMutation(pageA, {
-    method: "DELETE",
-    path: `/api/grids/records/${fixture.table.id}/${created.id}`,
+    method: "POST",
+    path: `/api/grids/records/${fixture.table.id}/${created.id}/trash`,
     expected: 204,
+    body: {},
   });
   await expectNoVisibleText(pageB, updatedTitle, "live delete removes record from second tab");
 
@@ -1055,6 +1058,102 @@ const runFormulaPreviewSmoke = async (fixture: Fixture) => {
   ok("formula preview endpoint preserves decimal values");
 };
 
+const runRecordAuditSmoke = async (browser: Browser, fixture: Fixture) => {
+  const questionId = crypto.randomUUID();
+  await api(
+    "PATCH",
+    `/api/grids/tables/${fixture.table.id}`,
+    {
+      icon: "ti ti-checklist",
+      auditPolicy: {
+        update: {
+          enabled: true,
+          scope: "selected",
+          fieldIds: [fixture.fields.title],
+          questions: [{ id: questionId, label: "Change reason", type: "longtext", required: true }],
+        },
+      },
+    },
+    fixture.sessionToken,
+  );
+
+  const rejected = await api<{ message: string }>(
+    "PATCH",
+    `/api/grids/records/${fixture.table.id}/${fixture.records.first}`,
+    { values: { [fixture.fields.title]: "Blocked audit update" } },
+    fixture.sessionToken,
+    400,
+  );
+  if (!rejected.message.toLowerCase().includes("change reason")) {
+    fail(`protected update returned an unclear error: ${rejected.message}`);
+  }
+  ok("record audit policy rejects missing answers");
+
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: BASE_URL });
+  await addSessionCookie(context, fixture.sessionToken);
+  const page = await context.newPage();
+  page.setDefaultTimeout(TIMEOUT);
+  const errors: string[] = [];
+  watchPage(page, errors);
+
+  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?edit=true`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectVisibleText(page, "Done editing", "audit policy route enters edit mode");
+  const generalButton = page.getByText("General", { exact: true }).first();
+  if ((await generalButton.count()) === 0) {
+    fail(`table admin toolbar missing in edit mode: ${(await page.locator("body").innerText()).slice(0, 1_200)}`);
+  }
+  const tableSettings = page.getByRole("dialog").filter({ hasText: "Data integrity" });
+  const settingsHydrationDeadline = Date.now() + TIMEOUT;
+  do {
+    await generalButton.click();
+    await page.waitForTimeout(100);
+    if ((await tableSettings.count()) > 0) break;
+  } while (Date.now() < settingsHydrationDeadline);
+  if ((await tableSettings.count()) === 0) fail("table settings action did not hydrate");
+  await tableSettings.getByRole("button").filter({ hasText: "Audit requirements" }).click();
+  const auditSettings = page.getByRole("dialog").filter({ hasText: "Audit requirements" }).last();
+  await auditSettings.getByText("Change reason", { exact: true }).waitFor({ state: "visible", timeout: TIMEOUT });
+  ok("table settings expose configured audit requirements");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+
+  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?record=${fixture.records.first}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.getByRole("button", { name: "Edit record" }).click();
+  const editDialog = page.getByRole("dialog").filter({ hasText: "Edit record · Tasks" });
+  await editDialog.getByRole("textbox", { name: "Title", exact: true }).fill("Review audited invoices");
+  await editDialog.getByRole("button", { name: "Save", exact: true }).click();
+
+  let auditDialog = page.getByRole("dialog").filter({ hasText: "Explain record changes" });
+  await auditDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  const titleInput = editDialog.getByRole("textbox", { name: "Title", exact: true });
+  await titleInput.waitFor({ state: "visible", timeout: TIMEOUT });
+  if ((await titleInput.inputValue()) !== "Review audited invoices") {
+    fail("cancelled audit prompt discarded the record draft");
+  }
+  await editDialog.getByRole("button", { name: "Save", exact: true }).click();
+  auditDialog = page.getByRole("dialog").filter({ hasText: "Explain record changes" });
+  await auditDialog.getByRole("textbox", { name: "Change reason", exact: true }).fill("Quarter-end review");
+  const updateResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PATCH" &&
+      new URL(response.url()).pathname === `/api/grids/records/${fixture.table.id}/${fixture.records.first}`,
+    { timeout: TIMEOUT },
+  );
+  await auditDialog.getByRole("button", { name: "Save changes" }).click();
+  if (!(await updateResponse).ok()) fail("audited record update failed");
+  await expectVisibleText(page, "Review audited invoices", "audited record update renders");
+  await expectVisibleText(page, "Change reason", "audit history renders question label");
+  await expectVisibleText(page, "Quarter-end review", "audit history renders answer");
+
+  assertNoBrowserErrors(errors);
+  ok("record audit prompt and history flow works");
+  await context.close();
+};
+
 let fixture: Fixture | null = null;
 let browser: Browser | null = null;
 
@@ -1066,6 +1165,7 @@ try {
   await runLiveRefresh(browser, fixture);
   await runPublicForm(browser, fixture);
   await runResponsive(browser, fixture);
+  await runRecordAuditSmoke(browser, fixture);
   ok("browser smoke complete");
 } catch (err) {
   if (err instanceof Error) {

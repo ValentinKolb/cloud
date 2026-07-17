@@ -82,7 +82,7 @@ const workflowHighlight = highlight.compile(
     {
       kind: "keyword",
       match:
-        /\b(?:inputs|type|table|label|description|required|options|triggers|schedule|recordEvent|cron|timezone|event|filter|with|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|equals|notEquals|contains|startsWith|endsWith|exists|all|any|not|switch|cases|default|forEach|as|do|set|values|record|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
+        /\b(?:inputs|type|table|label|description|required|options|triggers|schedule|recordEvent|cron|timezone|event|filter|with|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|equals|notEquals|contains|startsWith|endsWith|exists|all|any|not|switch|cases|default|forEach|as|do|set|values|record|audit|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
     },
     { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/ },
     { kind: "placeholder", match: /\binputs\.[A-Za-z_][A-Za-z0-9_.]*\b/ },
@@ -623,6 +623,33 @@ export const GridsTablesFieldsPage = () => (
         ]}
       />
     </DocSection>
+
+    <DocSection title="Accountability and record lifecycle">
+      <DocRows
+        items={[
+          {
+            title: "Audit requirements",
+            icon: "ti-shield-check",
+            text: "In Table settings, open Data integrity to require structured answers before selected field changes, moving records to trash, or restoring them.",
+          },
+          {
+            title: "Focused change reasons",
+            icon: "ti-pencil",
+            text: "Apply update questions to every edit or only to sensitive fields. The backend rejects protected changes when required answers are missing.",
+          },
+          {
+            title: "Permanent history",
+            icon: "ti-history",
+            text: "Each accepted answer is stored with the operation in record history. Question and option labels are copied into the event, so older entries remain understandable after settings change.",
+          },
+          {
+            title: "Trash and restore",
+            icon: "ti-trash",
+            text: "Deleted records remain in trash and can be restored. Restore questions create a new history event and never overwrite the original deletion reason.",
+          },
+        ]}
+      />
+    </DocSection>
   </GridsDocPage>
 );
 
@@ -1107,6 +1134,8 @@ steps:
             text: (
               <>
                 Changes fields on one record. Required fields: <DocInlineCode>record</DocInlineCode> and <DocInlineCode>set</DocInlineCode>.
+                If the table requires change context, pass <DocInlineCode>audit</DocInlineCode> answers keyed by the question IDs shown in
+                the table's Data integrity settings.
               </>
             ),
           },

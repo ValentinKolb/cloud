@@ -90,6 +90,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
         tableDescription={records.activeTable.description ?? null}
         tableIcon={records.activeTable.icon ?? null}
         tableColumns={records.activeTable.columns}
+        tableAuditPolicy={records.activeTable.auditPolicy}
         disableDirectInsert={records.activeTable.disableDirectInsert}
         baseShortId={state.base.shortId}
         tableShortId={records.activeTable.shortId}

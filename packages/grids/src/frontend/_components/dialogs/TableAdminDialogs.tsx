@@ -20,6 +20,7 @@ import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
 import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
+import { auditPolicySummary, openAuditPolicyDialog } from "./AuditPolicyDialog";
 import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 
 export { openDocumentTemplateEditorDialog, openDocumentTemplatesDialog } from "./DocumentTemplateDialogs";
@@ -230,6 +231,7 @@ function TableSettingsBody(props: {
     description: props.table.description ?? "",
     icon: props.table.icon ?? "",
     displayConfig: props.table.displayConfig,
+    auditPolicy: props.table.auditPolicy,
     disableDirectInsert: props.table.disableDirectInsert,
   });
   const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
@@ -240,6 +242,7 @@ function TableSettingsBody(props: {
   const description = () => draft.draft().description;
   const icon = () => draft.draft().icon;
   const displayConfig = () => draft.draft().displayConfig;
+  const auditPolicy = () => draft.draft().auditPolicy;
   const disableDirectInsert = () => draft.draft().disableDirectInsert;
 
   const saveMut = mutations.create<Table, void>({
@@ -253,6 +256,7 @@ function TableSettingsBody(props: {
           description: description().trim() || null,
           icon: icon() || null,
           displayConfig: displayConfig(),
+          auditPolicy: auditPolicy(),
           disableDirectInsert: disableDirectInsert(),
         },
       });
@@ -265,6 +269,7 @@ function TableSettingsBody(props: {
         description: next.description ?? "",
         icon: next.icon ?? "",
         displayConfig: next.displayConfig,
+        auditPolicy: next.auditPolicy,
         disableDirectInsert: next.disableDirectInsert,
       });
       props.onDirtyChange?.(false);
@@ -292,6 +297,15 @@ function TableSettingsBody(props: {
       confirmText: "Delete",
     });
     if (ok) deleteMut.mutate(undefined);
+  };
+
+  const configureAudit = async () => {
+    const next = await openAuditPolicyDialog({
+      tableName: name(),
+      fields: props.fields,
+      value: auditPolicy(),
+    });
+    if (next) patch({ auditPolicy: next });
   };
 
   return (
@@ -325,6 +339,25 @@ function TableSettingsBody(props: {
             onChange={(value) => patch({ displayConfig: value })}
             fields={() => props.fields}
           />
+        </PanelDialog.Section>
+
+        <PanelDialog.Section
+          title="Data integrity"
+          subtitle="Require structured context for sensitive record operations."
+          icon="ti ti-shield-check"
+        >
+          <button
+            type="button"
+            class="paper flex w-full items-center gap-3 p-3 text-left hover:paper-highlighted"
+            onClick={() => void configureAudit()}
+          >
+            <i class="ti ti-shield-check text-lg text-dimmed" />
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-medium text-primary">Audit requirements</span>
+              <span class="block truncate text-xs text-dimmed">{auditPolicySummary(auditPolicy())}</span>
+            </span>
+            <i class="ti ti-chevron-right text-dimmed" aria-hidden="true" />
+          </button>
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Permissions" subtitle="These permissions apply only to this table." icon="ti ti-lock">

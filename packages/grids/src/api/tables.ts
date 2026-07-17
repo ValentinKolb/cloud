@@ -122,8 +122,8 @@ const app = new Hono<AuthContext>()
     "/:tableId",
     describeRoute({
       tags: ["Grids:Table"],
-      summary: "Delete table (soft-delete; restorable for 30 days)",
-      responses: { 204: { description: "Deleted" } },
+      summary: "Move a table to trash",
+      responses: { 204: { description: "Moved to trash" } },
     }),
     async (c) => {
       const tableId = c.req.param("tableId")!;

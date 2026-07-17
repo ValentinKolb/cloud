@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { FieldColumnSpec, RecordDisplayConfig } from "../../../contracts";
+import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy } from "../../../contracts";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 
 export { openFieldEditDialog } from "./FieldEditorDialog";
@@ -17,6 +17,7 @@ export type TableHeader = {
   icon?: string | null;
   columns: FieldColumnSpec[];
   displayConfig: RecordDisplayConfig;
+  auditPolicy: TableAuditPolicy;
   disableDirectInsert: boolean;
 };
 

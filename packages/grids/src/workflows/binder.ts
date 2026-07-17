@@ -329,6 +329,7 @@ const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Ma
   if (step.action === "updateRecord") {
     const record = expectReference(config.record, "grids.record", "record", [...path, "record"], scope, context);
     bindFieldMap(config.set, record?.tableId, [...path, "set"], scope, context);
+    if (config.audit !== undefined) bindValue(config.audit, [...path, "audit"], scope, context);
   } else if (step.action === "createRecord") {
     const table =
       typeof config.table === "string"

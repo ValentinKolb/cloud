@@ -20,6 +20,7 @@ const table = (id: string, deletedAt: string | null = null): Table => ({
   icon: null,
   columns: [],
   displayConfig: { mode: "table" },
+  auditPolicy: {},
   position: 0,
   disableDirectInsert: false,
   deletedAt,

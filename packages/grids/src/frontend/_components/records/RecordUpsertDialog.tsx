@@ -35,6 +35,9 @@ type OpenArgs = {
   /** Existing relation labels so relation chips do not render as UUIDs. */
   relationLabels?: Record<string, string>;
   dateConfig?: DateContext;
+  /** Runs while this dialog stays mounted. Returning false restores the
+   * editor with its current draft intact. */
+  beforeSubmit?: (values: Record<string, unknown>) => Promise<boolean>;
 };
 
 /**
@@ -59,6 +62,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
       }
       const [values, setValues] = createSignal<Record<string, unknown>>(initial);
       const [errors, setErrors] = createSignal<Record<string, string>>({});
+      const [submitting, setSubmitting] = createSignal(false);
 
       const update = (id: string, v: unknown) => {
         setValues((current) => ({ ...current, [id]: v }));
@@ -91,14 +95,20 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
         return Object.keys(errs).length === 0;
       };
 
-      const handleSubmit = (e: Event) => {
+      const handleSubmit = async (e: Event) => {
         e.preventDefault();
-        if (!validate()) return;
+        if (submitting() || !validate()) return;
         // Create omits empties so server-side defaults/nulls apply.
         // Edit sends explicit nulls so users can clear a field. The
         // server validates and normalises every value again.
         const out = sanitizeFieldValues(editableFields, values(), { omitEmpty: args.mode === "create" });
-        close(out);
+        setSubmitting(true);
+        try {
+          if (args.beforeSubmit && !(await args.beforeSubmit(out))) return;
+          close(out);
+        } finally {
+          setSubmitting(false);
+        }
       };
 
       // Field renderer. Synthesizes a UserInputEntry from the field
@@ -155,7 +165,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
                 <button type="button" onClick={() => close(null)} class="btn-simple btn-sm">
                   Cancel
                 </button>
-                <button type="submit" class="btn-primary btn-sm" disabled={editableFields.length === 0}>
+                <button type="submit" class="btn-primary btn-sm" disabled={editableFields.length === 0 || submitting()}>
                   {args.mode === "create" ? "Create" : "Save"}
                 </button>
               </div>

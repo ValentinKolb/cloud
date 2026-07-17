@@ -4,6 +4,7 @@ import { sql } from "bun";
 import { isKnownFieldType } from "../field-types";
 import { normalizeRefKey } from "../ref-syntax";
 import { logAudit, type SqlClient } from "./audit";
+import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import {
   dropFieldIndex,
   dropFieldUniqueIndex,
@@ -544,7 +545,24 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
 export const softDelete = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(id);
   if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
-  await sql.begin(async (tx) => {
+
+  const deleted = await sql.begin(async (tx): Promise<Result<void>> => {
+    // Serialize policy edits and field deletion through the parent table.
+    // This keeps selected-field audit requirements valid under concurrent
+    // admin requests.
+    const [table] = await tx<{ id: string }[]>`
+      SELECT id::text AS id
+      FROM grids.tables
+      WHERE id = ${existing.tableId}::uuid AND deleted_at IS NULL
+      FOR UPDATE
+    `;
+    if (!table) return fail(err.notFound("Table"));
+
+    const blockers = (await getFieldDependents(id)).filter((dependent) => dependent.blocking);
+    if (hasBlockingDependents(blockers)) {
+      return fail(err.conflict(`Field is still used by ${blockers.map((dependent) => dependent.resourceName).join(", ")}`));
+    }
+
     const [deleted] = await tx<DbRow[]>`
       UPDATE grids.fields SET deleted_at = now(), updated_at = now()
       WHERE id = ${id}::uuid AND deleted_at IS NULL
@@ -572,7 +590,10 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
       WHERE table_id = ${existing.tableId}::uuid
         AND config->'fields' @> jsonb_build_array(jsonb_build_object('fieldId', ${id}::text))
     `;
+    return ok();
   });
+  if (!deleted.ok) return deleted;
+
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);
   if (existing.uniqueConstraint) await dropFieldUniqueIndex(id);

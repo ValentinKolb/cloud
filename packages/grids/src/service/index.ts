@@ -12,7 +12,6 @@ import * as files from "./files";
 import { submitForm } from "./form-submission";
 import * as forms from "./forms";
 import * as formulaPreview from "./formula-preview";
-import * as maintenance from "./maintenance";
 import * as metadataEvents from "./metadata-events";
 import {
   hasAtLeast,
@@ -274,9 +273,6 @@ export const gridsService = {
   },
   exporter: {
     exportRecords: exporter.exportRecords,
-  },
-  maintenance: {
-    purgeSoftDeleted: maintenance.purgeSoftDeleted,
   },
   formulaPreview: {
     check: formulaPreview.checkFormula,

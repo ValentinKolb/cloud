@@ -132,9 +132,9 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       "/:baseId",
       describeRoute({
         tags: ["Grids:Base"],
-        summary: "Delete a base (soft-delete; restorable for 30 days)",
+        summary: "Move a base to trash",
         responses: {
-          204: { description: "Deleted" },
+          204: { description: "Moved to trash" },
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),

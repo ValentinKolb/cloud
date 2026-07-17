@@ -298,9 +298,9 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
 /**
  * Soft-deletes the base. The row stays in the DB with `deleted_at` set,
  * which makes it invisible to all default queries (list/get) while
- * keeping its tables/fields/records/views/forms recoverable. Hard
- * deletion happens via the maintenance purge job after the grace period
- * (cf. `maintenance.purgeSoftDeleted`).
+ * keeping its tables/fields/records/views/forms recoverable. The base
+ * remains restorable until an explicit product action changes that
+ * lifecycle.
  */
 export const remove = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const result = await sql`

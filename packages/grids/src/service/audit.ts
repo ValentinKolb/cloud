@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { RecordAuditContextSchema } from "../contracts";
 import { parseJsonbRow } from "./jsonb";
 import type { AuditAction, AuditEntry } from "./types";
 
@@ -22,6 +23,7 @@ const mapRow = (row: DbRow): AuditEntry => ({
   userId: (row.user_id as string | null) ?? null,
   action: row.action as AuditAction,
   diff: parseJsonbRow<AuditEntry["diff"]>(row.diff, null),
+  context: RecordAuditContextSchema.nullable().parse(parseJsonbRow<unknown>(row.context, null)),
   ip: (row.ip as string | null) ?? null,
   userAgent: (row.user_agent as string | null) ?? null,
   createdAt: (row.created_at as Date).toISOString(),
@@ -34,6 +36,7 @@ type LogAuditInput = {
   userId?: string | null;
   action: AuditAction;
   diff?: AuditEntry["diff"];
+  context?: AuditEntry["context"];
   ip?: string | null;
   userAgent?: string | null;
 };
@@ -47,7 +50,7 @@ type LogAuditInput = {
  */
 export const logAudit = async (input: LogAuditInput, client: SqlClient = sql): Promise<void> => {
   await client`
-    INSERT INTO grids.audit_log (base_id, table_id, record_id, user_id, action, diff, ip, user_agent)
+    INSERT INTO grids.audit_log (base_id, table_id, record_id, user_id, action, diff, context, ip, user_agent)
     VALUES (
       ${input.baseId ?? null}::uuid,
       ${input.tableId ?? null}::uuid,
@@ -55,6 +58,7 @@ export const logAudit = async (input: LogAuditInput, client: SqlClient = sql): P
       ${input.userId ?? null}::uuid,
       ${input.action},
       ${input.diff ?? null}::jsonb,
+      ${input.context ?? null}::jsonb,
       ${input.ip ?? null},
       ${input.userAgent ?? null}
     )
@@ -79,7 +83,7 @@ export const listByRecord = async (tableId: string, recordId: string, limit = 50
   const cap = Math.min(Math.max(limit, 1), 200);
   const rows = await sql<(DbRow & { user_display_name: string | null })[]>`
     SELECT al.id, al.base_id, al.table_id, al.record_id, al.user_id, al.action,
-           al.diff, al.ip, al.user_agent, al.created_at,
+           al.diff, al.context, al.ip, al.user_agent, al.created_at,
            COALESCE(u.uid, NULL) AS user_display_name
     FROM grids.audit_log al
     LEFT JOIN auth.users u ON u.id = al.user_id
@@ -124,7 +128,7 @@ export const listAudit = async (params: {
   // timestamp precision the WHERE clause compares against — JS Date
   // millisecond-truncation would otherwise let rows slip between pages.
   const rows = await sql<(DbRow & { cursor_token: string })[]>`
-    SELECT id, base_id, table_id, record_id, user_id, action, diff, ip, user_agent, created_at,
+    SELECT id, base_id, table_id, record_id, user_id, action, diff, context, ip, user_agent, created_at,
            (created_at::text || '|' || id::text) AS cursor_token
     FROM grids.audit_log
     WHERE ${where}

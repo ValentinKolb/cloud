@@ -1,6 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { FieldColumnSpecSchema, RecordDisplayConfigSchema } from "../contracts";
+import { FieldColumnSpecSchema, RecordDisplayConfigSchema, TableAuditPolicySchema } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";
 import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
@@ -10,7 +10,7 @@ import type { CreateTableInput, Table, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, short_id, base_id, name, description, icon, columns, display_config, position, disable_direct_insert, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, base_id, name, description, icon, columns, display_config, audit_policy, position, disable_direct_insert, deleted_at, created_at, updated_at`;
 
 const parseColumns = (raw: unknown) => {
   const parsed = FieldColumnSpecSchema.array().safeParse(raw ?? []);
@@ -22,6 +22,8 @@ const parseDisplayConfig = (raw: unknown) => {
   return parsed.success ? parsed.data : { mode: "table" as const };
 };
 
+const parseAuditPolicy = (raw: unknown) => TableAuditPolicySchema.parse(raw ?? {});
+
 const mapRow = (row: DbRow): Table => ({
   id: row.id as string,
   shortId: row.short_id as string,
@@ -31,6 +33,7 @@ const mapRow = (row: DbRow): Table => ({
   icon: (row.icon as string | null) ?? null,
   columns: parseColumns(row.columns),
   displayConfig: parseDisplayConfig(row.display_config),
+  auditPolicy: parseAuditPolicy(row.audit_policy),
   position: row.position as number,
   disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -199,85 +202,115 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
 };
 
 export const update = async (id: string, input: UpdateTableInput, actorId: string | null): Promise<Result<Table>> => {
-  const existing = await get(id);
-  if (!existing) return fail(err.notFound("Table"));
+  const result = await sql.begin(async (tx): Promise<Result<{ table: Table; changed: boolean }>> => {
+    // Field deletion takes the same lock before checking policy dependents.
+    // Validation therefore always sees a stable table/field combination.
+    const [lockedRow] = await tx<DbRow[]>`
+      SELECT t.*
+      FROM grids.tables t
+      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+      WHERE t.id = ${id}::uuid AND t.deleted_at IS NULL
+      FOR UPDATE OF t
+    `;
+    if (!lockedRow) return fail(err.notFound("Table"));
+    const existing = mapRow(lockedRow);
 
-  const name = input.name?.trim();
-  if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
-  const uniqueName = await ensureUniqueTableName(existing.baseId, name ?? existing.name, existing.id);
-  if (!uniqueName.ok) return uniqueName;
+    const name = input.name?.trim();
+    if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
+    const next = {
+      name: name ?? existing.name,
+      description: input.description !== undefined ? input.description : existing.description,
+      icon: input.icon !== undefined ? input.icon : existing.icon,
+      columns: input.columns !== undefined ? input.columns : existing.columns,
+      displayConfig: input.displayConfig !== undefined ? input.displayConfig : existing.displayConfig,
+      auditPolicy: input.auditPolicy !== undefined ? input.auditPolicy : existing.auditPolicy,
+      disableDirectInsert: input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
+    };
+    const columnsParsed = FieldColumnSpecSchema.array().safeParse(next.columns);
+    if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
+    const displayConfigParsed = RecordDisplayConfigSchema.safeParse(next.displayConfig);
+    if (!displayConfigParsed.success) return fail(err.badInput("invalid table display config"));
+    const auditPolicyParsed = TableAuditPolicySchema.safeParse(next.auditPolicy);
+    if (!auditPolicyParsed.success) {
+      return fail(err.badInput(auditPolicyParsed.error.issues[0]?.message ?? "invalid table audit policy"));
+    }
+    const fieldRows = await tx<{ id: string }[]>`
+      SELECT id::text AS id
+      FROM grids.fields
+      WHERE table_id = ${id}::uuid AND deleted_at IS NULL
+    `;
+    const liveFieldIds = new Set(fieldRows.map((field) => field.id));
+    const updateAudit = auditPolicyParsed.data.update;
+    const staleAuditFieldId = updateAudit?.enabled ? updateAudit.fieldIds.find((fieldId) => !liveFieldIds.has(fieldId)) : undefined;
+    if (staleAuditFieldId) return fail(err.badInput("table audit policy references an unknown field"));
 
-  const next = {
-    name: name ?? existing.name,
-    description: input.description !== undefined ? input.description : existing.description,
-    icon: input.icon !== undefined ? input.icon : existing.icon,
-    columns: input.columns !== undefined ? input.columns : existing.columns,
-    displayConfig: input.displayConfig !== undefined ? input.displayConfig : existing.displayConfig,
-    disableDirectInsert: input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
-  };
-  const columnsParsed = FieldColumnSpecSchema.array().safeParse(next.columns);
-  if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
-  const displayConfigParsed = RecordDisplayConfigSchema.safeParse(next.displayConfig);
-  if (!displayConfigParsed.success) return fail(err.badInput("invalid table display config"));
+    const updated = await writeNamedResource(
+      () =>
+        tx.savepoint(async (sp) => {
+          const [row] = await sp<DbRow[]>`
+            UPDATE grids.tables
+            SET name = ${next.name},
+                description = ${next.description},
+                icon = ${next.icon},
+                columns = ${columnsParsed.data}::jsonb,
+                display_config = ${displayConfigParsed.data}::jsonb,
+                audit_policy = ${auditPolicyParsed.data}::jsonb,
+                disable_direct_insert = ${next.disableDirectInsert},
+                updated_at = now()
+            WHERE id = ${id}::uuid AND deleted_at IS NULL
+            RETURNING ${COLS}
+          `;
+          return row;
+        }),
+      "idx_grids_tables_live_name",
+      "table name must be unique within this grid",
+    );
+    if (!updated.ok) return updated;
+    if (!updated.data) return fail(err.internal("update failed"));
+    const table = mapRow(updated.data);
 
-  const updated = await writeNamedResource(
-    async () => {
-      const [row] = await sql<DbRow[]>`
-        UPDATE grids.tables
-        SET name = ${next.name},
-            description = ${next.description},
-            icon = ${next.icon},
-            columns = ${columnsParsed.data}::jsonb,
-            display_config = ${displayConfigParsed.data}::jsonb,
-            disable_direct_insert = ${next.disableDirectInsert},
-            updated_at = now()
-        WHERE id = ${id}::uuid AND deleted_at IS NULL
-        RETURNING ${COLS}
-      `;
-      return row;
-    },
-    "idx_grids_tables_live_name",
-    "table name must be unique within this grid",
-  );
-  if (!updated.ok) return updated;
-  const row = updated.data;
-  if (!row) return fail(err.internal("update failed"));
-  const table = mapRow(row);
+    const diff: Record<string, { old: unknown; new: unknown }> = {};
+    if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
+    if (next.description !== existing.description) {
+      diff.description = { old: existing.description, new: next.description };
+    }
+    if (next.icon !== existing.icon) diff.icon = { old: existing.icon, new: next.icon };
+    if (JSON.stringify(columnsParsed.data) !== JSON.stringify(existing.columns)) {
+      diff.columns = { old: existing.columns, new: columnsParsed.data };
+    }
+    if (JSON.stringify(displayConfigParsed.data) !== JSON.stringify(existing.displayConfig)) {
+      diff.displayConfig = { old: existing.displayConfig, new: displayConfigParsed.data };
+    }
+    if (JSON.stringify(auditPolicyParsed.data) !== JSON.stringify(existing.auditPolicy)) {
+      diff.auditPolicy = { old: existing.auditPolicy, new: auditPolicyParsed.data };
+    }
+    if (next.disableDirectInsert !== existing.disableDirectInsert) {
+      diff.disableDirectInsert = { old: existing.disableDirectInsert, new: next.disableDirectInsert };
+    }
+    const changed = Object.keys(diff).length > 0;
+    if (changed) {
+      await logAudit({ baseId: table.baseId, tableId: id, userId: actorId, action: "updated", diff }, tx);
+    }
+    return ok({ table, changed });
+  });
+  if (!result.ok) return result;
 
-  const diff: Record<string, { old: unknown; new: unknown }> = {};
-  if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
-  if (next.description !== existing.description) {
-    diff.description = { old: existing.description, new: next.description };
-  }
-  if (next.icon !== existing.icon) diff.icon = { old: existing.icon, new: next.icon };
-  if (JSON.stringify(columnsParsed.data) !== JSON.stringify(existing.columns)) {
-    diff.columns = { old: existing.columns, new: columnsParsed.data };
-  }
-  if (JSON.stringify(displayConfigParsed.data) !== JSON.stringify(existing.displayConfig)) {
-    diff.displayConfig = { old: existing.displayConfig, new: displayConfigParsed.data };
-  }
-  if (next.disableDirectInsert !== existing.disableDirectInsert) {
-    diff.disableDirectInsert = { old: existing.disableDirectInsert, new: next.disableDirectInsert };
-  }
-  if (Object.keys(diff).length > 0) {
-    await logAudit({ baseId: table.baseId, tableId: id, userId: actorId, action: "updated", diff });
+  if (result.data.changed) {
     await emitMetadataEvent({
       type: "table.updated",
-      baseId: table.baseId,
+      baseId: result.data.table.baseId,
       resource: { kind: "table", id, tableId: id },
       actorId,
     });
   }
-
-  return ok(table);
+  return ok(result.data.table);
 };
 
 /**
  * Soft-deletes the table. The row stays in the DB; child entities
  * (fields/records/views/forms) are *not* automatically tombstoned —
  * they simply become unreachable through the API while the parent
- * table is hidden. Restore brings them all back. Hard purge happens
- * after the grace period via the maintenance job.
+ * table is hidden. Restore brings them all back.
  */
 export const remove = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(id);

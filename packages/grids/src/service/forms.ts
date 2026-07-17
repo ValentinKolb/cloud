@@ -469,8 +469,8 @@ export const update = async (id: string, input: UpdateFormInput, actorId: string
 
 /**
  * Soft-deletes the form. The public URL stops resolving immediately
- * (getByPublicToken filters out tombstoned rows). Hard purge happens
- * after the grace period via the maintenance job.
+ * because getByPublicToken filters out tombstoned rows. The form remains
+ * restorable.
  */
 export const remove = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(id);

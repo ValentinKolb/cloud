@@ -3,11 +3,13 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec, DocumentTemplateSummary } from "../../../contracts";
+import type { ColumnSpec, DocumentTemplateSummary, RecordMutationAudit, TableAuditPolicy } from "../../../contracts";
+import { recordAuditRequirementFor } from "../../../record-audit-policy";
 import type { Field, GridRecord } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceRecordDetail } from "../workspace/workspace-state-model";
+import { openRecordAuditDialog } from "./RecordAuditDialog";
 import RecordDocumentsSection from "./RecordDocumentsSection";
 import RecordFileField from "./RecordFileField";
 import RecordHistorySection from "./RecordHistorySection";
@@ -21,6 +23,7 @@ type Props = {
   tableId: string;
   tableName: string;
   fields: Field[];
+  auditPolicy: TableAuditPolicy;
   /** Currently-displayed record. Controlled by RecordsView — when the
    *  user clicks a different row in the grid, the parent passes a new
    *  record here. null = panel renders nothing. */
@@ -57,12 +60,12 @@ export default function RecordDetailPanel(props: Props) {
   const visibleFields = () => props.fields.filter((f) => !f.deletedAt);
 
   // ---- Mutations ---------------------------------------------------------
-  const updateMut = mutations.create<GridRecord, { rec: GridRecord; payload: Record<string, unknown> }>({
-    mutation: async ({ rec, payload }) => {
+  const updateMut = mutations.create<GridRecord, { rec: GridRecord; payload: Record<string, unknown>; audit?: RecordMutationAudit }>({
+    mutation: async ({ rec, payload, audit }) => {
       const res = await apiClient.records[":tableId"][":recordId"].$patch(
         {
           param: { tableId: props.tableId, recordId: rec.id },
-          json: payload,
+          json: { values: payload, audit },
         },
         { headers: { "If-Match": String(rec.version) } },
       );
@@ -73,10 +76,11 @@ export default function RecordDetailPanel(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
-  const deleteMut = mutations.create<string, GridRecord>({
-    mutation: async (rec) => {
-      const res = await apiClient.records[":tableId"][":recordId"].$delete({
+  const deleteMut = mutations.create<string, { rec: GridRecord; audit?: RecordMutationAudit }>({
+    mutation: async ({ rec, audit }) => {
+      const res = await apiClient.records[":tableId"][":recordId"].trash.$post({
         param: { tableId: props.tableId, recordId: rec.id },
+        json: { audit },
       });
       if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to delete record"));
       return rec.id;
@@ -85,10 +89,11 @@ export default function RecordDetailPanel(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
-  const restoreMut = mutations.create<string, GridRecord>({
-    mutation: async (rec) => {
+  const restoreMut = mutations.create<string, { rec: GridRecord; audit?: RecordMutationAudit }>({
+    mutation: async ({ rec, audit }) => {
       const res = await apiClient.records[":tableId"][":recordId"].restore.$post({
         param: { tableId: props.tableId, recordId: rec.id },
+        json: { audit },
       });
       if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to restore record"));
       return rec.id;
@@ -104,6 +109,7 @@ export default function RecordDetailPanel(props: Props) {
       prompts.error("No editable fields. Add a field first.");
       return;
     }
+    let audit: RecordMutationAudit | undefined;
     const result = await openRecordUpsertDialog({
       mode: "edit",
       fields: visibleFields(),
@@ -112,28 +118,80 @@ export default function RecordDetailPanel(props: Props) {
       record: rec,
       relationLabels: props.relationLabels,
       dateConfig: props.dateConfig,
+      beforeSubmit: async (payload) => {
+        const changedFieldIds = Object.keys(payload).filter(
+          (fieldId) => JSON.stringify(payload[fieldId]) !== JSON.stringify(rec.data[fieldId]),
+        );
+        const requirement = recordAuditRequirementFor(props.auditPolicy, "update", changedFieldIds);
+        if (!requirement) {
+          audit = undefined;
+          return true;
+        }
+        const answer = await openRecordAuditDialog({
+          operation: "update",
+          requirement,
+          recordTitle: recordDisplayTitle({
+            fields: props.fields,
+            record: rec,
+            fieldsByTable: props.fieldsByTable,
+            relationLabels: props.relationLabels,
+            dateConfig: props.dateConfig,
+            viewColumns: props.viewColumns,
+          }),
+        });
+        if (!answer) return false;
+        audit = answer;
+        return true;
+      },
     });
     if (!result) return;
-    updateMut.mutate({ rec, payload: result });
+    updateMut.mutate({ rec, payload: result, audit });
   };
 
   const handleDelete = async (rec: GridRecord) => {
-    const confirmed = await prompts.confirm(
-      `${recordDisplayTitle({
-        fields: props.fields,
-        record: rec,
-        fieldsByTable: props.fieldsByTable,
-        relationLabels: props.relationLabels,
-        dateConfig: props.dateConfig,
-        viewColumns: props.viewColumns,
-      })}\n${props.tableName}\n\nThis record is moved to trash and can be restored.`,
-      { title: "Delete record?", variant: "danger", confirmText: "Delete" },
-    );
-    if (!confirmed) return;
-    deleteMut.mutate(rec);
+    const title = recordDisplayTitle({
+      fields: props.fields,
+      record: rec,
+      fieldsByTable: props.fieldsByTable,
+      relationLabels: props.relationLabels,
+      dateConfig: props.dateConfig,
+      viewColumns: props.viewColumns,
+    });
+    const requirement = recordAuditRequirementFor(props.auditPolicy, "delete");
+    const audit = requirement ? await openRecordAuditDialog({ operation: "delete", requirement, recordTitle: title }) : undefined;
+    if (requirement && !audit) return;
+    if (
+      !requirement &&
+      !(await prompts.confirm(`${title}\n${props.tableName}\n\nThis record is moved to trash and can be restored.`, {
+        title: "Move record to trash?",
+        variant: "danger",
+        confirmText: "Move to trash",
+      }))
+    ) {
+      return;
+    }
+    deleteMut.mutate({ rec, audit: audit ?? undefined });
   };
 
-  const handleRestore = (rec: GridRecord) => restoreMut.mutate(rec);
+  const handleRestore = async (rec: GridRecord) => {
+    const requirement = recordAuditRequirementFor(props.auditPolicy, "restore");
+    const audit = requirement
+      ? await openRecordAuditDialog({
+          operation: "restore",
+          requirement,
+          recordTitle: recordDisplayTitle({
+            fields: props.fields,
+            record: rec,
+            fieldsByTable: props.fieldsByTable,
+            relationLabels: props.relationLabels,
+            dateConfig: props.dateConfig,
+            viewColumns: props.viewColumns,
+          }),
+        })
+      : undefined;
+    if (requirement && !audit) return;
+    restoreMut.mutate({ rec, audit: audit ?? undefined });
+  };
 
   return (
     <Show when={record()} fallback={null} keyed>
@@ -203,7 +261,7 @@ export default function RecordDetailPanel(props: Props) {
             initialRuns={props.detail()?.documentRuns ?? []}
             initialSnapshots={props.detail()?.snapshots ?? []}
           />
-          <RecordHistorySection entries={props.detail()?.auditEntries ?? []} />
+          <RecordHistorySection entries={props.detail()?.auditEntries ?? []} fields={props.fields} />
         </RecordReadView>
       )}
     </Show>
