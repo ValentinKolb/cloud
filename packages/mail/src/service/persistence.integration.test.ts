@@ -26,6 +26,7 @@ import {
   createDraft,
   discardDraft,
   getDraft,
+  listConversationDrafts,
   listDraftRecoveryCopies,
   removeDraftAttachment,
   restoreDraftRecoveryCopy,
@@ -444,6 +445,21 @@ suite("mail PostgreSQL foundation", () => {
     expect(editedReplyDraft.ok).toBe(true);
     if (!editedReplyDraft.ok) return;
     expect(editedReplyDraft.data.sourceMessageId).toBe(latestInboundId);
+    const conversationDrafts = await listConversationDrafts({
+      context,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+    });
+    expect(conversationDrafts.ok).toBe(true);
+    if (conversationDrafts.ok) {
+      expect(conversationDrafts.data).toContainEqual({
+        id: replyDraft.data.id,
+        intent: "reply",
+        subject: "Re: Ordered newest inbound",
+        updatedAt: editedReplyDraft.data.updatedAt,
+      });
+      expect(conversationDrafts.data[0]).not.toHaveProperty("body");
+    }
     const replyCommand = await createActorCommand({
       context,
       mailboxId: mailbox.data.id,
@@ -458,6 +474,15 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(replyCommand.ok).toBe(true);
     if (!replyCommand.ok) return;
+    const scheduledConversationDrafts = await listConversationDrafts({
+      context,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+    });
+    expect(scheduledConversationDrafts.ok).toBe(true);
+    if (scheduledConversationDrafts.ok) {
+      expect(scheduledConversationDrafts.data.map((draft) => draft.id)).not.toContain(replyDraft.data.id);
+    }
     const [replyOutbox] = await sql<{ draft_snapshot: Record<string, unknown> | string }[]>`
       SELECT draft_snapshot
       FROM mail.outbox_submissions
@@ -1246,6 +1271,15 @@ suite("mail PostgreSQL foundation", () => {
     expect((await getDraft(collaboratorContext, mailbox.data.id, collaboratorDraft.data.id)).ok).toBe(true);
     expect(
       (
+        await listConversationDrafts({
+          context: collaboratorContext,
+          mailboxId: mailbox.data.id,
+          conversationId: orderedConversation!.id,
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      (
         await updateDraft({
           context: collaboratorContext,
           mailboxId: mailbox.data.id,
@@ -1264,6 +1298,13 @@ suite("mail PostgreSQL foundation", () => {
       ).ok,
     ).toBe(false);
     expect((await revokeMailboxAccess({ context, mailboxId: mailbox.data.id, accessId: readGrant.data.id })).ok).toBe(true);
+    const revokedConversationDrafts = await listConversationDrafts({
+      context: collaboratorContext,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+    });
+    expect(revokedConversationDrafts.ok).toBe(false);
+    if (!revokedConversationDrafts.ok) expect(revokedConversationDrafts.error.code).toBe("FORBIDDEN");
     const sendGrant = await grantMailboxAccess({
       context,
       mailboxId: mailbox.data.id,

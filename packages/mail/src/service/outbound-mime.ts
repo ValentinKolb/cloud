@@ -4,7 +4,7 @@ import type { Readable } from "node:stream";
 import { z } from "zod";
 import { mailAddressSchema } from "../contracts";
 
-export const outboundDraftSnapshotSchema = z.object({
+const outboundDraftSnapshotBaseSchema = z.object({
   revision: z.number().int().positive(),
   from: z.object({ name: z.string().max(200), address: z.string().email().max(320) }),
   replyTo: z.string().email().max(320).nullable(),
@@ -16,9 +16,6 @@ export const outboundDraftSnapshotSchema = z.object({
   bcc: z.array(mailAddressSchema).max(200),
   subject: z.string().max(998),
   body: z.string().max(2 * 1024 * 1024),
-  format: z.enum(["plain", "markdown"]),
-  renderedText: z.string().max(2 * 1024 * 1024).optional(),
-  renderedHtml: z.string().max(3 * 1024 * 1024).nullable().optional(),
   inReplyTo: z.string().max(998).nullable().default(null),
   references: z.array(z.string().max(998)).max(500).default([]),
   attachments: z
@@ -36,6 +33,19 @@ export const outboundDraftSnapshotSchema = z.object({
     .default([]),
 });
 
+export const outboundDraftSnapshotSchema = z.discriminatedUnion("format", [
+  outboundDraftSnapshotBaseSchema.extend({
+    format: z.literal("plain"),
+    renderedText: z.string().max(2 * 1024 * 1024).optional(),
+    renderedHtml: z.null().optional(),
+  }),
+  outboundDraftSnapshotBaseSchema.extend({
+    format: z.literal("markdown"),
+    renderedText: z.string().max(2 * 1024 * 1024).optional(),
+    renderedHtml: z.string().max(3 * 1024 * 1024).nullable().optional(),
+  }),
+]);
+
 type OutboundDraftSnapshot = z.infer<typeof outboundDraftSnapshotSchema>;
 
 const formatAddress = (address: { name?: string | null; address: string }) => ({
@@ -50,11 +60,11 @@ export const buildMimeStream = (params: {
   openAttachment: (blobId: string) => Readable;
 }): Readable => {
   const html =
-    params.snapshot.renderedHtml === undefined
-      ? params.snapshot.format === "markdown"
+    params.snapshot.format === "plain"
+      ? undefined
+      : params.snapshot.renderedHtml === undefined
         ? sanitizeEmailHtml(markdown.renderSync(params.snapshot.body))
-        : undefined
-      : (params.snapshot.renderedHtml ?? undefined);
+        : (params.snapshot.renderedHtml ?? undefined);
   return new MailComposer({
     from: formatAddress(params.snapshot.from),
     replyTo: params.snapshot.replyTo ?? undefined,

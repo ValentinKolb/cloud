@@ -559,7 +559,6 @@ function PanesSplit(props: {
 }) {
   let container: HTMLDivElement | undefined;
   let stopResize: (() => void) | undefined;
-  let resizeActive = false;
   const direction = () => props.node().direction;
   const sizes = () => normalizeSizes(props.node().sizes, props.node().children.length);
   const insertIntent = (index: number) => {
@@ -570,18 +569,16 @@ function PanesSplit(props: {
   const stopActiveResize = () => {
     stopResize?.();
     stopResize = undefined;
-    resizeActive = false;
   };
 
   onCleanup(() => {
-    if (!resizeActive) stopActiveResize();
+    stopActiveResize();
   });
 
   const startResize = (event: PointerEvent, index: number) => {
     if (!props.canResize()) return;
     event.preventDefault();
     stopActiveResize();
-    resizeActive = true;
     const split = props.node();
     const baseSizes = normalizeSizes(split.sizes, split.children.length);
     const start = split.direction === "horizontal" ? event.clientX : event.clientY;

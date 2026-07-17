@@ -114,6 +114,43 @@ describe("outbound MIME", () => {
     expect(text).not.toMatch(/^Bcc:/im);
   });
 
+  test("emits plaintext drafts without an HTML alternative", async () => {
+    const snapshot = outboundDraftSnapshotSchema.parse({
+      revision: 1,
+      from: { name: "Support", address: "support@example.com" },
+      replyTo: null,
+      envelopeFrom: null,
+      to: [{ name: null, address: "customer@example.com" }],
+      cc: [],
+      bcc: [],
+      subject: "Plain text",
+      body: "This stays **plain**.",
+      format: "plain",
+      renderedText: "This stays **plain**.",
+      renderedHtml: null,
+      inReplyTo: null,
+      references: [],
+    });
+    const source = await buildMimeSource({
+      snapshot,
+      messageId: "<plain@example.com>",
+      date: new Date("2026-07-17T11:00:00.000Z"),
+    });
+    const raw = source.toString("utf8");
+    const parsed = await simpleParser(source);
+
+    expect(parsed.text?.trimEnd()).toBe("This stays **plain**.");
+    expect(parsed.html).toBe(false);
+    expect(raw).toMatch(/^Content-Type: text\/plain;/im);
+    expect(raw).not.toMatch(/multipart\/alternative/i);
+    expect(
+      outboundDraftSnapshotSchema.safeParse({
+        ...snapshot,
+        renderedHtml: "<strong>This must not be sent</strong>",
+      }).success,
+    ).toBe(false);
+  });
+
   test("uses frozen rendered output instead of re-rendering mutable source", async () => {
     const snapshot = outboundDraftSnapshotSchema.parse({
       revision: 2,

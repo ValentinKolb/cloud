@@ -2,8 +2,10 @@ import {
   type Completion,
   AutocompleteEditor,
   MarkdownEditor,
+  Panes,
+  type PanesNode,
+  type PanesValue,
   prompts,
-  SegmentedControl,
   Select,
   TagsInput,
   TextInput,
@@ -24,12 +26,15 @@ import type {
   SenderIdentity,
 } from "../../contracts";
 import { readApiError } from "./api-response";
-import { readMailUserPreferences } from "./MailSettingsStore";
+import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
 
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
 type UploadState = { file: File; progress: number; error: string | null };
 type DraftJournal = { revision: number; content: DraftEditableContentInput };
-type ComposeMode = "write" | "preview" | "split";
+type LeaseHeartbeatResult =
+  | { kind: "ok"; lease: AcquiredDraftLease }
+  | { kind: "rejected" }
+  | { kind: "unavailable" };
 
 type ComposerSeed = {
   intent: DraftIntent;
@@ -71,6 +76,14 @@ const journalKey = (mailboxId: string, draftId: string): string => `cloud:mail:d
 const pendingJournalKey = (mailboxId: string, seed?: ComposerSeed): string =>
   `cloud:mail:draft:${mailboxId}:pending:${seed?.conversationId ?? "new"}:${seed?.sourceMessageId ?? "new"}:${seed?.intent ?? "new"}`;
 
+const paneElementVisible = (node: PanesNode, elementId: string): boolean => {
+  if (node.type === "split") return node.children.some((child) => paneElementVisible(child, elementId));
+  if (!node.elementIds.includes(elementId)) return false;
+  if (node.presentation === "stack") return true;
+  const activeElementId = node.elementIds.includes(node.activeElementId ?? "") ? node.activeElementId : node.elementIds[0];
+  return activeElementId === elementId;
+};
+
 export default function MailComposer(props: {
   mailboxId: string;
   identities: SenderIdentity[];
@@ -99,14 +112,12 @@ export default function MailComposer(props: {
   const [showCc, setShowCc] = createSignal(
     Boolean(props.initialDraft?.cc.length || props.initialDraft?.bcc.length || props.seed?.cc?.length),
   );
-  const [composeMode, setComposeMode] = createSignal<ComposeMode>("write");
-  const [splitPercent, setSplitPercent] = createSignal(50);
+  const [composerPanes, setComposerPanes] = createSignal<PanesValue>(readMailComposerPanes());
   const [preview, setPreview] = createSignal<ComposePreview | null>(null);
   const [previewError, setPreviewError] = createSignal<string | null>(null);
   const [previewLoading, setPreviewLoading] = createSignal(false);
   const [previewRevision, setPreviewRevision] = createSignal(0);
   const [initialized, setInitialized] = createSignal(false);
-  const [recovered, setRecovered] = createSignal(false);
   const [handoffInProgress, setHandoffInProgress] = createSignal(false);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -114,11 +125,10 @@ export default function MailComposer(props: {
   let initializePromise: Promise<MailDraft | null> | null = null;
   let disposed = false;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
+  let panePersistenceTimer: ReturnType<typeof setTimeout> | null = null;
   let previewController: AbortController | null = null;
   let previewRequest = 0;
   let lastSavedContent = "";
-  let composeBodyEl: HTMLDivElement | undefined;
-  let stopSplitResize: (() => void) | null = null;
   const pendingKey = pendingJournalKey(props.mailboxId, props.seed);
 
   const serializeDraftMutation = <T,>(operation: () => Promise<T>): Promise<T> => {
@@ -167,37 +177,83 @@ export default function MailComposer(props: {
     previewController = null;
   };
 
-  const stopResizingSplit = () => {
-    stopSplitResize?.();
-    stopSplitResize = null;
+  const releaseLeaseOnExit = (): Promise<void> => {
+    const currentDraft = draft();
+    const currentLease = lease();
+    if (!currentDraft || !currentLease) return Promise.resolve();
+    return fetch(`/api/mail/mailboxes/${props.mailboxId}/drafts/${currentDraft.id}/lease`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: currentLease.token }),
+      credentials: "same-origin",
+      keepalive: true,
+    })
+      .then(() => undefined)
+      .catch(() => undefined);
   };
 
-  const updateSplitPercent = (value: number) => setSplitPercent(Math.min(75, Math.max(25, value)));
-
-  const startResizingSplit = (event: PointerEvent) => {
-    if (!composeBodyEl || composeMode() !== "split") return;
-    event.preventDefault();
-    stopResizingSplit();
-    const rect = composeBodyEl.getBoundingClientRect();
-    const update = (pointer: PointerEvent) => updateSplitPercent(((pointer.clientX - rect.left) / Math.max(rect.width, 1)) * 100);
-    const stop = () => stopResizingSplit();
-    stopSplitResize = () => {
-      window.removeEventListener("pointermove", update);
-      window.removeEventListener("pointerup", stop);
-      window.removeEventListener("pointercancel", stop);
-      window.removeEventListener("blur", stop);
-    };
-    window.addEventListener("pointermove", update);
-    window.addEventListener("pointerup", stop);
-    window.addEventListener("pointercancel", stop);
-    window.addEventListener("blur", stop);
+  const heartbeatLease = async (
+    currentDraft: MailDraft,
+    currentLease: AcquiredDraftLease,
+  ): Promise<LeaseHeartbeatResult> => {
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$put({
+        param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
+        json: { token: currentLease.token },
+      });
+      return response.ok ? { kind: "ok", lease: await response.json() } : { kind: "rejected" };
+    } catch {
+      return { kind: "unavailable" };
+    }
   };
 
-  const resizeSplitWithKeyboard = (event: KeyboardEvent) => {
-    const delta = event.key === "ArrowLeft" ? -2 : event.key === "ArrowRight" ? 2 : 0;
-    if (!delta) return;
-    event.preventDefault();
-    updateSplitPercent(splitPercent() + (event.shiftKey ? delta * 4 : delta));
+  const onPageHide = (event: PageTransitionEvent) => {
+    if (event.persisted) {
+      if (!draft() || !lease()) return;
+      stopHeartbeat();
+      setStatus("preparing");
+      return;
+    }
+    void releaseLeaseOnExit();
+  };
+
+  const resumeCurrentLease = async () => {
+    const currentDraft = draft();
+    const currentLease = lease();
+    if (disposed || !currentDraft) return;
+    if (!currentLease) return void (await ensureDraft());
+    setStatus("preparing");
+    const heartbeat = await heartbeatLease(currentDraft, currentLease);
+    if (disposed) return;
+    if (heartbeat.kind === "ok") {
+      setLease(heartbeat.lease);
+      setStatus("saved");
+      setStatusMessage("");
+      startHeartbeat();
+      return;
+    }
+    if (heartbeat.kind === "unavailable") {
+      setStatus("readonly");
+      setStatusMessage("Connection lost. Retry to resume editing.");
+      return;
+    }
+    setLease(null);
+    await ensureDraft();
+  };
+
+  const onPageShow = (event: PageTransitionEvent) => {
+    if (event.persisted) {
+      void resumeCurrentLease();
+    }
+  };
+
+  const updateComposerPanes = (value: PanesValue) => {
+    setComposerPanes(value);
+    if (panePersistenceTimer) clearTimeout(panePersistenceTimer);
+    panePersistenceTimer = setTimeout(() => {
+      setComposerPanes(writeMailComposerPanes(value));
+      panePersistenceTimer = null;
+    }, 150);
   };
 
   const applyDraftContent = (value: MailDraft) => {
@@ -217,16 +273,21 @@ export default function MailComposer(props: {
       const activeDraft = draft();
       const activeLease = lease();
       if (!activeDraft || !activeLease) return;
-      const heartbeat = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$put({
-        param: { mailboxId: props.mailboxId, draftId: activeDraft.id },
-        json: { token: activeLease.token },
-      });
-      if (!heartbeat.ok) {
+      const heartbeat = await heartbeatLease(activeDraft, activeLease);
+      if (heartbeat.kind === "unavailable") {
+        stopHeartbeat();
+        setStatus("readonly");
+        setStatusMessage("Connection lost. Retry to resume editing.");
+        return;
+      }
+      if (heartbeat.kind === "rejected") {
         stopHeartbeat();
         setLease(null);
         setStatus("readonly");
         setStatusMessage("Editing lease expired. Reload or take over the draft.");
+        return;
       }
+      setLease(heartbeat.lease);
     }, 10_000);
   };
 
@@ -267,7 +328,6 @@ export default function MailComposer(props: {
       setSubject(journal.content.subject);
       setBody(journal.content.body);
       setFormat(journal.content.format);
-      setRecovered(true);
       return true;
     } catch {
       localStorage.removeItem(key);
@@ -314,7 +374,7 @@ export default function MailComposer(props: {
       }
     }
     if (disposed) return null;
-    if (existingDraft) recoverJournal(journalKey(props.mailboxId, currentDraft.id), currentDraft.revision);
+    const recovered = existingDraft && recoverJournal(journalKey(props.mailboxId, currentDraft.id), currentDraft.revision);
     const acquired = await acquireLease(currentDraft);
     if (disposed) return null;
     lastSavedContent = JSON.stringify({
@@ -330,7 +390,8 @@ export default function MailComposer(props: {
     if (acquired) {
       localStorage.removeItem(pendingKey);
       setStatus("saved");
-      setStatusMessage(recovered() ? "Recovered local changes" : "Draft saved");
+      setStatusMessage("");
+      if (recovered) toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" });
     }
     return currentDraft;
   };
@@ -378,7 +439,7 @@ export default function MailComposer(props: {
       lastSavedContent = serialized;
       localStorage.removeItem(journalKey(props.mailboxId, saved.id));
       setStatus("saved");
-      setStatusMessage("Draft saved");
+      setStatusMessage("");
       return saved;
     });
   };
@@ -398,11 +459,10 @@ export default function MailComposer(props: {
   });
 
   createEffect(() => {
-    const mode = composeMode();
     const previewDraft = content();
     serializedContent();
     previewRevision();
-    if (mode === "write" || !identityId()) {
+    if (format() !== "markdown" || !paneElementVisible(composerPanes().root, "preview") || !identityId()) {
       stopPreview();
       return;
     }
@@ -436,6 +496,8 @@ export default function MailComposer(props: {
   });
 
   onMount(() => {
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
     if (verifiedIdentities().length === 0) {
       setStatus("readonly");
       setStatusMessage("Configure and verify a sender identity before composing mail.");
@@ -449,24 +511,25 @@ export default function MailComposer(props: {
     lastSavedContent = serializedContent();
     setInitialized(true);
     setStatus("local");
-    setStatusMessage(recoveredPendingDraft ? "Recovered local changes" : "Draft starts when you type");
-    if (recoveredPendingDraft) void ensureDraft();
+    setStatusMessage("");
+    if (recoveredPendingDraft) {
+      toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" });
+      void ensureDraft();
+    }
   });
 
   onCleanup(() => {
     disposed = true;
+    window.removeEventListener("pagehide", onPageHide);
+    window.removeEventListener("pageshow", onPageShow);
     stopScheduledSave();
     stopHeartbeat();
     stopPreview();
-    stopResizingSplit();
-    const currentDraft = draft();
-    const currentLease = lease();
-    if (currentDraft && currentLease) {
-      void apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$delete({
-        param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-        json: { token: currentLease.token },
-      });
+    if (panePersistenceTimer) {
+      clearTimeout(panePersistenceTimer);
+      writeMailComposerPanes(composerPanes());
     }
+    void releaseLeaseOnExit();
   });
 
   const uploadFile = async (file: File) => {
@@ -598,10 +661,12 @@ export default function MailComposer(props: {
     if (handoffInProgress()) return;
     setHandoffInProgress(true);
     stopScheduledSave();
+    let releasedDraft: MailDraft | null = null;
     try {
       const currentDraft = await persist();
       if (!currentDraft) throw new Error(statusMessage());
       await releaseLease(currentDraft);
+      releasedDraft = currentDraft;
       const target = typeof href === "function" ? href(currentDraft.id) : href;
       if (popup) {
         popup.name = `mail-draft-${currentDraft.id}`;
@@ -613,6 +678,14 @@ export default function MailComposer(props: {
       navigateTo(target);
     } catch (error) {
       popup?.close();
+      if (releasedDraft && !disposed) {
+        try {
+          await acquireLease(releasedDraft);
+        } catch {
+          setStatus("readonly");
+          setStatusMessage("Draft editing could not be restored. Reload or take over the draft.");
+        }
+      }
       setHandoffInProgress(false);
       await prompts.error(error instanceof Error ? error.message : "Could not switch composer surface");
     }
@@ -679,7 +752,7 @@ export default function MailComposer(props: {
     },
   ]);
 
-  const writeSurface = () => (
+  const writeSurface = (fill = false) => (
     <Show
       when={format() === "markdown"}
       fallback={
@@ -695,7 +768,7 @@ export default function MailComposer(props: {
           spellcheck
           disabled={!editable()}
           completions={slashCompletion()}
-          fill={props.surface === "full" && composeMode() === "split"}
+          fill={fill}
         />
       }
     >
@@ -711,7 +784,7 @@ export default function MailComposer(props: {
         spellcheck
         disabled={!editable()}
         completions={slashCompletion()}
-        fill={props.surface === "full" && composeMode() === "split"}
+        fill={fill}
       />
     </Show>
   );
@@ -755,7 +828,7 @@ export default function MailComposer(props: {
   );
 
   return (
-    <div class="mail-composer-surface">
+    <div class="mail-composer-surface h-full min-w-0 overflow-hidden">
       <header class={`flex shrink-0 items-center gap-2 px-3 py-2 ${props.surface === "full" ? "bg-[var(--ui-surface-subtle)]" : ""}`}>
         <Show when={props.surface === "full"}>
           <Tooltip content="Minimize composer">
@@ -771,25 +844,18 @@ export default function MailComposer(props: {
           </Tooltip>
         </Show>
         <span class="min-w-0 flex-1 truncate text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
-        <SegmentedControl
-          ariaLabel="Composer view"
-          value={composeMode}
-          onChange={setComposeMode}
-          options={[
-            { value: "write", label: "Write", icon: "ti ti-pencil" },
-            { value: "preview", label: "Preview", icon: "ti ti-eye" },
-            ...(props.surface === "full" ? [{ value: "split" as const, label: "Split", icon: "ti ti-columns" }] : []),
-          ]}
-        />
-        <span
-          class={`text-xs ${status() === "error" || status() === "readonly" ? "text-red-600 dark:text-red-300" : "text-dimmed"}`}
-          role="status"
-        >
-          {statusMessage()}
-        </span>
+        <Show when={status() === "error" || status() === "readonly"}>
+          <span class="min-w-0 truncate text-xs text-red-600 dark:text-red-300" role="status">
+            {statusMessage()}
+          </span>
+        </Show>
         <Show when={status() === "readonly" && draft()}>
-          <button type="button" class="btn-secondary btn-sm" onClick={takeOver}>
-            Take over
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}
+          >
+            {lease() ? "Retry" : "Take over"}
           </button>
         </Show>
         <Tooltip content="Open in new window">
@@ -800,7 +866,7 @@ export default function MailComposer(props: {
             disabled={!editable() || handoffInProgress()}
             onClick={openWindow}
           >
-            <i class="ti ti-external-link" aria-hidden="true" />
+            <i class="ti ti-app-window" aria-hidden="true" />
           </button>
         </Tooltip>
         <Show when={props.surface === "compact"}>
@@ -821,7 +887,7 @@ export default function MailComposer(props: {
         </Show>
       </header>
 
-      <div class={`flex min-h-0 flex-1 flex-col overflow-y-auto ${props.surface === "full" ? "px-4" : "px-3"}`}>
+      <div class={`flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto ${props.surface === "full" ? "px-4" : "px-3"}`}>
         <div class="grid shrink-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 py-2 text-sm">
           <span class="text-dimmed">From</span>
           <Select
@@ -891,33 +957,27 @@ export default function MailComposer(props: {
           />
         </div>
 
-        <div
-          ref={composeBodyEl}
-          class={`grid min-h-72 flex-1 py-2 ${composeMode() === "split" && props.surface === "full" ? "" : "grid-cols-1"}`}
-          style={
-            composeMode() === "split" && props.surface === "full"
-              ? `grid-template-columns: minmax(0, ${splitPercent()}fr) 0.5rem minmax(0, ${100 - splitPercent()}fr)`
-              : undefined
-          }
-        >
-          <div class={`min-h-0 ${composeMode() === "preview" ? "hidden" : ""}`}>{writeSurface()}</div>
-          <button
-            type="button"
-            role="separator"
-            aria-label="Resize editor and preview"
-            aria-orientation="vertical"
-            aria-valuemin="25"
-            aria-valuemax="75"
-            aria-valuenow={Math.round(splitPercent())}
-            class={`group relative cursor-col-resize bg-transparent ${
-              composeMode() === "split" && props.surface === "full" ? "block" : "hidden"
-            }`}
-            onPointerDown={startResizingSplit}
-            onKeyDown={resizeSplitWithKeyboard}
-          >
-            <span class="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--ui-border)] transition group-hover:bg-blue-500 group-focus-visible:bg-blue-500" />
-          </button>
-          <div class={`min-h-0 ${composeMode() === "write" ? "hidden" : ""}`}>{previewSurface()}</div>
+        <div class="min-h-72 flex-1 py-2">
+          <Show when={format() === "markdown"} fallback={<div class="h-full min-h-72 overflow-hidden">{writeSurface(true)}</div>}>
+            <Panes.Root
+              value={composerPanes()}
+              onChange={updateComposerPanes}
+              class="h-full w-full"
+              keepMounted
+              allowResize
+              allowMove
+              allowReorder
+              allowHorizontalSplit
+              allowVerticalSplit={false}
+            >
+              <Panes.Element id="editor" title="Write" icon="ti ti-pencil">
+                <div class="h-full min-h-0 overflow-hidden">{writeSurface(true)}</div>
+              </Panes.Element>
+              <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
+                {previewSurface()}
+              </Panes.Element>
+            </Panes.Root>
+          </Show>
         </div>
 
         <Show when={(draft()?.attachments.length ?? 0) > 0 || uploads().length > 0}>

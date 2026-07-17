@@ -78,6 +78,7 @@ import workflowRoutes from "./workflows";
 const uuidParamSchema = z.object({ mailboxId: z.string().uuid() });
 const mailboxAndIdParamSchema = (name: string) => z.object({ mailboxId: z.string().uuid(), [name]: z.string().uuid() });
 const limitQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(200).default(100) });
+const conversationDraftsQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(50).default(20) });
 const cursorQuerySchema = z.object({
   cursor: z.string().max(2_000).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -495,6 +496,22 @@ const mailOperationsApi = new Hono<AuthContext>()
     async (c) => {
       const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
       return respond(c, messages.listConversationMessages({ context: requestContext(c), ...params, ...c.req.valid("query") }));
+    },
+  )
+  .get(
+    "/mailboxes/:mailboxId/conversations/:conversationId/drafts",
+    v("param", mailboxAndIdParamSchema("conversationId")),
+    v("query", conversationDraftsQuerySchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; conversationId: string };
+      return respond(
+        c,
+        drafts.listConversationDrafts({
+          context: requestContext(c),
+          ...params,
+          limit: c.req.valid("query").limit,
+        }),
+      );
     },
   )
   .post(

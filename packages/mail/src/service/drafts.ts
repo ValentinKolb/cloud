@@ -2,6 +2,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import {
   type ActorRef,
+  type ConversationDraftSummary,
   type DraftAttachment,
   type DraftContentInput,
   type DraftEditableContentInput,
@@ -55,6 +56,13 @@ type DbRecoveryCopy = {
   created_at: Date | string;
   restored_at: Date | string | null;
   resulting_revision: string | number | null;
+};
+
+type DbConversationDraftSummary = {
+  id: string;
+  intent: DraftIntent;
+  subject: string;
+  updated_at: Date | string;
 };
 
 const draftColumns = sql`
@@ -490,6 +498,34 @@ export const listDrafts = async (context: MailRequestContext, mailboxId: string,
     LIMIT ${Math.min(Math.max(Math.floor(limit), 1), 200)}
   `;
   return ok(rows.map(mapDraft));
+};
+
+export const listConversationDrafts = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+  limit?: number;
+}): Promise<Result<ConversationDraftSummary[]>> => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
+  if (!allowed.ok) return allowed;
+  const rows = await sql<DbConversationDraftSummary[]>`
+    SELECT d.id, d.intent, d.subject, d.updated_at
+    FROM mail.drafts d
+    WHERE d.mailbox_id = ${params.mailboxId}::uuid
+      AND d.conversation_id = ${params.conversationId}::uuid
+      AND d.origin = 'user'
+      AND d.state = 'draft'
+    ORDER BY d.updated_at DESC, d.id DESC
+    LIMIT ${Math.min(Math.max(Math.floor(params.limit ?? 20), 1), 50)}
+  `;
+  return ok(
+    rows.map((row) => ({
+      id: row.id,
+      intent: row.intent,
+      subject: row.subject,
+      updatedAt: toIso(row.updated_at),
+    })),
+  );
 };
 
 export const getDraft = async (context: MailRequestContext, mailboxId: string, draftId: string): Promise<Result<MailDraft>> => {
