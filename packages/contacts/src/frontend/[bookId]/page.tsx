@@ -12,13 +12,22 @@ import ContactsSidebar from "../_components/ContactsSidebar";
 import ContactsWorkspaceMain from "../_components/ContactsWorkspaceMain";
 import DesktopDetailLayoutSync from "../_components/DesktopDetailLayoutSync.island";
 import ContactsLayoutHelp from "../_components/help/ContactsLayoutHelp.island";
-import { CONTACTS_PER_PAGE, loadContactBookPermissions, parseContactsPage, permissionForBook, resolveSelectedContact } from "../page-data";
+import {
+  CONTACTS_PER_PAGE,
+  loadContactBookPermissions,
+  loadFavoriteKeysForContacts,
+  parseContactsPage,
+  parseContactsQueryOptions,
+  permissionForBook,
+  resolveSelectedContact,
+} from "../page-data";
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
   const bookId = c.req.param("bookId") ?? "";
   const search = c.req.query("search") ?? "";
   const page = parseContactsPage(c.req.query("page"));
+  const queryOptions = parseContactsQueryOptions((name) => c.req.query(name));
   const perPage = CONTACTS_PER_PAGE;
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
   const activeTagId = c.req.query("tag_id") ?? null;
@@ -69,6 +78,10 @@ export default ssr<AuthContext>(async (c) => {
       filter: {
         query: search.trim() || undefined,
         tagIds: activeTagId ? [activeTagId] : undefined,
+        sort: queryOptions.sort,
+        email: queryOptions.email,
+        phone: queryOptions.phone,
+        favoriteUserId: queryOptions.favorites ? user.id : undefined,
       },
     }),
     contactsService.tag.list({ bookId }),
@@ -80,12 +93,10 @@ export default ssr<AuthContext>(async (c) => {
     bookId,
     user,
   });
-  const initialNotes = selectedContact
-    ? await contactsService.contact.notes.list({
-        bookId,
-        contactId: selectedContact.id,
-      })
-    : [];
+  const [initialNotes, favoriteKeys] = await Promise.all([
+    selectedContact ? contactsService.contact.notes.list({ bookId, contactId: selectedContact.id }) : Promise.resolve([]),
+    loadFavoriteKeysForContacts(user.id, selectedContact ? [...contacts, selectedContact] : contacts),
+  ]);
   const bookNames = Object.fromEntries(books.map((entry) => [entry.id, entry.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
   const requestUrl = new URL(c.req.raw.url);
@@ -122,6 +133,7 @@ export default ssr<AuthContext>(async (c) => {
             tags={bookTags}
             activeTagId={activeTagId}
             filtersBasePath={`/app/contacts/${bookId}`}
+            initialFavoriteKeys={favoriteKeys}
           />
 
           <AppWorkspace.Detail
@@ -141,6 +153,7 @@ export default ssr<AuthContext>(async (c) => {
               adminBookIds={adminBookIds}
               currentUserId={user.id}
               showEmpty={false}
+              initialFavoriteKeys={favoriteKeys}
             />
           </AppWorkspace.Detail>
         </AppWorkspace.Content>

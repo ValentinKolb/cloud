@@ -6,11 +6,13 @@ import type { Contact, ContactNote, ContactRef, ContactTree } from "../../servic
 import { resolveContactInitials, resolveContactName, safeWebsiteHref } from "../../shared";
 import { readErrorMessage } from "./api";
 import { createContactDetailActions } from "./ContactDetailPanel.actions";
+import ContactFavoriteButton from "./ContactFavoriteButton";
 import ContactNotesSection from "./ContactNotesSection";
 import ContactOrgTreeView from "./ContactOrgTreeView";
 import ContactQuickEdit from "./ContactQuickEdit";
 import ContactTagChip from "./ContactTagChip";
-import { listenForContactsLiveInvalidation } from "./contacts-live";
+import { contactFavoriteKey, listenForContactFavoriteChanges } from "./contacts-favorites";
+import { listenForContactsLiveInvalidation, requiresSelectedContactRefresh } from "./contacts-live";
 import {
   CONTACT_DETAIL_EVENT,
   type ContactDetailPayload,
@@ -32,6 +34,7 @@ type Props = {
   adminBookIds: string[];
   currentUserId: string;
   showEmpty?: boolean;
+  initialFavoriteKeys: string[];
 };
 
 const formatBirthday = (value: string | null) => {
@@ -54,11 +57,16 @@ export default function ContactDetailPanel(props: Props) {
   const [detailMode, setDetailMode] = createSignal<"details" | "tree">("details");
   const [quickEditing, setQuickEditing] = createSignal(false);
   const [orgTree, setOrgTree] = createSignal<ContactTree | null>(null);
+  const [selectedFavorite, setSelectedFavorite] = createSignal(
+    props.initialContact
+      ? props.initialFavoriteKeys.includes(contactFavoriteKey(props.initialContact.bookId, props.initialContact.id))
+      : false,
+  );
 
   const detailMutation = mutations.create<
-    Contact | null,
-    { bookId: string; contactId: string; selectedBookId: string },
-    { target: { bookId: string; contactId: string; selectedBookId: string } }
+    { contact: Contact | null; favorite?: boolean },
+    { bookId: string; contactId: string; selectedBookId: string; loadFavorite?: boolean },
+    { target: { bookId: string; contactId: string; selectedBookId: string; loadFavorite?: boolean } }
   >({
     onBefore: (target) => ({ target }),
     mutation: async (target, ctx) => {
@@ -66,17 +74,23 @@ export default function ContactDetailPanel(props: Props) {
         { param: target },
         { init: { signal: ctx.abortSignal } },
       );
-      if (response.status === 403 || response.status === 404) return null;
+      if (response.status === 403 || response.status === 404) return { contact: null };
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to refresh contact"));
-      return await response.json();
+      const contact = await response.json();
+      if (!target.loadFavorite) return { contact };
+      const favoriteResponse = await apiClient.favorites[":bookId"][":contactId"].$get({ param: target });
+      if (!favoriteResponse.ok) throw new Error(await readErrorMessage(favoriteResponse, "Failed to load favorite state"));
+      return { contact, favorite: (await favoriteResponse.json()).favorite };
     },
-    onSuccess: (updated, ctx) => {
+    onSuccess: (result, ctx) => {
       const target = ctx?.target;
       if (!target || contactId() !== target.contactId || bookId() !== target.selectedBookId) return;
+      const updated = result.contact;
       if (!updated) {
         clearSelectedContactInUrl("replace");
         return;
       }
+      if (result.favorite !== undefined) setSelectedFavorite(result.favorite);
       setContact(updated);
       setContactId(updated.id);
       setBookId(updated.bookId);
@@ -107,26 +121,52 @@ export default function ContactDetailPanel(props: Props) {
 
   const syncFromUrl = () => {
     const selected = getSelectedContactFromUrl();
-    setContact(findContact(selected.contactId, selected.bookId));
+    const found = findContact(selected.contactId, selected.bookId);
+    setContact(found);
     setContactId(selected.contactId);
     setBookId(selected.bookId);
+    setSelectedFavorite(found ? props.initialFavoriteKeys.includes(contactFavoriteKey(found.bookId, found.id)) : false);
     setDetailMode("details");
     setQuickEditing(false);
     setOrgTree(null);
+    if (selected.contactId && selected.bookId && !found) {
+      void detailMutation.mutate({
+        bookId: selected.bookId,
+        contactId: selected.contactId,
+        selectedBookId: selected.bookId,
+        loadFavorite: true,
+      });
+    }
   };
 
   onMount(() => {
     const handleSelect = (event: Event) => {
       const payload = (event as CustomEvent<ContactDetailPayload>).detail;
-      setContact(payload.item ?? findContact(payload.itemKey, payload.bookId));
+      const found = payload.item ?? findContact(payload.itemKey, payload.bookId);
+      setContact(found);
       setContactId(payload.itemKey);
       setBookId(payload.bookId);
+      setSelectedFavorite(
+        payload.favorite ??
+          (payload.item ? props.initialFavoriteKeys.includes(contactFavoriteKey(payload.item.bookId, payload.item.id)) : false),
+      );
       setDetailMode("details");
       setQuickEditing(false);
       setOrgTree(null);
+      if (payload.itemKey && payload.bookId && !found) {
+        void detailMutation.mutate({
+          bookId: payload.bookId,
+          contactId: payload.itemKey,
+          selectedBookId: payload.bookId,
+          loadFavorite: true,
+        });
+      }
     };
 
     const handlePopState = () => syncFromUrl();
+    const stopFavoriteChanges = listenForContactFavoriteChanges((change) => {
+      if (change.contactId === contactId() && change.bookId === bookId()) setSelectedFavorite(change.favorite);
+    });
 
     window.addEventListener(CONTACT_DETAIL_EVENT, handleSelect);
     window.addEventListener("popstate", handlePopState);
@@ -141,17 +181,14 @@ export default function ContactDetailPanel(props: Props) {
       if (event.type === "contact.moved" && event.contactId === selectedContactId && event.sourceBookId === selectedBookId) {
         return refreshSelectedContact(event.targetBookId);
       }
-      const affectsSelectedBook =
-        event.type === "contact.created" || event.type === "contact.updated" || event.type === "contact.deleted"
-          ? event.bookId === selectedBookId
-          : event.type === "contact.moved" && (event.sourceBookId === selectedBookId || event.targetBookId === selectedBookId);
-      if (affectsSelectedBook) {
+      if (requiresSelectedContactRefresh(event, selectedBookId)) {
         return refreshSelectedContact();
       }
     });
 
     onCleanup(() => {
       stopLiveInvalidations();
+      stopFavoriteChanges();
       window.removeEventListener(CONTACT_DETAIL_EVENT, handleSelect);
       window.removeEventListener("popstate", handlePopState);
     });
@@ -192,36 +229,40 @@ export default function ContactDetailPanel(props: Props) {
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-xs font-semibold text-secondary">Contact details</span>
                     <div class="flex shrink-0 items-center gap-1">
-                      <Show when={actions.canEdit() || actions.canMove()}>
-                        <Dropdown
-                          trigger={
-                            <button type="button" class="icon-btn" aria-label="More contact actions">
-                              <i class="ti ti-dots" />
-                            </button>
-                          }
-                          elements={[
-                            ...(actions.canEdit()
-                              ? [
-                                  {
-                                    label: "Edit all fields",
-                                    icon: "ti ti-pencil",
-                                    action: () => actions.openEditDialog(c()),
-                                  },
-                                ]
-                              : []),
-                            ...(actions.canMove()
-                              ? [
-                                  {
-                                    label: "Move to another book",
-                                    icon: "ti ti-folder-symlink",
-                                    action: () => actions.moveToBook(c()),
-                                  },
-                                ]
-                              : []),
-                          ]}
-                          position="bottom-left"
-                        />
-                      </Show>
+                      <ContactFavoriteButton bookId={c().bookId} contactId={c().id} initialFavorite={selectedFavorite()} />
+                      <Dropdown
+                        trigger={
+                          <button type="button" class="icon-btn" aria-label="More contact actions">
+                            <i class="ti ti-dots" />
+                          </button>
+                        }
+                        elements={[
+                          {
+                            label: "Download vCard",
+                            icon: "ti ti-download",
+                            href: `/api/contacts/books/${encodeURIComponent(c().bookId)}/contacts/${encodeURIComponent(c().id)}/export.vcf`,
+                          },
+                          ...(actions.canEdit()
+                            ? [
+                                {
+                                  label: "Edit all fields",
+                                  icon: "ti ti-pencil",
+                                  action: () => actions.openEditDialog(c()),
+                                },
+                              ]
+                            : []),
+                          ...(actions.canMove()
+                            ? [
+                                {
+                                  label: "Move to another book",
+                                  icon: "ti ti-folder-symlink",
+                                  action: () => actions.moveToBook(c()),
+                                },
+                              ]
+                            : []),
+                        ]}
+                        position="bottom-left"
+                      />
                       <Tooltip content="Close details">
                         <button
                           type="button"

@@ -1,8 +1,8 @@
 import type { ContactServiceEvent } from "../../live-events";
 
-export const CONTACTS_LIVE_INVALIDATION_EVENT = "contacts:live-invalidation";
+const CONTACTS_LIVE_INVALIDATION_EVENT = "contacts:live-invalidation";
 
-export type ContactsLiveInvalidation = ContactServiceEvent | { type: "scope.changed" };
+type ContactsLiveInvalidation = ContactServiceEvent | { type: "scope.changed" };
 
 type ContactsLiveInvalidationDispatch = {
   invalidation: ContactsLiveInvalidation;
@@ -42,4 +42,12 @@ export const requiresContactsShellRefresh = (event: ContactsLiveInvalidation): b
   event.type === "scope.changed" || event.type.startsWith("book.") || event.type === "access.changed" || event.type === "tags.changed";
 
 export const requiresContactsResultsRefresh = (event: ContactsLiveInvalidation): boolean =>
-  event.type.startsWith("contact.") || event.type === "contacts.imported";
+  event.type.startsWith("contact.") || event.type === "contacts.imported" || event.type === "contacts.changed";
+
+/** Returns whether an open contact may have changed or become inaccessible. */
+export const requiresSelectedContactRefresh = (event: ContactsLiveInvalidation, bookId: string): boolean => {
+  if (event.type === "scope.changed") return true;
+  if (event.type === "contact.moved") return event.sourceBookId === bookId || event.targetBookId === bookId;
+  if (event.type === "notes.changed") return false;
+  return event.bookId === bookId && event.type !== "book.created";
+};

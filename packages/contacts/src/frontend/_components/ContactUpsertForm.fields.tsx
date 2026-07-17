@@ -1,17 +1,17 @@
-import { PanelDialog, RemoveBtn, TextInput } from "@valentinkolb/cloud/ui";
-import { Index } from "solid-js";
+import { PanelDialog, RemoveBtn, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { Accessor, Setter } from "solid-js";
+import { Index } from "solid-js";
 import {
-  EMPTY_ADDRESS,
-  EMPTY_BANK_ACCOUNT,
-  EMPTY_EMAIL,
-  EMPTY_PHONE,
-  EMPTY_WEBSITE,
   type EditableAddress,
   type EditableBankAccount,
   type EditableEmail,
   type EditablePhone,
   type EditableWebsite,
+  EMPTY_ADDRESS,
+  EMPTY_BANK_ACCOUNT,
+  EMPTY_EMAIL,
+  EMPTY_PHONE,
+  EMPTY_WEBSITE,
 } from "./ContactUpsertForm.model";
 
 type RowsProps<T> = {
@@ -21,6 +21,56 @@ type RowsProps<T> = {
 
 const updateRow = <T,>(rows: T[], index: number, patch: Partial<T>): T[] =>
   rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row));
+
+const moveRow = <T,>(rows: T[], from: number, to: number): T[] => {
+  if (from === to || to < 0 || to >= rows.length) return rows;
+  const next = [...rows];
+  const [row] = next.splice(from, 1);
+  if (row !== undefined) next.splice(to, 0, row);
+  return next;
+};
+
+const ContactPointActions = <T,>(props: { rows: Accessor<T[]>; setRows: Setter<T[]>; index: number; label: string }) => (
+  <div class="flex items-center justify-end gap-0.5">
+    {props.index === 0 ? (
+      <span class="mr-1 text-[11px] font-medium text-secondary">Primary</span>
+    ) : (
+      <Tooltip content={`Make primary ${props.label}`}>
+        <button
+          type="button"
+          class="icon-btn icon-btn-sm text-dimmed"
+          aria-label={`Make primary ${props.label}`}
+          onClick={() => props.setRows((rows) => moveRow(rows, props.index, 0))}
+        >
+          <i class="ti ti-star" />
+        </button>
+      </Tooltip>
+    )}
+    <Tooltip content="Move up">
+      <button
+        type="button"
+        class="icon-btn icon-btn-sm text-dimmed"
+        aria-label={`Move ${props.label} up`}
+        disabled={props.index === 0}
+        onClick={() => props.setRows((rows) => moveRow(rows, props.index, props.index - 1))}
+      >
+        <i class="ti ti-chevron-up" />
+      </button>
+    </Tooltip>
+    <Tooltip content="Move down">
+      <button
+        type="button"
+        class="icon-btn icon-btn-sm text-dimmed"
+        aria-label={`Move ${props.label} down`}
+        disabled={props.index === props.rows().length - 1}
+        onClick={() => props.setRows((rows) => moveRow(rows, props.index, props.index + 1))}
+      >
+        <i class="ti ti-chevron-down" />
+      </button>
+    </Tooltip>
+    <RemoveBtn ariaLabel={`Remove ${props.label}`} onClick={() => props.setRows((rows) => rows.filter((_, i) => i !== props.index))} />
+  </div>
+);
 
 export const ReachFields = (props: {
   emails: Accessor<EditableEmail[]>;
@@ -49,9 +99,7 @@ export const ReachFields = (props: {
                 value={() => email().email}
                 onInput={(value) => props.setEmails((rows) => updateRow(rows, index, { email: value }))}
               />
-              <div class="flex items-center justify-end">
-                <RemoveBtn ariaLabel="Remove email" onClick={() => props.setEmails((rows) => rows.filter((_, i) => i !== index))} />
-              </div>
+              <ContactPointActions rows={props.emails} setRows={props.setEmails} index={index} label="email" />
             </div>
           )}
         </Index>
@@ -81,9 +129,7 @@ export const ReachFields = (props: {
                 value={() => phone().phone}
                 onInput={(value) => props.setPhones((rows) => updateRow(rows, index, { phone: value }))}
               />
-              <div class="flex items-center justify-end">
-                <RemoveBtn ariaLabel="Remove phone number" onClick={() => props.setPhones((rows) => rows.filter((_, i) => i !== index))} />
-              </div>
+              <ContactPointActions rows={props.phones} setRows={props.setPhones} index={index} label="phone number" />
             </div>
           )}
         </Index>
@@ -113,9 +159,7 @@ export const ReachFields = (props: {
                 value={() => website().url}
                 onInput={(value) => props.setWebsites((rows) => updateRow(rows, index, { url: value }))}
               />
-              <div class="flex items-center justify-end">
-                <RemoveBtn ariaLabel="Remove website" onClick={() => props.setWebsites((rows) => rows.filter((_, i) => i !== index))} />
-              </div>
+              <ContactPointActions rows={props.websites} setRows={props.setWebsites} index={index} label="website" />
             </div>
           )}
         </Index>

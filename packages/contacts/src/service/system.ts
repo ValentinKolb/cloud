@@ -1,7 +1,7 @@
 import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { emptyToNull, isUuid, toPgUuidArray } from "./shared";
-import type { Contact, ContactAddress, ContactBook, ContactEmail, ContactPhone, ContactWebsite } from "./types";
+import type { Contact, ContactAddress, ContactBook, ContactEmail, ContactListFilter, ContactPhone, ContactWebsite } from "./types";
 
 export const SYSTEM_BOOK_ID = "system";
 
@@ -138,9 +138,17 @@ const buildSearchPattern = (query: string | undefined): string | null => {
 /**
  * Lists read-only system contacts with optional search and pagination.
  */
-export const listSystemContacts = async (config: { pagination?: PageParams; filter?: { query?: string } }): Promise<Paginated<Contact>> => {
+export const listSystemContacts = async (config: { pagination?: PageParams; filter?: ContactListFilter }): Promise<Paginated<Contact>> => {
   const searchPattern = buildSearchPattern(config.filter?.query);
   const { page, perPage, offset } = paginate(config.pagination);
+  const requestedFavoriteUserId = config.filter?.favoriteUserId;
+  if (requestedFavoriteUserId !== undefined && !isUuid(requestedFavoriteUserId)) {
+    return { items: [], page, perPage, total: 0, hasNext: false };
+  }
+  const emailPresence = config.filter?.email ?? "all";
+  const phonePresence = config.filter?.phone ?? "all";
+  const sort = config.filter?.sort ?? "name";
+  const favoriteUserId = requestedFavoriteUserId ?? null;
 
   const [countRow] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
@@ -161,6 +169,14 @@ export const listSystemContacts = async (config: { pagination?: PageParams; filt
         OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
         OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
       )
+      AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM contacts.contact_favorites favorite
+        WHERE favorite.user_id = ${favoriteUserId}::uuid
+          AND favorite.book_id = ${SYSTEM_BOOK_ID}
+          AND favorite.contact_id = u.id
+      ))
+      AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND NULLIF(u.mail, '') IS NOT NULL) OR (${emailPresence} = 'no' AND NULLIF(u.mail, '') IS NULL))
+      AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND (NULLIF(d.phone, '') IS NOT NULL OR NULLIF(d.mobile, '') IS NOT NULL)) OR (${phonePresence} = 'no' AND NULLIF(d.phone, '') IS NULL AND NULLIF(d.mobile, '') IS NULL))
   `;
 
   const rows = await sql<DbSystemUser[]>`
@@ -197,7 +213,19 @@ export const listSystemContacts = async (config: { pagination?: PageParams; filt
         OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
         OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
       )
-    ORDER BY LOWER(COALESCE(NULLIF(TRIM(CONCAT_WS(' ', COALESCE(u.given_name, ''), COALESCE(u.sn, ''))), ''), NULLIF(u.display_name, ''), u.uid)) ASC
+      AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM contacts.contact_favorites favorite
+        WHERE favorite.user_id = ${favoriteUserId}::uuid
+          AND favorite.book_id = ${SYSTEM_BOOK_ID}
+          AND favorite.contact_id = u.id
+      ))
+      AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND NULLIF(u.mail, '') IS NOT NULL) OR (${emailPresence} = 'no' AND NULLIF(u.mail, '') IS NULL))
+      AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND (NULLIF(d.phone, '') IS NOT NULL OR NULLIF(d.mobile, '') IS NOT NULL)) OR (${phonePresence} = 'no' AND NULLIF(d.phone, '') IS NULL AND NULLIF(d.mobile, '') IS NULL))
+    ORDER BY
+      CASE WHEN ${sort} = 'updated' THEN COALESCE(d.synced_at, u.created_at) END DESC,
+      CASE WHEN ${sort} = 'created' THEN u.created_at END DESC,
+      LOWER(COALESCE(NULLIF(TRIM(CONCAT_WS(' ', COALESCE(u.given_name, ''), COALESCE(u.sn, ''))), ''), NULLIF(u.display_name, ''), u.uid)) ASC,
+      u.id ASC
     LIMIT ${perPage}
     OFFSET ${offset}
   `;

@@ -1,4 +1,4 @@
-import { buildAccessPrincipalCondition, type AccessSubject } from "@valentinkolb/cloud/server";
+import { type AccessSubject, buildAccessPrincipalCondition } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { resolveStoredContactLabel } from "../shared";
@@ -12,8 +12,11 @@ import type {
   ContactAddressInput,
   ContactBankAccount,
   ContactBankAccountInput,
+  ContactDuplicateMatch,
+  ContactDuplicateReason,
   ContactEmail,
   ContactEmailInput,
+  ContactListFilter,
   ContactPhone,
   ContactPhoneInput,
   ContactRef,
@@ -24,6 +27,13 @@ import type {
   CreateContactInput,
   UpdateContactInput,
 } from "./types";
+
+const normalizeContactIds = (ids: string[]): Result<string[]> => {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return fail(err.badInput("Choose at least one contact"));
+  if (unique.some((id) => !isUuid(id))) return fail(err.badInput("Contact ids must be UUIDs"));
+  return ok(unique);
+};
 
 type DbContact = {
   id: string;
@@ -841,7 +851,7 @@ const resolveParentContactId = async (config: {
 export const list = async (config: {
   bookId: string;
   pagination?: PageParams;
-  filter?: { query?: string; tagIds?: string[] };
+  filter?: ContactListFilter;
 }): Promise<Paginated<Contact>> => {
   if (isSystemBookId(config.bookId)) {
     return listSystemContacts({
@@ -862,8 +872,16 @@ export const list = async (config: {
 
   const searchPattern = buildSearchPattern(config.filter?.query);
   const { page, perPage, offset } = paginate(config.pagination);
+  const requestedFavoriteUserId = config.filter?.favoriteUserId;
+  if (requestedFavoriteUserId !== undefined && !isUuid(requestedFavoriteUserId)) {
+    return { items: [], page, perPage, total: 0, hasNext: false };
+  }
   const filterTagIds = (config.filter?.tagIds ?? []).filter(isUuid);
   const tagIdsArray = filterTagIds.length > 0 ? toPgUuidArray(filterTagIds) : null;
+  const emailPresence = config.filter?.email ?? "all";
+  const phonePresence = config.filter?.phone ?? "all";
+  const sort = config.filter?.sort ?? "name";
+  const favoriteUserId = requestedFavoriteUserId ?? null;
 
   const [countRow] = await sql<{ count: number }[]>`
     SELECT COUNT(DISTINCT c.id)::int AS count
@@ -878,35 +896,78 @@ export const list = async (config: {
         SELECT 1 FROM contacts.contact_tag_assignments cta
         WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
       ))
+      AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM contacts.contact_favorites favorite
+        WHERE favorite.user_id = ${favoriteUserId}::uuid
+          AND favorite.book_id = ${config.bookId}
+          AND favorite.contact_id = c.id
+      ))
+      AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND EXISTS (
+        SELECT 1 FROM contacts.contact_emails email_filter WHERE email_filter.contact_id = c.id
+      )) OR (${emailPresence} = 'no' AND NOT EXISTS (
+        SELECT 1 FROM contacts.contact_emails email_filter WHERE email_filter.contact_id = c.id
+      )))
+      AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND EXISTS (
+        SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
+      )) OR (${phonePresence} = 'no' AND NOT EXISTS (
+        SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
+      )))
   `;
 
   // The list query only needs IDs (in sorted order) — full contact rows are
   // hydrated by getManualContactsByIds, which loads parent + members + child
   // collections in one batched pass.
   const rows = await sql<{ id: string }[]>`
-    SELECT DISTINCT
-      c.id,
-      LOWER(
-        COALESCE(
-          NULLIF(TRIM(CONCAT_WS(' ', COALESCE(c.first_name, ''), COALESCE(c.last_name, ''))), ''),
-          NULLIF(c.label, ''),
-          NULLIF(c.company_name, ''),
-          ''
-        )
-      ) AS sort_name,
-      c.created_at
-    FROM contacts.contacts c
-    LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
-    LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
-    LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
-    LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-    WHERE c.book_id = ${config.bookId}::uuid
-      AND ${mapManualSearchCondition(searchPattern)}
-      AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
-        SELECT 1 FROM contacts.contact_tag_assignments cta
-        WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
-      ))
-    ORDER BY sort_name ASC, c.created_at ASC
+    WITH matches AS (
+      SELECT DISTINCT
+        c.id,
+        LOWER(
+          COALESCE(
+            NULLIF(c.label, ''),
+            NULLIF(TRIM(CONCAT_WS(' ', COALESCE(c.first_name, ''), COALESCE(c.last_name, ''))), ''),
+            NULLIF(c.company_name, ''),
+            ''
+          )
+        ) AS sort_name,
+        c.created_at,
+        c.updated_at,
+        LOWER(NULLIF(TRIM(c.company_name), '')) AS sort_company
+      FROM contacts.contacts c
+      LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
+      LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
+      LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
+      LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
+      WHERE c.book_id = ${config.bookId}::uuid
+        AND ${mapManualSearchCondition(searchPattern)}
+        AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
+          SELECT 1 FROM contacts.contact_tag_assignments cta
+          WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
+        ))
+        AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+          SELECT 1 FROM contacts.contact_favorites favorite
+          WHERE favorite.user_id = ${favoriteUserId}::uuid
+            AND favorite.book_id = ${config.bookId}
+            AND favorite.contact_id = c.id
+        ))
+        AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND EXISTS (
+          SELECT 1 FROM contacts.contact_emails email_filter WHERE email_filter.contact_id = c.id
+        )) OR (${emailPresence} = 'no' AND NOT EXISTS (
+          SELECT 1 FROM contacts.contact_emails email_filter WHERE email_filter.contact_id = c.id
+        )))
+        AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND EXISTS (
+          SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
+        )) OR (${phonePresence} = 'no' AND NOT EXISTS (
+          SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
+        )))
+    )
+    SELECT id
+    FROM matches
+    ORDER BY
+      CASE WHEN ${sort} = 'updated' THEN updated_at END DESC,
+      CASE WHEN ${sort} = 'created' THEN created_at END DESC,
+      CASE WHEN ${sort} = 'company' THEN sort_company END ASC NULLS LAST,
+      sort_name ASC,
+      id ASC
     LIMIT ${perPage}
     OFFSET ${offset}
   `;
@@ -1192,6 +1253,9 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
   if (!isUuid(config.sourceBookId) || !isUuid(config.targetBookId) || !isUuid(config.id)) {
     return fail(err.notFound("Contact"));
   }
+  if (config.sourceBookId === config.targetBookId) {
+    return fail(err.badInput("Choose another contact book"));
+  }
 
   // Move + sever cross-book references in one transaction:
   //   * children's parent_contact_id → NULL (would otherwise span books)
@@ -1218,6 +1282,19 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
     await tx`
       DELETE FROM contacts.contact_tag_assignments
       WHERE contact_id = ${config.id}::uuid
+    `;
+    await tx`
+      INSERT INTO contacts.contact_favorites (user_id, book_id, contact_id, created_at)
+      SELECT user_id, ${config.targetBookId}, contact_id, created_at
+      FROM contacts.contact_favorites
+      WHERE book_id = ${config.sourceBookId}
+        AND contact_id = ${config.id}::uuid
+      ON CONFLICT (user_id, book_id, contact_id) DO NOTHING
+    `;
+    await tx`
+      DELETE FROM contacts.contact_favorites
+      WHERE book_id = ${config.sourceBookId}
+        AND contact_id = ${config.id}::uuid
     `;
     const [moved] = await tx<{ id: string }[]>`
       UPDATE contacts.contacts
@@ -1252,14 +1329,404 @@ export const remove = async (config: { bookId: string; id: string }): Promise<Re
     return fail(err.notFound("Contact"));
   }
 
-  const result = await sql`
-    DELETE FROM contacts.contacts
-    WHERE id = ${config.id}::uuid
-      AND book_id = ${config.bookId}::uuid
-  `;
+  const result = await sql.begin(async (tx) => {
+    await tx`
+      DELETE FROM contacts.contact_favorites
+      WHERE book_id = ${config.bookId}
+        AND contact_id = ${config.id}::uuid
+    `;
+    return tx`
+      DELETE FROM contacts.contacts
+      WHERE id = ${config.id}::uuid
+        AND book_id = ${config.bookId}::uuid
+    `;
+  });
 
   if (result.count === 0) return fail(err.notFound("Contact"));
   return ok();
+};
+
+/** Loads an explicit, ordered subset from one manual book. */
+export const getMany = async (config: { bookId: string; ids: string[] }): Promise<Result<Contact[]>> => {
+  if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
+  const normalized = normalizeContactIds(config.ids);
+  if (!normalized.ok) return normalized;
+
+  const contactsById = await getManualContactsByIds(normalized.data);
+  const contacts = normalized.data.flatMap((id) => {
+    const contact = contactsById.get(id);
+    return contact?.bookId === config.bookId ? [contact] : [];
+  });
+  if (contacts.length !== normalized.data.length) return fail(err.notFound("One or more contacts"));
+  return ok(contacts);
+};
+
+/** Adds book-scoped tags without replacing existing assignments. */
+export const addTags = async (config: { bookId: string; ids: string[]; tagIds: string[] }): Promise<Result<number>> => {
+  if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
+  const normalized = normalizeContactIds(config.ids);
+  if (!normalized.ok) return normalized;
+  const validTags = await tags.validateTagsInBook({ bookId: config.bookId, tagIds: config.tagIds });
+  if (!validTags.ok) return validTags;
+  if (validTags.data.length === 0) return fail(err.badInput("Choose at least one tag"));
+
+  const updated = await sql.begin(async (tx) => {
+    const rows = await tx<{ id: string }[]>`
+      SELECT id
+      FROM contacts.contacts
+      WHERE book_id = ${config.bookId}::uuid
+        AND id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+      FOR UPDATE
+    `;
+    if (rows.length !== normalized.data.length) return 0;
+    await tx`
+      INSERT INTO contacts.contact_tag_assignments (contact_id, tag_id)
+      SELECT contact_id, tag_id
+      FROM unnest(${toPgUuidArray(normalized.data)}::uuid[]) AS contact_id
+      CROSS JOIN unnest(${toPgUuidArray(validTags.data)}::uuid[]) AS tag_id
+      ON CONFLICT DO NOTHING
+    `;
+    await tx`
+      UPDATE contacts.contacts
+      SET updated_at = now()
+      WHERE id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+    `;
+    return rows.length;
+  });
+
+  return updated === 0 ? fail(err.notFound("One or more contacts")) : ok(updated);
+};
+
+/** Deletes an explicit set atomically; stale selections fail without partial writes. */
+export const removeMany = async (config: { bookId: string; ids: string[] }): Promise<Result<number>> => {
+  if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
+  const normalized = normalizeContactIds(config.ids);
+  if (!normalized.ok) return normalized;
+
+  const removed = await sql.begin(async (tx) => {
+    const rows = await tx<{ id: string }[]>`
+      SELECT id
+      FROM contacts.contacts
+      WHERE book_id = ${config.bookId}::uuid
+        AND id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+      FOR UPDATE
+    `;
+    if (rows.length !== normalized.data.length) return 0;
+    await tx`
+      DELETE FROM contacts.contact_favorites
+      WHERE book_id = ${config.bookId}
+        AND contact_id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+    `;
+    await tx`
+      DELETE FROM contacts.contacts
+      WHERE book_id = ${config.bookId}::uuid
+        AND id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+    `;
+    return rows.length;
+  });
+
+  return removed === 0 ? fail(err.notFound("One or more contacts")) : ok(removed);
+};
+
+/**
+ * Moves contacts as one unit. Relationships within the selected set survive;
+ * cross-book parents, children, and source-book tags are removed.
+ */
+export const moveMany = async (config: { sourceBookId: string; targetBookId: string; ids: string[] }): Promise<Result<number>> => {
+  if (!isUuid(config.sourceBookId) || !isUuid(config.targetBookId)) return fail(err.notFound("Book"));
+  if (config.sourceBookId === config.targetBookId) return fail(err.badInput("Choose another contact book"));
+  const normalized = normalizeContactIds(config.ids);
+  if (!normalized.ok) return normalized;
+
+  const moved = await sql.begin(async (tx) => {
+    const rows = await tx<{ id: string }[]>`
+      SELECT id
+      FROM contacts.contacts
+      WHERE book_id = ${config.sourceBookId}::uuid
+        AND id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+      FOR UPDATE
+    `;
+    if (rows.length !== normalized.data.length) return 0;
+
+    await tx`
+      UPDATE contacts.contacts
+      SET parent_contact_id = NULL, updated_at = now()
+      WHERE book_id = ${config.sourceBookId}::uuid
+        AND parent_contact_id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+        AND id <> ALL(${toPgUuidArray(normalized.data)}::uuid[])
+    `;
+    await tx`
+      UPDATE contacts.contacts
+      SET parent_contact_id = NULL
+      WHERE id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+        AND parent_contact_id IS NOT NULL
+        AND parent_contact_id <> ALL(${toPgUuidArray(normalized.data)}::uuid[])
+    `;
+    await tx`
+      DELETE FROM contacts.contact_tag_assignments
+      WHERE contact_id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+    `;
+    await tx`
+      INSERT INTO contacts.contact_favorites (user_id, book_id, contact_id, created_at)
+      SELECT user_id, ${config.targetBookId}, contact_id, created_at
+      FROM contacts.contact_favorites
+      WHERE book_id = ${config.sourceBookId}
+        AND contact_id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+      ON CONFLICT (user_id, book_id, contact_id) DO NOTHING
+    `;
+    await tx`
+      DELETE FROM contacts.contact_favorites
+      WHERE book_id = ${config.sourceBookId}
+        AND contact_id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+    `;
+    await tx`
+      UPDATE contacts.contacts
+      SET book_id = ${config.targetBookId}::uuid, updated_at = now()
+      WHERE id = ANY(${toPgUuidArray(normalized.data)}::uuid[])
+    `;
+    return rows.length;
+  });
+
+  return moved === 0 ? fail(err.notFound("One or more contacts")) : ok(moved);
+};
+
+type DuplicatePairRow = {
+  first_id: string;
+  second_id: string;
+  same_email: boolean;
+  same_phone: boolean;
+  same_name: boolean;
+};
+
+const MAX_DUPLICATE_SIGNAL_GROUPS = 500;
+const MAX_CONTACTS_PER_DUPLICATE_SIGNAL = 32;
+
+/** Finds a bounded set of exact duplicate candidates inside one book. */
+export const findDuplicates = async (config: { bookId: string; limit?: number }): Promise<ContactDuplicateMatch[]> => {
+  if (!isUuid(config.bookId)) return [];
+  const limit = Math.max(1, Math.min(config.limit ?? 100, 250));
+  const rows = await sql<DuplicatePairRow[]>`
+    WITH signals AS (
+      SELECT 'email'::text AS reason, LOWER(TRIM(e.email)) AS value, e.contact_id, c.updated_at
+      FROM contacts.contact_emails e
+      JOIN contacts.contacts c ON c.id = e.contact_id
+      WHERE c.book_id = ${config.bookId}::uuid AND NULLIF(TRIM(e.email), '') IS NOT NULL
+      UNION ALL
+      SELECT 'phone'::text, regexp_replace(p.phone, '[^0-9+]', '', 'g'), p.contact_id, c.updated_at
+      FROM contacts.contact_phones p
+      JOIN contacts.contacts c ON c.id = p.contact_id
+      WHERE c.book_id = ${config.bookId}::uuid
+        AND length(regexp_replace(p.phone, '[^0-9]', '', 'g')) >= 6
+      UNION ALL
+      SELECT
+        'name'::text,
+        LOWER(COALESCE(NULLIF(TRIM(c.label), ''), NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), NULLIF(TRIM(c.company_name), ''))),
+        c.id,
+        c.updated_at
+      FROM contacts.contacts c
+      WHERE c.book_id = ${config.bookId}::uuid
+        AND COALESCE(NULLIF(TRIM(c.label), ''), NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), NULLIF(TRIM(c.company_name), '')) IS NOT NULL
+    ), duplicate_signal_values AS (
+      SELECT reason, value, MAX(updated_at) AS latest_update
+      FROM signals
+      GROUP BY reason, value
+      HAVING COUNT(DISTINCT contact_id) > 1
+      ORDER BY latest_update DESC
+      LIMIT ${MAX_DUPLICATE_SIGNAL_GROUPS}
+    ), ranked_signals AS (
+      SELECT
+        signal.reason,
+        signal.value,
+        signal.contact_id,
+        ROW_NUMBER() OVER (PARTITION BY signal.reason, signal.value ORDER BY signal.contact_id) AS signal_rank
+      FROM (
+        SELECT DISTINCT reason, value, contact_id
+        FROM signals
+      ) signal
+      JOIN duplicate_signal_values duplicate
+        ON duplicate.reason = signal.reason AND duplicate.value = signal.value
+    ), bounded_signals AS (
+      SELECT reason, value, contact_id
+      FROM ranked_signals
+      WHERE signal_rank <= ${MAX_CONTACTS_PER_DUPLICATE_SIGNAL}
+    ), pairs AS (
+      SELECT
+        first.contact_id AS first_id,
+        second.contact_id AS second_id,
+        BOOL_OR(first.reason = 'email') AS same_email,
+        BOOL_OR(first.reason = 'phone') AS same_phone,
+        BOOL_OR(first.reason = 'name') AS same_name
+      FROM bounded_signals first
+      JOIN bounded_signals second
+        ON second.reason = first.reason
+        AND second.value = first.value
+        AND second.contact_id > first.contact_id
+      GROUP BY first.contact_id, second.contact_id
+    )
+    SELECT
+      pairs.first_id,
+      pairs.second_id,
+      pairs.same_email,
+      pairs.same_phone,
+      pairs.same_name
+    FROM pairs
+    JOIN contacts.contacts first_contact ON first_contact.id = pairs.first_id
+    JOIN contacts.contacts second_contact ON second_contact.id = pairs.second_id
+    ORDER BY first_contact.updated_at DESC, second_contact.updated_at DESC
+    LIMIT ${limit}
+  `;
+  const contactsById = await getManualContactsByIds(rows.flatMap((row) => [row.first_id, row.second_id]));
+  return rows.flatMap((row) => {
+    const first = contactsById.get(row.first_id);
+    const second = contactsById.get(row.second_id);
+    if (!first || !second) return [];
+    const reasons: ContactDuplicateReason[] = [];
+    if (row.same_email) reasons.push("email");
+    if (row.same_phone) reasons.push("phone");
+    if (row.same_name) reasons.push("name");
+    return [{ first, second, reasons }];
+  });
+};
+
+const uniqueBy = <T>(items: T[], key: (item: T) => string): T[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const value = key(item);
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+};
+
+/** Merges a duplicate into the chosen record while preserving related data. */
+export const mergeDuplicate = async (config: {
+  bookId: string;
+  keepId: string;
+  removeId: string;
+  keepUpdatedAt: string;
+  removeUpdatedAt: string;
+}): Promise<Result<Contact>> => {
+  if (!isUuid(config.bookId) || !isUuid(config.keepId) || !isUuid(config.removeId)) return fail(err.notFound("Contact"));
+  if (config.keepId === config.removeId) return fail(err.badInput("Choose two different contacts"));
+  const current = await getMany({ bookId: config.bookId, ids: [config.keepId, config.removeId] });
+  if (!current.ok) return current;
+  const [keep, duplicate] = current.data;
+  if (!keep || !duplicate) return fail(err.notFound("Contact"));
+
+  const emails = uniqueBy([...keep.emails, ...duplicate.emails], (item) => item.email.trim().toLowerCase()).map(({ label, email }) => ({
+    label,
+    email,
+  }));
+  const phones = uniqueBy([...keep.phones, ...duplicate.phones], (item) => item.phone.replace(/[^0-9+]/g, "")).map(({ label, phone }) => ({
+    label,
+    phone,
+  }));
+  const websites = uniqueBy([...keep.websites, ...duplicate.websites], (item) => item.url.trim().toLowerCase()).map(({ label, url }) => ({
+    label,
+    url,
+  }));
+  const addresses = uniqueBy([...keep.addresses, ...duplicate.addresses], (item) =>
+    [item.line1, item.line2, item.postalCode, item.city, item.countryCode].map((value) => value?.trim().toLowerCase() ?? "").join("|"),
+  ).map(({ label, recipientName, companyName, line1, line2, postalCode, city, stateRegion, countryCode }) => ({
+    label,
+    recipientName,
+    companyName,
+    line1,
+    line2,
+    postalCode,
+    city,
+    stateRegion,
+    countryCode,
+  }));
+  const bankAccounts = uniqueBy([...keep.bankAccounts, ...duplicate.bankAccounts], (item) =>
+    item.iban.replaceAll(" ", "").toUpperCase(),
+  ).map(({ label, accountHolderName, iban, bic, bankName, note }) => ({ label, accountHolderName, iban, bic, bankName, note }));
+  const merged = await sql.begin(async (tx) => {
+    const locked = await tx<{ id: string; parent_contact_id: string | null; updated_at: Date }[]>`
+      SELECT id, parent_contact_id, updated_at FROM contacts.contacts
+      WHERE book_id = ${config.bookId}::uuid
+        AND id = ANY(${toPgUuidArray([keep.id, duplicate.id])}::uuid[])
+      FOR UPDATE
+    `;
+    if (locked.length !== 2) return false;
+    const lockedKeep = locked.find((contact) => contact.id === keep.id);
+    const lockedDuplicate = locked.find((contact) => contact.id === duplicate.id);
+    if (
+      !lockedKeep ||
+      !lockedDuplicate ||
+      lockedKeep.updated_at.toISOString() !== config.keepUpdatedAt ||
+      lockedDuplicate.updated_at.toISOString() !== config.removeUpdatedAt
+    ) {
+      return false;
+    }
+    const nextParentId =
+      lockedKeep.parent_contact_id === duplicate.id
+        ? lockedDuplicate.parent_contact_id === keep.id
+          ? null
+          : lockedDuplicate.parent_contact_id
+        : (lockedKeep.parent_contact_id ?? (lockedDuplicate.parent_contact_id === keep.id ? null : lockedDuplicate.parent_contact_id));
+    const [descendantCheck] = await tx<{ exists: boolean }[]>`
+      WITH RECURSIVE descendants AS (
+        SELECT id FROM contacts.contacts WHERE parent_contact_id = ${duplicate.id}::uuid
+        UNION ALL
+        SELECT child.id
+        FROM contacts.contacts child
+        JOIN descendants parent ON child.parent_contact_id = parent.id
+      )
+      SELECT EXISTS (SELECT 1 FROM descendants WHERE id = ${keep.id}::uuid) AS "exists"
+    `;
+    const childParentId = descendantCheck?.exists ? lockedDuplicate.parent_contact_id : keep.id;
+    await tx`
+      UPDATE contacts.contacts target
+      SET
+        label = COALESCE(NULLIF(target.label, ''), NULLIF(source.label, '')),
+        first_name = COALESCE(NULLIF(target.first_name, ''), NULLIF(source.first_name, '')),
+        last_name = COALESCE(NULLIF(target.last_name, ''), NULLIF(source.last_name, '')),
+        company_name = COALESCE(NULLIF(target.company_name, ''), NULLIF(source.company_name, '')),
+        department = COALESCE(NULLIF(target.department, ''), NULLIF(source.department, '')),
+        job_title = COALESCE(NULLIF(target.job_title, ''), NULLIF(source.job_title, '')),
+        vat_id = COALESCE(NULLIF(target.vat_id, ''), NULLIF(source.vat_id, '')),
+        birthday = COALESCE(target.birthday, source.birthday),
+        salutation = COALESCE(NULLIF(target.salutation, ''), NULLIF(source.salutation, '')),
+        pronouns = COALESCE(NULLIF(target.pronouns, ''), NULLIF(source.pronouns, '')),
+        preferred_language = COALESCE(NULLIF(target.preferred_language, ''), NULLIF(source.preferred_language, '')),
+        source = COALESCE(NULLIF(target.source, ''), NULLIF(source.source, '')),
+        parent_contact_id = ${nextParentId},
+        updated_at = now()
+      FROM contacts.contacts source
+      WHERE target.id = ${keep.id}::uuid AND source.id = ${duplicate.id}::uuid
+    `;
+    await replaceContactCollections(keep.id, { emails, phones, websites, addresses, bankAccounts }, tx);
+    await tx`
+      INSERT INTO contacts.contact_tag_assignments (contact_id, tag_id)
+      SELECT ${keep.id}::uuid, tag_id
+      FROM contacts.contact_tag_assignments
+      WHERE contact_id = ${duplicate.id}::uuid
+      ON CONFLICT DO NOTHING
+    `;
+    await tx`UPDATE contacts.contact_notes SET contact_id = ${keep.id}::uuid WHERE contact_id = ${duplicate.id}::uuid`;
+    await tx`
+      UPDATE contacts.contacts
+      SET parent_contact_id = ${childParentId}, updated_at = now()
+      WHERE parent_contact_id = ${duplicate.id}::uuid AND id <> ${keep.id}::uuid
+    `;
+    await tx`
+      INSERT INTO contacts.contact_favorites (user_id, book_id, contact_id, created_at)
+      SELECT user_id, book_id, ${keep.id}::uuid, created_at
+      FROM contacts.contact_favorites
+      WHERE book_id = ${config.bookId} AND contact_id = ${duplicate.id}::uuid
+      ON CONFLICT DO NOTHING
+    `;
+    await tx`
+      DELETE FROM contacts.contact_favorites
+      WHERE book_id = ${config.bookId} AND contact_id = ${duplicate.id}::uuid
+    `;
+    await tx`DELETE FROM contacts.contacts WHERE id = ${duplicate.id}::uuid AND book_id = ${config.bookId}::uuid`;
+    return true;
+  });
+  if (!merged) return fail(err.conflict("Contacts changed while merging; review them again"));
+  const contact = await get({ bookId: config.bookId, id: keep.id });
+  return contact ? ok(contact) : fail(err.internal("Failed to load merged contact"));
 };
 
 const hydrateSearchRows = async (rows: SearchRow[]): Promise<Contact[]> => {
@@ -1285,17 +1752,24 @@ export const search = async (config: {
   subject: AccessSubject;
   boundBookId?: string | null;
   pagination?: PageParams;
-  filter?: { query?: string; includeSystem?: boolean };
+  filter?: ContactListFilter & { includeSystem?: boolean };
 }): Promise<Paginated<Contact>> => {
   const { page, perPage, offset } = paginate(config.pagination);
   if (config.subject.type === "service_account" && !isUuid(config.boundBookId ?? "")) {
     return { items: [], page, perPage, total: 0, hasNext: false };
   }
+  const requestedFavoriteUserId = config.filter?.favoriteUserId;
+  if (requestedFavoriteUserId !== undefined && !isUuid(requestedFavoriteUserId)) {
+    return { items: [], page, perPage, total: 0, hasNext: false };
+  }
 
   const searchPattern = buildSearchPattern(config.filter?.query);
   const includeSystem = config.subject.type === "user" && (config.filter?.includeSystem ?? false);
-  const bindingMatch =
-    config.subject.type === "service_account" ? sql`c.book_id = ${config.boundBookId}::uuid` : sql`true`;
+  const emailPresence = config.filter?.email ?? "all";
+  const phonePresence = config.filter?.phone ?? "all";
+  const sort = config.filter?.sort ?? "name";
+  const favoriteUserId = requestedFavoriteUserId ?? null;
+  const bindingMatch = config.subject.type === "service_account" ? sql`c.book_id = ${config.boundBookId}::uuid` : sql`true`;
 
   const [countRow] = await sql<{ count: number }[]>`
     WITH manual_matches AS (
@@ -1313,6 +1787,18 @@ export const search = async (config: {
       WHERE ${mapManualReadableAccessCondition(config.subject)}
         AND ${bindingMatch}
         AND ${mapManualSearchCondition(searchPattern)}
+        AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+          SELECT 1 FROM contacts.contact_favorites favorite
+          WHERE favorite.user_id = ${favoriteUserId}::uuid
+            AND favorite.book_id = c.book_id::text
+            AND favorite.contact_id = c.id
+        ))
+        AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND ce.id IS NOT NULL) OR (${emailPresence} = 'no' AND NOT EXISTS (
+          SELECT 1 FROM contacts.contact_emails email_filter WHERE email_filter.contact_id = c.id
+        )))
+        AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND cp.id IS NOT NULL) OR (${phonePresence} = 'no' AND NOT EXISTS (
+          SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
+        )))
     ),
     system_matches AS (
       SELECT
@@ -1324,6 +1810,14 @@ export const search = async (config: {
       WHERE ${includeSystem}::boolean
         AND u.provider = 'ipa'
         AND ${mapSystemSearchCondition(searchPattern)}
+        AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+          SELECT 1 FROM contacts.contact_favorites favorite
+          WHERE favorite.user_id = ${favoriteUserId}::uuid
+            AND favorite.book_id = ${SYSTEM_BOOK_ID}
+            AND favorite.contact_id = u.id
+        ))
+        AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND NULLIF(u.mail, '') IS NOT NULL) OR (${emailPresence} = 'no' AND NULLIF(u.mail, '') IS NULL))
+        AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND (NULLIF(d.phone, '') IS NOT NULL OR NULLIF(d.mobile, '') IS NOT NULL)) OR (${phonePresence} = 'no' AND NULLIF(d.phone, '') IS NULL AND NULLIF(d.mobile, '') IS NULL))
     ),
     combined AS (
       SELECT * FROM manual_matches
@@ -1340,10 +1834,13 @@ export const search = async (config: {
         c.id AS contact_id,
         c.book_id::text AS book_id,
         COALESCE(
-          NULLIF(TRIM(CONCAT_WS(' ', COALESCE(c.first_name, ''), COALESCE(c.last_name, ''))), ''),
           NULLIF(c.label, ''),
+          NULLIF(TRIM(CONCAT_WS(' ', COALESCE(c.first_name, ''), COALESCE(c.last_name, ''))), ''),
           NULLIF(c.company_name, '')
         ) AS sort_name,
+        LOWER(NULLIF(TRIM(c.company_name), '')) AS sort_company,
+        c.created_at AS created_at,
+        c.updated_at AS updated_at,
         'manual'::text AS source_kind
       FROM contacts.contacts c
       JOIN contacts.book_access ba ON ba.book_id = c.book_id
@@ -1355,18 +1852,41 @@ export const search = async (config: {
       WHERE ${mapManualReadableAccessCondition(config.subject)}
         AND ${bindingMatch}
         AND ${mapManualSearchCondition(searchPattern)}
+        AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+          SELECT 1 FROM contacts.contact_favorites favorite
+          WHERE favorite.user_id = ${favoriteUserId}::uuid
+            AND favorite.book_id = c.book_id::text
+            AND favorite.contact_id = c.id
+        ))
+        AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND ce.id IS NOT NULL) OR (${emailPresence} = 'no' AND NOT EXISTS (
+          SELECT 1 FROM contacts.contact_emails email_filter WHERE email_filter.contact_id = c.id
+        )))
+        AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND cp.id IS NOT NULL) OR (${phonePresence} = 'no' AND NOT EXISTS (
+          SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
+        )))
     ),
     system_matches AS (
       SELECT
         u.id AS contact_id,
         ${SYSTEM_BOOK_ID}::text AS book_id,
         COALESCE(NULLIF(u.display_name, ''), u.uid) AS sort_name,
+        NULL::text AS sort_company,
+        u.created_at AS created_at,
+        COALESCE(d.synced_at, u.created_at) AS updated_at,
         'system'::text AS source_kind
       FROM auth.users u
       LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
       WHERE ${includeSystem}::boolean
         AND u.provider = 'ipa'
         AND ${mapSystemSearchCondition(searchPattern)}
+        AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+          SELECT 1 FROM contacts.contact_favorites favorite
+          WHERE favorite.user_id = ${favoriteUserId}::uuid
+            AND favorite.book_id = ${SYSTEM_BOOK_ID}
+            AND favorite.contact_id = u.id
+        ))
+        AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND NULLIF(u.mail, '') IS NOT NULL) OR (${emailPresence} = 'no' AND NULLIF(u.mail, '') IS NULL))
+        AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND (NULLIF(d.phone, '') IS NOT NULL OR NULLIF(d.mobile, '') IS NOT NULL)) OR (${phonePresence} = 'no' AND NULLIF(d.phone, '') IS NULL AND NULLIF(d.mobile, '') IS NULL))
     ),
     combined AS (
       SELECT * FROM manual_matches
@@ -1375,7 +1895,13 @@ export const search = async (config: {
     )
     SELECT contact_id, book_id, source_kind
     FROM combined
-    ORDER BY LOWER(sort_name) ASC, source_kind ASC, contact_id ASC
+    ORDER BY
+      CASE WHEN ${sort} = 'updated' THEN updated_at END DESC,
+      CASE WHEN ${sort} = 'created' THEN created_at END DESC,
+      CASE WHEN ${sort} = 'company' THEN sort_company END ASC NULLS LAST,
+      LOWER(sort_name) ASC,
+      source_kind ASC,
+      contact_id ASC
     LIMIT ${perPage}
     OFFSET ${offset}
   `;

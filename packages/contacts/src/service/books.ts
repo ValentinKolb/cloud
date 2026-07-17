@@ -1,4 +1,4 @@
-import { buildAccessPrincipalCondition, type AccessSubject, type PermissionLevel } from "@valentinkolb/cloud/server";
+import { type AccessSubject, buildAccessPrincipalCondition, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
@@ -253,10 +253,13 @@ export const update = async (config: { id: string; data: UpdateBookInput }): Pro
 export const remove = async (config: { id: string }): Promise<Result<void>> => {
   if (!isUuid(config.id)) return fail(err.notFound("Book"));
 
-  const result = await sql`
-    DELETE FROM contacts.books
-    WHERE id = ${config.id}::uuid
-  `;
+  const result = await sql.begin(async (tx) => {
+    await tx`DELETE FROM contacts.contact_favorites WHERE book_id = ${config.id}`;
+    return tx`
+      DELETE FROM contacts.books
+      WHERE id = ${config.id}::uuid
+    `;
+  });
 
   if (result.count === 0) return fail(err.notFound("Book"));
   await serviceAccounts.deleteForResource({
@@ -270,10 +273,7 @@ export const remove = async (config: { id: string }): Promise<Result<void>> => {
 /**
  * Returns effective permission for one manual book.
  */
-export const getPermission = async (config: {
-  bookId: string;
-  subject: AccessSubject;
-}): Promise<PermissionLevel> =>
+export const getPermission = async (config: { bookId: string; subject: AccessSubject }): Promise<PermissionLevel> =>
   getBookPermission({
     bookId: config.bookId,
     subject: config.subject,
@@ -282,11 +282,7 @@ export const getPermission = async (config: {
 /**
  * Checks whether user/groups can access one manual book for the requested level.
  */
-export const canAccess = async (config: {
-  bookId: string;
-  subject: AccessSubject;
-  requiredLevel?: PermissionLevel;
-}): Promise<boolean> =>
+export const canAccess = async (config: { bookId: string; subject: AccessSubject; requiredLevel?: PermissionLevel }): Promise<boolean> =>
   canAccessBook({
     bookId: config.bookId,
     subject: config.subject,

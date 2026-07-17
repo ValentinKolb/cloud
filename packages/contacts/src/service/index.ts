@@ -6,6 +6,7 @@ import * as apiKeys from "./api-keys";
 import * as books from "./books";
 import * as contacts from "./contacts";
 import { publishContactEvent } from "./events";
+import * as favorites from "./favorites";
 import * as imports from "./imports";
 import * as notes from "./notes";
 import { getSystemBook, isSystemBookId, SYSTEM_BOOK_ID } from "./system";
@@ -41,6 +42,7 @@ const withEvent = async <T>(
  * `system` exposes virtual read-only helpers for the IPA-projected book.
  */
 export const contactsService = {
+  favorite: favorites,
   book: {
     readableIds: async (config: { subject: AccessSubject; boundBookId?: string | null }): Promise<string[]> =>
       (await books.list(config)).map((book) => book.id),
@@ -142,8 +144,9 @@ export const contactsService = {
     remove: (config: { bookId: string; id: string }) => withEvent(tags.remove(config), { type: "tags.changed", bookId: config.bookId }),
   },
   contact: {
-    list: (config: { bookId: string; pagination?: PageParams; filter?: { query?: string; tagIds?: string[] } }) => contacts.list(config),
+    list: (config: { bookId: string; pagination?: PageParams; filter?: import("./types").ContactListFilter }) => contacts.list(config),
     get: (config: { bookId: string; id: string }) => contacts.get(config),
+    getMany: (config: { bookId: string; ids: string[] }) => contacts.getMany(config),
     tree: (config: { bookId: string; id: string }) => contacts.tree(config),
     create: (config: { bookId: string; data: CreateContactInput }) =>
       withEvent(contacts.create(config), (contact) => ({ type: "contact.created", bookId: config.bookId, contactId: contact.id })),
@@ -158,11 +161,32 @@ export const contactsService = {
       }),
     remove: (config: { bookId: string; id: string }) =>
       withEvent(contacts.remove(config), { type: "contact.deleted", bookId: config.bookId, contactId: config.id }),
+    bulk: {
+      addTags: (config: { bookId: string; ids: string[]; tagIds: string[] }) =>
+        withEvent(contacts.addTags(config), { type: "contacts.changed", bookId: config.bookId }),
+      remove: (config: { bookId: string; ids: string[] }) =>
+        withEvent(contacts.removeMany(config), { type: "contacts.changed", bookId: config.bookId }),
+      move: async (config: { sourceBookId: string; targetBookId: string; ids: string[] }) => {
+        const result = await contacts.moveMany(config);
+        if (result.ok) {
+          await Promise.all([
+            publishContactEvent({ type: "contacts.changed", bookId: config.sourceBookId }),
+            publishContactEvent({ type: "contacts.changed", bookId: config.targetBookId }),
+          ]);
+        }
+        return result;
+      },
+    },
+    duplicates: {
+      list: (config: { bookId: string; limit?: number }) => contacts.findDuplicates(config),
+      merge: (config: { bookId: string; keepId: string; removeId: string; keepUpdatedAt: string; removeUpdatedAt: string }) =>
+        withEvent(contacts.mergeDuplicate(config), { type: "contacts.changed", bookId: config.bookId }),
+    },
     search: (config: {
       subject: AccessSubject;
       boundBookId?: string | null;
       pagination?: PageParams;
-      filter?: { query?: string; includeSystem?: boolean };
+      filter?: import("./types").ContactListFilter & { includeSystem?: boolean };
     }) => contacts.search(config),
     notes: {
       list: (config: { bookId: string; contactId: string }) => notes.list(config),
@@ -199,8 +223,14 @@ export type {
   ContactBankAccountInput,
   ContactBook,
   ContactBookAdminListItem,
+  ContactDuplicateMatch,
+  ContactDuplicateReason,
+  ContactFavorite,
+  ContactListFilter,
   ContactNote,
+  ContactPresenceFilter,
   ContactRef,
+  ContactSort,
   ContactTag,
   ContactTree,
   ContactTreeNode,

@@ -5,7 +5,7 @@ import CreateBookButton from "./CreateBookButton.island";
 
 type Props = {
   books: ContactBook[];
-  active: "all" | string;
+  active: "all" | "favorites" | string;
   adminBookIds?: string[];
 };
 
@@ -62,6 +62,16 @@ export default function ContactsSidebar(props: Props) {
             >
               All contacts
             </AppWorkspace.SidebarItem>
+            <AppWorkspace.SidebarItem
+              href="/app/contacts?favorites=true"
+              navigation="document"
+              icon="ti ti-star"
+              active={props.active === "favorites"}
+              title="Favorites"
+              viewTransitionName={vt("favorites-mobile")}
+            >
+              Favorites
+            </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarSection title="Books">
             {manualBooks.map((book) => renderBookItem(book, "mobile"))}
@@ -92,6 +102,16 @@ export default function ContactsSidebar(props: Props) {
               viewTransitionName={vt("all-desktop")}
             >
               All contacts
+            </AppWorkspace.SidebarItem>
+            <AppWorkspace.SidebarItem
+              href="/app/contacts?favorites=true"
+              navigation="document"
+              icon="ti ti-star"
+              active={props.active === "favorites"}
+              title="Favorites"
+              viewTransitionName={vt("favorites-desktop")}
+            >
+              Favorites
             </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarSection>
 

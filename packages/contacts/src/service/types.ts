@@ -12,6 +12,33 @@ export type ContactBookAdminListItem = ContactBook & {
   contactCount: number;
 };
 
+export type ContactSort = "name" | "updated" | "created" | "company";
+export type ContactPresenceFilter = "all" | "yes" | "no";
+
+export type ContactListFilter = {
+  query?: string;
+  tagIds?: string[];
+  sort?: ContactSort;
+  email?: ContactPresenceFilter;
+  phone?: ContactPresenceFilter;
+  /** User whose personal favorites constrain the result. Omit for no favorite filter. */
+  favoriteUserId?: string;
+};
+
+export type ContactFavorite = {
+  bookId: string;
+  contactId: string;
+  createdAt: string;
+};
+
+export type ContactDuplicateReason = "email" | "phone" | "name";
+
+export type ContactDuplicateMatch = {
+  first: Contact;
+  second: Contact;
+  reasons: ContactDuplicateReason[];
+};
+
 export type ContactEmail = {
   id: string;
   contactId: string;

@@ -4,6 +4,7 @@ import {
   listenForContactsLiveInvalidation,
   requiresContactsResultsRefresh,
   requiresContactsShellRefresh,
+  requiresSelectedContactRefresh,
 } from "./contacts-live";
 
 const BOOK_ID = "11111111-1111-4111-8111-111111111111";
@@ -24,6 +25,14 @@ describe("Contacts live invalidation routing", () => {
     expect(requiresContactsShellRefresh({ type: "scope.changed" })).toBe(true);
     expect(requiresContactsShellRefresh({ type: "access.changed", bookId: BOOK_ID, at: AT })).toBe(true);
     expect(requiresContactsShellRefresh({ type: "tags.changed", bookId: BOOK_ID, at: AT })).toBe(true);
+  });
+
+  test("refreshes an open detail for bulk, tag, and permission changes in its book", () => {
+    const otherBookId = "22222222-2222-4222-8222-222222222222";
+    expect(requiresSelectedContactRefresh({ type: "contacts.changed", bookId: BOOK_ID, at: AT }, BOOK_ID)).toBe(true);
+    expect(requiresSelectedContactRefresh({ type: "tags.changed", bookId: BOOK_ID, at: AT }, BOOK_ID)).toBe(true);
+    expect(requiresSelectedContactRefresh({ type: "access.changed", bookId: BOOK_ID, at: AT }, BOOK_ID)).toBe(true);
+    expect(requiresSelectedContactRefresh({ type: "contacts.changed", bookId: otherBookId, at: AT }, BOOK_ID)).toBe(false);
   });
 
   test("waits for every domain refresh before acknowledging an invalidation", async () => {

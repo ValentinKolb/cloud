@@ -65,6 +65,7 @@ describe("Contacts live protocol", () => {
       }),
     ).toEqual([BOOK_ID, OTHER_BOOK_ID]);
     expect(contactEventBookIds({ type: "contacts.imported", bookId: BOOK_ID, at: AT })).toEqual([BOOK_ID]);
+    expect(contactEventBookIds({ type: "contacts.changed", bookId: BOOK_ID, at: AT })).toEqual([BOOK_ID]);
   });
 
   test("does not expose unreadable move endpoints", () => {

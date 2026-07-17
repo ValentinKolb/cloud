@@ -26,7 +26,7 @@ export const ContactServiceEventSchema = z.discriminatedUnion("type", [
     at: z.string().datetime(),
   }),
   z.object({
-    type: z.literal("contacts.imported"),
+    type: z.enum(["contacts.imported", "contacts.changed"]),
     bookId: ContactBookIdSchema,
     at: z.string().datetime(),
   }),
@@ -52,7 +52,7 @@ export type ContactServiceEventData = ContactServiceEvent extends infer Event
     : never
   : never;
 
-export const ContactLiveScopeSchema = z.discriminatedUnion("kind", [
+const ContactLiveScopeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("all") }),
   z.object({ kind: z.literal("book"), bookId: ContactBookIdSchema }),
 ]);
@@ -69,7 +69,7 @@ export const ContactLiveClientMessageSchema = z.object({
 
 export type ContactLiveClientMessage = z.infer<typeof ContactLiveClientMessageSchema>;
 
-export const ContactLiveServerMessageSchema = z.discriminatedUnion("type", [
+const ContactLiveServerMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal(CONTACTS_LIVE_WS_TYPE.ready),
     payload: z.object({ cursor: StreamCursorSchema }),

@@ -16,6 +16,8 @@ import {
   type EditableEmail,
   type EditablePhone,
   type EditableWebsite,
+  EMPTY_ADDRESS,
+  EMPTY_BANK_ACCOUNT,
   initialAddressRows,
   initialBankAccountRows,
   initialEmailRows,
@@ -47,7 +49,6 @@ const detailHref = (bookId: string, contactId: string) => `/app/contacts/${bookI
 
 type IdentitySectionProps = {
   bookId: string;
-  initialContact: Contact | null;
   label: Accessor<string>;
   setLabel: Setter<string>;
   firstName: Accessor<string>;
@@ -452,6 +453,14 @@ export default function ContactUpsertForm(props: Props) {
     addresses,
     setAddresses,
   } = form;
+  const [showPersonal, setShowPersonal] = createSignal(
+    Boolean(initialContact?.birthday || initialContact?.salutation || initialContact?.pronouns || initialContact?.preferredLanguage),
+  );
+  const [showWork, setShowWork] = createSignal(
+    Boolean(initialContact?.companyName || initialContact?.department || initialContact?.jobTitle || initialContact?.vatId),
+  );
+  const [showAddresses, setShowAddresses] = createSignal((initialContact?.addresses.length ?? 0) > 0);
+  const [showBankAccounts, setShowBankAccounts] = createSignal(bankAccounts().length > 0);
 
   const draftPayload = () =>
     buildContactPayload({
@@ -536,7 +545,6 @@ export default function ContactUpsertForm(props: Props) {
         <PanelDialog.Body>
           <IdentitySection
             bookId={props.bookId}
-            initialContact={initialContact}
             label={label}
             setLabel={setLabel}
             firstName={firstName}
@@ -549,27 +557,6 @@ export default function ContactUpsertForm(props: Props) {
             setTagIds={setTagIds}
             openParentPicker={openParentPicker}
           />
-          <PersonalSection
-            birthday={birthday}
-            setBirthday={setBirthday}
-            salutation={salutation}
-            setSalutation={setSalutation}
-            pronouns={pronouns}
-            setPronouns={setPronouns}
-            preferredLanguage={preferredLanguage}
-            setPreferredLanguage={setPreferredLanguage}
-          />
-          <WorkSection
-            companyName={companyName}
-            setCompanyName={setCompanyName}
-            vatId={vatId}
-            setVatId={setVatId}
-            department={department}
-            setDepartment={setDepartment}
-            jobTitle={jobTitle}
-            setJobTitle={setJobTitle}
-          />
-
           <ReachFields
             emails={emails}
             setEmails={setEmails}
@@ -578,10 +565,72 @@ export default function ContactUpsertForm(props: Props) {
             websites={websites}
             setWebsites={setWebsites}
           />
-
-          <AddressFields rows={addresses} setRows={setAddresses} />
-
-          <BankAccountFields rows={bankAccounts} setRows={setBankAccounts} />
+          <div class="flex flex-wrap items-center gap-2">
+            <Show when={!showPersonal()}>
+              <button type="button" class="btn-simple btn-sm" onClick={() => setShowPersonal(true)}>
+                <i class="ti ti-user-heart" /> Add personal details
+              </button>
+            </Show>
+            <Show when={!showWork()}>
+              <button type="button" class="btn-simple btn-sm" onClick={() => setShowWork(true)}>
+                <i class="ti ti-briefcase" /> Add work details
+              </button>
+            </Show>
+            <Show when={!showAddresses()}>
+              <button
+                type="button"
+                class="btn-simple btn-sm"
+                onClick={() => {
+                  setShowAddresses(true);
+                  if (addresses().length === 0) setAddresses([{ ...EMPTY_ADDRESS }]);
+                }}
+              >
+                <i class="ti ti-map-pin" /> Add address
+              </button>
+            </Show>
+            <Show when={!showBankAccounts()}>
+              <button
+                type="button"
+                class="btn-simple btn-sm"
+                onClick={() => {
+                  setShowBankAccounts(true);
+                  if (bankAccounts().length === 0) setBankAccounts([{ ...EMPTY_BANK_ACCOUNT }]);
+                }}
+              >
+                <i class="ti ti-building-bank" /> Add bank details
+              </button>
+            </Show>
+          </div>
+          <Show when={showPersonal()}>
+            <PersonalSection
+              birthday={birthday}
+              setBirthday={setBirthday}
+              salutation={salutation}
+              setSalutation={setSalutation}
+              pronouns={pronouns}
+              setPronouns={setPronouns}
+              preferredLanguage={preferredLanguage}
+              setPreferredLanguage={setPreferredLanguage}
+            />
+          </Show>
+          <Show when={showWork()}>
+            <WorkSection
+              companyName={companyName}
+              setCompanyName={setCompanyName}
+              vatId={vatId}
+              setVatId={setVatId}
+              department={department}
+              setDepartment={setDepartment}
+              jobTitle={jobTitle}
+              setJobTitle={setJobTitle}
+            />
+          </Show>
+          <Show when={showAddresses()}>
+            <AddressFields rows={addresses} setRows={setAddresses} />
+          </Show>
+          <Show when={showBankAccounts()}>
+            <BankAccountFields rows={bankAccounts} setRows={setBankAccounts} />
+          </Show>
         </PanelDialog.Body>
 
         <PanelDialog.Footer>

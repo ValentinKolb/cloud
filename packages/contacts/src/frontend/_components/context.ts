@@ -7,6 +7,7 @@ export const shouldHandleContactDetailClick = detailPanel.shouldHandleClick;
 
 export type ContactDetailPayload = DetailSelectPayload<Contact> & {
   bookId: string | null;
+  favorite?: boolean;
 };
 
 type TransitionDoc = Document & {
@@ -29,13 +30,14 @@ export const getSelectedContactFromUrl = () => ({
 });
 
 /** Dispatches detail selection updates to all listening contacts islands. */
-const dispatchContactDetailSelect = (contact: Contact | null, contactId: string | null, bookId: string | null) => {
+const dispatchContactDetailSelect = (contact: Contact | null, contactId: string | null, bookId: string | null, favorite?: boolean) => {
   window.dispatchEvent(
     new CustomEvent(CONTACT_DETAIL_EVENT, {
       detail: {
         item: contact,
         itemKey: contactId,
         bookId,
+        favorite,
       } as ContactDetailPayload,
     }),
   );
@@ -69,11 +71,12 @@ export const setSelectedContactInUrl = (config: {
   contactId: string | null;
   bookId: string | null;
   contact?: Contact | null;
+  favorite?: boolean;
   history?: ContactHistoryMode;
 }) => {
   withViewTransition(() => {
     commitSelectedContactUrl(config.contactId, config.bookId, config.history ?? "push");
-    dispatchContactDetailSelect(config.contact ?? null, config.contactId, config.bookId);
+    dispatchContactDetailSelect(config.contact ?? null, config.contactId, config.bookId, config.favorite);
   });
 };
 

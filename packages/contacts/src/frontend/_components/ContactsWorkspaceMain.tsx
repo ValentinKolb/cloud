@@ -30,6 +30,7 @@ type Props = {
   tags?: ContactTag[];
   activeTagId?: string | null;
   filtersBasePath?: string;
+  initialFavoriteKeys: string[];
 };
 
 export default function ContactsWorkspaceMain(props: Props) {
@@ -68,6 +69,9 @@ export default function ContactsWorkspaceMain(props: Props) {
         tags={props.tags}
         activeTagId={props.activeTagId}
         filtersBasePath={props.filtersBasePath}
+        initialFavoriteKeys={props.initialFavoriteKeys}
+        canWrite={Boolean(props.bookId && props.writableBooks.some((book) => book.id === props.bookId))}
+        writableBooks={props.writableBooks}
       />
     </AppWorkspace.Main>
   );

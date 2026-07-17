@@ -2,7 +2,9 @@ import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact } from "../../service";
 import { resolveContactInitials, resolveContactName } from "../../shared";
+import ContactFavoriteButton from "./ContactFavoriteButton";
 import ContactTagChip from "./ContactTagChip";
+import { contactFavoriteKey } from "./contacts-favorites";
 import { buildContactDetailHref } from "./contacts-search";
 import {
   CONTACT_DETAIL_EVENT,
@@ -21,6 +23,10 @@ type Props = {
   emptyTitle?: string;
   emptyDescription?: string;
   detailBaseHref: string;
+  initialFavoriteKeys: string[];
+  selectionMode?: boolean;
+  selectedIds?: string[];
+  onToggleSelection?: (contactId: string) => void;
 };
 
 const contactKey = (contactId: string | null, bookId: string | null) => (contactId && bookId ? `${bookId}:${contactId}` : null);
@@ -39,7 +45,12 @@ export default function ContactsList(props: Props) {
 
   const selectContact = (contact: Contact) => {
     setSelectedKey(contactKey(contact.id, contact.bookId));
-    setSelectedContactInUrl({ contactId: contact.id, bookId: contact.bookId, contact });
+    setSelectedContactInUrl({
+      contactId: contact.id,
+      bookId: contact.bookId,
+      contact,
+      favorite: props.initialFavoriteKeys.includes(contactFavoriteKey(contact.bookId, contact.id)),
+    });
   };
 
   onMount(() => {
@@ -62,6 +73,23 @@ export default function ContactsList(props: Props) {
     });
   });
 
+  let listRef: HTMLUListElement | undefined;
+  const moveFocus = (event: KeyboardEvent) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    if (!(event.target instanceof HTMLAnchorElement) || !event.target.matches("a[data-contact-row]")) return;
+    const rows = Array.from(listRef?.querySelectorAll<HTMLAnchorElement>("a[data-contact-row]") ?? []);
+    if (rows.length === 0) return;
+    const current = rows.indexOf(document.activeElement as HTMLAnchorElement);
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? rows.length - 1
+          : Math.max(0, Math.min(rows.length - 1, current + (event.key === "ArrowUp" ? -1 : 1)));
+    event.preventDefault();
+    rows[next]?.focus();
+  };
+
   return (
     <Show
       when={props.contacts.length > 0}
@@ -75,7 +103,12 @@ export default function ContactsList(props: Props) {
         />
       }
     >
-      <ul class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1.5" aria-label="Contacts">
+      <ul
+        ref={listRef}
+        class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1.5"
+        aria-label="Contacts"
+        onKeyDown={moveFocus}
+      >
         <For each={props.contacts}>
           {(contact) => {
             const name = () => resolveContactName(contact);
@@ -85,14 +118,28 @@ export default function ContactsList(props: Props) {
             const isSelected = () => selectedKey() === contactKey(contact.id, contact.bookId);
             const visibleTags = () => contact.tags.slice(0, 2);
             const hiddenTagCount = () => Math.max(0, contact.tags.length - visibleTags().length);
+            const isChecked = () => props.selectedIds?.includes(contact.id) ?? false;
 
             return (
               <li class="group/contact relative">
+                <Show when={props.selectionMode}>
+                  <label class="absolute left-3 top-1/2 z-10 flex -translate-y-1/2 cursor-pointer items-center">
+                    <input
+                      type="checkbox"
+                      class="h-4 w-4"
+                      checked={isChecked()}
+                      aria-label={`Select ${name()}`}
+                      onChange={() => props.onToggleSelection?.(contact.id)}
+                    />
+                  </label>
+                </Show>
                 <a
                   href={buildContactDetailHref(props.detailBaseHref, contact.id, contact.bookId)}
-                  class="flex w-full min-w-0 items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 pr-20 text-left focus-ui sm:pr-24"
+                  class="flex w-full min-w-0 items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 pr-28 text-left focus-ui"
+                  classList={{ "pl-10": props.selectionMode }}
                   aria-label={`Open ${name()}`}
                   aria-current={isSelected() ? "true" : undefined}
+                  data-contact-row
                   onClick={(event) => {
                     if (!shouldHandleContactDetailClick(event)) return;
                     event.preventDefault();
@@ -155,36 +202,40 @@ export default function ContactsList(props: Props) {
                   </span>
                 </a>
 
-                <Show when={email() || phone()}>
-                  <span class="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 sm:right-4">
-                    <Show when={email()}>
-                      {(address) => (
-                        <Tooltip content={`Email ${name()}`}>
-                          <a
-                            href={`mailto:${address()}`}
-                            class="focus-ui flex h-7 w-7 items-center justify-center rounded text-dimmed hover:bg-[var(--ui-hover)] hover:text-primary"
-                            aria-label={`Email ${name()}`}
-                          >
-                            <i class="ti ti-mail text-sm" />
-                          </a>
-                        </Tooltip>
-                      )}
-                    </Show>
-                    <Show when={phone()}>
-                      {(number) => (
-                        <Tooltip content={`Call ${name()}`}>
-                          <a
-                            href={`tel:${number()}`}
-                            class="focus-ui flex h-7 w-7 items-center justify-center rounded text-dimmed hover:bg-[var(--ui-hover)] hover:text-primary"
-                            aria-label={`Call ${name()}`}
-                          >
-                            <i class="ti ti-phone text-sm" />
-                          </a>
-                        </Tooltip>
-                      )}
-                    </Show>
-                  </span>
-                </Show>
+                <span class="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 sm:right-4">
+                  <ContactFavoriteButton
+                    bookId={contact.bookId}
+                    contactId={contact.id}
+                    initialFavorite={props.initialFavoriteKeys.includes(contactFavoriteKey(contact.bookId, contact.id))}
+                    class="focus-ui flex h-7 w-7 items-center justify-center rounded hover:bg-[var(--ui-hover)]"
+                  />
+                  <Show when={email()}>
+                    {(address) => (
+                      <Tooltip content={`Email ${name()}`}>
+                        <a
+                          href={`mailto:${address()}`}
+                          class="focus-ui flex h-7 w-7 items-center justify-center rounded text-dimmed hover:bg-[var(--ui-hover)] hover:text-primary"
+                          aria-label={`Email ${name()}`}
+                        >
+                          <i class="ti ti-mail text-sm" />
+                        </a>
+                      </Tooltip>
+                    )}
+                  </Show>
+                  <Show when={phone()}>
+                    {(number) => (
+                      <Tooltip content={`Call ${name()}`}>
+                        <a
+                          href={`tel:${number()}`}
+                          class="focus-ui flex h-7 w-7 items-center justify-center rounded text-dimmed hover:bg-[var(--ui-hover)] hover:text-primary"
+                          aria-label={`Call ${name()}`}
+                        >
+                          <i class="ti ti-phone text-sm" />
+                        </a>
+                      </Tooltip>
+                    )}
+                  </Show>
+                </span>
               </li>
             );
           }}

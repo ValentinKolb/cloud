@@ -238,4 +238,27 @@ export const migrate = async (): Promise<void> => {
     ON contacts.contact_bank_accounts(contact_id)
   `.simple();
   console.log("  ✓ contacts.contact_bank_accounts table");
+
+  // Favorites are personal UI state. `book_id` is text because the virtual
+  // system directory uses the stable `system` id instead of a database UUID.
+  // Reads always revalidate contact visibility, so stale virtual references
+  // never grant access or expose records.
+  await sql`
+    CREATE TABLE IF NOT EXISTS contacts.contact_favorites (
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL,
+      contact_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, book_id, contact_id)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_contact_favorites_user_created
+    ON contacts.contact_favorites(user_id, created_at DESC)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_contact_favorites_book_contact
+    ON contacts.contact_favorites(book_id, contact_id)
+  `.simple();
+  console.log("  ✓ contacts.contact_favorites table");
 };

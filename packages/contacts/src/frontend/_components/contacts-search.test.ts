@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { buildContactsQueryHref, readContactsQueryOptions } from "../contacts-query";
 import {
   buildContactDetailHref,
+  buildContactsPageHref,
   buildContactsPaginationBaseHref,
   buildContactsSearchHref,
   contactsResultSignature,
@@ -24,11 +26,23 @@ describe("Contacts search route state", () => {
     expect(buildContactsPaginationBaseHref("/app/contacts/book-1?tag_id=vip&search=Ada&page=2&contact=one")).toBe(
       "/app/contacts/book-1?tag_id=vip&search=Ada&page=",
     );
+    expect(buildContactsPageHref("/app/contacts/book-1?search=Ada&page=9&contact=one", 3)).toBe("/app/contacts/book-1?search=Ada&page=3");
+    expect(buildContactsPageHref("/app/contacts/book-1?search=Ada&page=9", 1)).toBe("/app/contacts/book-1?search=Ada");
   });
 
   test("keeps list scope in real contact detail links", () => {
     expect(buildContactDetailHref("/app/contacts/book-1?search=Ada&tag_id=vip", "contact-1", "book-1")).toBe(
       "/app/contacts/book-1?search=Ada&tag_id=vip&contact=contact-1&contactBook=book-1",
     );
+  });
+
+  test("keeps filters URL-backed and clears transient detail state", () => {
+    const href = buildContactsQueryHref("/app/contacts/book-1?contact=one&page=4", {
+      sort: "created",
+      email: "yes",
+      favorites: true,
+    });
+    expect(href).toBe("/app/contacts/book-1?sort=created&email=yes&favorites=true");
+    expect(readContactsQueryOptions(href)).toEqual({ sort: "created", email: "yes", phone: "all", favorites: true });
   });
 });

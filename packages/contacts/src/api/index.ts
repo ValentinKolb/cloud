@@ -31,7 +31,7 @@ import { contactsService } from "../service";
 import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID } from "../service/access";
 import { isUuid } from "../service/shared";
 import * as vcard from "../service/vcard";
-import { isSafeWebsiteUrl } from "../shared";
+import { isSafeWebsiteUrl, resolveContactName } from "../shared";
 import wsRoutes from "../ws";
 
 const documentRoute = (options: Parameters<typeof describeRoute>[0]) => describeRoute(options) as MiddlewareHandler<AuthContext>;
@@ -312,11 +312,54 @@ const ListContactsQuerySchema = PaginationQuerySchema.extend({
   q: z.string().optional(),
   /** Repeat `tag_id` to filter by multiple tags (OR-mode). */
   tag_id: z.union([z.string(), z.array(z.string())]).optional(),
+  sort: z.enum(["name", "updated", "created", "company"]).optional(),
+  email: z.enum(["all", "yes", "no"]).optional(),
+  phone: z.enum(["all", "yes", "no"]).optional(),
+  favorites: z
+    .enum(["true"])
+    .transform(() => true)
+    .optional(),
 });
 
 const SearchContactsQuerySchema = PaginationQuerySchema.extend({
   q: z.string().optional(),
-  includeSystem: z.coerce.boolean().optional(),
+  includeSystem: z
+    .enum(["true"])
+    .transform(() => true)
+    .optional(),
+  sort: z.enum(["name", "updated", "created", "company"]).optional(),
+  email: z.enum(["all", "yes", "no"]).optional(),
+  phone: z.enum(["all", "yes", "no"]).optional(),
+  favorites: z
+    .enum(["true"])
+    .transform(() => true)
+    .optional(),
+});
+
+const ContactFavoriteSchema = z.object({
+  bookId: z.string(),
+  contactId: z.string(),
+  createdAt: z.string(),
+});
+
+const SetContactFavoriteSchema = z.object({ favorite: z.boolean() });
+const ContactFavoriteStateSchema = z.object({ favorite: z.boolean() });
+
+const ContactIdsSchema = z.array(z.uuid()).min(1).max(500);
+const BulkContactTagsSchema = z.object({ contactIds: ContactIdsSchema, tagIds: z.array(z.uuid()).min(1).max(100) });
+const BulkContactMoveSchema = z.object({ contactIds: ContactIdsSchema, targetBookId: z.uuid() });
+const BulkContactSelectionSchema = z.object({ contactIds: ContactIdsSchema });
+const MergeDuplicateSchema = z.object({
+  keepId: z.uuid(),
+  removeId: z.uuid(),
+  keepUpdatedAt: z.string().datetime(),
+  removeUpdatedAt: z.string().datetime(),
+});
+const BulkContactResultSchema = z.object({ count: z.number().int().positive() });
+const ContactDuplicateMatchSchema = z.object({
+  first: ContactSchema,
+  second: ContactSchema,
+  reasons: z.array(z.enum(["email", "phone", "name"])),
 });
 
 const CreateContactSchema = z.object({
@@ -375,6 +418,7 @@ const ContactBookListResponseSchema = z.object({
 const ContactListResponseSchema = z.object({
   data: z.array(ContactSchema),
   pagination: PaginationResponseSchema,
+  favoriteKeys: z.array(z.string()),
 });
 
 const ImportCommitResponseSchema = z.object({
@@ -569,6 +613,85 @@ const app = new Hono<AuthContext>()
   .use(rateLimit())
   .route("/admin", adminApi)
   .use(auth.requireRole("authenticated"))
+
+  // ----------------------------------------------------------------
+  // PERSONAL FAVORITES
+  // ----------------------------------------------------------------
+  .get(
+    "/favorites",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "List personal contact favorites",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(z.array(ContactFavoriteSchema), "Visible personal favorites") },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const [favorites, books] = await Promise.all([
+        contactsService.favorite.list(userResult.data.id),
+        contactsService.book.list({ subject: { type: "user", userId: userResult.data.id }, includeSystem: true }),
+      ]);
+      const readableBookIds = new Set(books.items.map((book) => book.id));
+      return respond(c, ok(favorites.filter((favorite) => readableBookIds.has(favorite.bookId))));
+    },
+  )
+  .get(
+    "/favorites/:bookId/:contactId",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Get personal contact favorite state",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactFavoriteStateSchema, "Favorite state"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
+      if (!isUuid(contactId)) return respond(c, fail(err.notFound("Contact")));
+      const { error } = await requireBookAccess(c, bookId, "read");
+      if (error) return error;
+      return respond(c, ok({ favorite: await contactsService.favorite.has({ userId: userResult.data.id, bookId, contactId }) }));
+    },
+  )
+  .put(
+    "/favorites/:bookId/:contactId",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Set personal contact favorite state",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Favorite state updated"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Contact not found"),
+      },
+    }),
+    v("json", SetContactFavoriteSchema),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
+      const { favorite } = c.req.valid("json");
+      if (!isUuid(contactId)) return respond(c, fail(err.notFound("Contact")));
+
+      if (!favorite) {
+        await contactsService.favorite.set({ userId: userResult.data.id, bookId, contactId, favorite: false });
+        return respondMessage(c, Promise.resolve(ok(undefined)), "Favorite state updated");
+      }
+
+      const { error } = await requireBookAccess(c, bookId, "read");
+      if (error) return error;
+      const contact = await contactsService.contact.get({ bookId, id: contactId });
+      if (!contact) return respond(c, fail(err.notFound("Contact")));
+      await contactsService.favorite.set({ userId: userResult.data.id, bookId, contactId, favorite: true });
+      return respondMessage(c, Promise.resolve(ok(undefined)), "Favorite state updated");
+    },
+  )
 
   // ----------------------------------------------------------------
   // BOOKS
@@ -945,20 +1068,169 @@ const app = new Hono<AuthContext>()
       if (error) return error;
 
       const tagIds = Array.isArray(query.tag_id) ? query.tag_id : query.tag_id ? [query.tag_id] : undefined;
-
+      const user = getUserBackedActor(c);
+      if (query.favorites && !user) return respond(c, fail(err.forbidden("Favorites require a user-backed actor")));
       const result = await contactsService.contact.list({
         bookId,
         pagination,
-        filter: { query: query.q, tagIds },
+        filter: {
+          query: query.q,
+          tagIds,
+          sort: query.sort,
+          email: query.email,
+          phone: query.phone,
+          favoriteUserId: query.favorites ? user?.id : undefined,
+        },
       });
+      const favoriteKeys = user ? await contactsService.favorite.listKeysForContacts({ userId: user.id, contacts: result.items }) : [];
 
       return respond(
         c,
         ok({
           data: result.items,
           pagination: createPagination(pagination, result.total),
+          favoriteKeys,
         }),
       );
+    },
+  )
+
+  .get(
+    "/books/:bookId/contacts/duplicates",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Find duplicate contacts",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(z.array(ContactDuplicateMatchSchema), "Duplicate candidates") },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId") ?? "";
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+      return respond(c, ok(await contactsService.contact.duplicates.list({ bookId })));
+    },
+  )
+
+  .post(
+    "/books/:bookId/contacts/duplicates/merge",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Merge duplicate contacts",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(ContactSchema, "Merged contact") },
+    }),
+    v("json", MergeDuplicateSchema),
+    async (c) => {
+      const bookId = c.req.param("bookId") ?? "";
+      const data = c.req.valid("json");
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+      return respond(c, contactsService.contact.duplicates.merge({ bookId, ...data }));
+    },
+  )
+
+  .post(
+    "/books/:bookId/contacts/bulk/tags",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Add tags to contacts",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(BulkContactResultSchema, "Updated contact count") },
+    }),
+    v("json", BulkContactTagsSchema),
+    async (c) => {
+      const bookId = c.req.param("bookId") ?? "";
+      const { contactIds, tagIds } = c.req.valid("json");
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+      const result = await contactsService.contact.bulk.addTags({ bookId, ids: contactIds, tagIds });
+      return respond(c, result.ok ? ok({ count: result.data }) : result);
+    },
+  )
+
+  .post(
+    "/books/:bookId/contacts/bulk/move",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Move contacts to another book",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(BulkContactResultSchema, "Moved contact count") },
+    }),
+    v("json", BulkContactMoveSchema),
+    async (c) => {
+      const sourceBookId = c.req.param("bookId") ?? "";
+      const { contactIds, targetBookId } = c.req.valid("json");
+      const { error: sourceError } = await requireBookAccess(c, sourceBookId, "write");
+      if (sourceError) return sourceError;
+      const { book: targetBook, error: targetError } = await requireBookAccess(c, targetBookId, "write");
+      if (targetError || !targetBook) return targetError!;
+      if (targetBook.isSystem) return respond(c, fail(err.forbidden("System book is read-only")));
+      const result = await contactsService.contact.bulk.move({ sourceBookId, targetBookId, ids: contactIds });
+      return respond(c, result.ok ? ok({ count: result.data }) : result);
+    },
+  )
+
+  .post(
+    "/books/:bookId/contacts/bulk/delete",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Delete contacts",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(BulkContactResultSchema, "Deleted contact count") },
+    }),
+    v("json", BulkContactSelectionSchema),
+    async (c) => {
+      const bookId = c.req.param("bookId") ?? "";
+      const { contactIds } = c.req.valid("json");
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+      const result = await contactsService.contact.bulk.remove({ bookId, ids: contactIds });
+      return respond(c, result.ok ? ok({ count: result.data }) : result);
+    },
+  )
+
+  .post(
+    "/books/:bookId/contacts/bulk/export.vcf",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Export selected contacts as vCard",
+      ...requiresAuth,
+      responses: { 200: { description: "vCard file" } },
+    }),
+    v("json", BulkContactSelectionSchema),
+    async (c) => {
+      const bookId = c.req.param("bookId") ?? "";
+      const { contactIds } = c.req.valid("json");
+      const { book, error } = await requireBookAccess(c, bookId, "read");
+      if (error) return error;
+      const result = await contactsService.contact.getMany({ bookId, ids: contactIds });
+      if (!result.ok) return respond(c, result);
+      return c.body(vcard.serializeBook(result.data), 200, {
+        "Content-Type": "text/vcard; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${safeExportFilename(`${book?.name ?? "contacts"}-selection`, "vcf")}"`,
+      });
+    },
+  )
+
+  .get(
+    "/books/:bookId/contacts/:contactId/export.vcf",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Export contact as vCard",
+      ...requiresAuth,
+      responses: { 200: { description: "vCard file" } },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
+      const { error } = await requireBookAccess(c, bookId, "read");
+      if (error) return error;
+      const contact = await contactsService.contact.get({ bookId, id: contactId });
+      if (!contact) return respond(c, fail(err.notFound("Contact")));
+      return c.body(`${vcard.serializeContact(contact)}\r\n`, 200, {
+        "Content-Type": "text/vcard; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${safeExportFilename(resolveContactName(contact), "vcf")}"`,
+      });
     },
   )
 
@@ -1101,6 +1373,9 @@ const app = new Hono<AuthContext>()
 
       if (targetBook.isSystem) {
         return respond(c, fail(err.forbidden("System book is read-only")));
+      }
+      if (sourceBookId === targetBookId) {
+        return respond(c, fail(err.badInput("Choose another contact book")));
       }
 
       return respond(c, contactsService.contact.move({ sourceBookId, targetBookId, id: contactId }));
@@ -1486,7 +1761,8 @@ const app = new Hono<AuthContext>()
       if (binding.error) return binding.error;
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
-
+      const user = getUserBackedActor(c);
+      if (query.favorites && !user) return respond(c, fail(err.forbidden("Favorites require a user-backed actor")));
       const result = await contactsService.contact.search({
         subject: subject.subject,
         boundBookId: binding.boundBookId,
@@ -1494,14 +1770,20 @@ const app = new Hono<AuthContext>()
         filter: {
           query: query.q,
           includeSystem: Boolean(subject.user) && (query.includeSystem ?? false),
+          sort: query.sort,
+          email: query.email,
+          phone: query.phone,
+          favoriteUserId: query.favorites ? user?.id : undefined,
         },
       });
+      const favoriteKeys = user ? await contactsService.favorite.listKeysForContacts({ userId: user.id, contacts: result.items }) : [];
 
       return respond(
         c,
         ok({
           data: result.items,
           pagination: createPagination(pagination, result.total),
+          favoriteKeys,
         }),
       );
     },

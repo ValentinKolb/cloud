@@ -1,0 +1,63 @@
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { listenForContactFavoriteChanges, saveContactFavorite } from "./contacts-favorites";
+
+type Props = {
+  bookId: string;
+  contactId: string;
+  initialFavorite: boolean;
+  class?: string;
+};
+
+export default function ContactFavoriteButton(props: Props) {
+  const [favorite, setFavorite] = createSignal(props.initialFavorite);
+  const [saving, setSaving] = createSignal(false);
+
+  createEffect(() => {
+    void props.bookId;
+    void props.contactId;
+    setFavorite(props.initialFavorite);
+  });
+
+  onMount(() => {
+    const stop = listenForContactFavoriteChanges((change) => {
+      if (change.bookId === props.bookId && change.contactId === props.contactId) setFavorite(change.favorite);
+    });
+    onCleanup(stop);
+  });
+
+  const toggle = async () => {
+    if (saving()) return;
+    const next = !favorite();
+    setFavorite(next);
+    setSaving(true);
+    try {
+      await saveContactFavorite({ bookId: props.bookId, contactId: props.contactId, favorite: next });
+    } catch (error) {
+      setFavorite(!next);
+      await prompts.error(error instanceof Error ? error.message : "Could not update favorite");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Tooltip content={favorite() ? "Remove from favorites" : "Add to favorites"}>
+      <button
+        type="button"
+        class={props.class ?? "icon-btn"}
+        classList={{ "text-amber-500": favorite(), "text-dimmed": !favorite() }}
+        aria-label={favorite() ? "Remove from favorites" : "Add to favorites"}
+        aria-pressed={favorite()}
+        disabled={saving()}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void toggle();
+        }}
+      >
+        <i class={favorite() ? "ti ti-star-filled" : "ti ti-star"} />
+      </button>
+    </Tooltip>
+  );
+}

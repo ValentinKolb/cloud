@@ -1,6 +1,8 @@
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
-import { contactsService, type Contact, type ContactBook } from "../service";
+import { type Contact, type ContactBook, contactsService } from "../service";
+
+export { parseContactsQueryOptions } from "./contacts-query";
 
 export const CONTACTS_PER_PAGE = 100;
 
@@ -10,13 +12,8 @@ export const parseContactsPage = (value: string | undefined): number => {
   return parsed;
 };
 
-export const buildContactsPaginationBaseUrl = (config: { basePath: string; search: string; tagId?: string | null }): string => {
-  const params = new URLSearchParams();
-  if (config.search.trim()) params.set("search", config.search.trim());
-  if (config.tagId) params.set("tag_id", config.tagId);
-  const query = params.toString();
-  return query ? `${config.basePath}?${query}&page=` : `${config.basePath}?page=`;
-};
+export const loadFavoriteKeysForContacts = (userId: string, contacts: Contact[]): Promise<string[]> =>
+  contactsService.favorite.listKeysForContacts({ userId, contacts });
 
 export const loadContactBookPermissions = async (config: { books: ContactBook[]; user: User }) => {
   const manualBooks = config.books.filter((book) => !book.isSystem);

@@ -11,12 +11,20 @@ import ContactsSidebar from "./_components/ContactsSidebar";
 import ContactsWorkspaceMain from "./_components/ContactsWorkspaceMain";
 import DesktopDetailLayoutSync from "./_components/DesktopDetailLayoutSync.island";
 import ContactsLayoutHelp from "./_components/help/ContactsLayoutHelp.island";
-import { CONTACTS_PER_PAGE, loadContactBookPermissions, parseContactsPage, resolveSelectedContact } from "./page-data";
+import {
+  CONTACTS_PER_PAGE,
+  loadContactBookPermissions,
+  loadFavoriteKeysForContacts,
+  parseContactsPage,
+  parseContactsQueryOptions,
+  resolveSelectedContact,
+} from "./page-data";
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
   const search = c.req.query("search") ?? "";
   const page = parseContactsPage(c.req.query("page"));
+  const queryOptions = parseContactsQueryOptions((name) => c.req.query(name));
   const perPage = CONTACTS_PER_PAGE;
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
   const selectedBookIdFromUrl = c.req.query("contactBook") ?? null;
@@ -30,7 +38,14 @@ export default ssr<AuthContext>(async (c) => {
     contactsService.contact.search({
       subject: { type: "user", userId: user.id },
       pagination: { page, perPage },
-      filter: { query: search.trim() || undefined, includeSystem: false },
+      filter: {
+        query: search.trim() || undefined,
+        includeSystem: queryOptions.favorites,
+        sort: queryOptions.sort,
+        email: queryOptions.email,
+        phone: queryOptions.phone,
+        favoriteUserId: queryOptions.favorites ? user.id : undefined,
+      },
     }),
   ]);
   const books = booksResult.items;
@@ -41,16 +56,13 @@ export default ssr<AuthContext>(async (c) => {
     bookId: selectedBookIdFromUrl,
     user,
   });
-  const { adminBookIds, writableBooks } = await loadContactBookPermissions({
-    books,
-    user,
-  });
-  const initialNotes = selectedContact
-    ? await contactsService.contact.notes.list({
-        bookId: selectedContact.bookId,
-        contactId: selectedContact.id,
-      })
-    : [];
+  const [{ adminBookIds, writableBooks }, initialNotes, favoriteKeys] = await Promise.all([
+    loadContactBookPermissions({ books, user }),
+    selectedContact
+      ? contactsService.contact.notes.list({ bookId: selectedContact.bookId, contactId: selectedContact.id })
+      : Promise.resolve([]),
+    loadFavoriteKeysForContacts(user.id, selectedContact ? [...contacts, selectedContact] : contacts),
+  ]);
   const bookNames = Object.fromEntries(books.map((book) => [book.id, book.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
   const requestUrl = new URL(c.req.raw.url);
@@ -63,12 +75,12 @@ export default ssr<AuthContext>(async (c) => {
       <ContactsLayoutHelp />
       <ContactsLiveEvents scope={{ kind: "all" }} initialCursor={initialLiveCursor} />
       <AppWorkspace>
-        <ContactsSidebar books={books} active="all" adminBookIds={adminBookIds} />
+        <ContactsSidebar books={books} active={queryOptions.favorites ? "favorites" : "all"} adminBookIds={adminBookIds} />
 
         <AppWorkspace.Content>
           <ContactsWorkspaceMain
-            title="All contacts"
-            description="Across your manual contact books"
+            title={queryOptions.favorites ? "Favorites" : "All contacts"}
+            description={queryOptions.favorites ? "Your favorite contacts" : "Across your manual contact books"}
             total={contactsResult.total}
             search={search}
             resultHref={resultHref}
@@ -84,6 +96,7 @@ export default ssr<AuthContext>(async (c) => {
             chooseBookOnCreate
             currentPage={contactsResult.page}
             totalPages={totalPages}
+            initialFavoriteKeys={favoriteKeys}
           />
 
           <AppWorkspace.Detail
@@ -103,6 +116,7 @@ export default ssr<AuthContext>(async (c) => {
               adminBookIds={adminBookIds}
               currentUserId={user.id}
               showEmpty={false}
+              initialFavoriteKeys={favoriteKeys}
             />
           </AppWorkspace.Detail>
         </AppWorkspace.Content>
