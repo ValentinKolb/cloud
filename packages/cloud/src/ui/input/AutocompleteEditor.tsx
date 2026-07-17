@@ -34,14 +34,11 @@
  * ----------------------
  * Same contract as MarkdownEditor's completion dropdown — Popover API
  * (top-layer, modal-safe, no focus capture). ArrowUp/Down navigate,
- * Tab/Enter accept, Esc closes. When completions are configured and
- * a dropdown is active, Tab is "trapped" (swallowed if no ghost) so
- * a single Tab press always has a useful effect — see the MarkdownEditor
- * comment on focus-trap rationale.
+ * Tab/Enter accept an active suggestion, and Esc closes. Native Tab
+ * navigation remains available when there is no active suggestion.
  */
 
-import { timed } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import {
   applySuggestion,
   buildSuggestContext,
@@ -134,6 +131,9 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [isDarkTheme, setIsDarkTheme] = createSignal(false);
+  const completionId = createUniqueId();
+  const listboxId = () => `${props.id ?? completionId}-suggestions`;
+  const optionId = (index: number) => `${listboxId()}-${index}`;
 
   const activeSuggestion = (): Suggestion | null => {
     const s = completionState();
@@ -153,9 +153,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
   // each new keystroke aborts the previous so stale results never
   // overwrite fresher state.
   let currentAbort: AbortController | null = null;
-  let lastAsyncCompletion: Completion | null = null;
-  let lastAsyncQuery: string = "";
-  let lastAsyncCtx: ReturnType<typeof buildSuggestContext> | null = null;
+  let currentTimer: ReturnType<typeof setTimeout> | null = null;
 
   /* ── Memoised inputs ──────────────────────────────────── */
 
@@ -209,6 +207,8 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     closeDropdown();
     currentAbort?.abort();
     currentAbort = null;
+    if (currentTimer) clearTimeout(currentTimer);
+    currentTimer = null;
   };
 
   const isAbortError = (e: unknown): boolean =>
@@ -216,29 +216,25 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       ? e.name === "AbortError"
       : Boolean(e && typeof e === "object" && "name" in e && (e as { name: string }).name === "AbortError");
 
-  const recomputeCompletion = (): void => {
-    if (!textareaEl) return;
-    const ctx = detectQuery(textareaEl, completions());
-    if (!ctx) {
-      clearCompletion();
-      return;
-    }
-
-    const suggestCtx = buildSuggestContext(textareaEl, ctx);
-
-    // Spin up an abort signal for THIS attempt — we'll either
-    // consume it sync below, or hand it to the async path.
-    currentAbort?.abort();
-    currentAbort = new AbortController();
-    const signal = currentAbort.signal;
-
+  const startCompletionResolution = (
+    ctx: QueryContext,
+    suggestCtx: ReturnType<typeof buildSuggestContext>,
+    signal: AbortSignal,
+  ): void => {
+    if (signal.aborted) return;
+    setError(null);
+    setLoading(true);
+    setDropdownOpenSignal(true);
+    queueMicrotask(positionDropdown);
     let result: ReturnType<typeof resolveSuggestions>;
     try {
       result = resolveSuggestions(ctx.completion, ctx.query, suggestCtx, signal);
     } catch (e: unknown) {
-      if (isAbortError(e)) return;
+      if (signal.aborted || isAbortError(e)) return;
       setLoading(false);
       setError(e instanceof Error ? e.message : String(e));
+      setDropdownOpenSignal(true);
+      queueMicrotask(positionDropdown);
       return;
     }
 
@@ -248,26 +244,49 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       applySuggestionList(ctx, result.data);
       return;
     }
+    void runFetch(ctx, result.promise, signal);
+  };
 
+  const recomputeCompletion = (): void => {
+    if (!textareaEl) return;
+    const ctx = detectQuery(textareaEl, completions());
+    if (!ctx) {
+      clearCompletion();
+      return;
+    }
+    const suggestCtx = buildSuggestContext(textareaEl, ctx);
+    currentAbort?.abort();
+    if (currentTimer) clearTimeout(currentTimer);
+    currentTimer = null;
+    currentAbort = new AbortController();
+    const signal = currentAbort.signal;
     // Async path: keep previous suggestions visible only while the
     // same completion token is being refined. A new token/context can
     // mean a different language slot (e.g. GQL source → predicate), so
     // stale rows would be actively misleading.
     const prev = completionState();
-    if (prev && (prev.ctx.start !== ctx.start || prev.ctx.completion !== ctx.completion)) {
+    if (
+      prev &&
+      (prev.ctx.start !== ctx.start ||
+        prev.ctx.end !== ctx.end ||
+        prev.ctx.text !== ctx.text ||
+        prev.ctx.completion !== ctx.completion)
+    ) {
       setCompletionState(null);
       closeDropdown();
     }
     setError(null);
-    setLoading(true);
-    lastAsyncCompletion = ctx.completion;
-    lastAsyncQuery = ctx.query;
-    lastAsyncCtx = suggestCtx;
-    const promise = result.promise.catch((e: unknown) => {
-      if (signal.aborted || isAbortError(e)) return [];
-      throw e;
-    });
-    debouncedFetch.debouncedFn(ctx, suggestCtx, promise, signal);
+    const debounceMs = Math.max(0, ctx.completion.debounceMs ?? 0);
+    if (debounceMs === 0) {
+      startCompletionResolution(ctx, suggestCtx, signal);
+      return;
+    }
+    setLoading(false);
+    if (!completionState()) closeDropdown();
+    currentTimer = setTimeout(() => {
+      currentTimer = null;
+      startCompletionResolution(ctx, suggestCtx, signal);
+    }, debounceMs);
   };
 
   /** Take a fresh suggestion list, filter to usable ones, and merge
@@ -306,19 +325,8 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     }
   };
 
-  // Debounced async fetch — kicks off ~180ms after the LAST
-  // keystroke. The debounce delays the actual await so we don't
-  // hammer remote endpoints on every char.
-  const debouncedFetch = timed.debounce(
-    (ctx: QueryContext, suggestCtx: ReturnType<typeof buildSuggestContext>, promise: Promise<Suggestion[]>, signal: AbortSignal) => {
-      void runFetch(ctx, suggestCtx, promise, signal);
-    },
-    180,
-  );
-
   const runFetch = async (
     ctx: QueryContext,
-    suggestCtx: ReturnType<typeof buildSuggestContext>,
     promise: Promise<Suggestion[]>,
     signal: AbortSignal,
   ): Promise<void> => {
@@ -332,32 +340,21 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       if (isAbortError(e)) return;
       setLoading(false);
       setError(e instanceof Error ? e.message : String(e));
+      setDropdownOpenSignal(true);
+      queueMicrotask(positionDropdown);
     }
   };
 
   /** Retry the most recent failed async fetch. */
   const retryAsync = (): void => {
-    if (!lastAsyncCompletion || !lastAsyncCtx) return;
-    setError(null);
-    setLoading(true);
+    if (!textareaEl) return;
+    const ctx = detectQuery(textareaEl, completions());
+    if (!ctx) return clearCompletion();
     currentAbort?.abort();
+    if (currentTimer) clearTimeout(currentTimer);
+    currentTimer = null;
     currentAbort = new AbortController();
-    const signal = currentAbort.signal;
-    const promise = lastAsyncCompletion.suggest(lastAsyncQuery, lastAsyncCtx, signal);
-    if (!(promise instanceof Promise)) {
-      // Suggest turned sync between calls — treat as direct result.
-      setLoading(false);
-      // Re-detect ctx so we have a fresh queryContext.
-      recomputeCompletion();
-      return;
-    }
-    void runFetch(
-      // Reuse prev queryCtx by re-detecting; cheaper than caching it.
-      detectQuery(textareaEl!, completions())!,
-      lastAsyncCtx,
-      promise,
-      signal,
-    );
+    startCompletionResolution(ctx, buildSuggestContext(textareaEl, ctx), currentAbort.signal);
   };
 
   /* ── Dropdown positioning + open/close ─────────────────── */
@@ -454,6 +451,8 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     onCleanup(() => {
       if (dropdownEl?.matches(":popover-open")) dropdownEl.hidePopover();
       currentAbort?.abort();
+      if (currentTimer) clearTimeout(currentTimer);
+      currentTimer = null;
     });
   });
 
@@ -480,7 +479,6 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       }
     }
 
-    const hasCompletions = (completions()?.length ?? 0) > 0;
     const state = completionState();
     const hasActive = state !== null;
     const isDropdown = state?.ctx.completion.dropdown === true;
@@ -521,10 +519,6 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
         acceptActiveSuggestion();
         return;
       }
-      if (hasCompletions) {
-        e.preventDefault();
-        return;
-      }
     }
 
     if (e.key === "Escape") {
@@ -533,7 +527,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
         clearCompletion();
         return;
       }
-      if (hasCompletions) {
+      if ((completions()?.length ?? 0) > 0) {
         e.preventDefault();
         textareaEl.blur();
       }
@@ -597,6 +591,12 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
           aria-describedby={props.ariaDescribedBy}
           aria-invalid={props.ariaInvalid}
           aria-required={props.ariaRequired}
+          aria-autocomplete="list"
+          aria-expanded={dropdownOpenSignal()}
+          aria-controls={dropdownOpenSignal() ? listboxId() : undefined}
+          aria-activedescendant={
+            dropdownOpenSignal() && completionState() ? optionId(completionState()!.selectedIndex) : undefined
+          }
         />
       </div>
 
@@ -611,7 +611,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
           class="popup fixed inset-auto m-0 border border-zinc-200 p-1 dark:border-zinc-700"
           classList={{ dark: isDarkTheme() }}
         >
-          <div class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
+          <div id={listboxId()} class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
             <Show when={loading()}>
               <div class="flex items-center gap-2 px-2 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                 <i class="ti ti-loader-2 animate-spin" /> Loading...
@@ -626,8 +626,8 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
                   class="text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    retryAsync();
                   }}
+                  onClick={retryAsync}
                 >
                   Retry
                 </button>
@@ -648,6 +648,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
                         }}
                         onMouseEnter={() => setCompletionState({ ...state(), selectedIndex: index() })}
                         role="option"
+                        id={optionId(index())}
                         aria-selected={isSelected()}
                         class={`group flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors ${
                           isSelected()

@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createMemo, type JSX, onMount, onCleanup, untrack, For, Show } from "solid-js";
+import { createSignal, createEffect, createMemo, createUniqueId, type JSX, onMount, onCleanup, untrack, For, Show } from "solid-js";
 import { handleShortcut, handleListContinuation, handleSmartPaste } from "./behaviors";
 import {
   type Completion,
@@ -9,12 +9,12 @@ import {
   tryRestore,
   resetCompletionState,
   detectQuery,
-  suggestSync,
   collectKnownLabels,
   applySuggestion,
   renderWithOverlay,
   buildSuggestContext,
   displayLabel,
+  resolveSuggestions,
 } from "../../completion";
 import { highlightMarkdown } from "./highlight";
 import { isInCodeZone } from "./code-zone";
@@ -148,12 +148,23 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     selectedIndex: number;
   };
   const [completionState, setCompletionState] = createSignal<CompletionState | null>(null);
+  const [completionLoading, setCompletionLoading] = createSignal(false);
+  const [completionError, setCompletionError] = createSignal<string | null>(null);
+  const completionId = createUniqueId();
+  const listboxId = () => `${props.id ?? completionId}-suggestions`;
+  const optionId = (index: number) => `${listboxId()}-${index}`;
+  let currentCompletionAbort: AbortController | null = null;
+  let currentCompletionTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Convenience: the currently-highlighted suggestion (drives both
   // ghost rendering and Tab insertion).
   const activeSuggestion = (): Suggestion | null => {
     const s = completionState();
     return s ? (s.suggestions[s.selectedIndex] ?? null) : null;
+  };
+  const suggestionLabel = (suggestion: Suggestion): string => {
+    const state = completionState();
+    return state ? displayLabel(suggestion, state.ctx.completion) : (suggestion.label ?? suggestion.text);
   };
 
   // Whether the dropdown should be visible. Independent signal so the
@@ -289,40 +300,34 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     if (textareaEl) setActiveFormats(computeActiveFormats(textareaEl));
   };
 
-  /**
-   * Recompute completion state (ghost + dropdown) based on the
-   * current textarea position. Called from every code path that may
-   * have moved the caret or changed the content: input, key,
-   * focus-change, selection-change.
-   *
-   * Sync flow only — async `suggest` (returning a Promise) clears
-   * the state without waiting, matching the "fast or nothing" UX
-   * brief. Future work would hook a debounced fetch in here.
-   */
-  const recomputeCompletion = (): void => {
-    if (!textareaEl) return;
-    const ctx = detectQuery(textareaEl, mergedCompletions(), { isExcluded: isInCodeZone });
-    if (!ctx) {
-      setCompletionState(null);
-      closeDropdown();
-      return;
-    }
-    const list = suggestSync(ctx.completion, ctx.query, buildSuggestContext(textareaEl, ctx));
-    if (!list) {
-      setCompletionState(null);
-      closeDropdown();
-      return;
-    }
+  const clearCompletion = (): void => {
+    currentCompletionAbort?.abort();
+    currentCompletionAbort = null;
+    if (currentCompletionTimer) clearTimeout(currentCompletionTimer);
+    currentCompletionTimer = null;
+    setCompletionState(null);
+    setCompletionLoading(false);
+    setCompletionError(null);
+    closeDropdown();
+  };
 
-    // Keep suggestions whose `text` is a strict prefix of the typed
-    // run (case-insensitive) AND strictly longer than what's been
-    // typed. Same filter for ghost-only and dropdown paths: once the
-    // user has fully typed a suggestion, there's nothing left to
-    // offer — so the dropdown closes too. If we kept equal-length
-    // matches the dropdown would linger empty-handedly after every
-    // accepted completion.
+  const isAbortError = (error: unknown): boolean =>
+    error instanceof DOMException
+      ? error.name === "AbortError"
+      : Boolean(error && typeof error === "object" && "name" in error && (error as { name: string }).name === "AbortError");
+
+  const applySuggestionList = (ctx: QueryContext, list: Suggestion[]): void => {
+    const currentText = localValue();
     const lower = ctx.text.toLowerCase();
-    const usable = list.filter((s) => s.text.toLowerCase().startsWith(lower) && s.text.length > ctx.text.length);
+    const usable = list.filter((suggestion) => {
+      const edit = suggestion.textEdit;
+      if (edit) {
+        if (!Number.isInteger(edit.start) || !Number.isInteger(edit.end) || edit.start < 0 || edit.end < edit.start) return false;
+        if (edit.end > currentText.length) return false;
+        return currentText.slice(edit.start, edit.end) !== edit.text;
+      }
+      return suggestion.text.toLowerCase().startsWith(lower) && suggestion.text.length > ctx.text.length;
+    });
 
     if (usable.length === 0) {
       setCompletionState(null);
@@ -330,29 +335,129 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
       return;
     }
 
-    // Preserve the highlighted row across keystrokes when the same
-    // suggestion is still present — feels less jarring than always
-    // resetting to index 0 mid-typing.
-    const prev = completionState();
-    const prevSelected = prev?.suggestions[prev.selectedIndex]?.text;
-    const keptIndex = prevSelected ? usable.findIndex((s) => s.text === prevSelected) : -1;
-    const selectedIndex = keptIndex >= 0 ? keptIndex : 0;
-
-    setCompletionState({ ctx, suggestions: usable, selectedIndex });
+    const previous = completionState();
+    const previousText = previous?.suggestions[previous.selectedIndex]?.text;
+    const retainedIndex = previousText ? usable.findIndex((suggestion) => suggestion.text === previousText) : -1;
+    setCompletionState({
+      ctx,
+      suggestions: usable,
+      selectedIndex: retainedIndex >= 0 ? retainedIndex : 0,
+    });
 
     if (ctx.completion.dropdown) {
-      // Open or re-position. Re-position even when already open so
-      // the dropdown stays glued to the caret as the user types
-      // across line wraps.
-      if (!dropdownOpen()) {
-        setDropdownOpen(true);
-      }
-      // Wait one microtask for the preview's createEffect to render
-      // the new anchor element before we measure.
-      queueMicrotask(() => positionDropdown());
-    } else if (dropdownOpen()) {
+      setDropdownOpen(true);
+      queueMicrotask(positionDropdown);
+    } else {
       closeDropdown();
     }
+  };
+
+  const runAsyncCompletion = async (
+    ctx: QueryContext,
+    promise: Promise<Suggestion[]>,
+    signal: AbortSignal,
+  ): Promise<void> => {
+    try {
+      const suggestions = await promise;
+      if (signal.aborted) return;
+      setCompletionLoading(false);
+      applySuggestionList(ctx, suggestions);
+    } catch (error: unknown) {
+      if (signal.aborted || isAbortError(error)) return;
+      setCompletionLoading(false);
+      setCompletionState(null);
+      setCompletionError(error instanceof Error ? error.message : "Suggestions could not be loaded");
+      setDropdownOpen(true);
+      queueMicrotask(positionDropdown);
+    }
+  };
+
+  const startCompletionResolution = (
+    ctx: QueryContext,
+    suggestContext: ReturnType<typeof buildSuggestContext>,
+    signal: AbortSignal,
+  ): void => {
+    if (signal.aborted) return;
+    setCompletionLoading(true);
+    setCompletionError(null);
+    setDropdownOpen(true);
+    queueMicrotask(positionDropdown);
+
+    let result: ReturnType<typeof resolveSuggestions>;
+    try {
+      result = resolveSuggestions(ctx.completion, ctx.query, suggestContext, signal);
+    } catch (error: unknown) {
+      if (signal.aborted || isAbortError(error)) return;
+      setCompletionLoading(false);
+      setCompletionState(null);
+      setCompletionError(error instanceof Error ? error.message : "Suggestions could not be loaded");
+      queueMicrotask(positionDropdown);
+      return;
+    }
+
+    if (result.kind === "sync") {
+      setCompletionLoading(false);
+      applySuggestionList(ctx, result.data);
+      return;
+    }
+    void runAsyncCompletion(ctx, result.promise, signal);
+  };
+
+  /**
+   * Recompute completion state (ghost + dropdown) based on the
+   * current textarea position. Called from every code path that may
+   * have moved the caret or changed the content: input, key,
+   * focus-change, selection-change.
+   */
+  const recomputeCompletion = (): void => {
+    if (!textareaEl) return;
+    const ctx = detectQuery(textareaEl, mergedCompletions(), { isExcluded: isInCodeZone });
+    if (!ctx) {
+      clearCompletion();
+      return;
+    }
+
+    currentCompletionAbort?.abort();
+    if (currentCompletionTimer) clearTimeout(currentCompletionTimer);
+    currentCompletionTimer = null;
+    currentCompletionAbort = new AbortController();
+    const signal = currentCompletionAbort.signal;
+    const suggestContext = buildSuggestContext(textareaEl, ctx);
+
+    const previous = completionState();
+    if (
+      previous &&
+      (previous.ctx.start !== ctx.start ||
+        previous.ctx.end !== ctx.end ||
+        previous.ctx.text !== ctx.text ||
+        previous.ctx.completion !== ctx.completion)
+    ) {
+      setCompletionState(null);
+      closeDropdown();
+    }
+    setCompletionError(null);
+    const debounceMs = Math.max(0, ctx.completion.debounceMs ?? 0);
+    if (debounceMs === 0) {
+      startCompletionResolution(ctx, suggestContext, signal);
+      return;
+    }
+    setCompletionLoading(false);
+    if (!completionState()) closeDropdown();
+    currentCompletionTimer = setTimeout(() => {
+      currentCompletionTimer = null;
+      startCompletionResolution(ctx, suggestContext, signal);
+    }, debounceMs);
+  };
+
+  const retryCompletion = (): void => {
+    if (!textareaEl) return;
+    const ctx = detectQuery(textareaEl, mergedCompletions(), { isExcluded: isInCodeZone });
+    if (!ctx) return clearCompletion();
+    currentCompletionAbort?.abort();
+    if (currentCompletionTimer) clearTimeout(currentCompletionTimer);
+    currentCompletionTimer = null;
+    currentCompletionAbort = new AbortController();
+    startCompletionResolution(ctx, buildSuggestContext(textareaEl, ctx), currentCompletionAbort.signal);
   };
 
   /**
@@ -369,7 +474,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
    * surrounding modal.
    */
   const positionDropdown = (): void => {
-    if (!dropdownEl || !previewEl || !textareaEl) return;
+    if (!dropdownEl?.isConnected || !previewEl?.isConnected || !textareaEl?.isConnected) return;
     syncTheme();
 
     const anchorEl = previewEl.querySelector<HTMLElement>("[data-md-caret-anchor]");
@@ -418,7 +523,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     const state = completionState();
     const active = activeSuggestion();
     if (!state || !active) return false;
-    if (active.text === state.ctx.text) {
+    if (!active.textEdit && active.text === state.ctx.text) {
       // Nothing to insert (typed text already equals the suggestion).
       closeDropdown();
       setCompletionState(null);
@@ -473,6 +578,9 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     // dropdown is open).
     onCleanup(() => {
       if (dropdownEl?.matches(":popover-open")) dropdownEl.hidePopover();
+      currentCompletionAbort?.abort();
+      if (currentCompletionTimer) clearTimeout(currentCompletionTimer);
+      currentCompletionTimer = null;
     });
   });
 
@@ -520,10 +628,9 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     //     ArrowDown/Up cycle the row (only meaningful with dropdown,
     //     but harmless otherwise). Escape closes the dropdown / ghost
     //     without inserting.
-    //   - Completions configured but no active suggestion → Tab is
-    //     swallowed (focus trap). Escape blurs the textarea.
+    //   - Completions configured but no active suggestion → native Tab
+    //     navigation remains available. Escape blurs the textarea.
     //   - No completions → native browser behaviour.
-    const hasCompletions = (mergedCompletions()?.length ?? 0) > 0;
     const state = completionState();
     const hasActive = state !== null;
     const isDropdown = state?.ctx.completion.dropdown === true;
@@ -556,10 +663,6 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
         acceptActiveSuggestion();
         return;
       }
-      if (hasCompletions) {
-        e.preventDefault();
-        return;
-      }
     }
 
     if (e.key === "Escape") {
@@ -569,7 +672,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
         setCompletionState(null);
         return;
       }
-      if (hasCompletions) {
+      if ((mergedCompletions()?.length ?? 0) > 0) {
         // Blur escapes the trap. Browser default Escape on textarea
         // doesn't move focus, so we do it explicitly. The user gets
         // back to "regular" Tab behaviour from wherever focus lands
@@ -622,10 +725,10 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
 
   // Tab semantics (handled in onKeyDown above):
   //   - Ghost active → insert it.
-  //   - Completions configured but no ghost → swallow Tab (focus trap).
+  //   - Completions configured but no ghost → native Tab navigation.
   //   - No completions → native behaviour, moves focus to next field.
-  // Escape releases the trap (blurs the textarea). Indentation by
-  // Tab is never inserted — lists auto-continue on Enter instead.
+  // Escape blurs the textarea. Indentation by Tab is never inserted —
+  // lists auto-continue on Enter instead.
 
   // Height derived from `lines` prop. We use rem because line-height is
   // 1.55 — close enough to 1em-ish; rem keeps it predictable.
@@ -707,8 +810,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
             // Drop completion state on real blur — keeping it would
             // leave a dim suggestion lingering after the user moved
             // focus, which reads as a glitch rather than a hint.
-            setCompletionState(null);
-            closeDropdown();
+            clearCompletion();
           }}
           disabled={props.disabled}
           spellcheck={props.spellcheck ?? true}
@@ -717,6 +819,12 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
           aria-describedby={props.ariaDescribedBy}
           aria-invalid={props.ariaInvalid}
           aria-required={props.ariaRequired}
+          aria-autocomplete="list"
+          aria-expanded={dropdownOpen()}
+          aria-controls={dropdownOpen() ? listboxId() : undefined}
+          aria-activedescendant={
+            dropdownOpen() && completionState() ? optionId(completionState()!.selectedIndex) : undefined
+          }
         />
       </div>
       <Show when={(props.showStats ?? true) && !props.disabled}>
@@ -761,9 +869,8 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
           ancestor classes. `inset-auto` clears the UA default
           `inset: 0` so our explicit left/top take effect (otherwise
           the popover would stretch to viewport edges). */}
-      <Show when={completionState()}>
-        {(state) => (
-          <div
+      <Show when={Boolean(completionState() || completionLoading() || completionError())}>
+        <div
             ref={(el) => (dropdownEl = el)}
             popover="manual"
             class="popup fixed inset-auto m-0 border border-zinc-200 p-1 dark:border-zinc-700"
@@ -771,10 +878,33 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
             role="presentation"
             aria-label="Completion suggestions"
           >
-            <div class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
-              <For each={state().suggestions}>
+            <div id={listboxId()} class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
+              <Show when={completionLoading()}>
+                <div class="flex items-center gap-2 px-2 py-1.5 text-sm text-zinc-500 dark:text-zinc-400" role="status">
+                  <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+                  Loading suggestions
+                </div>
+              </Show>
+              <Show when={completionError()}>
+                {(message) => (
+                  <div class="flex items-center gap-2 px-2 py-1.5 text-sm text-red-600 dark:text-red-300" role="alert">
+                    <i class="ti ti-alert-circle" aria-hidden="true" />
+                    <span class="min-w-0 flex-1">{message()}</span>
+                    <button
+                      type="button"
+                      class="btn-simple btn-xs"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={retryCompletion}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </Show>
+              <For each={completionState()?.suggestions ?? []}>
                 {(suggestion, index) => {
-                  const isSelected = () => index() === state().selectedIndex;
+                  const state = () => completionState();
+                  const isSelected = () => index() === state()?.selectedIndex;
                   return (
                     <div
                       // mousedown rather than click so we beat the
@@ -782,12 +912,18 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
                       // insert + keep editor focus, not blur away.
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        setCompletionState({ ...state(), selectedIndex: index() });
+                        const current = state();
+                        if (!current) return;
+                        setCompletionState({ ...current, selectedIndex: index() });
                         acceptActiveSuggestion();
                         textareaEl?.focus();
                       }}
-                      onMouseEnter={() => setCompletionState({ ...state(), selectedIndex: index() })}
+                      onMouseEnter={() => {
+                        const current = state();
+                        if (current) setCompletionState({ ...current, selectedIndex: index() });
+                      }}
                       role="option"
+                      id={optionId(index())}
                       aria-selected={isSelected()}
                       class={`group flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors ${
                         isSelected()
@@ -795,7 +931,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
                           : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                       }`}
                     >
-                      <span class="font-mono truncate">{displayLabel(suggestion, state().ctx.completion)}</span>
+                      <span class="font-mono truncate">{suggestionLabel(suggestion)}</span>
                       <Show when={suggestion.hint}>
                         <span class="ml-auto text-xs text-zinc-500 dark:text-zinc-400 truncate">{suggestion.hint}</span>
                       </Show>
@@ -804,8 +940,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
                 }}
               </For>
             </div>
-          </div>
-        )}
+        </div>
       </Show>
     </div>
   );

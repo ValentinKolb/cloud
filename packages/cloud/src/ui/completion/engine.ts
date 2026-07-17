@@ -92,6 +92,9 @@ export type Completion = {
    * yourself in long-running fetches to avoid races.
    */
   suggest: (query: string, ctx: SuggestContext, signal: AbortSignal) => Suggestion[] | Promise<Suggestion[]>;
+  /** Optional delay before invoking `suggest`. Useful for remote
+   * completions where every invocation performs network I/O. */
+  debounceMs?: number;
   /** When `true`, the editor opens a caret-anchored dropdown listing
    * all matches. Default `false` — only the inline ghost preview shows. */
   dropdown?: boolean;
