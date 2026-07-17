@@ -66,6 +66,7 @@ const contextFor = (user: TestUser): MailRequestContext => ({
 const budget = {
   maxTargets: 100,
   maxMoves: 100,
+  maxSends: 100,
   maxKeywordChanges: 100,
   maxCollaborationChanges: 200,
 };

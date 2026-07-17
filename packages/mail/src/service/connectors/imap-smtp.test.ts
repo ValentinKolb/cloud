@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseReferences, selectUidBatch } from "./imap-smtp";
+import { parseEnvelopeHeaders, parseReferences, selectUidBatch } from "./imap-smtp";
 
 const sparseSearch = (uids: number[], probes: Array<[number, number]>) => async (lowUid: number, highUid: number) => {
   probes.push([lowUid, highUid]);
@@ -50,5 +50,33 @@ describe("IMAP References parsing", () => {
       "<first@example.com>",
       "<second@example.com>",
     ]);
+  });
+
+  test("freezes protocol facts used by automatic reply guards", async () => {
+    const parsed = await parseEnvelopeHeaders(
+      Buffer.from(
+        [
+          "References: <first@example.com>",
+          "Return-Path: <sender@example.com>",
+          "Auto-Submitted: no",
+          "Precedence: bulk",
+          "List-ID: Example list <list.example.com>",
+          "X-Auto-Response-Suppress: OOF, AutoReply",
+          "Content-Type: multipart/report; report-type=delivery-status",
+          "",
+          "",
+        ].join("\r\n"),
+      ),
+    );
+    expect(parsed.references).toEqual(["<first@example.com>"]);
+    expect(parsed.protocolFacts).toEqual({
+      returnPath: "<sender@example.com>",
+      autoSubmitted: "no",
+      precedence: "bulk",
+      listId: "Example list <list.example.com>",
+      autoResponseSuppress: "OOF, AutoReply",
+      contentType: "multipart/report; report-type=delivery-status",
+      deliveryStatus: true,
+    });
   });
 });

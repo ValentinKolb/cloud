@@ -144,6 +144,10 @@ export const commandStillAuthorized = async (
       SELECT EXISTS (
         SELECT 1
         FROM mail.workflow_versions version
+        JOIN mail.workflows workflow
+          ON workflow.id = version.workflow_id
+         AND workflow.mailbox_id = version.mailbox_id
+         AND workflow.active_version_id = version.id
         WHERE version.mailbox_id = ${command.mailbox_id}::uuid
           AND version.id = ${command.actor_id}::uuid
       ) AS authorized

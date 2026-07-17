@@ -333,6 +333,7 @@ steps:
           effectBudget: {
             maxTargets: MESSAGE_COUNT,
             maxMoves: 0,
+            maxSends: 0,
             maxKeywordChanges: 0,
             maxCollaborationChanges: 0,
           },
@@ -363,6 +364,7 @@ steps:
           effectBudget: {
             maxTargets: MESSAGE_COUNT,
             maxMoves: 0,
+            maxSends: 0,
             maxKeywordChanges: 0,
             maxCollaborationChanges: 0,
           },

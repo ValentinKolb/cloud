@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
 import type { FrozenMailWorkflowSource } from "./workflow-data";
-import { buildFrozenWorkflowInputs, planFrozenWorkflowTarget, workflowPlanRequirements } from "./workflow-preflight-service";
+import {
+  buildFrozenWorkflowInputs,
+  planFrozenWorkflowTarget,
+  workflowEffectBudgetExceeded,
+  workflowPlanRequirements,
+} from "./workflow-preflight-service";
 
 const source: FrozenMailWorkflowSource = {
   message: {
@@ -149,5 +154,60 @@ describe("Mail workflow preflight", () => {
     });
 
     expect(result).toEqual({ ok: true, data: [] });
+  });
+
+  test("rejects automatic replies from bulk preflight before materialization", async () => {
+    const result = await planFrozenWorkflowTarget({
+      workflowId: "10000000-0000-4000-8000-000000000001",
+      versionIdentity: "version-1",
+      plan: {
+        ...plan,
+        actionPolicies: { automaticReply: { effect: "durable-intent", dryRun: "validate" } },
+        steps: [
+          {
+            kind: "action",
+            action: "automaticReply",
+            config: {
+              message: "${{ inputs.message }}",
+              conversation: "${{ inputs.conversation }}",
+              sender: "10000000-0000-4000-8000-000000000099",
+              subject: "Receipt",
+              body: "Received",
+            },
+            sourcePath: ["steps", 0],
+          },
+        ],
+      },
+      source,
+      inputs: {},
+      occurredAt: "2026-07-15T11:00:00.000Z",
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: "BAD_INPUT", message: expect.stringContaining("messageReceived event delivery") }),
+    });
+  });
+
+  test("limits automatic replies independently from other effects", () => {
+    const budget = {
+      maxTargets: 10,
+      maxMoves: 10,
+      maxSends: 1,
+      maxKeywordChanges: 10,
+      maxCollaborationChanges: 10,
+    };
+    expect(workflowEffectBudgetExceeded({ automaticReply: 1 }, 1, budget)).toBe(false);
+    expect(workflowEffectBudgetExceeded({ automaticReply: 2 }, 1, budget)).toBe(true);
+  });
+
+  test("keeps legacy versions fail-closed when no send budget was stored", () => {
+    const budget = {
+      maxTargets: 10,
+      maxMoves: 10,
+      maxSends: undefined,
+      maxKeywordChanges: 10,
+      maxCollaborationChanges: 10,
+    };
+    expect(workflowEffectBudgetExceeded({ automaticReply: 1 }, 1, budget)).toBe(true);
   });
 });

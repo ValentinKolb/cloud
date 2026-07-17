@@ -187,8 +187,12 @@ const keywordMatch = (query: string, match: Extract<MailSearchExpression, { type
     AND ${textMatch(sql`keyword.value`, query, match)}
 )`;
 
-const referenceMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment =>
-  sql`mail.search_reference_matches(mc.id, ${query}, ${match})`;
+const referenceMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+  SELECT 1
+  FROM mail.conversation_references reference
+  WHERE reference.conversation_id = cm.conversation_id
+    AND ${match === "exact" ? sql`reference.normalized_value = lower(btrim(${query}))` : textMatch(sql`reference.value`, query, match)}
+)`;
 
 const combineOr = (parts: SqlFragment[]): SqlFragment =>
   parts.slice(1).reduce((combined, part) => sql`(${combined} OR ${part})`, parts[0]!);

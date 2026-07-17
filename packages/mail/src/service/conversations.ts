@@ -1,14 +1,17 @@
+import { logger } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { MergeConversationsInput, SplitConversationInput } from "../contracts";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
+import { mergeConversationReferencesInTransaction } from "./conversation-reference";
 import { type MailConversationChangedEvent, publishMailCollaborationEvent } from "./events";
 import { MAIL_NOTIFICATION_DEFINITION_IDS } from "./notification-targets";
 
 type SqlClient = typeof sql;
 type ThreadActor = { kind: "user" | "service_account"; id: string };
 const SPLIT_MESSAGES_CHANGED = "SPLIT_MESSAGES_CHANGED";
+const log = logger("mail:conversations");
 
 type LockedConversation = {
   id: string;
@@ -355,6 +358,17 @@ export const mergeConversations = async (params: {
         WHERE conversation_id = ${params.input.sourceConversationId}::uuid
       `;
       await tx`
+        UPDATE mail.automatic_reply_effects
+        SET conversation_id = ${params.targetConversationId}::uuid
+        WHERE conversation_id = ${params.input.sourceConversationId}::uuid
+      `;
+      const referenceMerge = await mergeConversationReferencesInTransaction({
+        db: tx,
+        mailboxId: params.mailboxId,
+        targetConversationId: params.targetConversationId,
+        sourceConversationId: params.input.sourceConversationId,
+      });
+      await tx`
         UPDATE mail.conversation_thread_overrides
         SET
           conversation_id = ${params.targetConversationId}::uuid,
@@ -392,6 +406,8 @@ export const mergeConversations = async (params: {
           targetRevision: targetState.revision,
           movedReminderCount: reminderMerge.moved,
           discardedReminderConflictCount: reminderMerge.discardedConflicts,
+          movedReferenceCount: referenceMerge.moved,
+          primaryReference: referenceMerge.primaryValue,
         },
       });
       events.push({
@@ -405,7 +421,13 @@ export const mergeConversations = async (params: {
     });
     if (result.ok) await publishEvents(events);
     return result;
-  } catch {
+  } catch (error) {
+    log.error("Failed to merge conversations", {
+      mailboxId: params.mailboxId,
+      targetConversationId: params.targetConversationId,
+      sourceConversationId: params.input.sourceConversationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return fail(err.internal("Failed to merge conversations"));
   }
 };

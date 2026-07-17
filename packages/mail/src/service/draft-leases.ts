@@ -72,7 +72,7 @@ const authorizeDraft = async (params: {
   if (!allowed.ok) return allowed;
   const [draft] = await sql<{ id: string }[]>`
     SELECT id FROM mail.drafts
-    WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND state = 'draft'
+    WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user' AND state = 'draft'
   `;
   return draft ? ok() : fail(err.notFound("Editable draft"));
 };

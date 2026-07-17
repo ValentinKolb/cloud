@@ -34,7 +34,7 @@ export const MAX_MAIL_WORKFLOW_TARGETS = 50_000;
 export const MAX_MAIL_WORKFLOW_EFFECTS = 50_000;
 
 type PlannedEffect = {
-  category: "move" | "keyword" | "collaboration";
+  category: "move" | "keyword" | "collaboration" | "send";
   action: string;
   stepPath: Array<string | number>;
 };
@@ -184,12 +184,27 @@ const statusAction = conversationAction(
   (context, step) => (step.config.status === undefined ? undefined : context.evaluate(step.config.status)),
 );
 
+const referenceAction: WorkflowDryRunActionHandler = {
+  plan: async (context, step) => {
+    const conversationValue = await context.evaluate(step.config.conversation ?? null);
+    return isMailWorkflowProjectedObject(conversationValue)
+      ? planned({ category: "collaboration", action: step.action, stepPath: step.sourcePath })
+      : { state: "indeterminate", reason: `${step.action} requires a frozen Mail conversation` };
+  },
+};
+
+const automaticReplyAction: WorkflowDryRunActionHandler = {
+  plan: async () => ({ state: "unsupported", reason: "automaticReply requires a messageReceived event delivery" }),
+};
+
 const planners = new Map<string, WorkflowDryRunActionHandler>([
   ["addKeyword", keywordAction(true)],
   ["removeKeyword", keywordAction(false)],
   ["moveMessage", moveAction],
   ["assignConversation", assignAction],
   ["setConversationStatus", statusAction],
+  ["ensureConversationReference", referenceAction],
+  ["automaticReply", automaticReplyAction],
 ]);
 
 const builtinPlanningActions = createWorkflowBuiltinActionPorts({ authorize: async () => undefined }).dryRun;
@@ -242,12 +257,15 @@ export const workflowEffectBudgetExceeded = (
 ): boolean => {
   const moves = counts.moveMessage ?? 0;
   const keywords = (counts.addKeyword ?? 0) + (counts.removeKeyword ?? 0);
-  const collaboration = (counts.assignConversation ?? 0) + (counts.setConversationStatus ?? 0);
+  const collaboration =
+    (counts.assignConversation ?? 0) + (counts.setConversationStatus ?? 0) + (counts.ensureConversationReference ?? 0);
+  const sends = counts.automaticReply ?? 0;
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
   return (
     targetCount > budget.maxTargets ||
     targetCount > MAX_MAIL_WORKFLOW_TARGETS ||
     moves > budget.maxMoves ||
+    sends > (budget.maxSends ?? 0) ||
     keywords > budget.maxKeywordChanges ||
     collaboration > budget.maxCollaborationChanges ||
     total > MAX_MAIL_WORKFLOW_EFFECTS

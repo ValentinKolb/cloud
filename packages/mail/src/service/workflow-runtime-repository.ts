@@ -17,6 +17,7 @@ import type {
 import { WorkflowRetryableStepError } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
 import type { WorkflowRunChannel } from "../contracts";
+import { cancelPendingAutomaticRepliesInTransaction } from "./automatic-reply";
 import type { MailWorkflowAuthorizationSnapshot } from "./workflow-runtime-context";
 
 type SqlClient = typeof sql;
@@ -206,8 +207,8 @@ const cancelRunInTransaction = async (params: {
   reason: string;
   activeClaim?: ClaimedMailWorkflowTarget;
 }): Promise<boolean> => {
-  const [run] = await params.db<{ id: string }[]>`
-    SELECT id
+  const [run] = await params.db<{ id: string; mailbox_id: string }[]>`
+    SELECT id, mailbox_id
     FROM mail.workflow_runs
     WHERE id = ${params.runId}::uuid AND state IN ('queued', 'running', 'waiting', 'canceled')
     FOR UPDATE
@@ -257,6 +258,13 @@ const cancelRunInTransaction = async (params: {
       last_error = ${{ code: "CANCELED", message: params.reason, retryable: false }}::jsonb
     WHERE id = ${params.runId}::uuid
   `;
+  await cancelPendingAutomaticRepliesInTransaction({
+    db: params.db,
+    mailboxId: run.mailbox_id,
+    workflowRunId: params.runId,
+    code: "WORKFLOW_CANCELED",
+    message: params.reason,
+  });
   return true;
 };
 
@@ -635,8 +643,10 @@ export const listRecoverableMailWorkflowTargetIds = async (limit = 500): Promise
 
 export const recoverCanceledMailWorkflowTargets = async (limit = 500): Promise<number> =>
   sql.begin(async (tx) => {
-    const rows = await tx<{ id: string; execution_generation: string | number; cancel_reason: string | null }[]>`
-      SELECT target.id, target.execution_generation, target.cancel_reason
+    const rows = await tx<
+      { id: string; parent_run_id: string; mailbox_id: string; execution_generation: string | number; cancel_reason: string | null }[]
+    >`
+      SELECT target.id, target.parent_run_id, run.mailbox_id, target.execution_generation, target.cancel_reason
       FROM mail.workflow_run_targets target
       JOIN mail.workflow_runs run ON run.id = target.parent_run_id
       WHERE run.state IN ('queued', 'running', 'waiting', 'canceled')
@@ -648,6 +658,7 @@ export const recoverCanceledMailWorkflowTargets = async (limit = 500): Promise<n
       LIMIT ${Math.min(Math.max(limit, 1), 5_000)}
     `;
     let recovered = 0;
+    const affectedRuns = new Map<string, { mailboxId: string; reason: string }>();
     for (const row of rows) {
       const changed = await transitionTarget({
         db: tx,
@@ -661,7 +672,22 @@ export const recoverCanceledMailWorkflowTargets = async (limit = 500): Promise<n
           retryable: false,
         },
       });
-      if (changed) recovered += 1;
+      if (changed) {
+        recovered += 1;
+        affectedRuns.set(row.parent_run_id, {
+          mailboxId: row.mailbox_id,
+          reason: row.cancel_reason ?? "Workflow run was canceled",
+        });
+      }
+    }
+    for (const [workflowRunId, run] of affectedRuns) {
+      await cancelPendingAutomaticRepliesInTransaction({
+        db: tx,
+        mailboxId: run.mailboxId,
+        workflowRunId,
+        code: "WORKFLOW_CANCELED",
+        message: run.reason,
+      });
     }
     return recovered;
   });

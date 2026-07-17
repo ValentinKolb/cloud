@@ -23,6 +23,7 @@ import type {
 import type {
   ConnectorAddress,
   ConnectorEnvelope,
+  ConnectorProtocolFacts,
   EnvelopeBatch,
   EnvelopeBatchRequest,
   FlagChange,
@@ -264,19 +265,64 @@ const structureToJson = (structure: MessageStructureObject | undefined): Record<
   };
 };
 
-export const parseReferences = async (headers: Buffer | undefined): Promise<string[]> => {
-  if (!headers?.length) return [];
-  const parsed = await simpleParser(headers, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true });
-  if (Array.isArray(parsed.references)) return parsed.references.map(String).filter(Boolean);
-  if (typeof parsed.references === "string") {
-    return parsed.references.match(/<[^>]+>/g) ?? parsed.references.split(/\s+/).filter(Boolean);
-  }
-  return [];
+const headerText = (headers: Map<string, unknown>, name: string): string | null => {
+  const value = headers.get(name);
+  if (typeof value === "string") return value.trim() || null;
+  if (value && typeof value === "object" && "text" in value && typeof value.text === "string") return value.text.trim() || null;
+  return value == null ? null : String(value).trim() || null;
 };
+
+const rawHeaderText = (lines: readonly { key: string; line: string }[], name: string): string | null => {
+  const line = lines.find((candidate) => candidate.key.toLowerCase() === name)?.line;
+  if (!line) return null;
+  const separator = line.indexOf(":");
+  return separator >= 0 ? line.slice(separator + 1).trim() || null : null;
+};
+
+export const parseEnvelopeHeaders = async (
+  headers: Buffer | undefined,
+): Promise<{ references: string[]; protocolFacts: ConnectorProtocolFacts }> => {
+  const empty = {
+    references: [],
+    protocolFacts: {
+      returnPath: null,
+      autoSubmitted: null,
+      precedence: null,
+      listId: null,
+      autoResponseSuppress: null,
+      contentType: null,
+      deliveryStatus: false,
+    },
+  } satisfies { references: string[]; protocolFacts: ConnectorProtocolFacts };
+  if (!headers?.length) return empty;
+  const parsed = await simpleParser(headers, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true });
+  const references = Array.isArray(parsed.references)
+    ? parsed.references.map(String).filter(Boolean)
+    : typeof parsed.references === "string"
+      ? (parsed.references.match(/<[^>]+>/g) ?? parsed.references.split(/\s+/).filter(Boolean))
+      : [];
+  const header = (name: string): string | null => rawHeaderText(parsed.headerLines, name) ?? headerText(parsed.headers, name);
+  const contentType = header("content-type");
+  return {
+    references,
+    protocolFacts: {
+      returnPath: header("return-path"),
+      autoSubmitted: header("auto-submitted"),
+      precedence: header("precedence"),
+      listId: header("list-id"),
+      autoResponseSuppress: header("x-auto-response-suppress"),
+      contentType,
+      deliveryStatus: /(?:^|;)\s*report-type\s*=\s*["']?delivery-status\b/i.test(contentType ?? ""),
+    },
+  };
+};
+
+export const parseReferences = async (headers: Buffer | undefined): Promise<string[]> => (await parseEnvelopeHeaders(headers)).references;
 
 const mapFetchedEnvelope = async (message: FetchMessageObject, request: EnvelopeBatchRequest): Promise<ConnectorEnvelope> => {
   const envelope = message.envelope;
   const state = splitRemoteFlags(message.flags ?? []);
+  const parsedHeaders = await parseEnvelopeHeaders(message.headers);
   return {
     remoteRef: {
       folderStableKey: request.folderStableKey,
@@ -288,7 +334,8 @@ const mapFetchedEnvelope = async (message: FetchMessageObject, request: Envelope
     providerThreadId: message.threadId ?? null,
     messageId: envelope?.messageId?.trim() || null,
     inReplyTo: envelope?.inReplyTo?.trim() || null,
-    references: await parseReferences(message.headers),
+    references: parsedHeaders.references,
+    protocolFacts: parsedHeaders.protocolFacts,
     subject: envelope?.subject ?? "",
     sentAt: envelope?.date ?? null,
     internalDate: message.internalDate ? new Date(message.internalDate) : (envelope?.date ?? new Date(0)),
@@ -435,7 +482,7 @@ const fetchEnvelopeBatch = async (config: ProviderConnectionInput, request: Enve
             size: true,
             threadId: true,
             labels: true,
-            headers: ["references"],
+            headers: ["references", "return-path", "auto-submitted", "precedence", "list-id", "x-auto-response-suppress", "content-type"],
           },
           { uid: true },
         )) {
@@ -581,7 +628,7 @@ const sendSource = async (config: ProviderConnectionInput, request: SendSourceRe
   withSmtpTransport(config, async (transport) => {
     const info = await transport.sendMail({
       raw: request.source,
-      envelope: { from: request.envelopeFrom, to: request.recipients },
+      envelope: { from: request.envelopeFrom ?? "", to: request.recipients },
       disableFileAccess: true,
       disableUrlAccess: true,
     });

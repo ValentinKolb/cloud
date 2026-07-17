@@ -9,7 +9,17 @@ const ids = {
   invoices: "22222222-2222-4222-8222-222222222222",
   alice: "33333333-3333-4333-8333-333333333333",
   bob: "44444444-4444-4444-8444-444444444444",
+  supportReference: "55555555-5555-4555-8555-555555555555",
+  supportSender: "66666666-6666-4666-8666-666666666666",
+  officeHours: "77777777-7777-4777-8777-777777777777",
 } as const;
+
+const officeHours = {
+  timeZone: "Europe/Berlin",
+  activeRanges: [{ from: "2026-01-01", to: null }],
+  weeklyWindows: [{ weekday: 1 as const, start: "09:00", end: "17:00" }],
+  exceptions: [],
+};
 
 const catalog = (reverse = false): MailWorkflowCatalog => {
   const folders = [
@@ -20,9 +30,13 @@ const catalog = (reverse = false): MailWorkflowCatalog => {
     { id: ids.alice, name: "Alice Example" },
     { id: ids.bob, name: "Bob Example" },
   ];
+  const referenceSchemes = [{ id: ids.supportReference, name: "Support" }];
   return buildMailWorkflowCatalog({
     folders: reverse ? folders.reverse() : folders,
     assignableUsers: reverse ? assignableUsers.reverse() : assignableUsers,
+    referenceSchemes,
+    senderIdentities: [{ id: ids.supportSender, name: "Support" }],
+    responseSchedules: [{ id: ids.officeHours, name: "Office hours", revision: 3, definition: officeHours }],
   });
 };
 
@@ -42,6 +56,8 @@ describe("Mail workflow manifest", () => {
       "moveMessage",
       "assignConversation",
       "setConversationStatus",
+      "ensureConversationReference",
+      "automaticReply",
       "setVariable",
       "succeed",
       "fail",
@@ -62,6 +78,8 @@ describe("Mail workflow manifest", () => {
       moveMessage: "durable-intent",
       assignConversation: "transactional",
       setConversationStatus: "transactional",
+      ensureConversationReference: "transactional",
+      automaticReply: "durable-intent",
       setVariable: "pure",
       succeed: "pure",
       fail: "pure",
@@ -152,6 +170,69 @@ steps:
     expect(result.diagnostics).not.toContainEqual(expect.objectContaining({ code: "reference.unknown" }));
   });
 
+  test("pins automatic reply sender and response schedule snapshots", async () => {
+    const ir = await compile(`inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+triggers:
+  messageReceived:
+    with:
+      message: "\${{ trigger.message }}"
+      conversation: "\${{ trigger.conversation }}"
+steps:
+  - automaticReply:
+      message: inputs.message
+      conversation: inputs.conversation
+      sender: Support
+      schedule: Office hours
+      subject: "Re: \${{ inputs.message.subject }}"
+      body: We received your message.
+`);
+    const result = await bindMailWorkflow(ir, catalog());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.bindings).toEqual({
+      "steps.0.automaticReply.sender": ids.supportSender,
+      "steps.0.automaticReply.schedule": {
+        id: ids.officeHours,
+        name: "Office hours",
+        revision: 3,
+        definition: officeHours,
+      },
+    });
+  });
+
+  test("rejects automatic replies in workflows with non-message triggers", async () => {
+    const result = await bindMailWorkflow(
+      await compile(`inputs:
+  message:
+    type: mailMessage
+  conversation:
+    type: mailConversation
+triggers:
+  schedule:
+    cron: "0 8 * * *"
+steps:
+  - automaticReply:
+      message: inputs.message
+      conversation: inputs.conversation
+      sender: Support
+      subject: Receipt
+      body: Received
+`),
+      catalog(),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "automaticReply.trigger", path: ["steps", 0, "automaticReply"] }),
+    );
+  });
+
   test("reports inaccessible and ambiguous catalog entries at source positions", async () => {
     const source = `inputs:
   message:
@@ -172,6 +253,7 @@ steps:
         { id: ids.alice, name: "Duplicate" },
         { id: ids.bob, name: "Duplicate" },
       ],
+      referenceSchemes: [],
     });
     const result = await bindMailWorkflow(await compile(source), duplicateCatalog);
     expect(result.ok).toBe(false);

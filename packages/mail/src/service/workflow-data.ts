@@ -1,6 +1,8 @@
 import { sql } from "bun";
 import type { MailSearchExpression, WorkflowTargetQuery } from "../contracts";
 import { sha256Json } from "./canonical";
+import type { ConnectorProtocolFacts } from "./connectors";
+import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { compileSearchExpression } from "./search";
 
 export type SqlClient = typeof sql;
@@ -42,6 +44,7 @@ export type FrozenMailMessage = {
   internalDate: string;
   receivedAt: string;
   sentAt: string | null;
+  protocolFacts?: ConnectorProtocolFacts;
 };
 
 export type FrozenMailConversation = {
@@ -68,6 +71,7 @@ export type FrozenMailWorkflowPreconditions = {
     keywords: string[];
   };
   conversation: { id: string; revision: number } | null;
+  triggerKind?: "messageReceived";
 };
 
 export type MailWorkflowTargetSnapshot = {
@@ -90,6 +94,7 @@ type WorkflowSnapshotRow = {
   attachments: FrozenMailAttachment[] | string;
   internal_date: Date | string;
   sent_at: Date | string | null;
+  selected_headers: ConnectorProtocolFacts | string;
   folder_id: string;
   modseq: string | number | null;
   flags: string[] | null;
@@ -163,6 +168,7 @@ const snapshotColumns = sql`
   COALESCE(attachment.value, '[]'::jsonb) AS attachments,
   mc.internal_date,
   mc.sent_at,
+  mc.selected_headers,
   mp.folder_id,
   rmr.modseq,
   mp.flags,
@@ -264,6 +270,7 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
       internalDate,
       receivedAt: internalDate,
       sentAt: row.sent_at ? toIso(row.sent_at) : null,
+      protocolFacts: parseConnectorProtocolFacts(parseJson(row.selected_headers)),
     },
     conversation,
   };

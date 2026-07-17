@@ -67,11 +67,11 @@ This snapshot records the verified Mail backend, CLI, and core application exper
 
 | Delivery slice | State | Implemented | Remaining |
 | --- | --- | --- | --- |
-| 1. Foundation contracts | In progress | Mail package and schema; mailbox access adapter; encrypted write-only mailbox provider connections; one current remote-resource binding with retained historical fences; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; connector conformance harness; typed API and CLI. | Conversation references and response schedules. |
+| 1. Foundation contracts | Core implemented | Mail package and schema; mailbox access adapter; encrypted write-only mailbox provider connections; one current remote-resource binding with retained historical fences; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; immutable conversation references; versioned response schedules; connector conformance harness; typed API and CLI. | Enhanced connector implementations and final operational polish. |
 | 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; repair and health operations; canonical field-specific structured search with keyset pagination, native FTS and optional `pg_textsearch`; mailbox-local tags with revision-safe API, CLI, Details-panel assignment, audit, activity, and live invalidation; and explicit 20,000- and 100,000-message performance gates. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, and setup UX. |
 | 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; and message-bound plus outgoing attachment UX. | Rich attachment previewers and broader multi-message bulk selection. |
 | 4. Collaboration | Backend and primary UI implemented | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; mailbox-scoped live invalidation; permission-safe API and CLI; and the combined Mail, ownership, comments, reminders, and audit Details panel. | Explicit presence indicators and richer shared-draft takeover and conflict guidance. |
-| 5. Deterministic workflows | Shared-kernel backend and CLI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable effect budgets; permission and credential rechecks; durable command waiting; fenced recovery; typed API and CLI. | Visual editor, richer Mail actions, guarded automatic replies, and AI decision nodes. |
+| 5. Deterministic workflows | Shared-kernel backend and CLI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable move, send, keyword, and collaboration budgets; permission and credential rechecks; durable command waiting; fenced recovery; immutable reference allocation; version-pinned response schedules; guarded RFC-safe automatic replies; typed API and CLI. | Workflow authoring UI, richer Mail actions, run controls, and AI decision nodes. |
 | 6. AI decisions and agents | Not started | Mail is exposed through typed API and CLI operations suitable for later tools. | Mail AI resource, tools, approvals, workflow decision nodes, summaries, classification, suggested drafts, and bulk-plan generation. |
 | 7. Product-speed pass | Primary workspace implemented | Calm Cloud-native mailbox overview; resizable AppWorkspace navigation; dense one-line conversation rows; structured search; URL-backed SSR-first frontend navigation; collapsible conversation list; threaded reader; one combined and resizable Details panel; contained reply/forward composer; dedicated full-size and pop-out composer; durable local draft journal; permission-aware self-service settings; responsive empty/error states; and authenticated desktop/mobile verification against a live mailbox. | Comprehensive keyboard shortcuts, reader/list prefetch, explicit frontend performance gates, and final accessibility regression coverage. |
 | 8-9. Enhanced connectors | Not started | Provider-neutral connector, capability, identity, and command boundaries are established. | JMAP, Microsoft Graph, and Gmail API connectors and their conformance suites. |
@@ -763,9 +763,11 @@ The implemented action vocabulary is deliberately small:
 - `moveMessage` creates a durable provider move command against a bound accessible folder;
 - `assignConversation` performs a revision-checked collaboration transaction and accepts `null` to unassign;
 - `setConversationStatus` sets `open`, `waiting`, or `done` transactionally;
+- `ensureConversationReference` atomically allocates one immutable mailbox reference for an enabled bound scheme;
+- `automaticReply` creates a guarded workflow-owned reply draft and sends it through the durable command and outbox path, with pinned sender and optional response-schedule snapshots;
 - `succeed` and `fail` stop the current target with an operator-facing message.
 
-Copy/archive/trash, standard flags, local tags, comments, drafts, references, automatic replies, notifications, lower-priority pipeline control, and AI decisions are not current workflow actions.
+Copy/archive/trash, standard flags, local tags, comments, general draft creation, notifications, lower-priority pipeline control, and AI decisions are not current workflow actions.
 
 ### Invocation and triggers
 
@@ -781,7 +783,7 @@ Mail preflight is the supported no-effects review contract. It runs in a repeata
 
 The response contains the version ID and identity, source and query hashes, effect budget, action counts, target count, and a `preflightHash`. Execution repeats preflight before creating the run and rejects a stale hash. Large backfills then keyset-page the same target query in bounded transactions, persist the cursor and rolling digest after every batch, and publish targets only after the final count and digest match the commitment. The hash commits the caller to the version, bound catalog, inputs, query, target identities, source preconditions, planned action counts, and budget.
 
-Default version budgets are 1,000 targets, 1,000 moves, 2,000 keyword changes, and 2,000 collaboration changes. Schema ceilings are 50,000 targets and moves and 100,000 keyword or collaboration changes; preflight also caps total planned effects at 50,000. The API accepts an explicit complete budget object. The CLI exposes the same bounds on workflow and version creation.
+Default version budgets are 1,000 targets, 1,000 moves, 1,000 sends, 2,000 keyword changes, and 2,000 collaboration changes. Schema ceilings are 50,000 targets, moves, and sends and 100,000 keyword or collaboration changes; preflight also caps total planned effects at 50,000. Versions created before the send budget existed fail closed for automatic replies. The API accepts an explicit complete budget object. The CLI exposes the same bounds on workflow and version creation.
 
 The shared runtime `dryRun` mode is exposed through the Mail API and CLI. It creates a durable run with frozen targets and per-target planning results, but action planners receive no effect-capable ports. Preflight remains the stateless execution commitment; a durable dry run is the auditable no-effects record.
 
@@ -801,7 +803,7 @@ Runs retain pinned source identity, target progress, inputs/query, actor authori
 
 ### Current product gaps
 
-The backend and CLI are ahead of the Mail UI. There is no visual workflow editor, in-app workflow help, pause/resume, or per-target retry UI. Guarded automatic replies, AI decisions, temporal windows, richer actions, conflict analysis, and generated bulk-plan UX remain product work and must not be presented as available behavior.
+The backend and CLI are ahead of the Mail UI. There is no visual workflow editor, in-app workflow help, pause/resume, or per-target retry UI. Automatic replies and named response schedules are available as typed backend, CLI, and mailbox-admin settings primitives, but acknowledgement and out-of-office presets are not yet a complete guided product flow. AI decisions, richer actions, conflict analysis, and generated bulk-plan UX remain product work and must not be presented as available behavior.
 
 ## Agents and AI
 
@@ -1388,9 +1390,10 @@ Implemented verification covers:
 - read-only preflight, hydration requirements, frozen source preconditions, stale preflight rejection, target/effect budgets, keyset materialization, and automatic restart recovery;
 - direct, one-shot, backfill, and durable dry-run records with paginated target progress, API/CLI cancellation, permission revocation, and restored step outcomes;
 - durable keyword/move commands, transactional assignment/status actions, waiting, dependency wakeup, lease fencing, recovery, and `needs_attention`;
+- atomic conversation-reference allocation, merge/split alias semantics, exact reference search, response-schedule version fencing, automatic-reply loop suppression, concurrent deduplication, recipient rate limits, and durable outbox materialization;
 - deduplicated live incremental `messageReceived` delivery, historical-import suppression, revoked-actor skips, expired-trigger-claim recovery, and revision-fenced schedule slots.
 
-Remaining product scenarios include pause/resume and targeted retry, workflow UI, richer action coverage, automatic replies, temporal policies, AI decisions, and generated bulk plans.
+Remaining product scenarios include pause/resume and targeted retry, workflow authoring UI, richer action coverage, guided acknowledgement/out-of-office setup, AI decisions, and generated bulk plans.
 
 ### Scale scenarios
 
@@ -1457,9 +1460,10 @@ Success: two users can triage, comment, mention, draft, and reply without silent
 
 - Canonical shared-kernel YAML, validation/binding, immutable Mail versions, run history, preflight, and deterministic actions.
 - Live `messageReceived`, revision-fenced schedules, direct/one-shot/backfill/dry-run execution, effect budgets, durable waiting, and fenced recovery.
-- Next: richer run controls, visual editor, temporal policies, and guarded automatic replies.
+- Immutable conversation references, named response schedules, and guarded automatic replies through the ordinary durable send path.
+- Next: richer run controls, authoring UI, guided responder presets, and broader action coverage.
 
-Current success: a non-AI workflow can add/remove keywords, move mail, assign conversations, and change work state for live or historical targets with version-pinned preflight, current authorization, idempotent effects, recovery, and audit. The broader automatic-reply success criterion remains future scope.
+Current success: a non-AI workflow can add/remove keywords, move mail, assign conversations, change work state, allocate a reference, and send a guarded automatic reply for a live inbound message with version-pinned preflight, current authorization, idempotent effects, recovery, and audit.
 
 ### 6. AI decisions and agents
 

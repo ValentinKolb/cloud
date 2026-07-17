@@ -6,6 +6,16 @@ export type ConnectorAddress = {
   address: string;
 };
 
+export type ConnectorProtocolFacts = {
+  returnPath: string | null;
+  autoSubmitted: string | null;
+  precedence: string | null;
+  listId: string | null;
+  autoResponseSuppress: string | null;
+  contentType: string | null;
+  deliveryStatus: boolean;
+};
+
 export type ConnectorEnvelope = {
   remoteRef: RemoteMessageRef;
   providerMessageId: string | null;
@@ -13,6 +23,7 @@ export type ConnectorEnvelope = {
   messageId: string | null;
   inReplyTo: string | null;
   references: string[];
+  protocolFacts?: ConnectorProtocolFacts;
   subject: string;
   sentAt: Date | null;
   internalDate: Date;
@@ -124,7 +135,7 @@ export type RemoteMessageStateChange = {
 
 export type SendSourceRequest = {
   source: Readable;
-  envelopeFrom: string;
+  envelopeFrom: string | null;
   recipients: string[];
   messageId: string;
 };

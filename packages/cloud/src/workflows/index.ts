@@ -1,5 +1,6 @@
 export {
   createWorkflowBuiltinActionPorts,
+  renderWorkflowTextTemplate,
   type WorkflowBuiltinActionAuthorize,
   type WorkflowBuiltinActionPorts,
   workflowBuiltinActionDescriptors,

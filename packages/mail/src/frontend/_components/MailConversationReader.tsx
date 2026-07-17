@@ -38,6 +38,7 @@ export default function MailConversationReader(props: {
   identities: SenderIdentity[];
   selectionKey: string | null;
   selectedConversationId: string | null;
+  reference: string | null;
   subject: string;
   messages: MessageDetail[];
   dateConfig: DateContext;
@@ -175,7 +176,27 @@ export default function MailConversationReader(props: {
               </Tooltip>
             </Show>
             <div class="min-w-0 flex-1">
-              <h1 class="truncate text-lg font-semibold text-primary">{props.subject || "(no subject)"}</h1>
+              <div class="flex min-w-0 items-center gap-2">
+                <h1 class="truncate text-lg font-semibold text-primary">{props.subject || "(no subject)"}</h1>
+                <Show when={props.reference}>
+                  <button
+                    type="button"
+                    class="chip shrink-0 font-mono text-xs"
+                    title="Copy conversation reference"
+                    onClick={() => {
+                      const reference = props.reference;
+                      if (!reference) return;
+                      void navigator.clipboard.writeText(reference).then(
+                        () => toast.success("Reference copied"),
+                        () => toast.error("Could not copy reference"),
+                      );
+                    }}
+                  >
+                    <i class="ti ti-hash" aria-hidden="true" />
+                    {props.reference}
+                  </button>
+                </Show>
+              </div>
               <p class="mt-0.5 text-xs text-dimmed">
                 {props.messages.length} message{props.messages.length === 1 ? "" : "s"}
               </p>

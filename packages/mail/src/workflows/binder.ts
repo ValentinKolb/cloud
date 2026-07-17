@@ -21,6 +21,7 @@ import {
   type MailWorkflowCatalog,
   type MailWorkflowCatalogEntry,
   type MailWorkflowCatalogIndex,
+  type MailWorkflowResponseScheduleCatalogEntry,
   snapshotMailWorkflowCatalog,
 } from "./catalog";
 import { mailWorkflowManifest } from "./manifest";
@@ -293,6 +294,33 @@ const bindCatalogValue = <T extends MailWorkflowCatalogEntry>(
   }
 };
 
+const bindCatalogSnapshotValue = (
+  value: WorkflowJsonValue | undefined,
+  index: MailWorkflowCatalogIndex<MailWorkflowResponseScheduleCatalogEntry>,
+  label: string,
+  path: Array<string | number>,
+  context: BindingContext,
+): void => {
+  if (typeof value !== "string") {
+    addDiagnostic(context, "binding.type", `${label} must be a name or ID`, path);
+    return;
+  }
+  const source = expressionReference(value);
+  if (!source || source.kind !== "literal") {
+    addDiagnostic(context, "binding.dynamic", `${label} must be a literal accessible name or ID`, path);
+    return;
+  }
+  const entry = resolveCatalogRef(context, index, source.value, label, path);
+  if (entry) {
+    context.bindings[workflowPathKey(path)] = {
+      id: entry.id,
+      name: entry.name,
+      revision: entry.revision,
+      definition: entry.definition,
+    };
+  }
+};
+
 const bindMessage = (
   value: WorkflowJsonValue | undefined,
   path: Array<string | number>,
@@ -391,6 +419,28 @@ const bindAction = (
     bindCatalogValue(config.user, context.catalog.assignableUsers, "assignable user", [...path, "user"], scope, context, true);
   } else if (step.action === "setConversationStatus") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
+  } else if (step.action === "ensureConversationReference") {
+    expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
+    if (config.scheme !== undefined) {
+      bindCatalogValue(config.scheme, context.catalog.referenceSchemes, "reference scheme", [...path, "scheme"], scope, context);
+    }
+  } else if (step.action === "automaticReply") {
+    if (context.ir.triggers.some((trigger) => trigger.kind !== "messageReceived")) {
+      addDiagnostic(
+        context,
+        "automaticReply.trigger",
+        "automaticReply requires every workflow trigger to be messageReceived",
+        path,
+      );
+    }
+    expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
+    expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
+    bindCatalogValue(config.sender, context.catalog.senderIdentities, "sender identity", [...path, "sender"], scope, context);
+    bindMessage(config.subject, [...path, "subject"], scope, context);
+    bindMessage(config.body, [...path, "body"], scope, context);
+    if (config.schedule !== undefined) {
+      bindCatalogSnapshotValue(config.schedule, context.catalog.responseSchedules, "response schedule", [...path, "schedule"], context);
+    }
   } else if (step.action === "setVariable") {
     const value = bindValue(config.value!, [...path, "value"], scope, context);
     defineValue(config.name, value, [...path, "name"], scope, context);

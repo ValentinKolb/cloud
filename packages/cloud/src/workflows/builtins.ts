@@ -86,18 +86,24 @@ const requiredValue = (value: WorkflowJsonValue | undefined, label: string): Wor
   return value;
 };
 
-const renderMessage = async (context: WorkflowBuiltinActionContext, step: WorkflowActionStep): Promise<string> => {
-  const message = requiredString(step.config.message, `${step.action}.message`);
+export const renderWorkflowTextTemplate = async (params: {
+  context: WorkflowExecuteActionContext | WorkflowDryRunActionContext;
+  step: WorkflowActionStep;
+  field: string;
+  value: WorkflowJsonValue | undefined;
+  label: string;
+}): Promise<string> => {
+  const message = requiredString(params.value, params.label);
   let rendered = "";
   let offset = 0;
   for (const [index, expression] of workflowMessageExpressions(message).entries()) {
     rendered += message.slice(offset, expression.index);
-    if (!expression.expression) throw new TypeError(`${step.action}.message contains an invalid expression`);
-    const path = [...actionPath(step), "message", "expression", index];
+    if (!expression.expression) throw new TypeError(`${params.label} contains an invalid expression`);
+    const path = [...actionPath(params.step), params.field, "expression", index];
     const value =
       expression.expression.kind === "now"
-        ? await context.evaluate("${{ now() }}", path)
-        : await context.resolveReference(expression.expression.reference, path);
+        ? await params.context.evaluate("${{ now() }}", path)
+        : await params.context.resolveReference(expression.expression.reference, path);
     rendered += value === undefined || value === null ? "" : typeof value === "string" ? value : JSON.stringify(value);
     offset = expression.index + expression.raw.length;
   }
@@ -117,7 +123,13 @@ export const createWorkflowBuiltinActionPorts = (options: { authorize: WorkflowB
       context.variables.set(name, output);
       return { state: "completed", output };
     }
-    const message = await renderMessage(context, step);
+    const message = await renderWorkflowTextTemplate({
+      context,
+      step,
+      field: "message",
+      value: step.config.message,
+      label: `${step.action}.message`,
+    });
     return step.action === "succeed"
       ? { state: "terminal", status: "succeeded", message }
       : { state: "failed", error: { code: "WORKFLOW_FAILED", message, retryable: false } };
@@ -135,7 +147,13 @@ export const createWorkflowBuiltinActionPorts = (options: { authorize: WorkflowB
     return {
       state: "terminal",
       status: step.action === "succeed" ? "succeeded" : "failed",
-      message: await renderMessage(context, step),
+      message: await renderWorkflowTextTemplate({
+        context,
+        step,
+        field: "message",
+        value: step.config.message,
+        label: `${step.action}.message`,
+      }),
       effects: [],
     };
   };

@@ -38,6 +38,8 @@ import {
   mailSearchExpressionSchema,
   type ProviderBinding,
   type ProviderConnection,
+  responseScheduleDefinitionSchema,
+  type ResponseScheduleDefinitionInput,
   type SavedConversationViewFilter,
   type SenderIdentity,
   savedConversationViewFilterSchema,
@@ -48,9 +50,15 @@ import {
 } from "./contracts";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
 import type { MergeConversationsResult, SplitConversationResult } from "./service/conversations";
+import type {
+  ConversationReference,
+  ConversationReferenceScheme,
+  EnsureConversationReferenceResult,
+} from "./service/conversation-reference";
 import type { ConversationLocalTags, LocalTag } from "./service/local-tags";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { ConversationReminder } from "./service/reminders";
+import type { ResponseSchedule } from "./service/response-schedule";
 import type { SavedConversationView } from "./service/saved-views";
 import type { MessageSearchHit, MessageSearchPage } from "./service/search";
 
@@ -130,6 +138,7 @@ const waitFlags = {
 const workflowEffectBudgetFlags = {
   maxTargets: flag.int({ name: "max-targets", min: 1, max: 50_000, default: 1_000, description: "Maximum targets per run" }),
   maxMoves: flag.int({ name: "max-moves", min: 0, max: 50_000, default: 1_000, description: "Maximum move effects per run" }),
+  maxSends: flag.int({ name: "max-sends", min: 0, max: 50_000, default: 1_000, description: "Maximum send effects per run" }),
   maxKeywordChanges: flag.int({
     name: "max-keyword-changes",
     min: 0,
@@ -149,11 +158,13 @@ const workflowEffectBudgetFlags = {
 const workflowEffectBudget = (flags: {
   maxTargets?: number;
   maxMoves?: number;
+  maxSends?: number;
   maxKeywordChanges?: number;
   maxCollaborationChanges?: number;
 }): WorkflowEffectBudget => ({
   maxTargets: flags.maxTargets ?? 1_000,
   maxMoves: flags.maxMoves ?? 1_000,
+  maxSends: flags.maxSends ?? 1_000,
   maxKeywordChanges: flags.maxKeywordChanges ?? 2_000,
   maxCollaborationChanges: flags.maxCollaborationChanges ?? 2_000,
 });
@@ -248,6 +259,17 @@ const savedViewFilterInput = flag.input({
   stdinName: "filter-stdin",
   description: "Saved view filter as JSON or YAML",
 });
+const responseScheduleDefinitionInput = flag.input({
+  required: true,
+  fileName: "definition-file",
+  stdinName: "definition-stdin",
+  description: "Response schedule definition as JSON or YAML",
+});
+const optionalResponseScheduleDefinitionInput = flag.input({
+  fileName: "definition-file",
+  stdinName: "definition-stdin",
+  description: "Replacement response schedule definition as JSON or YAML",
+});
 
 const parseStructuredDocument = (value: string, label: string): unknown => {
   try {
@@ -294,6 +316,25 @@ const readSavedViewFilter = async (
   if (raw.trim().length === 0) throw new Error("Saved view filter cannot be empty.");
   const parsed = savedConversationViewFilterSchema.safeParse(parseStructuredDocument(raw, "Saved view filter"));
   if (!parsed.success) throw new Error(`Invalid saved view filter: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
+  return parsed.data;
+};
+
+const readResponseScheduleDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<ResponseScheduleDefinitionInput> => {
+  const raw = await readCliInput(input, { label: "response schedule definition", required: true });
+  if (!raw?.trim()) throw new Error("Response schedule definition cannot be empty.");
+  const parsed = responseScheduleDefinitionSchema.safeParse(parseStructuredDocument(raw, "Response schedule definition"));
+  if (!parsed.success) throw new Error(`Invalid response schedule definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
+  return parsed.data;
+};
+
+const readOptionalResponseScheduleDefinition = async (
+  input: Parameters<typeof readCliInput>[0],
+): Promise<ResponseScheduleDefinitionInput | undefined> => {
+  const raw = await readCliInput(input, { label: "response schedule definition", required: false });
+  if (raw === undefined) return undefined;
+  if (!raw.trim()) throw new Error("Response schedule definition cannot be empty.");
+  const parsed = responseScheduleDefinitionSchema.safeParse(parseStructuredDocument(raw, "Response schedule definition"));
+  if (!parsed.success) throw new Error(`Invalid response schedule definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
 };
 
@@ -2879,6 +2920,232 @@ export default defineCliCommands({
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
         if (ctx.options.output === "json") ctx.json({ draft, command: result });
         else ctx.print(`${flags.wait ? "Sent" : "Queued"} message ${result.id} (${result.state}).`);
+      },
+    }),
+    command("reference scheme list", {
+      summary: "List conversation reference schemes",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const schemes = await readApi<ConversationReferenceScheme[]>(ctx, `/mailboxes/${mailbox.id}/reference-schemes`);
+        printTable(
+          ctx,
+          schemes,
+          schemes.map((scheme) => ({
+            name: scheme.name,
+            pattern: scheme.pattern,
+            next: scheme.nextSequence,
+            default: scheme.isDefault ? "yes" : "",
+            enabled: scheme.enabled ? "yes" : "no",
+            revision: scheme.revision,
+            id: scheme.id,
+          })),
+          [
+            { key: "name", label: "NAME" },
+            { key: "pattern", label: "PATTERN" },
+            { key: "next", label: "NEXT" },
+            { key: "default", label: "DEFAULT" },
+            { key: "enabled", label: "ENABLED" },
+            { key: "revision", label: "REV" },
+            { key: "id", label: "SCHEME ID" },
+          ],
+        );
+      },
+    }),
+    command("reference scheme create", {
+      summary: "Create a conversation reference scheme",
+      args: { name: arg.required({ description: "User-visible scheme name" }) },
+      flags: {
+        ...mailboxFlag,
+        pattern: flag.string({ required: true, description: "Pattern with one {sequence} token and optional {year}" }),
+        default: flag.boolean({ description: "Make this the mailbox default" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.pattern) throw new Error("Missing reference pattern.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const scheme = await readApi<ConversationReferenceScheme>(
+          ctx,
+          `/mailboxes/${mailbox.id}/reference-schemes`,
+          jsonRequest("POST", { name: args.name, pattern: flags.pattern, makeDefault: flags.default }),
+        );
+        if (printStructured(ctx, scheme)) return;
+        ctx.print(`Created reference scheme ${scheme.name} (${scheme.id}).`);
+      },
+    }),
+    command("reference scheme update", {
+      summary: "Update a conversation reference scheme at an expected revision",
+      args: { schemeId: arg.required({ description: "Reference scheme id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
+        name: flag.string({ description: "Replacement user-visible name" }),
+        pattern: flag.string({ description: "Replacement allocation pattern" }),
+        enable: flag.boolean({ description: "Enable this scheme" }),
+        disable: flag.boolean({ description: "Disable this scheme" }),
+        default: flag.boolean({ description: "Make this the mailbox default" }),
+        noDefault: flag.boolean({ name: "no-default", description: "Clear this scheme as the mailbox default" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.revision === undefined) throw new Error("Missing expected reference scheme revision.");
+        if (flags.enable && flags.disable) throw new Error("Use either --enable or --disable.");
+        if (flags.default && flags.noDefault) throw new Error("Use either --default or --no-default.");
+        const input = {
+          expectedRevision: flags.revision,
+          ...(flags.name !== undefined ? { name: flags.name } : {}),
+          ...(flags.pattern !== undefined ? { pattern: flags.pattern } : {}),
+          ...(flags.enable || flags.disable ? { enabled: flags.enable } : {}),
+          ...(flags.default || flags.noDefault ? { makeDefault: flags.default } : {}),
+        };
+        if (Object.keys(input).length === 1) throw new Error("Pass at least one reference scheme change.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const scheme = await readApi<ConversationReferenceScheme>(
+          ctx,
+          `/mailboxes/${mailbox.id}/reference-schemes/${args.schemeId}`,
+          jsonRequest("PATCH", input),
+        );
+        if (printStructured(ctx, scheme)) return;
+        ctx.print(`Updated reference scheme ${scheme.name} to revision ${scheme.revision}.`);
+      },
+    }),
+    command("reference list", {
+      summary: "List immutable references for a conversation",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const references = await readApi<ConversationReference[]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/references`,
+        );
+        printTable(
+          ctx,
+          references,
+          references.map((reference) => ({
+            value: reference.value,
+            role: reference.role,
+            scheme: reference.schemeName,
+            allocated: reference.allocatedAt,
+            id: reference.id,
+          })),
+          [
+            { key: "value", label: "REFERENCE" },
+            { key: "role", label: "ROLE" },
+            { key: "scheme", label: "SCHEME" },
+            { key: "allocated", label: "ALLOCATED" },
+            { key: "id", label: "ID" },
+          ],
+        );
+      },
+    }),
+    command("reference ensure", {
+      summary: "Idempotently ensure a conversation reference",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        scheme: flag.string({ description: "Reference scheme id; defaults to the mailbox default" }),
+        idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable retry key" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const result = await readApi<EnsureConversationReferenceResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/references`,
+          jsonRequest("POST", { schemeId: flags.scheme, idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID() }),
+        );
+        if (printStructured(ctx, result)) return;
+        ctx.print(`${result.created ? "Allocated" : "Found"} ${result.reference.value} (${result.reference.role}).`);
+      },
+    }),
+    command("reference find", {
+      summary: "Resolve an exact conversation reference",
+      args: { value: arg.required({ description: "Exact reference value" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ value: args.value });
+        const result = await readApi<{ conversationId: string; reference: ConversationReference }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/by-reference?${query}`,
+        );
+        if (printStructured(ctx, result)) return;
+        ctx.print(`${result.reference.value}: ${result.conversationId}`);
+      },
+    }),
+    command("response schedule list", {
+      summary: "List named automatic-response schedules",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const schedules = await readApi<ResponseSchedule[]>(ctx, `/mailboxes/${mailbox.id}/response-schedules`);
+        printTable(
+          ctx,
+          schedules,
+          schedules.map((schedule) => ({
+            name: schedule.name,
+            timezone: schedule.definition.timeZone,
+            enabled: schedule.enabled ? "yes" : "no",
+            revision: schedule.revision,
+            id: schedule.id,
+          })),
+          [
+            { key: "name", label: "NAME" },
+            { key: "timezone", label: "TIMEZONE" },
+            { key: "enabled", label: "ENABLED" },
+            { key: "revision", label: "REV" },
+            { key: "id", label: "SCHEDULE ID" },
+          ],
+        );
+      },
+    }),
+    command("response schedule create", {
+      summary: "Create a named automatic-response schedule",
+      args: { name: arg.required({ description: "User-visible schedule name" }) },
+      flags: { ...mailboxFlag, definition: responseScheduleDefinitionInput, disabled: flag.boolean({ description: "Create disabled" }) },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const schedule = await readApi<ResponseSchedule>(
+          ctx,
+          `/mailboxes/${mailbox.id}/response-schedules`,
+          jsonRequest("POST", {
+            name: args.name,
+            definition: await readResponseScheduleDefinition(flags.definition),
+            enabled: !flags.disabled,
+          }),
+        );
+        if (printStructured(ctx, schedule)) return;
+        ctx.print(`Created response schedule ${schedule.name} (${schedule.id}).`);
+      },
+    }),
+    command("response schedule update", {
+      summary: "Update a response schedule at an expected revision",
+      args: { scheduleId: arg.required({ description: "Response schedule id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
+        name: flag.string({ description: "Replacement user-visible name" }),
+        definition: optionalResponseScheduleDefinitionInput,
+        enable: flag.boolean({ description: "Enable this schedule" }),
+        disable: flag.boolean({ description: "Disable this schedule" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.revision === undefined) throw new Error("Missing expected response schedule revision.");
+        if (flags.enable && flags.disable) throw new Error("Use either --enable or --disable.");
+        const definition = await readOptionalResponseScheduleDefinition(flags.definition);
+        const input = {
+          expectedRevision: flags.revision,
+          ...(flags.name !== undefined ? { name: flags.name } : {}),
+          ...(definition !== undefined ? { definition } : {}),
+          ...(flags.enable || flags.disable ? { enabled: flags.enable } : {}),
+        };
+        if (Object.keys(input).length === 1) throw new Error("Pass at least one response schedule change.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const schedule = await readApi<ResponseSchedule>(
+          ctx,
+          `/mailboxes/${mailbox.id}/response-schedules/${args.scheduleId}`,
+          jsonRequest("PATCH", input),
+        );
+        if (printStructured(ctx, schedule)) return;
+        ctx.print(`Updated response schedule ${schedule.name} to revision ${schedule.revision}.`);
       },
     }),
     command("workflow validate", {

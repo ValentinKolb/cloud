@@ -1,14 +1,21 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import type { ResponseScheduleDefinitionInput } from "../contracts";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
+import { cancelPendingAutomaticRepliesInTransaction, prepareAutomaticReplyInTransaction } from "./automatic-reply";
 import type { MailRequestContext } from "./auth";
+import { createActorCommand } from "./commands";
 import type { ConnectorEnvelope } from "./connectors";
+import { mergeConversations } from "./conversations";
+import { acquireDraftLease } from "./draft-leases";
+import { createDraftAttachmentUpload } from "./draft-uploads";
+import { getDraft } from "./drafts";
 import { createMailbox } from "./mailboxes";
 import { claimFence, commitSyncBatch } from "./sync-runtime";
 import { processMailWorkflowTarget, workflowRuntime } from "./workflow-runtime";
 import { processMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
-import { activateWorkflow, createWorkflow, createWorkflowVersion, deactivateWorkflow } from "./workflows";
+import { activateWorkflow, cancelWorkflowRun, createWorkflow, createWorkflowVersion, deactivateWorkflow } from "./workflows";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -64,6 +71,7 @@ steps:
 const effectBudget = {
   maxTargets: 10,
   maxMoves: 0,
+  maxSends: 0,
   maxKeywordChanges: 0,
   maxCollaborationChanges: 0,
 };
@@ -94,6 +102,7 @@ suite("mail workflow trigger event runtime", () => {
   let folderId = "";
   let workflowId = "";
   let workflowVersionId = "";
+  let senderIdentityId = "";
   let ownerContext: MailRequestContext;
   let actorContext: MailRequestContext;
 
@@ -117,6 +126,15 @@ suite("mail workflow trigger event runtime", () => {
     messageId: `<trigger-${suffix}-${uid}@example.com>`,
     inReplyTo: null,
     references: [],
+    protocolFacts: {
+      returnPath: "<customer@example.com>",
+      autoSubmitted: "no",
+      precedence: null,
+      listId: null,
+      autoResponseSuppress: null,
+      contentType: "text/plain",
+      deliveryStatus: false,
+    },
     subject,
     sentAt: null,
     internalDate: new Date(`2026-07-15T10:${String(uid).padStart(2, "0")}:00.000Z`),
@@ -125,7 +143,7 @@ suite("mail workflow trigger event runtime", () => {
     labels: [],
     addresses: {
       from: [{ name: "Customer", address: "customer@example.com" }],
-      replyTo: [],
+      replyTo: [{ name: "Untrusted Reply-To", address: "attacker@example.com" }],
       to: [{ name: "Support", address: "support@example.com" }],
       cc: [],
       bcc: [],
@@ -224,6 +242,23 @@ suite("mail workflow trigger event runtime", () => {
     if (!binding || !folder) throw new Error("Failed to create workflow trigger binding fixture");
     bindingId = binding.id;
     folderId = folder.id;
+    const [senderIdentity] = await sql<{ id: string }[]>`
+      INSERT INTO mail.sender_identities (
+        mailbox_id, display_name, from_address, automation_policy, is_default, status
+      ) VALUES (
+        ${mailboxId}::uuid, 'Support', 'support@example.com', 'mailbox', true, 'verified'
+      )
+      RETURNING id
+    `;
+    if (!senderIdentity) throw new Error("Failed to create workflow trigger sender identity fixture");
+    senderIdentityId = senderIdentity.id;
+    await sql`
+      INSERT INTO mail.sender_identity_bindings (
+        sender_identity_id, binding_id, provider_principal, verified_at, verified_secret_revision, saves_sent_automatically
+      ) VALUES (
+        ${senderIdentityId}::uuid, ${bindingId}::uuid, 'support@example.com', now(), 1, true
+      )
+    `;
     await sql`
       INSERT INTO mail.binding_folder_refs (
         binding_id, folder_id, remote_path, uid_validity, uid_next, effective_rights, last_verified_at
@@ -541,7 +576,10 @@ suite("mail workflow trigger event runtime", () => {
         targetId: deactivationPinnedTarget!.id,
         workerId: "trigger-worker-execute-after-deactivation",
       }),
-    ).toMatchObject({ state: "succeeded" });
+    ).toMatchObject({
+      state: "canceled",
+      result: { state: "canceled", message: "Workflow execution authority is no longer active" },
+    });
 
     const deactivated = await commitEnvelope(envelope(7, "Deactivated workflow message"), "incremental");
     expect(deactivated.workflowTriggerEventIds).toEqual([]);
@@ -550,4 +588,351 @@ suite("mail workflow trigger event runtime", () => {
     `;
     expect(finalRunCount?.count).toBe(5);
   }, 30_000);
+
+  test("prepares automatic replies idempotently and suppresses loops", async () => {
+    const [target] = await sql<
+      {
+        id: string;
+        workflow_version_id: string;
+        frozen_source:
+          | {
+              message: { id: string; protocolFacts: NonNullable<ConnectorEnvelope["protocolFacts"]> };
+              conversation: { id: string };
+            }
+          | string;
+      }[]
+    >`
+      SELECT target.id, run.workflow_version_id, target.frozen_source
+      FROM mail.workflow_run_targets target
+      JOIN mail.workflow_runs run ON run.id = target.parent_run_id
+      WHERE run.mailbox_id = ${mailboxId}::uuid
+      ORDER BY target.created_at, target.id
+      LIMIT 1
+    `;
+    if (!target) throw new Error("Automatic reply workflow target fixture is unavailable");
+    const source = parseJson(target.frozen_source);
+    const base = {
+      mailboxId,
+      workflowVersionId: target.workflow_version_id,
+      workflowTargetId: target.id,
+      messageId: source.message.id,
+      conversationId: source.conversation.id,
+      senderIdentityId,
+      subject: "Re: Automatic reply fixture",
+      body: "We received your message.",
+      format: "plain" as const,
+      protocolFacts: { ...source.message.protocolFacts, returnPath: "<race@example.com>" },
+      occurredAt: new Date().toISOString(),
+      minimumIntervalHours: 24,
+      schedule: null,
+    };
+    const first = await sql.begin((tx) => prepareAutomaticReplyInTransaction({ ...base, db: tx, stepKey: "automatic-reply:first" }));
+    expect(first.ok && first.data.state).toBe("queued");
+    const replay = await sql.begin((tx) => prepareAutomaticReplyInTransaction({ ...base, db: tx, stepKey: "automatic-reply:first" }));
+    expect(replay).toEqual(first);
+    const duplicate = await sql.begin((tx) =>
+      prepareAutomaticReplyInTransaction({ ...base, db: tx, stepKey: "automatic-reply:duplicate" }),
+    );
+    if (!duplicate.ok) throw new Error(duplicate.error.message);
+    expect(duplicate.data).toMatchObject({
+      state: "suppressed",
+      reasons: ["already_replied", "recipient_rate_limited"],
+    });
+    const loop = await sql.begin((tx) =>
+      prepareAutomaticReplyInTransaction({
+        ...base,
+        db: tx,
+        stepKey: "automatic-reply:loop",
+        protocolFacts: { ...base.protocolFacts, returnPath: "<>" },
+        minimumIntervalHours: 0,
+      }),
+    );
+    if (!loop.ok) throw new Error(loop.error.message);
+    expect(loop.data).toMatchObject({
+      state: "suppressed",
+      reasons: ["missing_sender", "null_return_path", "already_replied"],
+    });
+    const draftId = first.ok && first.data.state === "queued" ? first.data.draftId : null;
+    const [draft] = await sql<{ origin: string; author_kind: string; state: string }[]>`
+      SELECT origin, author_kind, state FROM mail.drafts WHERE id = ${draftId}::uuid
+    `;
+    expect(draft).toEqual({ origin: "workflow", author_kind: "workflow", state: "draft" });
+    expect((await getDraft(ownerContext, mailboxId, draftId!)).ok).toBe(false);
+    expect((await acquireDraftLease({ context: ownerContext, mailboxId, draftId: draftId! })).ok).toBe(false);
+    expect(
+      (
+        await createDraftAttachmentUpload({
+          context: ownerContext,
+          mailboxId,
+          draftId: draftId!,
+          input: { filename: "not-allowed.txt", contentType: "text/plain", byteLength: 0 },
+        })
+      ).ok,
+    ).toBe(false);
+    expect(
+      (
+        await createActorCommand({
+          context: ownerContext,
+          mailboxId,
+          enqueue: false,
+          input: {
+            kind: "send",
+            draftId: draftId!,
+            expectedDraftRevision: first.ok && first.data.state === "queued" ? first.data.draftRevision : 1,
+            senderIdentityId,
+            undoSeconds: 0,
+            idempotencyKey: `workflow-draft-user-send-${suffix}`,
+          },
+        })
+      ).ok,
+    ).toBe(false);
+    const cleanup = await sql.begin((tx) =>
+      cancelPendingAutomaticRepliesInTransaction({
+        db: tx,
+        mailboxId,
+        code: "TEST_CLEANUP",
+        message: "Clean up an unlinked automatic reply fixture",
+      }),
+    );
+    expect(cleanup.cancelled).toBeGreaterThanOrEqual(1);
+    const [cleaned] = await sql<{ effect_state: string; draft_state: string }[]>`
+      SELECT effect.state AS effect_state, draft.state AS draft_state
+      FROM mail.automatic_reply_effects effect
+      JOIN mail.drafts draft ON draft.id = effect.draft_id
+      WHERE effect.id = ${first.ok ? first.data.effectId : null}::uuid
+    `;
+    expect(cleaned).toEqual({ effect_state: "cancelled", draft_state: "discarded" });
+  });
+
+  test("serializes concurrent reply guards and rejects stale schedule snapshots", async () => {
+    const targets = await sql<
+      {
+        id: string;
+        workflow_version_id: string;
+        frozen_source:
+          | {
+              message: { id: string; protocolFacts: NonNullable<ConnectorEnvelope["protocolFacts"]> };
+              conversation: { id: string };
+            }
+          | string;
+      }[]
+    >`
+      SELECT target.id, run.workflow_version_id, target.frozen_source
+      FROM mail.workflow_run_targets target
+      JOIN mail.workflow_runs run ON run.id = target.parent_run_id
+      WHERE run.mailbox_id = ${mailboxId}::uuid
+      ORDER BY target.created_at, target.id
+      OFFSET 1
+      LIMIT 2
+    `;
+    if (targets.length !== 2) throw new Error("Automatic reply concurrency fixtures are unavailable");
+    const source = parseJson(targets[0]!.frozen_source);
+    const base = {
+      mailboxId,
+      workflowVersionId: targets[0]!.workflow_version_id,
+      workflowTargetId: targets[0]!.id,
+      messageId: source.message.id,
+      conversationId: source.conversation.id,
+      senderIdentityId,
+      subject: "Re: Concurrent automatic reply",
+      body: "We received your message.",
+      format: "plain" as const,
+      protocolFacts: source.message.protocolFacts,
+      occurredAt: new Date().toISOString(),
+      minimumIntervalHours: 24,
+      schedule: null,
+    };
+    const concurrent = await Promise.all([
+      sql.begin((tx) => prepareAutomaticReplyInTransaction({ ...base, db: tx, stepKey: "automatic-reply:race-a" })),
+      sql.begin((tx) => prepareAutomaticReplyInTransaction({ ...base, db: tx, stepKey: "automatic-reply:race-b" })),
+    ]);
+    expect(concurrent.every((result) => result.ok)).toBe(true);
+    const states = concurrent.flatMap((result) => (result.ok ? [result.data.state] : [])).sort();
+    expect(states).toEqual(["queued", "suppressed"]);
+    const suppressed = concurrent.find((result) => result.ok && result.data.state === "suppressed");
+    expect(suppressed?.ok && suppressed.data.state === "suppressed" ? suppressed.data.reasons : []).toEqual([
+      "already_replied",
+      "recipient_rate_limited",
+    ]);
+
+    const [schedule] = await sql<{ id: string; definition: ResponseScheduleDefinitionInput }[]>`
+      INSERT INTO mail.response_schedules (
+        mailbox_id, name, normalized_name, definition, revision, created_by_actor_kind, created_by_actor_id
+      ) VALUES (
+        ${mailboxId}::uuid,
+        'Stale schedule',
+        'stale schedule',
+        ${{
+          timeZone: "Europe/Berlin",
+          activeRanges: [{ from: "2026-01-01", to: null }],
+          weeklyWindows: [{ weekday: 1, start: "09:00", end: "17:00" }],
+          exceptions: [],
+        }}::jsonb,
+        2,
+        'user',
+        ${ownerContext.actor.kind === "user" ? ownerContext.actor.user.id : null}::uuid
+      )
+      RETURNING id, definition
+    `;
+    if (!schedule) throw new Error("Automatic reply response schedule fixture is unavailable");
+    const staleSource = parseJson(targets[1]!.frozen_source);
+    const stale = await sql.begin((tx) =>
+      prepareAutomaticReplyInTransaction({
+        ...base,
+        db: tx,
+        workflowVersionId: targets[1]!.workflow_version_id,
+        workflowTargetId: targets[1]!.id,
+        stepKey: "automatic-reply:stale-schedule",
+        messageId: staleSource.message.id,
+        conversationId: staleSource.conversation.id,
+        protocolFacts: { ...staleSource.message.protocolFacts, returnPath: "<schedule@example.com>" },
+        schedule: { id: schedule.id, name: "Stale schedule", revision: 1, definition: schedule.definition },
+      }),
+    );
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.error.code).toBe("CONFLICT");
+  });
+
+  test("materializes an automatic reply through the durable outbox", async () => {
+    const source = `inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+triggers:
+  messageReceived:
+    with:
+      message: "\${{ trigger.message }}"
+      conversation: "\${{ trigger.conversation }}"
+steps:
+  - automaticReply:
+      message: inputs.message
+      conversation: inputs.conversation
+      sender: Support <support@example.com>
+      subject: "Re: \${{ inputs.message.subject }}"
+      body: We received your message.
+      minimumIntervalHours: 0
+`;
+    const workflow = unwrap(
+      await createWorkflow({
+        context: ownerContext,
+        mailboxId,
+        input: {
+          name: `Automatic reply ${suffix}`,
+          description: "Automatic reply outbox integration fixture",
+          priority: 50,
+          source,
+          effectBudget: { ...effectBudget, maxSends: 1 },
+        },
+      }),
+    );
+    unwrap(
+      await activateWorkflow({
+        context: ownerContext,
+        mailboxId,
+        workflowId: workflow.id,
+        input: { expectedVersionId: workflow.currentVersionId },
+      }),
+    );
+    const committed = await commitEnvelope(envelope(8, "Automatic reply request"), "incremental");
+    expect(committed.workflowTriggerEventIds).toHaveLength(1);
+    await processMailWorkflowTriggerEvent(committed.workflowTriggerEventIds[0]!, "automatic-reply-trigger-worker");
+    const [target] = await sql<{ id: string; parent_run_id: string }[]>`
+      SELECT target.id, target.parent_run_id
+      FROM mail.workflow_run_targets target
+      JOIN mail.workflow_runs run ON run.id = target.parent_run_id
+      WHERE run.workflow_version_id = ${workflow.currentVersionId}::uuid
+      ORDER BY target.created_at DESC, target.id DESC
+      LIMIT 1
+    `;
+    if (!target) throw new Error("Automatic reply runtime target was not materialized");
+    const execution = await processMailWorkflowTarget({ targetId: target.id, workerId: "automatic-reply-target-worker" });
+    expect(execution).toMatchObject({ state: "waiting", result: { state: "waiting" } });
+
+    const [effect] = await sql<
+      {
+        state: string;
+        command_id: string | null;
+        draft_id: string | null;
+        draft_state: string;
+        command_state: string;
+        outbox_state: string;
+        draft_snapshot: Record<string, unknown> | string;
+      }[]
+    >`
+      SELECT
+        effect.state,
+        effect.command_id,
+        effect.draft_id,
+        draft.state AS draft_state,
+        command.state AS command_state,
+        outbox.state AS outbox_state,
+        outbox.draft_snapshot
+      FROM mail.automatic_reply_effects effect
+      JOIN mail.drafts draft ON draft.id = effect.draft_id
+      JOIN mail.commands command ON command.id = effect.command_id
+      JOIN mail.outbox_submissions outbox ON outbox.command_id = command.id
+      WHERE effect.workflow_version_id = ${workflow.currentVersionId}::uuid
+    `;
+    expect(effect).toMatchObject({
+      state: "queued",
+      draft_state: "scheduled",
+      command_state: "queued",
+      outbox_state: "scheduled",
+    });
+    expect(parseJson(effect!.draft_snapshot)).toMatchObject({
+      useNullEnvelopeSender: true,
+      automaticReply: true,
+      bcc: [],
+      to: [{ name: null, address: "customer@example.com" }],
+      subject: "Re: Automatic reply request",
+    });
+    if (!effect?.command_id) throw new Error("Automatic reply command was not linked");
+    const [sourceConversation] = await sql<{ id: string; revision: string | number }[]>`
+      SELECT conversation.id, conversation.revision
+      FROM mail.automatic_reply_effects effect
+      JOIN mail.conversations conversation ON conversation.id = effect.conversation_id
+      WHERE effect.command_id = ${effect!.command_id}::uuid
+    `;
+    const [mergeTarget] = await sql<{ id: string; revision: string | number }[]>`
+      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${mailboxId}::uuid, 'Automatic reply merge target', 'Customer', now())
+      RETURNING id, revision
+    `;
+    if (!sourceConversation || !mergeTarget) throw new Error("Automatic reply merge fixture is unavailable");
+    const merged = await mergeConversations({
+      context: ownerContext,
+      mailboxId,
+      targetConversationId: mergeTarget.id,
+      input: {
+        sourceConversationId: sourceConversation.id,
+        expectedTargetRevision: Number(mergeTarget.revision),
+        expectedSourceRevision: Number(sourceConversation.revision),
+        confirm: true,
+      },
+    });
+    expect(merged.ok).toBe(true);
+    const [mergedEffect] = await sql<{ conversation_id: string }[]>`
+      SELECT conversation_id FROM mail.automatic_reply_effects WHERE command_id = ${effect!.command_id}::uuid
+    `;
+    expect(mergedEffect?.conversation_id).toBe(mergeTarget.id);
+    const cancelledRun = await cancelWorkflowRun({
+      context: ownerContext,
+      mailboxId,
+      runId: target.parent_run_id,
+      reason: "Cancel automatic reply fixture",
+    });
+    if (!cancelledRun.ok) throw new Error(`${cancelledRun.error.code}: ${cancelledRun.error.message}`);
+    const [cancelled] = await sql<{ state: string; draft_state: string; command_state: string; outbox_state: string }[]>`
+      SELECT effect.state, draft.state AS draft_state, command.state AS command_state, outbox.state AS outbox_state
+      FROM mail.automatic_reply_effects effect
+      JOIN mail.drafts draft ON draft.id = effect.draft_id
+      JOIN mail.commands command ON command.id = effect.command_id
+      JOIN mail.outbox_submissions outbox ON outbox.command_id = command.id
+      WHERE effect.command_id = ${effect.command_id}::uuid
+    `;
+    expect(cancelled).toEqual({ state: "cancelled", draft_state: "discarded", command_state: "cancelled", outbox_state: "cancelled" });
+  });
 });

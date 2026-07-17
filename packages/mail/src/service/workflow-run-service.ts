@@ -4,6 +4,7 @@ import { sql } from "bun";
 import type { MailWorkflowRun, MailWorkflowRunTarget } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
+import { cancelPendingAutomaticRepliesInTransaction } from "./automatic-reply";
 import {
   type DbWorkflowRun,
   type DbWorkflowRunTarget,
@@ -107,7 +108,18 @@ export const cancelWorkflowRun = async (params: {
         FOR UPDATE
       `;
       if (!existing) return fail(err.notFound("Workflow run"));
-      if (["succeeded", "failed", "canceled", "needs_attention"].includes(existing.state)) return ok(mapWorkflowRun(existing));
+      if (["succeeded", "failed", "canceled", "needs_attention"].includes(existing.state)) {
+        if (existing.state === "canceled") {
+          await cancelPendingAutomaticRepliesInTransaction({
+            db: tx,
+            mailboxId: params.mailboxId,
+            workflowRunId: params.runId,
+            code: "WORKFLOW_CANCELED",
+            message: params.reason ?? "Canceled by actor",
+          });
+        }
+        return ok(mapWorkflowRun(existing));
+      }
       if (existing.state === "materializing") {
         await tx`DELETE FROM mail.workflow_run_targets WHERE parent_run_id = ${params.runId}::uuid`;
         const [canceled] = await tx<DbWorkflowRun[]>`
@@ -190,6 +202,13 @@ export const cancelWorkflowRun = async (params: {
         RETURNING ${workflowRunColumns}
       `;
       if (!run) throw new Error("Canceled workflow run could not be reloaded");
+      await cancelPendingAutomaticRepliesInTransaction({
+        db: tx,
+        mailboxId: params.mailboxId,
+        workflowRunId: params.runId,
+        code: "WORKFLOW_CANCELED",
+        message: params.reason ?? "Canceled by actor",
+      });
       await recordCancellation(params, tx);
       return ok(mapWorkflowRun(run));
     });

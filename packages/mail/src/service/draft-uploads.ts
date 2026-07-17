@@ -98,7 +98,7 @@ export const createDraftAttachmentUpload = async (params: {
       if (!allowed.ok) return allowed;
       const [draft] = await tx<{ id: string; state: string }[]>`
         SELECT id, state FROM mail.drafts
-        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
         FOR SHARE
       `;
       if (!draft) return fail(err.notFound("Draft"));
@@ -146,6 +146,7 @@ export const listDraftAttachmentUploads = async (params: {
     JOIN mail.drafts draft ON draft.id = upload.draft_id
     WHERE upload.draft_id = ${params.draftId}::uuid
       AND draft.mailbox_id = ${params.mailboxId}::uuid
+      AND draft.origin = 'user'
       AND upload.state IN ('uploading', 'uploaded', 'attached')
     ORDER BY upload.created_at, upload.id
   `;
@@ -167,6 +168,7 @@ export const getDraftAttachmentUpload = async (params: {
     WHERE upload.id = ${params.uploadId}::uuid
       AND upload.draft_id = ${params.draftId}::uuid
       AND draft.mailbox_id = ${params.mailboxId}::uuid
+      AND draft.origin = 'user'
   `;
   return upload ? ok(mapUpload(upload)) : fail(err.notFound("Draft attachment upload"));
 };
@@ -194,6 +196,7 @@ export const appendDraftAttachmentUpload = async (params: {
         WHERE upload.id = ${params.uploadId}::uuid
           AND upload.draft_id = ${params.draftId}::uuid
           AND draft.mailbox_id = ${params.mailboxId}::uuid
+          AND draft.origin = 'user'
         FOR UPDATE OF upload, draft
       `;
       if (!upload) return fail(err.notFound("Draft attachment upload"));
@@ -270,7 +273,9 @@ export const finalizeDraftAttachmentUpload = async (params: {
     SELECT ${uploadColumns}, draft.mailbox_id
     FROM mail.draft_attachment_uploads upload
     JOIN mail.drafts draft ON draft.id = upload.draft_id
-    WHERE upload.id = ${params.uploadId}::uuid AND upload.draft_id = ${params.draftId}::uuid
+    WHERE upload.id = ${params.uploadId}::uuid
+      AND upload.draft_id = ${params.draftId}::uuid
+      AND draft.origin = 'user'
   `;
   if (!candidate || candidate.mailbox_id !== params.mailboxId) return fail(err.notFound("Draft attachment upload"));
   if (candidate.state === "attached") return getDraft(params.context, params.mailboxId, params.draftId);
@@ -292,6 +297,7 @@ export const finalizeDraftAttachmentUpload = async (params: {
         WHERE upload.id = ${params.uploadId}::uuid
           AND upload.draft_id = ${params.draftId}::uuid
           AND draft.mailbox_id = ${params.mailboxId}::uuid
+          AND draft.origin = 'user'
         FOR UPDATE OF upload, draft
       `;
       if (!upload) return fail(err.notFound("Draft attachment upload"));
@@ -352,7 +358,7 @@ export const finalizeDraftAttachmentUpload = async (params: {
           revision = revision + 1,
           last_editor_kind = ${actor.kind},
           last_editor_id = ${actor.id}::uuid
-        WHERE id = ${params.draftId}::uuid
+        WHERE id = ${params.draftId}::uuid AND origin = 'user'
         RETURNING revision
       `;
       if (!updated) return fail(err.internal("Draft attachment update returned no row"));
@@ -409,6 +415,7 @@ export const cancelDraftAttachmentUpload = async (params: {
         WHERE upload.id = ${params.uploadId}::uuid
           AND upload.draft_id = ${params.draftId}::uuid
           AND draft.mailbox_id = ${params.mailboxId}::uuid
+          AND draft.origin = 'user'
         FOR UPDATE OF upload
       `;
       if (!upload) return fail(err.notFound("Draft attachment upload"));

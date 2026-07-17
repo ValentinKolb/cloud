@@ -131,6 +131,7 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
 
 export type ConversationSummary = {
   id: string;
+  primaryReference: string | null;
   subject: string;
   participantSummary: string;
   latestMessageAt: string;
@@ -149,6 +150,7 @@ export type ConversationSummary = {
 
 type DbConversation = {
   id: string;
+  primary_reference: string | null;
   subject: string;
   participant_summary: string;
   latest_message_at: Date | string;
@@ -192,6 +194,7 @@ export const listConversations = async (params: {
   const rows = await sql<DbConversation[]>`
     SELECT
       c.id,
+      primary_reference.value AS primary_reference,
       c.subject,
       c.participant_summary,
       c.latest_message_at,
@@ -222,6 +225,13 @@ export const listConversations = async (params: {
       latest.preview,
       latest.folder_id
     FROM mail.conversations c
+    LEFT JOIN LATERAL (
+      SELECT reference.value
+      FROM mail.conversation_references reference
+      WHERE reference.conversation_id = c.id AND reference.role = 'primary'
+      ORDER BY reference.allocated_at, reference.id
+      LIMIT 1
+    ) primary_reference ON true
     LEFT JOIN LATERAL (
       SELECT
         LEFT(COALESCE(mc.plain_text, ''), 320) AS preview,
@@ -325,6 +335,7 @@ export const listConversations = async (params: {
   const pageRows = hasMore ? rows.slice(0, limit) : rows;
   const items = pageRows.map((row) => ({
     id: row.id,
+    primaryReference: row.primary_reference,
     subject: row.subject,
     participantSummary: row.participant_summary,
     latestMessageAt: toIso(row.latest_message_at),

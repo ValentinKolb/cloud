@@ -25,6 +25,7 @@ const SAVED_VIEW_ID = "00000000-0000-4000-8000-000000000018";
 const UPLOAD_ID = "00000000-0000-4000-8000-000000000019";
 const BINDING_ID = "00000000-0000-4000-8000-000000000020";
 const TAG_ID = "00000000-0000-4000-8000-000000000021";
+const REFERENCE_SCHEME_ID = "00000000-0000-4000-8000-000000000022";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -178,6 +179,53 @@ test("local tag CLI creates catalog entries and fences conversation assignments"
       body: { expectedRevision: 7, tagIds: [TAG_ID] },
     },
   ]);
+});
+
+test("reference scheme update can explicitly clear the mailbox default", async () => {
+  let requestBody: unknown;
+  const scheme = {
+    id: REFERENCE_SCHEME_ID,
+    mailboxId: MAILBOX_ID,
+    name: "Support tickets",
+    pattern: "SUP-{year}-{sequence}",
+    nextSequence: 42,
+    enabled: true,
+    isDefault: false,
+    revision: 4,
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:01.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (
+      request.method === "PATCH" &&
+      url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/reference-schemes/${REFERENCE_SCHEME_ID}`
+    ) {
+      requestBody = await request.json();
+      return api(scheme);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "reference",
+    "scheme",
+    "update",
+    REFERENCE_SCHEME_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "3",
+    "--no-default",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(requestBody).toEqual({ expectedRevision: 3, makeDefault: false });
+  expect(JSON.parse(result.stdout)).toEqual(scheme);
 });
 
 test("deleted mailbox CLI lists and restores retained mailboxes", async () => {

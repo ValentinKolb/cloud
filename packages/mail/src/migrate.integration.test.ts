@@ -8,13 +8,21 @@ const suite = enabled ? describe : describe.skip;
 suite("mail migrations", () => {
   test("adds mailbox-consistent local tags and a safe reference-search bridge", async () => {
     await migrate();
-    const [shape] = await sql<{ tags_present: boolean; assignments_present: boolean; reference_without_table: boolean }[]>`
+    const [shape] = await sql<
+      { tags_present: boolean; assignments_present: boolean; reference_request_ledger_present: boolean; reference_without_table: boolean }[]
+    >`
       SELECT
         to_regclass('mail.local_tags') IS NOT NULL AS tags_present,
         to_regclass('mail.conversation_local_tags') IS NOT NULL AS assignments_present,
+        to_regclass('mail.conversation_reference_requests') IS NOT NULL AS reference_request_ledger_present,
         mail.search_reference_matches(gen_random_uuid(), 'SUP-42', 'exact') = false AS reference_without_table
     `;
-    expect(shape).toEqual({ tags_present: true, assignments_present: true, reference_without_table: true });
+    expect(shape).toEqual({
+      tags_present: true,
+      assignments_present: true,
+      reference_request_ledger_present: true,
+      reference_without_table: true,
+    });
   });
 
   test("enforces mailbox-owned current provider connections and bindings", async () => {
@@ -143,7 +151,9 @@ suite("mail migrations", () => {
     `;
     if (!before) throw new Error("Mail schema OIDs were not returned");
 
-    await sql`DELETE FROM mail.schema_migrations WHERE version BETWEEN 26 AND 31`;
+    // Later Mail tables reference the canonical workflow schema. Replaying the
+    // hard-cut marker must therefore verify and preserve that schema in place.
+    await sql`DELETE FROM mail.schema_migrations WHERE version = 26`;
 
     await migrate();
 

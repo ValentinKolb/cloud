@@ -236,6 +236,7 @@ export default function MailWorkspace(props: {
             identities={data().identities}
             selectionKey={data().selectedConversationId ?? data().selectedMessageId}
             selectedConversationId={data().selectedConversationId}
+            reference={data().selectedReference}
             subject={data().selectedSubject}
             messages={data().detailMessages}
             dateConfig={props.dateConfig}

@@ -1,5 +1,5 @@
 import type { WorkflowJsonValue, WorkflowPlanningOutcome, WorkflowStepOutcome } from "@valentinkolb/cloud/workflows";
-import { createWorkflowBuiltinActionPorts, workflowPathKey } from "@valentinkolb/cloud/workflows";
+import { createWorkflowBuiltinActionPorts, renderWorkflowTextTemplate, workflowPathKey } from "@valentinkolb/cloud/workflows";
 import type {
   WorkflowActionStep,
   WorkflowDryRunActionContext,
@@ -9,9 +9,17 @@ import type {
 } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
 import type { ActorCommandInput, MailCommand, RemoteMessagePrecondition, UpdateConversationCollaboration } from "../contracts";
+import { responseScheduleDefinitionSchema } from "../contracts";
+import { parseConnectorProtocolFacts } from "./auto-reply-policy";
+import {
+  type AutomaticReplyScheduleSnapshot,
+  linkAutomaticReplyCommandInTransaction,
+  prepareAutomaticReplyInTransaction,
+} from "./automatic-reply";
 import { sha256Text } from "./canonical";
 import { updateConversationCollaborationInTransaction, updateWorkflowConversationCollaborationInTransaction } from "./collaboration";
 import { createWorkflowCommand } from "./commands";
+import { ensureConversationReferenceInTransaction } from "./conversation-reference";
 import { publishMailCollaborationEvent } from "./events";
 import {
   applyMailConversationTransition,
@@ -25,7 +33,7 @@ import { type MailWorkflowExecutionAuthority, mailWorkflowExecutionAuthorityActi
 type JsonObject = Record<string, WorkflowJsonValue>;
 type SqlClient = typeof sql;
 
-export type MailWorkflowRuntimeActionOptions = {
+type MailWorkflowRuntimeActionOptions = {
   authority: MailWorkflowExecutionAuthority;
   mailboxId: string;
   workflowVersionId: string;
@@ -68,9 +76,21 @@ const referenceOrValue = async (
 
 const executionError = (error: unknown, fallbackCode = "MAIL_WORKFLOW_ACTION_FAILED") => ({
   code: typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : fallbackCode,
-  message: error instanceof Error ? error.message : String(error),
+  message:
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
+        ? error.message
+        : String(error),
   retryable: false,
 });
+
+const renderWorkflowMessage = async (
+  context: WorkflowExecuteActionContext,
+  step: WorkflowActionStep,
+  field: "subject" | "body",
+): Promise<string> =>
+  renderWorkflowTextTemplate({ context, step, field, value: step.config[field], label: field });
 
 const lockCollaborationActionFence = async (db: SqlClient, context: WorkflowExecuteActionContext): Promise<void> => {
   const [target] = await db<{ id: string }[]>`
@@ -195,6 +215,21 @@ const remoteState = (preconditions: WorkflowJsonValue): RemoteMessagePreconditio
   return isJsonObject(value) ? (value as RemoteMessagePrecondition) : undefined;
 };
 
+const automaticReplySchedule = (value: WorkflowJsonValue | undefined): AutomaticReplyScheduleSnapshot | null => {
+  if (value === undefined) return null;
+  const schedule = objectValue(value, "response schedule");
+  const definition = responseScheduleDefinitionSchema.safeParse(schedule.definition);
+  if (
+    typeof schedule.id !== "string" ||
+    typeof schedule.name !== "string" ||
+    typeof schedule.revision !== "number" ||
+    !definition.success
+  ) {
+    throw new Error("response schedule binding is invalid");
+  }
+  return { id: schedule.id, name: schedule.name, revision: schedule.revision, definition: definition.data };
+};
+
 const commandInput = async (
   context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
   step: WorkflowActionStep,
@@ -245,11 +280,19 @@ const plannedEffect = async (
   if (step.action === "addKeyword" || step.action === "removeKeyword" || step.action === "moveMessage") {
     return { state: "planned", effects: [{ kind: "mail.command", input: await commandInput(context, step, options) }] };
   }
+  if (step.action === "automaticReply") {
+    return {
+      state: "planned",
+      effects: [{ kind: "mail.automaticReply", subject: (await referenceOrValue(context, step.config.message)) ?? null }],
+    };
+  }
   const subject = await referenceOrValue(context, step.config.conversation);
   const value =
     step.action === "assignConversation"
       ? (actionBinding(context, step, "user") ?? (await referenceOrValue(context, step.config.user)) ?? null)
-      : await referenceOrValue(context, step.config.status);
+      : step.action === "setConversationStatus"
+        ? await referenceOrValue(context, step.config.status)
+        : (actionBinding(context, step, "scheme") ?? null);
   return { state: "planned", effects: [{ kind: `mail.${step.action}`, subject: subject ?? null, value: value ?? null }] };
 };
 
@@ -314,6 +357,176 @@ export const createMailWorkflowActionPorts = (
           ...outcome,
           output: { ...(isMailWorkflowProjectedObject(outcome.output) ? outcome.output : {}), action: step.action, applied: true },
         };
+      }
+
+      if (step.action === "ensureConversationReference") {
+        const conversation = objectValue(await referenceOrValue(context, step.config.conversation), "conversation");
+        const conversationId = textValue(conversation.id, "conversation.id");
+        const scheme = actionBinding(context, step, "scheme");
+        if (scheme !== undefined && typeof scheme !== "string") throw new Error("reference scheme binding must resolve to text");
+        const completed = await sql.begin(async (tx) => {
+          await lockCollaborationActionFence(tx, context);
+          if (!(await activeWorkflowAuthority(options, tx))) {
+            throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+          }
+          const ensured = await ensureConversationReferenceInTransaction({
+            db: tx,
+            mailboxId: options.mailboxId,
+            conversationId,
+            ...(scheme ? { schemeId: scheme } : {}),
+            idempotencyKey: `workflow:${options.targetId}:${sha256Text(context.step.key).slice(0, 40)}`,
+            actor: { kind: "workflow", id: options.workflowVersionId },
+          });
+          if (!ensured.ok) return { ensured, outcome: null };
+          const outcome: Extract<WorkflowStepOutcome, { state: "completed" }> = {
+            state: "completed",
+            output: {
+              action: step.action,
+              applied: ensured.data.result.created,
+              conversationId: ensured.data.result.reference.conversationId,
+              conversationRevision: ensured.data.result.conversationRevision,
+              referenceId: ensured.data.result.reference.id,
+              reference: ensured.data.result.reference.value,
+            },
+          };
+          await ledgerCompletedCollaborationAction(tx, context, outcome);
+          return { ensured, outcome };
+        });
+        if (!completed.ensured.ok) return { state: "failed", error: executionError(completed.ensured.error) };
+        if (!completed.outcome) throw new Error("Completed conversation reference outcome is unavailable");
+        conversation.revision = completed.ensured.data.result.conversationRevision;
+        conversationRevisions.set(conversationId, completed.ensured.data.result.conversationRevision);
+        if (completed.ensured.data.activityId) {
+          await publishMailCollaborationEvent({
+            mailboxId: options.mailboxId,
+            conversationId,
+            reason: "reference",
+            targetId: completed.ensured.data.result.reference.id,
+            activityId: completed.ensured.data.activityId,
+          });
+        }
+        return completed.outcome;
+      }
+
+      if (step.action === "automaticReply") {
+        if (
+          context.invocation.channel !== "event" ||
+          !isJsonObject(options.preconditions) ||
+          options.preconditions.triggerKind !== "messageReceived"
+        ) {
+          return {
+            state: "failed",
+            error: {
+              code: "MAIL_AUTOMATIC_REPLY_TRIGGER_REQUIRED",
+              message: "Automatic replies can only run from a messageReceived trigger",
+              retryable: false,
+            },
+          };
+        }
+        const message = objectValue(await referenceOrValue(context, step.config.message), "message");
+        const conversation = objectValue(await referenceOrValue(context, step.config.conversation), "conversation");
+        const messageId = textValue(message.id, "message.id");
+        const conversationId = textValue(conversation.id, "conversation.id");
+        if (message.conversationId !== conversationId) throw new Error("automatic reply message and conversation do not match");
+        const senderIdentityId = textValue(actionBinding(context, step, "sender"), "sender identity");
+        const protocolFacts = parseConnectorProtocolFacts(message.protocolFacts);
+        const subject = await renderWorkflowMessage(context, step, "subject");
+        const body = await renderWorkflowMessage(context, step, "body");
+        const format = step.config.format ?? "plain";
+        if (format !== "plain" && format !== "markdown") throw new Error("automatic reply format is invalid");
+        const minimumIntervalHours = step.config.minimumIntervalHours ?? 24;
+        if (typeof minimumIntervalHours !== "number") throw new Error("automatic reply minimum interval must be a number");
+        const schedule = automaticReplySchedule(actionBinding(context, step, "schedule"));
+        const prepared = await sql.begin(async (tx) => {
+          await lockCollaborationActionFence(tx, context);
+          if (!(await activeWorkflowAuthority(options, tx))) {
+            throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+          }
+          const result = await prepareAutomaticReplyInTransaction({
+            db: tx,
+            mailboxId: options.mailboxId,
+            workflowVersionId: options.workflowVersionId,
+            workflowTargetId: options.targetId,
+            stepKey: context.step.key,
+            messageId,
+            conversationId,
+            senderIdentityId,
+            subject,
+            body,
+            format,
+            protocolFacts,
+            occurredAt: context.invocation.occurredAt,
+            minimumIntervalHours,
+            schedule,
+          });
+          if (!result.ok || result.data.state !== "suppressed") return { result, outcome: null };
+          const outcome: Extract<WorkflowStepOutcome, { state: "completed" }> = {
+            state: "completed",
+            output: { action: step.action, applied: false, effectId: result.data.effectId, reasons: result.data.reasons },
+          };
+          await ledgerCompletedCollaborationAction(tx, context, outcome);
+          return { result, outcome };
+        });
+        if (!prepared.result.ok) return { state: "failed", error: executionError(prepared.result.error) };
+        if (prepared.result.data.state === "suppressed") {
+          if (!prepared.outcome) throw new Error("Suppressed automatic reply outcome is unavailable");
+          return prepared.outcome;
+        }
+        const queuedReply = prepared.result.data;
+        const command = await createWorkflowCommand({
+          context: options.authority.kind === "actor" ? options.authority.context : null,
+          mailboxId: options.mailboxId,
+          workflowVersionId: options.workflowVersionId,
+          input: {
+            kind: "send",
+            draftId: queuedReply.draftId,
+            expectedDraftRevision: queuedReply.draftRevision,
+            senderIdentityId,
+            scheduledAt: queuedReply.scheduledAt,
+            undoSeconds: 0,
+            idempotencyKey: `workflow:${options.targetId}:${sha256Text(context.step.key).slice(0, 40)}`,
+            correlationId: options.targetId,
+          },
+          beforeCreate: async (tx) => {
+            await lockCollaborationActionFence(tx, context);
+            if (!(await activeWorkflowAuthority(options, tx))) {
+              throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+            }
+          },
+          afterCreate: async (tx, created) => {
+            await linkAutomaticReplyCommandInTransaction({ db: tx, effectId: queuedReply.effectId, commandId: created.id });
+            const linked = await tx<{ step_key: string }[]>`
+              UPDATE mail.workflow_step_runs
+              SET command_id = ${created.id}::uuid
+              WHERE target_id = ${context.run.runId}::uuid
+                AND step_key = ${context.step.key}
+                AND execution_generation = ${context.run.executionGeneration}
+                AND state = 'running'
+              RETURNING step_key
+            `;
+            if (linked.length === 0) {
+              throw Object.assign(new Error("Workflow execution lease was lost before linking its automatic reply command"), {
+                code: "MAIL_WORKFLOW_LEASE_LOST",
+              });
+            }
+          },
+        });
+        if (!command.ok) {
+          await sql.begin(async (tx) => {
+            await tx`
+              UPDATE mail.automatic_reply_effects
+              SET state = 'failed'
+              WHERE id = ${queuedReply.effectId}::uuid AND state = 'queued' AND command_id IS NULL
+            `;
+            await tx`
+              UPDATE mail.drafts
+              SET state = 'discarded'
+              WHERE id = ${queuedReply.draftId}::uuid AND origin = 'workflow' AND state = 'draft'
+            `;
+          });
+          return { state: "failed", error: executionError(command.error) };
+        }
+        return commandOutcome(command.data);
       }
 
       const transition = await conversationTransition(context, step);
@@ -392,6 +605,16 @@ export const createMailWorkflowActionPorts = (
       applyMailMessageTransition(transition.message, transition.action, transition.value);
       return;
     }
+    if (step.action === "ensureConversationReference") {
+      const conversation = objectValue(await referenceOrValue(context, step.config.conversation), "conversation");
+      const conversationId = outcome.output.conversationId;
+      const revision = outcome.output.conversationRevision;
+      if (typeof conversationId === "string" && typeof revision === "number") {
+        conversation.revision = revision;
+        conversationRevisions.set(conversationId, revision);
+      }
+      return;
+    }
     const transition = await conversationTransition(context, step);
     applyMailConversationTransition(transition.conversation, transition.action, transition.value);
     const conversationId = outcome.output.conversationId;
@@ -405,13 +628,29 @@ export const createMailWorkflowActionPorts = (
   return {
     execute: {
       get: (action) =>
-        ["addKeyword", "removeKeyword", "moveMessage", "assignConversation", "setConversationStatus"].includes(action)
+        [
+          "addKeyword",
+          "removeKeyword",
+          "moveMessage",
+          "assignConversation",
+          "setConversationStatus",
+          "ensureConversationReference",
+          "automaticReply",
+        ].includes(action)
           ? { execute, restoreCompleted }
           : builtins.execute.get(action),
     },
     dryRun: {
       get: (action) =>
-        ["addKeyword", "removeKeyword", "moveMessage", "assignConversation", "setConversationStatus"].includes(action)
+        [
+          "addKeyword",
+          "removeKeyword",
+          "moveMessage",
+          "assignConversation",
+          "setConversationStatus",
+          "ensureConversationReference",
+          "automaticReply",
+        ].includes(action)
           ? { plan: (context, step) => plannedEffect(context, step, options) }
           : builtins.dryRun.get(action),
     },

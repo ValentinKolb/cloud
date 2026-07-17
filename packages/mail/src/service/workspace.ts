@@ -11,6 +11,7 @@ import {
 import type { MailRequestContext } from "./auth";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./collaboration";
 import * as collaboration from "./collaboration";
+import * as conversationReferences from "./conversation-reference";
 import * as drafts from "./drafts";
 import { latestMailCollaborationEventCursor } from "./events";
 import * as mailboxes from "./mailboxes";
@@ -30,6 +31,7 @@ const log = logger("mail:workspace");
 export type MailListItem = {
   id: string;
   conversationId: string | null;
+  primaryReference: string | null;
   subject: string;
   participantSummary: string;
   latestMessageAt: string;
@@ -124,6 +126,7 @@ export type MailboxPageData = {
   reminder: ConversationReminder | null;
   collaborationError: string | null;
   selectedSubject: string;
+  selectedReference: string | null;
 };
 
 type MailSelectionDetail = Pick<
@@ -136,6 +139,7 @@ type MailSelectionDetail = Pick<
   | "activity"
   | "reminder"
   | "collaborationError"
+  | "selectedReference"
 >;
 
 const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
@@ -147,11 +151,13 @@ const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
   activity: [],
   reminder: null,
   collaborationError: null,
+  selectedReference: null,
 };
 
 const conversationToListItem = (conversation: ConversationSummary): MailListItem => ({
   id: conversation.id,
   conversationId: conversation.id,
+  primaryReference: conversation.primaryReference,
   subject: conversation.subject,
   participantSummary: conversation.participantSummary,
   latestMessageAt: conversation.latestMessageAt,
@@ -167,7 +173,7 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
 });
 
 const loadConversationDetails = async (params: { context: MailRequestContext; mailboxId: string; conversationId: string }) => {
-  const [detailResult, stateResult, tagResult, commentsResult, usersResult, activityResult, reminderResult] = await Promise.all([
+  const [detailResult, stateResult, tagResult, commentsResult, usersResult, activityResult, reminderResult, referenceResult] = await Promise.all([
     messages.listConversationMessageDetails({ ...params, limit: 100 }),
     collaboration.getConversationCollaboration(params),
     localTags.getConversationLocalTags(params),
@@ -175,6 +181,7 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     collaboration.listAssignableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
     collaboration.listActivity({ ...params, limit: 30 }),
     reminders.getConversationReminder(params),
+    conversationReferences.listConversationReferences(params),
   ]);
 
   return {
@@ -186,6 +193,9 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     activity: activityResult.ok ? activityResult.data.items : [],
     reminder: reminderResult.ok ? reminderResult.data : null,
     collaborationError: !stateResult.ok ? stateResult.error.message : !commentsResult.ok ? commentsResult.error.message : null,
+    selectedReference: referenceResult.ok
+      ? (referenceResult.data.find((reference) => reference.role === "primary") ?? referenceResult.data[0])?.value ?? null
+      : null,
   };
 };
 
@@ -235,6 +245,7 @@ const loadListItems = async (params: {
       items: result.data.items.map((item) => ({
         id: item.id,
         conversationId: item.conversationId,
+        primaryReference: null,
         subject: item.subject,
         participantSummary: item.from.map((address) => address.name || address.address).join(", "),
         latestMessageAt: item.internalDate,

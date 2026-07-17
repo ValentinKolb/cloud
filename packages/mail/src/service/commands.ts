@@ -118,6 +118,7 @@ type DraftForOutbox = {
   subject: string;
   body_markdown: string;
   body_format: "plain" | "markdown";
+  origin: "user" | "workflow";
   revision: string | number;
   intent: "new" | "reply" | "reply_all" | "forward";
   display_name: string;
@@ -268,6 +269,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
 const validateCommandTargets = async (params: {
   mailboxId: string;
   prepared: PreparedActorCommand;
+  draftOrigin: "user" | "workflow";
   db: typeof sql;
 }): Promise<Result<void>> => {
   if (params.prepared.remoteMessageRefId && params.prepared.sourceFolderId) {
@@ -300,6 +302,7 @@ const validateCommandTargets = async (params: {
       JOIN mail.sender_identities si ON si.id = d.sender_identity_id
       WHERE d.id = ${params.prepared.draftId}::uuid
         AND d.mailbox_id = ${params.mailboxId}::uuid
+        AND d.origin = ${params.draftOrigin}
         AND d.sender_identity_id = ${params.prepared.senderIdentityId}::uuid
         AND d.state = 'draft'
         AND si.status = 'verified'
@@ -355,6 +358,7 @@ const createSendOutbox = async (params: {
       d.subject,
       d.body_markdown,
       d.body_format,
+      d.origin,
       d.revision,
       d.intent,
       si.display_name,
@@ -433,6 +437,8 @@ const createSendOutbox = async (params: {
         from: { name: draft.display_name, address: draft.from_address },
         replyTo: draft.reply_to,
         envelopeFrom: draft.envelope_sender,
+        useNullEnvelopeSender: draft.origin === "workflow",
+        automaticReply: draft.origin === "workflow",
         to: draft.to_addresses,
         cc: draft.cc_addresses,
         bcc: draft.bcc_addresses,
@@ -508,7 +514,12 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
       : fail(err.conflict("Idempotency key with a different mail command"));
   }
 
-  const targets = await validateCommandTargets({ mailboxId: params.mailboxId, prepared, db: tx });
+  const targets = await validateCommandTargets({
+    mailboxId: params.mailboxId,
+    prepared,
+    draftOrigin: actor.kind === "workflow" ? "workflow" : "user",
+    db: tx,
+  });
   if (!targets.ok) return targets;
   const execution = await resolveMailExecution({
     mailboxId: params.mailboxId,

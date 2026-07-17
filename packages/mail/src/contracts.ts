@@ -633,6 +633,7 @@ export const workflowEffectBudgetSchema = z
   .object({
     maxTargets: z.number().int().min(1).max(50_000).default(1_000),
     maxMoves: z.number().int().min(0).max(50_000).default(1_000),
+    maxSends: z.number().int().min(0).max(50_000).default(1_000),
     maxKeywordChanges: z.number().int().min(0).max(100_000).default(2_000),
     maxCollaborationChanges: z.number().int().min(0).max(100_000).default(2_000),
   })
@@ -640,10 +641,12 @@ export const workflowEffectBudgetSchema = z
   .default({
     maxTargets: 1_000,
     maxMoves: 1_000,
+    maxSends: 1_000,
     maxKeywordChanges: 2_000,
     maxCollaborationChanges: 2_000,
   });
-export type WorkflowEffectBudget = z.infer<typeof workflowEffectBudgetSchema>;
+type ParsedWorkflowEffectBudget = z.infer<typeof workflowEffectBudgetSchema>;
+export type WorkflowEffectBudget = Omit<ParsedWorkflowEffectBudget, "maxSends"> & { maxSends?: number };
 
 export const workflowTargetQuerySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("all") }).strict(),
@@ -961,6 +964,88 @@ export const setConversationLocalTagsSchema = z
   .strict()
   .refine((input) => new Set(input.tagIds).size === input.tagIds.length, { message: "Tag ids must be unique", path: ["tagIds"] });
 export type SetConversationLocalTags = z.infer<typeof setConversationLocalTagsSchema>;
+
+export const conversationReferencePatternSchema = z.string().trim().min(1).max(120);
+export const createConversationReferenceSchemeSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    pattern: conversationReferencePatternSchema,
+    makeDefault: z.boolean().default(false),
+  })
+  .strict();
+export type CreateConversationReferenceScheme = z.infer<typeof createConversationReferenceSchemeSchema>;
+
+export const updateConversationReferenceSchemeSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    name: z.string().trim().min(1).max(80).optional(),
+    pattern: conversationReferencePatternSchema.optional(),
+    enabled: z.boolean().optional(),
+    makeDefault: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (input) => input.name !== undefined || input.pattern !== undefined || input.enabled !== undefined || input.makeDefault !== undefined,
+    "At least one reference scheme change is required",
+  );
+export type UpdateConversationReferenceScheme = z.infer<typeof updateConversationReferenceSchemeSchema>;
+
+export const ensureConversationReferenceSchema = z
+  .object({
+    schemeId: z.string().uuid().optional(),
+    idempotencyKey: z.string().trim().min(1).max(200),
+  })
+  .strict();
+export type EnsureConversationReference = z.infer<typeof ensureConversationReferenceSchema>;
+
+const responseScheduleWindowSchema = z.object({ start: z.string(), end: z.string() }).strict();
+export const responseScheduleDefinitionSchema = z
+  .object({
+    timeZone: z.string().trim().min(1).max(80),
+    activeRanges: z.array(z.object({ from: z.string(), to: z.string().nullable() }).strict()).max(32),
+    weeklyWindows: z
+      .array(
+        responseScheduleWindowSchema.extend({
+          weekday: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
+        }),
+      )
+      .max(64),
+    exceptions: z
+      .array(
+        z
+          .object({
+            date: z.string(),
+            closed: z.boolean(),
+            windows: z.array(responseScheduleWindowSchema).max(32),
+          })
+          .strict(),
+      )
+      .max(366),
+  })
+  .strict();
+export type ResponseScheduleDefinitionInput = z.infer<typeof responseScheduleDefinitionSchema>;
+
+export const createResponseScheduleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    definition: responseScheduleDefinitionSchema,
+    enabled: z.boolean().default(true),
+  })
+  .strict();
+export type CreateResponseSchedule = z.infer<typeof createResponseScheduleSchema>;
+
+export const updateResponseScheduleSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    name: z.string().trim().min(1).max(80).optional(),
+    definition: responseScheduleDefinitionSchema.optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict()
+  .refine((input) => input.name !== undefined || input.definition !== undefined || input.enabled !== undefined, {
+    message: "At least one response schedule change is required",
+  });
+export type UpdateResponseSchedule = z.infer<typeof updateResponseScheduleSchema>;
 
 const mentionUserIdsSchema = z
   .array(z.string().uuid())

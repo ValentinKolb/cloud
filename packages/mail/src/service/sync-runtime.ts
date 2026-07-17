@@ -11,6 +11,7 @@ import { type JobCtx, job, ratelimit, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
+import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import type { ConnectorEnvelope, FlagChange } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
 import { deleteAbandonedDraftAttachmentUploads } from "./draft-uploads";
@@ -318,6 +319,7 @@ export const ingestEnvelope = async (params: {
   captureWorkflowTriggers?: boolean;
   workflowTriggerEventIds?: string[];
 }): Promise<string> => {
+  const protocolFacts = parseConnectorProtocolFacts(params.message.protocolFacts);
   const contentHash = sha256Json({
     remoteResourceId: params.remoteResourceId,
     folderId: params.folderId,
@@ -353,6 +355,7 @@ export const ingestEnvelope = async (params: {
         sent_at,
         size_bytes,
         mime_structure,
+        selected_headers,
         content_hash,
         hydration_status
       )
@@ -368,6 +371,7 @@ export const ingestEnvelope = async (params: {
         ${params.message.sentAt},
         ${params.message.sizeBytes},
         ${params.message.mimeStructure}::jsonb,
+        ${protocolFacts}::jsonb,
         ${contentHash},
         'envelope'
       )
@@ -381,7 +385,8 @@ export const ingestEnvelope = async (params: {
         internal_date = EXCLUDED.internal_date,
         sent_at = EXCLUDED.sent_at,
         size_bytes = EXCLUDED.size_bytes,
-        mime_structure = EXCLUDED.mime_structure
+        mime_structure = EXCLUDED.mime_structure,
+        selected_headers = EXCLUDED.selected_headers
       RETURNING id
     `;
     if (!messageRow) throw new Error("Message envelope insert returned no row");
@@ -431,7 +436,8 @@ export const ingestEnvelope = async (params: {
       internal_date = ${params.message.internalDate},
       sent_at = ${params.message.sentAt},
       size_bytes = ${params.message.sizeBytes},
-      mime_structure = ${params.message.mimeStructure}::jsonb
+      mime_structure = ${params.message.mimeStructure}::jsonb,
+      selected_headers = ${protocolFacts}::jsonb
     WHERE id = ${messageContentId}::uuid
   `;
   await upsertAddresses(params.db, messageContentId, params.message);
@@ -573,7 +579,7 @@ export const ingestEnvelope = async (params: {
         }}::jsonb,
         ${snapshot.targetKey},
         ${snapshot.source}::jsonb,
-        ${snapshot.preconditions}::jsonb
+        ${{ ...snapshot.preconditions, triggerKind: "messageReceived" }}::jsonb
       FROM mail.workflow_activations activation
       JOIN mail.workflows workflow
         ON workflow.id = activation.workflow_id

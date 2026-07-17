@@ -85,4 +85,32 @@ describe("outbound MIME", () => {
     expect(parsed.attachments[0]?.filename).toBe("payload.bin");
     expect(parsed.attachments[0]?.content.equals(attachment)).toBe(true);
   });
+
+  test("marks automatic replies without exposing blind recipients", async () => {
+    const snapshot = outboundDraftSnapshotSchema.parse({
+      revision: 1,
+      from: { name: "Support", address: "support@example.com" },
+      replyTo: null,
+      envelopeFrom: null,
+      useNullEnvelopeSender: true,
+      automaticReply: true,
+      to: [{ name: null, address: "customer@example.com" }],
+      cc: [],
+      bcc: [{ name: null, address: "audit@example.com" }],
+      subject: "Re: Request",
+      body: "We received your message.",
+      format: "plain",
+      inReplyTo: "<request@example.com>",
+      references: ["<request@example.com>"],
+    });
+    const source = await buildMimeSource({
+      snapshot,
+      messageId: "<automatic-reply@example.com>",
+      date: new Date("2026-07-17T09:00:00.000Z"),
+    });
+    const text = source.toString("utf8");
+    expect(text).toMatch(/^Auto-Submitted: auto-replied$/im);
+    expect(text).toMatch(/^X-Auto-Response-Suppress: All$/im);
+    expect(text).not.toMatch(/^Bcc:/im);
+  });
 });

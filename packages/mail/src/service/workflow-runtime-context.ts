@@ -155,6 +155,10 @@ export const resolveMailWorkflowExecutionAuthority = async (params: {
     SELECT EXISTS (
       SELECT 1
       FROM mail.workflow_versions version
+      JOIN mail.workflows workflow
+        ON workflow.id = version.workflow_id
+       AND workflow.mailbox_id = version.mailbox_id
+       AND workflow.active_version_id = version.id
       WHERE version.mailbox_id = ${params.mailboxId}::uuid
         AND version.id = ${params.workflowVersionId}::uuid
     ) AS authorized
@@ -176,6 +180,10 @@ export const mailWorkflowExecutionAuthorityActive = async (
       SELECT EXISTS (
         SELECT 1
         FROM mail.workflow_versions version
+        JOIN mail.workflows workflow
+          ON workflow.id = version.workflow_id
+         AND workflow.mailbox_id = version.mailbox_id
+         AND workflow.active_version_id = version.id
         WHERE version.mailbox_id = ${mailboxId}::uuid
           AND version.id = ${workflowVersionId}::uuid
       ) AS authorized

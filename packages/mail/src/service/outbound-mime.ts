@@ -9,6 +9,8 @@ export const outboundDraftSnapshotSchema = z.object({
   from: z.object({ name: z.string().max(200), address: z.string().email().max(320) }),
   replyTo: z.string().email().max(320).nullable(),
   envelopeFrom: z.string().email().max(320).nullable(),
+  useNullEnvelopeSender: z.boolean().default(false),
+  automaticReply: z.boolean().default(false),
   to: z.array(mailAddressSchema).max(200),
   cc: z.array(mailAddressSchema).max(200),
   bcc: z.array(mailAddressSchema).max(200),
@@ -59,6 +61,9 @@ export const buildMimeStream = (params: {
     date: params.date,
     inReplyTo: params.snapshot.inReplyTo ?? undefined,
     references: params.snapshot.references,
+    headers: params.snapshot.automaticReply
+      ? { "Auto-Submitted": "auto-replied", "X-Auto-Response-Suppress": "All" }
+      : undefined,
     attachments: params.snapshot.attachments.map((attachment) => ({
       filename: attachment.filename,
       contentType: attachment.contentType,

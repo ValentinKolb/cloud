@@ -218,6 +218,9 @@ export default function MailConversationList(props: {
                     />
                     <span class="truncate text-sm text-primary">{item.participantSummary || "Unknown sender"}</span>
                     <span class="min-w-0 truncate text-xs text-dimmed">
+                      <Show when={item.primaryReference}>
+                        <span class="mr-1 font-mono text-[0.6875rem] text-dimmed">{item.primaryReference}</span>
+                      </Show>
                       <span class="font-medium text-primary">{item.subject || "(no subject)"}</span>
                       <Show when={item.preview}>
                         <span aria-hidden="true"> · </span>

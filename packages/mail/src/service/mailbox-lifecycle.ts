@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { cancelPendingAutomaticRepliesInTransaction } from "./automatic-reply";
 
 type SqlClient = typeof sql;
 
@@ -231,6 +232,7 @@ export const pauseDeletedMailboxExecution = async (mailboxId: string, db: SqlCli
     FROM progress
     WHERE run.id = progress.parent_run_id
   `;
+  await cancelPendingAutomaticRepliesInTransaction({ db, mailboxId, code, message });
 
   return {
     resources,

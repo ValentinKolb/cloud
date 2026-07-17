@@ -1489,7 +1489,80 @@ const addVerifiedSourceIdentityLookup = async (db: SqlClient): Promise<void> => 
   `;
 };
 
+const createCanonicalWorkflowStepRuns = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE IF NOT EXISTS mail.workflow_step_runs (
+      target_id UUID NOT NULL REFERENCES mail.workflow_run_targets(id) ON DELETE CASCADE,
+      step_key TEXT NOT NULL CHECK (char_length(step_key) BETWEEN 1 AND 1000),
+      source_path JSONB NOT NULL CHECK (jsonb_typeof(source_path) = 'array'),
+      iteration_path JSONB NOT NULL CHECK (jsonb_typeof(iteration_path) = 'array'),
+      path JSONB NOT NULL CHECK (jsonb_typeof(path) = 'array'),
+      mode TEXT NOT NULL CHECK (mode IN ('execute', 'dryRun')),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN (
+        'queued', 'running', 'waiting', 'succeeded', 'failed', 'skipped', 'indeterminate', 'needs_attention'
+      )),
+      outcome JSONB,
+      dependency JSONB CHECK (dependency IS NULL OR jsonb_typeof(dependency) = 'object'),
+      command_id UUID REFERENCES mail.commands(id) ON DELETE SET NULL,
+      execution_generation BIGINT NOT NULL CHECK (execution_generation >= 0),
+      attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT workflow_step_runs_waiting_dependency_check CHECK (
+        (state = 'waiting' AND dependency IS NOT NULL)
+        OR (state <> 'waiting' AND dependency IS NULL)
+      ),
+      CONSTRAINT workflow_step_runs_outcome_check CHECK (
+        (state IN ('succeeded', 'failed', 'skipped', 'indeterminate', 'needs_attention') AND outcome IS NOT NULL)
+        OR (state IN ('queued', 'running', 'waiting') AND outcome IS NULL)
+      ),
+      PRIMARY KEY (target_id, step_key)
+    )
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS workflow_step_runs_dispatch_idx
+    ON mail.workflow_step_runs (target_id, state, step_key)
+    WHERE state IN ('queued', 'running', 'waiting')
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS workflow_step_runs_command_idx
+    ON mail.workflow_step_runs (command_id)
+    WHERE command_id IS NOT NULL
+  `;
+};
+
 const replaceWorkflowFoundation = async (db: SqlClient): Promise<void> => {
+  const [canonical] = await db<{ present: boolean }[]>`
+    SELECT
+      to_regclass('mail.workflows') IS NOT NULL
+      AND to_regclass('mail.workflow_versions') IS NOT NULL
+      AND to_regclass('mail.workflow_run_targets') IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'mail' AND table_name = 'workflow_versions' AND column_name = 'version_identity'
+      )
+      AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'mail' AND table_name = 'workflow_run_targets' AND column_name = 'target_key'
+      ) AS present
+  `;
+  if (canonical?.present) {
+    const stepRunsMissing = await db<{ missing: boolean }[]>`
+      SELECT to_regclass('mail.workflow_step_runs') IS NULL AS missing
+    `;
+    await createCanonicalWorkflowStepRuns(db);
+    if (stepRunsMissing[0]?.missing) {
+      await db`
+        CREATE TRIGGER workflow_step_runs_touch_updated_at
+        BEFORE UPDATE ON mail.workflow_step_runs
+        FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+      `;
+    }
+    return;
+  }
+
   await db`
     ALTER TABLE IF EXISTS mail.workflows
     DROP CONSTRAINT IF EXISTS workflows_current_version_fkey,
@@ -1754,47 +1827,7 @@ const replaceWorkflowFoundation = async (db: SqlClient): Promise<void> => {
     ON mail.workflow_run_targets (parent_run_id, state, ordinal)
   `;
 
-  await db`
-    CREATE TABLE mail.workflow_step_runs (
-      target_id UUID NOT NULL REFERENCES mail.workflow_run_targets(id) ON DELETE CASCADE,
-      step_key TEXT NOT NULL CHECK (char_length(step_key) BETWEEN 1 AND 1000),
-      source_path JSONB NOT NULL CHECK (jsonb_typeof(source_path) = 'array'),
-      iteration_path JSONB NOT NULL CHECK (jsonb_typeof(iteration_path) = 'array'),
-      path JSONB NOT NULL CHECK (jsonb_typeof(path) = 'array'),
-      mode TEXT NOT NULL CHECK (mode IN ('execute', 'dryRun')),
-      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN (
-        'queued', 'running', 'waiting', 'succeeded', 'failed', 'skipped', 'indeterminate', 'needs_attention'
-      )),
-      outcome JSONB,
-      dependency JSONB CHECK (dependency IS NULL OR jsonb_typeof(dependency) = 'object'),
-      command_id UUID REFERENCES mail.commands(id) ON DELETE SET NULL,
-      execution_generation BIGINT NOT NULL CHECK (execution_generation >= 0),
-      attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
-      started_at TIMESTAMPTZ,
-      finished_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT workflow_step_runs_waiting_dependency_check CHECK (
-        (state = 'waiting' AND dependency IS NOT NULL)
-        OR (state <> 'waiting' AND dependency IS NULL)
-      ),
-      CONSTRAINT workflow_step_runs_outcome_check CHECK (
-        (state IN ('succeeded', 'failed', 'skipped', 'indeterminate', 'needs_attention') AND outcome IS NOT NULL)
-        OR (state IN ('queued', 'running', 'waiting') AND outcome IS NULL)
-      ),
-      PRIMARY KEY (target_id, step_key)
-    )
-  `;
-  await db`
-    CREATE INDEX workflow_step_runs_dispatch_idx
-    ON mail.workflow_step_runs (target_id, state, step_key)
-    WHERE state IN ('queued', 'running', 'waiting')
-  `;
-  await db`
-    CREATE UNIQUE INDEX workflow_step_runs_command_idx
-    ON mail.workflow_step_runs (command_id)
-    WHERE command_id IS NOT NULL
-  `;
+  await createCanonicalWorkflowStepRuns(db);
 
   for (const table of [
     "workflows",
@@ -2243,6 +2276,46 @@ const hardCutMailboxOwnedConnections = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const installSearchReferenceCompatibility = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE OR REPLACE FUNCTION mail.search_reference_matches(
+      searched_message_id UUID,
+      searched_query TEXT,
+      searched_match TEXT
+    ) RETURNS BOOLEAN
+    LANGUAGE plpgsql
+    STABLE
+    AS $$
+    DECLARE
+      matched BOOLEAN;
+    BEGIN
+      IF to_regclass('mail.conversation_references') IS NULL THEN
+        RETURN false;
+      END IF;
+      EXECUTE $query$
+        SELECT EXISTS (
+          SELECT 1
+          FROM mail.conversation_messages link
+          JOIN mail.conversation_references reference_row
+            ON reference_row.conversation_id = link.conversation_id
+          WHERE link.message_id = $1
+            AND CASE
+              WHEN $3 = 'exact' THEN lower(btrim(COALESCE(to_jsonb(reference_row)->>'value', ''))) = lower(btrim($2))
+              WHEN $3 = 'words' THEN NOT EXISTS (
+                SELECT 1
+                FROM regexp_split_to_table(lower(btrim($2)), '\\s+') token
+                WHERE strpos(lower(COALESCE(to_jsonb(reference_row)->>'value', '')), token) = 0
+              )
+              ELSE strpos(lower(COALESCE(to_jsonb(reference_row)->>'value', '')), lower($2)) > 0
+            END
+        )
+      $query$ INTO matched USING searched_message_id, searched_query, searched_match;
+      RETURN matched;
+    END;
+    $$
+  `;
+};
+
 const addStructuredSearchAndLocalTags = async (db: SqlClient): Promise<void> => {
   await db`
     ALTER TABLE mail.conversations
@@ -2289,42 +2362,337 @@ const addStructuredSearchAndLocalTags = async (db: SqlClient): Promise<void> => 
   `;
   await db`CREATE INDEX conversation_local_tags_tag_idx ON mail.conversation_local_tags (mailbox_id, tag_id, conversation_id)`;
 
+  await installSearchReferenceCompatibility(db);
+};
+
+const addConversationReferencesAndResponsePolicies = async (db: SqlClient): Promise<void> => {
   await db`
-    CREATE OR REPLACE FUNCTION mail.search_reference_matches(
-      searched_message_id UUID,
-      searched_query TEXT,
-      searched_match TEXT
-    ) RETURNS BOOLEAN
+    CREATE TABLE mail.reference_schemes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      name TEXT NOT NULL CHECK (name = btrim(name) AND char_length(name) BETWEEN 1 AND 80),
+      normalized_name TEXT NOT NULL CHECK (
+        normalized_name = lower(regexp_replace(btrim(name), '\\s+', ' ', 'g'))
+        AND char_length(normalized_name) BETWEEN 1 AND 80
+      ),
+      pattern TEXT NOT NULL CHECK (pattern = btrim(pattern) AND char_length(pattern) BETWEEN 1 AND 120),
+      next_sequence BIGINT NOT NULL DEFAULT 1 CHECK (next_sequence > 0),
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      is_default BOOLEAN NOT NULL DEFAULT false,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, normalized_name),
+      UNIQUE (id, mailbox_id)
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX reference_schemes_default_idx
+    ON mail.reference_schemes (mailbox_id)
+    WHERE enabled AND is_default
+  `;
+  await db`CREATE INDEX reference_schemes_mailbox_idx ON mail.reference_schemes (mailbox_id, enabled DESC, normalized_name, id)`;
+  await db`
+    CREATE TRIGGER reference_schemes_touch_updated_at
+    BEFORE UPDATE ON mail.reference_schemes
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+
+  await db`
+    CREATE TABLE mail.conversation_references (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      conversation_id UUID NOT NULL,
+      origin_conversation_id UUID NOT NULL,
+      scheme_id UUID NOT NULL,
+      scheme_revision BIGINT NOT NULL CHECK (scheme_revision > 0),
+      value TEXT NOT NULL CHECK (value = btrim(value) AND char_length(value) BETWEEN 1 AND 160),
+      normalized_value TEXT NOT NULL CHECK (normalized_value = lower(value)),
+      sequence BIGINT NOT NULL CHECK (sequence > 0),
+      role TEXT NOT NULL CHECK (role IN ('primary', 'alias')),
+      allocated_by_actor_kind TEXT NOT NULL CHECK (allocated_by_actor_kind IN ('user', 'service_account', 'workflow')),
+      allocated_by_actor_id UUID NOT NULL,
+      idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+      allocated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (conversation_id, mailbox_id)
+        REFERENCES mail.conversations(id, mailbox_id) ON DELETE CASCADE,
+      FOREIGN KEY (scheme_id, mailbox_id)
+        REFERENCES mail.reference_schemes(id, mailbox_id) ON DELETE RESTRICT,
+      UNIQUE (mailbox_id, normalized_value),
+      UNIQUE (scheme_id, sequence)
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX conversation_references_primary_idx
+    ON mail.conversation_references (conversation_id)
+    WHERE role = 'primary'
+  `;
+  await db`CREATE INDEX conversation_references_lookup_idx ON mail.conversation_references (mailbox_id, normalized_value, conversation_id)`;
+  await db`
+    CREATE UNIQUE INDEX conversation_references_mailbox_idempotency_idx
+    ON mail.conversation_references (mailbox_id, idempotency_key)
+  `;
+  await db`CREATE INDEX conversation_references_conversation_idx ON mail.conversation_references (conversation_id, role, allocated_at, id)`;
+  await db`
+    CREATE OR REPLACE FUNCTION mail.protect_conversation_reference_allocation()
+    RETURNS trigger
     LANGUAGE plpgsql
-    STABLE
     AS $$
-    DECLARE
-      matched BOOLEAN;
     BEGIN
-      IF to_regclass('mail.conversation_references') IS NULL THEN
-        RETURN false;
+      IF NEW.mailbox_id <> OLD.mailbox_id
+        OR NEW.origin_conversation_id <> OLD.origin_conversation_id
+        OR NEW.scheme_id <> OLD.scheme_id
+        OR NEW.scheme_revision <> OLD.scheme_revision
+        OR NEW.value <> OLD.value
+        OR NEW.normalized_value <> OLD.normalized_value
+        OR NEW.sequence <> OLD.sequence
+        OR NEW.allocated_by_actor_kind <> OLD.allocated_by_actor_kind
+        OR NEW.allocated_by_actor_id <> OLD.allocated_by_actor_id
+        OR NEW.idempotency_key <> OLD.idempotency_key
+        OR NEW.allocated_at <> OLD.allocated_at
+      THEN
+        RAISE EXCEPTION 'Conversation reference allocation fields are immutable'
+          USING ERRCODE = '23514';
       END IF;
-      EXECUTE $query$
-        SELECT EXISTS (
-          SELECT 1
-          FROM mail.conversation_messages link
-          JOIN mail.conversation_references reference_row
-            ON reference_row.conversation_id = link.conversation_id
-          WHERE link.message_id = $1
-            AND CASE
-              WHEN $3 = 'exact' THEN lower(COALESCE(to_jsonb(reference_row)->>'value', '')) = lower($2)
-              WHEN $3 = 'words' THEN NOT EXISTS (
-                SELECT 1
-                FROM regexp_split_to_table(lower(btrim($2)), '\\s+') token
-                WHERE strpos(lower(COALESCE(to_jsonb(reference_row)->>'value', '')), token) = 0
-              )
-              ELSE strpos(lower(COALESCE(to_jsonb(reference_row)->>'value', '')), lower($2)) > 0
-            END
-        )
-      $query$ INTO matched USING searched_message_id, searched_query, searched_match;
-      RETURN matched;
-    END;
+      RETURN NEW;
+    END
     $$
+  `;
+  await db`
+    CREATE TRIGGER conversation_references_protect_allocation
+    BEFORE UPDATE ON mail.conversation_references
+    FOR EACH ROW EXECUTE FUNCTION mail.protect_conversation_reference_allocation()
+  `;
+
+  await db`
+    CREATE TABLE mail.response_schedules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      name TEXT NOT NULL CHECK (name = btrim(name) AND char_length(name) BETWEEN 1 AND 80),
+      normalized_name TEXT NOT NULL CHECK (
+        normalized_name = lower(regexp_replace(btrim(name), '\\s+', ' ', 'g'))
+        AND char_length(normalized_name) BETWEEN 1 AND 80
+      ),
+      definition JSONB NOT NULL CHECK (jsonb_typeof(definition) = 'object'),
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, normalized_name),
+      UNIQUE (id, mailbox_id)
+    )
+  `;
+  await db`CREATE INDEX response_schedules_mailbox_idx ON mail.response_schedules (mailbox_id, enabled DESC, normalized_name, id)`;
+  await db`
+    CREATE TRIGGER response_schedules_touch_updated_at
+    BEFORE UPDATE ON mail.response_schedules
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+
+  await db`
+    CREATE TABLE mail.automatic_reply_effects (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      workflow_version_id UUID NOT NULL REFERENCES mail.workflow_versions(id) ON DELETE RESTRICT,
+      workflow_target_id UUID NOT NULL REFERENCES mail.workflow_run_targets(id) ON DELETE CASCADE,
+      step_key TEXT NOT NULL CHECK (char_length(step_key) BETWEEN 1 AND 500),
+      message_id UUID NOT NULL REFERENCES mail.message_contents(id) ON DELETE RESTRICT,
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE RESTRICT,
+      sender_identity_id UUID NOT NULL REFERENCES mail.sender_identities(id) ON DELETE RESTRICT,
+      response_schedule_id UUID REFERENCES mail.response_schedules(id) ON DELETE RESTRICT,
+      recipient TEXT NOT NULL CHECK (char_length(recipient) BETWEEN 3 AND 320),
+      state TEXT NOT NULL CHECK (state IN ('suppressed', 'queued', 'confirmed', 'failed', 'needs_attention')),
+      suppression_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+      command_id UUID REFERENCES mail.commands(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (workflow_version_id, workflow_target_id, step_key)
+    )
+  `;
+  await db`
+    CREATE INDEX automatic_reply_rate_idx
+    ON mail.automatic_reply_effects (mailbox_id, recipient, created_at DESC)
+    WHERE state IN ('queued', 'confirmed', 'needs_attention')
+  `;
+  await db`
+    CREATE TRIGGER automatic_reply_effects_touch_updated_at
+    BEFORE UPDATE ON mail.automatic_reply_effects
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+};
+
+const hardenConversationReferencesAndResponsePolicies = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.conversations DROP COLUMN IF EXISTS primary_reference`;
+  await db`
+    ALTER TABLE mail.conversation_references
+    DROP CONSTRAINT IF EXISTS conversation_references_conversation_id_scheme_id_key
+  `;
+  await db`ALTER TABLE mail.conversation_references ADD COLUMN IF NOT EXISTS origin_conversation_id UUID`;
+  await db`ALTER TABLE mail.conversation_references ADD COLUMN IF NOT EXISTS scheme_revision BIGINT`;
+  await db`ALTER TABLE mail.conversation_references ADD COLUMN IF NOT EXISTS idempotency_key TEXT`;
+  await db`
+    UPDATE mail.conversation_references reference
+    SET
+      origin_conversation_id = COALESCE(reference.origin_conversation_id, reference.conversation_id),
+      scheme_revision = COALESCE(reference.scheme_revision, scheme.revision),
+      idempotency_key = COALESCE(reference.idempotency_key, 'migration:' || reference.id::text)
+    FROM mail.reference_schemes scheme
+    WHERE scheme.id = reference.scheme_id
+      AND (
+        reference.origin_conversation_id IS NULL
+        OR reference.scheme_revision IS NULL
+        OR reference.idempotency_key IS NULL
+      )
+  `;
+  await db`ALTER TABLE mail.conversation_references ALTER COLUMN origin_conversation_id SET NOT NULL`;
+  await db`ALTER TABLE mail.conversation_references ALTER COLUMN scheme_revision SET NOT NULL`;
+  await db`ALTER TABLE mail.conversation_references ALTER COLUMN idempotency_key SET NOT NULL`;
+  await db`ALTER TABLE mail.conversation_references DROP CONSTRAINT IF EXISTS conversation_references_scheme_revision_check`;
+  await db`
+    ALTER TABLE mail.conversation_references
+    ADD CONSTRAINT conversation_references_scheme_revision_check CHECK (scheme_revision > 0)
+  `;
+  await db`ALTER TABLE mail.conversation_references DROP CONSTRAINT IF EXISTS conversation_references_idempotency_key_check`;
+  await db`
+    ALTER TABLE mail.conversation_references
+    ADD CONSTRAINT conversation_references_idempotency_key_check CHECK (char_length(idempotency_key) BETWEEN 1 AND 200)
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS conversation_references_mailbox_idempotency_idx
+    ON mail.conversation_references (mailbox_id, idempotency_key)
+  `;
+  await db`
+    CREATE OR REPLACE FUNCTION mail.protect_conversation_reference_allocation()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NEW.mailbox_id <> OLD.mailbox_id
+        OR NEW.origin_conversation_id <> OLD.origin_conversation_id
+        OR NEW.scheme_id <> OLD.scheme_id
+        OR NEW.scheme_revision <> OLD.scheme_revision
+        OR NEW.value <> OLD.value
+        OR NEW.normalized_value <> OLD.normalized_value
+        OR NEW.sequence <> OLD.sequence
+        OR NEW.allocated_by_actor_kind <> OLD.allocated_by_actor_kind
+        OR NEW.allocated_by_actor_id <> OLD.allocated_by_actor_id
+        OR NEW.idempotency_key <> OLD.idempotency_key
+        OR NEW.allocated_at <> OLD.allocated_at
+      THEN
+        RAISE EXCEPTION 'Conversation reference allocation fields are immutable'
+          USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END
+    $$
+  `;
+  await db`DROP TRIGGER IF EXISTS conversation_references_protect_allocation ON mail.conversation_references`;
+  await db`
+    CREATE TRIGGER conversation_references_protect_allocation
+    BEFORE UPDATE ON mail.conversation_references
+    FOR EACH ROW EXECUTE FUNCTION mail.protect_conversation_reference_allocation()
+  `;
+};
+
+const finalizeConversationReferenceMergeSemantics = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.conversation_references
+    DROP CONSTRAINT IF EXISTS conversation_references_conversation_id_scheme_id_key
+  `;
+};
+
+const hardenAutomaticReplyExecution = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.drafts ADD COLUMN origin TEXT NOT NULL DEFAULT 'user'`;
+  await db`ALTER TABLE mail.drafts DROP CONSTRAINT drafts_author_kind_check`;
+  await db`ALTER TABLE mail.drafts DROP CONSTRAINT drafts_last_editor_kind_check`;
+  await db`ALTER TABLE mail.drafts ADD CONSTRAINT drafts_author_kind_check CHECK (author_kind IN ('user', 'service_account', 'workflow'))`;
+  await db`
+    ALTER TABLE mail.drafts
+    ADD CONSTRAINT drafts_last_editor_kind_check CHECK (last_editor_kind IN ('user', 'service_account', 'workflow'))
+  `;
+  await db`
+    ALTER TABLE mail.drafts
+    ADD CONSTRAINT drafts_origin_check CHECK (
+      (origin = 'user' AND author_kind IN ('user', 'service_account') AND last_editor_kind IN ('user', 'service_account'))
+      OR (origin = 'workflow' AND author_kind = 'workflow' AND last_editor_kind = 'workflow')
+    )
+  `;
+  await db`CREATE INDEX drafts_origin_state_idx ON mail.drafts (mailbox_id, origin, state, updated_at DESC)`;
+
+  await db`ALTER TABLE mail.automatic_reply_effects ADD COLUMN draft_id UUID REFERENCES mail.drafts(id) ON DELETE RESTRICT`;
+  await db`ALTER TABLE mail.automatic_reply_effects ADD COLUMN request_hash TEXT`;
+  await db`ALTER TABLE mail.automatic_reply_effects ADD COLUMN response_schedule_revision BIGINT`;
+  await db`ALTER TABLE mail.automatic_reply_effects ADD COLUMN protocol_facts JSONB NOT NULL DEFAULT '{}'::jsonb`;
+  await db`ALTER TABLE mail.automatic_reply_effects ADD COLUMN scheduled_at TIMESTAMPTZ`;
+  await db`
+    ALTER TABLE mail.automatic_reply_effects
+    ADD CONSTRAINT automatic_reply_effects_request_hash_check CHECK (request_hash IS NULL OR request_hash ~ '^[a-f0-9]{64}$')
+  `;
+  await db`
+    ALTER TABLE mail.automatic_reply_effects
+    ADD CONSTRAINT automatic_reply_effects_schedule_revision_check
+    CHECK (response_schedule_revision IS NULL OR response_schedule_revision > 0)
+  `;
+  await db`
+    ALTER TABLE mail.automatic_reply_effects
+    ADD CONSTRAINT automatic_reply_effects_protocol_facts_check CHECK (jsonb_typeof(protocol_facts) = 'object')
+  `;
+  await db`
+    CREATE UNIQUE INDEX automatic_reply_effects_command_idx
+    ON mail.automatic_reply_effects (command_id)
+    WHERE command_id IS NOT NULL
+  `;
+};
+
+const repairResponsePolicyExecution = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.automatic_reply_effects ALTER COLUMN recipient DROP NOT NULL`;
+  await db`ALTER TABLE mail.automatic_reply_effects DROP CONSTRAINT IF EXISTS automatic_reply_effects_recipient_check`;
+  await db`
+    ALTER TABLE mail.automatic_reply_effects
+    ADD CONSTRAINT automatic_reply_effects_recipient_check CHECK (recipient IS NULL OR char_length(recipient) BETWEEN 3 AND 320)
+  `;
+  await db`ALTER TABLE mail.automatic_reply_effects DROP CONSTRAINT IF EXISTS automatic_reply_effects_state_check`;
+  await db`
+    ALTER TABLE mail.automatic_reply_effects
+    ADD CONSTRAINT automatic_reply_effects_state_check
+    CHECK (state IN ('suppressed', 'queued', 'confirmed', 'failed', 'cancelled', 'needs_attention'))
+  `;
+};
+
+const addConversationReferenceRequestLedger = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE UNIQUE INDEX conversation_references_id_mailbox_idx
+    ON mail.conversation_references (id, mailbox_id)
+  `;
+  await db`
+    CREATE TABLE mail.conversation_reference_requests (
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+      origin_conversation_id UUID NOT NULL,
+      scheme_id UUID NOT NULL REFERENCES mail.reference_schemes(id) ON DELETE RESTRICT,
+      reference_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (mailbox_id, idempotency_key),
+      FOREIGN KEY (reference_id, mailbox_id)
+        REFERENCES mail.conversation_references(id, mailbox_id) ON DELETE RESTRICT
+    )
+  `;
+  await db`
+    INSERT INTO mail.conversation_reference_requests (
+      mailbox_id, idempotency_key, origin_conversation_id, scheme_id, reference_id, created_at
+    )
+    SELECT
+      reference.mailbox_id,
+      reference.idempotency_key,
+      reference.origin_conversation_id,
+      reference.scheme_id,
+      reference.id,
+      reference.allocated_at
+    FROM mail.conversation_references reference
   `;
 };
 
@@ -2366,6 +2734,13 @@ const migrations = [
   { version: 35, name: "mailbox_owned_provider_connections", run: hardCutMailboxOwnedConnections },
   { version: 36, name: "mailbox_owned_provider_binding_invariants", run: hardCutMailboxOwnedConnections },
   { version: 37, name: "structured_search_local_tags", run: addStructuredSearchAndLocalTags },
+  { version: 38, name: "conversation_references_response_policies", run: addConversationReferencesAndResponsePolicies },
+  { version: 39, name: "conversation_references_response_policies_hardening", run: hardenConversationReferencesAndResponsePolicies },
+  { version: 40, name: "conversation_reference_merge_semantics", run: finalizeConversationReferenceMergeSemantics },
+  { version: 41, name: "automatic_reply_execution_hardening", run: hardenAutomaticReplyExecution },
+  { version: 42, name: "search_reference_rolling_compatibility", run: installSearchReferenceCompatibility },
+  { version: 43, name: "response_policy_execution_repairs", run: repairResponsePolicyExecution },
+  { version: 44, name: "conversation_reference_request_ledger", run: addConversationReferenceRequestLedger },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

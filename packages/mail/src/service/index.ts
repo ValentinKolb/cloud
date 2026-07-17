@@ -4,6 +4,7 @@ import * as collaboration from "./collaboration";
 import { cancelSendCommand, commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
 import * as conversations from "./conversations";
+import * as conversationReferences from "./conversation-reference";
 import * as draftLeases from "./draft-leases";
 import * as draftUploads from "./draft-uploads";
 import * as drafts from "./drafts";
@@ -19,6 +20,7 @@ import * as notificationTargets from "./notification-targets";
 import * as presence from "./presence";
 import * as providerConnections from "./provider-connections";
 import * as reminders from "./reminders";
+import * as responseSchedules from "./response-schedule";
 import * as savedViews from "./saved-views";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
@@ -39,6 +41,7 @@ export {
   commandRuntime,
   commands,
   conversations,
+  conversationReferences,
   draftLeases,
   drafts,
   draftUploads,
@@ -55,6 +58,7 @@ export {
   presence,
   providerConnections,
   reminders,
+  responseSchedules,
   savedViews,
   search,
   senderIdentities,
@@ -71,6 +75,7 @@ export const mailService = {
   commands,
   collaboration,
   conversations,
+  conversationReferences,
   draftLeases,
   draftUploads,
   drafts,
@@ -86,6 +91,7 @@ export const mailService = {
   providerConnections,
   presence,
   reminders,
+  responseSchedules,
   savedViews,
   search,
   senderIdentities,

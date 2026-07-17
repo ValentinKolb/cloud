@@ -481,7 +481,7 @@ const noLeaseAssertion: LeaseAssertion = async () => undefined;
 const providerEffectPermission = (kind: DbCommandExecution["kind"]): "write" | "admin" =>
   ["create_folder", "rename_folder", "delete_folder", "set_folder_subscription"].includes(kind) ? "admin" : "write";
 
-const beginProviderEffect = async (command: DbCommandExecution): Promise<void> =>
+const beginProviderEffect = async (command: DbCommandExecution, senderIdentityId?: string): Promise<void> =>
   sql.begin(async (tx) => {
     const [mailbox] = await tx<{ id: string }[]>`
       SELECT id
@@ -529,6 +529,30 @@ const beginProviderEffect = async (command: DbCommandExecution): Promise<void> =
       `;
       if (!target) {
         throw Object.assign(new Error("Workflow target was canceled before the provider effect"), { code: "WORKFLOW_CANCELED" });
+      }
+    }
+    if (command.kind === "send") {
+      if (!senderIdentityId) {
+        throw Object.assign(new Error("Send command is missing its sender identity"), { code: "SENDER_IDENTITY_UNAVAILABLE" });
+      }
+      const [sender] = await tx<{ id: string }[]>`
+        SELECT identity.id
+        FROM mail.sender_identities identity
+        JOIN mail.sender_identity_bindings sender_binding
+          ON sender_binding.sender_identity_id = identity.id
+         AND sender_binding.binding_id = ${command.selected_binding_id}::uuid
+         AND sender_binding.verified_secret_revision = ${command.selected_secret_revision}
+         AND sender_binding.revoked_at IS NULL
+        WHERE identity.id = ${senderIdentityId}::uuid
+          AND identity.mailbox_id = ${command.mailbox_id}::uuid
+          AND identity.status = 'verified'
+          AND (${command.actor_kind} <> 'workflow' OR identity.automation_policy = 'mailbox')
+        FOR SHARE OF identity, sender_binding
+      `;
+      if (!sender) {
+        throw Object.assign(new Error("Sender identity authorization was revoked before the provider effect"), {
+          code: command.actor_kind === "workflow" ? "AUTOMATION_SENDER_DISABLED" : "SENDER_IDENTITY_UNAVAILABLE",
+        });
       }
     }
     const requiredPermission = providerEffectPermission(command.kind);
@@ -1472,6 +1496,7 @@ type DbOutboxExecutionRow = DbOutboxExecution & {
 
 type DbSenderBinding = {
   saves_sent_automatically: boolean;
+  automation_policy: "disabled" | "mailbox";
   sent_folder_id: string | null;
   sent_path: string | null;
   sent_rights: string[] | null;
@@ -1833,6 +1858,7 @@ const loadSenderBinding = async (command: DbCommandExecution, senderIdentityId: 
   const [sender] = await sql<DbSenderBinding[]>`
     SELECT
       sib.saves_sent_automatically,
+      si.automation_policy,
       si.sent_folder_id,
       sent_ref.remote_path AS sent_path,
       sent_ref.effective_rights AS sent_rights
@@ -1851,6 +1877,9 @@ const loadSenderBinding = async (command: DbCommandExecution, senderIdentityId: 
   `;
   if (!sender)
     throw Object.assign(new Error("Sender identity is no longer verified on the pinned binding"), { code: "SENDER_IDENTITY_UNAVAILABLE" });
+  if (command.actor_kind === "workflow" && sender.automation_policy !== "mailbox") {
+    throw Object.assign(new Error("Sender identity no longer permits mailbox automation"), { code: "AUTOMATION_SENDER_DISABLED" });
+  }
   if (!sender.saves_sent_automatically) {
     if (!sender.sent_folder_id || !sender.sent_path || !sender.sent_rights?.includes("insert")) {
       throw Object.assign(new Error("Sent folder append rights are no longer available"), { code: "SENT_FOLDER_UNAVAILABLE" });
@@ -1923,6 +1952,15 @@ const finishOutbox = async (params: {
       WHERE id = ${params.outbox.command_id}::uuid
     `;
     await tx`UPDATE mail.drafts SET state = ${params.draftState} WHERE id = ${params.outbox.draft_id}::uuid`;
+    await tx`
+      UPDATE mail.automatic_reply_effects
+      SET state = CASE
+        WHEN ${params.commandState} IN ('confirmed', 'reconciled') THEN 'confirmed'
+        WHEN ${params.commandState} IN ('ambiguous', 'needs_attention') THEN 'needs_attention'
+        ELSE 'failed'
+      END
+      WHERE command_id = ${params.outbox.command_id}::uuid
+    `;
     await tx`
       INSERT INTO mail.activity_events (
         mailbox_id, command_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
@@ -2210,7 +2248,7 @@ const executeFreshOutbox = async (
 
   await assertLeaseActive();
   try {
-    await beginProviderEffect(command);
+    await beginProviderEffect(command, outbox.sender_identity_id);
   } catch (error) {
     await finishOutbox({ outbox, command, outboxState: "failed", commandState: "failed", draftState: "draft", error });
     return;
@@ -2219,7 +2257,7 @@ const executeFreshOutbox = async (
   try {
     const result = await imapSmtpConnector.sendSource(prepared.runtime, {
       source: createBlobReadable(prepared.mimeBlobId),
-      envelopeFrom: prepared.snapshot.envelopeFrom ?? prepared.snapshot.from.address,
+      envelopeFrom: prepared.snapshot.useNullEnvelopeSender ? null : (prepared.snapshot.envelopeFrom ?? prepared.snapshot.from.address),
       recipients: outboundRecipients(prepared.snapshot),
       messageId: outbox.stable_message_id,
     });
@@ -2406,6 +2444,11 @@ export const cancelSendCommand = async (params: {
         UPDATE mail.commands
         SET state = 'cancelled', finished_at = now(), last_error_code = NULL, last_error_message = NULL
         WHERE id = ${outbox.command_id}::uuid
+      `;
+      await tx`
+        UPDATE mail.automatic_reply_effects
+        SET state = 'cancelled'
+        WHERE command_id = ${outbox.command_id}::uuid AND state = 'queued'
       `;
       await tx`UPDATE mail.drafts SET state = 'draft' WHERE id = ${outbox.draft_id}::uuid`;
       return ok();

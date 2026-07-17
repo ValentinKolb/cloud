@@ -1,0 +1,346 @@
+import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
+import { responseScheduleDefinitionSchema, type ResponseScheduleDefinitionInput } from "../contracts";
+import { evaluateAutoReplyPolicy, parseReturnPathAddress, type AutoReplySuppressionReason } from "./auto-reply-policy";
+import { sha256Json } from "./canonical";
+import type { ConnectorProtocolFacts } from "./connectors";
+import { createWorkflowReplyDraftInTransaction } from "./drafts";
+import { evaluateResponseSchedule, nextResponseScheduleInstant } from "./response-schedule";
+
+type SqlClient = typeof sql;
+
+type AutomaticReplyBusinessSuppressionReason = "recipient_rate_limited" | "response_schedule_unavailable";
+type AutomaticReplySuppressionReason = AutoReplySuppressionReason | AutomaticReplyBusinessSuppressionReason;
+
+export type AutomaticReplyScheduleSnapshot = {
+  id: string;
+  name: string;
+  revision: number;
+  definition: ResponseScheduleDefinitionInput;
+};
+
+type PreparedAutomaticReply =
+  | { state: "suppressed"; effectId: string; reasons: AutomaticReplySuppressionReason[] }
+  | { state: "queued"; effectId: string; draftId: string; draftRevision: number; scheduledAt: string };
+
+type AutomaticReplyEffectRow = {
+  id: string;
+  state: "suppressed" | "queued" | "confirmed" | "failed" | "cancelled" | "needs_attention";
+  suppression_reasons: AutomaticReplySuppressionReason[] | null;
+  draft_id: string | null;
+  command_id: string | null;
+  request_hash: string | null;
+  scheduled_at: Date | string | null;
+};
+
+const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
+
+const existingResult = async (effect: AutomaticReplyEffectRow, db: SqlClient): Promise<Result<PreparedAutomaticReply>> => {
+  if (effect.state === "suppressed") {
+    return ok({ state: "suppressed", effectId: effect.id, reasons: effect.suppression_reasons ?? [] });
+  }
+  if (effect.state === "failed" || effect.state === "cancelled") {
+    return fail(err.conflict("Automatic reply is no longer pending"));
+  }
+  if (!effect.draft_id || !effect.scheduled_at) return fail(err.internal("Automatic reply effect is incomplete"));
+  const [draft] = await db<{ revision: string | number }[]>`
+    SELECT revision FROM mail.drafts WHERE id = ${effect.draft_id}::uuid AND origin = 'workflow'
+  `;
+  if (!draft) return fail(err.internal("Automatic reply draft is unavailable"));
+  return ok({
+    state: "queued",
+    effectId: effect.id,
+    draftId: effect.draft_id,
+    draftRevision: Number(draft.revision),
+    scheduledAt: toIso(effect.scheduled_at),
+  });
+};
+
+const validateScheduleSnapshot = async (
+  db: SqlClient,
+  mailboxId: string,
+  snapshot: AutomaticReplyScheduleSnapshot,
+): Promise<Result<AutomaticReplyScheduleSnapshot>> => {
+  const parsed = responseScheduleDefinitionSchema.safeParse(snapshot.definition);
+  if (!parsed.success || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 1) {
+    return fail(err.badInput("Automatic reply response schedule snapshot is invalid"));
+  }
+  const [current] = await db<{ revision: string | number }[]>`
+    SELECT revision
+    FROM mail.response_schedules
+    WHERE id = ${snapshot.id}::uuid AND mailbox_id = ${mailboxId}::uuid AND enabled
+    FOR SHARE
+  `;
+  if (!current || Number(current.revision) !== snapshot.revision) {
+    return fail(err.conflict("Response schedule changed; activate a new workflow version before sending automatic replies"));
+  }
+  return ok({ ...snapshot, definition: parsed.data });
+};
+
+export const prepareAutomaticReplyInTransaction = async (params: {
+  db: SqlClient;
+  mailboxId: string;
+  workflowVersionId: string;
+  workflowTargetId: string;
+  stepKey: string;
+  messageId: string;
+  conversationId: string;
+  senderIdentityId: string;
+  subject: string;
+  body: string;
+  format: "plain" | "markdown";
+  protocolFacts: ConnectorProtocolFacts;
+  occurredAt: string;
+  minimumIntervalHours: number;
+  schedule: AutomaticReplyScheduleSnapshot | null;
+}): Promise<Result<PreparedAutomaticReply>> => {
+  try {
+    const occurredAt = new Date(params.occurredAt);
+    if (!Number.isFinite(occurredAt.getTime())) return fail(err.badInput("Automatic reply occurrence time is invalid"));
+    if (!Number.isSafeInteger(params.minimumIntervalHours) || params.minimumIntervalHours < 0 || params.minimumIntervalHours > 8_760) {
+      return fail(err.badInput("Automatic reply minimum interval is invalid"));
+    }
+    const recipient = parseReturnPathAddress(params.protocolFacts.returnPath);
+    const requestHash = sha256Json({
+      mailboxId: params.mailboxId,
+      workflowVersionId: params.workflowVersionId,
+      workflowTargetId: params.workflowTargetId,
+      stepKey: params.stepKey,
+      messageId: params.messageId,
+      conversationId: params.conversationId,
+      senderIdentityId: params.senderIdentityId,
+      recipient,
+      subject: params.subject,
+      body: params.body,
+      format: params.format,
+      protocolFacts: params.protocolFacts,
+      occurredAt: params.occurredAt,
+      minimumIntervalHours: params.minimumIntervalHours,
+      schedule: params.schedule,
+    });
+    // Serialize the two business invariants independently of workflow step identity.
+    await params.db`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:automatic-reply:message:${params.messageId}`}, 0))
+    `;
+    await params.db`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:automatic-reply:recipient:${recipient ?? "missing"}`}, 0))
+    `;
+    const [existing] = await params.db<AutomaticReplyEffectRow[]>`
+      SELECT id, state, suppression_reasons, draft_id, command_id, request_hash, scheduled_at
+      FROM mail.automatic_reply_effects
+      WHERE workflow_version_id = ${params.workflowVersionId}::uuid
+        AND workflow_target_id = ${params.workflowTargetId}::uuid
+        AND step_key = ${params.stepKey}
+      FOR UPDATE
+    `;
+    if (existing) {
+      if (existing.request_hash !== requestHash) return fail(err.conflict("Automatic reply step conflicts with a different request"));
+      return existingResult(existing, params.db);
+    }
+
+    const [identityRows, duplicateRows, rateRows] = await Promise.all([
+      params.db<{ from_address: string }[]>`
+        SELECT from_address
+        FROM mail.sender_identities
+        WHERE mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
+      `,
+      params.db<{ exists: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1 FROM mail.automatic_reply_effects
+          WHERE mailbox_id = ${params.mailboxId}::uuid
+            AND message_id = ${params.messageId}::uuid
+            AND state IN ('queued', 'confirmed', 'needs_attention')
+        ) AS exists
+      `,
+      params.minimumIntervalHours === 0 || recipient === null
+        ? Promise.resolve([{ exists: false }])
+        : params.db<{ exists: boolean }[]>`
+            SELECT EXISTS (
+              SELECT 1 FROM mail.automatic_reply_effects
+              WHERE mailbox_id = ${params.mailboxId}::uuid
+                AND recipient = ${recipient}
+                AND state IN ('queued', 'confirmed', 'needs_attention')
+                AND created_at >= now() - (${params.minimumIntervalHours}::double precision * interval '1 hour')
+            ) AS exists
+          `,
+    ]);
+    const policy = evaluateAutoReplyPolicy({
+      senderAddresses: recipient ? [recipient] : [],
+      mailboxAddresses: identityRows.map((identity) => identity.from_address),
+      returnPath: recipient,
+      autoSubmitted: params.protocolFacts.autoSubmitted,
+      precedence: params.protocolFacts.precedence,
+      listId: params.protocolFacts.listId,
+      autoResponseSuppress: params.protocolFacts.autoResponseSuppress,
+      deliveryStatus: params.protocolFacts.deliveryStatus,
+      alreadyReplied: duplicateRows[0]?.exists ?? false,
+    });
+    const suppressionReasons: AutomaticReplySuppressionReason[] = policy.allowed ? [] : [...policy.reasons];
+    if (rateRows[0]?.exists) suppressionReasons.push("recipient_rate_limited");
+
+    let scheduledAt = new Date();
+    let scheduleRevision: number | null = null;
+    if (params.schedule) {
+      const schedule = await validateScheduleSnapshot(params.db, params.mailboxId, params.schedule);
+      if (!schedule.ok) return schedule;
+      scheduleRevision = schedule.data.revision;
+      if (!evaluateResponseSchedule(schedule.data.definition, scheduledAt).active) {
+        const next = nextResponseScheduleInstant(schedule.data.definition, scheduledAt);
+        if (next) scheduledAt = next;
+        else suppressionReasons.push("response_schedule_unavailable");
+      }
+    }
+
+    const effectId = crypto.randomUUID();
+    if (suppressionReasons.length > 0) {
+      await params.db`
+        INSERT INTO mail.automatic_reply_effects (
+          id, mailbox_id, workflow_version_id, workflow_target_id, step_key, message_id, conversation_id,
+          sender_identity_id, response_schedule_id, response_schedule_revision, recipient, state,
+          suppression_reasons, request_hash, protocol_facts, scheduled_at
+        ) VALUES (
+          ${effectId}::uuid, ${params.mailboxId}::uuid, ${params.workflowVersionId}::uuid, ${params.workflowTargetId}::uuid,
+          ${params.stepKey}, ${params.messageId}::uuid, ${params.conversationId}::uuid, ${params.senderIdentityId}::uuid,
+          ${params.schedule?.id ?? null}::uuid, ${scheduleRevision}, ${recipient}, 'suppressed', ${sql.array(suppressionReasons, "TEXT")},
+          ${requestHash}, ${params.protocolFacts}::jsonb, NULL
+        )
+      `;
+      await params.db`
+        INSERT INTO mail.activity_events (
+          mailbox_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+        ) VALUES (
+          ${params.mailboxId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
+          'automatic_reply.suppressed', 'confirmed', 'automatic_reply', ${effectId}::uuid,
+          ${{ messageId: params.messageId, conversationId: params.conversationId, recipient, reasons: suppressionReasons }}::jsonb
+        )
+      `;
+      return ok({ state: "suppressed", effectId, reasons: suppressionReasons });
+    }
+
+    if (!recipient) return fail(err.internal("Automatic reply recipient validation was bypassed"));
+
+    const draftId = crypto.randomUUID();
+    const draft = await createWorkflowReplyDraftInTransaction({
+      db: params.db,
+      mailboxId: params.mailboxId,
+      workflowVersionId: params.workflowVersionId,
+      draftId,
+      conversationId: params.conversationId,
+      sourceMessageId: params.messageId,
+      senderIdentityId: params.senderIdentityId,
+      recipient: { name: null, address: recipient },
+      subject: params.subject,
+      body: params.body,
+      format: params.format,
+    });
+    if (!draft.ok) return draft;
+    await params.db`
+      INSERT INTO mail.automatic_reply_effects (
+        id, mailbox_id, workflow_version_id, workflow_target_id, step_key, message_id, conversation_id,
+        sender_identity_id, response_schedule_id, response_schedule_revision, recipient, state,
+        suppression_reasons, draft_id, request_hash, protocol_facts, scheduled_at
+      ) VALUES (
+        ${effectId}::uuid, ${params.mailboxId}::uuid, ${params.workflowVersionId}::uuid, ${params.workflowTargetId}::uuid,
+        ${params.stepKey}, ${params.messageId}::uuid, ${params.conversationId}::uuid, ${params.senderIdentityId}::uuid,
+        ${params.schedule?.id ?? null}::uuid, ${scheduleRevision}, ${recipient}, 'queued', ARRAY[]::text[], ${draftId}::uuid,
+        ${requestHash}, ${params.protocolFacts}::jsonb, ${scheduledAt}
+      )
+    `;
+    await params.db`
+      INSERT INTO mail.activity_events (
+        mailbox_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+      ) VALUES (
+        ${params.mailboxId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
+        'automatic_reply.queued', 'requested', 'automatic_reply', ${effectId}::uuid,
+        ${{ messageId: params.messageId, conversationId: params.conversationId, recipient, scheduledAt: scheduledAt.toISOString() }}::jsonb
+      )
+    `;
+    return ok({ state: "queued", effectId, draftId, draftRevision: draft.data.revision, scheduledAt: scheduledAt.toISOString() });
+  } catch (error) {
+    return isServiceError(error) ? fail(error) : fail(err.internal("Failed to prepare automatic reply"));
+  }
+};
+
+export const linkAutomaticReplyCommandInTransaction = async (params: {
+  db: SqlClient;
+  effectId: string;
+  commandId: string;
+}): Promise<void> => {
+  const linked = await params.db`
+    UPDATE mail.automatic_reply_effects
+    SET command_id = ${params.commandId}::uuid
+    WHERE id = ${params.effectId}::uuid
+      AND state = 'queued'
+      AND (command_id IS NULL OR command_id = ${params.commandId}::uuid)
+  `;
+  if (linked.count !== 1) throw Object.assign(new Error("Automatic reply effect could not be linked to its command"), { code: "CONFLICT" });
+};
+
+export const cancelPendingAutomaticRepliesInTransaction = async (params: {
+  db: SqlClient;
+  mailboxId: string;
+  workflowRunId?: string;
+  code: string;
+  message: string;
+}): Promise<{ cancelled: number; needsAttention: number }> => {
+  const [summary] = await params.db<{ cancelled: number; needs_attention: number }[]>`
+    WITH scoped AS MATERIALIZED (
+      SELECT effect.id, effect.draft_id, effect.command_id
+      FROM mail.automatic_reply_effects effect
+      JOIN mail.workflow_run_targets target ON target.id = effect.workflow_target_id
+      WHERE effect.mailbox_id = ${params.mailboxId}::uuid
+        AND effect.state = 'queued'
+        AND (
+          ${params.workflowRunId ?? null}::uuid IS NULL
+          OR (target.parent_run_id = ${params.workflowRunId ?? null}::uuid AND target.state = 'canceled')
+        )
+      FOR UPDATE OF effect
+    ), cancelled_outboxes AS (
+      UPDATE mail.outbox_submissions submission
+      SET
+        state = 'cancelled',
+        last_error_code = ${params.code},
+        last_error_message = ${params.message},
+        updated_at = now()
+      WHERE submission.command_id IN (SELECT command_id FROM scoped WHERE command_id IS NOT NULL)
+        AND submission.state IN ('scheduled', 'undo_window')
+      RETURNING submission.command_id
+    ), cancelled_commands AS (
+      UPDATE mail.commands command
+      SET
+        state = 'cancelled',
+        finished_at = now(),
+        worker_heartbeat_at = NULL,
+        last_error_code = ${params.code},
+        last_error_message = ${params.message},
+        updated_at = now()
+      WHERE command.id IN (SELECT command_id FROM scoped WHERE command_id IS NOT NULL)
+        AND command.state = 'queued'
+        AND command.provider_effect_started_at IS NULL
+      RETURNING command.id
+    ), changed AS (
+      UPDATE mail.automatic_reply_effects effect
+      SET state = CASE
+        WHEN effect.command_id IS NULL
+          OR effect.command_id IN (SELECT id FROM cancelled_commands)
+          OR EXISTS (SELECT 1 FROM mail.commands command WHERE command.id = effect.command_id AND command.state = 'cancelled')
+        THEN 'cancelled'
+        ELSE 'needs_attention'
+      END
+      WHERE effect.id IN (SELECT id FROM scoped)
+      RETURNING effect.draft_id, effect.state
+    ), discarded_drafts AS (
+      UPDATE mail.drafts draft
+      SET state = 'discarded', updated_at = now()
+      WHERE draft.id IN (SELECT draft_id FROM changed WHERE state = 'cancelled' AND draft_id IS NOT NULL)
+        AND draft.origin = 'workflow'
+        AND draft.state IN ('draft', 'scheduled')
+      RETURNING draft.id
+    )
+    SELECT
+      COUNT(*) FILTER (WHERE state = 'cancelled')::int AS cancelled,
+      COUNT(*) FILTER (WHERE state = 'needs_attention')::int AS needs_attention
+    FROM changed
+  `;
+  return { cancelled: summary?.cancelled ?? 0, needsAttention: summary?.needs_attention ?? 0 };
+};

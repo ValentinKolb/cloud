@@ -6,6 +6,7 @@ import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 import { MailConnectionSettings, MailSenderSettings } from "./MailProviderSettings";
+import MailResponsePolicySettings from "./MailResponsePolicySettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
 import MailWorkflowSettings from "./MailWorkflowSettings";
 
@@ -262,6 +263,19 @@ export default function MailboxSettings(props: {
             description="Versioned YAML workflows with explicit activation."
           >
             <MailWorkflowSettings mailboxId={props.context.mailbox.id} initialWorkflows={admin().workflows} />
+          </SettingsModal.Tab>
+
+          <SettingsModal.Tab
+            id="response-policy"
+            title="Response policy"
+            icon="ti ti-message-cog"
+            description="Conversation references and time windows for automatic responses."
+          >
+            <MailResponsePolicySettings
+              mailboxId={props.context.mailbox.id}
+              initialReferenceSchemes={admin().referenceSchemes}
+              initialResponseSchedules={admin().responseSchedules}
+            />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
