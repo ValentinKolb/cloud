@@ -112,6 +112,7 @@ const fetchContactsResults = async (props: Pick<Props, "bookId" | "perPage">, hr
   const options = readContactsQueryOptions(href);
   const queryParams = {
     q: url.searchParams.get("search") || undefined,
+    tag_id: url.searchParams.get("tag_id") || undefined,
     page: url.searchParams.get("page") ?? "1",
     per_page: String(props.perPage),
     sort: options.sort === "name" ? undefined : options.sort,
@@ -123,7 +124,7 @@ const fetchContactsResults = async (props: Pick<Props, "bookId" | "perPage">, hr
     ? await apiClient.books[":bookId"].contacts.$get(
         {
           param: { bookId: props.bookId },
-          query: { ...queryParams, tag_id: url.searchParams.get("tag_id") || undefined },
+          query: queryParams,
         },
         { init: { signal } },
       )
@@ -349,6 +350,7 @@ export default function ContactsResults(props: Props) {
               <a
                 href={filterHref(state().href, query(), tag.id)}
                 aria-current={props.activeTagId === tag.id ? "page" : undefined}
+                title={props.showBookNames ? `${tag.name} · ${props.bookNames[tag.bookId] ?? "Contact book"}` : undefined}
                 class="inline-flex shrink-0 transition-opacity hover:opacity-80"
               >
                 <ContactTagChip name={tag.name} color={tag.color} active={props.activeTagId === tag.id} size="sm" />

@@ -47,6 +47,19 @@ export const list = async (config: { bookId: string }): Promise<ContactTag[]> =>
   return rows.map(mapTag);
 };
 
+/** Lists the combined tag vocabulary for a set of already-authorized books. */
+export const listForBooks = async (config: { bookIds: string[] }): Promise<ContactTag[]> => {
+  const bookIds = [...new Set(config.bookIds)];
+  if (bookIds.length === 0 || bookIds.some((bookId) => !isUuid(bookId))) return [];
+  const rows = await sql<DbTag[]>`
+    SELECT id, book_id, name, color, created_at, updated_at
+    FROM contacts.tags
+    WHERE book_id = ANY(${toPgUuidArray(bookIds)}::uuid[])
+    ORDER BY LOWER(name) ASC, book_id ASC, id ASC
+  `;
+  return rows.map(mapTag);
+};
+
 export const create = async (config: { bookId: string; data: CreateContactTagInput }): Promise<Result<ContactTag>> => {
   const validation = validateInput(config.data);
   if (!validation.ok) return validation;

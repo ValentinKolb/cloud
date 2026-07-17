@@ -23,6 +23,7 @@ import {
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
   const search = c.req.query("search") ?? "";
+  const activeTagId = c.req.query("tag_id") ?? null;
   const page = parseContactsPage(c.req.query("page"));
   const queryOptions = parseContactsQueryOptions((name) => c.req.query(name));
   const perPage = CONTACTS_PER_PAGE;
@@ -40,6 +41,7 @@ export default ssr<AuthContext>(async (c) => {
       pagination: { page, perPage },
       filter: {
         query: search.trim() || undefined,
+        tagIds: activeTagId ? [activeTagId] : undefined,
         includeSystem: queryOptions.favorites,
         sort: queryOptions.sort,
         email: queryOptions.email,
@@ -56,12 +58,13 @@ export default ssr<AuthContext>(async (c) => {
     bookId: selectedBookIdFromUrl,
     user,
   });
-  const [{ adminBookIds, writableBooks }, initialNotes, favoriteKeys] = await Promise.all([
+  const [{ adminBookIds, writableBooks }, initialNotes, favoriteKeys, globalTags] = await Promise.all([
     loadContactBookPermissions({ books, user }),
     selectedContact
       ? contactsService.contact.notes.list({ bookId: selectedContact.bookId, contactId: selectedContact.id })
       : Promise.resolve([]),
     loadFavoriteKeysForContacts(user.id, selectedContact ? [...contacts, selectedContact] : contacts),
+    contactsService.tag.listForBooks({ bookIds: books.filter((book) => !book.isSystem).map((book) => book.id) }),
   ]);
   const bookNames = Object.fromEntries(books.map((book) => [book.id, book.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
@@ -96,6 +99,9 @@ export default ssr<AuthContext>(async (c) => {
             chooseBookOnCreate
             currentPage={contactsResult.page}
             totalPages={totalPages}
+            tags={globalTags}
+            activeTagId={activeTagId}
+            filtersBasePath="/app/contacts"
             initialFavoriteKeys={favoriteKeys}
           />
 

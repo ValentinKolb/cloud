@@ -137,6 +137,7 @@ export const contactsService = {
   },
   tag: {
     list: (config: { bookId: string }) => tags.list(config),
+    listForBooks: (config: { bookIds: string[] }) => tags.listForBooks(config),
     create: (config: { bookId: string; data: CreateContactTagInput }) =>
       withEvent(tags.create(config), { type: "tags.changed", bookId: config.bookId }),
     update: (config: { bookId: string; id: string; data: UpdateContactTagInput }) =>

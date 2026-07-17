@@ -323,6 +323,8 @@ const ListContactsQuerySchema = PaginationQuerySchema.extend({
 
 const SearchContactsQuerySchema = PaginationQuerySchema.extend({
   q: z.string().optional(),
+  /** Repeat `tag_id` to filter by multiple tags (OR-mode). */
+  tag_id: z.union([z.string(), z.array(z.string())]).optional(),
   includeSystem: z
     .enum(["true"])
     .transform(() => true)
@@ -1762,6 +1764,7 @@ const app = new Hono<AuthContext>()
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
       const user = getUserBackedActor(c);
+      const tagIds = Array.isArray(query.tag_id) ? query.tag_id : query.tag_id ? [query.tag_id] : undefined;
       if (query.favorites && !user) return respond(c, fail(err.forbidden("Favorites require a user-backed actor")));
       const result = await contactsService.contact.search({
         subject: subject.subject,
@@ -1769,6 +1772,7 @@ const app = new Hono<AuthContext>()
         pagination,
         filter: {
           query: query.q,
+          tagIds,
           includeSystem: Boolean(subject.user) && (query.includeSystem ?? false),
           sort: query.sort,
           email: query.email,

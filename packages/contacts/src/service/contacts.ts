@@ -1762,9 +1762,14 @@ export const search = async (config: {
   if (requestedFavoriteUserId !== undefined && !isUuid(requestedFavoriteUserId)) {
     return { items: [], page, perPage, total: 0, hasNext: false };
   }
+  const requestedTagIds = [...new Set(config.filter?.tagIds ?? [])];
+  if (requestedTagIds.some((tagId) => !isUuid(tagId))) {
+    return { items: [], page, perPage, total: 0, hasNext: false };
+  }
 
   const searchPattern = buildSearchPattern(config.filter?.query);
   const includeSystem = config.subject.type === "user" && (config.filter?.includeSystem ?? false);
+  const tagIdsArray = requestedTagIds.length > 0 ? toPgUuidArray(requestedTagIds) : null;
   const emailPresence = config.filter?.email ?? "all";
   const phonePresence = config.filter?.phone ?? "all";
   const sort = config.filter?.sort ?? "name";
@@ -1787,6 +1792,10 @@ export const search = async (config: {
       WHERE ${mapManualReadableAccessCondition(config.subject)}
         AND ${bindingMatch}
         AND ${mapManualSearchCondition(searchPattern)}
+        AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
+          SELECT 1 FROM contacts.contact_tag_assignments cta
+          WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
+        ))
         AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
           SELECT 1 FROM contacts.contact_favorites favorite
           WHERE favorite.user_id = ${favoriteUserId}::uuid
@@ -1810,6 +1819,7 @@ export const search = async (config: {
       WHERE ${includeSystem}::boolean
         AND u.provider = 'ipa'
         AND ${mapSystemSearchCondition(searchPattern)}
+        AND ${tagIdsArray}::uuid[] IS NULL
         AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
           SELECT 1 FROM contacts.contact_favorites favorite
           WHERE favorite.user_id = ${favoriteUserId}::uuid
@@ -1852,6 +1862,10 @@ export const search = async (config: {
       WHERE ${mapManualReadableAccessCondition(config.subject)}
         AND ${bindingMatch}
         AND ${mapManualSearchCondition(searchPattern)}
+        AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
+          SELECT 1 FROM contacts.contact_tag_assignments cta
+          WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
+        ))
         AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
           SELECT 1 FROM contacts.contact_favorites favorite
           WHERE favorite.user_id = ${favoriteUserId}::uuid
@@ -1879,6 +1893,7 @@ export const search = async (config: {
       WHERE ${includeSystem}::boolean
         AND u.provider = 'ipa'
         AND ${mapSystemSearchCondition(searchPattern)}
+        AND ${tagIdsArray}::uuid[] IS NULL
         AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
           SELECT 1 FROM contacts.contact_favorites favorite
           WHERE favorite.user_id = ${favoriteUserId}::uuid
