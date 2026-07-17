@@ -4,6 +4,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import type { CalendarView, ResourceApiKey } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
+import { venueHelp } from "../../help";
 import { venueService } from "../../service";
 import VenueLayoutHelp from "../_components/help/VenueLayoutHelp.island";
 import VenueWorkspace from "../_components/VenueWorkspace.island";
@@ -136,7 +137,7 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       fullPage
     >
-      <VenueLayoutHelp />
+      <VenueLayoutHelp documents={venueHelp.manifest} />
       <VenueWorkspace
         dashboard={dashboard}
         userId={user.id}
