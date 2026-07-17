@@ -48,7 +48,9 @@ describe("DashboardLayout edit controls", () => {
         },
         baseShortId: "base1",
         edit: {
+          saveState: "saved",
           onGeneral: () => undefined,
+          onAddFirstWidget: () => undefined,
           onAddRowAt: () => undefined,
           onMoveRow: () => undefined,
           onEditRow: () => undefined,
@@ -74,6 +76,33 @@ describe("DashboardLayout edit controls", () => {
     expect(html).toContain('data-dashboard-control="00000000-0000-4000-8000-000000000001:cell:widget-1:move:right"');
     expect(html).toContain('aria-label="Settings for Quarterly summary in row 1, position 1"');
     expect(html).toContain('aria-label="Add widget to row 1"');
+    expect(html).toContain("Dashboard settings");
+    expect(html).toContain("Saved");
+  });
+
+  test("guides an empty dashboard directly to its first widget", () => {
+    const html = renderToString(() =>
+      createComponent(DashboardLayout, {
+        dashboard: { ...dashboard, config: { rows: [] } },
+        widgetData: {},
+        baseShortId: "base1",
+        edit: {
+          saveState: "idle",
+          onGeneral: () => undefined,
+          onAddFirstWidget: () => undefined,
+          onAddRowAt: () => undefined,
+          onMoveRow: () => undefined,
+          onEditRow: () => undefined,
+          onAddCell: () => undefined,
+          onEditCell: () => undefined,
+          onMoveCell: () => undefined,
+        },
+      }),
+    );
+
+    expect(html).toContain("Add first widget");
+    expect(html).not.toContain(">Add row<");
+    expect(html).toContain("Changes save automatically");
   });
 
   test("renders saved GQL view values with their field presentation", () => {

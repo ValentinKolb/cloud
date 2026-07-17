@@ -42,8 +42,8 @@ export default function CreateDashboardButton(props: { baseId: string; baseShort
         },
         shared: {
           type: "boolean",
-          label: "Share with everyone (read access)",
-          description: "Personal dashboards are private to you. Shared dashboards are visible to anyone with base-read.",
+          label: "Shared dashboard",
+          description: "Visible to everyone who can open this base. You can narrow access later in dashboard settings.",
         },
       },
       confirmText: "Create",

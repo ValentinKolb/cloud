@@ -4,6 +4,7 @@ import { apiClient } from "@/api/client";
 import type { WorkflowButtonWidget as WorkflowButtonWidgetConfig } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkflowScannerState } from "../workflows/WorkflowScannerSurface";
+import DashboardWidgetState from "./DashboardWidgetState";
 import type { WidgetData } from "./widget-data";
 
 const WorkflowScannerSurface = lazy(() => import("../workflows/WorkflowScannerSurface"));
@@ -89,11 +90,10 @@ export default function WorkflowButtonWidget(props: Props) {
       <Show
         when={data()}
         fallback={
-          <div class="flex-1 flex items-center justify-center text-xs text-dimmed px-3 py-2 text-center">
-            <Show when={props.data.kind === "error"} fallback="Loading...">
-              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
-            </Show>
-          </div>
+          <DashboardWidgetState
+            kind={props.data.kind === "error" ? "error" : "loading"}
+            detail={props.data.kind === "error" ? props.data.reason : null}
+          />
         }
       >
         <div class="flex flex-1 min-h-0 flex-col gap-3 p-4">

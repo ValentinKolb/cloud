@@ -2,6 +2,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import type { LinkWidget as LinkWidgetConfig } from "../../../service";
 import { openFormModal } from "../records/FormSubmitModal";
+import DashboardWidgetState from "./DashboardWidgetState";
 import type { WidgetData } from "./widget-data";
 
 type Props = {
@@ -32,11 +33,10 @@ export default function LinkWidget(props: Props) {
       <Show
         when={data()}
         fallback={
-          <div class="flex-1 flex items-center justify-center text-xs text-dimmed px-3 py-2 text-center">
-            <Show when={props.data.kind === "error"} fallback="Loading...">
-              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
-            </Show>
-          </div>
+          <DashboardWidgetState
+            kind={props.data.kind === "error" ? "error" : "loading"}
+            detail={props.data.kind === "error" ? props.data.reason : null}
+          />
         }
       >
         {(d) => (

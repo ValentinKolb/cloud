@@ -1,6 +1,7 @@
 import { Chart } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
 import type { Field, Widget } from "../../../service";
+import DashboardWidgetState from "./DashboardWidgetState";
 import { buildChartRenderData } from "./widget-chart-data";
 import type { WidgetData } from "./widget-data";
 import { formatWidgetValue } from "./widget-format";
@@ -29,8 +30,6 @@ type Props = {
  */
 export default function ChartWidget(props: Props) {
   const isChartData = () => props.data.kind === "chart";
-  const errorReason = () => (props.data.kind === "error" ? props.data.reason : null);
-
   return (
     <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
       <header class="px-3 py-2 flex flex-col">
@@ -44,11 +43,10 @@ export default function ChartWidget(props: Props) {
         <Show
           when={isChartData()}
           fallback={
-            <div class="flex-1 flex items-center justify-center text-xs">
-              <Show when={errorReason()} fallback={<span>Loading…</span>}>
-                <span class="text-red-600 dark:text-red-400">{errorReason()}</span>
-              </Show>
-            </div>
+            <DashboardWidgetState
+              kind={props.data.kind === "error" ? "error" : "loading"}
+              detail={props.data.kind === "error" ? props.data.reason : null}
+            />
           }
         >
           <ChartBody widget={props.widget} data={props.data as Extract<WidgetData, { kind: "chart" }>} />
@@ -78,7 +76,7 @@ function ChartBody(props: { widget: Extract<Widget, { kind: "chart" }>; data: Ex
   const yFormat = () => (v: number) => formatWidgetValue(v, props.widget.format);
 
   return (
-    <Show when={renderData()} keyed fallback={<div class="flex-1 flex items-center justify-center text-xs">No data</div>}>
+    <Show when={renderData()} keyed fallback={<DashboardWidgetState kind="empty" />}>
       {(rd) => {
         switch (rd.kind) {
           case "donut":

@@ -28,6 +28,7 @@ type Fixture = {
   pagedView: { id: string; shortId: string };
   form: { id: string; publicToken: string };
   dashboard: { id: string; shortId: string };
+  emptyDashboard: { id: string; shortId: string };
   records: {
     first: string;
   };
@@ -276,7 +277,7 @@ const createFixture = async (): Promise<Fixture> => {
                 title: "Total amount",
                 format: "currency",
                 tone: "blue",
-                viewId: statView.id,
+                source: { kind: "view", viewId: statView.id },
               },
               {
                 id: "link-table",
@@ -305,7 +306,7 @@ const createFixture = async (): Promise<Fixture> => {
                 kind: "view",
                 span: 6,
                 title: "Open task amounts",
-                viewId: view.id,
+                source: { kind: "view", viewId: view.id },
               },
             ],
           },
@@ -319,7 +320,7 @@ const createFixture = async (): Promise<Fixture> => {
                 kind: "view-stats",
                 span: 6,
                 title: "Status summary",
-                viewId: chartView.id,
+                source: { kind: "view", viewId: chartView.id },
               },
               {
                 id: "chart-status",
@@ -327,7 +328,7 @@ const createFixture = async (): Promise<Fixture> => {
                 span: 6,
                 title: "Amount by status",
                 chartType: "bar",
-                viewId: chartView.id,
+                source: { kind: "view", viewId: chartView.id },
                 format: "currency",
               },
             ],
@@ -345,6 +346,14 @@ const createFixture = async (): Promise<Fixture> => {
     201,
   );
 
+  const emptyDashboard = await api<{ id: string; shortId: string }>(
+    "POST",
+    `/api/grids/dashboards/by-base/${base.id}`,
+    { name: "Empty dashboard", config: { rows: [] } },
+    sessionToken,
+    201,
+  );
+
   ok("fixture created");
   return {
     sessionToken,
@@ -356,6 +365,7 @@ const createFixture = async (): Promise<Fixture> => {
     pagedView,
     form: { id: form.id, publicToken: form.publicToken },
     dashboard,
+    emptyDashboard,
     records: { first: firstRecord.id },
     fields: { title: title.id, amount: amount.id, status: status.id, notes: notes.id, due: due.id },
   };
@@ -834,6 +844,59 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await expectVisibleText(page, "Dashboard notes", "markdown widget renders");
   await expectVisibleText(page, "Open tasks table", "link widget renders");
   await expectVisibleText(page, "Task intake", "form widget renders");
+
+  await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.emptyDashboard.shortId}?edit=true`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectVisibleText(page, "Nothing here yet", "empty dashboard explains its state");
+  const addFirstWidget = page.getByRole("button", { name: "Add first widget" });
+  const widgetChooser = page.getByRole("dialog");
+  const hydrationDeadline = Date.now() + TIMEOUT;
+  do {
+    await addFirstWidget.click();
+    await page.waitForTimeout(100);
+    if ((await widgetChooser.count()) > 0) break;
+  } while (Date.now() < hydrationDeadline);
+  if ((await widgetChooser.count()) === 0) fail("empty dashboard first-widget action did not hydrate");
+  const textWidget = widgetChooser.getByRole("button").filter({ hasText: "Text" }).first();
+  await textWidget.click();
+  const firstWidgetSaved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PATCH" &&
+      new URL(response.url()).pathname.endsWith(`/api/grids/dashboards/${fixture.emptyDashboard.id}`),
+    { timeout: TIMEOUT },
+  );
+  await page.getByRole("button", { name: "Add widget" }).click();
+  if (!(await firstWidgetSaved).ok()) fail("first dashboard widget save failed");
+  await expectVisibleText(page, "Notes", "first dashboard widget renders after save");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expectVisibleText(page, "Notes", "first dashboard widget persists after reload");
+
+  const dashboardSettings = page.getByRole("button", { name: "Dashboard settings" });
+  const settingsDialog = page.getByRole("dialog").filter({ hasText: "Dashboard settings — Empty dashboard" });
+  const settingsHydrationDeadline = Date.now() + TIMEOUT;
+  do {
+    await dashboardSettings.click();
+    await page.waitForTimeout(100);
+    if ((await settingsDialog.count()) > 0) break;
+  } while (Date.now() < settingsHydrationDeadline);
+  if ((await settingsDialog.count()) === 0) fail("dashboard settings action did not hydrate");
+  await settingsDialog.getByRole("button", { name: "Duplicate dashboard" }).click();
+  const duplicateDialog = page.getByRole("dialog").last();
+  await page.getByRole("textbox", { name: /Copies the latest saved layout/ }).fill("Duplicated dashboard");
+  const duplicateSaved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && new URL(response.url()).pathname === `/api/grids/dashboards/by-base/${fixture.base.id}`,
+    { timeout: TIMEOUT },
+  );
+  await duplicateDialog.getByRole("button", { name: "Duplicate", exact: true }).click();
+  const duplicateResponse = await duplicateSaved;
+  if (duplicateResponse.status() !== 201) fail("dashboard duplicate request failed");
+  const duplicatedDashboard = (await duplicateResponse.json()) as { ownerUserId: string | null };
+  if (duplicatedDashboard.ownerUserId === null) fail("dashboard duplicate was shared without explicit consent");
+  await page.waitForURL(/\/dashboard\/[^/?]+\?edit=true$/, { timeout: TIMEOUT });
+  await expectVisibleText(page, "Duplicated dashboard", "duplicated dashboard opens in edit mode");
+  await expectVisibleText(page, "Notes", "duplicated dashboard keeps its widgets");
 
   await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}?edit=true`, {
     waitUntil: "domcontentloaded",

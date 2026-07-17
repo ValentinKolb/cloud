@@ -11,7 +11,7 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -26,6 +26,7 @@ import {
   defaultViewStatsWidget,
   defaultViewWidget,
   defaultWorkflowButtonWidget,
+  isChartReadyView,
   openCellEditDialog,
 } from "../dialogs/DashboardWidgetDialogs";
 import { dashboardWorkflowOption } from "../dialogs/dashboard-workflow-options";
@@ -55,14 +56,14 @@ type Props = {
 };
 
 const CELL_KIND_OPTIONS: Array<{ id: Widget["kind"]; label: string; description: string; icon: string }> = [
-  { id: "stat", label: "Stat", description: "One KPI from GQL data.", icon: "ti ti-number" },
-  { id: "view", label: "View", description: "Rows from saved view or GQL.", icon: "ti ti-table-spark" },
-  { id: "chart", label: "Chart", description: "Buckets from grouped GQL data.", icon: "ti ti-chart-bar" },
-  { id: "view-stats", label: "View stats", description: "Compact summary from GQL data.", icon: "ti ti-layout-2" },
-  { id: "form", label: "Form", description: "Inline record creation.", icon: "ti ti-forms" },
-  { id: "markdown", label: "Markdown", description: "Notes or instructions.", icon: "ti ti-markdown" },
-  { id: "link", label: "Link", description: "Open a resource or URL.", icon: "ti ti-link" },
-  { id: "workflow-button", label: "Workflow", description: "Run a dashboard workflow.", icon: "ti ti-route" },
+  { id: "stat", label: "Number", description: "Highlight one important value.", icon: "ti ti-number" },
+  { id: "view", label: "Records", description: "Show a filtered list of records.", icon: "ti ti-table-spark" },
+  { id: "chart", label: "Chart", description: "Compare categories or show a trend.", icon: "ti ti-chart-bar" },
+  { id: "view-stats", label: "Summary", description: "Show several values at a glance.", icon: "ti ti-layout-2" },
+  { id: "form", label: "Form", description: "Let people add a record.", icon: "ti ti-forms" },
+  { id: "markdown", label: "Text", description: "Add notes or instructions.", icon: "ti ti-markdown" },
+  { id: "link", label: "Link", description: "Open another page or form.", icon: "ti ti-link" },
+  { id: "workflow-button", label: "Workflow", description: "Run an automated action.", icon: "ti ti-route" },
 ];
 
 const newWidget = (kind: Widget["kind"], tableId: string): Widget => {
@@ -88,10 +89,22 @@ const configuredNewWidget = (
     dashboards: Dashboard[];
     dashboardWorkflows: Workflow[];
     formsByTable: Record<string, Form[]>;
+    viewsByTable: Record<string, View[]>;
   },
 ): Widget | null => {
   const widget = newWidget(kind, ctx.tableId);
-  if (widget.kind === "view" || widget.kind === "stat" || widget.kind === "chart" || widget.kind === "view-stats") return widget;
+  const views = Object.values(ctx.viewsByTable)
+    .flat()
+    .filter((view) => !view.deletedAt);
+  if (widget.kind === "view" || widget.kind === "view-stats") {
+    const view = views[0];
+    return view ? ({ ...widget, title: view.name, source: { kind: "view", viewId: view.id } } as Widget) : widget;
+  }
+  if (widget.kind === "chart") {
+    const view = views.find(isChartReadyView);
+    return view ? ({ ...widget, title: view.name, source: { kind: "view", viewId: view.id } } as Widget) : widget;
+  }
+  if (widget.kind === "stat") return widget;
   if (widget.kind === "form") {
     const form = firstForm(ctx.formsByTable);
     return form ? ({ ...widget, formId: form.id, title: form.name } as Widget) : null;
@@ -157,6 +170,7 @@ const withDashboardScrollPreserved = (update: () => void, scrollTop = captureDas
 export default function DashboardWysiwygEditor(props: Props) {
   const [config, setConfig] = createSignal<DashboardConfig>(props.initialDashboard.config);
   const [widgetData, setWidgetData] = createSignal<Record<string, WidgetData>>(props.widgetData);
+  const [saveState, setSaveState] = createSignal<"idle" | "saving" | "saved" | "error">("idle");
   let confirmedConfig = props.initialDashboard.config;
   let saveQueue: Promise<void> = Promise.resolve();
   let saveToken = 0;
@@ -173,6 +187,7 @@ export default function DashboardWysiwygEditor(props: Props) {
     { widgetsToResolve: Widget[]; token: number; scrollTop: number | null }
   >({
     onBefore: (next) => {
+      setSaveState("saving");
       const previous = config();
       const token = ++saveToken;
       const scrollTop = pendingScrollTop ?? captureDashboardScrollTop();
@@ -200,11 +215,13 @@ export default function DashboardWysiwygEditor(props: Props) {
     },
     onSuccess: (dashboard, ctx) => {
       if (ctx?.token !== saveToken) return;
+      setSaveState("saved");
       withDashboardScrollPreserved(() => setWidgetData((current) => pruneWidgetData(current, dashboard.config)), ctx.scrollTop);
       if (ctx.widgetsToResolve.length) void resolveWidgets(ctx.widgetsToResolve, ctx.token, ctx.scrollTop);
     },
     onError: (e, ctx) => {
       if (ctx?.token !== saveToken) return;
+      setSaveState("error");
       withDashboardScrollPreserved(() => setConfig(confirmedConfig), ctx.scrollTop);
       prompts.error(e.message);
     },
@@ -260,6 +277,12 @@ export default function DashboardWysiwygEditor(props: Props) {
     const result = await openRowSettingsDialog(row.height);
     if (!result) return;
     if (result.action === "delete") {
+      const widgetCount = row.cells.length;
+      const confirmed = await prompts.confirm(
+        widgetCount > 0 ? `Delete this row and its ${widgetCount} ${widgetCount === 1 ? "widget" : "widgets"}?` : "Delete this empty row?",
+        { title: "Delete row?", variant: "danger", confirmText: "Delete" },
+      );
+      if (!confirmed) return;
       pendingScrollTop = scrollTop;
       commitRows(config().rows.filter((_, idx) => idx !== rowIdx));
       return;
@@ -269,16 +292,13 @@ export default function DashboardWysiwygEditor(props: Props) {
     updateRow(rowIdx, { ...row, height: result.height });
   };
 
-  const addCell = async (rowIdx: number) => {
-    const row = config().rows[rowIdx];
-    if (!row || row.cells.length >= 12) return;
-    const kind = await chooseCellKind();
-    if (!kind) return;
+  const configureWidget = async (kind: Widget["kind"], cellCount: number) => {
     const initialWidget = configuredNewWidget(kind, {
       tableId: props.tables[0]?.id ?? "",
       dashboards: props.dashboards,
       dashboardWorkflows: props.dashboardWorkflows,
       formsByTable: props.formsByTable,
+      viewsByTable: props.viewsByTable,
     });
     if (!initialWidget) {
       prompts.error(
@@ -288,7 +308,7 @@ export default function DashboardWysiwygEditor(props: Props) {
       );
       return;
     }
-    const result = await openCellEditDialog(withSpan(initialWidget, row.cells.length === 0 ? 12 : (initialWidget.span ?? 3)), {
+    const result = await openCellEditDialog(withSpan(initialWidget, cellCount === 0 ? 12 : (initialWidget.span ?? 3)), {
       baseId: props.initialDashboard.baseId,
       dashboardId: props.initialDashboard.id,
       tables: props.tables,
@@ -298,10 +318,27 @@ export default function DashboardWysiwygEditor(props: Props) {
       viewsByTable: props.viewsByTable,
       formsByTable: props.formsByTable,
     });
-    if (!result || result.action !== "save") return;
-    const configuredWidget = result.widget;
+    return result?.action === "save" ? result.widget : undefined;
+  };
+
+  const addCell = async (rowIdx: number) => {
+    const row = config().rows[rowIdx];
+    if (!row || row.cells.length >= 12) return;
+    const kind = await chooseCellKind();
+    if (!kind) return;
+    const configuredWidget = await configureWidget(kind, row.cells.length);
+    if (!configuredWidget) return;
     const nextCells = [...row.cells, configuredWidget];
     updateRow(rowIdx, { ...row, cells: cellsAreEven(row.cells) ? rebalanceEvenCells(nextCells) : nextCells });
+  };
+
+  const addFirstWidget = async () => {
+    if (config().rows.length > 0) return;
+    const kind = await chooseCellKind();
+    if (!kind) return;
+    const widget = await configureWidget(kind, 0);
+    if (!widget) return;
+    commitRows([{ id: newRowId(), kind: "row", height: "md", cells: [widget] }]);
   };
 
   const editCell = async (rowIdx: number, cellIdx: number) => {
@@ -367,6 +404,7 @@ export default function DashboardWysiwygEditor(props: Props) {
       dateConfig={props.dateConfig}
       onWidgetRecordsChanged={props.onWidgetRecordsChanged}
       edit={{
+        saveState: saveState(),
         onGeneral: () =>
           openDashboardGeneralDialog({
             dashboard: props.initialDashboard,
@@ -375,6 +413,7 @@ export default function DashboardWysiwygEditor(props: Props) {
             initialAccessEntries: props.initialAccessEntries,
             canEditAccess: props.canEditAccess,
           }),
+        onAddFirstWidget: addFirstWidget,
         onAddRowAt: addRowAt,
         onMoveRow: moveRow,
         onEditRow: editRow,
@@ -408,7 +447,7 @@ const chooseCellKind = () =>
   dialogCore.open<Widget["kind"] | undefined>(
     (close) => (
       <PanelDialog>
-        <PanelDialog.Header title="Add cell" icon="ti ti-plus" close={() => close(undefined)} />
+        <PanelDialog.Header title="Add widget" icon="ti ti-plus" close={() => close(undefined)} />
         <PanelDialog.Body>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <For each={CELL_KIND_OPTIONS}>
@@ -500,7 +539,7 @@ function DashboardGeneralDialog(props: {
   return (
     <PanelDialog>
       <PanelDialog.Header title={`Dashboard settings — ${props.dashboard.name}`} icon="ti ti-layout-dashboard" close={closeIfClean} />
-      <DashboardGeneralBody {...props} onDirtyChange={setDirty} close={closeIfClean} />
+      <DashboardGeneralBody {...props} onDirtyChange={setDirty} close={closeIfClean} onDuplicated={props.close} />
     </PanelDialog>
   );
 }
@@ -512,6 +551,7 @@ function DashboardGeneralBody(props: {
   initialAccessEntries: AccessEntry[];
   canEditAccess: boolean;
   close: () => void;
+  onDuplicated: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const draft = createDraft({
@@ -589,7 +629,15 @@ function DashboardGeneralBody(props: {
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <DeleteDashboardButton dashboardId={props.dashboard.id} baseShortId={props.baseShortId} name={props.dashboard.name} />
+        <div class="flex items-center gap-2">
+          <DuplicateDashboardButton
+            dashboard={props.dashboard}
+            baseShortId={props.baseShortId}
+            onDuplicated={props.onDuplicated}
+            dirty={draft.dirty}
+          />
+          <DeleteDashboardButton dashboardId={props.dashboard.id} baseShortId={props.baseShortId} name={props.dashboard.name} />
+        </div>
         <div class="flex items-center gap-2">
           <button type="button" class="btn-input btn-sm" onClick={props.close}>
             Cancel
@@ -616,6 +664,77 @@ function DashboardPermissions(props: { dashboardId: string; initialEntries: Acce
       initialEntries={props.initialEntries}
       allowedLevels={["read"]}
     />
+  );
+}
+
+function DuplicateDashboardButton(props: { dashboard: Dashboard; baseShortId: string; onDuplicated: () => void; dirty: () => boolean }) {
+  const mut = mutations.create<Dashboard, { name: string; shared: boolean }>({
+    mutation: async (input) => {
+      const currentRes = await apiClient.dashboards[":dashboardId"].$get({
+        param: { dashboardId: props.dashboard.id },
+      });
+      if (!currentRes.ok) throw new Error(await errorMessage(currentRes, "Failed to load dashboard"));
+      const current = await currentRes.json();
+
+      const createRes = await apiClient.dashboards["by-base"][":baseId"].$post({
+        param: { baseId: current.baseId },
+        json: {
+          name: input.name,
+          description: current.description,
+          icon: current.icon,
+          config: current.config,
+          shared: input.shared,
+        },
+      });
+      if (!createRes.ok) throw new Error(await errorMessage(createRes, "Failed to duplicate dashboard"));
+      return createRes.json();
+    },
+    onSuccess: (dashboard) => {
+      props.onDuplicated();
+      toast.success("Dashboard duplicated");
+      navigateTo(`/app/grids/${props.baseShortId}/dashboard/${dashboard.shortId}?edit=true`);
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const duplicate = async () => {
+    if (props.dirty()) {
+      prompts.error("Save or discard your dashboard settings before duplicating it.");
+      return;
+    }
+    const result = await prompts.form({
+      title: "Duplicate dashboard",
+      icon: "ti ti-copy",
+      fields: {
+        name: {
+          type: "text",
+          label: "Name",
+          required: true,
+          default: `${props.dashboard.name} copy`,
+          description: "Copies the latest saved layout and widgets. Permissions are not copied.",
+        },
+        shared: {
+          type: "boolean",
+          label: "Shared dashboard",
+          description: "Visible to everyone who can open this base.",
+          default: false,
+        },
+      },
+      confirmText: "Duplicate",
+    });
+    if (!result) return;
+    const name = String(result.name).trim();
+    if (!name) {
+      prompts.error("Name is required");
+      return;
+    }
+    mut.mutate({ name, shared: Boolean(result.shared) });
+  };
+
+  return (
+    <button type="button" class="btn-input btn-sm" disabled={mut.loading()} onClick={() => void duplicate()}>
+      <i class={`ti ${mut.loading() ? "ti-loader-2 animate-spin" : "ti-copy"}`} /> Duplicate dashboard
+    </button>
   );
 }
 

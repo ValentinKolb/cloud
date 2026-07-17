@@ -1,9 +1,11 @@
 import {
+  confirmDiscardIfDirty,
   dialogCore,
   IconInput,
   MarkdownEditor,
   PanelDialog,
   panelDialogOptions,
+  prompts,
   SegmentedControl,
   Select,
   TextInput,
@@ -130,14 +132,14 @@ export const openCellEditDialog = (
   options: { allowDelete?: boolean } = {},
 ): Promise<CellEditDialogResult | undefined> => {
   const title: Record<Widget["kind"], string> = {
-    stat: "Stat widget",
-    view: "View widget",
-    chart: "Chart widget",
-    "view-stats": "View stats widget",
-    form: "Form widget",
-    markdown: "Markdown widget",
-    link: "Link widget",
-    "workflow-button": "Workflow widget",
+    stat: "number",
+    view: "records",
+    chart: "chart",
+    "view-stats": "summary",
+    form: "form",
+    markdown: "text",
+    link: "link",
+    "workflow-button": "workflow",
   };
   const icon: Record<Widget["kind"], string> = {
     stat: "ti ti-number",
@@ -151,9 +153,22 @@ export const openCellEditDialog = (
   };
 
   return dialogCore.open<CellEditDialogResult>((close) => {
+    const original = JSON.stringify(widget);
     const [draft, setDraft] = createSignal<Widget>(widget);
     const [validationError, setValidationError] = createSignal<string | null>(null);
     const [validating, setValidating] = createSignal(false);
+    let validationErrorElement: HTMLDivElement | undefined;
+    const isDirty = () => JSON.stringify(draft()) !== original;
+    const closeIfClean = async () => {
+      if (await confirmDiscardIfDirty(isDirty)) close();
+    };
+    const showValidationError = (message: string) => {
+      setValidationError(message);
+      queueMicrotask(() => {
+        validationErrorElement?.scrollIntoView({ block: "nearest" });
+        validationErrorElement?.focus();
+      });
+    };
     const updateDraft = (next: Widget) => {
       setValidationError(null);
       setDraft(next);
@@ -162,7 +177,7 @@ export const openCellEditDialog = (
     const save = async () => {
       const localError = validateWidgetDraft(draft(), ctx.viewsByTable);
       if (localError) {
-        setValidationError(localError);
+        showValidationError(localError);
         return;
       }
       if (isQueryWidget(draft())) {
@@ -175,11 +190,11 @@ export const openCellEditDialog = (
           if (!response.ok) throw new Error(await errorMessage(response, "Could not validate widget data"));
           const resolved = await response.json();
           if (resolved.kind === "error") {
-            setValidationError(resolved.reason);
+            showValidationError(resolved.reason);
             return;
           }
         } catch (error) {
-          setValidationError(error instanceof Error ? error.message : "Could not validate widget data");
+          showValidationError(error instanceof Error ? error.message : "Could not validate widget data");
           return;
         } finally {
           setValidating(false);
@@ -187,13 +202,26 @@ export const openCellEditDialog = (
       }
       close({ action: "save", widget: draft() });
     };
+    const remove = async () => {
+      const confirmed = await prompts.confirm("Delete this widget from the dashboard?", {
+        title: "Delete widget?",
+        variant: "danger",
+        confirmText: "Delete",
+      });
+      if (confirmed) close({ action: "delete" });
+    };
+    const action = options.allowDelete ? "Edit" : "Add";
 
     return (
       <PanelDialog>
-        <PanelDialog.Header title={title[widget.kind]} icon={icon[widget.kind]} close={() => close()} />
+        <PanelDialog.Header title={`${action} ${title[widget.kind]} widget`} icon={icon[widget.kind]} close={() => void closeIfClean()} />
         <PanelDialog.Body>
-          <Show when={draft().kind === "chart" ? (draft() as ChartWidget) : null}>
-            {(chart) => <ChartWidgetInfoBlock chartType={chart().chartType} />}
+          <Show when={validationError()}>
+            {(message) => (
+              <div ref={validationErrorElement} class="info-block-danger text-sm" role="alert" tabIndex={-1}>
+                {message()}
+              </div>
+            )}
           </Show>
           <CellEditorBody
             widget={draft()}
@@ -206,36 +234,37 @@ export const openCellEditDialog = (
             viewsByTable={ctx.viewsByTable}
             formsByTable={ctx.formsByTable}
           />
-          <Show when={validationError()}>{(message) => <div class="info-block-danger text-sm">{message()}</div>}</Show>
-          <WidgetEditorSection title="Layout" subtitle="Width inside the row's 12-column grid." icon="ti ti-layout-columns">
+          <WidgetEditorSection title="Layout" subtitle="Choose how much horizontal space this widget uses." icon="ti ti-layout-columns">
             <Select
               label="Widget width"
               value={() => String(draft().span ?? 12)}
               onChange={(v) => setDraft({ ...draft(), span: Number(v) } as Widget)}
               options={[
-                { id: "3", label: "S · 3/12", description: "Compact width." },
-                { id: "6", label: "M · 6/12", description: "Half row." },
-                { id: "8", label: "L · 8/12", description: "Wide widget." },
-                { id: "12", label: "XL · 12/12", description: "Full row." },
+                { id: "3", label: "Quarter row", description: "Best for a compact number or action." },
+                { id: "4", label: "Third row", description: "Three equal widgets per row." },
+                { id: "6", label: "Half row", description: "Two equal widgets per row." },
+                { id: "8", label: "Two-thirds row", description: "A wide widget with room beside it." },
+                { id: "9", label: "Three-quarters row", description: "A wide widget with a compact companion." },
+                { id: "12", label: "Full row", description: "Uses all available width." },
               ]}
             />
           </WidgetEditorSection>
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <Show when={options.allowDelete} fallback={<span />}>
-            <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
+            <button type="button" class="btn-danger btn-sm" onClick={() => void remove()}>
               <i class="ti ti-trash" /> Delete widget
             </button>
           </Show>
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-input btn-sm" onClick={() => close()}>
+            <button type="button" class="btn-input btn-sm" onClick={() => void closeIfClean()}>
               Cancel
             </button>
             <button type="button" class="btn-primary btn-sm" disabled={validating()} onClick={() => void save()}>
               <Show when={validating()} fallback={<i class="ti ti-check" />}>
                 <i class="ti ti-loader-2 animate-spin" />
               </Show>
-              Save
+              {options.allowDelete ? "Save changes" : "Add widget"}
             </button>
           </div>
         </PanelDialog.Footer>
@@ -368,11 +397,7 @@ function DashboardDataSourceEditor(props: {
 
   return (
     <div class="flex flex-col gap-2">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p class="text-sm font-medium text-primary">Data source</p>
-          <p class="text-xs text-dimmed">Reuse a saved view or keep a GQL query local to this widget.</p>
-        </div>
+      <div class="flex justify-end">
         <SegmentedControl
           ariaLabel="Dashboard widget data source"
           value={() => props.source.kind}
@@ -407,19 +432,22 @@ function DashboardDataSourceEditor(props: {
           />
         }
       >
-        <GqlSourceEditor
-          baseId={props.baseId}
-          value={() => (props.source.kind === "gql" ? props.source.source : queryDraft())}
-          onInput={(source) => {
-            setQueryDraft(source);
-            props.onChange({ kind: "gql", source });
-          }}
-          lines={8}
-          spellcheck={false}
-          ariaLabel="Widget GQL source"
-          placeholder={props.queryPlaceholder}
-          variant="paper"
-        />
+        <div class="flex flex-col gap-1">
+          <span class="text-xs font-medium text-primary">GQL query</span>
+          <GqlSourceEditor
+            baseId={props.baseId}
+            value={() => (props.source.kind === "gql" ? props.source.source : queryDraft())}
+            onInput={(source) => {
+              setQueryDraft(source);
+              props.onChange({ kind: "gql", source });
+            }}
+            lines={8}
+            spellcheck={false}
+            ariaLabel="Widget GQL source"
+            placeholder={props.queryPlaceholder}
+            variant="paper"
+          />
+        </div>
       </Show>
     </div>
   );
@@ -436,11 +464,6 @@ function StatCellBody(props: {
 
   return (
     <WidgetEditorSection title="Source" subtitle="Choose the value calculated by this widget." icon="ti ti-database">
-      <WidgetInfoBlock
-        title="Stat widget"
-        body="Shows one number from a saved view or local GQL query."
-        detail="Use an aggregate such as `aggregate count(*) as rows` or `aggregate sum(Amount) as revenue`."
-      />
       <DashboardDataSourceEditor
         baseId={props.baseId}
         source={props.widget.source}
@@ -577,11 +600,6 @@ function ViewStatsCellBody(props: {
   const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
   return (
     <WidgetEditorSection title="Source" subtitle="Choose the data summarized by this widget." icon="ti ti-table-spark">
-      <WidgetInfoBlock
-        title="View summary"
-        body="Shows a compact summary from a saved view or local GQL query."
-        detail="Grouped results show the first bucket. Ungrouped results show the first record's output fields."
-      />
       <DashboardDataSourceEditor
         baseId={props.baseId}
         source={props.widget.source}
@@ -608,12 +626,7 @@ function FormCellBody(props: {
 }) {
   const allForms = createMemo(() => sortedForms(props.tables, props.formsByTable));
   return (
-    <WidgetEditorSection title="Source" subtitle="Embed a saved form for inline record creation." icon="ti ti-forms">
-      <WidgetInfoBlock
-        title="Form widget"
-        body="Shows a form directly on the dashboard."
-        detail="Submissions create records in the form's table. Users without submit permission see a read-only placeholder."
-      />
+    <WidgetEditorSection title="Source" subtitle="Choose the saved form shown on this dashboard." icon="ti ti-forms">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextInput
           label="Title"
@@ -650,11 +663,6 @@ function ViewCellBody(props: {
 
   return (
     <WidgetEditorSection title="Source" subtitle="Choose the records shown in this widget." icon="ti ti-table">
-      <WidgetInfoBlock
-        title="Embedded records"
-        body="Shows records inside the dashboard."
-        detail="Reuse a saved view or write a dashboard-local GQL query for filters, sorting, joins, and columns."
-      />
       <DashboardDataSourceEditor
         baseId={props.baseId}
         source={props.widget.source}
@@ -681,53 +689,13 @@ const CHART_TYPE_OPTIONS: { id: ChartWidget["chartType"]; label: string; icon: s
   { id: "scatter", label: "Scatter", icon: "ti ti-chart-dots" },
 ];
 
-const CHART_TYPE_INFO: Record<ChartWidget["chartType"], { title: string; body: string; requirement: string; example: string }> = {
-  donut: {
-    title: "Donut chart",
-    body: "Use this when you want to show parts of one total, for example tasks by status or revenue by product group.",
-    requirement: "The source must group rows into slices and include one summary value for the slice size.",
-    example: "Example: group by Status, summarize with Count.",
-  },
-  bar: {
-    title: "Bar chart",
-    body: "Use this when you want to compare categories side by side, for example sales per month or tickets per team.",
-    requirement: "The source must group rows into bars and include one summary value for the bar height.",
-    example: "Example: group by Month, summarize Amount with Sum.",
-  },
-  line: {
-    title: "Line chart",
-    body: "Use this when you want to show change over time or another ordered list, for example monthly income.",
-    requirement: "The source must group rows for the x-axis and include one or more summary values for the lines.",
-    example: "Example: group by Month, summarize Amount with Sum.",
-  },
-  sparkline: {
-    title: "Sparkline",
-    body: "Use this when you want a compact trend without axes, for example daily signups or stock over time.",
-    requirement: "The source must group rows in the desired order and include one summary value for the line.",
-    example: "Example: group by Day, summarize Quantity with Sum.",
-  },
-  scatter: {
-    title: "Scatter chart",
-    body: "Use this when you want to compare two numbers for each category, for example hours spent vs revenue.",
-    requirement: "The source must group rows and include at least two summary values. The first value is X, the second is Y.",
-    example: "Example: group by Customer, summarize Hours and Revenue with Sum.",
-  },
+const CHART_TYPE_HELP: Record<ChartWidget["chartType"], string> = {
+  donut: "Shows parts of one total. The source needs one group and one summary value.",
+  bar: "Compares categories. The source needs one group and at least one summary value.",
+  line: "Shows change across an ordered group, such as days or months.",
+  sparkline: "Shows one compact trend without axes.",
+  scatter: "Compares two summary values for every group.",
 };
-
-function ChartWidgetInfoBlock(props: { chartType: ChartWidget["chartType"] }) {
-  const info = () => CHART_TYPE_INFO[props.chartType];
-  return (
-    <section class="info-block-info p-4 text-sm flex items-start gap-3">
-      <i class="ti ti-info-circle mt-0.5 shrink-0 text-base" />
-      <div class="min-w-0 flex flex-col gap-1.5">
-        <h3 class="font-semibold text-base leading-tight">{info().title}</h3>
-        <p>{info().body}</p>
-        <p>{info().requirement}</p>
-        <p>{info().example}</p>
-      </div>
-    </section>
-  );
-}
 
 function ChartCellBody(props: {
   widget: ChartWidget;
@@ -756,6 +724,7 @@ function ChartCellBody(props: {
             </button>
           ))}
         </div>
+        <p class="text-xs text-dimmed">{CHART_TYPE_HELP[props.widget.chartType]}</p>
       </div>
       <DashboardDataSourceEditor
         baseId={props.baseId}
@@ -784,7 +753,7 @@ function ChartCellBody(props: {
         />
         <TextInput
           label="Limit"
-          description="Optional. Uses the view order and keeps the last N rows."
+          description="Optional. Uses the source order and keeps the last N rows."
           value={() => (props.widget.limit !== undefined ? String(props.widget.limit) : "")}
           onInput={(raw) => {
             const trimmed = raw.trim();
@@ -934,11 +903,6 @@ function LinkCellBody(props: {
 
   return (
     <WidgetEditorSection title="Target" subtitle="Link to a Grids resource or an external URL." icon="ti ti-link">
-      <WidgetInfoBlock
-        title="Link widget"
-        body="Shows a compact action card on the dashboard."
-        detail="Internal links open in Grids. External URLs open in a new tab. Forms open as a modal when the user can submit."
-      />
       <div class="flex flex-col gap-1">
         <span class="text-xs font-medium text-primary">Target type</span>
         <div class="flex flex-wrap items-center gap-2">
@@ -1036,27 +1000,20 @@ function LinkCellBody(props: {
 
 function MarkdownCellBody(props: { widget: MarkdownWidget; onUpdate: (w: MarkdownWidget) => void }) {
   return (
-    <>
-      <WidgetEditorSection title="Content" subtitle="Markdown is rendered in the dashboard cell." icon="ti ti-markdown">
-        <WidgetInfoBlock
-          title="Markdown widget"
-          body="Adds instructions, notes, links, or context to a dashboard."
-          detail="The editor stores Markdown. The dashboard renders it as HTML."
-        />
-        <TextInput
-          label="Title"
-          value={() => props.widget.title ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-          placeholder="Optional"
-        />
-        <MarkdownEditor
-          value={() => props.widget.markdown ?? ""}
-          onInput={(value) => props.onUpdate({ ...props.widget, markdown: value })}
-          lines={12}
-          placeholder="Add instructions, links, or context..."
-        />
-      </WidgetEditorSection>
-    </>
+    <WidgetEditorSection title="Content" subtitle="Add notes, links, or instructions with Markdown." icon="ti ti-markdown">
+      <TextInput
+        label="Title"
+        value={() => props.widget.title ?? ""}
+        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        placeholder="Optional"
+      />
+      <MarkdownEditor
+        value={() => props.widget.markdown ?? ""}
+        onInput={(value) => props.onUpdate({ ...props.widget, markdown: value })}
+        lines={12}
+        placeholder="Add instructions, links, or context..."
+      />
+    </WidgetEditorSection>
   );
 }
 
@@ -1067,11 +1024,6 @@ function WorkflowButtonCellBody(props: {
 }) {
   return (
     <WidgetEditorSection title="Action" subtitle="Run one workflow from this dashboard." icon="ti ti-route">
-      <WidgetInfoBlock
-        title="Workflow button"
-        body="Shows a button that starts a dashboard workflow or opens a scanner workflow."
-        detail="Users can press the button when they can open this dashboard and run the selected workflow. Workflow editing stays admin-only."
-      />
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextInput
           label="Title"
@@ -1115,19 +1067,6 @@ function WidgetEditorSection(props: { title: string; subtitle?: string; icon: st
     <PanelDialog.Section title={props.title} subtitle={props.subtitle} icon={props.icon}>
       {props.children}
     </PanelDialog.Section>
-  );
-}
-
-function WidgetInfoBlock(props: { title: string; body: string; detail: string }) {
-  return (
-    <div class="info-block-info p-3 text-sm flex items-start gap-3">
-      <i class="ti ti-info-circle mt-0.5 shrink-0 text-base" />
-      <div class="min-w-0 flex flex-col gap-1">
-        <p class="font-semibold leading-tight">{props.title}</p>
-        <p>{props.body}</p>
-        <p>{props.detail}</p>
-      </div>
-    </div>
   );
 }
 

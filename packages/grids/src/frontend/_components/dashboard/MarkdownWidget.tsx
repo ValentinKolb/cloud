@@ -2,6 +2,7 @@ import { markdown } from "@valentinkolb/cloud/shared";
 import { MarkdownView } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
 import type { Widget } from "../../../service";
+import DashboardWidgetState from "./DashboardWidgetState";
 import type { WidgetData } from "./widget-data";
 
 type Props = {
@@ -27,11 +28,11 @@ export default function MarkdownWidget(props: Props) {
       <Show
         when={html()}
         fallback={
-          <div class="flex-1 flex items-center justify-center text-xs text-dimmed px-3 py-2 text-center">
-            <Show when={props.data.kind === "error"} fallback="No content">
-              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
-            </Show>
-          </div>
+          <DashboardWidgetState
+            kind={props.data.kind === "error" ? "error" : "empty"}
+            title={props.data.kind === "error" ? undefined : "No content"}
+            detail={props.data.kind === "error" ? props.data.reason : null}
+          />
         }
       >
         {(() => {

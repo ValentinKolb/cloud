@@ -4,6 +4,7 @@ import { apiClient } from "@/api/client";
 import type { Field, FormWidget } from "../../../service";
 import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
+import DashboardWidgetState from "./DashboardWidgetState";
 import type { WidgetData } from "./widget-data";
 
 type Props = {
@@ -37,11 +38,10 @@ export default function FormCell(props: Props) {
       <Show
         when={isForm(props.data)}
         fallback={
-          <div class="flex-1 flex items-center justify-center text-xs text-dimmed px-3 py-2 text-center">
-            <Show when={props.data.kind === "error"} fallback="Loading…">
-              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
-            </Show>
-          </div>
+          <DashboardWidgetState
+            kind={props.data.kind === "error" ? "error" : "loading"}
+            detail={props.data.kind === "error" ? props.data.reason : null}
+          />
         }
       >
         {(() => {

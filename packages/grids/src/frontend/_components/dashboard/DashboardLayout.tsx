@@ -24,7 +24,9 @@ type Props = {
   dateConfig?: DateContext;
   onWidgetRecordsChanged?: () => void;
   edit?: {
+    saveState: "idle" | "saving" | "saved" | "error";
     onGeneral: () => void;
+    onAddFirstWidget: () => void;
     onAddRowAt: (rowIdx: number) => void;
     onMoveRow: (fromRowIdx: number, toRowIdx: number) => void;
     onEditRow: (rowIdx: number) => void;
@@ -172,8 +174,18 @@ export default function DashboardLayout(props: Props) {
           <Show when={props.edit}>
             {(edit) => (
               <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <DashboardSaveStatus state={edit().saveState} />
+                <Show when={props.dashboard.config.rows.length > 0}>
+                  <button
+                    type="button"
+                    class="btn-input-success btn-input-sm"
+                    onClick={() => edit().onAddRowAt(props.dashboard.config.rows.length)}
+                  >
+                    <i class="ti ti-plus" /> Add row
+                  </button>
+                </Show>
                 <button type="button" class="btn-input btn-input-sm" onClick={edit().onGeneral}>
-                  <i class="ti ti-settings" /> General
+                  <i class="ti ti-settings" /> Dashboard settings
                 </button>
               </div>
             )}
@@ -183,7 +195,7 @@ export default function DashboardLayout(props: Props) {
 
       <Show when={props.dashboard.config.rows.length > 0} fallback={<EmptyDashboardState edit={props.edit} />}>
         <Show when={props.edit}>
-          {(edit) => <AddRowRail label="Add row" insertionIdx={0} rowDnd={rowDnd} onAdd={() => edit().onAddRowAt(0)} />}
+          <RowDropTarget insertionIdx={0} rowDnd={rowDnd} />
         </Show>
         <For each={props.dashboard.config.rows}>
           {(row, rowIdx) => (
@@ -203,15 +215,7 @@ export default function DashboardLayout(props: Props) {
                 dateConfig={props.dateConfig}
               />
               <Show when={props.edit}>
-                {(edit) => (
-                  <AddRowRail
-                    label="Add row"
-                    insertionIdx={rowIdx() + 1}
-                    rowDnd={rowDnd}
-                    active={rowDnd.intent()?.toRowIdx === rowIdx() + 1}
-                    onAdd={() => edit().onAddRowAt(rowIdx() + 1)}
-                  />
-                )}
+                <RowDropTarget insertionIdx={rowIdx() + 1} rowDnd={rowDnd} />
               </Show>
             </>
           )}
@@ -351,13 +355,7 @@ function DashboardRowGrid(props: {
   );
 }
 
-function AddRowRail(props: {
-  label: string;
-  insertionIdx: number;
-  rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>>;
-  active?: boolean;
-  onAdd: () => void;
-}) {
+function RowDropTarget(props: { insertionIdx: number; rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>> }) {
   const active = () => props.rowDnd.isDragging() && props.rowDnd.intent()?.toRowIdx === props.insertionIdx;
   return (
     <div
@@ -367,18 +365,32 @@ function AddRowRail(props: {
           meta: { insertionIdx: props.insertionIdx },
         }));
       }}
-      class="-my-2 py-2"
+      class="-my-2 min-h-4 py-2"
     >
-      <button
-        type="button"
-        class={`btn-input btn-input-sm flex min-h-9 w-full items-center justify-center ${
-          active() || props.active ? "bg-[var(--ui-active)]" : ""
-        }`}
-        onClick={props.onAdd}
-      >
-        <i class={`ti ${active() ? "ti-arrow-down" : "ti-plus"} mr-1`} /> {active() ? "Drop here" : props.label}
-      </button>
+      <Show when={props.rowDnd.isDragging()}>
+        <div
+          class={`flex min-h-9 w-full items-center justify-center rounded-[var(--ui-radius-control)] text-xs font-medium transition-colors motion-reduce:transition-none ${
+            active() ? "bg-[var(--ui-active)] text-primary" : "bg-[var(--ui-surface-subtle)] text-dimmed"
+          }`}
+        >
+          <i class="ti ti-arrow-down mr-1" /> Drop row here
+        </div>
+      </Show>
     </div>
+  );
+}
+
+function DashboardSaveStatus(props: { state: NonNullable<Props["edit"]>["saveState"] }) {
+  const status = () => {
+    if (props.state === "saving") return { icon: "ti-loader-2 animate-spin", label: "Saving…", tone: "text-dimmed" };
+    if (props.state === "saved") return { icon: "ti-check", label: "Saved", tone: "text-dimmed" };
+    if (props.state === "error") return { icon: "ti-alert-circle", label: "Not saved", tone: "text-red-600 dark:text-red-400" };
+    return { icon: "ti-cloud-check", label: "Changes save automatically", tone: "text-dimmed" };
+  };
+  return (
+    <span class={`flex items-center gap-1 text-xs ${status().tone}`} aria-live="polite">
+      <i class={`ti ${status().icon}`} /> {status().label}
+    </span>
   );
 }
 
@@ -486,7 +498,7 @@ function EditCellControls(props: {
   return (
     <Show when={props.edit}>
       {(edit) => (
-        <div class="absolute right-2 top-2 z-20 flex items-center gap-0 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1">
+        <div class="absolute right-2 top-2 z-20 flex items-center gap-0 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1 opacity-100 transition-opacity motion-reduce:transition-none sm:opacity-0 sm:group-hover/cell:opacity-100 sm:group-focus-within/cell:opacity-100">
           <span
             class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`}
             data-dashboard-cell-drag
@@ -610,11 +622,11 @@ function EmptyDashboardState(props: { edit?: Props["edit"] }) {
   return (
     <div class="flex min-h-40 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
       <i class="ti ti-layout-dashboard text-2xl text-dimmed" />
-      <p class="text-sm text-dimmed">This dashboard has no rows yet.</p>
-      <Show when={props.edit} fallback={<p class="text-xs text-dimmed">Open the editor to add rows and widgets.</p>}>
+      <p class="text-sm font-medium text-primary">Nothing here yet</p>
+      <Show when={props.edit} fallback={<p class="text-xs text-dimmed">Open edit mode to build this dashboard.</p>}>
         {(edit) => (
-          <button type="button" class="btn-input-success btn-input-sm mt-1" onClick={() => edit().onAddRowAt(0)}>
-            <i class="ti ti-plus" /> Add row
+          <button type="button" class="btn-input-success btn-input-sm mt-1" onClick={edit().onAddFirstWidget}>
+            <i class="ti ti-plus" /> Add first widget
           </button>
         )}
       </Show>

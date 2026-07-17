@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import type { Widget } from "../../../service";
 import QueryResultTable from "../query/QueryResultTable";
+import DashboardWidgetState from "./DashboardWidgetState";
 import SourceAccessHint from "./SourceAccessHint";
 import type { WidgetData } from "./widget-data";
 
@@ -37,11 +38,10 @@ export default function ViewWidget(props: Props) {
       <Show
         when={isView(props.data) ? props.data : null}
         fallback={
-          <div class="flex-1 flex items-center justify-center text-xs text-dimmed">
-            <Show when={props.data.kind === "error"} fallback="Loading…">
-              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
-            </Show>
-          </div>
+          <DashboardWidgetState
+            kind={props.data.kind === "error" ? "error" : "loading"}
+            detail={props.data.kind === "error" ? props.data.reason : null}
+          />
         }
       >
         {(viewData) => (

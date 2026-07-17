@@ -1,6 +1,7 @@
 import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { For, Show } from "solid-js";
 import type { ViewStatsWidget } from "../../../service";
+import DashboardWidgetState from "./DashboardWidgetState";
 import SourceAccessHint from "./SourceAccessHint";
 import type { WidgetData } from "./widget-data";
 import { formatWidgetValue } from "./widget-format";
@@ -47,11 +48,10 @@ export default function ViewStatsCell(props: Props) {
       <Show
         when={isViewStats(props.data)}
         fallback={
-          <div class="flex-1 flex items-center justify-center text-xs text-dimmed">
-            <Show when={props.data.kind === "error"} fallback="Loading…">
-              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
-            </Show>
-          </div>
+          <DashboardWidgetState
+            kind={props.data.kind === "error" ? "error" : "loading"}
+            detail={props.data.kind === "error" ? props.data.reason : null}
+          />
         }
       >
         {(() => {
@@ -60,9 +60,7 @@ export default function ViewStatsCell(props: Props) {
           // cell body instead of an empty 2×N grid (an empty grid would
           // look broken).
           if (d.cells.length === 0) {
-            return (
-              <div class="flex-1 flex items-center justify-center text-xs text-dimmed px-3 py-2 text-center">{d.notice ?? "No data"}</div>
-            );
+            return <DashboardWidgetState kind="empty" detail={d.notice} />;
           }
           return (
             <div class="flex-1 min-h-0 overflow-auto px-3 pb-3">
