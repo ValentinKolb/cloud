@@ -7,6 +7,7 @@ import type { JSX } from "solid-js";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import { gatewayOpsHelp } from "../../help";
 import DeliveryFilterBar from "./_components/DeliveryFilterBar.island";
 import {
   buildDeliveryNotificationsUrl,
@@ -117,7 +118,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const renderPage = (description: string, content: JSX.Element) => () => (
     <AdminLayout c={c} title="Notifications" stretch>
-      <GatewayOpsLayoutHelp />
+      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-notifications-title">

@@ -4,6 +4,7 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { Chart, DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import { gatewayOpsHelp } from "../../help";
 import { getPostgresDiagnostics, type PostgresExtensionDiagnostic, type PostgresTableDiagnostic } from "../data/service";
 import PostgresDataFilters from "./_components/PostgresDataFilters.island";
 
@@ -144,7 +145,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Postgres" stretch>
-      <GatewayOpsLayoutHelp />
+      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-postgres-title">

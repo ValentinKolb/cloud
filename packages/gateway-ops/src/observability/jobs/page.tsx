@@ -12,6 +12,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid, StructuredDataPreview } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import { gatewayOpsHelp } from "../../help";
 import JobsActionToast from "./_components/JobsActionToast.island";
 import JobsFilterBar from "./_components/JobsFilterBar.island";
 import {
@@ -502,7 +503,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Background Jobs" stretch>
-      <GatewayOpsLayoutHelp />
+      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <JobsActionToast />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">

@@ -5,6 +5,7 @@ import { serveStatic } from "hono/bun";
 import { apiRoutes } from "./api";
 import { app } from "./config";
 import gatewayPage from "./frontend/page";
+import { gatewayOpsHelp } from "./help";
 import { gatewayOpsLifecycle } from "./lifecycle";
 import alertsPage from "./observability/alerts/page";
 import { runScheduleNowAction } from "./observability/jobs/actions";
@@ -24,6 +25,7 @@ import { widgetRoutes } from "./widgets";
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/api/gateway-ops/help", new Hono<AuthContext>().use(auth.requireRole("admin")).route("/", gatewayOpsHelp.router))
   .route("/admin/gateway/_ssr", routes(app.config))
   .use(
     "/public/*",
