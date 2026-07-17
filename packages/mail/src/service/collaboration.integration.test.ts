@@ -92,7 +92,6 @@ suite("mail collaboration backend", () => {
     const mailbox = await createMailbox(ownerContext, {
       name: `Collaboration ${suffix}`,
       description: "Disposable collaboration fixture",
-      connectionPolicy: "shared_connection",
     });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;

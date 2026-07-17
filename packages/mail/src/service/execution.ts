@@ -6,13 +6,10 @@ import type { MailRequestContext } from "./auth";
 
 type SqlClient = typeof sql;
 
-export type BindingOwner = { type: "mailbox"; id: string } | { type: "user"; id: string } | { type: "service_account"; id: string };
-
 export type BindingCandidate = {
   bindingId: string;
   connectionId: string;
   secretRevision: number;
-  owner: BindingOwner;
   folders: Record<string, { path: string; rights: string[] }>;
   identityVerified: boolean;
   savesSentAutomatically: boolean | null;
@@ -21,47 +18,20 @@ export type BindingCandidate = {
 };
 
 export type BindingSelectionInput = {
-  connectionPolicy: "shared_connection" | "personal_provider_account";
-  mailboxId: string;
   operation: MailExecutionOperation;
-  actorOwner: BindingOwner | null;
   senderPolicy: SenderAuthenticationPolicy | null;
   senderSentFolderId: string | null;
   folderRequirements: Array<{ folderId: string; rights: string[] }>;
   candidates: BindingCandidate[];
 };
 
-const ownerEquals = (left: BindingOwner, right: BindingOwner): boolean => left.type === right.type && left.id === right.id;
-
-const mailboxOwnsCandidate = (mailboxId: string, candidate: BindingCandidate): boolean =>
-  candidate.owner.type === "mailbox" && candidate.owner.id === mailboxId;
-
-const automationOwnerAllowed = (input: BindingSelectionInput, candidate: BindingCandidate): boolean => {
-  if (!input.senderPolicy) {
-    return input.connectionPolicy === "shared_connection" ? mailboxOwnsCandidate(input.mailboxId, candidate) : true;
-  }
-  if (input.senderPolicy.automation === "disabled") return false;
-  return input.senderPolicy.automation === "pool" || mailboxOwnsCandidate(input.mailboxId, candidate);
-};
-
-const senderOwnerAllowed = (input: BindingSelectionInput, candidate: BindingCandidate): boolean => {
-  if (!input.senderPolicy || !input.actorOwner) return false;
-  return input.senderPolicy.interactive === "mailbox"
-    ? mailboxOwnsCandidate(input.mailboxId, candidate)
-    : ownerEquals(candidate.owner, input.actorOwner);
-};
-
-const ownerAllowed = (input: BindingSelectionInput, candidate: BindingCandidate): boolean => {
-  if (input.operation === "backgroundSync") return true;
-  if (input.operation === "automation") return automationOwnerAllowed(input, candidate);
-  if (input.operation === "actorSend") return senderOwnerAllowed(input, candidate);
-  if (input.connectionPolicy === "shared_connection") return mailboxOwnsCandidate(input.mailboxId, candidate);
-  return Boolean(input.actorOwner && ownerEquals(candidate.owner, input.actorOwner));
-};
-
 export const selectBindingCandidate = (input: BindingSelectionInput): BindingCandidate | null => {
+  // Multiple current candidates violate the mailbox-owned connection invariant.
+  // Fail closed instead of silently introducing provider failover semantics.
+  if (input.candidates.length !== 1) return null;
   const candidates = input.candidates
-    .filter((candidate) => ownerAllowed(input, candidate))
+    .filter(() => input.operation !== "automation" || input.senderPolicy?.automation === "mailbox")
+    .filter(() => input.operation !== "actorSend" || input.senderPolicy !== null)
     .filter((candidate) =>
       input.folderRequirements.every((requirement) => {
         const folder = candidate.folders[requirement.folderId];
@@ -74,18 +44,11 @@ export const selectBindingCandidate = (input: BindingSelectionInput): BindingCan
       if (candidate.savesSentAutomatically === true) return true;
       if (!input.senderSentFolderId) return false;
       return candidate.folders[input.senderSentFolderId]?.rights.includes("insert") ?? false;
-    })
-    .sort((left, right) => {
-      const healthOrder = Number(Boolean(left.lastErrorCode)) - Number(Boolean(right.lastErrorCode));
-      if (healthOrder !== 0) return healthOrder;
-      const timeOrder = (right.lastUsedAt ?? "").localeCompare(left.lastUsedAt ?? "");
-      return timeOrder || left.bindingId.localeCompare(right.bindingId);
     });
   return candidates[0] ?? null;
 };
 
 type DbMailboxExecution = {
-  connection_policy: "shared_connection" | "personal_provider_account";
   remote_resource_id: string | null;
   remote_resource_status: string | null;
   scope_fingerprint: string | null;
@@ -95,9 +58,6 @@ type DbCandidate = {
   binding_id: string;
   connection_id: string;
   secret_revision: number;
-  owner_user_id: string | null;
-  owner_service_account_id: string | null;
-  owner_mailbox_id: string | null;
   folder_id: string | null;
   folder_path: string | null;
   effective_rights: string[] | null;
@@ -105,18 +65,6 @@ type DbCandidate = {
   saves_sent_automatically: boolean | null;
   last_error_code: string | null;
   last_used_at: Date | string | null;
-};
-
-const ownerFromCandidate = (candidate: DbCandidate): BindingOwner => {
-  if (candidate.owner_mailbox_id) return { type: "mailbox", id: candidate.owner_mailbox_id };
-  if (candidate.owner_user_id) return { type: "user", id: candidate.owner_user_id };
-  if (candidate.owner_service_account_id) return { type: "service_account", id: candidate.owner_service_account_id };
-  throw new Error("Provider binding connection has no owner");
-};
-
-const actorOwnerFromContext = (context: MailRequestContext): BindingOwner => {
-  if (context.accessSubject.type === "user") return { type: "user", id: context.accessSubject.userId };
-  return { type: "service_account", id: context.accessSubject.serviceAccountId };
 };
 
 export type ResolvedMailExecution = {
@@ -187,12 +135,11 @@ const loadSenderSelection = async (params: {
   }
   const [identity] = await params.db<
     {
-      interactive_policy: "mailbox" | "actor";
-      automation_policy: "disabled" | "mailbox" | "pool";
+      automation_policy: "disabled" | "mailbox";
       sent_folder_id: string | null;
     }[]
   >`
-    SELECT interactive_policy, automation_policy, sent_folder_id
+    SELECT automation_policy, sent_folder_id
     FROM mail.sender_identities
     WHERE id = ${params.senderIdentityId}::uuid
       AND mailbox_id = ${params.mailboxId}::uuid
@@ -200,7 +147,7 @@ const loadSenderSelection = async (params: {
   `;
   if (!identity) return fail(err.badInput("Sender identity is not verified"));
   return ok({
-    policy: { interactive: identity.interactive_policy, automation: identity.automation_policy },
+    policy: { automation: identity.automation_policy },
     sentFolderId: identity.sent_folder_id,
   });
 };
@@ -237,7 +184,6 @@ const groupBindingCandidates = (rows: DbCandidate[]): BindingCandidate[] => {
         bindingId: candidate.binding_id,
         connectionId: candidate.connection_id,
         secretRevision: candidate.secret_revision,
-        owner: ownerFromCandidate(candidate),
         folders: {},
         identityVerified: candidate.identity_verified,
         savesSentAutomatically: candidate.saves_sent_automatically,
@@ -305,7 +251,6 @@ export const resolveMailExecution = async (params: {
 
   const [mailbox] = await db<DbMailboxExecution[]>`
     SELECT
-      m.connection_policy,
       rr.id AS remote_resource_id,
       rr.status AS remote_resource_status,
       rr.scope_fingerprint
@@ -315,7 +260,7 @@ export const resolveMailExecution = async (params: {
   `;
   if (!mailbox) return fail(err.notFound("Mailbox"));
 
-  const localReadAllowed = params.operation === "actorRead" && mailbox.connection_policy === "shared_connection";
+  const localReadAllowed = params.operation === "actorRead";
   if (!mailbox.remote_resource_id || !mailbox.scope_fingerprint) {
     return localReadAllowed ? ok(localExecution(params.mailboxId, null)) : fail(err.forbidden("An active provider binding is required"));
   }
@@ -330,9 +275,6 @@ export const resolveMailExecution = async (params: {
       pb.id AS binding_id,
       pb.connection_id,
       pc.secret_revision,
-      pc.owner_user_id,
-      pc.owner_service_account_id,
-      pc.owner_mailbox_id,
       bfr.folder_id,
       bfr.remote_path AS folder_path,
       COALESCE(bfr.effective_rights, ARRAY[]::text[]) AS effective_rights,
@@ -373,13 +315,10 @@ export const resolveMailExecution = async (params: {
       AND pb.verified_secret_revision = pc.secret_revision
       AND pc.status = 'active'
       AND pc.encrypted_secret IS NOT NULL
+      AND pc.owner_mailbox_id = ${params.mailboxId}::uuid
   `;
-  const actorOwner = params.context ? actorOwnerFromContext(params.context) : null;
   const selected = selectBindingCandidate({
-    connectionPolicy: mailbox.connection_policy,
-    mailboxId: params.mailboxId,
     operation: params.operation,
-    actorOwner,
     senderPolicy: sender.data.policy,
     senderSentFolderId: sender.data.sentFolderId,
     folderRequirements: folders.data.requirements,

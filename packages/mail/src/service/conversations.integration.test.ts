@@ -89,7 +89,6 @@ suite("mail manual conversation threading", () => {
 
     const mailbox = await createMailbox(ownerContext, {
       name: `Threading ${suffix}`,
-      connectionPolicy: "shared_connection",
     });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
@@ -229,7 +228,6 @@ suite("mail manual conversation threading", () => {
 
     const otherMailbox = await createMailbox(ownerContext, {
       name: `Other threading ${suffix}`,
-      connectionPolicy: "shared_connection",
     });
     if (!otherMailbox.ok) throw new Error(otherMailbox.error.message);
     mailboxIds.push(otherMailbox.data.id);

@@ -10,9 +10,6 @@ export const loadMailWorkflowCatalog = async (params: {
   db?: SqlClient;
 }): Promise<MailWorkflowCatalog> => {
   const db = params.db ?? sql;
-  const ownerUserId = params.context.accessSubject.type === "user" ? params.context.accessSubject.userId : null;
-  const ownerServiceAccountId =
-    params.context.accessSubject.type === "service_account" ? params.context.accessSubject.serviceAccountId : null;
   const [folders, accessRows] = await Promise.all([
     db<{ id: string; name: string }[]>`
       SELECT DISTINCT folder.id, folder.name
@@ -35,16 +32,7 @@ export const loadMailWorkflowCatalog = async (params: {
             AND binding.verified_secret_revision = connection.secret_revision
             AND connection.status = 'active'
             AND connection.encrypted_secret IS NOT NULL
-            AND (
-              (mailbox.connection_policy = 'shared_connection' AND connection.owner_mailbox_id = mailbox.id)
-              OR (
-                mailbox.connection_policy = 'personal_provider_account'
-                AND (
-                  connection.owner_user_id = ${ownerUserId}::uuid
-                  OR connection.owner_service_account_id = ${ownerServiceAccountId}::uuid
-                )
-              )
-            )
+            AND connection.owner_mailbox_id = mailbox.id
         )
       ORDER BY folder.id
     `,

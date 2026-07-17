@@ -178,10 +178,6 @@ export default function MailboxSettings(props: {
                 ]}
                 icon="ti ti-search"
               />
-              <p class="text-xs text-dimmed">
-                Connection model:{" "}
-                {props.context.mailbox.connectionPolicy === "shared_connection" ? "Shared connection" : "Personal provider accounts"}
-              </p>
               <button
                 type="button"
                 class="btn-primary btn-sm self-end"
@@ -203,7 +199,6 @@ export default function MailboxSettings(props: {
             <MailConnectionSettings
               mailbox={props.context.mailbox}
               admin={admin()}
-              currentUserId={props.currentUserId}
               currentUserEmail={props.currentUserEmail}
               reloading={props.reloading}
               onReload={props.onReload}
@@ -220,7 +215,6 @@ export default function MailboxSettings(props: {
             <MailSenderSettings
               mailbox={props.context.mailbox}
               admin={admin()}
-              currentUserId={props.currentUserId}
               currentUserEmail={props.currentUserEmail}
               reloading={props.reloading}
               onReload={props.onReload}

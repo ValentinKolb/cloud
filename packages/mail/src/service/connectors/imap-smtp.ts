@@ -241,14 +241,6 @@ const mapFolder = (entry: ListResponse): RemoteFolder => ({
   rightsSource: "unknown",
 });
 
-const normalizeRoot = (rootPath: string | null | undefined): string | null => {
-  const trimmed = rootPath?.trim();
-  return trimmed ? trimmed : null;
-};
-
-const isWithinRoot = (folder: ListResponse, root: string): boolean =>
-  folder.path === root || Boolean(folder.delimiter && folder.path.startsWith(`${root}${folder.delimiter}`));
-
 const mapAddress = (address: MessageAddressObject): ConnectorAddress | null => {
   const normalized = address.address?.trim().toLowerCase();
   return normalized ? { name: address.name?.trim() || null, address: normalized } : null;
@@ -360,23 +352,21 @@ const verify = async (config: ProviderConnectionInput): Promise<ConnectorVerific
       {
         id: accountId,
         name: config.email,
-        locator: { accountId, rootPath: "" },
+        locator: { accountId },
         namespaces: imap.namespaces,
       },
     ],
   };
 };
 
-const discoverFolders = async (config: ProviderConnectionInput, rootPath?: string | null): Promise<RemoteFolder[]> =>
+const discoverFolders = async (config: ProviderConnectionInput): Promise<RemoteFolder[]> =>
   withImapClient(config, async (client) => {
-    const root = normalizeRoot(rootPath);
     const folders = await client.list({
       statusQuery: { messages: true, uidNext: true, uidValidity: true, unseen: true, highestModseq: true },
     });
-    const selected = folders.filter((folder) => !root || isWithinRoot(folder, root));
     const capabilities = mapCapabilities(client);
     const result: RemoteFolder[] = [];
-    for (const entry of selected) {
+    for (const entry of folders) {
       const folder = mapFolder(entry);
       if (!folder.selectable) {
         result.push(folder);

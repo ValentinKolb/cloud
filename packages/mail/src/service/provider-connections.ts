@@ -1,7 +1,7 @@
-import { audit, decryptSecret, encryptSecret, logger } from "@valentinkolb/cloud/services";
+import { audit, decryptSecret, encryptSecret, isUniqueViolation, logger } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { ConnectionOwner, ConnectorVerification, ProviderConnection, ProviderConnectionInput, ProviderSecret } from "../contracts";
+import type { ConnectorVerification, ProviderConnection, ProviderConnectionInput, ProviderSecret } from "../contracts";
 import { providerSecretSchema } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { auditActorFromRequest, type MailRequestContext, permissionFromScopes } from "./auth";
@@ -15,9 +15,7 @@ const log = logger("mail:provider-connections");
 
 type DbProviderConnection = {
   id: string;
-  owner_user_id: string | null;
-  owner_service_account_id: string | null;
-  owner_mailbox_id: string | null;
+  owner_mailbox_id: string;
   name: string;
   email: string;
   username: string;
@@ -42,8 +40,6 @@ type DbProviderConnection = {
 
 const connectionColumns = sql`
   pc.id,
-  pc.owner_user_id,
-  pc.owner_service_account_id,
   pc.owner_mailbox_id,
   pc.name,
   pc.email,
@@ -70,16 +66,9 @@ const connectionColumns = sql`
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const toNullableIso = (value: Date | string | null): string | null => (value ? toIso(value) : null);
 
-const ownerFromRow = (row: DbProviderConnection): ConnectionOwner => {
-  if (row.owner_user_id) return { type: "user", userId: row.owner_user_id };
-  if (row.owner_service_account_id) return { type: "service_account", serviceAccountId: row.owner_service_account_id };
-  if (row.owner_mailbox_id) return { type: "mailbox", mailboxId: row.owner_mailbox_id };
-  throw new Error("Provider connection has no owner");
-};
-
 const mapConnection = (row: DbProviderConnection): ProviderConnection => ({
   id: row.id,
-  owner: ownerFromRow(row),
+  mailboxId: row.owner_mailbox_id,
   name: row.name,
   email: row.email,
   username: row.username,
@@ -119,33 +108,11 @@ const requireCredentialAdminScope = (context: MailRequestContext): Result<void> 
     : fail(err.forbidden("Provider connection changes require admin scope"));
 };
 
-const authorizeOwner = async (context: MailRequestContext, owner: ConnectionOwner, db: SqlClient = sql): Promise<Result<void>> => {
+const authorizeMailbox = async (context: MailRequestContext, mailboxId: string, db: SqlClient = sql): Promise<Result<void>> => {
   const scope = requireCredentialAdminScope(context);
   if (!scope.ok) return scope;
-  if (owner.type === "mailbox") {
-    const permission = await requireMailboxPermission(context, owner.mailboxId, "admin", db);
-    return permission.ok ? ok() : permission;
-  }
-  if (owner.type === "user") {
-    return context.accessSubject.type === "user" && context.accessSubject.userId === owner.userId
-      ? ok()
-      : fail(err.forbidden("Private provider connections can be managed only by their owner"));
-  }
-  return context.actor.kind === "service_account" && context.actor.serviceAccount.id === owner.serviceAccountId
-    ? ok()
-    : fail(err.forbidden("Service-account provider connections can be managed only by their owner"));
-};
-
-const assertMailboxConnectionPolicy = async (mailboxId: string, db: SqlClient): Promise<Result<void>> => {
-  const [row] = await db<{ connection_policy: string }[]>`
-    SELECT connection_policy
-    FROM mail.mailboxes
-    WHERE id = ${mailboxId}::uuid AND deleted_at IS NULL
-  `;
-  if (!row) return fail(err.notFound("Mailbox"));
-  return row.connection_policy === "shared_connection"
-    ? ok()
-    : fail(err.badInput("Mailbox-owned credentials require the Shared connection policy"));
+  const permission = await requireMailboxPermission(context, mailboxId, "admin", db);
+  return permission.ok ? ok() : permission;
 };
 
 const connectionFromInput = (input: ProviderConnectionInput, secret: ProviderSecret): ProviderConnectionInput => ({
@@ -167,15 +134,11 @@ export const verifyProviderConnection = async (input: ProviderConnectionInput): 
 
 export const createProviderConnection = async (params: {
   context: MailRequestContext;
-  owner: ConnectionOwner;
+  mailboxId: string;
   input: ProviderConnectionInput;
 }): Promise<Result<{ connection: ProviderConnection; verification: ConnectorVerification }>> => {
-  const ownerAccess = await authorizeOwner(params.context, params.owner);
+  const ownerAccess = await authorizeMailbox(params.context, params.mailboxId);
   if (!ownerAccess.ok) return ownerAccess;
-  if (params.owner.type === "mailbox") {
-    const policy = await assertMailboxConnectionPolicy(params.owner.mailboxId, sql);
-    if (!policy.ok) return policy;
-  }
 
   const verification = await verifyProviderConnection(params.input);
   if (!verification.ok) return verification;
@@ -189,21 +152,15 @@ export const createProviderConnection = async (params: {
 
   try {
     return await sql.begin(async (tx) => {
-      const recheck = await authorizeOwner(params.context, params.owner, tx);
+      const recheck = await authorizeMailbox(params.context, params.mailboxId, tx);
       if (!recheck.ok) return recheck;
-      if (params.owner.type === "mailbox") {
-        const [locked] = await tx<{ id: string }[]>`
-          SELECT id FROM mail.mailboxes WHERE id = ${params.owner.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
-        `;
-        if (!locked) return fail(err.notFound("Mailbox"));
-        const policy = await assertMailboxConnectionPolicy(params.owner.mailboxId, tx);
-        if (!policy.ok) return policy;
-      }
+      const [locked] = await tx<{ id: string }[]>`
+        SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
+      `;
+      if (!locked) return fail(err.notFound("Mailbox"));
 
       const [row] = await tx<DbProviderConnection[]>`
         INSERT INTO mail.provider_connections AS pc (
-          owner_user_id,
-          owner_service_account_id,
           owner_mailbox_id,
           name,
           email,
@@ -224,9 +181,7 @@ export const createProviderConnection = async (params: {
           last_verified_at
         )
         VALUES (
-          ${params.owner.type === "user" ? params.owner.userId : null}::uuid,
-          ${params.owner.type === "service_account" ? params.owner.serviceAccountId : null}::uuid,
-          ${params.owner.type === "mailbox" ? params.owner.mailboxId : null}::uuid,
+          ${params.mailboxId}::uuid,
           ${params.input.name.trim()},
           ${params.input.email.trim().toLowerCase()},
           ${params.input.username.trim()},
@@ -256,7 +211,7 @@ export const createProviderConnection = async (params: {
           target: { type: "provider_connection", id: row.id, label: row.name },
           requestId: params.context.requestId,
           metadata: {
-            owner: params.owner,
+            mailboxId: params.mailboxId,
             connectorKind: row.connector_kind,
             secretKind: row.secret_kind,
             imapHost: row.imap_host,
@@ -268,7 +223,7 @@ export const createProviderConnection = async (params: {
       return ok({ connection: mapConnection(row), verification: verification.data });
     });
   } catch (error) {
-    if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Provider connection name"));
+    if (isUniqueViolation(error)) return fail(err.conflict("Provider connection"));
     logDatabaseFailure(log.error, "store", "provider connection", error);
     return fail(err.internal("Failed to store provider connection"));
   }
@@ -276,24 +231,14 @@ export const createProviderConnection = async (params: {
 
 export const listProviderConnections = async (
   context: MailRequestContext,
-  mailboxId?: string | null,
+  mailboxId: string,
 ): Promise<Result<ProviderConnection[]>> => {
-  const scope = requireCredentialAdminScope(context);
-  if (!scope.ok) return scope;
-  let includeMailboxOwned = false;
-  if (mailboxId) {
-    const access = await requireMailboxPermission(context, mailboxId, "read");
-    if (!access.ok) return access;
-    includeMailboxOwned = access.data === "admin";
-  }
-  const ownerUserId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
-  const ownerServiceAccountId = context.actor.kind === "service_account" ? context.actor.serviceAccount.id : null;
+  const access = await authorizeMailbox(context, mailboxId);
+  if (!access.ok) return access;
   const rows = await sql<DbProviderConnection[]>`
     SELECT ${connectionColumns}
     FROM mail.provider_connections pc
-    WHERE pc.owner_user_id = ${ownerUserId}::uuid
-       OR pc.owner_service_account_id = ${ownerServiceAccountId}::uuid
-       OR (${includeMailboxOwned} AND pc.owner_mailbox_id = ${mailboxId ?? null}::uuid)
+    WHERE pc.owner_mailbox_id = ${mailboxId}::uuid
     ORDER BY pc.updated_at DESC, pc.id DESC
   `;
   return ok(rows.map(mapConnection));
@@ -352,7 +297,7 @@ const invalidateSenderBindingVerifications = async (db: SqlClient, bindingIds: s
 export const getProviderConnection = async (context: MailRequestContext, connectionId: string): Promise<Result<ProviderConnection>> => {
   const row = await loadConnectionRow(connectionId);
   if (!row) return fail(err.notFound("Provider connection"));
-  const allowed = await authorizeOwner(context, ownerFromRow(row));
+  const allowed = await authorizeMailbox(context, row.owner_mailbox_id);
   return allowed.ok ? ok(mapConnection(row)) : allowed;
 };
 
@@ -363,7 +308,8 @@ export const replaceProviderConnection = async (params: {
 }): Promise<Result<{ connection: ProviderConnection; verification: ConnectorVerification }>> => {
   const current = await loadConnectionRow(params.connectionId);
   if (!current) return fail(err.notFound("Provider connection"));
-  const allowed = await authorizeOwner(params.context, ownerFromRow(current));
+  if (current.status === "revoked") return fail(err.badInput("Revoked provider connections cannot be replaced"));
+  const allowed = await authorizeMailbox(params.context, current.owner_mailbox_id);
   if (!allowed.ok) return allowed;
 
   const verification = await verifyProviderConnection(params.input);
@@ -379,7 +325,8 @@ export const replaceProviderConnection = async (params: {
     return await sql.begin(async (tx) => {
       const locked = await loadConnectionRow(params.connectionId, tx, true);
       if (!locked) return fail(err.notFound("Provider connection"));
-      const recheck = await authorizeOwner(params.context, ownerFromRow(locked), tx);
+      if (locked.status === "revoked") return fail(err.badInput("Revoked provider connections cannot be replaced"));
+      const recheck = await authorizeMailbox(params.context, locked.owner_mailbox_id, tx);
       if (!recheck.ok) return recheck;
       const [row] = await tx<DbProviderConnection[]>`
         UPDATE mail.provider_connections pc
@@ -414,6 +361,7 @@ export const replaceProviderConnection = async (params: {
           last_error_code = 'CREDENTIAL_REVERIFICATION_REQUIRED',
           last_error_message = 'Provider credentials changed; verify this remote resource again'
         WHERE connection_id = ${params.connectionId}::uuid
+          AND state <> 'revoked'
         RETURNING id, remote_resource_id
       `;
       if (affectedBindings.length > 0) {
@@ -476,7 +424,7 @@ export const replaceProviderConnection = async (params: {
       return ok({ connection: mapConnection(row), verification: verification.data });
     });
   } catch (error) {
-    if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Provider connection name"));
+    if (isUniqueViolation(error)) return fail(err.conflict("Provider connection"));
     logDatabaseFailure(log.error, "replace", "provider connection", error);
     return fail(err.internal("Failed to replace provider connection"));
   }
@@ -487,7 +435,7 @@ export const revokeProviderConnection = async (context: MailRequestContext, conn
     return await sql.begin(async (tx) => {
       const row = await loadConnectionRow(connectionId, tx, true);
       if (!row) return fail(err.notFound("Provider connection"));
-      const allowed = await authorizeOwner(context, ownerFromRow(row), tx);
+      const allowed = await authorizeMailbox(context, row.owner_mailbox_id, tx);
       if (!allowed.ok) return allowed;
       await tx`
         UPDATE mail.provider_connections

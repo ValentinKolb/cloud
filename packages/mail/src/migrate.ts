@@ -3,14 +3,46 @@ import { SEARCH_CHUNK_CHARACTERS, SEARCH_CHUNK_OVERLAP_CHARACTERS } from "./serv
 
 type SqlClient = typeof sql;
 
+const enforceMailboxOwnedProviderBindings = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE OR REPLACE FUNCTION mail.enforce_provider_binding_mailbox()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      connection_mailbox UUID;
+      resource_mailbox UUID;
+    BEGIN
+      SELECT owner_mailbox_id INTO connection_mailbox
+      FROM mail.provider_connections
+      WHERE id = NEW.connection_id;
+
+      SELECT mailbox_id INTO resource_mailbox
+      FROM mail.remote_resources
+      WHERE id = NEW.remote_resource_id;
+
+      IF connection_mailbox IS NULL OR resource_mailbox IS NULL OR connection_mailbox <> resource_mailbox THEN
+        RAISE EXCEPTION 'Provider connection and remote resource must belong to the same mailbox'
+          USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END
+    $$
+  `;
+  await db`DROP TRIGGER IF EXISTS provider_bindings_mailbox_guard ON mail.provider_bindings`;
+  await db`
+    CREATE TRIGGER provider_bindings_mailbox_guard
+    BEFORE INSERT OR UPDATE OF remote_resource_id, connection_id ON mail.provider_bindings
+    FOR EACH ROW EXECUTE FUNCTION mail.enforce_provider_binding_mailbox()
+  `;
+};
+
 const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.mailboxes (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 160),
       description TEXT CHECK (description IS NULL OR char_length(description) <= 2000),
-      connection_policy TEXT NOT NULL DEFAULT 'shared_connection'
-        CHECK (connection_policy IN ('shared_connection', 'personal_provider_account')),
       health TEXT NOT NULL DEFAULT 'disconnected'
         CHECK (health IN (
           'disconnected', 'verifying', 'bootstrapping', 'active', 'auth_required',
@@ -44,9 +76,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.provider_connections (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-      owner_service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE CASCADE,
-      owner_mailbox_id UUID REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      owner_mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 120),
       email TEXT NOT NULL CHECK (char_length(email) BETWEEN 3 AND 320),
       username TEXT NOT NULL CHECK (char_length(username) BETWEEN 1 AND 320),
@@ -69,9 +99,6 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
       last_error_message TEXT CHECK (last_error_message IS NULL OR char_length(last_error_message) <= 1000),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT provider_connections_one_owner CHECK (
-        num_nonnulls(owner_user_id, owner_service_account_id, owner_mailbox_id) = 1
-      ),
       CONSTRAINT provider_connections_secret_lifecycle CHECK (
         (status = 'revoked' AND encrypted_secret IS NULL) OR
         (status <> 'revoked' AND encrypted_secret IS NOT NULL)
@@ -79,19 +106,9 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
     )
   `;
   await db`
-    CREATE UNIQUE INDEX provider_connections_user_name_idx
-    ON mail.provider_connections (owner_user_id, lower(name))
-    WHERE owner_user_id IS NOT NULL AND status <> 'revoked'
-  `;
-  await db`
-    CREATE UNIQUE INDEX provider_connections_service_account_name_idx
-    ON mail.provider_connections (owner_service_account_id, lower(name))
-    WHERE owner_service_account_id IS NOT NULL AND status <> 'revoked'
-  `;
-  await db`
-    CREATE UNIQUE INDEX provider_connections_mailbox_name_idx
-    ON mail.provider_connections (owner_mailbox_id, lower(name))
-    WHERE owner_mailbox_id IS NOT NULL AND status <> 'revoked'
+    CREATE UNIQUE INDEX provider_connections_mailbox_active_idx
+    ON mail.provider_connections (owner_mailbox_id)
+    WHERE status <> 'revoked'
   `;
 
   await db`
@@ -135,12 +152,22 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
       last_error_code TEXT,
       last_error_message TEXT CHECK (last_error_message IS NULL OR char_length(last_error_message) <= 1000),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE (remote_resource_id, connection_id)
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `;
+  await db`
+    CREATE UNIQUE INDEX provider_bindings_resource_current_idx
+    ON mail.provider_bindings (remote_resource_id)
+    WHERE state <> 'revoked'
+  `;
+  await db`
+    CREATE UNIQUE INDEX provider_bindings_connection_current_idx
+    ON mail.provider_bindings (connection_id)
+    WHERE state <> 'revoked'
   `;
   await db`CREATE INDEX provider_bindings_resource_state_idx ON mail.provider_bindings (remote_resource_id, state, last_verified_at DESC)`;
   await db`CREATE INDEX provider_bindings_connection_idx ON mail.provider_bindings (connection_id, state)`;
+  await enforceMailboxOwnedProviderBindings(db);
 
   await db`
     CREATE TABLE mail.remote_namespaces (
@@ -386,8 +413,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
       from_address TEXT NOT NULL CHECK (char_length(from_address) BETWEEN 3 AND 320),
       reply_to TEXT,
       envelope_sender TEXT,
-      interactive_policy TEXT NOT NULL DEFAULT 'mailbox' CHECK (interactive_policy IN ('mailbox', 'actor')),
-      automation_policy TEXT NOT NULL DEFAULT 'disabled' CHECK (automation_policy IN ('disabled', 'mailbox', 'pool')),
+      automation_policy TEXT NOT NULL DEFAULT 'disabled' CHECK (automation_policy IN ('disabled', 'mailbox')),
       sent_folder_id UUID REFERENCES mail.folders(id) ON DELETE SET NULL,
       drafts_folder_id UUID REFERENCES mail.folders(id) ON DELETE SET NULL,
       is_default BOOLEAN NOT NULL DEFAULT false,
@@ -2090,6 +2116,133 @@ const hardenDurableDraftContinuity = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const hardCutMailboxOwnedConnections = async (db: SqlClient): Promise<void> => {
+  await db`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'mail' AND table_name = 'mailboxes' AND column_name = 'connection_policy'
+      ) THEN
+        IF EXISTS (SELECT 1 FROM mail.mailboxes WHERE connection_policy <> 'shared_connection') THEN
+          RAISE EXCEPTION 'Mail personal provider accounts must be removed before applying the mailbox-owned connection cut';
+        END IF;
+        ALTER TABLE mail.mailboxes DROP COLUMN connection_policy;
+      END IF;
+    END
+    $$
+  `;
+
+  await db`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'mail' AND table_name = 'provider_connections' AND column_name = 'owner_user_id'
+      ) THEN
+        IF EXISTS (SELECT 1 FROM mail.provider_connections WHERE owner_mailbox_id IS NULL) THEN
+          RAISE EXCEPTION 'Mail user-owned provider connections must be removed before applying the mailbox-owned connection cut';
+        END IF;
+        DROP INDEX IF EXISTS mail.provider_connections_user_name_idx;
+        DROP INDEX IF EXISTS mail.provider_connections_service_account_name_idx;
+        ALTER TABLE mail.provider_connections
+          DROP CONSTRAINT IF EXISTS provider_connections_one_owner,
+          DROP COLUMN owner_user_id,
+          DROP COLUMN owner_service_account_id,
+          ALTER COLUMN owner_mailbox_id SET NOT NULL;
+      END IF;
+    END
+    $$
+  `;
+
+  await db`DROP INDEX IF EXISTS mail.provider_connections_mailbox_name_idx`;
+  await db`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT owner_mailbox_id
+        FROM mail.provider_connections
+        WHERE status <> 'revoked'
+        GROUP BY owner_mailbox_id
+        HAVING count(*) > 1
+      ) THEN
+        RAISE EXCEPTION 'Mail mailboxes with multiple active provider connections must be resolved before applying the hard cut';
+      END IF;
+    END
+    $$
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS provider_connections_mailbox_active_idx
+    ON mail.provider_connections (owner_mailbox_id)
+    WHERE status <> 'revoked'
+  `;
+
+  await db`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT remote_resource_id
+        FROM mail.provider_bindings
+        WHERE state <> 'revoked'
+        GROUP BY remote_resource_id
+        HAVING count(*) > 1
+      ) THEN
+        RAISE EXCEPTION 'Mail remote resources with multiple provider bindings must be resolved before applying the hard cut';
+      END IF;
+    END
+    $$
+  `;
+  await db`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT connection_id
+        FROM mail.provider_bindings
+        WHERE state <> 'revoked'
+        GROUP BY connection_id
+        HAVING count(*) > 1
+      ) THEN
+        RAISE EXCEPTION 'Mail connections with multiple current provider bindings must be resolved before applying the hard cut';
+      END IF;
+      IF EXISTS (
+        SELECT 1
+        FROM mail.provider_bindings binding
+        JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+        JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+        WHERE binding.state <> 'revoked'
+          AND connection.owner_mailbox_id <> resource.mailbox_id
+      ) THEN
+        RAISE EXCEPTION 'Mail provider bindings must connect resources and credentials owned by the same mailbox';
+      END IF;
+    END
+    $$
+  `;
+  await db`ALTER TABLE mail.provider_bindings DROP CONSTRAINT IF EXISTS provider_bindings_remote_resource_id_connection_id_key`;
+  await db`DROP INDEX IF EXISTS mail.provider_bindings_resource_unique_idx`;
+  await db`DROP INDEX IF EXISTS mail.provider_bindings_connection_unique_idx`;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS provider_bindings_resource_current_idx
+    ON mail.provider_bindings (remote_resource_id)
+    WHERE state <> 'revoked'
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS provider_bindings_connection_current_idx
+    ON mail.provider_bindings (connection_id)
+    WHERE state <> 'revoked'
+  `;
+  await enforceMailboxOwnedProviderBindings(db);
+
+  await db`UPDATE mail.sender_identities SET automation_policy = 'disabled' WHERE automation_policy = 'pool'`;
+  await db`ALTER TABLE mail.sender_identities DROP COLUMN IF EXISTS interactive_policy`;
+  await db`ALTER TABLE mail.sender_identities DROP CONSTRAINT IF EXISTS sender_identities_automation_policy_check`;
+  await db`
+    ALTER TABLE mail.sender_identities
+    ADD CONSTRAINT sender_identities_automation_policy_check CHECK (automation_policy IN ('disabled', 'mailbox'))
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -2125,6 +2278,8 @@ const migrations = [
   { version: 32, name: "fenced_workflow_provider_effects", run: fenceWorkflowProviderEffects },
   { version: 33, name: "durable_draft_continuity", run: addDurableDraftContinuity },
   { version: 34, name: "hardened_draft_continuity", run: hardenDurableDraftContinuity },
+  { version: 35, name: "mailbox_owned_provider_connections", run: hardCutMailboxOwnedConnections },
+  { version: 36, name: "mailbox_owned_provider_binding_invariants", run: hardCutMailboxOwnedConnections },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

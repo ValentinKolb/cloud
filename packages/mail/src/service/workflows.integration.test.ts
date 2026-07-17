@@ -353,7 +353,6 @@ suite("mail canonical workflow runtime", () => {
       await createMailbox(ownerContext, {
         name: `Workflow ${suffix}`,
         description: "Disposable workflow fixture",
-        connectionPolicy: "shared_connection",
       }),
     );
     mailboxId = mailbox.id;

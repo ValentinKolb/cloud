@@ -103,7 +103,6 @@ suite("mail PostgreSQL foundation", () => {
     const mailbox = await createMailbox(context, {
       name: `Integration ${suffix}`,
       description: "Disposable integration mailbox",
-      connectionPolicy: "shared_connection",
     });
     expect(mailbox.ok).toBe(true);
     if (!mailbox.ok) return;
@@ -167,8 +166,8 @@ suite("mail PostgreSQL foundation", () => {
     `;
     const [identity] = await sql<{ id: string }[]>`
       INSERT INTO mail.sender_identities (
-        mailbox_id, display_name, from_address, interactive_policy, automation_policy, is_default, status
-      ) VALUES (${mailbox.data.id}::uuid, 'Fixture Sender', 'sender@example.com', 'mailbox', 'disabled', true, 'verified')
+        mailbox_id, display_name, from_address, automation_policy, is_default, status
+      ) VALUES (${mailbox.data.id}::uuid, 'Fixture Sender', 'sender@example.com', 'disabled', true, 'verified')
       RETURNING id
     `;
     await sql`
@@ -177,9 +176,6 @@ suite("mail PostgreSQL foundation", () => {
       ) VALUES (${identity!.id}::uuid, ${binding!.id}::uuid, 'sender@example.com', now(), true)
     `;
 
-    const privateConnections = await listProviderConnections(context);
-    expect(privateConnections.ok).toBe(true);
-    if (privateConnections.ok) expect(privateConnections.data.some((item) => item.id === connection!.id)).toBe(false);
     const mailboxConnections = await listProviderConnections(context, mailbox.data.id);
     expect(mailboxConnections.ok).toBe(true);
     if (mailboxConnections.ok) expect(mailboxConnections.data.some((item) => item.id === connection!.id)).toBe(true);
@@ -1515,7 +1511,7 @@ suite("mail PostgreSQL foundation", () => {
     try {
       const created = await createProviderConnection({
         context,
-        owner: { type: "mailbox", mailboxId: mailbox.data.id },
+        mailboxId: mailbox.data.id,
         input: {
           name: `Created fixture ${suffix}`,
           email: "created@example.com",
@@ -1525,7 +1521,8 @@ suite("mail PostgreSQL foundation", () => {
           secret: { kind: "password", password: "created-secret" },
         },
       });
-      expect(created.ok).toBe(true);
+      expect(created.ok).toBe(false);
+      if (!created.ok) expect(created.error.code).toBe("CONFLICT");
 
       const replaced = await replaceProviderConnection({
         context,

@@ -36,26 +36,12 @@ export default function MailOverview(props: {
             multiline: true,
             lines: 3,
           },
-          policy: {
-            type: "select",
-            label: "Connection model",
-            description: "Shared uses one mailbox credential; personal lets each collaborator connect independently.",
-            default: "shared_connection",
-            options: [
-              { id: "shared_connection", label: "Shared connection", icon: "ti ti-users" },
-              { id: "personal_provider_account", label: "Personal provider accounts", icon: "ti ti-user-lock" },
-            ],
-          },
         },
         confirmText: "Create mailbox",
       });
       if (!values) return null;
       const response = await apiClient.mailboxes.$post({
-        json: {
-          name: values.name,
-          description: values.description || null,
-          connectionPolicy: values.policy === "personal_provider_account" ? "personal_provider_account" : "shared_connection",
-        },
+        json: { name: values.name, description: values.description || null },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to create mailbox"));
       return await response.json();
@@ -150,7 +136,7 @@ export default function MailOverview(props: {
         </Show>
       </AppOverview.Main>
 
-      <AppOverview.Aside title="Create" description="Choose the connection model when the mailbox is created.">
+      <AppOverview.Aside title="Create" description="Create a private mailbox, then connect its provider.">
         <button
           type="button"
           class="paper flex w-full items-center gap-3 p-4 text-left hover:paper-highlighted"

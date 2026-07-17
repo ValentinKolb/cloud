@@ -66,13 +66,8 @@ type DbCommandExecution = {
 type DbPinnedBinding = {
   remote_resource_id: string;
   connection_id: string;
-  connection_policy: "shared_connection" | "personal_provider_account";
-  owner_user_id: string | null;
-  owner_service_account_id: string | null;
-  owner_mailbox_id: string | null;
   capabilities: JsonRecord | string;
   verified_secret_revision: number;
-  remote_locator: JsonRecord | string;
 };
 
 type DbRemoteMessage = {
@@ -110,13 +105,8 @@ const loadPinnedBinding = async (command: DbCommandExecution): Promise<DbPinnedB
     SELECT
       pb.remote_resource_id,
       pb.connection_id,
-      m.connection_policy,
-      pc.owner_user_id,
-      pc.owner_service_account_id,
-      pc.owner_mailbox_id,
       pb.capabilities,
-      pb.verified_secret_revision,
-      pb.remote_locator
+      pb.verified_secret_revision
     FROM mail.provider_bindings pb
     JOIN mail.remote_resources rr ON rr.id = pb.remote_resource_id
     JOIN mail.mailboxes m ON m.id = rr.mailbox_id
@@ -129,22 +119,10 @@ const loadPinnedBinding = async (command: DbCommandExecution): Promise<DbPinnedB
       AND pc.secret_revision = ${command.selected_secret_revision}
       AND pc.status = 'active'
       AND pc.encrypted_secret IS NOT NULL
+      AND pc.owner_mailbox_id = ${command.mailbox_id}::uuid
       AND m.deleted_at IS NULL
   `;
   if (!binding) throw Object.assign(new Error("Pinned provider binding is no longer active"), { code: "BINDING_UNAVAILABLE" });
-
-  const ownsBinding =
-    binding.connection_policy === "shared_connection"
-      ? binding.owner_mailbox_id === command.mailbox_id
-      : command.access_subject_kind === "user"
-        ? binding.owner_user_id === command.access_subject_id
-        : command.access_subject_kind === "service_account"
-          ? binding.owner_service_account_id === command.access_subject_id
-          : false;
-  if (!ownsBinding)
-    throw Object.assign(new Error("Pinned provider binding no longer belongs to the execution principal"), {
-      code: "BINDING_OWNER_CHANGED",
-    });
   return binding;
 };
 
@@ -1073,20 +1051,27 @@ const replacementPath = (folder: DbFolderCommandTarget, name: string): string =>
   return separator < 0 ? name : `${folder.remote_path.slice(0, separator)}${folder.delimiter}${name}`;
 };
 
-const rootPathFromBinding = (binding: DbPinnedBinding): string => {
-  const locator = parseJsonRecord(binding.remote_locator);
-  return typeof locator.rootPath === "string" ? locator.rootPath : "";
-};
-
-const defaultBindingDelimiter = async (bindingId: string): Promise<string | null> => {
-  const [row] = await sql<{ delimiter: string | null }[]>`
-    SELECT delimiter
-    FROM mail.binding_folder_refs
-    WHERE binding_id = ${bindingId}::uuid AND delimiter IS NOT NULL AND missing_since IS NULL
-    ORDER BY char_length(remote_path), remote_path
-    LIMIT 1
-  `;
-  return row?.delimiter ?? null;
+const defaultBindingNamespace = async (bindingId: string): Promise<{ path: string; delimiter: string | null }> => {
+  const [[namespace], [folder]] = await Promise.all([
+    sql<{ prefix: string; delimiter: string | null }[]>`
+      SELECT prefix, delimiter
+      FROM mail.remote_namespaces
+      WHERE binding_id = ${bindingId}::uuid AND kind = 'personal'
+      ORDER BY char_length(prefix), prefix
+      LIMIT 1
+    `,
+    sql<{ delimiter: string | null }[]>`
+      SELECT delimiter
+      FROM mail.binding_folder_refs
+      WHERE binding_id = ${bindingId}::uuid AND delimiter IS NOT NULL AND missing_since IS NULL
+      ORDER BY char_length(remote_path), remote_path
+      LIMIT 1
+    `,
+  ]);
+  const delimiter = namespace?.delimiter ?? folder?.delimiter ?? null;
+  const prefix = namespace?.prefix ?? "";
+  const path = delimiter && prefix.endsWith(delimiter) ? prefix.slice(0, -delimiter.length) : prefix;
+  return { path, delimiter };
 };
 
 const requeueCommand = async (command: DbCommandExecution, code: string, message: string): Promise<void> => {
@@ -1113,7 +1098,6 @@ const recordCommandResult = async (command: DbCommandExecution, result: JsonReco
 type PreparedFolderOperation = {
   binding: DbPinnedBinding;
   runtime: MutationRuntime;
-  rootPath: string;
   path: string;
   newPath: string | null;
   subscribed: boolean | null;
@@ -1124,20 +1108,18 @@ const prepareFolderOperation = async (command: DbCommandExecution): Promise<Prep
   const binding = await loadPinnedBinding(command);
   const runtime = await loadPinnedRuntime(binding);
   const target = folderTargetSchema.parse(parseJsonRecord(command.target));
-  const rootPath = rootPathFromBinding(binding);
   if (command.kind === "create_folder") {
     const payload = createFolderPayloadSchema.parse(parseJsonRecord(command.payload));
     const parent = target.parentFolderId ? await loadFolderCommandTarget(command, target.parentFolderId) : null;
     if (parent) assertFolderAclRight(parent, "create_children");
-    const delimiter = parent?.delimiter ?? (await defaultBindingDelimiter(command.selected_binding_id));
-    const path = leafPath(parent?.remote_path ?? rootPath, delimiter, payload.name);
-    return { binding, runtime, rootPath, path, newPath: null, subscribed: payload.subscribe, folder: parent };
+    const namespace = parent ? null : await defaultBindingNamespace(command.selected_binding_id);
+    const delimiter = parent?.delimiter ?? namespace?.delimiter ?? null;
+    const path = leafPath(parent?.remote_path ?? namespace?.path ?? "", delimiter, payload.name);
+    return { binding, runtime, path, newPath: null, subscribed: payload.subscribe, folder: parent };
   }
   if (!target.folderId) throw Object.assign(new Error("Folder command target is missing"), { code: "INVALID_COMMAND_TARGET" });
   const folder = await loadFolderCommandTarget(command, target.folderId);
   if (command.kind === "rename_folder") {
-    if (folder.remote_path === rootPath)
-      throw Object.assign(new Error("The selected remote root cannot be renamed"), { code: "PROTECTED_FOLDER" });
     assertFolderAclRight(folder, "delete_folder");
     if (folder.parent_id) {
       const parent = await loadFolderCommandTarget(command, folder.parent_id);
@@ -1147,7 +1129,6 @@ const prepareFolderOperation = async (command: DbCommandExecution): Promise<Prep
     return {
       binding,
       runtime,
-      rootPath,
       path: folder.remote_path,
       newPath: replacementPath(folder, payload.name),
       subscribed: null,
@@ -1155,18 +1136,18 @@ const prepareFolderOperation = async (command: DbCommandExecution): Promise<Prep
     };
   }
   if (command.kind === "delete_folder") {
-    if (folder.remote_path === rootPath || ["inbox", "all"].includes(folder.role)) {
+    if (["inbox", "all"].includes(folder.role)) {
       throw Object.assign(new Error("Protected provider folders cannot be deleted"), { code: "PROTECTED_FOLDER" });
     }
     assertFolderAclRight(folder, "delete_folder");
-    return { binding, runtime, rootPath, path: folder.remote_path, newPath: null, subscribed: null, folder };
+    return { binding, runtime, path: folder.remote_path, newPath: null, subscribed: null, folder };
   }
   const payload = subscriptionPayloadSchema.parse(parseJsonRecord(command.payload));
-  return { binding, runtime, rootPath, path: folder.remote_path, newPath: null, subscribed: payload.subscribed, folder };
+  return { binding, runtime, path: folder.remote_path, newPath: null, subscribed: payload.subscribed, folder };
 };
 
 const remoteFolderByPath = async (operation: PreparedFolderOperation) => {
-  const folders = await imapSmtpConnector.discoverFolders(operation.runtime, operation.rootPath);
+  const folders = await imapSmtpConnector.discoverFolders(operation.runtime);
   return {
     current: folders.find((folder) => folder.path === operation.path) ?? null,
     replacement: operation.newPath ? (folders.find((folder) => folder.path === operation.newPath) ?? null) : null,
@@ -1459,7 +1440,6 @@ type DbOutboxExecutionRow = DbOutboxExecution & {
 };
 
 type DbSenderBinding = {
-  interactive_policy: "mailbox" | "actor";
   saves_sent_automatically: boolean;
   sent_folder_id: string | null;
   sent_path: string | null;
@@ -1703,7 +1683,6 @@ const claimOutbox = async (outboxId: string): Promise<{ previousState: string } 
 const loadSenderBinding = async (command: DbCommandExecution, senderIdentityId: string): Promise<DbSenderBinding> => {
   const [sender] = await sql<DbSenderBinding[]>`
     SELECT
-      si.interactive_policy,
       sib.saves_sent_automatically,
       si.sent_folder_id,
       sent_ref.remote_path AS sent_path,

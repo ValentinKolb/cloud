@@ -40,7 +40,7 @@ This document uses two decision states:
 | Area | Status | Direction |
 | --- | --- | --- |
 | Mail authority | Accepted direction | The connected provider owns portable mail state; PostgreSQL is a durable mirror and owns Cloud collaboration state. IMAP/SMTP is the mandatory baseline connector. |
-| Primary resource | Accepted direction | Permissions, settings, automation, sender identities, and AI policy attach to a Cloud mailbox. Private connector bindings provide upstream access behind it. |
+| Primary resource | Accepted direction | Permissions, settings, automation, sender identities, and AI policy attach to a Cloud mailbox. Its mailbox-owned connector binding provides upstream access behind it. |
 | Connector strategy | Accepted direction | Ship the complete generic IMAP/SMTP product first. Add JMAP as the first enhanced connector, then Microsoft Graph and Gmail API without changing domain contracts. |
 | Search and tags | Accepted direction | Field-specific structured search, native PostgreSQL FTS, and Cloud-local tags are mandatory; `pg_textsearch` is an optional ranking backend. |
 | Conversations | Accepted direction | Original messages and replies form one mailbox-scoped conversation using provider IDs, RFC reply headers, conservative fallback, and explicit manual corrections. |
@@ -49,7 +49,7 @@ This document uses two decision states:
 | Application experience | Accepted direction | The default workspace combines dense one-line conversation rows with a reader and at most one optional right detail panel. The conversation list can be hidden without leaving the workspace; only the composer has a dedicated full-size focus mode. Received attachments stay with their history message; outgoing attachments stay with the composer. |
 | Automation | Accepted direction | Deterministic decision trees are the default; AI is an optional typed decision node. Live mail and backfill use the same evaluator. Guarded automatic replies and reference allocation are workflow actions, not a separate ticket subsystem. |
 | Bulk actions | Accepted direction | Agents compile broad mailbox requests into previewable one-shot workflow plans; direct unbounded mutation loops are not an execution path. |
-| Shared folders | Accepted direction | A mailbox has one remote resource and a pool of verified private provider bindings. Its connection policy chooses shared credentials or each actor's provider account. Background sync may fail over between eligible bindings; actor mutations and sends never borrow another user's identity. |
+| Shared folders | Accepted direction | Every Cloud mailbox has one mailbox-owned provider connection and one current binding. IMAP personal, other-user, and shared namespaces visible through that account are discovered like normal folders. Cloud does not merge the same server folder across users or share one user's provider authorization with another user. |
 | Agent access | Accepted direction | UI, API, CLI, workflows, service accounts, and AI tools use the same permission-checked domain services. |
 | Permissions | Accepted direction | `read` includes mail reading and internal comments; `write` includes all mail and collaboration operations; `admin` additionally owns connections, sharing, settings, workflows, rules, and mailbox deletion. |
 | Storage and retention | Accepted direction | PostgreSQL stores all mirrored message bodies and attachment bytes. Mail content, collaboration history, tombstones, AI artifacts, commands, and workflow runs are retained indefinitely. First-release mailbox deletion is a reversible soft deletion and does not purge durable data. |
@@ -67,7 +67,7 @@ This snapshot records the verified Mail backend, CLI, and core application exper
 
 | Delivery slice | State | Implemented | Remaining |
 | --- | --- | --- | --- |
-| 1. Foundation contracts | In progress | Mail package and schema; mailbox access adapter; encrypted write-only provider connections; mailbox remote resource and binding pool; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; connector conformance harness; typed API and CLI. | Conversation references and response schedules. |
+| 1. Foundation contracts | In progress | Mail package and schema; mailbox access adapter; encrypted write-only mailbox provider connections; one current remote-resource binding with retained historical fences; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; connector conformance harness; typed API and CLI. | Conversation references and response schedules. |
 | 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; repair and health operations; field-specific structured search with keyset pagination, native FTS, optional `pg_textsearch`, and explicit 20,000- and 100,000-message performance gates. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, and setup UX. |
 | 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; and message-bound plus outgoing attachment UX. | Rich attachment previewers and broader multi-message bulk selection. |
 | 4. Collaboration | Backend and primary UI implemented | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; mailbox-scoped live invalidation; permission-safe API and CLI; and the combined Mail, ownership, comments, reminders, and audit Details panel. | Explicit presence indicators and richer shared-draft takeover and conflict guidance. |
@@ -164,7 +164,7 @@ The architecture separates remote mail truth, durable Cloud truth, and transient
 | Concern | Authority | Notes |
 | --- | --- | --- |
 | Container hierarchy and placement | Connected provider | PostgreSQL mirrors folders, labels, mailbox membership, and remote placement metadata. |
-| Effective remote rights | Connected provider | IMAP ACLs, JMAP rights, Graph permissions, or Gmail scopes are mirrored per binding. |
+| Effective remote rights | Connected provider | IMAP ACLs, JMAP rights, Graph permissions, or Gmail scopes are mirrored for the current binding. |
 | Standard flags and keywords | Connected provider | Capability-dependent and visibly distinguished from Cloud-only state. |
 | Current remote existence and placement | Connected provider | The provider decides whether a message currently exists remotely and where it is placed. |
 | Retained message content | PostgreSQL after import | Original headers, MIME structure and parts, normalized text, sanitized HTML, and attachment bytes remain durable even after provider deletion or access loss. |
@@ -185,9 +185,9 @@ The architecture separates remote mail truth, durable Cloud truth, and transient
 - Workflow and agent actions call domain commands; they do not call IMAP or SMTP directly.
 - Agent-authored bulk plans are validated workflow definitions. The model cannot bypass preview, approval, effect budgets, or the command journal.
 - Effective remote operations are the intersection of Cloud permission, current binding rights, sender-identity policy, and tool or automation scope.
-- One central execution resolver selects the provider binding for every remote operation. Domain services and connectors never implement their own binding-selection rules.
-- Human operations in personal-provider mode use only the acting user's binding. They never fall back to another user's credential or remote identity.
-- Background sync may fail over only between bindings that independently verified the same remote resource. A command is pinned to one binding when it starts and never changes bindings during a retry or ambiguous outcome.
+- One central execution resolver validates the current mailbox binding for every remote operation. Domain services and connectors never implement their own credential-selection rules.
+- A mailbox has at most one current provider connection and binding. Provider credentials are never user-owned, pooled, or reused across Cloud mailboxes.
+- A command is pinned to one binding and credential revision when it starts and never changes either during a retry or ambiguous outcome.
 - Remote identities, folder projections, sync cursors, and command history belong to the mailbox remote resource, not to the transient binding used for one operation.
 - Live events invalidate or refresh durable state. Missing a live event never loses data.
 - Audit metadata excludes credentials, full message bodies, attachment contents, and hidden model reasoning.
@@ -266,7 +266,7 @@ Capabilities are persisted with verification time and source. Services ask for a
 | Push | JMAP push, provider webhook, or IMAP IDLE | Adaptive polling plus scheduled reconciliation. |
 | Folder roles | Provider role or IMAP SPECIAL-USE | One-time user mapping with remembered choices. |
 | Remote tags | IMAP keywords or a connector-native non-container tag primitive | Cloud local tags. |
-| Shared resources | JMAP account, Graph mailbox, or IMAP namespace | Explicit remote root selection; no inferred sharing. |
+| Shared resources | JMAP account, Graph mailbox, or IMAP namespace | Discover resources exposed to the connected account; never infer equivalence across accounts. |
 | Sender identities | Provider identity API | Explicit allowlisted identity and verification send. |
 | Submission | JMAP or provider API | SMTP plus Sent-folder reconciliation. |
 | Server rules | JMAP Sieve or provider filters | Cloud workflow engine. |
@@ -289,32 +289,23 @@ The schema lives under `mail.*`. Names below define responsibilities rather than
 
 ### Mailbox and access
 
-`mail.mailboxes` is the only top-level Cloud resource. A newly created mailbox initially grants `admin` only to its creator and is shared through the normal Cloud permission system. It stores the user-visible name, collaboration and connection policies, sync policy, search backend, default behavior, and aggregate health. It never stores provider credentials or provider-specific IDs directly.
+`mail.mailboxes` is the only top-level Cloud resource. A newly created mailbox initially grants `admin` only to its creator and is shared through the normal Cloud permission system. It stores the user-visible name, collaboration policy, sync policy, search backend, default behavior, and aggregate health. It never stores provider credentials or provider-specific IDs directly.
 
-`mail.provider_connections` stores one encrypted provider authentication context. A connection is owned by one user, one service account, or the mailbox itself, is never a shareable or navigable Cloud resource, and may be reused by that owner for several remote roots. Its secret fields are write-only: APIs and administrators can see only whether a value is set, its verification state, and non-secret connection metadata. There are no global mail credentials.
+`mail.provider_connections` stores one encrypted provider authentication context owned by exactly one Cloud mailbox. It is never a separate shareable or navigable Cloud resource and is not reused across mailboxes. At most one non-revoked connection exists per mailbox; revoked rows remain as historical command and audit references. Secret fields are write-only: APIs and mailbox administrators can see only whether a value is set, its verification state, and non-secret connection metadata. There are no global or user-owned mail credentials.
 
-`mail.remote_resources` stores the mailbox-owned canonical remote account, mailbox, namespace root, or folder subtree. It owns the connector kind, typed remote locator, discovered folder tree, sync state, and reconciliation generation independently of whichever credential currently reaches it.
+`mail.remote_resources` stores the mailbox-owned canonical remote account. It owns the connector kind, typed remote locator, discovered folder tree, sync state, and reconciliation generation independently of credential revisions.
 
 `mail.provider_bindings` proves that one provider connection can reach one remote resource. It stores the authenticated provider principal, current capabilities and rights, verification evidence, health, and last use. Binding states are `pending`, `verifying`, `active`, `degraded`, and `revoked`.
 
-Eligibility is derived centrally from binding state, verified scope, current rights, connection policy, operation, and sender identity; it is not copied into independent sync, automation, mutation, and submission flags. In personal-provider mode, every active complete-scope binding is a sync candidate. Attaching the binding is the explicit consent for Cloud to use it as mailbox transport; disconnecting it removes it from the pool. Automation additionally requires the rights needed by the concrete action and, for sending, a current identity verification.
-
-A mailbox has one connection policy, not a different resource type:
-
-- `shared_connection`: a mailbox-owned provider connection is intentionally used for collaborators. Cloud permission authorizes the actor, while the selected binding's remote rights cap every operation.
-- `personal_provider_account`: each collaborator attaches a private provider connection that independently proves access to the same remote resource. Cloud permission grants collaboration access but does not replace provider authorization.
-
-The setup UI names these choices **Shared connection** and **Personal provider account**. Discovery of an IMAP Other Users or Shared Namespace recommends **Personal provider account**. A normal team account with one deliberately shared login uses **Shared connection**. The choice can be changed only through a verified rebinding flow; it does not migrate mailbox content or create a second mailbox type.
-
-In personal-provider mode, cached mail reads and remote operations require both Cloud permission and an active binding for the acting user. A principal who can see only a subtree links that subtree as a separate Cloud mailbox instead of receiving a partial view of conversations, comments, or search documents. Target-specific write, move, delete, and send rights remain checked per container and identity.
+Eligibility is derived centrally from binding state, verified account identity, current rights, operation, and sender identity; it is not copied into independent sync, automation, mutation, and submission flags. Cloud permission authorizes the actor, while the single current binding's remote rights cap every provider operation. Cached reads and Cloud collaboration remain available after provider loss; remote operations pause until a mailbox administrator reconnects the same provider account.
 
 `mail.mailbox_access` links a mailbox to Cloud `auth.access` entries. The resource adapter follows the existing Cloud pattern for users, groups, and service accounts.
 
-`mail.mailbox_capabilities` projects the capabilities advertised by active bindings. Authorization always resolves the acting user, selected binding, operation, and target container; capabilities from several bindings are never unioned into broader effective rights. Capability discovery is data, not scattered conditionals.
+`mail.mailbox_capabilities` projects the capabilities advertised by the current binding. Authorization always resolves the acting user, binding, operation, and target container. Capability discovery is data, not scattered conditionals.
 
 `mail.remote_namespaces` stores personal, other-user, and shared IMAP namespace prefixes and delimiters as connector metadata for one binding. Binding-specific effective folder rights, their source, and verification time live on `mail.binding_folder_refs`; JMAP and provider connectors populate the same projection without inventing IMAP ACL strings.
 
-`mail.sender_identities` stores an exact display name and `From` address, optional reply-to and envelope sender, signature, compose policy, default Sent/Drafts behavior, and an authentication policy with `interactive: mailbox | actor` plus `automation: disabled | mailbox | pool`. `mail.sender_identity_bindings` records which binding and provider principal passed the verification send. Identities belong to a mailbox, but authorization is verified per binding.
+`mail.sender_identities` stores an exact display name and `From` address, optional reply-to and envelope sender, signature, compose policy, default Sent/Drafts behavior, and `automation: disabled | mailbox`. Interactive sends always use the mailbox connection. `mail.sender_identity_bindings` records which binding and provider principal passed the verification send; the record is revision-fenced and is invalidated after credential replacement.
 
 One resolver owns binding selection:
 
@@ -335,15 +326,15 @@ resolveMailExecution({
 }): Promise<ResolvedMailExecution>;
 ```
 
-`backgroundSync` may select any active sync-eligible binding for the same verified remote resource. Actor reads and mutations select the mailbox-owned binding in shared-connection mode or only the actor's binding in personal-provider mode. Interactive sending follows `interactive`: `actor` requires the acting user or service account's own verified binding, while `mailbox` requires a mailbox-owned verified binding. Autonomous sending follows `automation`: `disabled` rejects the action, `mailbox` requires a mailbox-owned verified binding, and `pool` selects any healthy remote-resource binding that passed verification for the exact identity. No policy falls back outside its declared binding set. `automation` has no Cloud principal: it is attributed to the immutable workflow version and separately records the provider binding used as transport.
+Every remote operation resolves the one current mailbox-owned binding and rechecks its credential revision and target rights. Interactive sending additionally requires a current verification of the exact sender identity on that binding. Autonomous sending follows `automation`: `disabled` rejects the action and `mailbox` uses the same verified mailbox binding. Automation has no Cloud principal: it is attributed to the immutable workflow version and separately records the provider binding used as transport.
 
-The resolver writes the selected binding ID and rights snapshot to the command before transport starts. The binding remains pinned for the command lifetime. Failover happens only between completed sync batches; an ambiguous mutation or submission is reconciled through its original binding and is never retried through another principal.
+The resolver writes the binding ID, credential revision, and rights snapshot to the command before transport starts. They remain pinned for the command lifetime. An ambiguous mutation or submission is reconciled through its original binding and is never replayed after credentials change.
 
 ### Remote mail
 
 `mail.folders` is the canonical mailbox-owned product projection of remote containers. It stores an internal folder ID, parent, user-visible name, role, discovery generation, and current sync cursor where the connector uses a container cursor. Connector-native mailbox or label membership maps to placements; a Gmail label is never duplicated as both a folder placement and a remote keyword.
 
-`mail.binding_folder_refs` maps each canonical folder to one binding-specific remote locator. It stores the provider object ID or IMAP path, delimiter, namespace, `UIDVALIDITY`, server subscription state, effective rights, and last verification. The execution resolver translates canonical targets through this table, so different principals may expose the same shared folder under different paths without leaking path assumptions into commands or failover.
+`mail.binding_folder_refs` maps each canonical folder to the current binding's remote locator. It stores the provider object ID or IMAP path, delimiter, namespace, `UIDVALIDITY`, server subscription state, effective rights, and last verification. Historical refs remain attached to revoked bindings for command, sync, and audit evidence.
 
 `mail.message_contents` stores immutable normalized message content:
 
@@ -468,23 +459,21 @@ Bodies and attachment bytes have separate cursors so ordinary mail becomes usabl
 - Cap connections globally, per provider host, and per mailbox.
 - Run periodic full reconciliation to heal missed events and provider anomalies.
 
-### Binding leadership and failover
+### Binding leadership and fencing
 
-One active binding holds a short distributed lease and monotonically increasing fencing token for each remote resource synchronization generation. PostgreSQL stores the current fence. Every batch transaction compares its token and updates projections and the durable cursor under the same row lock; a stale worker cannot pass a preflight check and commit afterward. Losing the lease stops further remote reads and commits; the next eligible binding starts after the last transaction committed by the previous fence.
+The current binding is processed by one horizontally elected worker at a time using a short distributed lease and monotonically increasing fencing token for each remote-resource synchronization generation. PostgreSQL stores the current fence. Every batch transaction compares its token and updates projections and the durable cursor under the same row lock; a stale worker cannot pass a preflight check and commit afterward. Losing the lease stops further remote reads and commits; another instance resumes with the same current binding after the last committed transaction.
 
-Binding selection is deterministic and health based. It prefers an already active healthy binding, then another active binding that verified the same remote resource and required rights. It never combines partial rights from several bindings. Removing or revoking Alice's binding therefore does not interrupt Bob or Carol when either can independently reach the complete resource.
-
-An in-flight command remains pinned to its original binding even when that binding degrades. Known-safe reads may be retried after normal resolver selection. Mutations and submissions with an ambiguous result never issue a retry through another principal. Read-only observational reconciliation may use canonical state synchronized through another verified binding to the same resource; if that evidence cannot prove the outcome and the original binding is unavailable, the command transitions to `needs_attention`. If no eligible binding remains, local data and collaboration history stay available according to the mailbox connection policy, background synchronization and remote commands pause, and mailbox health becomes `connection_required`.
+An in-flight command remains pinned to its original binding even when it degrades. Mutations and submissions with an ambiguous result never issue a retry after a binding or credential change. If the current binding disappears, local data and collaboration history remain available through Cloud permissions, background synchronization and remote commands pause, and mailbox health becomes `connection_required`. A mailbox administrator can then create a new connection and binding; revoked records remain immutable historical evidence.
 
 ### Folder discovery and subscriptions
 
 IMAP namespace membership, mailbox visibility, and subscription are separate concepts. `NAMESPACE` identifies personal, other-user, and shared roots; `LIST` discovers currently visible mailboxes; `SUBSCRIBE` controls the server-side subscribed-name set returned by `LIST (SUBSCRIBED)` or legacy `LSUB`. A subscription is a display preference, not proof of read or write access.
 
-Cloud never treats the subscribed list as the complete remote tree. Initial setup and periodic reconciliation list the selected namespace or subtree, compare it with the mailbox-owned folder projection, refresh effective rights, and classify each name as discovered, subscribed, selected for sync, unavailable, or removed. When `LIST-EXTENDED` is available, one listing may return subscription and child metadata; otherwise the connector combines ordinary `LIST`, subscription listing, and capability-safe probes.
+Cloud never treats the subscribed list as the complete remote tree. Initial setup and periodic reconciliation list every mailbox visible to the authenticated account, compare it with the mailbox-owned folder projection, refresh effective rights, and classify each name as discovered, subscribed, selected for sync, unavailable, or removed. When `LIST-EXTENDED` is available, one listing may return subscription and child metadata; otherwise the connector combines ordinary `LIST`, subscription listing, and capability-safe probes.
 
-Mailbox create, rename, delete, visibility changes involving lookup rights, and subscription notifications through IMAP `NOTIFY` are optional low-latency hints. For each binding, the connector registers `MailboxName` and `SubscriptionChange` on `subtree` using that binding's verified root locator, or explicit `mailboxes` locators when the selected scope has no selectable root. The separate `selected` group contains only message events. `NOTIFY` is not a complete `MYRIGHTS` change stream. Scheduled discovery, pre-command rights refresh, and explicit refresh remain authoritative, and a rejected or overflowed registration falls back without changing behavior. A newly visible child folder under the selected remote resource is synchronized automatically by default; users do not have to repeat Thunderbird's manual subscribe-and-refresh workflow. A mailbox admin may exclude folders from Cloud sync without issuing `UNSUBSCRIBE` unless they explicitly choose to change the provider-side subscription.
+Mailbox create, rename, delete, visibility changes involving lookup rights, and subscription notifications through IMAP `NOTIFY` are optional low-latency hints. The connector registers capability-safe mailbox and subscription notifications when supported. `NOTIFY` is not a complete `MYRIGHTS` change stream. Scheduled full-account discovery, pre-command rights refresh, and explicit refresh remain authoritative, and a rejected or overflowed registration falls back without changing behavior. Newly visible folders are discovered automatically; a mailbox admin may exclude folders from Cloud sync without issuing `UNSUBSCRIBE` unless they explicitly choose to change the provider-side subscription.
 
-IMAP does not update subscriptions automatically when a mailbox is renamed, including child names. Rename reconciliation therefore matches stable provider identity where available, otherwise uses a bounded old/new-path comparison, updates the Cloud projection, and offers a separate idempotent provider-subscription repair. A path match alone never proves that two users' bindings address the same remote resource.
+IMAP does not update subscriptions automatically when a mailbox is renamed, including child names. Rename reconciliation therefore matches stable provider identity where available, otherwise uses a bounded old/new-path comparison, updates the Cloud projection, and offers a separate idempotent provider-subscription repair.
 
 ### UIDVALIDITY and folder changes
 
@@ -560,11 +549,9 @@ When the server advertises the IMAP ACL extension, the connector reads `MYRIGHTS
 
 Cloud does not need to edit upstream ACLs initially. It only consumes effective rights. If ACL is unavailable, successful read-only or read-write selection provides a conservative capability signal; destructive folder administration remains disabled unless explicitly verified.
 
-Rights are refreshed per binding during discovery, before delayed mutations, and after permission errors. In personal-provider mode, losing upstream access disables that principal's binding and therefore its cached mail reads and remote commands. In shared-connection mode, Cloud permission authorizes cached reads while remote operations remain capped by the mailbox binding. A stale PostgreSQL mirror must not become an ACL bypass.
+Rights are refreshed during discovery, before delayed mutations, and after permission errors. Cloud permission authorizes cached reads and collaboration; remote operations remain capped by the current mailbox binding. Provider loss therefore cannot revoke Cloud collaboration access, and a stale mirror cannot authorize a new provider mutation.
 
-When several people expose the same shared root through different private connections, Cloud never deduplicates solely by path. A mailbox admin links a candidate binding only after the connector verifies server identity, namespace metadata, resource structure, and a stable remote account or mailbox identifier where available. On generic IMAP without a stable identifier, the proof also compares root and child `UIDVALIDITY` values plus a bounded fingerprint of overlapping immutable messages. An empty or otherwise ambiguous resource requires explicit admin confirmation after a read-only comparison; otherwise the roots stay separate.
-
-In personal-provider mode, cached mail reads and actor mutations resolve against the acting user's private binding. In shared-connection mode, they resolve against the mailbox-owned binding. Background synchronization independently elects one healthy sync-eligible binding from the pool and may fail over at batch boundaries. Workflows have no Cloud principal; their audit actor is the workflow version, while the execution record separately identifies the provider transport binding.
+IMAP shared and other-user namespaces are account-local provider state. If Alice's authenticated account exposes `Shared/Support`, that folder appears in Alice's Cloud mailbox and is synchronized with Alice's effective `MYRIGHTS`. Bob connecting his own account creates a separate Cloud mailbox projection, even if his server exposes a folder with the same path. Cloud does not attempt cross-principal folder equivalence, credential failover, or folder-level sharing. A team that needs one collaborative Cloud mailbox connects a functional mailbox or another deliberately shared provider account and then shares the Cloud mailbox through normal Cloud permissions.
 
 ### Sender identities
 
@@ -585,20 +572,13 @@ Reply defaults use the identity whose address received the original message and 
 
 Sent-copy behavior belongs to the identity. A functional address can therefore authenticate to SMTP with a person's account while placing the resulting sent copy in a shared Sent folder when the provider permits both operations.
 
-### University of Ulm case
+### Provider-exposed shared folders
 
-The University of Ulm explicitly supports functional, non-personal addresses delivered into IMAP Shared Folders. Alice and Bob each see the shared root through their own university account. Cloud represents this as:
+Generic IMAP may expose functional or delegated folders in an authenticated user's shared or other-user namespace. Cloud discovers those folders with the rest of that account and stores their subscription state and effective rights. They are not separate Cloud resources and cannot be shared independently from the mailbox.
 
-1. one private provider connection and verified binding for Alice;
-2. a second private provider connection and verified binding for Bob;
-3. one Cloud mailbox with `personal_provider_account` policy and one mailbox-owned remote resource rooted at the functional Shared Folder, excluding both personal namespaces;
-4. effective read/write capabilities derived independently for each binding;
-5. a functional sender identity with `interactive: actor` and, when automatic replies are enabled, `automation: pool`, with every eligible binding verified through the university SMTP service;
-6. explicit Drafts and Sent mappings under the shared root where supported;
-7. background sync leadership elected from the healthy binding pool with a lease and fencing token;
-8. automatic discovery of new or renamed children inside the selected Shared Folder, without requiring users to repeat Thunderbird folder subscription steps in Cloud.
+This deliberately does not reproduce Thunderbird's cross-account Shared Folder setup. If Alice and Bob each connect personal university accounts, each gets an independent Cloud mailbox projection of what that account can see. Cloud does not claim that similarly named folders are the same remote resource and does not fail over from Alice's credentials to Bob's. If Alice loses university access, only Alice's mailbox loses provider connectivity; its PostgreSQL mirror remains readable to existing Cloud collaborators and remote operations pause.
 
-Cloud collaboration state is shared, but neither personal credential is. If Alice's university account expires, her binding becomes revoked, the sync lease moves to Bob or another healthy binding after the current batch, and other collaborators continue without recreating the mailbox. Alice's binding no longer authorizes mail reads or remote commands. If every binding becomes invalid, Cloud retains all PostgreSQL data indefinitely, marks the mailbox `connection_required`, and pauses remote operations until a new binding verifies the same resource. The same model covers public folders, delegated user folders, Stalwart Group inboxes, and Microsoft shared mailboxes without assuming identical provider semantics.
+For a durable collaborative team mailbox, the supported setup is a functional provider mailbox, delegated account with stable service credentials, or provider-native shared mailbox connected as one Cloud mailbox. The Cloud mailbox can then be shared through normal `read`/`write`/`admin` permissions. Sender identities still require explicit SMTP verification because IMAP folder rights do not prove permission to send as the functional address.
 
 ## Search
 
@@ -647,7 +627,7 @@ WHERE mailbox_id = ANY($authorized_mailbox_ids)
   AND (<compiled search expression>)
 ```
 
-`$authorized_mailbox_ids` is an effective-access set, not a caller-provided filter. In shared-connection mode it follows current Cloud permission. In personal-provider mode it also requires the acting user to have an active complete-scope binding. Search never turns a valid Cloud share plus a revoked or partial personal binding into access to mirrored mail.
+`$authorized_mailbox_ids` is an effective-access set, not a caller-provided filter. It follows current Cloud permission. Provider connectivity does not grant or revoke access to mirrored content; it only gates remote synchronization and mutations.
 
 ### Search documents
 
@@ -1112,20 +1092,20 @@ Conversation and message routes remain under a mailbox so authorization cannot b
 ### CLI shape
 
 ```text
-cloud mail provider-connection discover --connection university
-cloud mail mailbox add --connection university --account shared --root "Shared Folders/functional-address"
-cloud mail mailbox binding add --mailbox functional-address --connection university-bob --account shared --root "Shared Folders/functional-address"
-cloud mail identity add --mailbox functional-address --from functional-address@example.org
-cloud mail mailbox list
-cloud mail search --mailbox support --query query.json --json
-cloud mail conversation get --mailbox support --id ...
-cloud mail conversation merge --mailbox support --into ... --conversation ... --confirm
-cloud mail conversation split --mailbox support --conversation ... --message ... --confirm
-cloud mail assign --mailbox support --conversation ... --user ... --idempotency-key ...
-cloud mail comment add --mailbox support --conversation ... --file comment.md
-cloud mail reference ensure --mailbox support --conversation ... --scheme default
-cloud mail draft create --mailbox support --conversation ... --file reply.md
-cloud mail send --mailbox support --draft ... --confirm
+cld mail create "Support"
+cld mail use <mailbox-id>
+cld mail provider add --name Support --email support@example.org --username support@example.org --imap-host imap.example.org --smtp-host smtp.example.org --secret-stdin
+cld mail binding attach <connection-id>
+cld mail identity setup-default
+cld mail search --query query.json --json
+cld mail conversation get --id ...
+cld mail conversation merge --into ... --conversation ... --confirm
+cld mail conversation split --conversation ... --message ... --confirm
+cld mail assign --conversation ... --user ... --idempotency-key ...
+cld mail comment add --conversation ... --file comment.md
+cld mail reference ensure --conversation ... --scheme default
+cld mail draft create --conversation ... --file reply.md
+cld mail send --draft ... --confirm
 cld mail workflow validate --source-file route-mail.yml --mailbox support
 cld --json mail workflow preflight <workflow-id> --version-id <version-id> --mailbox support --query-file query.yml
 cld --json mail workflow run backfill <workflow-id> --version-id <version-id> --mailbox support --query-file query.yml --yes
@@ -1153,7 +1133,7 @@ Accepted mapping:
 
 Service-account credential scopes can only reduce resource permission. Tool and automation policies can reduce it further.
 
-A private provider connection remains controlled by its owner. A mailbox admin may see redacted binding health and unlink another user's binding from the mailbox, but cannot inspect, replace, export, or revoke that user's credential. For a mailbox-owned shared connection, admins may replace or remove secret values but can never retrieve an existing value.
+A provider connection is controlled by mailbox administrators. They may see redacted connection and binding health and replace or revoke the credential, but can never retrieve, inspect, or export an existing secret value.
 
 ### Layered authorization
 
@@ -1161,13 +1141,13 @@ An operation is allowed only when every relevant layer permits it:
 
 ```text
 Cloud mailbox permission
-  intersect current rights and scopes of the selected binding
+  intersect current rights and scopes of the mailbox binding
   intersect sender-identity authorization when sending
   intersect tool, workflow, or service-account scope
   intersect approved bulk-action effect budget
 ```
 
-In personal-provider mode, an acting user or service account must also have its own current binding for cached mail reads and actor remote operations. In shared-connection mode, Cloud deliberately authorizes use of the mailbox-owned binding. In both policies, remote operations can never exceed the binding's current provider rights. Conversely, provider access does not grant Cloud access unless the mailbox resource is shared with the principal.
+Cloud permission authorizes access to the mailbox and mirrored content. Remote operations additionally require the current mailbox binding and can never exceed its provider rights. Conversely, provider access does not grant Cloud access unless the mailbox resource is shared with the principal.
 
 One-shot bulk plans may be executed by a writer only for actions that writer could perform individually. Recurring rules, connection changes, sender identities, and autonomous-action policies require mailbox administration permission.
 
@@ -1177,7 +1157,7 @@ Manual conversation merge and split require `write` and an expected conversation
 
 Every request, attachment fetch, stream reconnect, delayed command, workflow action, and agent tool execution resolves current access. Revocation blocks new work immediately. Existing live clients refetch and lose inaccessible state; draft editors close and clear their durable browser recovery journal for that resource.
 
-Binding rights, scopes, and remote resource visibility are also rechecked. If a shared root disappears or a user's personal binding loses read rights, that binding no longer authorizes cached mail even if the Cloud ACL itself did not change. Other healthy bindings and collaborators remain unaffected.
+Binding rights, scopes, and remote resource visibility are also rechecked. If a remote folder disappears or loses read rights, synchronization and provider commands for that folder stop. Cached mail and collaboration remain governed by the Cloud ACL.
 
 System sync jobs resolve an eligible binding from the mailbox pool and hold a fenced sync lease; they are not owned by the user whose binding currently transports bytes. User-configured workflows become mailbox-owned when an admin activates an immutable version. They have no Cloud principal, but every execution records the workflow version, trigger, selected transport binding, provider principal, and resulting command.
 
@@ -1233,11 +1213,11 @@ Nessi handles model loops, structured output, tool execution events, and approva
 
 Each mailbox exposes:
 
-- connector kind, remote account, and connection state per binding;
-- authentication and token-refresh state per binding;
-- selected remote root, effective rights or scopes, and last verification per binding;
-- connection policy, active binding count, degraded or revoked bindings, and redundancy warning;
-- current fenced sync leader, lease age, and last failover reason;
+- connector kind, remote account, and current connection and binding state;
+- authentication and token-refresh state;
+- effective folder rights and last verification;
+- retained revoked binding count and current reconnect requirement;
+- current fenced sync worker and lease age;
 - folder discovery generation, subscribed/discovered/synchronized counts, and unresolved rename or ACL changes;
 - configured sender identities and their verification state;
 - last successful sync and current lag;
@@ -1348,39 +1328,36 @@ The matrix is cumulative. Only generic IMAP/SMTP behavior gates the first comple
 
 - User, group, service-account, and delegated-user access.
 - Permission reduction between command request and execution.
-- Revocation during search, attachment download, SSE reconnect, workflow run, and AI tool call.
+- Revocation during search, attachment download, WebSocket reconnect, workflow run, and AI tool call.
 - Cross-mailbox OR query attempts.
-- In personal-provider mode, search, cached mail, attachments, and content-derived collaboration views are excluded after the acting user's private binding is revoked even while its Cloud ACL remains. Binding setup and mailbox administration remain available to authorized admins.
-- A binding with read access to only part of the selected remote scope does not authorize the combined mailbox or its comments.
+- Revoking the provider binding stops remote work but does not remove Cloud access to cached mail, attachments, comments, or activity.
+- A folder without current provider read rights is excluded from synchronization and remote commands.
 - Agent and workflow actions exceeding their allowed action scope.
 - Remote shared-folder rights removed while content, a stream, and delayed commands are cached locally.
 - Sender identity allowed in Cloud but rejected by the SMTP provider.
-- A Cloud mailbox remains shared while one user's private binding is revoked.
-- A shared-connection mailbox never exceeds its mailbox-owned binding's current rights.
-- A mailbox admin can unlink but cannot read or mutate another user's private connection credential.
-- A service account in personal-provider mode may act only through its own verified provider connection; delegated interactive execution uses the delegated user's binding.
+- A shared Cloud mailbox remains readable while its provider connection is revoked.
+- A mailbox never exceeds its current mailbox-owned binding's rights.
+- A mailbox admin can replace or revoke credentials but can never read the stored secret.
+- A service account uses the mailbox binding only after both Cloud scope and mailbox permission checks succeed.
 - A writer moves messages between existing folders but cannot create, rename, or delete remote folders without `admin`.
 
 ### Shared-folder scenarios
 
 - Discover multiple namespace roots with different prefixes and delimiters.
-- Select and synchronize only one shared subtree without exposing personal folders.
-- Represent two principals' materially different readable subtrees as separate Cloud mailboxes rather than partial views of one mailbox.
+- Discover personal, other-user, and shared namespaces exposed to one account without treating subscription as visibility.
+- Represent two principals' server-visible trees as separate Cloud mailboxes without inferred cross-account identity.
 - Read-only, flag-only, insert, move, delete, and folder-administration ACL combinations.
 - ACL extension absent with conservative capability fallback.
-- Shared root renamed, removed, or revoked after initial synchronization.
-- A new child folder appears without being subscribed and is discovered and synchronized automatically under the selected root.
+- Shared folder renamed, removed, or revoked after initial synchronization.
+- A new visible folder appears without being subscribed and is discovered automatically.
 - A folder rename leaves the old provider subscription unchanged; Cloud reconciles the folder identity and repairs subscriptions only through a separate idempotent action.
 - `NOTIFY` absent or disconnected still converges through scheduled namespace, `LIST`, subscription, and rights discovery.
-- `NOTIFY` registers binding-specific `subtree` or explicit `mailboxes` roots; `selected` contains message events only, and rejected or overflowed registration falls back to reconciliation.
+- Rejected or overflowed IMAP notification registration falls back to scheduled reconciliation.
 - An ACL change makes a folder newly listable or removes list rights; discovery updates the projection without manual mailbox re-onboarding.
-- Two authenticated principals expose the same path without unsafe automatic deduplication, then explicitly link to one mailbox after verification.
-- One canonical folder maps to different binding-specific namespace paths and subscription states, and each resolved operation uses the correct locator.
-- Interactive actions select only the actor's private binding in personal-provider mode.
-- Background sync may elect another verified binding, but actor mutations and sends never borrow it.
-- Revoking the current leader binding fails over at a committed batch boundary while retaining one remote resource and cursor history.
-- Reply selects the functional identity while SMTP authenticates as the personal principal.
-- Interactive `actor` authentication never falls back to a mailbox or another actor binding; `mailbox` authentication never borrows a user's private binding; autonomous `pool` sending selects only a binding verified for the exact identity.
+- Two authenticated principals expose the same path without unsafe automatic deduplication or linking.
+- Revoking the current binding pauses remote work while retaining one remote resource and cursor history.
+- Reply selects a configured functional identity only after SMTP verification on the mailbox binding.
+- Interactive and autonomous sends never use credentials outside the mailbox; automation remains disabled unless explicitly enabled for the identity.
 - Sent copy lands in the configured shared Sent folder without duplication.
 
 ### Connector parity scenarios
@@ -1460,14 +1437,14 @@ Slices 1 through 7 form the complete generic IMAP/SMTP product path. Slices 8 an
 
 ### 1. Foundation contracts
 
-- Mail package, schema, mailbox resource adapter, private provider connections, mailbox-owned remote resources and sync state, provider binding pool and states, connection policies, encrypted credential fields, sender identities, and capability model.
-- Central `resolveMailExecution` contract, command binding pinning, sync-leader lease, fencing token, and failover rules.
+- Mail package, schema, mailbox resource adapter, mailbox-owned provider connections, remote resources and sync state, current and historical binding states, encrypted credential fields, sender identities, and capability model.
+- Central `resolveMailExecution` contract, command binding and credential-revision pinning, distributed sync lease, and fencing token.
 - Provider-neutral remote account, container, message-reference, cursor, command, submission, and error contracts.
 - Conversation grouping, durable thread overrides, comments, reference schemes, response schedules, and atomic reference allocation.
 - Connector conformance harness and protocol fixtures.
 - Domain query/command contracts used by API and CLI.
 
-Success: connect a test mailbox, discover remote accounts and roots, persist a resumable connector cursor, and prove that Cloud permission cannot exceed the selected binding's current remote rights.
+Success: connect a test mailbox, discover its remote account and namespaces, persist a resumable connector cursor, and prove that Cloud permission cannot exceed the current binding's remote rights.
 
 ### 2. Complete IMAP onboarding, sync, and search
 

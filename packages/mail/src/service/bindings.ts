@@ -1,7 +1,7 @@
-import { audit, logger, toPgTextArray } from "@valentinkolb/cloud/services";
+import { audit, isUniqueViolation, logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { ConnectorVerification, ProviderBinding, ProviderConnection, RemoteFolder, RemoteNamespace } from "../contracts";
+import type { ConnectorVerification, ProviderBinding, RemoteFolder, RemoteNamespace } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
@@ -29,13 +29,12 @@ type FolderEvidence = {
   rights: string[];
   rightsSource: RemoteFolder["rightsSource"];
   namespaceKind?: RemoteNamespace["kind"] | null;
-  samples: string[];
 };
 
 type ScopeEvidence = {
   version: 1;
   serverKey: string;
-  rootPath: string;
+  accountId: string;
   namespaces: RemoteNamespace[];
   folders: FolderEvidence[];
 };
@@ -59,14 +58,12 @@ const parseRecord = (value: Record<string, unknown> | string): Record<string, un
   typeof value === "string" ? (JSON.parse(value) as Record<string, unknown>) : value;
 
 const mapBinding = (row: DbBinding): ProviderBinding => {
-  const locator = parseRecord(row.remote_locator);
   return {
     id: row.id,
     mailboxId: row.mailbox_id,
     connectionId: row.connection_id,
     state: row.state,
     authenticatedPrincipal: row.authenticated_principal,
-    rootPath: typeof locator["rootPath"] === "string" ? locator["rootPath"] : "",
     capabilities: parseRecord(row.capabilities),
     lastVerifiedAt: row.last_verified_at ? toIso(row.last_verified_at) : null,
     lastError: row.last_error_message,
@@ -77,32 +74,7 @@ const mapBinding = (row: DbBinding): ProviderBinding => {
 
 const sha256 = sha256Json;
 
-const normalizeRoot = (rootPath: string | null | undefined): string => rootPath?.trim() ?? "";
-
-const relativePathFor = (folder: RemoteFolder, rootPath: string): string => {
-  if (!rootPath) return folder.path.toUpperCase() === "INBOX" ? "INBOX" : folder.path;
-  if (folder.path === rootPath) return ".";
-  const prefix = `${rootPath}${folder.delimiter ?? ""}`;
-  return folder.path.startsWith(prefix) ? folder.path.slice(prefix.length) : folder.path;
-};
-
-const parentRelativePathFor = (folder: RemoteFolder, rootPath: string): string | null => {
-  if (!folder.parentPath) return null;
-  if (folder.parentPath === rootPath) return ".";
-  const prefix = `${rootPath}${folder.delimiter ?? ""}`;
-  return rootPath && folder.parentPath.startsWith(prefix) ? folder.parentPath.slice(prefix.length) : folder.parentPath;
-};
-
-const messageSampleFingerprint = (message: Awaited<ReturnType<typeof imapSmtpConnector.fetchEnvelopeBatch>>["messages"][number]): string =>
-  sha256({
-    providerMessageId: message.providerMessageId,
-    messageId: message.messageId,
-    sentAt: message.sentAt?.toISOString() ?? null,
-    internalDate: message.internalDate.toISOString(),
-    sizeBytes: message.sizeBytes,
-    subject: message.subject,
-    from: message.addresses.from.map((item) => item.address),
-  });
+const relativePathFor = (folder: RemoteFolder): string => (folder.path.toUpperCase() === "INBOX" ? "INBOX" : folder.path);
 
 const namespaceKindForPath = (path: string, namespaces: RemoteNamespace[]): RemoteNamespace["kind"] | null =>
   namespaces
@@ -112,13 +84,14 @@ const namespaceKindForPath = (path: string, namespaces: RemoteNamespace[]): Remo
 const buildScopeEvidence = async (params: {
   verification: ConnectorVerification;
   folders: RemoteFolder[];
-  rootPath: string;
   runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
 }): Promise<ScopeEvidence> => {
-  const namespaces = params.verification.accounts[0]?.namespaces ?? [];
+  const account = params.verification.accounts[0];
+  if (!account) throw new Error("Provider verification returned no account");
+  const namespaces = account.namespaces;
   const snapshots: FolderEvidence[] = params.folders.map((folder) => ({
-    relativePath: relativePathFor(folder, params.rootPath),
-    parentRelativePath: parentRelativePathFor(folder, params.rootPath),
+    relativePath: relativePathFor(folder),
+    parentRelativePath: folder.parentPath,
     name: folder.name,
     role: folder.role,
     remotePath: folder.path,
@@ -131,29 +104,7 @@ const buildScopeEvidence = async (params: {
     rights: [...folder.rights].sort(),
     rightsSource: folder.rightsSource,
     namespaceKind: namespaceKindForPath(folder.path, namespaces),
-    samples: [],
   }));
-
-  const candidates = snapshots
-    .filter((folder) => folder.selectable && folder.rights.includes("read") && folder.uidValidity && Number(folder.uidNext) > 1)
-    .sort((left, right) => {
-      if (left.role === "inbox" && right.role !== "inbox") return -1;
-      if (right.role === "inbox" && left.role !== "inbox") return 1;
-      return left.relativePath.localeCompare(right.relativePath);
-    })
-    .slice(0, 3);
-
-  for (const folder of candidates) {
-    const highUid = Math.max(1, Number(folder.uidNext) - 1);
-    const batch = await imapSmtpConnector.fetchEnvelopeBatch(params.runtime, {
-      folderPath: folder.remotePath,
-      folderStableKey: sha256({ relativePath: folder.relativePath }),
-      uidValidity: folder.uidValidity ?? "0",
-      highUid,
-      limit: 20,
-    });
-    folder.samples = batch.messages.map(messageSampleFingerprint).sort();
-  }
 
   return {
     version: 1,
@@ -163,44 +114,18 @@ const buildScopeEvidence = async (params: {
       tlsMode: params.runtime.imap.tlsMode,
       serverInfo: params.verification.serverIdentity["serverInfo"] ?? {},
     }),
-    rootPath: params.rootPath,
+    accountId: account.id,
     namespaces,
     folders: snapshots.sort((left, right) => left.relativePath.localeCompare(right.relativePath)),
   };
 };
 
-type EvidenceComparison = { state: "verified" | "ambiguous" | "different"; reason: string };
+type EvidenceComparison = { state: "verified" | "different"; reason: string };
 
 const compareEvidence = (expected: ScopeEvidence, candidate: ScopeEvidence): EvidenceComparison => {
   if (expected.serverKey !== candidate.serverKey) return { state: "different", reason: "Provider server identity differs" };
-  const expectedFolders = new Map(
-    expected.folders.filter((item) => item.uidValidity).map((item) => [`${item.relativePath}\n${item.uidValidity}`, item]),
-  );
-  const exactFolderMatches = candidate.folders.filter((item) => expectedFolders.has(`${item.relativePath}\n${item.uidValidity}`));
-  const expectedUidCounts = new Map<string, number>();
-  const candidateUidCounts = new Map<string, number>();
-  for (const folder of expected.folders) {
-    if (folder.uidValidity) expectedUidCounts.set(folder.uidValidity, (expectedUidCounts.get(folder.uidValidity) ?? 0) + 1);
-  }
-  for (const folder of candidate.folders) {
-    if (folder.uidValidity) candidateUidCounts.set(folder.uidValidity, (candidateUidCounts.get(folder.uidValidity) ?? 0) + 1);
-  }
-  const uniqueIdentityMatches = candidate.folders.filter(
-    (item) =>
-      item.uidValidity && expectedUidCounts.get(item.uidValidity) === 1 && candidateUidCounts.get(item.uidValidity) === 1,
-  );
-  const folderMatches = exactFolderMatches.length > 0 ? exactFolderMatches : uniqueIdentityMatches;
-  if (folderMatches.length === 0) return { state: "different", reason: "No matching folder identity was found" };
-
-  const expectedSamples = new Set(expected.folders.flatMap((folder) => folder.samples));
-  const candidateSamples = candidate.folders.flatMap((folder) => folder.samples);
-  if (expectedSamples.size === 0 || candidateSamples.length === 0) {
-    return { state: "ambiguous", reason: "The remote resource has no overlapping immutable message sample" };
-  }
-  if (!candidateSamples.some((sample) => expectedSamples.has(sample))) {
-    return { state: "different", reason: "Immutable message samples do not overlap" };
-  }
-  return { state: "verified", reason: "Folder identities and immutable message samples overlap" };
+  if (expected.accountId !== candidate.accountId) return { state: "different", reason: "Authenticated provider account differs" };
+  return { state: "verified", reason: "Provider server and authenticated account match" };
 };
 
 const canonicalFolderKey = (relativePath: string): string => sha256({ version: 1, relativePath });
@@ -506,6 +431,7 @@ const finalizeFolderProjection = async (params: {
     SET
       discovery_state = CASE WHEN availability.available THEN 'active' ELSE 'missing' END,
       missing_since = CASE WHEN availability.available THEN NULL ELSE COALESCE(folder.missing_since, now()) END,
+      selected_for_sync = folder.selected_for_sync AND availability.readable,
       sync_status = CASE
         WHEN NOT availability.available OR NOT availability.readable THEN 'excluded'
         WHEN folder.sync_status = 'excluded' THEN 'pending'
@@ -780,9 +706,6 @@ export const rediscoverProviderBinding = async (params: {
       code: "CREDENTIAL_REVERIFY_REQUIRED",
     });
   }
-  const locator = parseRecord(current.remote_locator);
-  const rootPath = typeof locator["rootPath"] === "string" ? locator["rootPath"] : "";
-
   try {
     const snapshot = await loadProviderConnectionRuntimeSnapshot(current.connection_id);
     if (snapshot.secretRevision !== current.secret_revision) {
@@ -790,10 +713,10 @@ export const rediscoverProviderBinding = async (params: {
     }
     const [verification, folders] = await Promise.all([
       imapSmtpConnector.verify(snapshot.runtime),
-      imapSmtpConnector.discoverFolders(snapshot.runtime, rootPath),
+      imapSmtpConnector.discoverFolders(snapshot.runtime),
     ]);
-    if (folders.length === 0) throw Object.assign(new Error("The remote root contains no visible folders"), { code: "REMOTE_ROOT_EMPTY" });
-    const evidence = await buildScopeEvidence({ verification, folders, rootPath, runtime: snapshot.runtime });
+    if (folders.length === 0) throw Object.assign(new Error("The provider account contains no visible folders"), { code: "REMOTE_ACCOUNT_EMPTY" });
+    const evidence = await buildScopeEvidence({ verification, folders, runtime: snapshot.runtime });
     const previousEvidence =
       typeof current.verification_evidence === "string"
         ? (JSON.parse(current.verification_evidence) as ScopeEvidence)
@@ -802,9 +725,6 @@ export const rediscoverProviderBinding = async (params: {
     if (comparison.state === "different") {
       throw Object.assign(new Error(comparison.reason), { code: "REMOTE_RESOURCE_CHANGED" });
     }
-    const credentialChanged = current.verified_secret_revision !== current.secret_revision;
-    const requiresConfirmation = credentialChanged && comparison.state === "ambiguous";
-
     const result = await sql.begin(async (tx) => {
       const [locked] = await tx<
         {
@@ -852,11 +772,6 @@ export const rediscoverProviderBinding = async (params: {
       if (locked.scope_fingerprint !== current.scope_fingerprint) {
         throw Object.assign(new Error("Remote resource scope changed during rediscovery"), { code: "BINDING_CONFIGURATION_CHANGED" });
       }
-      const lockedLocator = parseRecord(locked.remote_locator);
-      const lockedRootPath = typeof lockedLocator["rootPath"] === "string" ? lockedLocator["rootPath"] : "";
-      if (lockedRootPath !== rootPath) {
-        throw Object.assign(new Error("Provider binding root changed during rediscovery"), { code: "BINDING_CONFIGURATION_CHANGED" });
-      }
       const [generation] = await tx<{ discovery_generation: string | number }[]>`
         UPDATE mail.remote_resources
         SET discovery_generation = discovery_generation + 1, last_discovery_at = now()
@@ -865,7 +780,7 @@ export const rediscoverProviderBinding = async (params: {
       `;
       if (!generation) throw new Error("Remote discovery generation update returned no row");
       const discoveryGeneration = Number(generation.discovery_generation);
-      const nextState: ProviderBinding["state"] = requiresConfirmation ? "pending" : "active";
+      const nextState: ProviderBinding["state"] = "active";
       await tx`
         UPDATE mail.provider_bindings
         SET
@@ -873,7 +788,7 @@ export const rediscoverProviderBinding = async (params: {
           authenticated_principal = ${verification.authenticatedPrincipal},
           capabilities = ${verification.capabilities}::jsonb,
           verification_evidence = ${{ ...evidence, comparisonReason: comparison.reason }}::jsonb,
-          verified_scope_fingerprint = ${requiresConfirmation ? null : locked.scope_fingerprint},
+          verified_scope_fingerprint = ${locked.scope_fingerprint},
           verified_secret_revision = ${snapshot.secretRevision},
           last_verified_at = now(),
           last_error_code = NULL,
@@ -894,18 +809,6 @@ export const rediscoverProviderBinding = async (params: {
           AND secret_revision = ${snapshot.secretRevision}
           AND status <> 'revoked'
       `;
-      if (requiresConfirmation) {
-        return {
-          bindingId: params.bindingId,
-          discoveryGeneration,
-          state: nextState,
-          discovered: 0,
-          missing: 0,
-          ambiguous: folders.length,
-          renamed: 0,
-          rightsSources: { acl: 0, select: 0, probe: 0, unknown: folders.length },
-        } satisfies BindingRediscoveryResult;
-      }
       const projection = await projectFolders({
         db: tx,
         remoteResourceId: locked.remote_resource_id,
@@ -950,49 +853,17 @@ export const rediscoverProviderBinding = async (params: {
   }
 };
 
-const assertConnectionMatchesPolicy = (
-  policy: "shared_connection" | "personal_provider_account",
-  mailboxId: string,
-  connection: ProviderConnection,
-  context: MailRequestContext,
-): Result<void> => {
-  if (policy === "shared_connection") {
-    return connection.owner.type === "mailbox" && connection.owner.mailboxId === mailboxId
-      ? ok()
-      : fail(err.badInput("Shared connection mailboxes require a mailbox-owned provider connection"));
-  }
-  if (connection.owner.type === "mailbox") return fail(err.badInput("Personal provider mailboxes require a private provider connection"));
-  if (connection.owner.type === "user") {
-    return context.accessSubject.type === "user" && context.accessSubject.userId === connection.owner.userId
-      ? ok()
-      : fail(err.forbidden("A personal provider binding can be attached only by its credential owner"));
-  }
-  return context.actor.kind === "service_account" && context.actor.serviceAccount.id === connection.owner.serviceAccountId
-    ? ok()
-    : fail(err.forbidden("A service-account binding can be attached only by its credential owner"));
-};
-
 export const attachProviderBinding = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   connectionId: string;
-  rootPath?: string | null;
-}): Promise<Result<{ binding: ProviderBinding; requiresConfirmation: boolean; comparisonReason: string }>> => {
-  const rootPath = normalizeRoot(params.rootPath);
-  if (rootPath.length > 4_000) return fail(err.badInput("Remote root path is too long"));
-
-  const [mailbox] = await sql<{ connection_policy: "shared_connection" | "personal_provider_account" }[]>`
-    SELECT connection_policy FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
-  `;
-  if (!mailbox) return fail(err.notFound("Mailbox"));
-  const requiredPermission = mailbox.connection_policy === "shared_connection" ? "admin" : "read";
-  const allowed = await requireMailboxPermission(params.context, params.mailboxId, requiredPermission);
+}): Promise<Result<ProviderBinding>> => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!allowed.ok) return allowed;
 
   const connectionResult = await getProviderConnection(params.context, params.connectionId);
   if (!connectionResult.ok) return connectionResult;
-  const policyCheck = assertConnectionMatchesPolicy(mailbox.connection_policy, params.mailboxId, connectionResult.data, params.context);
-  if (!policyCheck.ok) return policyCheck;
+  if (connectionResult.data.mailboxId !== params.mailboxId) return fail(err.badInput("Provider connection belongs to another mailbox"));
 
   let runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
   let verifiedSecretRevision: number;
@@ -1002,18 +873,15 @@ export const attachProviderBinding = async (params: {
     const snapshot = await loadProviderConnectionRuntimeSnapshot(params.connectionId);
     runtime = snapshot.runtime;
     verifiedSecretRevision = snapshot.secretRevision;
-    [verification, folders] = await Promise.all([imapSmtpConnector.verify(runtime), imapSmtpConnector.discoverFolders(runtime, rootPath)]);
+    [verification, folders] = await Promise.all([imapSmtpConnector.verify(runtime), imapSmtpConnector.discoverFolders(runtime)]);
   } catch {
     return fail(err.badInput("Provider binding verification failed"));
   }
-  if (folders.length === 0) return fail(err.badInput("The selected remote root contains no visible folders"));
-  if (rootPath && !folders.some((folder) => folder.path === rootPath || folder.path.startsWith(rootPath))) {
-    return fail(err.badInput("The selected remote root is not visible to this provider connection"));
-  }
+  if (folders.length === 0) return fail(err.badInput("The provider account contains no visible folders"));
 
   let evidence: ScopeEvidence;
   try {
-    evidence = await buildScopeEvidence({ verification, folders, rootPath, runtime });
+    evidence = await buildScopeEvidence({ verification, folders, runtime });
   } catch {
     return fail(err.badInput("Remote resource fingerprint verification failed"));
   }
@@ -1023,33 +891,31 @@ export const attachProviderBinding = async (params: {
 
   try {
     return await sql.begin(async (tx) => {
-      const [lockedMailbox] = await tx<{ connection_policy: "shared_connection" | "personal_provider_account" }[]>`
-        SELECT connection_policy
+      const [lockedMailbox] = await tx<{ id: string }[]>`
+        SELECT id
         FROM mail.mailboxes
         WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
         FOR UPDATE
       `;
       if (!lockedMailbox) return fail(err.notFound("Mailbox"));
-      if (lockedMailbox.connection_policy !== mailbox.connection_policy) {
-        return fail(err.badInput("Mailbox connection policy changed during verification"));
-      }
-      const permission = await requireMailboxPermission(params.context, params.mailboxId, requiredPermission, tx);
+      const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
       if (!permission.ok) return permission;
       const [lockedConnection] = await tx<
         {
           status: string;
           secret_revision: number;
-          owner_user_id: string | null;
-          owner_service_account_id: string | null;
-          owner_mailbox_id: string | null;
+          owner_mailbox_id: string;
         }[]
       >`
-        SELECT status, secret_revision, owner_user_id, owner_service_account_id, owner_mailbox_id
+        SELECT status, secret_revision, owner_mailbox_id
         FROM mail.provider_connections
         WHERE id = ${params.connectionId}::uuid
         FOR UPDATE
       `;
       if (!lockedConnection || lockedConnection.status !== "active") return fail(err.badInput("Provider connection is no longer active"));
+      if (lockedConnection.owner_mailbox_id !== params.mailboxId) {
+        return fail(err.badInput("Provider connection belongs to another mailbox"));
+      }
       if (lockedConnection.secret_revision !== verifiedSecretRevision) {
         return fail(err.conflict("Provider credentials changed during remote verification"));
       }
@@ -1066,7 +932,6 @@ export const attachProviderBinding = async (params: {
         WHERE mailbox_id = ${params.mailboxId}::uuid
         FOR UPDATE
       `;
-      let existingEvidence: ScopeEvidence | null = null;
       let comparison: EvidenceComparison = { state: "verified", reason: "Initial verified provider binding" };
 
       if (!resource) {
@@ -1089,7 +954,7 @@ export const attachProviderBinding = async (params: {
           VALUES (
             ${params.mailboxId}::uuid,
             'imap_smtp',
-            ${{ accountId: account.id, rootPath }}::jsonb,
+            ${{ accountId: account.id }}::jsonb,
             ${verification.serverIdentity}::jsonb,
             ${evidenceFingerprint},
             'active',
@@ -1107,7 +972,7 @@ export const attachProviderBinding = async (params: {
           LIMIT 1
         `;
         if (!prior) return fail(err.internal("Remote resource has no trusted verification evidence"));
-        existingEvidence =
+        const existingEvidence =
           typeof prior.verification_evidence === "string"
             ? (JSON.parse(prior.verification_evidence) as ScopeEvidence)
             : prior.verification_evidence;
@@ -1123,8 +988,6 @@ export const attachProviderBinding = async (params: {
       }
       if (!resource) throw new Error("Remote resource insert returned no row");
 
-      const requiresConfirmation = comparison.state === "ambiguous";
-      const bindingState = requiresConfirmation ? "pending" : "active";
       const [binding] = await tx<DbBinding[]>`
         INSERT INTO mail.provider_bindings AS pb (
           remote_resource_id,
@@ -1142,28 +1005,16 @@ export const attachProviderBinding = async (params: {
         VALUES (
           ${resource.id}::uuid,
           ${params.connectionId}::uuid,
-          ${bindingState},
+          'active',
           ${verification.authenticatedPrincipal},
-          ${{ accountId: account.id, rootPath }}::jsonb,
+          ${{ accountId: account.id }}::jsonb,
           ${verification.capabilities}::jsonb,
           ${{}}::jsonb,
           ${{ ...evidence, comparisonReason: comparison.reason }}::jsonb,
-          ${requiresConfirmation ? null : resource.scope_fingerprint},
+          ${resource.scope_fingerprint},
           ${verifiedSecretRevision},
           now()
         )
-        ON CONFLICT (remote_resource_id, connection_id) DO UPDATE SET
-          state = EXCLUDED.state,
-          authenticated_principal = EXCLUDED.authenticated_principal,
-          remote_locator = EXCLUDED.remote_locator,
-          capabilities = EXCLUDED.capabilities,
-          rights = EXCLUDED.rights,
-          verification_evidence = EXCLUDED.verification_evidence,
-          verified_scope_fingerprint = EXCLUDED.verified_scope_fingerprint,
-          verified_secret_revision = EXCLUDED.verified_secret_revision,
-          last_verified_at = EXCLUDED.last_verified_at,
-          last_error_code = NULL,
-          last_error_message = NULL
         RETURNING
           pb.id,
           (SELECT mailbox_id FROM mail.remote_resources WHERE id = pb.remote_resource_id) AS mailbox_id,
@@ -1180,148 +1031,16 @@ export const attachProviderBinding = async (params: {
       if (!binding) throw new Error("Provider binding insert returned no row");
       await tx`DELETE FROM mail.remote_namespaces WHERE binding_id = ${binding.id}::uuid`;
 
-      if (!requiresConfirmation) {
-        await projectFolders({
-          db: tx,
-          remoteResourceId: resource.id,
-          bindingId: binding.id,
-          discoveryGeneration: Number(resource.discovery_generation),
-          evidence,
-        });
-        if (evidence.namespaces.length > 0) {
-          const namespaceRows = evidence.namespaces.map((namespace) => ({
-            binding_id: binding.id,
-            kind: namespace.kind === "other_users" ? "other_users" : namespace.kind,
-            prefix: namespace.prefix,
-            delimiter: namespace.delimiter,
-          }));
-          await tx`
-            INSERT INTO mail.remote_namespaces ${sql(namespaceRows, "binding_id", "kind", "prefix", "delimiter")}
-            ON CONFLICT (binding_id, kind, prefix) DO UPDATE SET delimiter = EXCLUDED.delimiter, discovered_at = now()
-          `;
-        }
-        await tx`
-          UPDATE mail.remote_resources
-          SET status = 'active', last_error_code = NULL, last_error_message = NULL
-          WHERE id = ${resource.id}::uuid
-        `;
-        await tx`
-          UPDATE mail.mailboxes
-          SET health = 'bootstrapping', health_reason = 'Initial synchronization pending'
-          WHERE id = ${params.mailboxId}::uuid
-        `;
-      }
-
-      await audit.record(
-        {
-          action: "mail.provider_binding.attach",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "mailbox", id: params.mailboxId },
-          requestId: params.context.requestId,
-          metadata: {
-            bindingId: binding.id,
-            connectionId: params.connectionId,
-            rootPath,
-            state: bindingState,
-            comparisonReason: comparison.reason,
-          },
-        },
-        tx,
-      );
-      return ok({ binding: mapBinding(binding), requiresConfirmation, comparisonReason: comparison.reason });
-    });
-  } catch (error) {
-    if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Provider binding"));
-    logDatabaseFailure(log.error, "attach", "provider binding", error);
-    return fail(err.internal("Failed to attach provider binding"));
-  }
-};
-
-export const confirmProviderBinding = async (params: {
-  context: MailRequestContext;
-  mailboxId: string;
-  bindingId: string;
-}): Promise<Result<ProviderBinding>> => {
-  try {
-    return await sql.begin(async (tx) => {
-      const [mailbox] = await tx<{ id: string }[]>`
-        SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
-      `;
-      if (!mailbox) return fail(err.notFound("Mailbox"));
-      const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
-      if (!allowed.ok) return allowed;
-      const [row] = await tx<
-        (DbBinding & {
-          remote_resource_id: string;
-          scope_fingerprint: string;
-          discovery_generation: number;
-          verification_evidence: ScopeEvidence | string;
-          verified_secret_revision: number;
-          secret_revision: number;
-        })[]
-      >`
-        SELECT
-          pb.id,
-          rr.mailbox_id,
-          pb.connection_id,
-          pb.state,
-          pb.authenticated_principal,
-          pb.remote_locator,
-          pb.capabilities,
-          pb.last_verified_at,
-          pb.last_error_message,
-          pb.created_at,
-          pb.updated_at,
-          pb.remote_resource_id,
-          rr.scope_fingerprint,
-          rr.discovery_generation,
-          pb.verification_evidence,
-          pb.verified_secret_revision,
-          pc.secret_revision
-        FROM mail.provider_bindings pb
-        JOIN mail.remote_resources rr ON rr.id = pb.remote_resource_id
-        JOIN mail.provider_connections pc ON pc.id = pb.connection_id
-        WHERE pb.id = ${params.bindingId}::uuid AND rr.mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE OF pb, rr, pc
-      `;
-      if (!row) return fail(err.notFound("Provider binding"));
-      if (row.state !== "pending") return fail(err.badInput("Only pending provider bindings can be confirmed"));
-      if (row.verified_secret_revision !== row.secret_revision) {
-        return fail(err.badInput("Provider credentials changed; verify the remote resource again"));
-      }
-      const evidence =
-        typeof row.verification_evidence === "string"
-          ? (JSON.parse(row.verification_evidence) as ScopeEvidence)
-          : row.verification_evidence;
-      const [updated] = await tx<DbBinding[]>`
-        UPDATE mail.provider_bindings pb
-        SET state = 'active', verified_scope_fingerprint = ${row.scope_fingerprint}, last_verified_at = now()
-        WHERE pb.id = ${row.id}::uuid
-        RETURNING
-          pb.id,
-          ${params.mailboxId}::uuid AS mailbox_id,
-          pb.connection_id,
-          pb.state,
-          pb.authenticated_principal,
-          pb.remote_locator,
-          pb.capabilities,
-          pb.last_verified_at,
-          pb.last_error_message,
-          pb.created_at,
-          pb.updated_at
-      `;
-      if (!updated) throw new Error("Provider binding update returned no row");
       await projectFolders({
         db: tx,
-        remoteResourceId: row.remote_resource_id,
-        bindingId: row.id,
-        discoveryGeneration: row.discovery_generation,
+        remoteResourceId: resource.id,
+        bindingId: binding.id,
+        discoveryGeneration: Number(resource.discovery_generation),
         evidence,
       });
       if (evidence.namespaces.length > 0) {
         const namespaceRows = evidence.namespaces.map((namespace) => ({
-          binding_id: row.id,
+          binding_id: binding.id,
           kind: namespace.kind,
           prefix: namespace.prefix,
           delimiter: namespace.delimiter,
@@ -1334,29 +1053,35 @@ export const confirmProviderBinding = async (params: {
       await tx`
         UPDATE mail.remote_resources
         SET status = 'active', last_error_code = NULL, last_error_message = NULL
-        WHERE id = ${row.remote_resource_id}::uuid
+        WHERE id = ${resource.id}::uuid
       `;
       await tx`
         UPDATE mail.mailboxes
         SET health = 'bootstrapping', health_reason = 'Initial synchronization pending'
         WHERE id = ${params.mailboxId}::uuid
       `;
+
       await audit.record(
         {
-          action: "mail.provider_binding.confirm",
+          action: "mail.provider_binding.attach",
           outcome: "allowed",
           actor: auditActorFromRequest(params.context),
           target: { type: "mailbox", id: params.mailboxId },
           requestId: params.context.requestId,
-          metadata: { bindingId: params.bindingId, explicitAdminConfirmation: true },
+          metadata: {
+            bindingId: binding.id,
+            connectionId: params.connectionId,
+            comparisonReason: comparison.reason,
+          },
         },
         tx,
       );
-      return ok(mapBinding(updated));
+      return ok(mapBinding(binding));
     });
   } catch (error) {
-    logDatabaseFailure(log.error, "confirm", "provider binding", error);
-    return fail(err.internal("Failed to confirm provider binding"));
+    if (isUniqueViolation(error)) return fail(err.conflict("Provider binding"));
+    logDatabaseFailure(log.error, "attach", "provider binding", error);
+    return fail(err.internal("Failed to attach provider binding"));
   }
 };
 

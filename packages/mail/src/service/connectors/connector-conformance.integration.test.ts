@@ -34,20 +34,19 @@ const folderPath = (root: string, delimiter: string, leaf: string): string => {
 const exerciseImapContract = async (params: {
   connector: MailConnector;
   config: ProviderConnectionInput;
-  rootPath?: string;
 }): Promise<void> => {
   const verification = await params.connector.verify(params.config);
   expect(verification.authenticatedPrincipal.length).toBeGreaterThan(0);
   expect(verification.accounts.length).toBeGreaterThan(0);
 
-  const initialFolders = await params.connector.discoverFolders(params.config, params.rootPath || null);
+  const initialFolders = await params.connector.discoverFolders(params.config);
   const namespace = verification.accounts.flatMap((account) => account.namespaces).find((entry) => entry.kind === "personal");
   const delimiter = initialFolders.find((folder) => folder.delimiter)?.delimiter ?? namespace?.delimiter ?? "/";
-  const rootPath = params.rootPath ?? namespace?.prefix ?? "";
+  const personalPrefix = namespace?.prefix ?? "";
   const suffix = crypto.randomUUID().slice(0, 8);
-  const sourcePath = folderPath(rootPath, delimiter, `Cloud Conformance ${suffix}`);
-  const destinationPath = folderPath(rootPath, delimiter, `Cloud Conformance ${suffix} Copy`);
-  const renamedPath = folderPath(rootPath, delimiter, `Cloud Conformance ${suffix} Moved`);
+  const sourcePath = folderPath(personalPrefix, delimiter, `Cloud Conformance ${suffix}`);
+  const destinationPath = folderPath(personalPrefix, delimiter, `Cloud Conformance ${suffix} Copy`);
+  const renamedPath = folderPath(personalPrefix, delimiter, `Cloud Conformance ${suffix} Moved`);
   const messageId = `<cloud-mail-conformance-${suffix}@example.invalid>`;
   const source = Buffer.from(
     [
@@ -73,7 +72,7 @@ const exerciseImapContract = async (params: {
     await params.connector.createFolder(params.config, destinationPath, true);
     destinationCreated = true;
 
-    const discovered = await params.connector.discoverFolders(params.config, params.rootPath || null);
+    const discovered = await params.connector.discoverFolders(params.config);
     expect(discovered.some((folder) => folder.path === sourcePath && folder.selectable)).toBe(true);
     expect(discovered.some((folder) => folder.path === destinationPath && folder.selectable)).toBe(true);
 
@@ -156,7 +155,7 @@ const exerciseImapContract = async (params: {
       uid: movedUid,
     });
 
-    const finalFolders = await params.connector.discoverFolders(params.config, params.rootPath || null);
+    const finalFolders = await params.connector.discoverFolders(params.config);
     expect(finalFolders.some((folder) => folder.path === destinationPath)).toBe(false);
     expect(finalFolders.some((folder) => folder.path === renamedPath && folder.subscribed)).toBe(true);
   } finally {
@@ -176,7 +175,7 @@ suite("generic IMAP connector conformance", () => {
 
   test(
     "round-trips folders, MIME source, flags, keywords, copy, move, and deletion",
-    () => exerciseImapContract({ connector: imapSmtpConnector, config, rootPath: process.env.MAIL_CONNECTOR_CONFORMANCE_ROOT }),
+    () => exerciseImapContract({ connector: imapSmtpConnector, config }),
     120_000,
   );
 });

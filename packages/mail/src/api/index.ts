@@ -7,7 +7,6 @@ import { z } from "zod";
 import {
   cancelConversationReminderSchema,
   configurableFolderRoleSchema,
-  connectionOwnerSchema,
   conversationPresenceHeartbeatSchema,
   conversationPresenceLeaveSchema,
   conversationTriageInputSchema,
@@ -101,14 +100,13 @@ const updateMailboxSchema = z
     searchBackend: searchBackendSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
-const attachBindingSchema = z.object({ connectionId: z.string().uuid(), rootPath: z.string().max(4_000).nullable().optional() });
+const attachBindingSchema = z.object({ connectionId: z.string().uuid() });
 const verifyIdentitySchema = z.object({
   bindingId: z.string().uuid(),
   verificationRecipient: z.string().email().max(320),
   savesSentAutomatically: z.boolean(),
 });
 const updateDraftSchema = z.object({ expectedRevision: z.number().int().positive(), draft: draftEditableContentInputSchema });
-const connectionListQuerySchema = z.object({ mailboxId: z.string().uuid().optional() });
 const roleParamSchema = z.object({ mailboxId: z.string().uuid(), role: configurableFolderRoleSchema });
 const folderRoleInputSchema = z.object({ folderId: z.string().uuid() });
 const draftRevisionSchema = z.object({ expectedRevision: z.coerce.number().int().positive() });
@@ -283,33 +281,45 @@ const api = new Hono<AuthContext>()
     const params = c.req.valid("param") as { mailboxId: string; accessId: string };
     return respond(c, mailboxAccess.revokeMailboxAccess({ context: requestContext(c), ...params }));
   })
-  .get("/connections", v("query", connectionListQuerySchema), async (c) =>
-    respond(c, providerConnections.listProviderConnections(requestContext(c), c.req.valid("query").mailboxId)),
+  .get("/mailboxes/:mailboxId/connections", v("param", uuidParamSchema), async (c) =>
+    respond(c, providerConnections.listProviderConnections(requestContext(c), c.req.valid("param").mailboxId)),
   )
-  .post("/connections", v("json", z.object({ owner: connectionOwnerSchema, connection: providerConnectionInputSchema })), async (c) => {
-    const input = c.req.valid("json");
-    return respond(
+  .post("/mailboxes/:mailboxId/connections", v("param", uuidParamSchema), v("json", providerConnectionInputSchema), async (c) =>
+    respond(
       c,
-      providerConnections.createProviderConnection({ context: requestContext(c), owner: input.owner, input: input.connection }),
-    );
-  })
+      providerConnections.createProviderConnection({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
+  )
   .put(
-    "/connections/:connectionId",
-    v("param", z.object({ connectionId: z.string().uuid() })),
+    "/mailboxes/:mailboxId/connections/:connectionId",
+    v("param", mailboxAndIdParamSchema("connectionId")),
     v("json", providerConnectionInputSchema),
-    async (c) =>
-      respond(
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; connectionId: string };
+      const current = await providerConnections.getProviderConnection(requestContext(c), params.connectionId);
+      if (!current.ok) return respond(c, current);
+      if (current.data.mailboxId !== params.mailboxId) return respond(c, fail(err.notFound("Provider connection")));
+      return respond(
         c,
         providerConnections.replaceProviderConnection({
           context: requestContext(c),
-          connectionId: c.req.valid("param").connectionId,
+          connectionId: params.connectionId,
           input: c.req.valid("json"),
         }),
-      ),
+      );
+    },
   )
-  .delete("/connections/:connectionId", v("param", z.object({ connectionId: z.string().uuid() })), async (c) =>
-    respond(c, providerConnections.revokeProviderConnection(requestContext(c), c.req.valid("param").connectionId)),
-  )
+  .delete("/mailboxes/:mailboxId/connections/:connectionId", v("param", mailboxAndIdParamSchema("connectionId")), async (c) => {
+    const params = c.req.valid("param") as { mailboxId: string; connectionId: string };
+    const current = await providerConnections.getProviderConnection(requestContext(c), params.connectionId);
+    if (!current.ok) return respond(c, current);
+    if (current.data.mailboxId !== params.mailboxId) return respond(c, fail(err.notFound("Provider connection")));
+    return respond(c, providerConnections.revokeProviderConnection(requestContext(c), params.connectionId));
+  })
   .get("/mailboxes/:mailboxId/bindings", v("param", uuidParamSchema), async (c) =>
     respond(c, bindings.listProviderBindings(requestContext(c), c.req.valid("param").mailboxId)),
   )
@@ -319,10 +329,6 @@ const api = new Hono<AuthContext>()
       bindings.attachProviderBinding({ context: requestContext(c), mailboxId: c.req.valid("param").mailboxId, ...c.req.valid("json") }),
     ),
   )
-  .post("/mailboxes/:mailboxId/bindings/:bindingId/confirm", v("param", mailboxAndIdParamSchema("bindingId")), async (c) => {
-    const params = c.req.valid("param") as { mailboxId: string; bindingId: string };
-    return respond(c, bindings.confirmProviderBinding({ context: requestContext(c), ...params }));
-  })
   .post("/mailboxes/:mailboxId/sync", v("param", uuidParamSchema), async (c) => {
     const mailboxId = c.req.valid("param").mailboxId;
     return respond(

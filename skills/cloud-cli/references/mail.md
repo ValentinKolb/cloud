@@ -16,7 +16,7 @@ Use `cld mail` to configure Cloud mailboxes and operate mirrored IMAP mail throu
 Create a mailbox and make it the default for later commands:
 
 ```bash
-cld --json mail create "Support" --policy shared_connection
+cld --json mail create "Support"
 cld mail use <mailbox-id>
 cld --json mail current
 ```
@@ -37,17 +37,11 @@ cld --json mail provider add \
   --secret-stdin
 ```
 
-Attach the returned connection and inspect the discovered binding:
+Attach the returned mailbox-owned connection and inspect the discovered binding:
 
 ```bash
 cld --json mail binding attach <connection-id>
 cld --json mail binding list
-```
-
-If attachment reports `requiresConfirmation: true`, confirm the returned binding explicitly:
-
-```bash
-cld --json mail binding confirm <binding-id>
 ```
 
 Wait for initial discovery and list provider-backed folders:
@@ -545,11 +539,10 @@ cld --json mail rediscover --wait --timeout-seconds 300
 cld --json mail rediscover --binding <binding-id> --wait --timeout-seconds 300
 ```
 
-After replacing provider credentials, explicitly reverify the pending binding. An ambiguous resource match remains pending until `binding confirm` is called:
+After replacing provider credentials, explicitly reverify the binding:
 
 ```bash
 cld --json mail binding verify <binding-id> --wait --timeout-seconds 300
-cld --json mail binding confirm <binding-id>
 ```
 
 Queue one canonical folder without synchronizing the entire mailbox:

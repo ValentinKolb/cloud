@@ -5,11 +5,12 @@ import type { ConnectorVerification } from "../contracts";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess, updateMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
-import { confirmProviderBinding, rediscoverProviderBinding } from "./bindings";
+import { rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
 import { executeMutationCommand } from "./command-runtime";
 import { createActorCommand, createMailCommand } from "./commands";
 import { imapSmtpConnector } from "./connectors";
+import { resolveMailExecution } from "./execution";
 import { clearFolderRole, resolveRoleFolder, setFolderRole } from "./folders";
 import { getMailboxOperationalHealth } from "./health";
 import { createMailbox, updateMailbox } from "./mailboxes";
@@ -101,7 +102,6 @@ suite("mail lifecycle control plane", () => {
   const accessIds: string[] = [];
   let mailboxId = "";
   let connectionId = "";
-  let secondaryConnectionId = "";
   let bindingId = "";
   let inboxFolderId = "";
   let adminContext: MailRequestContext;
@@ -126,7 +126,6 @@ suite("mail lifecycle control plane", () => {
 
     const mailbox = await createMailbox(adminContext, {
       name: `Lifecycle ${suffix}`,
-      connectionPolicy: "shared_connection",
     });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
@@ -143,7 +142,7 @@ suite("mail lifecycle control plane", () => {
     try {
       const connection = await createProviderConnection({
         context: adminContext,
-        owner: { type: "mailbox", mailboxId },
+        mailboxId,
         input: {
           name: `Lifecycle fixture ${suffix}`,
           email: "lifecycle@example.com",
@@ -155,20 +154,6 @@ suite("mail lifecycle control plane", () => {
       });
       if (!connection.ok) throw new Error(connection.error.message);
       connectionId = connection.data.connection.id;
-      const secondaryConnection = await createProviderConnection({
-        context: adminContext,
-        owner: { type: "mailbox", mailboxId },
-        input: {
-          name: `Lifecycle restricted fixture ${suffix}`,
-          email: "lifecycle@example.com",
-          username: "lifecycle@example.com",
-          imap: { host: "imap.example.com", port: 993, tlsMode: "implicit" },
-          smtp: { host: "smtp.example.com", port: 587, tlsMode: "starttls" },
-          secret: { kind: "password", password: "fixture-secret" },
-        },
-      });
-      if (!secondaryConnection.ok) throw new Error(secondaryConnection.error.message);
-      secondaryConnectionId = secondaryConnection.data.connection.id;
     } finally {
       verify.mockRestore();
     }
@@ -183,7 +168,7 @@ suite("mail lifecycle control plane", () => {
     const evidence = {
       version: 1,
       serverKey,
-      rootPath: "",
+      accountId: "lifecycle@example.com",
       namespaces: [{ kind: "personal", prefix: "", delimiter: "/" }],
       folders: initialFolders.map((folder) => ({
         relativePath: folder.path,
@@ -199,7 +184,6 @@ suite("mail lifecycle control plane", () => {
         highestModseq: folder.highestModseq,
         rights: folder.rights,
         rightsSource: folder.rightsSource,
-        samples: [],
       })),
     };
     const scope = sha256Json(evidence);
@@ -207,7 +191,7 @@ suite("mail lifecycle control plane", () => {
       INSERT INTO mail.remote_resources (
         mailbox_id, remote_locator, server_identity, scope_fingerprint, status, discovery_generation
       )
-      VALUES (${mailboxId}::uuid, ${{ accountId: "lifecycle@example.com", rootPath: "" }}::jsonb, '{}'::jsonb, ${scope}, 'active', 0)
+      VALUES (${mailboxId}::uuid, ${{ accountId: "lifecycle@example.com" }}::jsonb, '{}'::jsonb, ${scope}, 'active', 0)
       RETURNING id
     `;
     const [binding] = await sql<{ id: string }[]>`
@@ -218,7 +202,7 @@ suite("mail lifecycle control plane", () => {
       )
       VALUES (
         ${resource!.id}::uuid, ${connectionId}::uuid, 'active', 'lifecycle@example.com',
-        ${{ accountId: "lifecycle@example.com", rootPath: "" }}::jsonb, '{}'::jsonb, '{}'::jsonb,
+        ${{ accountId: "lifecycle@example.com" }}::jsonb, '{}'::jsonb, '{}'::jsonb,
         ${evidence}::jsonb, ${scope}, 1, now()
       )
       RETURNING id
@@ -358,7 +342,7 @@ suite("mail lifecycle control plane", () => {
         WHERE id = ${project!.id}::uuid
       `;
       expect(missing?.discovery_state).toBe("missing");
-      expect(missing?.selected_for_sync).toBe(true);
+      expect(missing?.selected_for_sync).toBe(false);
       expect(missing?.missing_since).toBeInstanceOf(Date);
       await sql`DELETE FROM mail.folders WHERE id = ${replacementFolderId}::uuid`;
       discover.mockResolvedValue([remoteFolder("INBOX", "10", "inbox")]);
@@ -399,69 +383,32 @@ suite("mail lifecycle control plane", () => {
     }
   }, 15_000);
 
-  test("confirming a pending binding activates its discovered folders", async () => {
-    await sql`
-      UPDATE mail.provider_bindings
-      SET state = 'pending', verified_scope_fingerprint = NULL
-      WHERE id = ${bindingId}::uuid
-    `;
-    const confirmed = await confirmProviderBinding({ context: adminContext, mailboxId, bindingId });
-    expect(confirmed.ok && confirmed.data.state).toBe("active");
-    const [inbox] = await sql<{ discovery_state: string; selected_for_sync: boolean; sync_status: string }[]>`
-      SELECT folder.discovery_state, folder.selected_for_sync, folder.sync_status
-      FROM mail.folders folder
-      JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
-      WHERE ref.binding_id = ${bindingId}::uuid AND ref.remote_path = 'INBOX'
-    `;
-    expect(inbox).toEqual({ discovery_state: "active", selected_for_sync: true, sync_status: "pending" });
-  });
-
-  test("a restricted binding cannot disable a folder readable through another binding", async () => {
-    const [trusted] = await sql<
-      { remote_resource_id: string; scope_fingerprint: string; verification_evidence: Record<string, unknown> | string }[]
-    >`
-      SELECT binding.remote_resource_id, resource.scope_fingerprint, binding.verification_evidence
-      FROM mail.provider_bindings binding
-      JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
-      WHERE binding.id = ${bindingId}::uuid
-    `;
-    const [restricted] = await sql<{ id: string }[]>`
-      INSERT INTO mail.provider_bindings (
-        remote_resource_id, connection_id, state, authenticated_principal, remote_locator,
-        capabilities, rights, verification_evidence, verified_scope_fingerprint,
-        verified_secret_revision, last_verified_at
-      )
-      VALUES (
-        ${trusted!.remote_resource_id}::uuid,
-        ${secondaryConnectionId}::uuid,
-        'active',
-        'lifecycle@example.com',
-        ${{ accountId: "lifecycle@example.com", rootPath: "" }}::jsonb,
-        ${fixtureVerification().capabilities}::jsonb,
-        '{}'::jsonb,
-        ${
-          typeof trusted!.verification_evidence === "string" ? JSON.parse(trusted!.verification_evidence) : trusted!.verification_evidence
-        }::jsonb,
-        ${trusted!.scope_fingerprint},
-        1,
-        now()
-      )
-      RETURNING id
-    `;
+  test("an ACL downgrade disables remote execution for the affected folder", async () => {
     const verify = spyOn(imapSmtpConnector, "verify").mockResolvedValue(fixtureVerification());
     const discover = spyOn(imapSmtpConnector, "discoverFolders").mockResolvedValue([remoteFolder("INBOX", "10", "inbox", [])]);
     try {
-      await rediscoverProviderBinding({ bindingId: restricted!.id });
+      await rediscoverProviderBinding({ bindingId });
       const [inbox] = await sql<{ selected_for_sync: boolean; sync_status: string; discovery_state: string }[]>`
         SELECT selected_for_sync, sync_status, discovery_state
         FROM mail.folders
         WHERE id = ${inboxFolderId}::uuid
       `;
-      expect(inbox).toEqual({ selected_for_sync: true, sync_status: "pending", discovery_state: "active" });
+      expect(inbox).toEqual({ selected_for_sync: false, sync_status: "excluded", discovery_state: "active" });
+      const execution = await resolveMailExecution({
+        context: adminContext,
+        mailboxId,
+        operation: "actorMutation",
+        folderRequirements: [{ folderId: inboxFolderId, rights: ["write_flags"] }],
+      });
+      expect(execution.ok).toBe(false);
     } finally {
       discover.mockRestore();
       verify.mockRestore();
-      await sql`DELETE FROM mail.provider_bindings WHERE id = ${restricted!.id}::uuid`;
+      await sql`
+        UPDATE mail.folders
+        SET selected_for_sync = true, sync_status = 'pending'
+        WHERE id = ${inboxFolderId}::uuid
+      `;
     }
   });
 
@@ -510,22 +457,21 @@ suite("mail lifecycle control plane", () => {
     }
   });
 
-  test("health remains readable when a personal mailbox has no active provider", async () => {
-    const personal = await createMailbox(adminContext, {
-      name: `Personal health ${suffix}`,
-      connectionPolicy: "personal_provider_account",
+  test("health remains readable when a mailbox has no active provider", async () => {
+    const disconnected = await createMailbox(adminContext, {
+      name: `Disconnected health ${suffix}`,
     });
-    expect(personal.ok).toBe(true);
-    if (!personal.ok) return;
+    expect(disconnected.ok).toBe(true);
+    if (!disconnected.ok) return;
     const [access] = await sql<{ access_id: string }[]>`
-      SELECT access_id FROM mail.mailbox_access WHERE mailbox_id = ${personal.data.id}::uuid
+      SELECT access_id FROM mail.mailbox_access WHERE mailbox_id = ${disconnected.data.id}::uuid
     `;
     try {
-      const health = await getMailboxOperationalHealth(adminContext, personal.data.id);
+      const health = await getMailboxOperationalHealth(adminContext, disconnected.data.id);
       expect(health.ok).toBe(true);
       if (health.ok) expect(health.data.bindings.total).toBe(0);
     } finally {
-      await sql`DELETE FROM mail.mailboxes WHERE id = ${personal.data.id}::uuid`;
+      await sql`DELETE FROM mail.mailboxes WHERE id = ${disconnected.data.id}::uuid`;
       if (access) await sql`DELETE FROM auth.access WHERE id = ${access.access_id}::uuid`;
     }
   });

@@ -131,7 +131,7 @@ export type SendSourceRequest = {
 
 export interface MailConnector {
   verify(config: ProviderConnectionInput): Promise<ConnectorVerification>;
-  discoverFolders(config: ProviderConnectionInput, rootPath?: string | null): Promise<RemoteFolder[]>;
+  discoverFolders(config: ProviderConnectionInput): Promise<RemoteFolder[]>;
   getFolderStatus(config: ProviderConnectionInput, folderPath: string): Promise<FolderStatusSnapshot>;
   fetchEnvelopeBatch(config: ProviderConnectionInput, request: EnvelopeBatchRequest): Promise<EnvelopeBatch>;
   fetchFlagChanges(

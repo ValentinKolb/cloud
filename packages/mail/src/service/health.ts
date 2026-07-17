@@ -1,11 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import {
-  type MailboxOperationalHealth,
-  mailboxOperationalHealthSchema,
-  type MailboxHealth,
-  type SearchBackend,
-} from "../contracts";
+import { type MailboxHealth, type MailboxOperationalHealth, mailboxOperationalHealthSchema, type SearchBackend } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import type { MailRequestContext } from "./auth";
 
@@ -75,27 +70,42 @@ export const getMailboxOperationalHealth = async (
           MAX(binding.last_verified_at) AS last_verified_at
         FROM mail.provider_bindings binding
         JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+        JOIN mail.provider_connections connection ON connection.id = binding.connection_id
         WHERE resource.mailbox_id = ${mailboxId}::uuid
+          AND connection.owner_mailbox_id = ${mailboxId}::uuid
       `;
       const rightsSources = await tx<{ state: string; count: number }[]>`
         SELECT ref.rights_source AS state, COUNT(*)::int AS count
         FROM mail.binding_folder_refs ref
         JOIN mail.provider_bindings binding ON binding.id = ref.binding_id
         JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
-        WHERE resource.mailbox_id = ${mailboxId}::uuid AND ref.missing_since IS NULL
+        JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+        WHERE resource.mailbox_id = ${mailboxId}::uuid
+          AND connection.owner_mailbox_id = ${mailboxId}::uuid
+          AND binding.state = 'active'
+          AND ref.missing_since IS NULL
         GROUP BY ref.rights_source
       `;
-      const [folderCounts] = await tx<
-        { active: number; missing: number; ambiguous: number; subscribed: number }[]
-      >`
+      const [folderCounts] = await tx<{ active: number; missing: number; ambiguous: number; subscribed: number }[]>`
         SELECT
           COUNT(*) FILTER (WHERE folder.discovery_state = 'active')::int AS active,
           COUNT(*) FILTER (WHERE folder.discovery_state = 'missing')::int AS missing,
           COUNT(*) FILTER (WHERE folder.discovery_state = 'ambiguous')::int AS ambiguous,
-          COUNT(DISTINCT ref.folder_id) FILTER (WHERE ref.subscribed AND ref.missing_since IS NULL)::int AS subscribed
+          COUNT(*) FILTER (
+            WHERE EXISTS (
+              SELECT 1
+              FROM mail.binding_folder_refs ref
+              JOIN mail.provider_bindings binding ON binding.id = ref.binding_id
+              JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+              WHERE ref.folder_id = folder.id
+                AND ref.subscribed
+                AND ref.missing_since IS NULL
+                AND binding.state = 'active'
+                AND connection.owner_mailbox_id = ${mailboxId}::uuid
+            )
+          )::int AS subscribed
         FROM mail.folders folder
         JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
-        LEFT JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
         WHERE resource.mailbox_id = ${mailboxId}::uuid
       `;
       const syncRuns = await tx<{ state: string; count: number }[]>`

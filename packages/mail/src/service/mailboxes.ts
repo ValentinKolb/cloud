@@ -18,7 +18,6 @@ type DbMailbox = {
   id: string;
   name: string;
   description: string | null;
-  connection_policy: Mailbox["connectionPolicy"];
   health: Mailbox["health"];
   health_reason: string | null;
   sync_enabled: boolean;
@@ -33,7 +32,6 @@ const mapMailbox = (row: DbMailbox): Mailbox => ({
   id: row.id,
   name: row.name,
   description: row.description,
-  connectionPolicy: row.connection_policy,
   health: row.health,
   healthReason: row.health_reason,
   syncEnabled: row.sync_enabled,
@@ -43,7 +41,7 @@ const mapMailbox = (row: DbMailbox): Mailbox => ({
 });
 
 const mailboxColumns = sql`
-  m.id, m.name, m.description, m.connection_policy, m.health, m.health_reason,
+  m.id, m.name, m.description, m.health, m.health_reason,
   m.sync_enabled, m.search_backend, m.created_at, m.updated_at
 `;
 
@@ -59,18 +57,16 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
           INSERT INTO mail.mailboxes (
             name,
             description,
-            connection_policy,
             created_by_user_id,
             created_by_service_account_id
           )
           VALUES (
             ${input.name.trim()},
             ${input.description?.trim() || null},
-            ${input.connectionPolicy},
             ${owner.id}::uuid,
             ${context.actor.kind === "service_account" ? context.actor.serviceAccount.id : null}::uuid
           )
-          RETURNING id, name, description, connection_policy, health, health_reason, sync_enabled, search_backend, created_at, updated_at
+          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, created_at, updated_at
         `;
         if (!row) throw new Error("Mailbox insert returned no row");
 
@@ -91,7 +87,7 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
             'confirmed',
             'mailbox',
             ${row.id}::uuid,
-            ${{ connectionPolicy: input.connectionPolicy }}::jsonb
+            '{}'::jsonb
           )
         `;
         await audit.record(
@@ -101,7 +97,7 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
             actor: auditActorFromRequest(context),
             target: { type: "mailbox", id: row.id, label: row.name },
             requestId: context.requestId,
-            metadata: { connectionPolicy: row.connection_policy },
+            metadata: {},
           },
           tx,
         );
@@ -229,7 +225,7 @@ export const updateMailbox = async (params: {
               ELSE health_reason
             END
           WHERE id = ${params.mailboxId}::uuid
-          RETURNING id, name, description, connection_policy, health, health_reason, sync_enabled, search_backend, created_at, updated_at
+          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, created_at, updated_at
         `;
         if (!row) throw new Error("Mailbox update returned no row");
         await audit.record(

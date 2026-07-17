@@ -6,6 +6,122 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("enforces mailbox-owned current provider connections and bindings", async () => {
+    await migrate();
+    const [shape] = await sql<
+      {
+        legacy_columns_absent: boolean;
+        current_indexes_present: boolean;
+        mailbox_guard_present: boolean;
+      }[]
+    >`
+      SELECT
+        NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND (
+              (table_name = 'mailboxes' AND column_name = 'connection_policy')
+              OR (table_name = 'provider_connections' AND column_name IN ('owner_user_id', 'owner_service_account_id'))
+              OR (table_name = 'sender_identities' AND column_name = 'interactive_policy')
+            )
+        ) AS legacy_columns_absent,
+        to_regclass('mail.provider_connections_mailbox_active_idx') IS NOT NULL
+          AND to_regclass('mail.provider_bindings_resource_current_idx') IS NOT NULL
+          AND to_regclass('mail.provider_bindings_connection_current_idx') IS NOT NULL AS current_indexes_present,
+        EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgrelid = 'mail.provider_bindings'::regclass
+            AND tgname = 'provider_bindings_mailbox_guard'
+            AND NOT tgisinternal
+        ) AS mailbox_guard_present
+    `;
+    expect(shape).toEqual({ legacy_columns_absent: true, current_indexes_present: true, mailbox_guard_present: true });
+
+    const mailboxId = crypto.randomUUID();
+    const otherMailboxId = crypto.randomUUID();
+    try {
+      await sql`
+        INSERT INTO mail.mailboxes (id, name)
+        VALUES (${mailboxId}, 'Provider invariant test'), (${otherMailboxId}, 'Other provider invariant test')
+      `;
+      const [resource] = await sql<{ id: string }[]>`
+        INSERT INTO mail.remote_resources (mailbox_id, remote_locator, server_identity, scope_fingerprint)
+        VALUES (${mailboxId}, '{}'::jsonb, '{}'::jsonb, ${"a".repeat(64)})
+        RETURNING id
+      `;
+      const [revokedConnection] = await sql<{ id: string }[]>`
+        INSERT INTO mail.provider_connections (
+          owner_mailbox_id, name, email, username,
+          imap_host, imap_port, imap_tls_mode, smtp_host, smtp_port, smtp_tls_mode,
+          secret_kind, encrypted_secret, status
+        ) VALUES (
+          ${mailboxId}, 'Historical', 'history@example.com', 'history@example.com',
+          'imap.example.com', 993, 'implicit', 'smtp.example.com', 465, 'implicit',
+          'password', NULL, 'revoked'
+        )
+        RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.provider_bindings (remote_resource_id, connection_id, state, remote_locator)
+        VALUES (${resource!.id}, ${revokedConnection!.id}, 'revoked', '{}'::jsonb)
+      `;
+      const [currentConnection] = await sql<{ id: string }[]>`
+        INSERT INTO mail.provider_connections (
+          owner_mailbox_id, name, email, username,
+          imap_host, imap_port, imap_tls_mode, smtp_host, smtp_port, smtp_tls_mode,
+          secret_kind, encrypted_secret, status
+        ) VALUES (
+          ${mailboxId}, 'Current', 'current@example.com', 'current@example.com',
+          'imap.example.com', 993, 'implicit', 'smtp.example.com', 465, 'implicit',
+          'password', 'encrypted-fixture', 'active'
+        )
+        RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.provider_bindings (remote_resource_id, connection_id, state, remote_locator)
+        VALUES (${resource!.id}, ${currentConnection!.id}, 'active', '{}'::jsonb)
+      `;
+
+      let duplicateCurrentError: unknown;
+      try {
+        await sql`
+          INSERT INTO mail.provider_bindings (remote_resource_id, connection_id, state, remote_locator)
+          VALUES (${resource!.id}, ${currentConnection!.id}, 'pending', '{}'::jsonb)
+        `;
+      } catch (error) {
+        duplicateCurrentError = error;
+      }
+      expect(duplicateCurrentError).toMatchObject({ errno: "23505" });
+
+      const [otherConnection] = await sql<{ id: string }[]>`
+        INSERT INTO mail.provider_connections (
+          owner_mailbox_id, name, email, username,
+          imap_host, imap_port, imap_tls_mode, smtp_host, smtp_port, smtp_tls_mode,
+          secret_kind, encrypted_secret, status
+        ) VALUES (
+          ${otherMailboxId}, 'Other', 'other@example.com', 'other@example.com',
+          'imap.example.com', 993, 'implicit', 'smtp.example.com', 465, 'implicit',
+          'password', 'encrypted-fixture', 'active'
+        )
+        RETURNING id
+      `;
+      let crossMailboxError: unknown;
+      try {
+        await sql`
+          INSERT INTO mail.provider_bindings (remote_resource_id, connection_id, state, remote_locator)
+          VALUES (${resource!.id}, ${otherConnection!.id}, 'active', '{}'::jsonb)
+        `;
+      } catch (error) {
+        crossMailboxError = error;
+      }
+      expect(crossMailboxError).toMatchObject({ errno: "23514" });
+    } finally {
+      await sql`DELETE FROM mail.mailboxes WHERE id IN (${mailboxId}, ${otherMailboxId})`;
+    }
+  });
+
   test("hard-cuts workflow storage while preserving the rest of the Mail schema", async () => {
     await migrate();
 

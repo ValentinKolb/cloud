@@ -172,7 +172,6 @@ suite("mail workflow trigger event runtime", () => {
       await createMailbox(ownerContext, {
         name: `Trigger runtime ${suffix}`,
         description: "Disposable workflow trigger runtime fixture",
-        connectionPolicy: "shared_connection",
       }),
     );
     mailboxId = mailbox.id;

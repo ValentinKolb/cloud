@@ -53,7 +53,6 @@ import type { MessageSearchHit, MessageSearchPage } from "./service/search";
 
 type MailboxWithPermission = Mailbox & { permission: PermissionLevel };
 type ProviderConnectionResult = { connection: ProviderConnection; verification: unknown };
-type ProviderBindingResult = { binding: ProviderBinding; requiresConfirmation: boolean; comparisonReason: string };
 
 const DEFAULT_MAILBOX_KEY = "mail.mailbox";
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 120;
@@ -835,14 +834,12 @@ export default defineCliCommands({
             name: mailbox.name,
             health: mailbox.health,
             permission: mailbox.permission,
-            policy: mailbox.connectionPolicy,
             id: mailbox.id,
           })),
           [
             { key: "name", label: "NAME" },
             { key: "health", label: "HEALTH" },
             { key: "permission", label: "ACCESS" },
-            { key: "policy", label: "CONNECTION" },
             { key: "id", label: "ID" },
           ],
         );
@@ -853,7 +850,6 @@ export default defineCliCommands({
       args: { name: arg.required({ description: "Mailbox name" }) },
       flags: {
         description: flag.string({ description: "Mailbox description" }),
-        policy: flag.enum(["shared_connection", "personal_provider_account"] as const, { default: "shared_connection" }),
       },
       run: async ({ ctx, args, flags }) => {
         const mailbox = await readApi<Mailbox>(
@@ -862,7 +858,6 @@ export default defineCliCommands({
           jsonRequest("POST", {
             name: args.name,
             description: flags.description,
-            connectionPolicy: flags.policy,
           }),
         );
         if (ctx.options.output === "json") ctx.json(mailbox);
@@ -898,7 +893,6 @@ export default defineCliCommands({
           ctx.print(`${mailbox.name} (${mailbox.id})`);
           ctx.print(`Health: ${mailbox.health}${mailbox.healthReason ? ` - ${mailbox.healthReason}` : ""}`);
           ctx.print(`Access: ${resolved.permission}`);
-          ctx.print(`Connection: ${mailbox.connectionPolicy}`);
           ctx.print(`Search: ${mailbox.searchBackend}`);
         }
       },
@@ -2063,24 +2057,14 @@ export default defineCliCommands({
     }),
     command("provider add", {
       summary: "Verify and store a write-only IMAP/SMTP provider credential",
-      flags: {
-        ...mailboxFlag,
-        ownerUserId: flag.string({
-          name: "owner-user-id",
-          description: "Create a private user-owned connection instead of a mailbox-owned connection",
-        }),
-        ...providerConnectionFlags,
-      },
+      flags: { ...mailboxFlag, ...providerConnectionFlags },
       run: async ({ ctx, flags }) => {
-        const mailbox = flags.ownerUserId ? null : await resolveMailbox(ctx, flags.mailbox);
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const connection = await providerConnectionInput(flags);
         const result = await readApi<ProviderConnectionResult>(
           ctx,
-          "/connections",
-          jsonRequest("POST", {
-            owner: flags.ownerUserId ? { type: "user", userId: flags.ownerUserId } : { type: "mailbox", mailboxId: mailbox!.id },
-            connection,
-          }),
+          `/mailboxes/${mailbox.id}/connections`,
+          jsonRequest("POST", connection),
         );
         if (ctx.options.output === "json") ctx.json(result);
         else
@@ -2090,11 +2074,12 @@ export default defineCliCommands({
     command("provider replace", {
       summary: "Replace a provider credential and require binding re-verification",
       args: { connectionId: arg.required({ description: "Provider connection id" }) },
-      flags: providerConnectionFlags,
+      flags: { ...mailboxFlag, ...providerConnectionFlags },
       run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<ProviderConnectionResult>(
           ctx,
-          `/connections/${args.connectionId}`,
+          `/mailboxes/${mailbox.id}/connections/${args.connectionId}`,
           jsonRequest("PUT", await providerConnectionInput(flags)),
         );
         if (ctx.options.output === "json") ctx.json(result);
@@ -2104,35 +2089,33 @@ export default defineCliCommands({
     command("provider revoke", {
       summary: "Destroy a provider credential and revoke its bindings",
       args: { connectionId: arg.required({ description: "Provider connection id" }) },
-      flags: { yes: confirmFlag("Confirm provider credential revocation") },
+      flags: { ...mailboxFlag, yes: confirmFlag("Confirm provider credential revocation") },
       run: async ({ ctx, args, flags }) => {
         if (!flags.yes) throw new Error("Pass --yes to revoke the provider credential.");
-        await readApi(ctx, `/connections/${args.connectionId}`, { method: "DELETE" });
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        await readApi(ctx, `/mailboxes/${mailbox.id}/connections/${args.connectionId}`, { method: "DELETE" });
         if (ctx.options.output === "json") ctx.json({ revoked: true, connectionId: args.connectionId });
         else ctx.print(`Revoked provider connection ${args.connectionId}.`);
       },
     }),
     command("provider list", {
-      summary: "List provider connections visible to the current actor",
+      summary: "List provider connections for a mailbox",
       flags: mailboxFlag,
       run: async ({ ctx, flags }) => {
-        const mailbox = flags.mailbox ? await resolveMailbox(ctx, flags.mailbox) : null;
-        const query = mailbox ? `?mailboxId=${encodeURIComponent(mailbox.id)}` : "";
-        const connections = await readApi<ProviderConnection[]>(ctx, `/connections${query}`);
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const connections = await readApi<ProviderConnection[]>(ctx, `/mailboxes/${mailbox.id}/connections`);
         printTable(
           ctx,
           connections,
           connections.map((connection) => ({
             name: connection.name,
             email: connection.email,
-            owner: connection.owner.type,
             status: connection.status,
             id: connection.id,
           })),
           [
             { key: "name", label: "NAME" },
             { key: "email", label: "EMAIL" },
-            { key: "owner", label: "OWNER" },
             { key: "status", label: "STATUS" },
             { key: "id", label: "ID" },
           ],
@@ -2151,14 +2134,12 @@ export default defineCliCommands({
           bindings.map((binding) => ({
             state: binding.state,
             principal: binding.authenticatedPrincipal ?? "",
-            root: binding.rootPath,
             connection: binding.connectionId,
             id: binding.id,
           })),
           [
             { key: "state", label: "STATE" },
             { key: "principal", label: "PRINCIPAL" },
-            { key: "root", label: "ROOT" },
             { key: "connection", label: "CONNECTION ID" },
             { key: "id", label: "BINDING ID" },
           ],
@@ -2168,29 +2149,16 @@ export default defineCliCommands({
     command("binding attach", {
       summary: "Attach and discover a provider connection",
       args: { connectionId: arg.required({ description: "Provider connection id" }) },
-      flags: { ...mailboxFlag, root: flag.string({ description: "Optional IMAP folder root" }) },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const result = await readApi<ProviderBindingResult>(
-          ctx,
-          `/mailboxes/${mailbox.id}/bindings`,
-          jsonRequest("POST", { connectionId: args.connectionId, rootPath: flags.root }),
-        );
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`${result.binding.state}: ${result.comparisonReason} (${result.binding.id})`);
-      },
-    }),
-    command("binding confirm", {
-      summary: "Explicitly confirm an ambiguous provider binding",
-      args: { bindingId: arg.required({ description: "Pending binding id" }) },
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const binding = await readApi<ProviderBinding>(ctx, `/mailboxes/${mailbox.id}/bindings/${args.bindingId}/confirm`, {
-          method: "POST",
-        });
+        const binding = await readApi<ProviderBinding>(
+          ctx,
+          `/mailboxes/${mailbox.id}/bindings`,
+          jsonRequest("POST", { connectionId: args.connectionId }),
+        );
         if (ctx.options.output === "json") ctx.json(binding);
-        else ctx.print(`Confirmed binding ${binding.id}.`);
+        else ctx.print(`${binding.state}: ${binding.authenticatedPrincipal ?? "remote mailbox"} (${binding.id})`);
       },
     }),
     command("identity list", {
@@ -2206,7 +2174,6 @@ export default defineCliCommands({
             address: identity.fromAddress,
             name: identity.displayName,
             status: identity.status,
-            mode: identity.authenticationPolicy.interactive,
             default: identity.isDefault ? "yes" : "",
             id: identity.id,
           })),
@@ -2214,7 +2181,6 @@ export default defineCliCommands({
             { key: "address", label: "ADDRESS" },
             { key: "name", label: "NAME" },
             { key: "status", label: "STATUS" },
-            { key: "mode", label: "MODE" },
             { key: "default", label: "DEFAULT" },
             { key: "id", label: "IDENTITY ID" },
           ],
@@ -2227,7 +2193,6 @@ export default defineCliCommands({
         ...mailboxFlag,
         address: flag.string({ required: true }),
         name: flag.string({ description: "Display name" }),
-        mode: flag.enum(["mailbox", "actor"] as const, { default: "mailbox" }),
         sentFolder: flag.string({ name: "sent-folder", description: "Canonical Sent folder id" }),
         default: flag.boolean({ description: "Set as default identity" }),
       },
@@ -2239,7 +2204,6 @@ export default defineCliCommands({
           jsonRequest("POST", {
             displayName: flags.name ?? "",
             fromAddress: flags.address,
-            authenticationPolicy: { interactive: flags.mode, automation: "disabled" },
             sentFolderId: flags.sentFolder,
             isDefault: flags.default,
           }),
@@ -2275,7 +2239,7 @@ export default defineCliCommands({
       },
     }),
     command("identity configure", {
-      summary: "Update sender metadata, policy, or provider folder mappings",
+      summary: "Update sender metadata, automation, or provider folder mappings",
       args: { identityId: arg.required({ description: "Sender identity id" }) },
       flags: {
         ...mailboxFlag,
@@ -2285,8 +2249,7 @@ export default defineCliCommands({
         clearReplyTo: flag.boolean({ name: "clear-reply-to" }),
         envelopeSender: flag.string({ name: "envelope-sender" }),
         clearEnvelopeSender: flag.boolean({ name: "clear-envelope-sender" }),
-        mode: flag.enum(["mailbox", "actor"] as const, { description: "Interactive credential mode" }),
-        automation: flag.enum(["disabled", "mailbox", "pool"] as const, { description: "Automation credential mode" }),
+        automation: flag.enum(["disabled", "mailbox"] as const, { description: "Automation credential use" }),
         sentFolder: flag.string({ name: "sent-folder" }),
         clearSentFolder: flag.boolean({ name: "clear-sent-folder" }),
         draftsFolder: flag.string({ name: "drafts-folder" }),
@@ -2301,9 +2264,6 @@ export default defineCliCommands({
         if (flags.sentFolder && flags.clearSentFolder) throw new Error("Use either --sent-folder or --clear-sent-folder.");
         if (flags.draftsFolder && flags.clearDraftsFolder) throw new Error("Use either --drafts-folder or --clear-drafts-folder.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const identities = await readApi<SenderIdentity[]>(ctx, `/mailboxes/${mailbox.id}/sender-identities`);
-        const current = identities.find((identity) => identity.id === args.identityId);
-        if (!current) throw new Error(`Sender identity ${args.identityId} was not found.`);
         const update = {
           ...(flags.address !== undefined ? { fromAddress: flags.address } : {}),
           ...(flags.name !== undefined ? { displayName: flags.name } : {}),
@@ -2311,14 +2271,7 @@ export default defineCliCommands({
           ...(flags.envelopeSender !== undefined || flags.clearEnvelopeSender
             ? { envelopeSender: flags.clearEnvelopeSender ? null : flags.envelopeSender }
             : {}),
-          ...(flags.mode !== undefined || flags.automation !== undefined
-            ? {
-                authenticationPolicy: {
-                  interactive: flags.mode ?? current.authenticationPolicy.interactive,
-                  automation: flags.automation ?? current.authenticationPolicy.automation,
-                },
-              }
-            : {}),
+          ...(flags.automation !== undefined ? { authenticationPolicy: { automation: flags.automation } } : {}),
           ...(flags.sentFolder !== undefined || flags.clearSentFolder
             ? { sentFolderId: flags.clearSentFolder ? null : flags.sentFolder }
             : {}),

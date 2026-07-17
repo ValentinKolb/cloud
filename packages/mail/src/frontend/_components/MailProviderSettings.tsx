@@ -2,14 +2,13 @@ import { Checkbox, NumberInput, Placeholder, prompts, Select, Switch, TextInput,
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { ConnectionOwner, Mailbox, SenderIdentity } from "../../contracts";
+import type { Mailbox, SenderIdentity } from "../../contracts";
 import type { MailboxAdminSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 
 type ProviderSettingsProps = {
   mailbox: Mailbox;
   admin: MailboxAdminSettingsContext;
-  currentUserId: string;
   currentUserEmail: string | null;
   reloading: boolean;
   onReload: () => Promise<void>;
@@ -41,8 +40,9 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   const [smtpTls, setSmtpTls] = createSignal<"implicit" | "starttls">("starttls");
   const [auth, setAuth] = createSignal<"password" | "oauth2">("password");
   const [secret, setSecret] = createSignal("");
-  const [rootPath, setRootPath] = createSignal("");
   const [createSender, setCreateSender] = createSignal(true);
+  const currentConnection = createMemo(() => props.admin.connections.find((connection) => connection.status !== "revoked"));
+  const currentBinding = createMemo(() => props.admin.bindings.find((binding) => binding.state !== "revoked"));
 
   const resetEditor = () => {
     setName(props.mailbox.name);
@@ -56,7 +56,6 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     setSmtpTls("starttls");
     setAuth("password");
     setSecret("");
-    setRootPath("");
     setCreateSender(true);
   };
 
@@ -69,47 +68,41 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
       smtpPort() <= 65_535,
   );
 
-  const connect = mutation.create<{ requiresConfirmation: boolean; senderCreated: boolean }, void>({
+  const attachConnection = async (connectionId: string): Promise<boolean> => {
+    const bindingResponse = await apiClient.mailboxes[":mailboxId"].bindings.$post({
+      param: { mailboxId: props.mailbox.id },
+      json: { connectionId },
+    });
+    if (!bindingResponse.ok) throw new Error(await readApiError(bindingResponse, "Folder discovery failed"));
+    const binding = await bindingResponse.json();
+    if (!createSender()) return false;
+    const senderResponse = await apiClient.mailboxes[":mailboxId"]["sender-identities"].default.setup.$post({
+      param: { mailboxId: props.mailbox.id },
+      json: { bindingId: binding.id, savesSentAutomatically: false },
+    });
+    if (!senderResponse.ok)
+      throw new Error(await readApiError(senderResponse, "Provider connected, but the default sender could not be created"));
+    return true;
+  };
+
+  const connect = mutation.create<{ senderCreated: boolean }, void>({
     mutation: async () => {
-      const owner: ConnectionOwner =
-        props.mailbox.connectionPolicy === "shared_connection"
-          ? { type: "mailbox", mailboxId: props.mailbox.id }
-          : { type: "user", userId: props.currentUserId };
-      const connectionResponse = await apiClient.connections.$post({
+      const connectionResponse = await apiClient.mailboxes[":mailboxId"].connections.$post({
+        param: { mailboxId: props.mailbox.id },
         json: {
-          owner,
-          connection: {
-            name: name().trim(),
-            email: email().trim(),
-            username: username().trim(),
-            imap: { host: imapHost().trim(), port: imapPort(), tlsMode: imapTls() },
-            smtp: { host: smtpHost().trim(), port: smtpPort(), tlsMode: smtpTls() },
-            secret: auth() === "oauth2" ? { kind: "oauth2", accessToken: secret() } : { kind: "password", password: secret() },
-          },
+          name: name().trim(),
+          email: email().trim(),
+          username: username().trim(),
+          imap: { host: imapHost().trim(), port: imapPort(), tlsMode: imapTls() },
+          smtp: { host: smtpHost().trim(), port: smtpPort(), tlsMode: smtpTls() },
+          secret: auth() === "oauth2" ? { kind: "oauth2", accessToken: secret() } : { kind: "password", password: secret() },
         },
       });
       if (!connectionResponse.ok) throw new Error(await readApiError(connectionResponse, "Provider verification failed"));
       const created = await connectionResponse.json();
-      const bindingResponse = await apiClient.mailboxes[":mailboxId"].bindings.$post({
-        param: { mailboxId: props.mailbox.id },
-        json: { connectionId: created.connection.id, rootPath: rootPath().trim() || null },
-      });
-      if (!bindingResponse.ok) throw new Error(await readApiError(bindingResponse, "Connection was stored but folder discovery failed"));
-      const binding = await bindingResponse.json();
-      let senderCreated = false;
-      if (createSender() && !binding.requiresConfirmation) {
-        const senderResponse = await apiClient.mailboxes[":mailboxId"]["sender-identities"].default.setup.$post({
-          param: { mailboxId: props.mailbox.id },
-          json: { bindingId: binding.binding.id, savesSentAutomatically: false },
-        });
-        if (!senderResponse.ok)
-          throw new Error(await readApiError(senderResponse, "Provider connected, but the default sender could not be created"));
-        senderCreated = true;
-      }
-      return { requiresConfirmation: binding.requiresConfirmation, senderCreated };
+      return { senderCreated: await attachConnection(created.connection.id) };
     },
     onSuccess: (result) => {
-      if (result.requiresConfirmation) toast("Connection requires explicit scope confirmation");
       toast.success(result.senderCreated ? "Provider and default sender connected" : "Provider connected");
       setEditing(false);
       props.onWorkspaceChange();
@@ -121,22 +114,10 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     },
   });
 
-  const confirmBinding = mutation.create<boolean, string>({
-    mutation: async (bindingId) => {
-      const confirmed = await prompts.confirm(
-        "The provider scope could not be matched automatically. Confirm only after checking the account and folder root.",
-        { title: "Confirm remote mailbox", confirmText: "Confirm binding" },
-      );
-      if (!confirmed) return false;
-      const response = await apiClient.mailboxes[":mailboxId"].bindings[":bindingId"].confirm.$post({
-        param: { mailboxId: props.mailbox.id, bindingId },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to confirm binding"));
-      return true;
-    },
-    onSuccess: (confirmed) => {
-      if (!confirmed) return;
-      toast.success("Binding confirmed");
+  const finishSetup = mutation.create<{ senderCreated: boolean }, string>({
+    mutation: async (connectionId) => ({ senderCreated: await attachConnection(connectionId) }),
+    onSuccess: (result) => {
+      toast.success(result.senderCreated ? "Provider and default sender connected" : "Provider connected");
       props.onWorkspaceChange();
       void props.onReload();
     },
@@ -210,12 +191,6 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
               autocomplete="off"
             />
           </div>
-          <TextInput
-            label="Folder root"
-            description="Optional IMAP root for a shared namespace or delegated folder."
-            value={rootPath}
-            onInput={setRootPath}
-          />
           <Checkbox
             label="Create the default sender for this address"
             description="Recommended for normal mailboxes. Disable only when the remote folder and sender use different accounts."
@@ -235,19 +210,21 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
       }
     >
       <div class="flex flex-col gap-2">
-        <button
-          type="button"
-          class="btn-primary btn-sm self-start"
-          disabled={props.reloading}
-          onClick={() => {
-            resetEditor();
-            setEditing(true);
-          }}
-        >
-          <i class="ti ti-plus" aria-hidden="true" /> Connect provider
-        </button>
+        <Show when={!currentConnection()}>
+          <button
+            type="button"
+            class="btn-primary btn-sm self-start"
+            disabled={props.reloading}
+            onClick={() => {
+              resetEditor();
+              setEditing(true);
+            }}
+          >
+            <i class="ti ti-plus" aria-hidden="true" /> Connect provider
+          </button>
+        </Show>
         <Show
-          when={props.admin.connections.length > 0}
+          when={currentConnection()}
           fallback={
             <Placeholder
               title="No provider connection"
@@ -256,42 +233,41 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
             />
           }
         >
-          <For each={props.admin.connections}>
-            {(connection) => (
-              <div class="paper flex items-center gap-3 p-3">
-                <i class="ti ti-server text-lg text-dimmed" aria-hidden="true" />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium">{connection.name}</span>
-                  <span class="block truncate text-xs text-dimmed">
-                    {connection.email} · {connection.imap.host}
-                  </span>
-                </span>
-                <span class="badge">{connection.status}</span>
-              </div>
-            )}
-          </For>
-        </Show>
-        <For each={props.admin.bindings}>
-          {(binding) => (
+          {(connection) => (
             <div class="paper flex items-center gap-3 p-3">
-              <i class="ti ti-folders text-lg text-dimmed" aria-hidden="true" />
+              <i class="ti ti-server text-lg text-dimmed" aria-hidden="true" />
               <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-medium">{binding.authenticatedPrincipal || "Remote mailbox"}</span>
-                <span class="block text-xs text-dimmed">{binding.state}</span>
+                <span class="block truncate text-sm font-medium">{connection().name}</span>
+                <span class="block truncate text-xs text-dimmed">
+                  {connection().email} · {connection().imap.host}
+                </span>
               </span>
-              <Show when={binding.state === "pending"}>
+              <span class="badge">{connection().status}</span>
+              <Show when={!currentBinding()}>
                 <button
                   type="button"
-                  class="btn-warning btn-sm"
-                  disabled={confirmBinding.loading() || props.reloading}
-                  onClick={() => confirmBinding.mutate(binding.id)}
+                  class="btn-secondary btn-sm"
+                  disabled={finishSetup.loading() || props.reloading}
+                  onClick={() => finishSetup.mutate(connection().id)}
                 >
-                  Review
+                  <i class={finishSetup.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} aria-hidden="true" /> Finish
+                  setup
                 </button>
               </Show>
             </div>
           )}
-        </For>
+        </Show>
+        <Show when={currentBinding()}>
+          {(binding) => (
+            <div class="paper flex items-center gap-3 p-3">
+              <i class="ti ti-folders text-lg text-dimmed" aria-hidden="true" />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-medium">{binding().authenticatedPrincipal || "Remote mailbox"}</span>
+                <span class="block text-xs text-dimmed">{binding().state}</span>
+              </span>
+            </div>
+          )}
+        </Show>
       </div>
     </Show>
   );
@@ -334,10 +310,6 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
         json: {
           displayName: displayName().trim(),
           fromAddress: address().trim(),
-          authenticationPolicy: {
-            interactive: props.mailbox.connectionPolicy === "shared_connection" ? "mailbox" : "actor",
-            automation: "disabled",
-          },
           sentFolderId: sentFolderId() || null,
           isDefault: isDefault(),
         },

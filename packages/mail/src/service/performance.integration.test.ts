@@ -52,7 +52,6 @@ suite("mail large-mailbox performance", () => {
     const mailbox = await createMailbox(context, {
       name: `Performance ${suffix}`,
       description: `Disposable ${MESSAGE_COUNT} message performance fixture`,
-      connectionPolicy: "shared_connection",
     });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     ids.mailboxId = mailbox.data.id;

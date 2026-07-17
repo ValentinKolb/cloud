@@ -6,9 +6,6 @@ import type {
 } from "@valentinkolb/cloud/workflows";
 import { z } from "zod";
 
-export const connectionPolicySchema = z.enum(["shared_connection", "personal_provider_account"]);
-export type ConnectionPolicy = z.infer<typeof connectionPolicySchema>;
-
 export const searchBackendSchema = z.enum(["auto", "postgres", "pg_textsearch"]);
 export type SearchBackend = z.infer<typeof searchBackendSchema>;
 
@@ -30,13 +27,6 @@ export type ConnectorKind = z.infer<typeof connectorKindSchema>;
 
 export const tlsModeSchema = z.enum(["implicit", "starttls"]);
 export type TlsMode = z.infer<typeof tlsModeSchema>;
-
-export const connectionOwnerSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("mailbox"), mailboxId: z.string().uuid() }),
-  z.object({ type: z.literal("user"), userId: z.string().uuid() }),
-  z.object({ type: z.literal("service_account"), serviceAccountId: z.string().uuid() }),
-]);
-export type ConnectionOwner = z.infer<typeof connectionOwnerSchema>;
 
 export const endpointSchema = z.object({
   host: z.string().trim().min(1).max(253),
@@ -68,7 +58,7 @@ export type ProviderConnectionInput = z.infer<typeof providerConnectionInputSche
 
 export const providerConnectionSchema = z.object({
   id: z.string().uuid(),
-  owner: connectionOwnerSchema,
+  mailboxId: z.string().uuid(),
   name: z.string(),
   email: z.string(),
   username: z.string(),
@@ -89,7 +79,6 @@ export const mailboxSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
-  connectionPolicy: connectionPolicySchema,
   health: mailboxHealthSchema,
   healthReason: z.string().nullable(),
   syncEnabled: z.boolean(),
@@ -151,7 +140,6 @@ export type MailboxOperationalHealth = z.infer<typeof mailboxOperationalHealthSc
 export const createMailboxInputSchema = z.object({
   name: z.string().trim().min(1).max(160),
   description: z.string().trim().max(2_000).nullable().optional(),
-  connectionPolicy: connectionPolicySchema.default("shared_connection"),
 });
 export type CreateMailboxInput = z.infer<typeof createMailboxInputSchema>;
 
@@ -164,7 +152,6 @@ export const providerBindingSchema = z.object({
   connectionId: z.string().uuid(),
   state: bindingStateSchema,
   authenticatedPrincipal: z.string().nullable(),
-  rootPath: z.string(),
   capabilities: z.record(z.string(), z.unknown()),
   lastVerifiedAt: z.string().datetime().nullable(),
   lastError: z.string().nullable(),
@@ -965,8 +952,7 @@ export const acquiredDraftLeaseSchema = draftLeaseSchema.extend({ token: z.strin
 export type AcquiredDraftLease = z.infer<typeof acquiredDraftLeaseSchema>;
 
 export const senderAuthenticationPolicySchema = z.object({
-  interactive: z.enum(["mailbox", "actor"]),
-  automation: z.enum(["disabled", "mailbox", "pool"]),
+  automation: z.enum(["disabled", "mailbox"]),
 });
 export type SenderAuthenticationPolicy = z.infer<typeof senderAuthenticationPolicySchema>;
 
@@ -992,7 +978,7 @@ export const createSenderIdentityInputSchema = z.object({
   fromAddress: z.string().email().max(320),
   replyTo: z.string().email().max(320).nullable().optional(),
   envelopeSender: z.string().email().max(320).nullable().optional(),
-  authenticationPolicy: senderAuthenticationPolicySchema.default({ interactive: "mailbox", automation: "disabled" }),
+  authenticationPolicy: senderAuthenticationPolicySchema.default({ automation: "disabled" }),
   sentFolderId: z.string().uuid().nullable().optional(),
   draftsFolderId: z.string().uuid().nullable().optional(),
   isDefault: z.boolean().optional(),

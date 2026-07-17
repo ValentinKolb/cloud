@@ -90,7 +90,6 @@ suite("mail collaboration operations", () => {
     const mailbox = await createMailbox(ownerContext, {
       name: `Collaboration operations ${suffix}`,
       description: "Disposable collaboration operations fixture",
-      connectionPolicy: "shared_connection",
     });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
@@ -624,45 +623,37 @@ suite("mail collaboration operations", () => {
     expect(restoredWriterAccess.ok).toBe(true);
     if (!restoredWriterAccess.ok) return;
     accessIds.push(restoredWriterAccess.data.id);
-    await sql`UPDATE mail.mailboxes SET connection_policy = 'personal_provider_account' WHERE id = ${mailboxId}::uuid`;
-
-    const addPersonalBinding = async (user: TestUser): Promise<string> => {
-      const [connection] = await sql<{ id: string }[]>`
-        INSERT INTO mail.provider_connections (
-          owner_user_id, name, email, username,
-          imap_host, imap_port, imap_tls_mode,
-          smtp_host, smtp_port, smtp_tls_mode,
-          secret_kind, encrypted_secret, status
-        ) VALUES (
-          ${user.id}::uuid,
-          ${`Personal provider ${user.uid}`},
-          ${`${user.uid}@example.com`},
-          ${user.uid},
-          'imap.example.com', 993, 'implicit',
-          'smtp.example.com', 465, 'implicit',
-          'password', 'encrypted-test-secret', 'active'
-        )
-        RETURNING id
-      `;
-      const [binding] = await sql<{ id: string }[]>`
-        INSERT INTO mail.provider_bindings (
-          remote_resource_id, connection_id, state, remote_locator,
-          verified_scope_fingerprint, verified_secret_revision
-        ) VALUES (
-          ${remoteResourceId}::uuid,
-          ${connection!.id}::uuid,
-          'active',
-          '{}'::jsonb,
-          ${"d".repeat(64)},
-          1
-        )
-        RETURNING id
-      `;
-      return binding!.id;
-    };
-
-    await addPersonalBinding(owner);
-    const writerBindingId = await addPersonalBinding(writer);
+    const [connection] = await sql<{ id: string }[]>`
+      INSERT INTO mail.provider_connections (
+        owner_mailbox_id, name, email, username,
+        imap_host, imap_port, imap_tls_mode,
+        smtp_host, smtp_port, smtp_tls_mode,
+        secret_kind, encrypted_secret, status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        'Mailbox provider',
+        'mailbox@example.com',
+        'mailbox@example.com',
+        'imap.example.com', 993, 'implicit',
+        'smtp.example.com', 465, 'implicit',
+        'password', 'encrypted-test-secret', 'active'
+      )
+      RETURNING id
+    `;
+    const [binding] = await sql<{ id: string }[]>`
+      INSERT INTO mail.provider_bindings (
+        remote_resource_id, connection_id, state, remote_locator,
+        verified_scope_fingerprint, verified_secret_revision
+      ) VALUES (
+        ${remoteResourceId}::uuid,
+        ${connection!.id}::uuid,
+        'active',
+        '{}'::jsonb,
+        ${"d".repeat(64)},
+        1
+      )
+      RETURNING id
+    `;
     const personalPeerId = crypto.randomUUID();
     const personalPresence = await heartbeatConversationPresence({
       context: writerContext,
@@ -682,24 +673,24 @@ suite("mail collaboration operations", () => {
     await sql`
       UPDATE mail.provider_bindings
       SET state = 'revoked'
-      WHERE id = ${writerBindingId}::uuid
+      WHERE id = ${binding!.id}::uuid
     `;
     const revokedBindingRecovery = await notificationService.recover();
-    expect(revokedBindingRecovery).toMatchObject({ scanned: 1, sent: 0, skipped: 1, failed: 0 });
+    expect(revokedBindingRecovery).toMatchObject({ scanned: 1, sent: 1, skipped: 0, failed: 0 });
     const snapshotAfterBindingRevocation = await getConversationPresence({ context: ownerContext, mailboxId, conversationId });
     expect(
       snapshotAfterBindingRevocation.ok &&
         snapshotAfterBindingRevocation.data.participants.some((participant) => participant.userId === writer.id),
-    ).toBe(false);
-    const deniedAfterBindingRevocation = await heartbeatConversationPresence({
+    ).toBe(true);
+    const presenceAfterBindingRevocation = await heartbeatConversationPresence({
       context: writerContext,
       mailboxId,
       conversationId,
       input: { peerId: personalPeerId, mode: "viewing" },
     });
-    expect(deniedAfterBindingRevocation.ok).toBe(false);
-    expect((await getConversationCollaboration({ context: writerContext, mailboxId, conversationId })).ok).toBe(false);
-    expect((await listConversationComments({ context: writerContext, mailboxId, conversationId })).ok).toBe(false);
-    expect((await listActivity({ context: writerContext, mailboxId, conversationId })).ok).toBe(false);
+    expect(presenceAfterBindingRevocation.ok).toBe(true);
+    expect((await getConversationCollaboration({ context: writerContext, mailboxId, conversationId })).ok).toBe(true);
+    expect((await listConversationComments({ context: writerContext, mailboxId, conversationId })).ok).toBe(true);
+    expect((await listActivity({ context: writerContext, mailboxId, conversationId })).ok).toBe(true);
   }, 30_000);
 });

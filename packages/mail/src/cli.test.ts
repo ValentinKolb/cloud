@@ -23,12 +23,12 @@ const SOURCE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000016";
 const REMINDER_ID = "00000000-0000-4000-8000-000000000017";
 const SAVED_VIEW_ID = "00000000-0000-4000-8000-000000000018";
 const UPLOAD_ID = "00000000-0000-4000-8000-000000000019";
+const BINDING_ID = "00000000-0000-4000-8000-000000000020";
 
 const mailbox = {
   id: MAILBOX_ID,
   name: "Support",
   description: null,
-  connectionPolicy: "shared_connection",
   health: "active",
   healthReason: null,
   syncEnabled: true,
@@ -902,14 +902,14 @@ test("send carries reply context and can wait for delivery", async () => {
 test("provider credentials are accepted from stdin and never printed", async () => {
   let requestBody: Record<string, unknown> | undefined;
   const server = withMailbox(async (request) => {
-    if (request.method === "POST" && new URL(request.url).pathname === "/api/mail/connections") {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/connections`) {
       requestBody = (await request.json()) as Record<string, unknown>;
       return api({
         connection: {
           id: CONNECTION_ID,
+          mailboxId: MAILBOX_ID,
           name: "Provider",
           email: "sender@example.com",
-          owner: { type: "mailbox", mailboxId: MAILBOX_ID },
         },
         verification: {},
       });
@@ -942,9 +942,48 @@ test("provider credentials are accepted from stdin and never printed", async () 
   );
 
   expect(result.exitCode).toBe(0);
-  expect(requestBody).toMatchObject({ connection: { secret: { kind: "password", password: "not-a-real-secret" } } });
+  expect(requestBody).toMatchObject({ secret: { kind: "password", password: "not-a-real-secret" } });
+  expect(requestBody).not.toHaveProperty("owner");
   expect(result.stdout).not.toContain("not-a-real-secret");
   expect(result.stderr).not.toContain("not-a-real-secret");
+});
+
+test("binding attach sends only the mailbox connection id", async () => {
+  let requestBody: unknown;
+  const binding = {
+    id: BINDING_ID,
+    mailboxId: MAILBOX_ID,
+    connectionId: CONNECTION_ID,
+    state: "active",
+    authenticatedPrincipal: "sender@example.com",
+    capabilities: {},
+    lastVerifiedAt: "2026-07-12T00:00:00.000Z",
+    lastError: null,
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:00.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/bindings`) {
+      requestBody = await request.json();
+      return api(binding);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "binding",
+    "attach",
+    CONNECTION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(requestBody).toEqual({ connectionId: CONNECTION_ID });
+  expect(JSON.parse(result.stdout)).toEqual(binding);
 });
 
 test("attachment download writes the exact response bytes", async () => {
@@ -1386,7 +1425,7 @@ test("default sender setup preserves an existing display name when no name is pa
         fromAddress: "sender@example.com",
         replyTo: null,
         envelopeSender: null,
-        authenticationPolicy: { interactive: "mailbox", automation: "disabled" },
+        authenticationPolicy: { automation: "disabled" },
         sentFolderId: FOLDER_ID,
         draftsFolderId: null,
         isDefault: true,
