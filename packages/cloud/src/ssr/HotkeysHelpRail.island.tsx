@@ -3,11 +3,11 @@ import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
 import { openLayoutHelpDialog } from "./LayoutHelp";
 
 /** Help action in rail nav: opens a modal with all currently registered hotkeys. */
-export default function HotkeysHelpRail(props: { searchHelpApps?: GlobalSearchHelpApp[] }) {
+export default function HotkeysHelpRail(props: { searchHelpApps?: GlobalSearchHelpApp[]; accent?: string }) {
   const searchHelpApps = props.searchHelpApps ?? [];
 
   const openHelp = () => {
-    openLayoutHelpDialog(searchHelpApps);
+    openLayoutHelpDialog(searchHelpApps, props.accent);
   };
 
   hotkeys.create(() => ({

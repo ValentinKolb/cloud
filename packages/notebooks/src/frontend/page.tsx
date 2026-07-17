@@ -1,6 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { expectUserBackedActor } from "@/actor";
+import { notebookHelp } from "@/help";
 import { notebooksService } from "@/service";
 import { ssr } from "../config";
 import NotebookLayoutHelp from "./[id]/_components/help/NotebookLayoutHelp.island";
@@ -32,7 +33,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Notebooks" }]}>
-      <NotebookLayoutHelp />
+      <NotebookLayoutHelp documents={notebookHelp.manifest} />
       <NotebooksOverview notebooks={notebooks} templates={templates} initialQuery={initialQuery} />
     </Layout>
   );

@@ -251,7 +251,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth, focusM
             <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="rail" label="Open apps" />
             <div class="mt-auto flex flex-col items-center gap-1">
               <GlobalSearchTrigger variant="rail" searchHelpApps={searchHelpApps} />
-              <HotkeysHelpRail searchHelpApps={searchHelpApps} />
+              <HotkeysHelpRail searchHelpApps={searchHelpApps} accent={currentApp?.appearance?.accent} />
               <ThemeToggleRail />
             </div>
           </nav>

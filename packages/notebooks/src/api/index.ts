@@ -12,12 +12,23 @@ import {
   ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, getDateConfig, hasPermission, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import {
+  type AuthContext,
+  auth,
+  getDateConfig,
+  hasPermission,
+  jsonResponse,
+  rateLimit,
+  requiresAuth,
+  respond,
+  v,
+} from "@valentinkolb/cloud/server";
 import { settings, settingsService } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { notebookHelp } from "../help";
 import { notebooksService, reindexRuntime } from "../service";
 import { NOTEBOOK_RESOURCE_TYPE, NOTEBOOKS_APP_ID } from "../service/access";
 import { loadEditableNoteRouteData } from "../service/route-state";
@@ -593,6 +604,7 @@ const app = new Hono<AuthContext>()
   .route("/ws", wsRoutes)
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
+  .route("/help", notebookHelp.router)
   .route("/templates", templatesRoutes)
 
   // ==========================

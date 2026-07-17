@@ -507,6 +507,16 @@
   box-shadow: var(--ui-shadow-float);
 }
 
+.floating-window {
+  border: 1px solid color-mix(in srgb, var(--app-accent, var(--ui-border-strong)) 28%, var(--ui-border-strong));
+  border-radius: var(--ui-dialog-radius);
+  box-shadow: var(--ui-shadow-float);
+}
+
+.dark .floating-window {
+  border-color: color-mix(in srgb, var(--app-accent, var(--ui-border-strong)) 34%, var(--ui-border-strong));
+}
+
 .panel-dialog-layout[data-surface="floating"] {
   gap: 0;
   border: 1px solid var(--ui-dialog-border);

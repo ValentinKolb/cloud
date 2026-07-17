@@ -1,6 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { notebookHelp } from "@/help";
 import { ssr } from "../../config";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
 import NoteEditor from "./_components/editor/NoteEditor.client";
@@ -87,7 +88,7 @@ export default ssr<AuthContext>(async (c) => {
     >
       <AppWorkspace class="flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
-        <NotebookLayoutHelp />
+        <NotebookLayoutHelp documents={notebookHelp.manifest} />
         {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} sessionToken={sessionToken!} />}
 
         <NotebookSidebar ctx={ctx} />

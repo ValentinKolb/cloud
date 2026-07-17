@@ -2,6 +2,7 @@ import type { HelpDocumentManifest, HelpDocumentPayload, HelpSearchPayload } fro
 import { hotkeys } from "@valentinkolb/stdlib/solid";
 import { children, createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { MarkdownView, openFloatingWindow, prompts } from "../ui";
+import { appAccentStyle } from "./app-appearance";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 
 type HelpTopicBase = {
@@ -114,6 +115,7 @@ const HelpShell = (props: {
   close: () => void;
   detach?: () => void;
   searchHelpApps: GlobalSearchHelpApp[];
+  accent?: string;
   floating?: boolean;
 }) => {
   const [externalTopics, setExternalTopics] = createSignal(sortedTopics());
@@ -285,15 +287,15 @@ const HelpShell = (props: {
   const goBack = () => setView(query().trim() ? "search" : "hub");
 
   const TopicList = (listProps: { items: HelpTopic[] }) => (
-    <div class="flex flex-col gap-1">
+    <div class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1.5">
       <For each={listProps.items}>
         {(topic) => (
           <button
             type="button"
-            class="group flex w-full items-center gap-3 rounded-[var(--ui-radius-surface)] px-3 py-2.5 text-left hover:bg-[var(--ui-surface-subtle)] focus-ui"
+            class="group flex w-full items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 text-left hover:bg-[var(--ui-surface-raised)] focus-ui"
             onClick={() => openTopic(topic.id)}
           >
-            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)] text-dimmed group-hover:app-accent-text">
+            <span class="help-topic-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] app-accent-text">
               <i class={`${iconClass(topic.icon)} text-base`} />
             </span>
             <span class="min-w-0 flex-1">
@@ -312,9 +314,10 @@ const HelpShell = (props: {
   return (
     <div
       ref={root}
-      class={`flex min-h-0 flex-col bg-[var(--ui-surface-raised)] ${
+      class={`app-accent-scope flex min-h-0 flex-col bg-[var(--ui-surface-raised)] ${
         props.floating ? "h-full" : "h-[min(86vh,48rem)] overflow-hidden panel-dialog-shell [box-shadow:var(--ui-shadow-float)]"
       }`}
+      style={appAccentStyle(props.accent)}
     >
       <Show when={!props.floating}>
         <header class="flex h-16 shrink-0 items-center gap-3 px-5">
@@ -337,7 +340,7 @@ const HelpShell = (props: {
               title="Keep help open beside the app"
               onClick={props.detach}
             >
-              <i class="ti-app-window" />
+              <i class="ti ti-app-window" />
             </button>
           </Show>
           <button type="button" class="icon-btn" aria-label="Close help" onClick={props.close}>
@@ -431,21 +434,23 @@ const HelpShell = (props: {
 
         <Show when={view() === "article" && activeTopic()}>
           {(topic) => (
-            <article class="mx-auto max-w-3xl">
+            <article class="mx-auto max-w-5xl">
               <button
                 type="button"
-                class="mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-dimmed hover:text-primary focus-ui"
+                class="mb-6 inline-flex items-center gap-1.5 text-xs font-medium text-dimmed hover:app-accent-text focus-ui"
                 onClick={goBack}
               >
                 <i class="ti ti-arrow-left" /> Back
               </button>
-              <header class="mb-6 flex items-start gap-3">
-                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)] app-accent-text">
+              <header class="mb-8 flex items-start gap-3">
+                <span class="help-topic-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] app-accent-text">
                   <i class={`${iconClass(topic().icon)} text-lg`} />
                 </span>
-                <div>
-                  <h3 class="text-xl font-semibold text-primary">{topic().title}</h3>
-                  <Show when={topic().description}>{(description) => <p class="mt-1 text-sm text-dimmed">{description()}</p>}</Show>
+                <div class="min-w-0">
+                  <h3 class="text-2xl font-semibold tracking-tight text-primary">{topic().title}</h3>
+                  <Show when={topic().description}>
+                    {(description) => <p class="mt-1.5 text-sm leading-relaxed text-dimmed">{description()}</p>}
+                  </Show>
                 </div>
               </header>
               <Show when={topic().kind === "content"}>{legacyTopicContent(topic())}</Show>
@@ -486,7 +491,7 @@ const createSession = (): HelpSession => {
   return { view: "hub", query: "", activeId, articleScrollTop: 0, articleCache: new Map() };
 };
 
-export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = []) {
+export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = [], accent?: string) {
   const session = createSession();
   let openFloating: (() => void) | undefined;
 
@@ -497,6 +502,7 @@ export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = [])
           session={session}
           close={close}
           searchHelpApps={searchHelpApps}
+          accent={accent}
           detach={() => {
             close();
             queueMicrotask(() => openFloating?.());
@@ -508,9 +514,10 @@ export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = [])
   };
 
   openFloating = () => {
-    openFloatingWindow((close) => <HelpShell session={session} close={close} searchHelpApps={searchHelpApps} floating />, {
+    openFloatingWindow((close) => <HelpShell session={session} close={close} searchHelpApps={searchHelpApps} accent={accent} floating />, {
       title: "Help",
       icon: "ti ti-help",
+      accent,
       initialWidth: 760,
       initialHeight: 680,
       minWidth: 380,

@@ -15,6 +15,8 @@ export type FloatingWindowProps = {
   initialHeight?: number;
   minWidth?: number;
   minHeight?: number;
+  /** App accent copied into the portal for semantic icon and frame styling. */
+  accent?: string;
   class?: string;
 };
 
@@ -197,7 +199,7 @@ export default function FloatingWindow(props: FloatingWindowProps) {
     >
       <button
         type="button"
-        class={`absolute ${className} z-10 opacity-0 focus-visible:bg-[var(--app-theme-color)] focus-visible:opacity-100 focus-visible:outline-none`}
+        class={`absolute ${className} z-10 opacity-0 focus-visible:bg-[var(--app-accent)] focus-visible:opacity-100 focus-visible:outline-none`}
         style={{ cursor }}
         aria-label="Resize window. Use arrow keys; hold Shift for larger steps."
         onPointerDown={(event) => beginResize(edge, event)}
@@ -210,12 +212,19 @@ export default function FloatingWindow(props: FloatingWindowProps) {
     <Portal>
       <section
         ref={windowElement}
-        class={`fixed flex min-h-0 flex-col overflow-hidden rounded-[var(--ui-radius-panel)] bg-[var(--ui-surface-raised)] text-primary shadow-2xl ring-1 ring-black/10 outline-none dark:ring-white/10 ${props.class ?? ""}`}
+        class={`floating-window app-accent-scope fixed flex min-h-0 flex-col overflow-hidden bg-[var(--ui-surface-raised)] text-primary outline-none ${props.class ?? ""}`}
         classList={{ "inset-2 !h-auto !w-auto": mobile() }}
         style={
           mobile()
-            ? { "z-index": layer() }
-            : { left: `${rect().x}px`, top: `${rect().y}px`, width: `${rect().width}px`, height: `${rect().height}px`, "z-index": layer() }
+            ? { "--app-accent": props.accent, "z-index": layer() }
+            : {
+                "--app-accent": props.accent,
+                left: `${rect().x}px`,
+                top: `${rect().y}px`,
+                width: `${rect().width}px`,
+                height: `${rect().height}px`,
+                "z-index": layer(),
+              }
         }
         role="dialog"
         aria-modal="false"
@@ -224,22 +233,21 @@ export default function FloatingWindow(props: FloatingWindowProps) {
         onPointerDown={bringToFront}
       >
         <header class="flex h-14 shrink-0 touch-none select-none items-center gap-3 px-4" onPointerDown={beginMove}>
+          <Show when={props.icon}>
+            {(icon) => <i class={`${icon()} shrink-0 text-base ${props.accent ? "app-accent-text" : "text-dimmed"}`} aria-hidden="true" />}
+          </Show>
           <button
             type="button"
-            class="icon-btn shrink-0 cursor-move"
-            aria-label="Move window. Use arrow keys; hold Shift for larger steps."
+            class="min-w-0 flex-1 cursor-move truncate rounded-[var(--ui-radius-control)] text-left text-sm font-semibold focus-ui"
+            aria-label={`Move ${props.title} window. Use arrow keys; hold Shift for larger steps.`}
             onKeyDown={keyboardMove}
             onPointerDown={(event) => {
               event.stopPropagation();
               beginMove(event);
             }}
           >
-            <i class="ti ti-grip-horizontal" />
+            <span id={titleId}>{props.title}</span>
           </button>
-          <Show when={props.icon}>{(icon) => <i class={`${icon()} shrink-0 text-base text-dimmed`} aria-hidden="true" />}</Show>
-          <h2 id={titleId} class="min-w-0 flex-1 truncate text-sm font-semibold">
-            {props.title}
-          </h2>
           <button
             type="button"
             class="icon-btn shrink-0"

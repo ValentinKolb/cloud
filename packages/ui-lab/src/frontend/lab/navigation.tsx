@@ -1169,7 +1169,7 @@ export const FloatingWindowDemo = () => {
           </button>
         </div>
       ),
-      { title: "FloatingWindow", icon: "ti-app-window", initialWidth: 520, initialHeight: 420 },
+      { title: "FloatingWindow", icon: "ti ti-app-window", accent: "#0f766e", initialWidth: 520, initialHeight: 420 },
     );
 
   return (
@@ -1179,11 +1179,11 @@ export const FloatingWindowDemo = () => {
       description="Non-modal utility surface with move, resize, focus ordering, keyboard controls, viewport clamping, and a mobile inset fallback. Use openFloatingWindow for imperative workflows."
       code={`openFloatingWindow(
   (close) => <HelpReader onClose={close} />,
-  { title: "Help", icon: "ti ti-help" },
+  { title: "Help", icon: "ti ti-help", accent: app.appearance.accent },
 );`}
     >
       <button type="button" class="btn-secondary btn-sm" onClick={openDemo}>
-        <i class="ti-app-window" /> Open floating window
+        <i class="ti ti-app-window" /> Open floating window
       </button>
     </DemoCard>
   );

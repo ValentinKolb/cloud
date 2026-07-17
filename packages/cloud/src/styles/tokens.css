@@ -165,12 +165,13 @@
 
 /* App appearance is applied on the canvas rather than :root. Recompute the
    derived accent roles here so an app never inherits the platform fallback. */
-.cloud-app-canvas {
+.cloud-app-canvas,
+.app-accent-scope {
   --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, black);
   --ui-app-accent-border: var(--app-accent, var(--color-blue-500));
 }
 
-.dark .cloud-app-canvas {
+.dark :is(.cloud-app-canvas, .app-accent-scope) {
   --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
   --ui-app-accent-border: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
 }

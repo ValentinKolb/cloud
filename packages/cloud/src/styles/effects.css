@@ -124,6 +124,421 @@
   @apply border-zinc-300 font-semibold text-primary dark:border-zinc-700;
 }
 
+/* App help is a reader, not a generic Markdown preview. Keep the measure,
+   hierarchy, and rhythm close to the task-first Help wireframe while reusing
+   the same safe server-rendered Markdown pipeline as the rest of Cloud. */
+.help-topic-icon {
+  background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 10%, var(--ui-surface-muted));
+}
+
+.help-document {
+  color: var(--color-zinc-800);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+
+.dark .help-document {
+  color: var(--color-zinc-300);
+}
+
+.help-document > :where(:first-child) {
+  margin-top: 0;
+}
+
+.help-document > :where(:last-child) {
+  margin-bottom: 0;
+}
+
+.help-document :where(p) {
+  margin-block: 0 1rem;
+  color: inherit;
+}
+
+.help-document :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--color-zinc-950);
+  font-weight: 600;
+  letter-spacing: -0.018em;
+}
+
+.dark .help-document :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--color-zinc-100);
+}
+
+.help-document :where(h2, h3) {
+  margin: 2rem 0 0.75rem;
+  font-size: 1.125rem;
+  line-height: 1.35;
+}
+
+.help-document :where(h3) {
+  color: var(--ui-app-accent-text);
+}
+
+.help-document :where(h4) {
+  margin: 1.75rem 0 0.5rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.help-document :where(h5) {
+  margin: 1.5rem 0 0.375rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.help-document :where(h5 code) {
+  background: transparent;
+  color: var(--ui-app-accent-text);
+  font-size: inherit;
+  padding: 0;
+}
+
+/* A bold-only Markdown line is the explicit section eyebrow used by app help
+   documents. It groups the following heading without drawing a divider. */
+.help-document > p:has(> strong:only-child) {
+  margin: 2.25rem 0 0.45rem;
+  color: var(--ui-app-accent-text);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.help-document ul,
+.help-document ol {
+  display: grid;
+  gap: 0.625rem;
+  width: 100%;
+  margin: 0.75rem 0 1.375rem !important;
+  padding-inline: 0 !important;
+  list-style: none !important;
+}
+
+.help-document :where(ul > li)::marker {
+  content: "";
+}
+
+.help-document :where(ul > li) {
+  position: relative;
+  padding-left: 1.125rem;
+}
+
+.help-document :where(ul > li)::before {
+  position: absolute;
+  top: 0.68em;
+  left: 0.15rem;
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, var(--color-zinc-400));
+  content: "";
+}
+
+/* Bold-label lists are definitions, not a grid of cards. Let typography and
+   whitespace carry the hierarchy so article sections do not become nested
+   surfaces. The grid still shortens scanning on wide Help windows and folds
+   to one column naturally when the window is narrow. */
+.help-document ul:has(> li strong:first-child) {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  gap: 1.125rem 2rem;
+}
+
+.help-document ul:has(> li strong:first-child) > li {
+  min-width: 0;
+  padding: 0;
+}
+
+.help-document ul:has(> li strong:first-child) > li::before {
+  content: none;
+}
+
+.help-document ul:has(> li strong:first-child) > li > strong:first-child {
+  display: block;
+  margin-bottom: 0.125rem;
+  color: inherit;
+}
+
+/* Tailwind Typography decorates inline code with visible backticks. Help
+   tables and prose already provide enough code affordance through typography. */
+.help-document :where(code)::before,
+.help-document :where(code)::after {
+  content: none !important;
+}
+
+.help-document :where(ol) {
+  counter-reset: help-step;
+}
+
+.help-document :where(ol > li) {
+  position: relative;
+  min-height: 1.7rem;
+  padding-left: 2.375rem;
+  counter-increment: help-step;
+}
+
+.help-document :where(ol > li)::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 11%, var(--ui-surface-muted));
+  color: var(--ui-app-accent-text);
+  content: counter(help-step);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.help-document :where(li > p) {
+  margin-block: 0;
+}
+
+.help-document :where(a) {
+  color: var(--ui-app-accent-text);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.help-document :where(a:hover) {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.help-document :where(code) {
+  border-radius: 0.38rem;
+  background: var(--ui-surface-muted);
+  color: var(--color-zinc-800);
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  padding: 0.16rem 0.38rem;
+}
+
+.dark .help-document :where(code) {
+  color: var(--color-zinc-200);
+}
+
+.help-document .md-code-block {
+  margin-block: 0.875rem 1.125rem;
+  background: transparent;
+}
+
+.help-document .md-code-block > span {
+  display: none;
+}
+
+.help-document .md-code-block pre {
+  margin: 0;
+  border: 0 !important;
+  border-radius: var(--ui-radius-surface) !important;
+  background: var(--ui-surface-subtle) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-border) 72%, transparent);
+  padding: 0.875rem 1rem;
+}
+
+.help-document .md-code-block pre code {
+  background: transparent;
+  color: var(--color-zinc-800);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  padding: 0;
+}
+
+.help-document .md-code-block :where(.hl-comment) {
+  color: var(--color-zinc-500);
+  font-style: italic;
+}
+
+.help-document .md-code-block :where(.hl-keyword) {
+  color: var(--ui-app-accent-text);
+  font-weight: 600;
+}
+
+.help-document .md-code-block :where(.hl-string) {
+  color: var(--color-emerald-700);
+}
+
+.help-document .md-code-block :where(.hl-number) {
+  color: var(--color-amber-700);
+}
+
+.help-document .md-code-block :where(.hl-variable) {
+  color: var(--color-sky-700);
+}
+
+.help-document .md-code-block :where(.hl-operator) {
+  color: var(--color-zinc-600);
+}
+
+.dark .help-document .md-code-block pre code {
+  color: var(--color-zinc-200);
+}
+
+.dark .help-document .md-code-block :where(.hl-comment) {
+  color: var(--color-zinc-500);
+}
+
+.dark .help-document .md-code-block :where(.hl-string) {
+  color: var(--color-emerald-300);
+}
+
+.dark .help-document .md-code-block :where(.hl-number) {
+  color: var(--color-amber-300);
+}
+
+.dark .help-document .md-code-block :where(.hl-variable) {
+  color: var(--color-sky-300);
+}
+
+.dark .help-document .md-code-block :where(.hl-operator) {
+  color: var(--color-zinc-400);
+}
+
+.help-document :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger) {
+  background: color-mix(in srgb, var(--info-block-accent) 6%, var(--info-block-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info-block-accent) 24%, var(--ui-border));
+  margin: 1.375rem 0;
+  padding: 0.875rem 1rem;
+  white-space: normal;
+}
+
+.dark .help-document :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger) {
+  background: color-mix(in srgb, var(--info-block-accent) 9%, var(--info-block-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info-block-accent) 26%, var(--ui-border));
+}
+
+.help-document
+  :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger)
+  > :first-child {
+  margin-bottom: 0.3rem;
+  font-size: 0.8125rem;
+}
+
+.help-document
+  :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger)
+  > :last-child {
+  color: var(--color-zinc-600);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.dark
+  .help-document
+  :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger)
+  > :last-child {
+  color: var(--color-zinc-400);
+}
+
+/* API docs express return values as a short strong label followed by inline
+   code. Present that metadata as one quiet, scannable row. */
+.help-document > p:has(> strong:first-child):has(> code:last-child) {
+  display: flex;
+  width: fit-content;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin: 0 0 0.625rem;
+  color: var(--color-zinc-500);
+  font-size: 0.75rem;
+}
+
+.help-document > p:has(> strong:first-child):has(> code:last-child) code {
+  background: transparent;
+  padding: 0;
+}
+
+.help-document :where(blockquote) {
+  margin: 1.25rem 0;
+  border: 0;
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface-subtle);
+  color: var(--color-zinc-600);
+  padding: 0.875rem 1rem;
+}
+
+.help-document .md-table-wrap {
+  margin-block: 0.875rem 1.5rem;
+  border-radius: var(--ui-radius-control);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-border) 64%, transparent);
+}
+
+.help-document .md-table {
+  height: auto;
+  margin: 0 !important;
+  border-collapse: collapse;
+}
+
+.help-document .md-table :where(th, td) {
+  min-width: 8rem;
+  height: auto;
+  padding: 0;
+}
+
+.help-document .md-table :where(th + th, td + td),
+.help-document .md-table :where(tbody tr + tr > *, thead + tbody tr:first-child > *) {
+  padding: 0;
+}
+
+.help-document .md-table-cell {
+  min-width: 0;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.help-document .md-table thead .md-table-cell {
+  background: var(--ui-surface-subtle);
+  color: var(--color-zinc-700);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.help-document .md-table tbody tr:nth-child(even) .md-table-cell {
+  background: color-mix(in srgb, var(--ui-surface-subtle) 72%, transparent);
+}
+
+.help-document .md-table tbody tr + tr .md-table-cell {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ui-border) 42%, transparent);
+}
+
+.help-document .md-table td:first-child .md-table-cell {
+  font-weight: 600;
+}
+
+.help-document .md-table-cell :where(code) {
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 500;
+  padding: 0;
+}
+
+.dark .help-document .md-table thead .md-table-cell {
+  background: var(--ui-surface-subtle);
+  color: var(--color-zinc-200);
+}
+
+.dark .help-document .md-table tbody tr:nth-child(even) .md-table-cell {
+  background: color-mix(in srgb, var(--ui-surface-subtle) 64%, transparent);
+}
+
+.dark .help-document :where(blockquote) {
+  color: var(--color-zinc-400);
+}
+
+.help-document :where(hr) {
+  height: 0;
+  margin-block: 2rem;
+  border: 0;
+}
+
 /* Dashboard launchpad panel. Scoped through :has() so the calmer backdrop only
    applies to the dashboard app picker, not every bare dialog. */
 dialog:has(.launchpad-panel)::backdrop {
