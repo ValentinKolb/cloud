@@ -31,6 +31,7 @@ const appStylesheets = readdirSync(packagesRoot)
 const transitionalFullTailwindApps = new Set(["gateway", "venue"]);
 const transitionalEmptyApps = new Set(["pulse"]);
 const transitionalDuplicateUtilities = new Set(["bg-dark", "ellipsis", "no-scrollbar"]);
+const transitionalThemeStylesheet = "theme-modern.css";
 
 for (const file of [...sharedStylesheets, ...appStylesheets]) {
   const source = readFileSync(file, "utf8");
@@ -71,6 +72,42 @@ for (const name of transitionalDuplicateUtilities) {
   if (owners.length !== 2) {
     report(globalStylesheet, `remove ${name} from transitionalDuplicateUtilities after resolving its duplicate ownership`);
   }
+}
+
+const customPropertyOwners = new Map<string, Set<string>>();
+const customPropertyReferences = new Map<string, Set<string>>();
+for (const file of [...sharedStylesheets, ...appStylesheets]) {
+  const source = readFileSync(file, "utf8");
+  const propertiesDefinedInFile = new Set([...source.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)].map((match) => match[1]!));
+  for (const property of propertiesDefinedInFile) {
+    customPropertyOwners.set(property, new Set([...(customPropertyOwners.get(property) ?? []), file]));
+  }
+  for (const match of source.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)/g)) {
+    const property = match[1]!;
+    customPropertyReferences.set(property, new Set([...(customPropertyReferences.get(property) ?? []), file]));
+  }
+}
+
+for (const [property, owners] of customPropertyOwners) {
+  if (owners.size < 2) continue;
+  const ownerNames = [...owners].map((file) => file.slice(sharedStylesRoot.length + 1));
+  const isFrozenThemeOverride = owners.size === 2 && ownerNames.includes(transitionalThemeStylesheet);
+  if (isFrozenThemeOverride) continue;
+  report([...owners][0]!, `${property} has multiple owner files: ${[...owners].map((file) => relative(workspaceRoot, file)).join(", ")}`);
+}
+
+const runtimePropertyPrefixes = ["--app-", "--color-", "--sidebar-", "--tw-", "--workspace-"];
+const componentRuntimeProperties = new Set(["--ac-h"]);
+for (const [property, consumers] of customPropertyReferences) {
+  if (customPropertyOwners.has(property)) continue;
+  if (runtimePropertyPrefixes.some((prefix) => property.startsWith(prefix))) continue;
+  if (componentRuntimeProperties.has(property)) continue;
+  report([...consumers][0]!, `${property} is referenced but has no CSS or documented runtime owner`);
+}
+
+const themeStylesheet = join(sharedStylesRoot, transitionalThemeStylesheet);
+if (!existsSync(themeStylesheet) || importedCounts.get(transitionalThemeStylesheet) !== 1) {
+  report(globalStylesheet, `remove the ${transitionalThemeStylesheet} migration exception after deleting its final import`);
 }
 
 for (const file of appStylesheets) {
