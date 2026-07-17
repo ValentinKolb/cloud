@@ -5,10 +5,12 @@ import apiRoutes from "./api";
 import { publicRoutes, adminRoutes } from "./frontend";
 import { faqService } from "./service";
 import { migrate } from "./migrate";
+import { faqHelp } from "./help";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/api/faq/help", faqHelp.router)
   .route("/api/faq", apiRoutes)
   .route("/faq", publicRoutes)
   .route("/admin/faq", adminRoutes);
