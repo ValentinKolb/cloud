@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { proxyAuthHelp } from "@/help";
 import { ssr } from "../config";
 import { proxyAuthService } from "../service";
 import CreateProxyClient from "./_components/CreateProxyClient.island";
@@ -39,7 +40,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Proxy Auth" stretch>
-      <ProxyAuthLayoutHelp />
+      <ProxyAuthLayoutHelp documents={proxyAuthHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-proxy-auth-title">
