@@ -107,8 +107,6 @@ const REACH_OPTIONS: FilterChipSection[] = [
   },
 ];
 
-const FAVORITE_OPTIONS: FilterChipSection[] = [{ options: [{ value: "favorites", label: "Favorites", icon: "ti ti-star" }] }];
-
 const fetchContactsResults = async (props: Pick<Props, "bookId" | "perPage">, href: string, signal: AbortSignal) => {
   const url = new URL(href, window.location.origin);
   const options = readContactsQueryOptions(href);
@@ -381,15 +379,6 @@ export default function ContactsResults(props: Props) {
                 phone: (value.find((entry) => entry.startsWith("phone:"))?.slice(6) ?? "all") as ContactPresenceFilter,
               })
             }
-          />
-          <FilterChip
-            label="Favorites"
-            icon="ti ti-star"
-            options={FAVORITE_OPTIONS}
-            value={readContactsQueryOptions(state().href).favorites ? ["favorites"] : []}
-            defaultValue={[]}
-            isActive={readContactsQueryOptions(state().href).favorites}
-            onChange={(value) => updateOptions({ favorites: value.includes("favorites") })}
           />
           <Show when={props.canWrite && props.bookId}>
             <span class="ml-auto flex items-center gap-2">

@@ -46,7 +46,7 @@ export default function ContactFavoriteButton(props: Props) {
       <button
         type="button"
         class={props.class ?? "icon-btn"}
-        classList={{ "text-amber-500": favorite(), "text-dimmed": !favorite() }}
+        classList={{ "app-accent-text": favorite(), "text-dimmed": !favorite() }}
         aria-label={favorite() ? "Remove from favorites" : "Add to favorites"}
         aria-pressed={favorite()}
         disabled={saving()}
@@ -56,7 +56,7 @@ export default function ContactFavoriteButton(props: Props) {
           void toggle();
         }}
       >
-        <i class={favorite() ? "ti ti-star-filled" : "ti ti-star"} />
+        <i class="ti ti-star" />
       </button>
     </Tooltip>
   );
