@@ -1,7 +1,7 @@
 import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { JSX, ParentProps } from "solid-js";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import SegmentedControl from "../input/SegmentedControl";
 import { calendarDayIndexAtPoint, calendarMinuteAtPoint, startCalendarPointerSession } from "./calendar-pointer";
 
@@ -555,7 +555,7 @@ const CalendarNavigationLink = (props: CalendarNavigationLinkProps): JSX.Element
     props.owner.onNavigateHref?.(props.href);
   };
   return props.owner.onNavigateHref ? (
-    <a {...props.anchorProps} href={props.href} onClick={navigateHref} onPointerEnter={preload} onPointerDown={preload} onFocus={preload}>
+    <a {...props.anchorProps} href={props.href} onClick={navigateHref} onPointerEnter={preload} onFocus={preload}>
       {props.children}
     </a>
   ) : props.owner.onNavigate ? (
@@ -565,13 +565,12 @@ const CalendarNavigationLink = (props: CalendarNavigationLinkProps): JSX.Element
       scroll="preserve"
       onNavigate={props.owner.onNavigate}
       onPointerEnter={preload}
-      onPointerDown={preload}
       onFocus={preload}
     >
       {props.children}
     </Link>
   ) : (
-    <a {...props.anchorProps} href={props.href} onPointerEnter={preload} onPointerDown={preload} onFocus={preload}>
+    <a {...props.anchorProps} href={props.href} onPointerEnter={preload} onFocus={preload}>
       {props.children}
     </a>
   );
@@ -642,7 +641,6 @@ const adjacentCalendarDate = (date: Date, view: CalendarView, direction: -1 | 1,
   return calendar.addDays(date, direction * (view === "day" ? 1 : 7), dateConfig);
 };
 
-const CALENDAR_VIEW_PREFETCH_DELAY_MS = 150;
 const calendarViews = ["day", "week", "month", "year"] as const satisfies readonly CalendarView[];
 
 const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Required<CalendarLabels>; owner: CalendarProps }): JSX.Element => {
@@ -1542,27 +1540,6 @@ const Calendar = (props: CalendarProps): JSX.Element => {
     if (view() === "day") return [date()];
     return calendar.getWeekDays(date(), dateConfig());
   };
-  createEffect(() => {
-    const prefetch = props.onPrefetch;
-    if (typeof window === "undefined" || !prefetch) return;
-    const currentDate = date();
-    const currentView = view();
-    if (props.getDateHref && currentView !== "year") {
-      prefetch(props.getDateHref(adjacentCalendarDate(currentDate, currentView, -1, dateConfig()), currentView));
-      prefetch(props.getDateHref(adjacentCalendarDate(currentDate, currentView, 1, dateConfig()), currentView));
-    }
-    const getViewHref = props.getViewHref;
-    if (!getViewHref) return;
-
-    const activeView = currentView === "mobile-month" ? "month" : currentView;
-    const availableViews = calendarViews.filter(
-      (candidate) => candidate !== activeView && (!props.views || props.views.includes(candidate)),
-    );
-    const timer = window.setTimeout(() => {
-      for (const candidate of availableViews) prefetch(getViewHref(candidate));
-    }, CALENDAR_VIEW_PREFETCH_DELAY_MS);
-    onCleanup(() => window.clearTimeout(timer));
-  });
   onMount(() => {
     const updateNow = () => setNow(new Date());
     const interval = window.setInterval(updateNow, 60_000);

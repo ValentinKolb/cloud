@@ -31,8 +31,8 @@ type CalendarNavigationResult = {
 };
 
 const CACHE_LIMIT = 8;
-const PREFETCH_LIMIT = 6;
 const LOADING_MIN_VISIBLE_MS = 180;
+const NAVIGATION_SETTLE_MS = 60;
 const REFRESH_DELAY_MS = 120;
 
 const pathWithQuery = (url: URL) => `${url.pathname}${url.search}`;
@@ -75,8 +75,18 @@ const createSnapshotCache = () => {
     return loadCalendarSnapshot(href, signal);
   };
 
+  const cancelPendingExcept = (href?: string) => {
+    for (const [pendingHref, entry] of pending) {
+      if (pendingHref === href) continue;
+      entry.controller.abort();
+      pending.delete(pendingHref);
+    }
+  };
+
   const prefetch = (href: string) => {
-    if (resolved.has(href) || pending.has(href) || pending.size >= PREFETCH_LIMIT) return;
+    // Only the latest explicit user intent is worth spending server work on.
+    cancelPendingExcept(href);
+    if (resolved.has(href) || pending.has(href)) return;
     const controller = new AbortController();
     const startedInGeneration = generation;
     const promise = loadCalendarSnapshot(href, controller.signal)
@@ -84,7 +94,9 @@ const createSnapshotCache = () => {
         if (generation === startedInGeneration) remember(href, snapshot);
         return snapshot;
       })
-      .finally(() => pending.delete(href));
+      .finally(() => {
+        if (pending.get(href)?.promise === promise) pending.delete(href);
+      });
     // Intent prefetch is opportunistic; navigation retains the real error path.
     void promise.catch(() => undefined);
     pending.set(href, { controller, promise });
@@ -93,11 +105,10 @@ const createSnapshotCache = () => {
   const clear = () => {
     generation += 1;
     resolved.clear();
-    for (const entry of pending.values()) entry.controller.abort();
-    pending.clear();
+    cancelPendingExcept();
   };
 
-  return { clear, load, prefetch, read, remember };
+  return { cancelPendingExcept, clear, load, prefetch, read, remember };
 };
 
 /**
@@ -119,6 +130,8 @@ export const useSpacesCalendarNavigation = (params: {
   let dataVersion = 0;
   let loadingHideTimer: ReturnType<typeof setTimeout> | undefined;
   let loadingShownAt: number | undefined;
+  let navigationTimer: ReturnType<typeof setTimeout> | undefined;
+  let queuedNavigation: CalendarNavigationRequest | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let invalidatedRequest: CalendarNavigationRequest | null = null;
 
@@ -201,8 +214,27 @@ export const useSpacesCalendarNavigation = (params: {
     return navigation.mutate({ ...request, href });
   };
 
+  const clearQueuedNavigation = () => {
+    if (navigationTimer) clearTimeout(navigationTimer);
+    navigationTimer = undefined;
+    queuedNavigation = null;
+  };
+
+  const queueNavigation = (request: CalendarNavigationRequest) => {
+    queuedNavigation = request;
+    if (navigationTimer) clearTimeout(navigationTimer);
+    // Update the route immediately, but collapse rapid arrow clicks into one load.
+    navigationTimer = setTimeout(() => {
+      navigationTimer = undefined;
+      const queued = queuedNavigation;
+      queuedNavigation = null;
+      if (queued) void run(queued);
+    }, NAVIGATION_SETTLE_MS);
+  };
+
   const selectTarget = (href: string) => {
     navigation.abort();
+    cache.cancelPendingExcept(href);
     const cached = cache.read(href);
     if (cached) params.apply(cached);
     else params.preview(href);
@@ -218,7 +250,8 @@ export const useSpacesCalendarNavigation = (params: {
     const cached = selectTarget(href);
     navigate(href, { replace: options.replace, scroll: "preserve", viewTransition: false });
     reconcileSpacesDetailRoute(href);
-    if (!cached) void navigation.mutate({ href, reason: "navigation" });
+    if (cached) clearQueuedNavigation();
+    else queueNavigation({ href, reason: "navigation" });
   };
   const navigateHref = (href: string) => open(href);
 
@@ -251,9 +284,10 @@ export const useSpacesCalendarNavigation = (params: {
         documentNavigate(href ?? pathWithQuery(url), { replace: true });
         return;
       }
+      clearQueuedNavigation();
       const cached = selectTarget(href);
       reconcileSpacesDetailRoute(href);
-      if (!cached) void navigation.mutate({ href, reason: "popstate" });
+      if (!cached) void run({ href, reason: "popstate" });
     });
     const onInvalidated = (event: Event) => {
       const invalidation = (event as CustomEvent<SpacesDataInvalidation>).detail;
@@ -264,6 +298,7 @@ export const useSpacesCalendarNavigation = (params: {
       stopPopState();
       window.removeEventListener(SPACES_DATA_INVALIDATED_EVENT, onInvalidated);
       navigation.abort();
+      clearQueuedNavigation();
       cache.clear();
       if (loadingHideTimer) clearTimeout(loadingHideTimer);
       if (refreshTimer) clearTimeout(refreshTimer);
