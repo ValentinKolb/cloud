@@ -5,6 +5,24 @@ const workspaceRoot = join(import.meta.dir, "..");
 const sharedStylesRoot = join(workspaceRoot, "packages", "cloud", "src", "styles");
 const packagesRoot = join(workspaceRoot, "packages");
 const globalStylesheet = join(sharedStylesRoot, "global.css");
+const forbiddenSharedStylesheets = new Set(["theme-modern.css"]);
+const canonicalSharedStylesheetImports: readonly string[] = [
+  "tokens.css",
+  "utilities-buttons.css",
+  "utilities-layout.css",
+  "utilities-navigation.css",
+  "utilities-feedback.css",
+  "utilities-detail.css",
+  "utilities-data.css",
+  "utilities-table-tile.css",
+  "utilities-script.css",
+  "utilities-markdown-editor.css",
+  "utilities-completion.css",
+  "utilities-code-display.css",
+  "base-popover.css",
+  "effects.css",
+  "input.css",
+];
 
 const violations: string[] = [];
 
@@ -38,6 +56,13 @@ const appStylesheets = readdirSync(packagesRoot)
   .filter(existsSync)
   .sort();
 
+for (const file of sharedStylesheets) {
+  const name = relative(sharedStylesRoot, file);
+  if (forbiddenSharedStylesheets.has(name)) {
+    report(file, "deleted legacy stylesheet must not be reintroduced");
+  }
+}
+
 // Mail still consumes one compatibility shadow while its active redesign owns
 // that surface. No other legacy theme reference is accepted.
 const transitionalThemeReferences = new Map([["packages/mail/src/frontend/MailOverview.island.tsx", new Set(["--theme-shadow-elevated"])]]);
@@ -67,19 +92,25 @@ for (const [path, properties] of transitionalThemeReferences) {
 
 const globalSource = readFileSync(globalStylesheet, "utf8");
 const importedSharedStylesheets = [...globalSource.matchAll(/@import\s+["']\.\/(.+?\.css)["'];/g)].map((match) => match[1]!);
-const importedCounts = new Map<string, number>();
-for (const stylesheet of importedSharedStylesheets) {
-  importedCounts.set(stylesheet, (importedCounts.get(stylesheet) ?? 0) + 1);
+const hasCanonicalImportOrder =
+  importedSharedStylesheets.length === canonicalSharedStylesheetImports.length &&
+  importedSharedStylesheets.every((stylesheet, index) => stylesheet === canonicalSharedStylesheetImports[index]);
+if (!hasCanonicalImportOrder) {
+  report(
+    globalStylesheet,
+    `shared stylesheet imports must match the canonical cascade order: ${canonicalSharedStylesheetImports.join(", ")} (found: ${importedSharedStylesheets.join(", ")})`,
+  );
 }
 
 for (const file of sharedStylesheets) {
   if (file === globalStylesheet) continue;
-  const name = file.slice(sharedStylesRoot.length + 1);
-  const count = importedCounts.get(name) ?? 0;
-  if (count !== 1) report(globalStylesheet, `${name} must be imported exactly once (found ${count})`);
+  const name = relative(sharedStylesRoot, file);
+  if (!forbiddenSharedStylesheets.has(name) && !canonicalSharedStylesheetImports.includes(name)) {
+    report(file, "shared stylesheet must be added to the canonical import order");
+  }
 }
-for (const name of importedCounts.keys()) {
-  if (!existsSync(join(sharedStylesRoot, name))) report(globalStylesheet, `imports missing stylesheet ${name}`);
+for (const name of canonicalSharedStylesheetImports) {
+  if (!existsSync(join(sharedStylesRoot, name))) report(globalStylesheet, `canonical import references missing stylesheet ${name}`);
 }
 
 const utilityOwners = new Map<string, string[]>();
