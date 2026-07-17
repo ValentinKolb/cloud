@@ -3,9 +3,9 @@ import { createSignal, onCleanup, onMount } from "solid-js";
 import type { CalendarItem, SpaceColumn, SpaceTag } from "@/contracts";
 import { subscribeToDetailSelection } from "../../../lib/detail";
 import Calendar from "../calendar";
-import type { CalendarFilter } from "../calendar/filter";
+import { type CalendarFilter, parseCalendarRoute } from "../calendar/filter";
 import type { CalendarView, DayWeather } from "../calendar/types";
-import { useSpacesViewRefresh } from "./view-refresh";
+import { useSpacesCalendarNavigation } from "./calendar-navigation";
 
 type CalendarState = {
   view: CalendarView;
@@ -29,9 +29,14 @@ type Props = {
 export default function SpacesCalendarRoute(props: Props) {
   const [state, setState] = createSignal(props.initialState);
   const [selectedItemId, setSelectedItemId] = createSignal(props.selectedItemId);
-  useSpacesViewRefresh((snapshot) => {
-    if (snapshot.kind === "calendar") setState(snapshot);
-    else window.location.reload();
+  const navigation = useSpacesCalendarNavigation({
+    spaceId: props.spaceId,
+    initialSnapshot: { kind: "calendar", ...props.initialState },
+    apply: setState,
+    preview: (href) => {
+      const route = parseCalendarRoute(new URL(href, window.location.origin), props.dateConfig);
+      setState((current) => ({ ...current, ...route, items: [], weather: {} }));
+    },
   });
   onMount(() => {
     const unsubscribe = subscribeToDetailSelection(({ selectionId }) => setSelectedItemId(selectionId ?? ""));
@@ -53,6 +58,10 @@ export default function SpacesCalendarRoute(props: Props) {
         weather={state().weather}
         dateConfig={props.dateConfig}
         canWrite={props.canWrite}
+        onNavigateHref={navigation.navigateHref}
+        onRouteChange={navigation.open}
+        onPrefetch={navigation.prefetch}
+        navigationPending={navigation.pending()}
       />
     </div>
   );

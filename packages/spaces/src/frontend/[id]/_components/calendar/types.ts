@@ -23,6 +23,10 @@ export type CalendarProps = {
   baseUrl: string;
   dateConfig?: DateContext;
   canWrite: boolean;
+  onNavigateHref?: (href: string) => void;
+  onRouteChange?: (href: string, options?: { replace?: boolean }) => void | Promise<void>;
+  onPrefetch?: (href: string) => void;
+  navigationPending?: boolean;
   /** Weather forecasts indexed by date string (YYYY-MM-DD) */
   weather?: Record<string, DayWeather>;
 };

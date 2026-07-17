@@ -73,10 +73,10 @@ const detailState = (detail: SpaceItemDetail | null) => {
 export default function ItemDetailRoute(props: Props) {
   const [detail, setDetail] = createSignal<SpaceItemDetail | null>(props.initialDetail);
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-  const clearDetailState = (href: string, replace: boolean) => {
+  const clearDetailState = (href: string, history: DetailRequest["history"]) => {
     setDetail(null);
-    if (replace) window.history.replaceState(null, "", href);
-    else window.history.pushState(null, "", href);
+    if (history === "replace") window.history.replaceState(null, "", href);
+    else if (history === "push") window.history.pushState(null, "", href);
     publishSpacesDetailState(detailState(null));
   };
   const loadDetail = mutations.create<{ request: DetailRequest; detail: SpaceItemDetail }, DetailRequest, DetailLoadContext>({
@@ -104,7 +104,7 @@ export default function ItemDetailRoute(props: Props) {
     },
     onError: (error, context) => {
       if (error instanceof DetailNotFoundError && context?.request.history === "none") {
-        clearDetailState(props.baseUrl, true);
+        clearDetailState(props.baseUrl, "replace");
         return;
       }
       if (context?.request.history === "none") {
@@ -115,9 +115,9 @@ export default function ItemDetailRoute(props: Props) {
     },
   });
 
-  const closeDetail = (href: string, replace = false) => {
+  const closeDetail = (href: string, history: DetailRequest["history"]) => {
     loadDetail.abort();
-    clearDetailState(href, replace);
+    clearDetailState(href, history);
   };
 
   const requestDetail = (request: DetailRequest) => {
@@ -161,15 +161,16 @@ export default function ItemDetailRoute(props: Props) {
     const onNavigate = (event: Event) => {
       const request = (event as CustomEvent<SpacesDetailNavigation>).detail;
       if (!request) return;
+      const history = request.history ?? (request.replace ? "replace" : "push");
       if (!request.itemId) {
-        closeDetail(request.href, request.replace);
+        closeDetail(request.href, history);
         return;
       }
       requestDetail({
         itemId: request.itemId,
         occurrenceId: request.occurrenceId,
         href: request.href,
-        history: request.replace ? "replace" : "push",
+        history,
       });
     };
     const onPopState = () => {

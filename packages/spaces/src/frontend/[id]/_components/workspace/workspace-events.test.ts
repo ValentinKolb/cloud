@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isDetailOnlySpacesNavigation } from "./workspace-events";
+import { isDetailOnlySpacesNavigation, resolveCalendarNavigationHref } from "./workspace-events";
 import { parseSpacesWorkspaceHref } from "./workspace-types";
 
 const ORIGIN = "https://cloud.example";
@@ -38,5 +38,21 @@ describe("Spaces workspace route parsing", () => {
   test("rejects malformed identifiers and unsupported nested routes", () => {
     expect(parseSpacesWorkspaceHref("/app/spaces/not-a-uuid")).toBeNull();
     expect(parseSpacesWorkspaceHref("/app/spaces/11111111-1111-4111-8111-111111111111/unknown")).toBeNull();
+  });
+});
+
+describe("Spaces calendar navigation target", () => {
+  const path = "/app/spaces/11111111-1111-4111-8111-111111111111";
+
+  test("keeps canonical same-space paths and queries", () => {
+    expect(resolveCalendarNavigationHref(`${path}?view=calendar&cv=week&cd=2026-07-17#ignored`, ORIGIN, path)).toBe(
+      `${path}?view=calendar&cv=week&cd=2026-07-17`,
+    );
+  });
+
+  test("rejects cross-space, cross-origin, and malformed targets", () => {
+    expect(resolveCalendarNavigationHref("/app/spaces/22222222-2222-4222-8222-222222222222?view=calendar", ORIGIN, path)).toBeNull();
+    expect(resolveCalendarNavigationHref(`https://other.example${path}?view=calendar`, ORIGIN, path)).toBeNull();
+    expect(resolveCalendarNavigationHref("http://[", ORIGIN, path)).toBeNull();
   });
 });

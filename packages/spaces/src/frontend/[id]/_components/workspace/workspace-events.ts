@@ -6,6 +6,7 @@ export type SpacesDetailNavigation = {
   href: string;
   itemId: string | null;
   occurrenceId: string | null;
+  history?: "push" | "replace" | "none";
   replace?: boolean;
 };
 
@@ -28,6 +29,16 @@ const routeKeyWithoutItem = (url: URL) => {
   return `${url.pathname}?${params.toString()}`;
 };
 
+export const resolveCalendarNavigationHref = (href: string, origin: string, expectedPath: string): string | null => {
+  try {
+    const target = new URL(href, origin);
+    if (target.origin !== origin || target.pathname !== expectedPath) return null;
+    return `${target.pathname}${target.search}`;
+  } catch {
+    return null;
+  }
+};
+
 export const isDetailOnlySpacesNavigation = (currentHref: string, targetHref: string, origin: string) => {
   const current = new URL(currentHref, origin);
   const target = new URL(targetHref, origin);
@@ -42,6 +53,24 @@ export const requestSpacesDataRefresh = (domains: SpacesDataDomain[] = ["view", 
   window.dispatchEvent(new CustomEvent<SpacesDataInvalidation>(SPACES_DATA_INVALIDATED_EVENT, { detail: { domains } }));
 };
 
+const publishDetailNavigation = (target: URL, history: "push" | "replace" | "none") => {
+  window.dispatchEvent(
+    new CustomEvent<SpacesDetailNavigation>(SPACES_DETAIL_NAVIGATION_EVENT, {
+      detail: {
+        href: `${target.pathname}${target.search}`,
+        itemId: target.searchParams.get("item"),
+        occurrenceId: target.searchParams.get("occurrence"),
+        history,
+      },
+    }),
+  );
+};
+
+/** Reconciles the detail island after another controller has already committed browser history. */
+export const reconcileSpacesDetailRoute = (href: string) => {
+  publishDetailNavigation(new URL(href, window.location.origin), "none");
+};
+
 /**
  * Enhances item-only URL changes. Every other route keeps a real document
  * navigation so the server remains the owner of shell and sidebar state.
@@ -50,16 +79,7 @@ export const requestSpacesRouteNavigation = (href: string, options: { replace?: 
   const current = new URL(window.location.href);
   const target = new URL(href, window.location.origin);
   if (isDetailOnlySpacesNavigation(current.href, target.href, current.origin)) {
-    window.dispatchEvent(
-      new CustomEvent<SpacesDetailNavigation>(SPACES_DETAIL_NAVIGATION_EVENT, {
-        detail: {
-          href: `${target.pathname}${target.search}`,
-          itemId: target.searchParams.get("item"),
-          occurrenceId: target.searchParams.get("occurrence"),
-          replace: options.replace,
-        },
-      }),
-    );
+    publishDetailNavigation(target, options.replace ? "replace" : "push");
     return;
   }
 

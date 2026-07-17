@@ -8,22 +8,26 @@ import type { SpacesViewSnapshot } from "./workspace-types";
 
 const currentHref = () => `${window.location.pathname}${window.location.search}`;
 
-/** Coalesces local mutation and SSE invalidations into one active-view request. */
+export class SpacesViewUnavailableError extends Error {}
+
+export const loadSpacesViewSnapshot = async (href: string, signal?: AbortSignal): Promise<SpacesViewSnapshot> => {
+  const response = await apiClient.workspace.view.$get({ query: { href } }, { init: { signal } });
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
+    throw new SpacesViewUnavailableError("Workspace access changed");
+  }
+  if (!response.ok) throw new Error(await readResponseError(response, "Could not refresh workspace view"));
+  return response.json();
+};
+
+/** Coalesces local mutation and live invalidations into one active-view request. */
 export const useSpacesViewRefresh = (apply: (snapshot: SpacesViewSnapshot) => void) => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const refresh = mutations.create<SpacesViewSnapshot, void>({
-    mutation: async (_value, context) => {
-      const response = await apiClient.workspace.view.$get({ query: { href: currentHref() } }, { init: { signal: context.abortSignal } });
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
-        window.location.reload();
-        throw new DOMException("Workspace access changed", "AbortError");
-      }
-      if (!response.ok) throw new Error(await readResponseError(response, "Could not refresh workspace view"));
-      return response.json();
-    },
+    mutation: (_value, context) => loadSpacesViewSnapshot(currentHref(), context.abortSignal),
     onSuccess: apply,
     onError: (error) => {
-      if (error.name !== "AbortError") prompts.error(error.message);
+      if (error instanceof SpacesViewUnavailableError) window.location.reload();
+      else prompts.error(error.message);
     },
   });
 

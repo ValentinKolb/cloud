@@ -1,6 +1,7 @@
+import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
-import type { JSX } from "solid-js";
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import type { JSX, ParentProps } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import SegmentedControl from "../input/SegmentedControl";
 import { calendarDayIndexAtPoint, calendarMinuteAtPoint, startCalendarPointerSession } from "./calendar-pointer";
 
@@ -91,6 +92,13 @@ export type CalendarProps = {
   getDateHref?: (date: Date, view: CalendarView) => string;
   getEventHref?: (event: CalendarEvent) => string | undefined;
   renderEvent?: (event: CalendarEvent, context: CalendarEventRenderContext) => JSX.Element;
+  /** Progressively enhance canonical calendar links after the app has loaded their target state. */
+  onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
+  /** Progressively enhance canonical links without a document view transition. */
+  onNavigateHref?: (href: string) => void;
+  /** Optionally preload the target behind a canonical calendar link. */
+  onPrefetch?: (href: string) => void;
+  navigationPending?: boolean;
   onViewChange?: (view: CalendarView) => void;
   onDateChange?: (date: Date, view: CalendarView) => void;
   onEventClick?: (event: CalendarEvent) => void;
@@ -517,18 +525,130 @@ const slotInteractionProps = (owner: CalendarProps, slot: () => CalendarEventTim
   };
 };
 
+type CalendarNavigationLinkProps = ParentProps<{
+  owner: CalendarProps;
+  href: string;
+  anchorProps?: Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "children" | "href" | "onClick"> & {
+    "data-divider"?: string;
+  };
+}>;
+
+/** A real anchor is the baseline; the optional handler only enhances it after hydration. */
+const CalendarNavigationLink = (props: CalendarNavigationLinkProps): JSX.Element => {
+  const preload = () => props.owner.onPrefetch?.(props.href);
+  const navigateHref: JSX.EventHandler<HTMLAnchorElement, MouseEvent> = (event) => {
+    const anchor = event.currentTarget;
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      (anchor.target && anchor.target !== "_self") ||
+      anchor.hasAttribute("download") ||
+      new URL(anchor.href).origin !== window.location.origin
+    ) {
+      return;
+    }
+    event.preventDefault();
+    props.owner.onNavigateHref?.(props.href);
+  };
+  return props.owner.onNavigateHref ? (
+    <a {...props.anchorProps} href={props.href} onClick={navigateHref} onPointerEnter={preload} onPointerDown={preload} onFocus={preload}>
+      {props.children}
+    </a>
+  ) : props.owner.onNavigate ? (
+    <Link
+      {...props.anchorProps}
+      href={props.href}
+      scroll="preserve"
+      onNavigate={props.owner.onNavigate}
+      onPointerEnter={preload}
+      onPointerDown={preload}
+      onFocus={preload}
+    >
+      {props.children}
+    </Link>
+  ) : (
+    <a {...props.anchorProps} href={props.href} onPointerEnter={preload} onPointerDown={preload} onFocus={preload}>
+      {props.children}
+    </a>
+  );
+};
+
+const CalendarViewLinks = (props: {
+  owner: CalendarProps;
+  view: CalendarView;
+  options: Array<{ value: CalendarView; label: string }>;
+}): JSX.Element => {
+  const refs: HTMLAnchorElement[] = [];
+  const selectRelative = (currentIndex: number, direction: -1 | 1) => {
+    if (props.options.length === 0) return;
+    refs[(currentIndex + direction + props.options.length) % props.options.length]?.click();
+  };
+  const onKeyDown = (event: KeyboardEvent, index: number) => {
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      selectRelative(index, 1);
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      selectRelative(index, -1);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      refs[event.key === "Home" ? 0 : props.options.length - 1]?.click();
+    }
+  };
+
+  return (
+    <div role="radiogroup" aria-label="Calendar view" aria-orientation="horizontal" class="segmented-control">
+      <For each={props.options}>
+        {(option, index) => {
+          const active = () => (props.view === "mobile-month" ? "month" : props.view) === option.value;
+          const href = () => props.owner.getViewHref?.(option.value) ?? "#";
+          return (
+            <CalendarNavigationLink
+              owner={props.owner}
+              href={href()}
+              anchorProps={{
+                ref: (element) => {
+                  refs[index()] = element;
+                },
+                role: "radio",
+                "aria-checked": active(),
+                tabIndex: active() ? 0 : -1,
+                class: "segmented-control-item",
+                "data-divider":
+                  index() < props.options.length - 1 &&
+                  !active() &&
+                  (props.view === "mobile-month" ? "month" : props.view) !== props.options[index() + 1]?.value
+                    ? "true"
+                    : undefined,
+                onKeyDown: (event) => onKeyDown(event, index()),
+              }}
+            >
+              {option.label}
+            </CalendarNavigationLink>
+          );
+        }}
+      </For>
+    </div>
+  );
+};
+
+const adjacentCalendarDate = (date: Date, view: CalendarView, direction: -1 | 1, dateConfig: DateContext) => {
+  if (view === "year") return calendar.addMonths(date, direction * 12, dateConfig);
+  if (view === "month" || view === "mobile-month") return calendar.addMonths(date, direction, dateConfig);
+  return calendar.addDays(date, direction * (view === "day" ? 1 : 7), dateConfig);
+};
+
+const CALENDAR_VIEW_PREFETCH_DELAY_MS = 150;
+const calendarViews = ["day", "week", "month", "year"] as const satisfies readonly CalendarView[];
+
 const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Required<CalendarLabels>; owner: CalendarProps }): JSX.Element => {
   const dateConfig = () => ownerDateConfig(props.owner);
-  const previous = () => {
-    if (props.view === "year") return calendar.addMonths(props.date, -12, dateConfig());
-    if (props.view === "month" || props.view === "mobile-month") return calendar.addMonths(props.date, -1, dateConfig());
-    return calendar.addDays(props.date, props.view === "day" ? -1 : -7, dateConfig());
-  };
-  const next = () => {
-    if (props.view === "year") return calendar.addMonths(props.date, 12, dateConfig());
-    if (props.view === "month" || props.view === "mobile-month") return calendar.addMonths(props.date, 1, dateConfig());
-    return calendar.addDays(props.date, props.view === "day" ? 1 : 7, dateConfig());
-  };
+  const previous = () => adjacentCalendarDate(props.date, props.view, -1, dateConfig());
+  const next = () => adjacentCalendarDate(props.date, props.view, 1, dateConfig());
   const title = () => {
     if (props.view === "year")
       return new Intl.DateTimeFormat(dateConfig().locale ?? "en", { year: "numeric", timeZone: dateConfig().timeZone }).format(props.date);
@@ -555,27 +675,47 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
   };
   const navButton = (date: Date, icon: string, label: string) => {
     const href = props.owner.getDateHref?.(date, props.view);
-    return props.owner.onDateChange ? (
+    return (props.owner.onNavigateHref || props.owner.onNavigate) && href ? (
+      <CalendarNavigationLink
+        owner={props.owner}
+        href={href}
+        anchorProps={{ "aria-label": label, title: label, class: "btn-segment-icon" }}
+      >
+        <i class={`ti ${icon}`} />
+      </CalendarNavigationLink>
+    ) : props.owner.onDateChange ? (
       <button type="button" aria-label={label} class="btn-segment-icon" onClick={() => goDate(date)}>
         <i class={`ti ${icon}`} />
       </button>
     ) : (
-      <a href={href ?? "#"} aria-label={label} class="btn-segment-icon">
+      <CalendarNavigationLink
+        owner={props.owner}
+        href={href ?? "#"}
+        anchorProps={{ "aria-label": label, title: label, class: "btn-segment-icon" }}
+      >
         <i class={`ti ${icon}`} />
-      </a>
+      </CalendarNavigationLink>
     );
   };
   const todayButton = () => {
     const today = calendar.today(dateConfig());
     const href = props.owner.getDateHref?.(today, props.view);
-    return props.owner.onDateChange ? (
-      <button type="button" class="btn-segment font-semibold" onClick={() => goDate(today)}>
+    return (props.owner.onNavigateHref || props.owner.onNavigate) && href ? (
+      <CalendarNavigationLink owner={props.owner} href={href} anchorProps={{ class: "btn-secondary btn-sm shrink-0 whitespace-nowrap" }}>
+        {props.labels.today}
+      </CalendarNavigationLink>
+    ) : props.owner.onDateChange ? (
+      <button type="button" class="btn-secondary btn-sm shrink-0 whitespace-nowrap" onClick={() => goDate(today)}>
         {props.labels.today}
       </button>
     ) : (
-      <a href={href ?? "#"} class="btn-segment font-semibold">
+      <CalendarNavigationLink
+        owner={props.owner}
+        href={href ?? "#"}
+        anchorProps={{ class: "btn-secondary btn-sm shrink-0 whitespace-nowrap" }}
+      >
         {props.labels.today}
-      </a>
+      </CalendarNavigationLink>
     );
   };
   const viewOptions = () =>
@@ -589,22 +729,32 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
     ).filter((option) => !props.owner.views || props.owner.views.includes(option.value));
 
   return (
-    <header class="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 bg-white p-2 dark:border-zinc-800/70 dark:bg-zinc-900">
+    <header class="relative flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 bg-white p-2 dark:border-zinc-800/70 dark:bg-zinc-900">
       <div class="flex min-w-0 items-center gap-1.5">
         {navButton(previous(), "ti-chevron-left", props.labels.previous)}
         {navButton(next(), "ti-chevron-right", props.labels.next)}
         <div class="min-w-0 truncate px-2 text-sm font-semibold text-primary sm:min-w-36 sm:text-base">{title()}</div>
-        {todayButton()}
       </div>
       <div class="flex w-full items-center justify-end gap-2 sm:w-auto">
-        <SegmentedControl
-          value={() => (props.view === "mobile-month" ? "month" : props.view)}
-          onChange={goView}
-          ariaLabel="Calendar view"
-          options={viewOptions()}
-        />
+        {todayButton()}
+        <Show
+          when={!props.owner.onViewChange && props.owner.getViewHref}
+          fallback={
+            <SegmentedControl
+              value={() => (props.view === "mobile-month" ? "month" : props.view)}
+              onChange={goView}
+              ariaLabel="Calendar view"
+              options={viewOptions()}
+            />
+          }
+        >
+          <CalendarViewLinks owner={props.owner} view={props.view} options={viewOptions()} />
+        </Show>
         {props.owner.toolbarActions}
       </div>
+      <Show when={props.owner.navigationPending}>
+        <span class="calendar-navigation-progress" aria-hidden="true" />
+      </Show>
     </header>
   );
 };
@@ -754,9 +904,13 @@ const MonthView = (props: {
                         )}
                       </For>
                       <Show when={events.length > 3}>
-                        <a href={href ?? "#"} class="px-1 text-[11px] font-medium text-dimmed hover:text-primary">
+                        <CalendarNavigationLink
+                          owner={props.owner}
+                          href={href ?? "#"}
+                          anchorProps={{ class: "px-1 text-[11px] font-medium text-dimmed hover:text-primary" }}
+                        >
                           +{events.length - 3} more
-                        </a>
+                        </CalendarNavigationLink>
                       </Show>
                     </div>
                     <div class="mt-1 flex gap-0.5 md:hidden">
@@ -983,9 +1137,10 @@ const TimeGridView = (props: {
             const dayBadge = props.owner.dayBadges?.[calendar.formatDateKey(day, dateConfig())];
             const today = () => calendar.isToday(day, dateConfig());
             return (
-              <a
+              <CalendarNavigationLink
+                owner={props.owner}
                 href={props.owner.getDateHref?.(day, "day") ?? "#"}
-                class="px-2 py-2 text-center text-[11px] font-semibold text-primary hover:text-blue-500"
+                anchorProps={{ class: "px-2 py-2 text-center text-[11px] font-semibold text-primary hover:text-blue-500" }}
               >
                 <span
                   classList={{
@@ -1002,7 +1157,7 @@ const TimeGridView = (props: {
                     </span>
                   )}
                 </Show>
-              </a>
+              </CalendarNavigationLink>
             );
           }}
         </For>
@@ -1302,9 +1457,12 @@ const YearView = (props: { owner: CalendarProps; date: Date; now: Date; events: 
                 const events = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day, dateConfig));
                 const isToday = calendar.formatDateKey(day, dateConfig) === calendar.formatDateKey(props.now, dateConfig);
                 return (
-                  <a
+                  <CalendarNavigationLink
+                    owner={props.owner}
                     href={props.owner.getDateHref?.(day, "day") ?? "#"}
-                    class={`relative flex aspect-square items-center justify-center rounded-md ${isToday ? "bg-blue-500 text-white" : calendar.isSameMonth(day, monthDate, dateConfig) ? "text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800" : "text-zinc-300 dark:text-zinc-700"}`}
+                    anchorProps={{
+                      class: `relative flex aspect-square items-center justify-center rounded-md ${isToday ? "bg-blue-500 text-white" : calendar.isSameMonth(day, monthDate, dateConfig) ? "text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800" : "text-zinc-300 dark:text-zinc-700"}`,
+                    }}
                   >
                     {calendar.formatDayNumber(day, dateConfig)}
                     <Show when={events.length > 0}>
@@ -1313,7 +1471,7 @@ const YearView = (props: { owner: CalendarProps; date: Date; now: Date; events: 
                         style={events[0]!.colorHex ? { "background-color": isToday ? "white" : events[0]!.colorHex } : undefined}
                       />
                     </Show>
-                  </a>
+                  </CalendarNavigationLink>
                 );
               }}
             </For>
@@ -1384,6 +1542,27 @@ const Calendar = (props: CalendarProps): JSX.Element => {
     if (view() === "day") return [date()];
     return calendar.getWeekDays(date(), dateConfig());
   };
+  createEffect(() => {
+    const prefetch = props.onPrefetch;
+    if (typeof window === "undefined" || !prefetch) return;
+    const currentDate = date();
+    const currentView = view();
+    if (props.getDateHref && currentView !== "year") {
+      prefetch(props.getDateHref(adjacentCalendarDate(currentDate, currentView, -1, dateConfig()), currentView));
+      prefetch(props.getDateHref(adjacentCalendarDate(currentDate, currentView, 1, dateConfig()), currentView));
+    }
+    const getViewHref = props.getViewHref;
+    if (!getViewHref) return;
+
+    const activeView = currentView === "mobile-month" ? "month" : currentView;
+    const availableViews = calendarViews.filter(
+      (candidate) => candidate !== activeView && (!props.views || props.views.includes(candidate)),
+    );
+    const timer = window.setTimeout(() => {
+      for (const candidate of availableViews) prefetch(getViewHref(candidate));
+    }, CALENDAR_VIEW_PREFETCH_DELAY_MS);
+    onCleanup(() => window.clearTimeout(timer));
+  });
   onMount(() => {
     const updateNow = () => setNow(new Date());
     const interval = window.setInterval(updateNow, 60_000);
@@ -1395,7 +1574,10 @@ const Calendar = (props: CalendarProps): JSX.Element => {
   });
 
   return (
-    <section class={`calendar-surface paper flex min-h-0 flex-col overflow-hidden ${props.class ?? ""}`}>
+    <section
+      class={`calendar-surface paper flex min-h-0 flex-col overflow-hidden ${props.class ?? ""}`}
+      aria-busy={props.navigationPending ? "true" : undefined}
+    >
       <CalendarHeader date={date()} view={view()} labels={mergedLabels()} owner={props} />
       {props.toolbarContent}
       <Show

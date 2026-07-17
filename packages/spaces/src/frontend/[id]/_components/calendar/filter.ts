@@ -1,3 +1,4 @@
+import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import { z } from "zod";
 import { AssignedToFilterSchema, ItemTypeSchema, PrioritySchema } from "@/contracts";
 
@@ -28,6 +29,8 @@ const PARAMS = {
 } as const;
 
 const values = (url: URL, key: string) => url.searchParams.get(key)?.split(",").filter(Boolean) ?? [];
+const isCalendarView = (value: string | null): value is "day" | "week" | "month" | "year" =>
+  value === "day" || value === "week" || value === "month" || value === "year";
 
 /** Parses only known values; malformed or stale URL filters degrade to safe defaults. */
 export const parseCalendarFilter = (url: URL): CalendarFilter => ({
@@ -37,6 +40,16 @@ export const parseCalendarFilter = (url: URL): CalendarFilter => ({
   columnIds: values(url, PARAMS.columns),
   tagIds: values(url, PARAMS.tags),
 });
+
+/** Mirrors the server's safe calendar route defaults for immediate client previews. */
+export const parseCalendarRoute = (url: URL, dateConfig?: DateContext) => {
+  const view = url.searchParams.get("cv");
+  return {
+    view: isCalendarView(view) ? view : "month",
+    date: calendar.parseCalendarDate(url.searchParams.get("cd") ?? undefined, dateConfig).toISOString(),
+    filter: parseCalendarFilter(url),
+  };
+};
 
 export const writeCalendarFilter = (url: URL, filter: CalendarFilter): void => {
   for (const key of Object.values(PARAMS)) url.searchParams.delete(key);

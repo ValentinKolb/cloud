@@ -417,6 +417,45 @@
   box-shadow: none;
 }
 
+.calendar-navigation-progress {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-blue-500) 16%, transparent);
+}
+
+.calendar-navigation-progress::after {
+  display: block;
+  width: 36%;
+  height: 100%;
+  content: "";
+  border-radius: 999px;
+  background: var(--color-blue-500);
+  animation: calendar-navigation-progress 700ms ease-in-out infinite;
+}
+
+@keyframes calendar-navigation-progress {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(310%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-navigation-progress::after {
+    width: 100%;
+    animation: none;
+  }
+}
+
 .link-card,
 .widget-surface {
   border-color: var(--ui-border);

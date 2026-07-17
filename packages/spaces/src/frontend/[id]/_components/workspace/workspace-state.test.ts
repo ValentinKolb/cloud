@@ -63,7 +63,12 @@ mock.module("@valentinkolb/cloud/services", () => ({
   logger: () => ({ warn: () => undefined }),
   weatherService: {
     location: { cookie: { name: "weather", parse: () => null } },
-    forecast: { get: async () => null },
+    forecast: {
+      get: async () => {
+        calls.push("weather.get");
+        return null;
+      },
+    },
     ui: { getTablerIcon: () => "ti ti-cloud" },
   },
 }));
@@ -166,6 +171,17 @@ describe("Spaces workspace SSR state", () => {
 
     expect(snapshot.kind).toBe("list");
     expect(calls).not.toContain("comment.list");
+  });
+
+  test("does not block remote calendar ranges on unavailable forecast data", async () => {
+    const snapshot = await loadSpacesViewSnapshot({
+      user: { id: USER_ID, roles: ["user"] },
+      spaceId: SPACE_ID,
+      href: `/app/spaces/${SPACE_ID}?view=calendar&cv=week&cd=2099-01-01`,
+    });
+
+    expect(snapshot.kind).toBe("calendar");
+    expect(calls).not.toContain("weather.get");
   });
 
   test("loads one generated occurrence with an occurrence-scoped comment target", async () => {

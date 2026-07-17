@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultCalendarFilter, parseCalendarFilter, writeCalendarFilter } from "./filter";
+import { defaultCalendarFilter, parseCalendarFilter, parseCalendarRoute, writeCalendarFilter } from "./filter";
 
 describe("calendar URL filters", () => {
   test("uses defaults for absent or malformed values", () => {
@@ -27,5 +27,23 @@ describe("calendar URL filters", () => {
     const url = new URL("https://cloud.test/app/spaces/1?ctype=event&cassigned=me&cpriority=high&ccolumns=todo&ctags=ops");
     writeCalendarFilter(url, defaultCalendarFilter);
     expect(url.search).toBe("");
+  });
+
+  test("parses a safe optimistic route state", () => {
+    const route = parseCalendarRoute(new URL("https://cloud.test/app/spaces/1?view=calendar&cv=week&cd=2026-09-18&ctype=event"));
+
+    expect(route).toEqual({
+      view: "week",
+      date: "2026-09-18T00:00:00.000Z",
+      filter: { ...defaultCalendarFilter, type: "event" },
+    });
+  });
+
+  test("uses calendar route defaults for invalid navigation parameters", () => {
+    const route = parseCalendarRoute(new URL("https://cloud.test/app/spaces/1?view=calendar&cv=nope&cd=nope"));
+
+    expect(route.view).toBe("month");
+    expect(route.date).toMatch(/T00:00:00\.000Z$/);
+    expect(route.filter).toEqual(defaultCalendarFilter);
   });
 });

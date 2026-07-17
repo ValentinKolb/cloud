@@ -40,6 +40,8 @@ const LIST_PAGE_SIZE = 50;
 const KANBAN_PAGE_SIZE = 30;
 const CALENDAR_VIEWS: CalendarView[] = ["day", "week", "month", "year"];
 const COMMENT_PAGE_SIZE = 50;
+const WEATHER_FORECAST_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const resolveView = (url: URL, settings: SpaceUserSettings) => {
   const viewParam = url.searchParams.get("view") ?? undefined;
@@ -199,8 +201,18 @@ const readWeatherLocationCookie = (cookieHeader?: string) => {
 
 const resolveCalendarView = (view: CalendarView | null): CalendarView => (view && CALENDAR_VIEWS.includes(view) ? view : "month");
 
-const loadCalendarWeather = async (cookieHeader?: string): Promise<Record<string, DayWeather>> => {
-  const location = readWeatherLocationCookie(cookieHeader);
+const overlapsWeatherForecast = (from: Date, to: Date, now = new Date()) => {
+  const forecastFrom = new Date(now);
+  forecastFrom.setUTCHours(0, 0, 0, 0);
+  const forecastTo = new Date(forecastFrom.getTime() + WEATHER_FORECAST_DAYS * DAY_MS);
+  return from < forecastTo && to > forecastFrom;
+};
+
+const loadCalendarWeather = async (params: { cookieHeader?: string; from: Date; to: Date }): Promise<Record<string, DayWeather>> => {
+  // Brightsky only returns the next seven days; remote ranges must not pay for external I/O they cannot display.
+  if (!overlapsWeatherForecast(params.from, params.to)) return {};
+
+  const location = readWeatherLocationCookie(params.cookieHeader);
   const weatherData = await weatherService.forecast.get({ lat: location?.lat, lon: location?.lon });
   const weather: Record<string, DayWeather> = {};
   if (!weatherData?.daily) return weather;
@@ -248,7 +260,7 @@ const loadCalendarState = async (params: {
       to: to.toISOString(),
       dateConfig: params.dateConfig,
     }),
-    loadCalendarWeather(params.cookieHeader),
+    loadCalendarWeather({ cookieHeader: params.cookieHeader, from, to }),
   ]);
 
   return {
@@ -566,11 +578,13 @@ export const loadSpacesViewSnapshot = async (
       dateConfig: params.dateConfig,
       cookieHeader: params.cookieHeader,
     }),
-    loadWormholes({
-      canWrite: permissions.canWrite,
-      spaceId: params.spaceId,
-      user: params.user,
-    }),
+    route.currentView === "kanban"
+      ? loadWormholes({
+          canWrite: permissions.canWrite,
+          spaceId: params.spaceId,
+          user: params.user,
+        })
+      : Promise.resolve([]),
   ]);
   return toViewSnapshot({
     route,

@@ -196,6 +196,9 @@ const getMostCommonIcon = (icons: WeatherIcon[]): WeatherIcon => {
 
 /** Fetch weather forecast from Brightsky API. */
 const fetchForecastFromApi = async (lat: string, lon: string): Promise<{ hourly: HourlyForecast[]; daily: DailyForecast[] } | null> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BRIGHTSKY_TIMEOUT_MS);
+
   try {
     const now = new Date();
     const endDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -204,7 +207,7 @@ const fetchForecastFromApi = async (lat: string, lon: string): Promise<{ hourly:
     const endDateStr = endDate.toISOString().split("T")[0];
 
     const url = `${BRIGHTSKY_API}/weather?lat=${lat}&lon=${lon}&date=${dateStr}&last_date=${endDateStr}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: controller.signal });
 
     if (!response.ok) {
       log.error("Brightsky forecast API error", { status: response.status });
@@ -278,8 +281,11 @@ const fetchForecastFromApi = async (lat: string, lon: string): Promise<{ hourly:
   } catch (error) {
     log.error("Failed to fetch forecast", {
       error: error instanceof Error ? error.message : String(error),
+      timeoutMs: BRIGHTSKY_TIMEOUT_MS,
     });
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 };
 

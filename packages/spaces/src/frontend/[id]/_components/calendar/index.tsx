@@ -2,7 +2,6 @@ import {
   type CalendarEvent,
   type CalendarEventTimeChange,
   Calendar as CoreCalendar,
-  type CalendarView as CoreCalendarView,
   dialogCore,
   FilterChip,
   type FilterChipSection,
@@ -265,19 +264,14 @@ export default function Calendar(props: CalendarProps) {
       options: props.columns.map((column) => ({ value: column.id, label: column.name, color: column.color ?? undefined })),
     },
   ];
-  const routeTo = (view: CalendarView, date: Date, replace = false) => {
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.filter, undefined, undefined, props.dateConfig), {
-      replace,
-      scroll: "preserve",
-    });
+  const navigateRoute = (href: string, options: { replace?: boolean } = {}) => {
+    if (props.onRouteChange) return props.onRouteChange(href, options);
+    requestSpacesRouteNavigation(href, { ...options, scroll: "preserve" });
   };
   const setFilter = (patch: Partial<CalendarFilter>) => {
-    requestSpacesRouteNavigation(
+    void navigateRoute(
       buildCalendarHref(props.baseUrl, props.view, props.date, { ...props.filter, ...patch }, undefined, undefined, props.dateConfig),
-      {
-        replace: true,
-        scroll: "preserve",
-      },
+      { replace: true },
     );
   };
   const selectEvent = (event: CalendarEvent) => {
@@ -516,7 +510,7 @@ export default function Calendar(props: CalendarProps) {
           <Show when={props.canWrite}>
             <button
               type="button"
-              class="btn-primary btn-sm"
+              class="btn-primary btn-sm shrink-0 whitespace-nowrap"
               disabled={createEvent.loading()}
               onClick={() => createEvent.mutate(defaultNewEventSlot())}
             >
@@ -566,7 +560,12 @@ export default function Calendar(props: CalendarProps) {
                 onChange={(tagIds) => setFilter({ tagIds })}
               />
             </Show>
-            <span class="ml-auto shrink-0 text-xs text-dimmed">{props.items.length} shown</span>
+            <span class="ml-auto inline-flex min-w-16 shrink-0 items-center justify-end gap-1 text-xs text-dimmed">
+              <Show when={props.navigationPending} fallback={`${props.items.length} shown`}>
+                <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+                Updating
+              </Show>
+            </span>
           </div>
         }
         getViewHref={(view) =>
@@ -577,8 +576,9 @@ export default function Calendar(props: CalendarProps) {
         }
         getEventHref={(event) => event.href}
         selectedEventId={props.selectedItemId}
-        onViewChange={(view: CoreCalendarView) => routeTo(view as CalendarView, props.date)}
-        onDateChange={(date, view) => routeTo(view as CalendarView, date)}
+        onNavigateHref={props.onNavigateHref}
+        onPrefetch={props.onPrefetch}
+        navigationPending={props.navigationPending}
         onEventClick={selectEvent}
         onEventDrop={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "move") : undefined}
         onEventResize={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "resize") : undefined}
