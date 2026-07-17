@@ -3,6 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../../config";
+import { contactsHelp } from "../../../help";
 import { contactsService } from "../../../service";
 import BookSettingsForm from "../../_components/BookSettingsForm.island";
 import ContactBookUnavailable from "../../_components/ContactBookUnavailable";
@@ -85,7 +86,7 @@ export default ssr<AuthContext>(async (c) => {
       ]}
       fullWidth
     >
-      <ContactsLayoutHelp />
+      <ContactsLayoutHelp documents={contactsHelp.manifest} />
       <AppWorkspace>
         <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
 

@@ -3,6 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
+import { contactsHelp } from "../../help";
 import { contactsService } from "../../service";
 import { captureContactEventCursor } from "../../service/events";
 import ContactBookUnavailable from "../_components/ContactBookUnavailable";
@@ -106,7 +107,7 @@ export default ssr<AuthContext>(async (c) => {
   const hasDesktopDetailSelection = Boolean(selectedContact);
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: book.name }]}>
-      <ContactsLayoutHelp />
+      <ContactsLayoutHelp documents={contactsHelp.manifest} />
       {!book.isSystem ? <ContactsLiveEvents scope={{ kind: "book", bookId }} initialCursor={initialLiveCursor} /> : null}
       <AppWorkspace>
         <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
