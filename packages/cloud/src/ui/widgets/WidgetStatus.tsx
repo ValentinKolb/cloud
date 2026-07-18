@@ -20,7 +20,7 @@ const TONE_STYLES: Record<Tone, { bg: string; text: string; icon: string; defaul
     defaultIcon: "ti ti-alert-triangle",
   },
   error: {
-    bg: "bg-red-50 dark:bg-red-900/20",
+    bg: "bg-transparent",
     text: "text-red-800 dark:text-red-200",
     icon: "text-red-600 dark:text-red-400",
     defaultIcon: "ti ti-alert-circle",
