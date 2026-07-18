@@ -1747,6 +1747,71 @@ test("default sender setup preserves an existing display name when no name is pa
   expect(JSON.parse(result.stdout)).toMatchObject({ displayName: "Existing sender", status: "verified" });
 });
 
+test("sender creation keeps the default automation policy unless explicitly disabled", async () => {
+  const bodies: unknown[] = [];
+  const server = withMailbox(async (request) => {
+    const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/sender-identities`;
+    if (request.method === "POST" && new URL(request.url).pathname === expectedPath) {
+      bodies.push(await request.json());
+      return api({
+        id: IDENTITY_ID,
+        mailboxId: MAILBOX_ID,
+        displayName: "",
+        fromAddress: "sender@example.com",
+        replyTo: null,
+        envelopeSender: null,
+        authenticationPolicy: { automation: bodies.length === 1 ? "mailbox" : "disabled" },
+        sentFolderId: null,
+        draftsFolderId: null,
+        isDefault: false,
+        status: "unverified",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:01.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const defaultResult = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "identity",
+    "add",
+    "--mailbox",
+    MAILBOX_ID,
+    "--address",
+    "sender@example.com",
+  ]);
+  const disabledResult = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "identity",
+    "add",
+    "--mailbox",
+    MAILBOX_ID,
+    "--address",
+    "sender@example.com",
+    "--automation",
+    "disabled",
+  ]);
+
+  expect([defaultResult.exitCode, disabledResult.exitCode]).toEqual([0, 0]);
+  expect(bodies).toEqual([
+    {
+      displayName: "",
+      fromAddress: "sender@example.com",
+      isDefault: false,
+    },
+    {
+      displayName: "",
+      fromAddress: "sender@example.com",
+      authenticationPolicy: { automation: "disabled" },
+      isDefault: false,
+    },
+  ]);
+});
+
 const workflowSource = `inputs:
   message:
     type: mailMessage

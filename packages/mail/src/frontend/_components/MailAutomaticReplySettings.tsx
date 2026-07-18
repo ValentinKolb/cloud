@@ -302,7 +302,8 @@ function AutomaticReplyEditor(props: {
             </div>
             <Show when={!senderAvailable()}>
               <p role="alert" class="text-xs text-danger">
-                This sender is no longer available for automatic replies. Choose an automation sender or disable this configuration.
+                This sender is no longer available for automatic replies. Choose a verified sender with Automatic replies enabled or disable
+                this configuration.
               </p>
             </Show>
             <div>
@@ -472,6 +473,7 @@ export default function MailAutomaticReplySettings(props: {
   mailboxId: string;
   identities: SenderIdentity[];
   initialConfigurations: AutomaticReplyConfiguration[];
+  onManageSenders: () => void;
 }) {
   const [configurations, setConfigurations] = createSignal(props.initialConfigurations);
   const automationIdentities = () => props.identities.filter(isAutomationIdentity);
@@ -516,13 +518,18 @@ export default function MailAutomaticReplySettings(props: {
       <Show when={automationIdentities().length === 0}>
         <div class="mb-2">
           <Placeholder
-            title="No automation sender"
+            title="Automatic replies need a sender"
             description={
               configurations().length > 0
-                ? "Existing automatic replies remain available to review or disable. Verify a sender identity to create or re-enable one."
-                : "Verify a sender identity and enable mailbox automation before adding automatic replies."
+                ? "Existing automatic replies remain available to review or disable. Open Senders and enable Automatic replies for a verified address to create or re-enable one."
+                : "Open Senders and enable Automatic replies for a verified address before adding a response."
             }
             icon="ti ti-mail-off"
+            action={
+              <button type="button" class="btn-secondary btn-sm" onClick={props.onManageSenders}>
+                <i class="ti ti-at" aria-hidden="true" /> Manage senders
+              </button>
+            }
           />
         </div>
       </Show>

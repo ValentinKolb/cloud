@@ -22,7 +22,13 @@ import {
   submitDueMaintenanceCommands,
 } from "./maintenance-runtime";
 import { createProviderConnection } from "./provider-connections";
-import { createSenderIdentity, disableSenderIdentity, verifySenderIdentity } from "./sender-identities";
+import {
+  createSenderIdentity,
+  disableSenderIdentity,
+  setupDefaultSender,
+  updateSenderIdentity,
+  verifySenderIdentity,
+} from "./sender-identities";
 import { claimFence, commitSyncBatch, executeBindingRediscovery, hydrateMessageBatch } from "./sync-runtime";
 import { createConversationTriageCommands } from "./triage";
 
@@ -290,6 +296,79 @@ suite("mail lifecycle control plane", () => {
     } finally {
       send.mockRestore();
     }
+  });
+
+  test("sender automation policy changes preserve provider verification", async () => {
+    const identity = await createSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      input: {
+        displayName: "Automation policy sender",
+        fromAddress: `automation-${suffix}@example.com`,
+        authenticationPolicy: { automation: "disabled" },
+        isDefault: false,
+      },
+    });
+    expect(identity.ok).toBe(true);
+    if (!identity.ok) return;
+    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE id = ${identity.data.id}::uuid`;
+    await sql`
+      INSERT INTO mail.sender_identity_bindings (
+        sender_identity_id, binding_id, provider_principal, verified_at, verified_secret_revision
+      )
+      VALUES (${identity.data.id}::uuid, ${bindingId}::uuid, ${identity.data.fromAddress}, now(), 1)
+    `;
+
+    const updated = await updateSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      senderIdentityId: identity.data.id,
+      input: { authenticationPolicy: { automation: "mailbox" } },
+    });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.data.status).toBe("verified");
+    expect(updated.data.authenticationPolicy).toEqual({ automation: "mailbox" });
+    const [binding] = await sql<{ revoked_at: Date | null }[]>`
+      SELECT revoked_at
+      FROM mail.sender_identity_bindings
+      WHERE sender_identity_id = ${identity.data.id}::uuid AND binding_id = ${bindingId}::uuid
+    `;
+    expect(binding?.revoked_at).toBeNull();
+  });
+
+  test("default sender setup preserves an explicit automation opt-out", async () => {
+    const identity = await createSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      input: {
+        displayName: "Provider default sender",
+        fromAddress: "lifecycle@example.com",
+        authenticationPolicy: { automation: "disabled" },
+        isDefault: false,
+      },
+    });
+    expect(identity.ok).toBe(true);
+    if (!identity.ok) return;
+    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE id = ${identity.data.id}::uuid`;
+    await sql`
+      INSERT INTO mail.sender_identity_bindings (
+        sender_identity_id, binding_id, provider_principal, saves_sent_automatically,
+        verified_at, verified_secret_revision
+      )
+      VALUES (${identity.data.id}::uuid, ${bindingId}::uuid, ${identity.data.fromAddress}, true, now(), 1)
+    `;
+
+    const configured = await setupDefaultSender({
+      context: adminContext,
+      mailboxId,
+      input: { bindingId, savesSentAutomatically: true },
+    });
+    expect(configured.ok).toBe(true);
+    if (!configured.ok) return;
+    expect(configured.data.status).toBe("verified");
+    expect(configured.data.isDefault).toBe(true);
+    expect(configured.data.authenticationPolicy).toEqual({ automation: "disabled" });
   });
 
   test("rediscovery projects ACL rights and conservatively reconciles rename and removal", async () => {

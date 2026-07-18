@@ -37,6 +37,7 @@ export default function MailboxSettings(props: {
   const initialPreferences = readMailUserPreferences(props.context.mailbox.id);
   const [composeFormat, setComposeFormat] = createSignal(initialPreferences.composeFormat);
   const [undoSeconds, setUndoSeconds] = createSignal(initialPreferences.undoSeconds);
+  const [activeTab, setActiveTab] = createSignal("preferences");
 
   const savePreferences = mutation.create<void, void>({
     mutation: async () => {
@@ -115,7 +116,13 @@ export default function MailboxSettings(props: {
   });
 
   return (
-    <SettingsModal title="Mailbox settings" onClose={props.onClose} closeLabel="Close settings">
+    <SettingsModal
+      title="Mailbox settings"
+      activeTab={activeTab()}
+      onTabChange={setActiveTab}
+      onClose={props.onClose}
+      closeLabel="Close settings"
+    >
       <SettingsModal.Tab
         id="preferences"
         title="Preferences"
@@ -232,7 +239,7 @@ export default function MailboxSettings(props: {
             id="senders"
             title="Senders"
             icon="ti ti-at"
-            description="From addresses verified independently per provider binding."
+            description="Verified From addresses and permission to use them for automatic replies."
           >
             <MailSenderSettings
               mailbox={props.context.mailbox}
@@ -303,6 +310,7 @@ export default function MailboxSettings(props: {
               initialAutomaticReplies={admin().automaticReplies}
               initialReferenceSchemes={admin().referenceSchemes}
               initialResponseSchedules={admin().responseSchedules}
+              onManageSenders={() => setActiveTab("senders")}
             />
           </SettingsModal.Tab>
 

@@ -188,7 +188,7 @@ const requireAutomationSender = async (db: SqlClient, mailboxId: string, senderI
       AND automation_policy = 'mailbox'
     FOR SHARE
   `;
-  return identity ? ok() : fail(err.badInput("Select a verified sender identity that is enabled for mailbox automation"));
+  return identity ? ok() : fail(err.badInput("Select a verified sender with Automatic replies enabled in Settings > Senders"));
 };
 
 const requireActivationAvailable = async (db: SqlClient, mailboxId: string, configurationId: string | null): Promise<Result<void>> => {

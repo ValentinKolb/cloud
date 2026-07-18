@@ -413,7 +413,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
       from_address TEXT NOT NULL CHECK (char_length(from_address) BETWEEN 3 AND 320),
       reply_to TEXT,
       envelope_sender TEXT,
-      automation_policy TEXT NOT NULL DEFAULT 'disabled' CHECK (automation_policy IN ('disabled', 'mailbox')),
+      automation_policy TEXT NOT NULL DEFAULT 'mailbox' CHECK (automation_policy IN ('disabled', 'mailbox')),
       sent_folder_id UUID REFERENCES mail.folders(id) ON DELETE SET NULL,
       drafts_folder_id UUID REFERENCES mail.folders(id) ON DELETE SET NULL,
       is_default BOOLEAN NOT NULL DEFAULT false,
@@ -2996,6 +2996,10 @@ const guardAutomaticReplyDeliveryTimestamps = async (db: SqlClient): Promise<voi
   `;
 };
 
+const defaultSenderAutomationToMailbox = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.sender_identities ALTER COLUMN automation_policy SET DEFAULT 'mailbox'`;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -3050,6 +3054,7 @@ const migrations = [
   { version: 51, name: "managed_automatic_reply_invariants", run: hardenManagedAutomaticReplyConfigurations },
   { version: 52, name: "automatic_reply_delivery_timestamps", run: addAutomaticReplyDeliveryTimestamps },
   { version: 53, name: "automatic_reply_delivery_timestamp_guard", run: guardAutomaticReplyDeliveryTimestamps },
+  { version: 54, name: "sender_automation_ready_by_default", run: defaultSenderAutomationToMailbox },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

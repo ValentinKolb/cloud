@@ -1,6 +1,6 @@
 import { Checkbox, NumberInput, Placeholder, prompts, Select, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { Mailbox, SenderIdentity } from "../../contracts";
 import type { MailboxAdminSettingsContext } from "../../settings-context";
@@ -277,22 +277,33 @@ type SenderEditor = { kind: "create" } | { kind: "verify"; identity: SenderIdent
 
 export function MailSenderSettings(props: ProviderSettingsProps) {
   const [editor, setEditor] = createSignal<SenderEditor | null>(null);
+  const [identities, setIdentities] = createSignal(props.admin.identities);
   const [displayName, setDisplayName] = createSignal("");
   const [address, setAddress] = createSignal("");
   const [sentFolderId, setSentFolderId] = createSignal("");
   const [isDefault, setIsDefault] = createSignal(false);
+  const [allowAutomation, setAllowAutomation] = createSignal(true);
   const [bindingId, setBindingId] = createSignal("");
   const [recipient, setRecipient] = createSignal("");
   const [savesSent, setSavesSent] = createSignal(false);
 
+  createEffect(() => setIdentities(props.admin.identities));
+
   const selectableFolders = createMemo(() => props.admin.folders.filter((folder) => folder.selectable));
   const activeBindings = createMemo(() => props.admin.bindings.filter((binding) => binding.state === "active"));
+  const replaceIdentity = (identity: SenderIdentity) =>
+    setIdentities((current) =>
+      current.some((item) => item.id === identity.id)
+        ? current.map((item) => (item.id === identity.id ? identity : item))
+        : [...current, identity],
+    );
 
   const openCreate = () => {
     setDisplayName("");
     setAddress(props.admin.connections[0]?.email ?? props.currentUserEmail ?? "");
     setSentFolderId(selectableFolders().find((folder) => folder.role === "sent")?.id ?? "");
-    setIsDefault(props.admin.identities.length === 0);
+    setIsDefault(identities().length === 0);
+    setAllowAutomation(true);
     setEditor({ kind: "create" });
   };
 
@@ -303,20 +314,23 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
     setEditor({ kind: "verify", identity });
   };
 
-  const createIdentity = mutation.create<void, void>({
+  const createIdentity = mutation.create<SenderIdentity, void>({
     mutation: async () => {
       const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].$post({
         param: { mailboxId: props.mailbox.id },
         json: {
           displayName: displayName().trim(),
           fromAddress: address().trim(),
+          authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
           sentFolderId: sentFolderId() || null,
           isDefault: isDefault(),
         },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to add sender identity"));
+      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (identity) => {
+      replaceIdentity(identity);
       toast.success("Sender identity added");
       setEditor(null);
       props.onWorkspaceChange();
@@ -325,19 +339,43 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
     onError: (error) => prompts.error(error.message),
   });
 
-  const verifyIdentity = mutation.create<void, void>({
+  const verifyIdentity = mutation.create<SenderIdentity, void>({
     mutation: async () => {
       const current = editor();
-      if (!current || current.kind !== "verify") return;
+      if (!current || current.kind !== "verify") throw new Error("No sender identity selected");
       const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].verify.$post({
         param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
         json: { bindingId: bindingId(), verificationRecipient: recipient().trim(), savesSentAutomatically: savesSent() },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Sender verification failed"));
+      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (identity) => {
+      replaceIdentity(identity);
       toast.success("Sender identity verified");
       setEditor(null);
+      props.onWorkspaceChange();
+      void props.onReload();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const updateAutomation = mutation.create<SenderIdentity, { identity: SenderIdentity; enabled: boolean }>({
+    mutation: async ({ identity, enabled }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$patch({
+        param: { mailboxId: props.mailbox.id, senderIdentityId: identity.id },
+        json: { authenticationPolicy: { automation: enabled ? "mailbox" : "disabled" } },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update automatic reply access"));
+      return response.json();
+    },
+    onSuccess: (identity) => {
+      replaceIdentity(identity);
+      toast.success(
+        identity.authenticationPolicy.automation === "mailbox"
+          ? "Automatic replies enabled for sender"
+          : "Automatic replies disabled for sender",
+      );
       props.onWorkspaceChange();
       void props.onReload();
     },
@@ -353,7 +391,7 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
             <i class="ti ti-plus" aria-hidden="true" /> Add sender
           </button>
           <Show
-            when={props.admin.identities.length > 0}
+            when={identities().length > 0}
             fallback={
               <Placeholder
                 title="No sender identities"
@@ -362,7 +400,7 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
               />
             }
           >
-            <For each={props.admin.identities}>
+            <For each={identities()}>
               {(identity) => (
                 <div class="paper flex items-center gap-3 p-3">
                   <i class="ti ti-user-circle text-lg text-dimmed" aria-hidden="true" />
@@ -371,6 +409,12 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
                     <span class="block truncate text-xs text-dimmed">{identity.fromAddress}</span>
                   </span>
                   <span class="badge">{identity.status}</span>
+                  <Switch
+                    label="Automatic replies"
+                    value={() => identity.authenticationPolicy.automation === "mailbox"}
+                    disabled={identity.status !== "verified" || updateAutomation.loading() || props.reloading}
+                    onChange={(enabled) => updateAutomation.mutate({ identity, enabled })}
+                  />
                   <Show when={identity.status !== "verified"}>
                     <button
                       type="button"
@@ -441,6 +485,12 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
               clearable
             />
             <Checkbox label="Default sender" value={isDefault} onChange={setIsDefault} />
+            <div>
+              <Switch label="Allow automatic replies" value={allowAutomation} onChange={setAllowAutomation} />
+              <p class="mt-1 text-xs text-dimmed">
+                Enabled by default. Automatic replies still require an explicit mailbox rule before anything is sent.
+              </p>
+            </div>
             <div class="sticky bottom-0 flex justify-end gap-2 bg-[var(--ui-surface)] py-2">
               <button type="button" class="btn-simple btn-sm" disabled={createIdentity.loading()} onClick={() => setEditor(null)}>
                 Cancel

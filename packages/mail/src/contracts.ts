@@ -1332,7 +1332,7 @@ export const createSenderIdentityInputSchema = z.object({
   fromAddress: z.string().email().max(320),
   replyTo: z.string().email().max(320).nullable().optional(),
   envelopeSender: z.string().email().max(320).nullable().optional(),
-  authenticationPolicy: senderAuthenticationPolicySchema.default({ automation: "disabled" }),
+  authenticationPolicy: senderAuthenticationPolicySchema.default({ automation: "mailbox" }),
   sentFolderId: z.string().uuid().nullable().optional(),
   draftsFolderId: z.string().uuid().nullable().optional(),
   isDefault: z.boolean().optional(),

@@ -17,6 +17,7 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 import { z } from "zod";
 import {
   type AcquiredDraftLease,
+  type CancelScheduledSendResult,
   type ComposePreview,
   type ComposeSignatureDefault,
   type ComposeTemplate,
@@ -43,11 +44,10 @@ import {
   mailSearchExpressionSchema,
   type ProviderBinding,
   type ProviderConnection,
-  responseScheduleDefinitionSchema,
   type ResponseScheduleDefinitionInput,
+  responseScheduleDefinitionSchema,
   type SavedConversationViewFilter,
   type ScheduledSendPage,
-  type CancelScheduledSendResult,
   type SenderIdentity,
   savedConversationViewFilterSchema,
   type WorkflowEffectBudget,
@@ -56,12 +56,12 @@ import {
   workflowTargetQuerySchema,
 } from "./contracts";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
-import type { MergeConversationsResult, SplitConversationResult } from "./service/conversations";
 import type {
   ConversationReference,
   ConversationReferenceScheme,
   EnsureConversationReferenceResult,
 } from "./service/conversation-reference";
+import type { MergeConversationsResult, SplitConversationResult } from "./service/conversations";
 import type { ConversationLocalTags, LocalTag } from "./service/local-tags";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { ConversationReminder } from "./service/reminders";
@@ -2617,6 +2617,7 @@ export default defineCliCommands({
             address: identity.fromAddress,
             name: identity.displayName,
             status: identity.status,
+            automation: identity.authenticationPolicy.automation === "mailbox" ? "enabled" : "disabled",
             default: identity.isDefault ? "yes" : "",
             id: identity.id,
           })),
@@ -2624,6 +2625,7 @@ export default defineCliCommands({
             { key: "address", label: "ADDRESS" },
             { key: "name", label: "NAME" },
             { key: "status", label: "STATUS" },
+            { key: "automation", label: "AUTOMATIC REPLIES" },
             { key: "default", label: "DEFAULT" },
             { key: "id", label: "IDENTITY ID" },
           ],
@@ -2638,6 +2640,9 @@ export default defineCliCommands({
         name: flag.string({ description: "Display name" }),
         sentFolder: flag.string({ name: "sent-folder", description: "Canonical Sent folder id" }),
         default: flag.boolean({ description: "Set as default identity" }),
+        automation: flag.enum(["mailbox", "disabled"] as const, {
+          description: "Allow automatic replies from this sender (default: mailbox)",
+        }),
       },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
@@ -2647,6 +2652,7 @@ export default defineCliCommands({
           jsonRequest("POST", {
             displayName: flags.name ?? "",
             fromAddress: flags.address,
+            ...(flags.automation !== undefined ? { authenticationPolicy: { automation: flags.automation } } : {}),
             sentFolderId: flags.sentFolder,
             isDefault: flags.default,
           }),
@@ -2692,7 +2698,9 @@ export default defineCliCommands({
         clearReplyTo: flag.boolean({ name: "clear-reply-to" }),
         envelopeSender: flag.string({ name: "envelope-sender" }),
         clearEnvelopeSender: flag.boolean({ name: "clear-envelope-sender" }),
-        automation: flag.enum(["disabled", "mailbox"] as const, { description: "Automation credential use" }),
+        automation: flag.enum(["disabled", "mailbox"] as const, {
+          description: "Allow automatic replies from this sender",
+        }),
         sentFolder: flag.string({ name: "sent-folder" }),
         clearSentFolder: flag.boolean({ name: "clear-sent-folder" }),
         draftsFolder: flag.string({ name: "drafts-folder" }),

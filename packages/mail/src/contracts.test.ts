@@ -7,6 +7,7 @@ import {
   createAutomaticReplyConfigurationSchema,
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
+  createSenderIdentityInputSchema,
   createWorkflowInputSchema,
   createWorkflowVersionInputSchema,
   deactivateWorkflowInputSchema,
@@ -135,6 +136,22 @@ describe("automatic reply configuration contracts", () => {
       }).success,
     ).toBe(true);
     expect(updateAutomaticReplyConfigurationSchema.safeParse({ expectedRevision: 1, ...configuration, body: "  " }).success).toBe(false);
+  });
+});
+
+describe("sender identity contracts", () => {
+  test("makes normal senders automation-ready while preserving explicit opt-out", () => {
+    expect(
+      createSenderIdentityInputSchema.parse({
+        fromAddress: "sender@example.com",
+      }).authenticationPolicy,
+    ).toEqual({ automation: "mailbox" });
+    expect(
+      createSenderIdentityInputSchema.parse({
+        fromAddress: "sender@example.com",
+        authenticationPolicy: { automation: "disabled" },
+      }).authenticationPolicy,
+    ).toEqual({ automation: "disabled" });
   });
 });
 

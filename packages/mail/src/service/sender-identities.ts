@@ -252,9 +252,9 @@ export const updateSenderIdentity = async (params: {
         fromAddress !== current.from_address ||
         replyTo !== current.reply_to ||
         envelopeSender !== current.envelope_sender ||
-        nextPolicy.automation !== current.automation_policy ||
         sentFolderId !== current.sent_folder_id ||
         draftsFolderId !== current.drafts_folder_id;
+      const automationPolicyChanged = nextPolicy.automation !== current.automation_policy;
       if (parsed.data.isDefault === true) {
         await tx`
           UPDATE mail.sender_identities
@@ -293,7 +293,7 @@ export const updateSenderIdentity = async (params: {
           actor: auditActorFromRequest(params.context),
           target: { type: "sender_identity", id: updated.id, label: updated.from_address },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, providerRelevantChanged },
+          metadata: { mailboxId: params.mailboxId, providerRelevantChanged, automationPolicyChanged },
         },
         tx,
       );
@@ -411,7 +411,6 @@ export const setupDefaultSender = async (params: {
     FROM mail.sender_identities si
     WHERE si.mailbox_id = ${params.mailboxId}::uuid AND lower(si.from_address) = lower(${binding.email})
   `;
-  const authenticationPolicy = { automation: "disabled" as const };
   let identity: Result<SenderIdentity>;
   if (existing) {
     identity = await updateSenderIdentity({
@@ -420,7 +419,6 @@ export const setupDefaultSender = async (params: {
       senderIdentityId: existing.id,
       input: {
         ...(parsed.data.displayName !== undefined ? { displayName: parsed.data.displayName } : {}),
-        authenticationPolicy,
         sentFolderId: sent?.data.id ?? null,
         draftsFolderId: drafts.ok ? drafts.data.id : null,
         isDefault: true,
@@ -433,7 +431,7 @@ export const setupDefaultSender = async (params: {
       input: {
         displayName: parsed.data.displayName ?? "",
         fromAddress: binding.email,
-        authenticationPolicy,
+        authenticationPolicy: { automation: "mailbox" },
         sentFolderId: sent?.data.id ?? null,
         draftsFolderId: drafts.ok ? drafts.data.id : null,
         isDefault: true,

@@ -19,6 +19,7 @@ suite("mail migrations", () => {
         scheduled_send_ordering_present: boolean;
         scheduled_send_guard_present: boolean;
         automatic_reply_invariants_present: boolean;
+        sender_automation_default: boolean;
       }[]
     >`
       SELECT
@@ -65,7 +66,14 @@ suite("mail migrations", () => {
             WHERE conrelid = 'mail.automatic_reply_effects'::regclass
               AND conname = 'automatic_reply_effects_confirmed_at_check'
               AND convalidated
-          ) AS automatic_reply_invariants_present
+          ) AS automatic_reply_invariants_present,
+        (
+          SELECT column_default = '''mailbox''::text'
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'sender_identities'
+            AND column_name = 'automation_policy'
+        ) AS sender_automation_default
     `;
     expect(shape).toEqual({
       templates_present: true,
@@ -77,6 +85,7 @@ suite("mail migrations", () => {
       scheduled_send_ordering_present: true,
       scheduled_send_guard_present: true,
       automatic_reply_invariants_present: true,
+      sender_automation_default: true,
     });
   });
 

@@ -187,6 +187,7 @@ export default function MailResponsePolicySettings(props: {
   initialAutomaticReplies: AutomaticReplyConfiguration[];
   initialReferenceSchemes: ConversationReferenceScheme[];
   initialResponseSchedules: ResponseSchedule[];
+  onManageSenders: () => void;
 }) {
   const [schemes, setSchemes] = createSignal(props.initialReferenceSchemes);
   const managedScheduleIds = new Set(props.initialAutomaticReplies.map((configuration) => configuration.responseScheduleId));
@@ -230,6 +231,7 @@ export default function MailResponsePolicySettings(props: {
         mailboxId={props.mailboxId}
         identities={props.identities}
         initialConfigurations={props.initialAutomaticReplies}
+        onManageSenders={props.onManageSenders}
       />
 
       <section>
