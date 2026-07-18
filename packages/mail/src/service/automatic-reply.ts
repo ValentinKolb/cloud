@@ -1,7 +1,7 @@
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { responseScheduleDefinitionSchema, type ResponseScheduleDefinitionInput } from "../contracts";
-import { evaluateAutoReplyPolicy, parseReturnPathAddress, type AutoReplySuppressionReason } from "./auto-reply-policy";
+import { type ResponseScheduleDefinitionInput, responseScheduleDefinitionSchema } from "../contracts";
+import { type AutoReplySuppressionReason, evaluateAutoReplyPolicy, parseReturnPathAddress } from "./auto-reply-policy";
 import { sha256Json } from "./canonical";
 import type { ConnectorProtocolFacts } from "./connectors";
 import { createWorkflowReplyDraftInTransaction } from "./drafts";
@@ -9,7 +9,7 @@ import { evaluateResponseSchedule, nextResponseScheduleInstant } from "./respons
 
 type SqlClient = typeof sql;
 
-type AutomaticReplyBusinessSuppressionReason = "recipient_rate_limited" | "response_schedule_unavailable";
+type AutomaticReplyBusinessSuppressionReason = "outside_response_schedule" | "recipient_rate_limited" | "response_schedule_unavailable";
 type AutomaticReplySuppressionReason = AutoReplySuppressionReason | AutomaticReplyBusinessSuppressionReason;
 
 export type AutomaticReplyScheduleSnapshot = {
@@ -33,7 +33,22 @@ type AutomaticReplyEffectRow = {
   scheduled_at: Date | string | null;
 };
 
+type AutomaticReplyScheduleDecision =
+  | { state: "scheduled"; scheduledAt: Date }
+  | { state: "suppressed"; reason: "outside_response_schedule" | "response_schedule_unavailable" };
+
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
+
+export const resolveAutomaticReplySchedule = (
+  definition: ResponseScheduleDefinitionInput,
+  instant: Date,
+  inactiveBehavior: "skip" | "defer",
+): AutomaticReplyScheduleDecision => {
+  if (evaluateResponseSchedule(definition, instant).active) return { state: "scheduled", scheduledAt: instant };
+  if (inactiveBehavior === "skip") return { state: "suppressed", reason: "outside_response_schedule" };
+  const next = nextResponseScheduleInstant(definition, instant);
+  return next ? { state: "scheduled", scheduledAt: next } : { state: "suppressed", reason: "response_schedule_unavailable" };
+};
 
 const existingResult = async (effect: AutomaticReplyEffectRow, db: SqlClient): Promise<Result<PreparedAutomaticReply>> => {
   if (effect.state === "suppressed") {
@@ -92,6 +107,7 @@ export const prepareAutomaticReplyInTransaction = async (params: {
   protocolFacts: ConnectorProtocolFacts;
   occurredAt: string;
   minimumIntervalHours: number;
+  inactiveBehavior?: "skip" | "defer";
   schedule: AutomaticReplyScheduleSnapshot | null;
 }): Promise<Result<PreparedAutomaticReply>> => {
   try {
@@ -101,6 +117,7 @@ export const prepareAutomaticReplyInTransaction = async (params: {
       return fail(err.badInput("Automatic reply minimum interval is invalid"));
     }
     const recipient = parseReturnPathAddress(params.protocolFacts.returnPath);
+    const inactiveBehavior = params.inactiveBehavior ?? "defer";
     const requestHash = sha256Json({
       mailboxId: params.mailboxId,
       workflowVersionId: params.workflowVersionId,
@@ -116,6 +133,7 @@ export const prepareAutomaticReplyInTransaction = async (params: {
       protocolFacts: params.protocolFacts,
       occurredAt: params.occurredAt,
       minimumIntervalHours: params.minimumIntervalHours,
+      inactiveBehavior,
       schedule: params.schedule,
     });
     // Serialize the two business invariants independently of workflow step identity.
@@ -159,8 +177,13 @@ export const prepareAutomaticReplyInTransaction = async (params: {
               SELECT 1 FROM mail.automatic_reply_effects
               WHERE mailbox_id = ${params.mailboxId}::uuid
                 AND recipient = ${recipient}
-                AND state IN ('queued', 'confirmed', 'needs_attention')
-                AND created_at >= now() - (${params.minimumIntervalHours}::double precision * interval '1 hour')
+                AND (
+                  state IN ('queued', 'needs_attention')
+                  OR (
+                    state = 'confirmed'
+                    AND confirmed_at >= now() - (${params.minimumIntervalHours}::double precision * interval '1 hour')
+                  )
+                )
             ) AS exists
           `,
     ]);
@@ -184,11 +207,9 @@ export const prepareAutomaticReplyInTransaction = async (params: {
       const schedule = await validateScheduleSnapshot(params.db, params.mailboxId, params.schedule);
       if (!schedule.ok) return schedule;
       scheduleRevision = schedule.data.revision;
-      if (!evaluateResponseSchedule(schedule.data.definition, scheduledAt).active) {
-        const next = nextResponseScheduleInstant(schedule.data.definition, scheduledAt);
-        if (next) scheduledAt = next;
-        else suppressionReasons.push("response_schedule_unavailable");
-      }
+      const decision = resolveAutomaticReplySchedule(schedule.data.definition, scheduledAt, inactiveBehavior);
+      if (decision.state === "scheduled") scheduledAt = decision.scheduledAt;
+      else suppressionReasons.push(decision.reason);
     }
 
     const effectId = crypto.randomUUID();
@@ -280,6 +301,7 @@ export const cancelPendingAutomaticRepliesInTransaction = async (params: {
   db: SqlClient;
   mailboxId: string;
   workflowRunId?: string;
+  workflowId?: string;
   code: string;
   message: string;
 }): Promise<{ cancelled: number; needsAttention: number }> => {
@@ -288,8 +310,10 @@ export const cancelPendingAutomaticRepliesInTransaction = async (params: {
       SELECT effect.id, effect.draft_id, effect.command_id
       FROM mail.automatic_reply_effects effect
       JOIN mail.workflow_run_targets target ON target.id = effect.workflow_target_id
+      JOIN mail.workflow_versions version ON version.id = effect.workflow_version_id
       WHERE effect.mailbox_id = ${params.mailboxId}::uuid
         AND effect.state = 'queued'
+        AND (${params.workflowId ?? null}::uuid IS NULL OR version.workflow_id = ${params.workflowId ?? null}::uuid)
         AND (
           ${params.workflowRunId ?? null}::uuid IS NULL
           OR (target.parent_run_id = ${params.workflowRunId ?? null}::uuid AND target.state = 'canceled')

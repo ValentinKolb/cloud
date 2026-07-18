@@ -24,8 +24,16 @@ const schedule: ResponseScheduleDefinition = {
 
 describe("Mail response schedules", () => {
   test("evaluates weekly office hours in the configured time zone", () => {
-    expect(evaluateResponseSchedule(schedule, new Date("2026-07-16T08:00:00.000Z"))).toMatchObject({ active: true, localTime: "10:00", reason: "office_hours" });
-    expect(evaluateResponseSchedule(schedule, new Date("2026-07-16T18:00:00.000Z"))).toMatchObject({ active: false, localTime: "20:00", reason: "outside_office_hours" });
+    expect(evaluateResponseSchedule(schedule, new Date("2026-07-16T08:00:00.000Z"))).toMatchObject({
+      active: true,
+      localTime: "10:00",
+      reason: "office_hours",
+    });
+    expect(evaluateResponseSchedule(schedule, new Date("2026-07-16T18:00:00.000Z"))).toMatchObject({
+      active: false,
+      localTime: "20:00",
+      reason: "outside_office_hours",
+    });
   });
 
   test("gives explicit date exceptions precedence", () => {
@@ -34,8 +42,29 @@ describe("Mail response schedules", () => {
   });
 
   test("handles daylight-saving transitions by evaluating the instant", () => {
-    const sunday: ResponseScheduleDefinition = { ...schedule, weeklyWindows: [{ weekday: 7, start: "03:00", end: "04:00" }], exceptions: [] };
+    const sunday: ResponseScheduleDefinition = {
+      ...schedule,
+      weeklyWindows: [{ weekday: 7, start: "03:00", end: "04:00" }],
+      exceptions: [],
+    };
     expect(evaluateResponseSchedule(sunday, new Date("2026-03-29T01:30:00.000Z"))).toMatchObject({ active: true, localTime: "03:30" });
+  });
+
+  test("supports an explicit full local day ending at 24:00", () => {
+    const fullDay: ResponseScheduleDefinition = {
+      timeZone: "Europe/Berlin",
+      activeRanges: [],
+      weeklyWindows: [{ weekday: 4, start: "00:00", end: "24:00" }],
+      exceptions: [],
+    };
+    expect(validateResponseSchedule(fullDay)).toEqual([]);
+    expect(evaluateResponseSchedule(fullDay, new Date("2026-07-16T21:59:00.000Z"))).toMatchObject({
+      active: true,
+      localTime: "23:59",
+    });
+    expect(validateResponseSchedule({ ...fullDay, weeklyWindows: [{ weekday: 4, start: "24:00", end: "24:00" }] })).toContain(
+      "Weekly windows must be ordered HH:mm ranges within one local day",
+    );
   });
 
   test("finds the next active instant across holidays and weekends", () => {
@@ -53,10 +82,7 @@ describe("Mail response schedules", () => {
           { date: "2026-07-17", closed: false, windows: [{ start: "10:00", end: "12:00" }] },
         ],
       }),
-    ).toEqual([
-      "Weekly windows must be ordered HH:mm ranges within one local day",
-      "Each exception date may appear only once",
-    ]);
+    ).toEqual(["Weekly windows must be ordered HH:mm ranges within one local day", "Each exception date may appear only once"]);
   });
 
   test("rejects invalid dates and overlapping windows", () => {

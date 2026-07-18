@@ -77,7 +77,7 @@ describe("Mail live protocol", () => {
         },
       }).success,
     ).toBeTrue();
-    for (const reason of ["deleted", "restored"] as const) {
+    for (const reason of ["scheduled_send", "deleted", "restored"] as const) {
       expect(
         MailLiveServerMessageSchema.safeParse({
           type: MAIL_LIVE_WS_TYPE.event,

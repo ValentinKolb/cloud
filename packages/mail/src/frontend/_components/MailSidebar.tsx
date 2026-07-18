@@ -3,7 +3,7 @@ import { type LinkNavigateEvent, refreshCurrentPath } from "@valentinkolb/ssr/na
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { ConversationView, MailDraft } from "../../contracts";
+import type { ConversationView } from "../../contracts";
 import type { ConversationViewCounts, MailFolderView } from "../../service/messages";
 import type { SavedConversationView } from "../../service/saved-views";
 import { readApiError } from "./api-response";
@@ -38,7 +38,8 @@ export default function MailSidebar(props: {
   mailboxName: string;
   folders: MailFolderView[];
   savedViews: SavedConversationView[];
-  drafts: MailDraft[];
+  scheduledMode: boolean;
+  scheduledCount: number;
   activeFolderId: string | null;
   activeView: ConversationView | null;
   activeSavedViewId: string | null;
@@ -97,21 +98,34 @@ export default function MailSidebar(props: {
   };
 
   const viewItems = (suffix: string) => (
-    <For each={VIEW_ITEMS}>
-      {(view) => (
-        <AppWorkspace.SidebarItem
-          href={`/app/mail/${props.mailboxId}?view=${view.id}`}
-          icon={view.icon}
-          active={props.activeView === view.id}
-          meta={<span class="tabular-nums">{props.viewCounts[view.id]}</span>}
-          viewTransitionName={`mail-view-${view.id}-${suffix}`}
-          onNavigate={props.onNavigate}
-          scroll="preserve"
-        >
-          {view.label}
-        </AppWorkspace.SidebarItem>
-      )}
-    </For>
+    <>
+      <For each={VIEW_ITEMS}>
+        {(view) => (
+          <AppWorkspace.SidebarItem
+            href={`/app/mail/${props.mailboxId}?view=${view.id}`}
+            icon={view.icon}
+            active={!props.scheduledMode && props.activeView === view.id}
+            meta={<span class="tabular-nums">{props.viewCounts[view.id]}</span>}
+            viewTransitionName={`mail-view-${view.id}-${suffix}`}
+            onNavigate={props.onNavigate}
+            scroll="preserve"
+          >
+            {view.label}
+          </AppWorkspace.SidebarItem>
+        )}
+      </For>
+      <AppWorkspace.SidebarItem
+        href={`/app/mail/${props.mailboxId}?scheduled=1`}
+        icon="ti ti-calendar-time"
+        active={props.scheduledMode}
+        meta={<span class="tabular-nums">{props.scheduledCount}</span>}
+        viewTransitionName={`mail-scheduled-${suffix}`}
+        onNavigate={props.onNavigate}
+        scroll="preserve"
+      >
+        Scheduled
+      </AppWorkspace.SidebarItem>
+    </>
   );
 
   const savedViewItems = (suffix: string) => (
@@ -171,28 +185,11 @@ export default function MailSidebar(props: {
     </For>
   );
 
-  const draftItems = (suffix: string) => (
-    <For each={props.drafts}>
-      {(draft) => (
-        <AppWorkspace.SidebarItem
-          href={`/app/mail/${props.mailboxId}/compose/${draft.id}?return=${encodeURIComponent(`/app/mail/${props.mailboxId}`)}`}
-          icon={draft.state === "scheduled" ? "ti ti-clock" : draft.state === "sending" ? "ti ti-send" : "ti ti-file-pencil"}
-          meta={draft.state === "draft" ? undefined : <span>{draft.state}</span>}
-          title={draft.subject || "Untitled draft"}
-          viewTransitionName={`mail-draft-${draft.id}-${suffix}`}
-          navigation="document"
-        >
-          {draft.subject || "Untitled draft"}
-        </AppWorkspace.SidebarItem>
-      )}
-    </For>
-  );
-
   const allMail = () => (
     <AppWorkspace.SidebarItem
       href={`/app/mail/${props.mailboxId}`}
       icon="ti ti-mail"
-      active={!props.activeFolderId && !props.activeView && !props.activeSavedViewId}
+      active={!props.scheduledMode && !props.activeFolderId && !props.activeView && !props.activeSavedViewId}
       onNavigate={props.onNavigate}
       scroll="preserve"
     >
@@ -233,9 +230,6 @@ export default function MailSidebar(props: {
             {allMail()}
             {folderItems("mobile")}
           </AppWorkspace.SidebarSection>
-          {props.canWrite && props.drafts.length > 0 && (
-            <AppWorkspace.SidebarSection title="Drafts">{draftItems("mobile")}</AppWorkspace.SidebarSection>
-          )}
         </AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarDesktop>
@@ -254,9 +248,6 @@ export default function MailSidebar(props: {
             {allMail()}
             {folderItems("desktop")}
           </AppWorkspace.SidebarSection>
-          {props.canWrite && props.drafts.length > 0 && (
-            <AppWorkspace.SidebarSection title="Drafts">{draftItems("desktop")}</AppWorkspace.SidebarSection>
-          )}
         </AppWorkspace.SidebarBody>
         <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
           {props.canAdmin && (

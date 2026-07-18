@@ -5,8 +5,8 @@ import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
-import { MailConnectionSettings, MailSenderSettings } from "./MailProviderSettings";
 import MailComposeSettings from "./MailComposeSettings";
+import { MailConnectionSettings, MailSenderSettings } from "./MailProviderSettings";
 import MailResponsePolicySettings from "./MailResponsePolicySettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
 import MailWorkflowSettings from "./MailWorkflowSettings";
@@ -283,7 +283,12 @@ export default function MailboxSettings(props: {
             icon="ti ti-route"
             description="Versioned YAML workflows with explicit activation."
           >
-            <MailWorkflowSettings mailboxId={props.context.mailbox.id} initialWorkflows={admin().workflows} />
+            <MailWorkflowSettings
+              mailboxId={props.context.mailbox.id}
+              initialWorkflows={admin().workflows.filter(
+                (workflow) => !admin().automaticReplies.some((configuration) => configuration.workflowId === workflow.id),
+              )}
+            />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
@@ -294,6 +299,8 @@ export default function MailboxSettings(props: {
           >
             <MailResponsePolicySettings
               mailboxId={props.context.mailbox.id}
+              identities={admin().identities}
+              initialAutomaticReplies={admin().automaticReplies}
               initialReferenceSchemes={admin().referenceSchemes}
               initialResponseSchedules={admin().responseSchedules}
             />

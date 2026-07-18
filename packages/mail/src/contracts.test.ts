@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   activateWorkflowInputSchema,
   backfillWorkflowInputSchema,
+  cancelScheduledSendInputSchema,
   conversationTriageInputSchema,
+  createAutomaticReplyConfigurationSchema,
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
   createWorkflowInputSchema,
@@ -17,7 +19,9 @@ import {
   messageStateChangeSchema,
   oneShotWorkflowInputSchema,
   preflightWorkflowInputSchema,
+  scheduledSendPageSchema,
   splitConversationInputSchema,
+  updateAutomaticReplyConfigurationSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
   validateWorkflowInputSchema,
@@ -44,6 +48,16 @@ describe("mail draft contracts", () => {
         conversationId: "00000000-0000-4000-8000-000000000002",
         intent: "reply",
         sourceMessageId: "00000000-0000-4000-8000-000000000003",
+        includeSourceAttachments: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      draftContentInputSchema.safeParse({
+        ...draftEditableContent,
+        conversationId: "00000000-0000-4000-8000-000000000002",
+        intent: "forward",
+        sourceMessageId: "00000000-0000-4000-8000-000000000003",
+        includeSourceAttachments: true,
       }).success,
     ).toBe(true);
     expect(
@@ -53,6 +67,74 @@ describe("mail draft contracts", () => {
         byteLength: 100 * 1024 * 1024 + 1,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("scheduled send contracts", () => {
+  test("requires an explicit cancellation disposition and bounded projection", () => {
+    expect(cancelScheduledSendInputSchema.safeParse({ disposition: "draft" }).success).toBe(true);
+    expect(cancelScheduledSendInputSchema.safeParse({ disposition: "discard" }).success).toBe(true);
+    expect(cancelScheduledSendInputSchema.safeParse({}).success).toBe(false);
+    expect(cancelScheduledSendInputSchema.safeParse({ disposition: "delete" }).success).toBe(false);
+
+    expect(
+      scheduledSendPageSchema.safeParse({
+        items: [
+          {
+            id: "00000000-0000-4000-8000-000000000001",
+            commandId: "00000000-0000-4000-8000-000000000002",
+            draftId: "00000000-0000-4000-8000-000000000003",
+            conversationId: null,
+            intent: "new",
+            to: [{ name: null, address: "recipient@example.com" }],
+            cc: [],
+            bcc: [],
+            subject: "Scheduled",
+            bodyPreview: "Preview",
+            scheduledAt: "2026-07-18T09:00:00.000Z",
+            nextAttemptAt: null,
+            state: "scheduled",
+            attempt: 0,
+            lastError: null,
+            scheduledBy: { kind: "user", displayName: "Ada" },
+            createdAt: "2026-07-17T09:00:00.000Z",
+          },
+        ],
+        nextCursor: null,
+        total: 1,
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("automatic reply configuration contracts", () => {
+  const configuration = {
+    name: "Out of office",
+    enabled: true,
+    senderIdentityId: "00000000-0000-4000-8000-000000000001",
+    subject: "Re: original subject",
+    body: "I am away.",
+    format: "markdown" as const,
+    minimumIntervalHours: 168,
+    inactiveBehavior: "skip" as const,
+    schedule: {
+      timeZone: "Europe/Berlin",
+      activeRanges: [{ from: "2026-07-20", to: "2026-08-03" }],
+      weeklyWindows: [{ weekday: 1 as const, start: "00:00", end: "24:00" }],
+      exceptions: [],
+    },
+  };
+
+  test("keeps presets out of the persisted contract", () => {
+    expect(createAutomaticReplyConfigurationSchema.safeParse(configuration).success).toBe(true);
+    expect(createAutomaticReplyConfigurationSchema.safeParse({ ...configuration, preset: "out-of-office" }).success).toBe(false);
+    expect(
+      updateAutomaticReplyConfigurationSchema.safeParse({
+        expectedRevision: 1,
+        ...configuration,
+      }).success,
+    ).toBe(true);
+    expect(updateAutomaticReplyConfigurationSchema.safeParse({ expectedRevision: 1, ...configuration, body: "  " }).success).toBe(false);
   });
 });
 

@@ -9,6 +9,7 @@ import type {
   ProviderConnection,
   SenderIdentity,
 } from "./contracts";
+import type { AutomaticReplyConfiguration } from "./service/automatic-reply-configuration";
 import type { ConversationReferenceScheme } from "./service/conversation-reference";
 import type { MailFolderView } from "./service/messages";
 import type { ResponseSchedule } from "./service/response-schedule";
@@ -19,6 +20,7 @@ export type MailboxAdminSettingsContext = {
   connections: ProviderConnection[];
   folders: MailFolderView[];
   identities: SenderIdentity[];
+  automaticReplies: AutomaticReplyConfiguration[];
   referenceSchemes: ConversationReferenceScheme[];
   responseSchedules: ResponseSchedule[];
   workflows: MailWorkflow[];

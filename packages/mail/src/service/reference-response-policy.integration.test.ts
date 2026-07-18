@@ -4,6 +4,11 @@ import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import {
+  createAutomaticReplyConfiguration,
+  listAutomaticReplyConfigurations,
+  updateAutomaticReplyConfiguration,
+} from "./automatic-reply-configuration";
+import {
   createConversationReferenceScheme,
   ensureConversationReference,
   findConversationByReference,
@@ -14,6 +19,7 @@ import { createMailbox } from "./mailboxes";
 import { createResponseSchedule, evaluateNamedResponseSchedule, listResponseSchedules, updateResponseSchedule } from "./response-schedule";
 import { searchMessages } from "./search";
 import { loadMailWorkflowCatalog } from "./workflow-catalog-service";
+import { createWorkflowVersion, getWorkflow, listWorkflows } from "./workflow-definition-service";
 
 const suite = process.env.MAIL_INTEGRATION_TESTS === "1" ? describe : describe.skip;
 
@@ -433,5 +439,226 @@ suite("conversation references and response schedules", () => {
       (error: unknown) => error,
     );
     expect(catalogError).toMatchObject({ code: "INTERNAL" });
+    await sql`DELETE FROM mail.response_schedules WHERE id = ${created.data.id}::uuid`;
+  });
+
+  test("creates and updates managed automatic replies atomically", async () => {
+    const [identity] = await sql<{ id: string }[]>`
+      INSERT INTO mail.sender_identities (
+        mailbox_id, display_name, from_address, automation_policy, is_default, status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        'Automatic replies',
+        ${`automatic-${suffix}@example.com`},
+        'mailbox',
+        true,
+        'verified'
+      )
+      RETURNING id
+    `;
+    if (!identity) throw new Error("Failed to create automatic reply sender fixture");
+    const input = {
+      name: `Out of office ${suffix}`,
+      enabled: true,
+      senderIdentityId: identity.id,
+      subject: "Re: ${{ inputs.message.subject }}",
+      body: "I am currently away.",
+      format: "markdown" as const,
+      minimumIntervalHours: 168,
+      inactiveBehavior: "skip" as const,
+      schedule: {
+        timeZone: "Europe/Berlin",
+        activeRanges: [{ from: "2026-07-20", to: "2026-08-03" }],
+        weeklyWindows: [
+          { weekday: 1 as const, start: "00:00", end: "24:00" },
+          { weekday: 2 as const, start: "00:00", end: "24:00" },
+          { weekday: 3 as const, start: "00:00", end: "24:00" },
+          { weekday: 4 as const, start: "00:00", end: "24:00" },
+          { weekday: 5 as const, start: "00:00", end: "24:00" },
+          { weekday: 6 as const, start: "00:00", end: "24:00" },
+          { weekday: 7 as const, start: "00:00", end: "24:00" },
+        ],
+        exceptions: [],
+      },
+    };
+    expect((await listAutomaticReplyConfigurations(writerContext, mailboxId)).ok).toBe(false);
+    expect((await createAutomaticReplyConfiguration({ context: writerContext, mailboxId, input })).ok).toBe(false);
+    const created = await createAutomaticReplyConfiguration({ context: ownerContext, mailboxId, input });
+    if (!created.ok) throw new Error(`${created.error.code}: ${created.error.message}`);
+    expect(created.data).toMatchObject({
+      name: input.name,
+      enabled: true,
+      senderIdentityId: identity.id,
+      inactiveBehavior: "skip",
+      revision: 1,
+    });
+    const [stored] = await sql<
+      {
+        current_version_id: string;
+        active_version_id: string | null;
+        activation_count: number;
+        schedule_revision: string | number;
+      }[]
+    >`
+      SELECT
+        workflow.current_version_id,
+        workflow.active_version_id,
+        (SELECT COUNT(*)::int FROM mail.workflow_activations activation
+         WHERE activation.workflow_id = workflow.id AND activation.enabled) AS activation_count,
+        schedule.revision AS schedule_revision
+      FROM mail.automatic_reply_configurations configuration
+      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      JOIN mail.response_schedules schedule ON schedule.id = configuration.response_schedule_id
+      WHERE configuration.id = ${created.data.id}::uuid
+    `;
+    expect(stored).toMatchObject({
+      current_version_id: expect.any(String),
+      active_version_id: expect.any(String),
+      activation_count: 1,
+      schedule_revision: "1",
+    });
+    const visibleSchedules = await listResponseSchedules(ownerContext, mailboxId);
+    expect(visibleSchedules.ok && visibleSchedules.data.some((schedule) => schedule.id === created.data.responseScheduleId)).toBe(false);
+    const managedScheduleUpdate = await updateResponseSchedule({
+      context: ownerContext,
+      mailboxId,
+      scheduleId: created.data.responseScheduleId,
+      input: { expectedRevision: 1, enabled: false },
+    });
+    expect(managedScheduleUpdate.ok).toBe(false);
+    if (!managedScheduleUpdate.ok) expect(managedScheduleUpdate.error.code).toBe("CONFLICT");
+    const visibleWorkflows = await listWorkflows(readerContext, mailboxId);
+    expect(visibleWorkflows.ok && visibleWorkflows.data.some((workflow) => workflow.id === created.data.workflowId)).toBe(false);
+    const managedWorkflowRead = await getWorkflow(readerContext, mailboxId, created.data.workflowId);
+    expect(managedWorkflowRead.ok).toBe(false);
+    if (!managedWorkflowRead.ok) expect(managedWorkflowRead.error.code).toBe("NOT_FOUND");
+    const [beforeConflict] = await sql<{ configurations: number; workflows: number; schedules: number }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.automatic_reply_configurations WHERE mailbox_id = ${mailboxId}::uuid) AS configurations,
+        (SELECT COUNT(*)::int FROM mail.workflows WHERE mailbox_id = ${mailboxId}::uuid) AS workflows,
+        (SELECT COUNT(*)::int FROM mail.response_schedules WHERE mailbox_id = ${mailboxId}::uuid) AS schedules
+    `;
+    const duplicate = await createAutomaticReplyConfiguration({
+      context: ownerContext,
+      mailboxId,
+      input: { ...input, body: "This insert must roll back." },
+    });
+    expect(duplicate.ok).toBe(false);
+    if (!duplicate.ok) expect(duplicate.error.code).toBe("CONFLICT");
+    const [afterConflict] = await sql<{ configurations: number; workflows: number; schedules: number }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.automatic_reply_configurations WHERE mailbox_id = ${mailboxId}::uuid) AS configurations,
+        (SELECT COUNT(*)::int FROM mail.workflows WHERE mailbox_id = ${mailboxId}::uuid) AS workflows,
+        (SELECT COUNT(*)::int FROM mail.response_schedules WHERE mailbox_id = ${mailboxId}::uuid) AS schedules
+    `;
+    expect(afterConflict).toEqual(beforeConflict);
+    const secondActive = await createAutomaticReplyConfiguration({
+      context: ownerContext,
+      mailboxId,
+      input: { ...input, name: `Second active ${suffix}` },
+    });
+    expect(secondActive.ok).toBe(false);
+    if (!secondActive.ok) expect(secondActive.error).toMatchObject({ code: "CONFLICT" });
+    const managedEdit = await createWorkflowVersion({
+      context: ownerContext,
+      mailboxId,
+      workflowId: created.data.workflowId,
+      input: {
+        source: "steps:\n  - succeed:\n      message: bypass\n",
+        effectBudget: { maxTargets: 1, maxMoves: 0, maxSends: 0, maxKeywordChanges: 0, maxCollaborationChanges: 0 },
+      },
+    });
+    expect(managedEdit.ok).toBe(false);
+    if (!managedEdit.ok) expect(managedEdit.error.code).toBe("CONFLICT");
+
+    const updates = await Promise.all([
+      updateAutomaticReplyConfiguration({
+        context: ownerContext,
+        mailboxId,
+        configurationId: created.data.id,
+        input: { expectedRevision: 1, ...input, body: "Updated response.", enabled: false },
+      }),
+      updateAutomaticReplyConfiguration({
+        context: ownerContext,
+        mailboxId,
+        configurationId: created.data.id,
+        input: { expectedRevision: 1, ...input, body: "Conflicting response." },
+      }),
+    ]);
+    expect(updates.filter((result) => result.ok)).toHaveLength(1);
+    expect(updates.filter((result) => !result.ok)).toHaveLength(1);
+    const listed = await listAutomaticReplyConfigurations(ownerContext, mailboxId);
+    if (!listed.ok) throw new Error(listed.error.message);
+    let current = listed.data.find((configuration) => configuration.id === created.data.id);
+    if (!current) throw new Error("Updated automatic reply could not be reloaded");
+    expect(current.revision).toBe(2);
+    if (current.enabled) {
+      const disabledResult = await updateAutomaticReplyConfiguration({
+        context: ownerContext,
+        mailboxId,
+        configurationId: current.id,
+        input: {
+          expectedRevision: current.revision,
+          name: current.name,
+          enabled: false,
+          senderIdentityId: current.senderIdentityId,
+          subject: current.subject,
+          body: current.body,
+          format: current.format,
+          minimumIntervalHours: current.minimumIntervalHours,
+          inactiveBehavior: current.inactiveBehavior,
+          schedule: current.schedule,
+        },
+      });
+      if (!disabledResult.ok) throw new Error(`${disabledResult.error.code}: ${disabledResult.error.message}`);
+      current = disabledResult.data;
+    }
+    const [disabled] = await sql<{ active_version_id: string | null; activation_count: number }[]>`
+      SELECT
+        workflow.active_version_id,
+        (SELECT COUNT(*)::int FROM mail.workflow_activations activation
+         WHERE activation.workflow_id = workflow.id AND activation.enabled) AS activation_count
+      FROM mail.automatic_reply_configurations configuration
+      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      WHERE configuration.id = ${created.data.id}::uuid
+    `;
+    expect(disabled).toEqual({ active_version_id: null, activation_count: 0 });
+    const beforeMetadataUpdate = await sql<{ current_version_id: string }[]>`
+      SELECT workflow.current_version_id
+      FROM mail.automatic_reply_configurations configuration
+      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      WHERE configuration.id = ${created.data.id}::uuid
+    `;
+    await sql`UPDATE mail.sender_identities SET status = 'disabled' WHERE id = ${identity.id}::uuid`;
+    const disabledUpdate = await updateAutomaticReplyConfiguration({
+      context: ownerContext,
+      mailboxId,
+      configurationId: created.data.id,
+      input: {
+        expectedRevision: current.revision,
+        senderIdentityId: current.senderIdentityId,
+        subject: current.subject,
+        body: current.body,
+        format: current.format,
+        minimumIntervalHours: current.minimumIntervalHours,
+        inactiveBehavior: current.inactiveBehavior,
+        schedule: current.schedule,
+        name: `${input.name} renamed`,
+        enabled: false,
+      },
+    });
+    if (!disabledUpdate.ok) throw new Error(`${disabledUpdate.error.code}: ${disabledUpdate.error.message}`);
+    expect(disabledUpdate.data).toMatchObject({
+      enabled: false,
+      revision: current.revision + 1,
+      name: `${input.name} renamed`,
+    });
+    const afterMetadataUpdate = await sql<{ current_version_id: string }[]>`
+      SELECT workflow.current_version_id
+      FROM mail.automatic_reply_configurations configuration
+      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      WHERE configuration.id = ${created.data.id}::uuid
+    `;
+    expect(afterMetadataUpdate[0]?.current_version_id).toBe(beforeMetadataUpdate[0]?.current_version_id);
   });
 });

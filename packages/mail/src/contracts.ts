@@ -1047,6 +1047,46 @@ export const updateResponseScheduleSchema = z
   });
 export type UpdateResponseSchedule = z.infer<typeof updateResponseScheduleSchema>;
 
+export const automaticReplyInactiveBehaviorSchema = z.enum(["skip", "defer"]);
+export type AutomaticReplyInactiveBehavior = z.infer<typeof automaticReplyInactiveBehaviorSchema>;
+
+const automaticReplyConfigurationFields = {
+  name: z.string().trim().min(1).max(80),
+  enabled: z.boolean(),
+  senderIdentityId: z.string().uuid(),
+  subject: z
+    .string()
+    .max(998)
+    .refine((value) => value.trim().length > 0, "Subject cannot be blank"),
+  body: z
+    .string()
+    .max(2 * 1024 * 1024)
+    .refine((value) => value.trim().length > 0, "Message cannot be blank"),
+  format: z.enum(["plain", "markdown"]),
+  minimumIntervalHours: z.number().int().min(0).max(8_760),
+  inactiveBehavior: automaticReplyInactiveBehaviorSchema,
+  schedule: responseScheduleDefinitionSchema,
+} as const;
+
+export const createAutomaticReplyConfigurationSchema = z
+  .object({
+    ...automaticReplyConfigurationFields,
+    enabled: z.boolean().default(true),
+    format: z.enum(["plain", "markdown"]).default("markdown"),
+    minimumIntervalHours: z.number().int().min(0).max(8_760).default(24),
+    inactiveBehavior: automaticReplyInactiveBehaviorSchema.default("skip"),
+  })
+  .strict();
+export type CreateAutomaticReplyConfiguration = z.infer<typeof createAutomaticReplyConfigurationSchema>;
+
+export const updateAutomaticReplyConfigurationSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    ...automaticReplyConfigurationFields,
+  })
+  .strict();
+export type UpdateAutomaticReplyConfiguration = z.infer<typeof updateAutomaticReplyConfigurationSchema>;
+
 const mentionUserIdsSchema = z
   .array(z.string().uuid())
   .max(50)
@@ -1203,7 +1243,10 @@ export const updateComposeTemplateInputSchema = z
     body: z.string().min(1).max(200_000).optional(),
   })
   .strict()
-  .refine((value) => value.name !== undefined || value.shortcut !== undefined || value.body !== undefined, "At least one template field is required");
+  .refine(
+    (value) => value.name !== undefined || value.shortcut !== undefined || value.body !== undefined,
+    "At least one template field is required",
+  );
 export type UpdateComposeTemplateInput = z.infer<typeof updateComposeTemplateInputSchema>;
 
 export const archiveComposeTemplateInputSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
@@ -1366,6 +1409,52 @@ export type ConversationDraftSummary = Pick<MailDraft, "id" | "intent" | "subjec
   createdByDisplayName: string;
 };
 
+export const scheduledSendSchema = z
+  .object({
+    id: z.string().uuid(),
+    commandId: z.string().uuid(),
+    draftId: z.string().uuid(),
+    conversationId: z.string().uuid().nullable(),
+    intent: draftIntentSchema,
+    to: z.array(mailAddressSchema),
+    cc: z.array(mailAddressSchema),
+    bcc: z.array(mailAddressSchema),
+    subject: z.string(),
+    bodyPreview: z.string(),
+    scheduledAt: z.string().datetime(),
+    nextAttemptAt: z.string().datetime().nullable(),
+    state: z.enum(["scheduled", "undo_window"]),
+    attempt: z.number().int().nonnegative(),
+    lastError: z.string().nullable(),
+    scheduledBy: z.object({
+      kind: z.enum(["user", "service_account", "workflow", "system"]),
+      displayName: z.string(),
+    }),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+export type ScheduledSend = z.infer<typeof scheduledSendSchema>;
+
+export const scheduledSendPageSchema = z
+  .object({
+    items: z.array(scheduledSendSchema),
+    nextCursor: z.string().nullable(),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ScheduledSendPage = z.infer<typeof scheduledSendPageSchema>;
+
+export const cancelScheduledSendInputSchema = z.object({ disposition: z.enum(["draft", "discard"]) }).strict();
+export type CancelScheduledSendInput = z.infer<typeof cancelScheduledSendInputSchema>;
+
+export const cancelScheduledSendResultSchema = z
+  .object({
+    disposition: z.enum(["draft", "discard"]),
+    draftId: z.string().uuid(),
+  })
+  .strict();
+export type CancelScheduledSendResult = z.infer<typeof cancelScheduledSendResultSchema>;
+
 export const draftEditableContentInputSchema = z
   .object({
     senderIdentityId: z.string().uuid(),
@@ -1386,6 +1475,7 @@ export const draftContentInputSchema = draftEditableContentInputSchema.extend({
   conversationId: z.string().uuid().nullable().optional(),
   intent: draftIntentSchema.optional(),
   sourceMessageId: z.string().uuid().nullable().optional(),
+  includeSourceAttachments: z.boolean().optional(),
 });
 export type DraftContentInput = z.infer<typeof draftContentInputSchema>;
 

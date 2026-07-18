@@ -1,15 +1,17 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, toast } from "@valentinkolb/cloud/ui";
 import { documentNavigate, type LinkNavigateEvent, navigate } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { batch, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../live-events";
-import type { MailboxPageData } from "../service/workspace";
+import type { MailboxPageData, MailListItem } from "../service/workspace";
+import { readApiError } from "./_components/api-response";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
+import MailScheduledView from "./_components/MailScheduledView";
 import MailSidebar from "./_components/MailSidebar";
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
@@ -34,6 +36,7 @@ export default function MailWorkspace(props: {
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
   let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
   let routeRequest = 0;
+  const pendingReadConversationIds = new Set<string>();
 
   const replaceWorkspaceRoute = async (href: string): Promise<"applied" | "failed" | "stale"> => {
     const request = ++routeRequest;
@@ -146,7 +149,11 @@ export default function MailWorkspace(props: {
         }
         if (message.type === MAIL_LIVE_WS_TYPE.event) {
           const selectedConversationId = data().selectedConversationId;
-          if (!message.payload.event.conversationId || !selectedConversationId || message.payload.event.conversationId === selectedConversationId) {
+          if (
+            !message.payload.event.conversationId ||
+            !selectedConversationId ||
+            message.payload.event.conversationId === selectedConversationId
+          ) {
             liveRefresh.schedule(message.payload.cursor);
           } else controls.markApplied(message.payload.cursor);
           return;
@@ -180,7 +187,68 @@ export default function MailWorkspace(props: {
   const canWrite = createMemo(() => rank(data().permission) >= 2);
   const canAdmin = createMemo(() => rank(data().permission) >= 3);
   const hasSelection = createMemo(() => data().detailMessages.length > 0);
-  const canShowDetails = createMemo(() => Boolean(data().selectedConversationId && data().collaborationState && data().conversationLocalTags));
+  const selectedListItem = createMemo(() => data().listItems.find((item) => item.conversationId === data().selectedConversationId));
+  const selectedUnread = createMemo(
+    () => selectedListItem()?.unread ?? data().detailMessages.some((message) => !message.flags.includes("\\Seen")),
+  );
+  const canShowDetails = createMemo(() =>
+    Boolean(data().selectedConversationId && data().collaborationState && data().conversationLocalTags),
+  );
+
+  const setConversationUnread = (conversationId: string, unread: boolean) => {
+    setData((current) => ({
+      ...current,
+      listItems: current.listItems.map((item) => (item.conversationId === conversationId ? { ...item, unread } : item)),
+    }));
+  };
+
+  const persistConversationRead = async (item: MailListItem) => {
+    const conversationId = item.conversationId;
+    if (!canWrite() || !conversationId || !item.unread || pendingReadConversationIds.has(conversationId)) return;
+    const sourceFolderIds = item.unreadFolderIds.length > 0 ? item.unreadFolderIds : item.sourceFolderId ? [item.sourceFolderId] : [];
+    if (sourceFolderIds.length === 0) return;
+
+    pendingReadConversationIds.add(conversationId);
+    setConversationUnread(conversationId, false);
+    try {
+      const results = await Promise.allSettled(
+        sourceFolderIds.map(async (sourceFolderId) => {
+          const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post({
+            param: { mailboxId: data().mailbox.id, conversationId },
+            json: {
+              kind: "change_state",
+              sourceFolderId,
+              change: {
+                addFlags: ["seen"],
+                removeFlags: [],
+                addKeywords: [],
+                removeKeywords: [],
+              },
+              idempotencyKey: crypto.randomUUID(),
+            },
+          });
+          if (!response.ok) throw new Error(await readApiError(response, "Could not mark conversation as read"));
+        }),
+      );
+      const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failure) throw failure.reason;
+    } catch (error) {
+      setConversationUnread(conversationId, true);
+      toast.error(error instanceof Error ? error.message : "Could not mark conversation as read");
+    } finally {
+      pendingReadConversationIds.delete(conversationId);
+    }
+  };
+
+  const navigateConversation = async (nav: LinkNavigateEvent, item: MailListItem) => {
+    await persistConversationRead(item);
+    await navigateWorkspace(nav);
+  };
+
+  const reconcileWorkspace = async () => {
+    const result = await replaceWorkspaceRoute(requestUrl());
+    if (result === "failed") documentNavigate(requestUrl(), { replace: true });
+  };
 
   return (
     <AppWorkspace>
@@ -189,7 +257,8 @@ export default function MailWorkspace(props: {
         mailboxName={data().mailbox.name}
         folders={data().folders}
         savedViews={data().savedViews}
-        drafts={data().drafts}
+        scheduledMode={data().scheduledMode}
+        scheduledCount={data().scheduledCount}
         activeFolderId={data().folderId}
         activeView={data().query ? null : data().activeView}
         activeSavedViewId={data().savedViewId}
@@ -202,51 +271,78 @@ export default function MailWorkspace(props: {
       />
       <AppWorkspace.Content>
         <AppWorkspace.Main class="p-0" aria-busy={routeLoading()} mobilePane={hasSelection() ? "main" : "conversations"}>
-          <AppWorkspace.MainPane
-            id="conversations"
-            label="Conversation list"
-            open={!listCollapsed() || !hasSelection()}
-            defaultSize={430}
-            minSize={300}
-            maxSize={620}
+          <Show
+            when={data().scheduledMode}
+            fallback={
+              <>
+                <AppWorkspace.MainPane
+                  id="conversations"
+                  label="Conversation list"
+                  open={!listCollapsed() || !hasSelection()}
+                  defaultSize={430}
+                  minSize={300}
+                  maxSize={620}
+                >
+                  <MailConversationList
+                    mailbox={data().mailbox}
+                    mailboxId={data().mailbox.id}
+                    requestUrl={requestUrl()}
+                    query={data().query}
+                    title={data().listTitle}
+                    items={data().listItems}
+                    error={data().listError}
+                    selectedConversationId={data().selectedConversationId}
+                    selectedMessageId={data().selectedMessageId}
+                    nextCursor={data().nextListCursor}
+                    dateConfig={props.dateConfig}
+                    canWrite={canWrite()}
+                    loading={routeLoading()}
+                    onCollapse={() => setCollapsed(true)}
+                    onNavigate={navigateWorkspace}
+                    onNavigateItem={navigateConversation}
+                    onOpenHref={openWorkspaceHref}
+                  />
+                </AppWorkspace.MainPane>
+                <MailConversationReader
+                  mailboxId={data().mailbox.id}
+                  requestUrl={requestUrl()}
+                  canWrite={canWrite()}
+                  identities={data().identities}
+                  selectionKey={data().selectedConversationId ?? data().selectedMessageId}
+                  selectedConversationId={data().selectedConversationId}
+                  unread={selectedUnread()}
+                  sourceFolderId={selectedListItem()?.sourceFolderId ?? null}
+                  unreadSourceFolderIds={selectedListItem()?.unreadFolderIds ?? []}
+                  reference={data().selectedReference}
+                  subject={data().selectedSubject}
+                  messages={data().detailMessages}
+                  dateConfig={props.dateConfig}
+                  listCollapsed={listCollapsed()}
+                  detailsOpen={detailsOpen()}
+                  onRestoreList={() => setCollapsed(false)}
+                  onToggleDetails={() => canShowDetails() && setDetailsOpen((open) => !open)}
+                  onUnreadChange={setConversationUnread}
+                  onReconcile={reconcileWorkspace}
+                  onComposerActiveChange={updateComposerActive}
+                  onNavigate={navigateWorkspace}
+                />
+              </>
+            }
           >
-            <MailConversationList
-              mailbox={data().mailbox}
+            <MailScheduledView
               mailboxId={data().mailbox.id}
-              requestUrl={requestUrl()}
-              query={data().query}
-              title={data().listTitle}
-              items={data().listItems}
-              error={data().listError}
-              selectedConversationId={data().selectedConversationId}
-              selectedMessageId={data().selectedMessageId}
-              nextCursor={data().nextListCursor}
+              page={data().scheduledPage ?? { items: [], nextCursor: null, total: data().scheduledCount }}
+              error={data().scheduledError}
               dateConfig={props.dateConfig}
               canWrite={canWrite()}
               loading={routeLoading()}
-              onCollapse={() => setCollapsed(true)}
               onNavigate={navigateWorkspace}
-              onOpenHref={openWorkspaceHref}
+              onRefresh={async () => {
+                const result = await replaceWorkspaceRoute(requestUrl());
+                if (result === "failed") documentNavigate(requestUrl(), { replace: true });
+              }}
             />
-          </AppWorkspace.MainPane>
-          <MailConversationReader
-            mailboxId={data().mailbox.id}
-            requestUrl={requestUrl()}
-            canWrite={canWrite()}
-            identities={data().identities}
-            selectionKey={data().selectedConversationId ?? data().selectedMessageId}
-            selectedConversationId={data().selectedConversationId}
-            reference={data().selectedReference}
-            subject={data().selectedSubject}
-            messages={data().detailMessages}
-            dateConfig={props.dateConfig}
-            listCollapsed={listCollapsed()}
-            detailsOpen={detailsOpen()}
-            onRestoreList={() => setCollapsed(false)}
-            onToggleDetails={() => canShowDetails() && setDetailsOpen((open) => !open)}
-            onComposerActiveChange={updateComposerActive}
-            onNavigate={navigateWorkspace}
-          />
+          </Show>
         </AppWorkspace.Main>
         <AppWorkspace.Detail id="mail-context" open={detailsOpen() && canShowDetails()} width="lg" maxWidth={520}>
           <Show when={data().selectedConversationId && data().collaborationState && data().conversationLocalTags}>

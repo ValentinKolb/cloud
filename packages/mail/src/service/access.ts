@@ -5,6 +5,7 @@ import {
   hasPermission,
   type PermissionLevel,
   type Principal,
+  resolveDisplayNames,
   updateAccess,
 } from "@valentinkolb/cloud/server";
 import { audit } from "@valentinkolb/cloud/services";
@@ -235,7 +236,7 @@ export const listMailboxAccess = async (context: MailRequestContext, mailboxId: 
       ELSE 0
     END DESC, a.created_at, a.id
   `;
-  return ok(rows.map(mapAccess));
+  return ok(await resolveDisplayNames(rows.map(mapAccess)));
 };
 
 export const grantMailboxAccess = async (params: {
@@ -248,8 +249,8 @@ export const grantMailboxAccess = async (params: {
   if (!principalResult.ok) return principalResult;
 
   return tryCatch(
-    () =>
-      sql.begin(async (tx) => {
+    async () => {
+      const created = await sql.begin(async (tx) => {
         if (!(await lockMailbox(params.mailboxId, tx))) unwrap(fail(err.notFound("Mailbox")));
         unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
         if (await getPrincipalGrant(params.mailboxId, params.principal, tx)) unwrap(fail(err.conflict("Mailbox access")));
@@ -278,7 +279,11 @@ export const grantMailboxAccess = async (params: {
         `;
         if (!row) throw new Error("Created access entry could not be loaded");
         return mapAccess(row);
-      }),
+      });
+      const [resolved] = await resolveDisplayNames([created]);
+      if (!resolved) throw new Error("Created access entry could not be resolved");
+      return resolved;
+    },
     () => err.internal("Failed to grant mailbox access"),
   );
 };

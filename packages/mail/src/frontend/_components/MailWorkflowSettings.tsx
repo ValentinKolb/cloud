@@ -1,4 +1,13 @@
-import { dialogCore, NumberInput, PanelDialog, Placeholder, panelDialogOptions, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import {
+  dialogCore,
+  NumberInput,
+  PanelDialog,
+  Placeholder,
+  panelDialogWorkspaceOptions,
+  prompts,
+  TextInput,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -220,7 +229,7 @@ export default function MailWorkflowSettings(props: { mailboxId: string; initial
     }
     await dialogCore.open<void>(
       (close) => <WorkflowEditor mailboxId={props.mailboxId} workflow={detail} close={() => close()} onSaved={replaceWorkflow} />,
-      panelDialogOptions,
+      panelDialogWorkspaceOptions,
     );
   };
 

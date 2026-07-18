@@ -1,4 +1,4 @@
-import type { AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
 import { drafts, type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../../service";
@@ -23,14 +23,22 @@ export default ssr<AuthContext>(async (c) => {
   ]);
   if (!mailbox.ok || !draft.ok || (permission !== "write" && permission !== "admin")) return c.redirect(`/app/mail/${mailboxId}`);
   const returnHref = safeReturnHref(c.req.query("return"), mailboxId);
+  const popout = c.req.query("window") === "1";
   return () => (
-    <Layout c={c} fullPage focusMode title={[{ title: "Mail", href: returnHref }, { title: draft.data.subject || "Draft" }]}>
+    <Layout
+      c={c}
+      fullPage
+      focusMode
+      flushCanvas={popout}
+      title={[{ title: "Mail", href: returnHref }, { title: draft.data.subject || "Draft" }]}
+    >
       <MailComposerPage
         mailboxId={mailboxId}
         identities={identities.ok ? identities.data : []}
         initialDraft={draft.data}
         returnHref={returnHref}
-        popout={c.req.query("window") === "1"}
+        popout={popout}
+        dateConfig={getDateConfig(c)}
       />
     </Layout>
   );

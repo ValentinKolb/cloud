@@ -2,14 +2,9 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Readable } from "node:stream";
 import { sql } from "bun";
 import { migrate } from "../migrate";
-import { grantMailboxAccess, revokeMailboxAccess } from "./access";
+import { grantMailboxAccess, listMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
-import {
-  cancelSendCommand,
-  executeMutationCommand,
-  executeOutboxSubmission,
-  executeOutboxSubmissionWithHeartbeat,
-} from "./command-runtime";
+import { executeMutationCommand, executeOutboxSubmission, executeOutboxSubmissionWithHeartbeat } from "./command-runtime";
 import { createActorCommand } from "./commands";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
@@ -36,9 +31,10 @@ import { resolveMailExecution } from "./execution";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
-import { createAttachmentStream, openAttachment } from "./messages";
+import { createAttachmentStream, listConversations, openAttachment } from "./messages";
 import { createProviderConnection, listProviderConnections, replaceProviderConnection } from "./provider-connections";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
+import { cancelScheduledSend, cancelSendCommand, listScheduledSends } from "./scheduled-sends";
 import { searchMessages } from "./search";
 import { ingestEnvelope } from "./sync-runtime";
 import { createConversationTriageCommands } from "./triage";
@@ -374,6 +370,18 @@ suite("mail PostgreSQL foundation", () => {
       GROUP BY c.id
     `;
     expect(answeredConversation).toEqual({ response_needed: false, message_count: 3 });
+    const unreadConversations = await listConversations({
+      context,
+      mailboxId: mailbox.data.id,
+      limit: 100,
+    });
+    expect(unreadConversations.ok).toBe(true);
+    if (!unreadConversations.ok) return;
+    const unreadConversation = unreadConversations.data.items.find((item) => item.id === orderedConversation!.id);
+    expect(unreadConversation?.unread).toBe(true);
+    expect(Array.isArray(unreadConversation?.unreadFolderIds)).toBe(true);
+    expect(unreadConversation?.unreadFolderIds).toContain(folder!.id);
+
     const conversationRead = await createConversationTriageCommands({
       context,
       mailboxId: mailbox.data.id,
@@ -391,6 +399,19 @@ suite("mail PostgreSQL foundation", () => {
     expect(new Set(conversationRead.data.commands.map((item) => item.correlationId))).toEqual(
       new Set([conversationRead.data.correlationId]),
     );
+    const [localReadProjection] = await sql<{ messages: number; read_messages: number }[]>`
+      SELECT
+        COUNT(*)::int AS messages,
+        COUNT(*) FILTER (WHERE '\\Seen' = ANY(placement.flags))::int AS read_messages
+      FROM mail.conversation_messages conversation_message
+      JOIN mail.remote_message_refs ref ON ref.message_id = conversation_message.message_id
+      JOIN mail.message_placements placement ON placement.remote_message_ref_id = ref.id
+      WHERE conversation_message.conversation_id = ${orderedConversation!.id}::uuid
+        AND ref.folder_id = ${folder!.id}::uuid
+        AND ref.stale_at IS NULL
+        AND placement.deleted_at IS NULL
+    `;
+    expect(localReadProjection).toEqual({ messages: 3, read_messages: 3 });
     const replayedConversationRead = await createConversationTriageCommands({
       context,
       mailboxId: mailbox.data.id,
@@ -837,6 +858,168 @@ suite("mail PostgreSQL foundation", () => {
     ]);
     const cancelled = await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: command.data.id });
     expect(cancelled.ok).toBe(true);
+    const discardScheduledDraft = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        senderIdentityId: identity!.id,
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Discard scheduled message",
+        body: "This scheduled message will be discarded.",
+        format: "plain",
+      },
+    });
+    expect(discardScheduledDraft.ok).toBe(true);
+    if (!discardScheduledDraft.ok) return;
+    const pastScheduledCommand = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: discardScheduledDraft.data.id,
+        expectedDraftRevision: discardScheduledDraft.data.revision,
+        senderIdentityId: identity!.id,
+        scheduledAt: new Date(Date.now() - 60_000).toISOString(),
+        undoSeconds: 0,
+        idempotencyKey: `past-scheduled-${suffix}`,
+      },
+    });
+    expect(pastScheduledCommand.ok).toBe(false);
+    const discardScheduledAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    const discardScheduledCommand = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: discardScheduledDraft.data.id,
+        expectedDraftRevision: discardScheduledDraft.data.revision,
+        senderIdentityId: identity!.id,
+        scheduledAt: discardScheduledAt,
+        undoSeconds: 30,
+        idempotencyKey: `discard-scheduled-${suffix}`,
+      },
+    });
+    expect(discardScheduledCommand.ok).toBe(true);
+    if (!discardScheduledCommand.ok) return;
+    const [discardScheduledOutbox] = await sql<{ id: string; scheduled_at: Date; undo_until: Date }[]>`
+      SELECT id, scheduled_at, undo_until
+      FROM mail.outbox_submissions
+      WHERE command_id = ${discardScheduledCommand.data.id}::uuid
+    `;
+    expect(discardScheduledOutbox!.scheduled_at.toISOString()).toBe(discardScheduledAt);
+    expect(discardScheduledOutbox!.undo_until.toISOString()).toBe(discardScheduledAt);
+    const secondScheduledDraft = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        senderIdentityId: identity!.id,
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Second scheduled message",
+        body: "This message verifies stable scheduled-send pagination.",
+        format: "plain",
+      },
+    });
+    expect(secondScheduledDraft.ok).toBe(true);
+    if (!secondScheduledDraft.ok) return;
+    const secondScheduledCommand = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: secondScheduledDraft.data.id,
+        expectedDraftRevision: secondScheduledDraft.data.revision,
+        senderIdentityId: identity!.id,
+        scheduledAt: discardScheduledAt,
+        undoSeconds: 0,
+        idempotencyKey: `second-scheduled-${suffix}`,
+      },
+    });
+    expect(secondScheduledCommand.ok).toBe(true);
+    if (!secondScheduledCommand.ok) return;
+    const firstScheduledPage = await listScheduledSends({ context, mailboxId: mailbox.data.id, limit: 1 });
+    expect(firstScheduledPage.ok).toBe(true);
+    if (!firstScheduledPage.ok) return;
+    expect(firstScheduledPage.data.items).toHaveLength(1);
+    expect(firstScheduledPage.data.total).toBe(2);
+    expect(firstScheduledPage.data.nextCursor).not.toBeNull();
+    const firstScheduledItem = firstScheduledPage.data.items[0]!;
+    let requestedAtMutationError: unknown;
+    try {
+      await sql`
+        UPDATE mail.outbox_submissions
+        SET requested_at = requested_at + interval '1 second'
+        WHERE id = ${firstScheduledItem.id}::uuid
+      `;
+    } catch (error) {
+      requestedAtMutationError = error;
+    }
+    expect(requestedAtMutationError).toMatchObject({ errno: "55000" });
+    await sql`
+      UPDATE mail.outbox_submissions
+      SET
+        scheduled_at = requested_at + interval '15 minutes',
+        last_error_code = 'SMTP_TEMPORARY',
+        last_error_message = 'Temporary SMTP failure'
+      WHERE id = ${firstScheduledItem.id}::uuid
+    `;
+    const secondScheduledPage = await listScheduledSends({
+      context,
+      mailboxId: mailbox.data.id,
+      cursor: firstScheduledPage.data.nextCursor!,
+      limit: 1,
+    });
+    expect(secondScheduledPage.ok).toBe(true);
+    if (!secondScheduledPage.ok) return;
+    expect(secondScheduledPage.data.items).toHaveLength(1);
+    expect(secondScheduledPage.data.items[0]!.id).not.toBe(firstScheduledItem.id);
+    expect(secondScheduledPage.data.nextCursor).toBeNull();
+    const completeScheduledPage = await listScheduledSends({ context, mailboxId: mailbox.data.id, limit: 10 });
+    expect(completeScheduledPage.ok).toBe(true);
+    if (!completeScheduledPage.ok) return;
+    const retriedScheduledItem = completeScheduledPage.data.items.find((item) => item.id === firstScheduledItem.id);
+    expect(retriedScheduledItem?.scheduledAt).toBe(discardScheduledAt);
+    expect(retriedScheduledItem?.nextAttemptAt).toBe(new Date(Date.parse(discardScheduledAt) + 15 * 60_000).toISOString());
+    expect(retriedScheduledItem?.lastError).toBe("Temporary SMTP failure");
+    const discardedSchedule = await cancelScheduledSend({
+      context,
+      mailboxId: mailbox.data.id,
+      scheduledSendId: discardScheduledOutbox!.id,
+      input: { disposition: "discard" },
+    });
+    expect(discardedSchedule.ok && discardedSchedule.data.disposition).toBe("discard");
+    const [discardedScheduleState] = await sql<{ draft_state: string; outbox_state: string; command_state: string }[]>`
+      SELECT draft.state AS draft_state, outbox.state AS outbox_state, command.state AS command_state
+      FROM mail.outbox_submissions outbox
+      JOIN mail.commands command ON command.id = outbox.command_id
+      JOIN mail.drafts draft ON draft.id = outbox.draft_id
+      WHERE outbox.id = ${discardScheduledOutbox!.id}::uuid
+    `;
+    expect(discardedScheduleState).toEqual({
+      draft_state: "discarded",
+      outbox_state: "cancelled",
+      command_state: "cancelled",
+    });
+    const repeatedScheduleCancellation = await cancelScheduledSend({
+      context,
+      mailboxId: mailbox.data.id,
+      scheduledSendId: discardScheduledOutbox!.id,
+      input: { disposition: "draft" },
+    });
+    expect(repeatedScheduleCancellation.ok).toBe(false);
+    const [secondScheduledOutbox] = await sql<{ id: string }[]>`
+      SELECT id FROM mail.outbox_submissions WHERE command_id = ${secondScheduledCommand.data.id}::uuid
+    `;
+    const restoredSchedule = await cancelScheduledSend({
+      context,
+      mailboxId: mailbox.data.id,
+      scheduledSendId: secondScheduledOutbox!.id,
+      input: { disposition: "draft" },
+    });
+    expect(restoredSchedule.ok && restoredSchedule.data.disposition).toBe("draft");
     expect(
       (
         await createDraftAttachmentUpload({
@@ -977,6 +1160,18 @@ suite("mail PostgreSQL foundation", () => {
       INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
       VALUES (${remoteRef!.id}::uuid, ${folder!.id}::uuid, ${message!.id}::uuid, ARRAY[]::text[], ARRAY[]::text[])
     `;
+    const [attachmentConversation] = await sql<{ id: string }[]>`
+      INSERT INTO mail.conversations (
+        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at, response_needed
+      ) VALUES (
+        ${mailbox.data.id}::uuid, 'Searchable subject', 'Alice Fixture', now(), now(), true
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
+      VALUES (${attachmentConversation!.id}::uuid, ${message!.id}::uuid, 0, 'headers')
+    `;
     const result = await searchMessages({
       context,
       mailboxId: mailbox.data.id,
@@ -1019,6 +1214,75 @@ suite("mail PostgreSQL foundation", () => {
       )
       RETURNING id
     `;
+    const forwardedDraft = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        conversationId: attachmentConversation!.id,
+        intent: "forward",
+        sourceMessageId: message!.id,
+        includeSourceAttachments: true,
+        senderIdentityId: identity!.id,
+        to: [],
+        cc: [],
+        bcc: [],
+        subject: "Fwd: Searchable subject",
+        body: "Forwarded message",
+        format: "plain",
+      },
+    });
+    expect(forwardedDraft.ok).toBe(true);
+    if (!forwardedDraft.ok) return;
+    expect(forwardedDraft.data.attachments).toEqual([
+      expect.objectContaining({
+        filename: "stream-test.bin",
+        byteLength: attachmentBytes.length,
+        contentHash: attachmentBlob.contentHash,
+        position: 0,
+      }),
+    ]);
+    const [forwardedBlob] = await sql<{ blob_id: string }[]>`
+      SELECT blob_id
+      FROM mail.draft_attachments
+      WHERE draft_id = ${forwardedDraft.data.id}::uuid
+    `;
+    expect(forwardedBlob?.blob_id).toBe(attachmentBlob.id);
+    const forwardWithoutAttachments = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        conversationId: attachmentConversation!.id,
+        intent: "forward",
+        sourceMessageId: message!.id,
+        includeSourceAttachments: false,
+        senderIdentityId: identity!.id,
+        to: [],
+        cc: [],
+        bcc: [],
+        subject: "Fwd: Searchable subject",
+        body: "Forwarded without attachments",
+        format: "plain",
+      },
+    });
+    expect(forwardWithoutAttachments.ok && forwardWithoutAttachments.data.attachments).toEqual([]);
+    const invalidAttachmentCopy = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        conversationId: attachmentConversation!.id,
+        intent: "reply",
+        sourceMessageId: message!.id,
+        includeSourceAttachments: true,
+        senderIdentityId: identity!.id,
+        to: [{ name: "Alice Fixture", address: "alice@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Re: Searchable subject",
+        body: "Reply",
+        format: "plain",
+      },
+    });
+    expect(invalidAttachmentCopy.ok).toBe(false);
     const openedAttachment = await openAttachment({
       context,
       mailboxId: mailbox.data.id,
@@ -1224,6 +1488,11 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(grant.ok).toBe(true);
     if (!grant.ok) return;
+    expect(grant.data.displayName).toBe("Mail Collaborator");
+    const accessEntries = await listMailboxAccess(context, mailbox.data.id);
+    expect(accessEntries.ok).toBe(true);
+    if (!accessEntries.ok) return;
+    expect(accessEntries.data.find((entry) => entry.id === grant.data.id)?.displayName).toBe("Mail Collaborator");
     const collaboratorDraft = await createDraft({
       context: collaboratorContext,
       mailboxId: mailbox.data.id,
@@ -1330,13 +1599,40 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(collaboratorCommand.ok).toBe(true);
     if (!collaboratorCommand.ok) return;
+    const collaboratorScheduled = await listScheduledSends({
+      context: collaboratorContext,
+      mailboxId: mailbox.data.id,
+      limit: 100,
+    });
+    expect(collaboratorScheduled.ok).toBe(true);
+    if (collaboratorScheduled.ok) {
+      expect(collaboratorScheduled.data.items).toContainEqual(
+        expect.objectContaining({
+          commandId: collaboratorCommand.data.id,
+          draftId: collaboratorDraft.data.id,
+          state: "scheduled",
+        }),
+      );
+    }
     expect((await revokeMailboxAccess({ context, mailboxId: mailbox.data.id, accessId: sendGrant.data.id })).ok).toBe(true);
+    const revokedScheduled = await listScheduledSends({
+      context: collaboratorContext,
+      mailboxId: mailbox.data.id,
+    });
+    expect(revokedScheduled.ok).toBe(false);
     const [collaboratorOutbox] = await sql<{ id: string }[]>`
       UPDATE mail.outbox_submissions
       SET scheduled_at = now() - interval '1 second', undo_until = NULL
       WHERE command_id = ${collaboratorCommand.data.id}::uuid
       RETURNING id
     `;
+    const revokedCancellation = await cancelScheduledSend({
+      context: collaboratorContext,
+      mailboxId: mailbox.data.id,
+      scheduledSendId: collaboratorOutbox!.id,
+      input: { disposition: "draft" },
+    });
+    expect(revokedCancellation.ok).toBe(false);
     const [outboxResource] = await sql<{ id: string }[]>`
       SELECT binding.remote_resource_id AS id
       FROM mail.outbox_submissions outbox
@@ -1769,5 +2065,16 @@ suite("mail PostgreSQL foundation", () => {
       resource_status: "connection_required",
       mailbox_health: "connection_required",
     });
+    const unavailableExecution = await resolveMailExecution({
+      context,
+      mailboxId: mailbox.data.id,
+      operation: "actorMutation",
+    });
+    expect(unavailableExecution.ok).toBe(false);
+    if (!unavailableExecution.ok) {
+      expect(unavailableExecution.error.message).toBe(
+        "Mailbox transport is unavailable: Provider credentials changed; verify the remote resource again",
+      );
+    }
   }, 30_000);
 });

@@ -6,6 +6,7 @@ import { type Context, Hono } from "hono";
 import { z } from "zod";
 import {
   cancelConversationReminderSchema,
+  cancelScheduledSendInputSchema,
   configurableFolderRoleSchema,
   conversationPresenceHeartbeatSchema,
   conversationPresenceLeaveSchema,
@@ -63,6 +64,7 @@ import {
   providerConnections,
   reminders,
   savedViews,
+  scheduledSends,
   search,
   senderIdentities,
   settingsContext,
@@ -1123,6 +1125,30 @@ const mailOperationsApi = new Hono<AuthContext>()
     const params = c.req.valid("param") as { mailboxId: string; commandId: string };
     return respond(c, cancelSendCommand({ context: requestContext(c), ...params }));
   })
+  .get("/mailboxes/:mailboxId/scheduled-sends", v("param", uuidParamSchema), v("query", cursorQuerySchema), async (c) =>
+    respond(
+      c,
+      scheduledSends.listScheduledSends({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        ...c.req.valid("query"),
+      }),
+    ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/scheduled-sends/:scheduledSendId/cancel",
+    v("param", mailboxAndIdParamSchema("scheduledSendId")),
+    v("json", cancelScheduledSendInputSchema),
+    async (c) =>
+      respond(
+        c,
+        scheduledSends.cancelScheduledSend({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; scheduledSendId: string }),
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
   .route("/", workflowRoutes);
 
 const authenticatedApi = new Hono<AuthContext>().route("/", resourceRoutes).route("/", mailOperationsApi);

@@ -2,11 +2,12 @@ import { audit } from "@valentinkolb/cloud/services";
 import { dates, err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import {
-  responseScheduleDefinitionSchema,
   type CreateResponseSchedule,
   type ResponseScheduleDefinitionInput,
+  responseScheduleDefinitionSchema,
   type UpdateResponseSchedule,
 } from "../contracts";
+import { validateResponseScheduleDefinition } from "../response-schedule-validation";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { publishMailMailboxEvent } from "./events";
@@ -53,8 +54,6 @@ export type ResponseSchedule = {
   updatedAt: string;
 };
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const WEEKDAYS: Record<string, ResponseScheduleWeeklyWindow["weekday"]> = {
   Mon: 1,
   Tue: 2,
@@ -67,56 +66,7 @@ const WEEKDAYS: Record<string, ResponseScheduleWeeklyWindow["weekday"]> = {
 
 const minuteOfDay = (value: string): number => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
 
-const validDate = (value: string): boolean => {
-  if (!DATE_PATTERN.test(value)) return false;
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(Date.UTC(year!, month! - 1, day!));
-  return date.toISOString().slice(0, 10) === value;
-};
-
-const validWindow = (window: ResponseScheduleWindow): boolean =>
-  TIME_PATTERN.test(window.start) && TIME_PATTERN.test(window.end) && minuteOfDay(window.start) < minuteOfDay(window.end);
-
-const windowsOverlap = (windows: readonly ResponseScheduleWindow[]): boolean => {
-  const sorted = [...windows].sort((left, right) => minuteOfDay(left.start) - minuteOfDay(right.start));
-  return sorted.some((window, index) => index > 0 && minuteOfDay(window.start) < minuteOfDay(sorted[index - 1]!.end));
-};
-
-export const validateResponseSchedule = (schedule: ResponseScheduleDefinition): string[] => {
-  const errors: string[] = [];
-  const timeZone = dates.normalizeTimeZone(schedule.timeZone, "");
-  if (!timeZone) errors.push("A valid IANA time zone is required");
-  if (schedule.activeRanges.length > 32) errors.push("At most 32 active date ranges are allowed");
-  if (schedule.weeklyWindows.length > 64) errors.push("At most 64 weekly windows are allowed");
-  if (schedule.exceptions.length > 366) errors.push("At most 366 date exceptions are allowed");
-  for (const range of schedule.activeRanges) {
-    if (!validDate(range.from) || (range.to !== null && (!validDate(range.to) || range.to < range.from))) {
-      errors.push("Active date ranges must use ordered YYYY-MM-DD dates");
-      break;
-    }
-  }
-  if (schedule.weeklyWindows.some((window) => !validWindow(window))) {
-    errors.push("Weekly windows must be ordered HH:mm ranges within one local day");
-  }
-  for (let weekday = 1; weekday <= 7; weekday += 1) {
-    if (windowsOverlap(schedule.weeklyWindows.filter((window) => window.weekday === weekday))) {
-      errors.push("Weekly windows cannot overlap on the same weekday");
-      break;
-    }
-  }
-  const exceptionDates = new Set<string>();
-  for (const exception of schedule.exceptions) {
-    if (!validDate(exception.date)) errors.push("Exception dates must use YYYY-MM-DD");
-    if (exceptionDates.has(exception.date)) errors.push("Each exception date may appear only once");
-    exceptionDates.add(exception.date);
-    if (exception.closed && exception.windows.length > 0) errors.push("Closed exceptions cannot define active windows");
-    if (exception.windows.some((window) => !validWindow(window))) {
-      errors.push("Exception windows must be ordered HH:mm ranges within one local day");
-    }
-    if (windowsOverlap(exception.windows)) errors.push("Exception windows cannot overlap");
-  }
-  return [...new Set(errors)];
-};
+export const validateResponseSchedule = validateResponseScheduleDefinition;
 
 const localParts = (instant: Date, timeZone: string): { date: string; time: string; weekday: ResponseScheduleWeeklyWindow["weekday"] } => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -240,7 +190,7 @@ const requestActor = (context: MailRequestContext): ResponseScheduleActor => {
   throw new Error("Request actor cannot configure response schedules");
 };
 
-const validateDefinition = (definition: ResponseScheduleDefinitionInput): Result<ResponseScheduleDefinition> => {
+export const normalizeResponseScheduleDefinition = (definition: ResponseScheduleDefinitionInput): Result<ResponseScheduleDefinition> => {
   const normalized: ResponseScheduleDefinition = {
     timeZone: definition.timeZone.trim(),
     activeRanges: definition.activeRanges,
@@ -307,6 +257,12 @@ export const listResponseSchedules = async (context: MailRequestContext, mailbox
     SELECT ${scheduleColumns}
     FROM mail.response_schedules schedule
     WHERE schedule.mailbox_id = ${mailboxId}::uuid
+      AND NOT EXISTS (
+        SELECT 1
+        FROM mail.automatic_reply_configurations configuration
+        WHERE configuration.mailbox_id = schedule.mailbox_id
+          AND configuration.response_schedule_id = schedule.id
+      )
     ORDER BY schedule.enabled DESC, schedule.normalized_name, schedule.id
   `;
   const schedules: ResponseSchedule[] = [];
@@ -323,7 +279,7 @@ export const createResponseSchedule = async (params: {
   mailboxId: string;
   input: CreateResponseSchedule;
 }): Promise<Result<ResponseSchedule>> => {
-  const definition = validateDefinition(params.input.definition);
+  const definition = normalizeResponseScheduleDefinition(params.input.definition);
   if (!definition.ok) return definition;
   const name = normalizeName(params.input.name);
   const actor = requestActor(params.context);
@@ -389,7 +345,7 @@ export const updateResponseSchedule = async (params: {
   scheduleId: string;
   input: UpdateResponseSchedule;
 }): Promise<Result<ResponseSchedule>> => {
-  const definition = params.input.definition ? validateDefinition(params.input.definition) : null;
+  const definition = params.input.definition ? normalizeResponseScheduleDefinition(params.input.definition) : null;
   if (definition && !definition.ok) return definition;
   try {
     const result = await sql.begin(async (tx): Promise<Result<{ schedule: ResponseSchedule; activityId: string | null }>> => {
@@ -402,6 +358,15 @@ export const updateResponseSchedule = async (params: {
         FOR UPDATE
       `;
       if (!current) return fail(err.notFound("Response schedule"));
+      const [managed] = await tx<{ exists: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM mail.automatic_reply_configurations
+          WHERE mailbox_id = ${params.mailboxId}::uuid
+            AND response_schedule_id = ${params.scheduleId}::uuid
+        ) AS exists
+      `;
+      if (managed?.exists) return fail(err.conflict("Managed automatic reply schedules must be changed from Automatic replies"));
       if (Number(current.revision) !== params.input.expectedRevision) return fail(err.conflict("Response schedule was changed"));
       const currentDefinition = decodeStoredResponseScheduleDefinition(current.definition);
       if (!currentDefinition.ok) return currentDefinition;

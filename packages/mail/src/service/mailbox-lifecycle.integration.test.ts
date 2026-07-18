@@ -178,7 +178,9 @@ suite("reversible mailbox lifecycle", () => {
     expect((await restoreMailbox(ownerContext, mailboxId)).ok).toBe(true);
     const readExecution = await resolveMailExecution({ mailboxId, operation: "actorRead", context: ownerContext });
     expect(readExecution.ok && readExecution.data.localOnly).toBe(true);
-    expect((await resolveMailExecution({ mailboxId, operation: "actorMutation", context: ownerContext })).ok).toBe(false);
+    const pausedExecution = await resolveMailExecution({ mailboxId, operation: "actorMutation", context: ownerContext });
+    expect(pausedExecution.ok).toBe(false);
+    if (!pausedExecution.ok) expect(pausedExecution.error.message).toBe("Mailbox transport is paused");
     const [resourceState] = await sql<{ status: string; sync_generation: string; current_fence_token: string }[]>`
       SELECT status, sync_generation::text, current_fence_token::text
       FROM mail.remote_resources

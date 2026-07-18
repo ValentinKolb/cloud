@@ -142,6 +142,12 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
         body: text("Reply body or text expression.", false, 2 * 1024 * 1024),
         format: { kind: "string", enum: ["plain", "markdown"], optional: true, description: "Reply body format." },
         schedule: text("Optional named response schedule.", true, 500),
+        inactiveBehavior: {
+          kind: "string",
+          enum: ["skip", "defer"],
+          optional: true,
+          description: "Skip outside the response schedule or defer until its next active window.",
+        },
         minimumIntervalHours: {
           kind: "number",
           integer: true,

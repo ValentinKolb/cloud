@@ -1,16 +1,33 @@
-import { dialogCore, PanelDialog, panelDialogOptions, Placeholder, prompts, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
+import {
+  dialogCore,
+  PanelDialog,
+  Placeholder,
+  panelDialogOptions,
+  panelDialogWorkspaceOptions,
+  prompts,
+  Switch,
+  TextInput,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import { responseScheduleDefinitionSchema } from "../../contracts";
+import type { SenderIdentity } from "../../contracts";
+import type { AutomaticReplyConfiguration } from "../../service/automatic-reply-configuration";
 import type { ConversationReferenceScheme } from "../../service/conversation-reference";
-import type { ResponseSchedule } from "../../service/response-schedule";
+import type { ResponseSchedule, ResponseScheduleDefinition } from "../../service/response-schedule";
 import { readApiError } from "./api-response";
+import MailAutomaticReplySettings from "./MailAutomaticReplySettings";
+import MailResponseScheduleFields, { responseScheduleSummary } from "./MailResponseScheduleFields";
 
-const starterSchedule = () => ({
+const starterSchedule = (): ResponseScheduleDefinition => ({
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   activeRanges: [],
-  weeklyWindows: [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: "09:00", end: "17:00" })),
+  weeklyWindows: [1, 2, 3, 4, 5].map((weekday) => ({
+    weekday: weekday as 1 | 2 | 3 | 4 | 5,
+    start: "09:00",
+    end: "17:00",
+  })),
   exceptions: [],
 });
 
@@ -108,25 +125,17 @@ function ResponseScheduleEditor(props: {
 }) {
   const [name, setName] = createSignal(props.schedule?.name ?? "");
   const [enabled, setEnabled] = createSignal(props.schedule?.enabled ?? true);
-  const [definition, setDefinition] = createSignal(JSON.stringify(props.schedule?.definition ?? starterSchedule(), null, 2));
+  const [definition, setDefinition] = createSignal<ResponseScheduleDefinition>(props.schedule?.definition ?? starterSchedule());
   const save = mutations.create<ResponseSchedule, void>({
     mutation: async () => {
-      let source: unknown;
-      try {
-        source = JSON.parse(definition());
-      } catch {
-        throw new Error("Schedule definition must be valid JSON");
-      }
-      const parsed = responseScheduleDefinitionSchema.safeParse(source);
-      if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Schedule definition is invalid");
       const response = props.schedule
         ? await apiClient.mailboxes[":mailboxId"]["response-schedules"][":scheduleId"].$patch({
             param: { mailboxId: props.mailboxId, scheduleId: props.schedule.id },
-            json: { expectedRevision: props.schedule.revision, name: name().trim(), definition: parsed.data, enabled: enabled() },
+            json: { expectedRevision: props.schedule.revision, name: name().trim(), definition: definition(), enabled: enabled() },
           })
         : await apiClient.mailboxes[":mailboxId"]["response-schedules"].$post({
             param: { mailboxId: props.mailboxId },
-            json: { name: name().trim(), definition: parsed.data, enabled: enabled() },
+            json: { name: name().trim(), definition: definition(), enabled: enabled() },
           });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to save response schedule"));
       return response.json();
@@ -157,17 +166,7 @@ function ResponseScheduleEditor(props: {
             required
           />
           <Switch label="Enabled" value={enabled} onChange={setEnabled} />
-          <TextInput
-            label="Definition"
-            description="Validated JSON using an IANA time zone, activeRanges, weeklyWindows, and exceptions."
-            value={definition}
-            onInput={setDefinition}
-            multiline
-            monospace
-            lines={20}
-            spellcheck={false}
-            autocapitalize="off"
-          />
+          <MailResponseScheduleFields value={definition} onChange={setDefinition} />
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
@@ -184,11 +183,14 @@ function ResponseScheduleEditor(props: {
 
 export default function MailResponsePolicySettings(props: {
   mailboxId: string;
+  identities: SenderIdentity[];
+  initialAutomaticReplies: AutomaticReplyConfiguration[];
   initialReferenceSchemes: ConversationReferenceScheme[];
   initialResponseSchedules: ResponseSchedule[];
 }) {
   const [schemes, setSchemes] = createSignal(props.initialReferenceSchemes);
-  const [schedules, setSchedules] = createSignal(props.initialResponseSchedules);
+  const managedScheduleIds = new Set(props.initialAutomaticReplies.map((configuration) => configuration.responseScheduleId));
+  const [schedules, setSchedules] = createSignal(props.initialResponseSchedules.filter((schedule) => !managedScheduleIds.has(schedule.id)));
   const replaceScheme = (scheme: ConversationReferenceScheme) =>
     setSchemes((current) =>
       current.some((item) => item.id === scheme.id)
@@ -219,11 +221,17 @@ export default function MailResponsePolicySettings(props: {
   const openSchedule = (schedule: ResponseSchedule | null = null) =>
     dialogCore.open<void>(
       (close) => <ResponseScheduleEditor mailboxId={props.mailboxId} schedule={schedule} close={() => close()} onSaved={replaceSchedule} />,
-      panelDialogOptions,
+      panelDialogWorkspaceOptions,
     );
 
   return (
     <div class="flex flex-col gap-4">
+      <MailAutomaticReplySettings
+        mailboxId={props.mailboxId}
+        identities={props.identities}
+        initialConfigurations={props.initialAutomaticReplies}
+      />
+
       <section>
         <div class="mb-2 flex items-start justify-between gap-3">
           <div>
@@ -290,7 +298,7 @@ export default function MailResponsePolicySettings(props: {
                   <i class="ti ti-calendar-time text-dimmed" aria-hidden="true" />
                   <div class="min-w-0 flex-1">
                     <p class="truncate text-sm font-medium text-primary">{schedule.name}</p>
-                    <p class="truncate text-xs text-dimmed">{schedule.definition.timeZone}</p>
+                    <p class="truncate text-xs text-dimmed">{responseScheduleSummary(schedule.definition)}</p>
                   </div>
                   <span class={`badge ${schedule.enabled ? "badge-success" : ""}`}>{schedule.enabled ? "Enabled" : "Disabled"}</span>
                   <button type="button" class="icon-btn" aria-label={`Edit ${schedule.name}`} onClick={() => void openSchedule(schedule)}>

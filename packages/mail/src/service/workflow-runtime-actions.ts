@@ -89,8 +89,7 @@ const renderWorkflowMessage = async (
   context: WorkflowExecuteActionContext,
   step: WorkflowActionStep,
   field: "subject" | "body",
-): Promise<string> =>
-  renderWorkflowTextTemplate({ context, step, field, value: step.config[field], label: field });
+): Promise<string> => renderWorkflowTextTemplate({ context, step, field, value: step.config[field], label: field });
 
 const lockCollaborationActionFence = async (db: SqlClient, context: WorkflowExecuteActionContext): Promise<void> => {
   const [target] = await db<{ id: string }[]>`
@@ -436,6 +435,10 @@ export const createMailWorkflowActionPorts = (
         if (format !== "plain" && format !== "markdown") throw new Error("automatic reply format is invalid");
         const minimumIntervalHours = step.config.minimumIntervalHours ?? 24;
         if (typeof minimumIntervalHours !== "number") throw new Error("automatic reply minimum interval must be a number");
+        const inactiveBehavior = step.config.inactiveBehavior ?? "defer";
+        if (inactiveBehavior !== "skip" && inactiveBehavior !== "defer") {
+          throw new Error("automatic reply inactive behavior is invalid");
+        }
         const schedule = automaticReplySchedule(actionBinding(context, step, "schedule"));
         const prepared = await sql.begin(async (tx) => {
           await lockCollaborationActionFence(tx, context);
@@ -457,6 +460,7 @@ export const createMailWorkflowActionPorts = (
             protocolFacts,
             occurredAt: context.invocation.occurredAt,
             minimumIntervalHours,
+            inactiveBehavior,
             schedule,
           });
           if (!result.ok || result.data.state !== "suppressed") return { result, outcome: null };

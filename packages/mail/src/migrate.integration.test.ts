@@ -8,14 +8,19 @@ const suite = enabled ? describe : describe.skip;
 suite("mail migrations", () => {
   test("installs compose templates, signature defaults, and mailbox styles", async () => {
     await migrate();
-    const [shape] = await sql<{
-      templates_present: boolean;
-      defaults_present: boolean;
-      styles_present: boolean;
-      template_indexes_present: boolean;
-      default_indexes_present: boolean;
-      mailbox_reference_constraints_present: boolean;
-    }[]>`
+    const [shape] = await sql<
+      {
+        templates_present: boolean;
+        defaults_present: boolean;
+        styles_present: boolean;
+        template_indexes_present: boolean;
+        default_indexes_present: boolean;
+        mailbox_reference_constraints_present: boolean;
+        scheduled_send_ordering_present: boolean;
+        scheduled_send_guard_present: boolean;
+        automatic_reply_invariants_present: boolean;
+      }[]
+    >`
       SELECT
         to_regclass('mail.compose_templates') IS NOT NULL AS templates_present,
         to_regclass('mail.compose_signature_defaults') IS NOT NULL AS defaults_present,
@@ -29,7 +34,38 @@ suite("mail migrations", () => {
           FROM pg_constraint
           WHERE conrelid = 'mail.compose_signature_defaults'::regclass
             AND conname IN ('compose_signature_defaults_sender_fk', 'compose_signature_defaults_template_fk')
-        ) AS mailbox_reference_constraints_present
+        ) AS mailbox_reference_constraints_present,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'outbox_submissions'
+            AND column_name = 'requested_at'
+            AND is_nullable = 'NO'
+        ) AND to_regclass('mail.outbox_scheduled_view_idx') IS NOT NULL AS scheduled_send_ordering_present,
+        EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgrelid = 'mail.outbox_submissions'::regclass
+            AND tgname = 'outbox_requested_at_guard'
+            AND NOT tgisinternal
+        ) AS scheduled_send_guard_present,
+        to_regclass('mail.automatic_reply_configurations_one_active_idx') IS NOT NULL
+          AND to_regclass('mail.automatic_reply_rate_idx') IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'mail'
+              AND table_name = 'automatic_reply_effects'
+              AND column_name = 'confirmed_at'
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conrelid = 'mail.automatic_reply_effects'::regclass
+              AND conname = 'automatic_reply_effects_confirmed_at_check'
+              AND convalidated
+          ) AS automatic_reply_invariants_present
     `;
     expect(shape).toEqual({
       templates_present: true,
@@ -38,6 +74,9 @@ suite("mail migrations", () => {
       template_indexes_present: true,
       default_indexes_present: true,
       mailbox_reference_constraints_present: true,
+      scheduled_send_ordering_present: true,
+      scheduled_send_guard_present: true,
+      automatic_reply_invariants_present: true,
     });
   });
 
@@ -67,6 +106,7 @@ suite("mail migrations", () => {
         legacy_columns_absent: boolean;
         current_indexes_present: boolean;
         mailbox_guard_present: boolean;
+        account_evidence_guard_present: boolean;
       }[]
     >`
       SELECT
@@ -89,9 +129,34 @@ suite("mail migrations", () => {
           WHERE tgrelid = 'mail.provider_bindings'::regclass
             AND tgname = 'provider_bindings_mailbox_guard'
             AND NOT tgisinternal
-        ) AS mailbox_guard_present
+        ) AS mailbox_guard_present,
+        EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgrelid = 'mail.provider_bindings'::regclass
+            AND tgname = 'provider_bindings_account_evidence_guard'
+            AND NOT tgisinternal
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'mail.provider_bindings'::regclass
+            AND conname = 'provider_bindings_account_evidence_matches'
+            AND convalidated
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM mail.provider_bindings
+          WHERE NULLIF(remote_locator ->> 'accountId', '') IS NOT NULL
+            AND verification_evidence ->> 'accountId' IS DISTINCT FROM remote_locator ->> 'accountId'
+        ) AS account_evidence_guard_present
     `;
-    expect(shape).toEqual({ legacy_columns_absent: true, current_indexes_present: true, mailbox_guard_present: true });
+    expect(shape).toEqual({
+      legacy_columns_absent: true,
+      current_indexes_present: true,
+      mailbox_guard_present: true,
+      account_evidence_guard_present: true,
+    });
 
     const mailboxId = crypto.randomUUID();
     const otherMailboxId = crypto.randomUUID();
@@ -121,6 +186,25 @@ suite("mail migrations", () => {
         INSERT INTO mail.provider_bindings (remote_resource_id, connection_id, state, remote_locator)
         VALUES (${resource!.id}, ${revokedConnection!.id}, 'revoked', '{}'::jsonb)
       `;
+      const accountId = "b".repeat(64);
+      const [normalizedEvidence] = await sql<{ account_id: string | null }[]>`
+        UPDATE mail.provider_bindings
+        SET remote_locator = ${{ accountId }}::jsonb, verification_evidence = '{}'::jsonb
+        WHERE connection_id = ${revokedConnection!.id}::uuid
+        RETURNING verification_evidence ->> 'accountId' AS account_id
+      `;
+      expect(normalizedEvidence?.account_id).toBe(accountId);
+      let mismatchedEvidenceError: unknown;
+      try {
+        await sql`
+          UPDATE mail.provider_bindings
+          SET verification_evidence = ${{ accountId: "c".repeat(64) }}::jsonb
+          WHERE connection_id = ${revokedConnection!.id}::uuid
+        `;
+      } catch (error) {
+        mismatchedEvidenceError = error;
+      }
+      expect(mismatchedEvidenceError).toMatchObject({ errno: "23514" });
       const [currentConnection] = await sql<{ id: string }[]>`
         INSERT INTO mail.provider_connections (
           owner_mailbox_id, name, email, username,

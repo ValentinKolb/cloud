@@ -1,3 +1,4 @@
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type ConversationTriageInput, conversationTriageInputSchema, type MailCommand } from "../contracts";
@@ -11,6 +12,30 @@ const MAX_CONVERSATION_TARGETS = 500;
 
 type ConversationTarget = {
   remote_message_ref_id: string;
+};
+
+type ConversationProjectionTarget = ConversationTarget & {
+  flags: string[];
+  keywords: string[];
+};
+
+const IMAP_SYSTEM_FLAGS = {
+  seen: "\\Seen",
+  answered: "\\Answered",
+  flagged: "\\Flagged",
+  draft: "\\Draft",
+} as const;
+
+const applyStateChange = (current: string[], additions: string[], removals: string[]): string[] => {
+  const removed = new Set(removals.map((value) => value.toLowerCase()));
+  const next = current.filter((value) => !removed.has(value.toLowerCase()));
+  const present = new Set(next.map((value) => value.toLowerCase()));
+  for (const value of additions) {
+    if (present.has(value.toLowerCase())) continue;
+    next.push(value);
+    present.add(value.toLowerCase());
+  }
+  return next.sort((left, right) => left.localeCompare(right));
 };
 
 export const createConversationTriageCommands = async (params: {
@@ -89,6 +114,55 @@ export const createConversationTriageCommands = async (params: {
             correlationId,
           },
     ),
+    afterCreate:
+      input.kind === "change_state"
+        ? async (tx, createdCommands) => {
+            const addedFlags = input.change.addFlags.map((flag) => IMAP_SYSTEM_FLAGS[flag]);
+            const removedFlags = input.change.removeFlags.map((flag) => IMAP_SYSTEM_FLAGS[flag]);
+            const projectionTargets = await tx<ConversationProjectionTarget[]>`
+              SELECT
+                placement.remote_message_ref_id,
+                placement.flags,
+                placement.keywords
+              FROM mail.message_placements placement
+              WHERE placement.remote_message_ref_id = ANY(${toPgUuidArray(targets.map((target) => target.remote_message_ref_id))}::uuid[])
+                AND placement.deleted_at IS NULL
+              FOR UPDATE
+            `;
+            const projectionTargetById = new Map(projectionTargets.map((target) => [target.remote_message_ref_id, target] as const));
+            for (const [index, command] of createdCommands.entries()) {
+              if (!["queued", "executing", "ambiguous"].includes(command.state)) continue;
+              const commandTarget = targets[index];
+              const target = commandTarget ? projectionTargetById.get(commandTarget.remote_message_ref_id) : null;
+              if (!target) throw new Error("Conversation command target projection changed");
+              const flags = applyStateChange(target.flags, addedFlags, removedFlags);
+              const keywords = applyStateChange(target.keywords, input.change.addKeywords, input.change.removeKeywords);
+              await tx`
+                UPDATE mail.commands
+                SET transport_metadata = transport_metadata || ${{
+                  localStateProjection: {
+                    remoteMessageRefId: target.remote_message_ref_id,
+                    previousFlags: target.flags,
+                    previousKeywords: target.keywords,
+                    projectedFlags: flags,
+                    projectedKeywords: keywords,
+                  },
+                }}::jsonb
+                WHERE id = ${command.id}::uuid
+                  AND NOT (transport_metadata ? 'localStateProjection')
+              `;
+              await tx`
+                UPDATE mail.message_placements
+                SET
+                  flags = ${toPgTextArray(flags)}::text[],
+                  keywords = ${toPgTextArray(keywords)}::text[],
+                  updated_at = now()
+                WHERE remote_message_ref_id = ${target.remote_message_ref_id}::uuid
+                  AND deleted_at IS NULL
+              `;
+            }
+          }
+        : undefined,
   });
   if (!commands.ok) return commands;
   return ok({ correlationId, commands: commands.data });

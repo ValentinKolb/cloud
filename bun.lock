@@ -293,6 +293,7 @@
         "@valentinkolb/ssr": "0.11.0",
         "@valentinkolb/stdlib": "0.14.1",
         "@valentinkolb/sync": "^5.5.2",
+        "fast-xml-parser": "^5.9.3",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "html-to-text": "^10.0.0",
@@ -304,6 +305,7 @@
         "postcss-selector-parser": "^7.1.0",
         "sanitize-html": "^2.17.4",
         "solid-js": "^1.9.10",
+        "yaml": "^2.9.0",
         "zod": "^4.3.4",
       },
       "devDependencies": {

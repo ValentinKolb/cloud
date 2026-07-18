@@ -49,6 +49,9 @@ export const selectBindingCandidate = (input: BindingSelectionInput): BindingCan
 };
 
 type DbMailboxExecution = {
+  health: string;
+  health_reason: string | null;
+  sync_enabled: boolean;
   remote_resource_id: string | null;
   remote_resource_status: string | null;
   scope_fingerprint: string | null;
@@ -251,6 +254,9 @@ export const resolveMailExecution = async (params: {
 
   const [mailbox] = await db<DbMailboxExecution[]>`
     SELECT
+      m.health,
+      m.health_reason,
+      m.sync_enabled,
       rr.id AS remote_resource_id,
       rr.status AS remote_resource_status,
       rr.scope_fingerprint
@@ -262,9 +268,13 @@ export const resolveMailExecution = async (params: {
 
   const localReadAllowed = params.operation === "actorRead";
   if (mailbox.remote_resource_id && mailbox.remote_resource_status !== "active") {
+    const message =
+      !mailbox.sync_enabled || mailbox.remote_resource_status === "paused"
+        ? "Mailbox transport is paused"
+        : `Mailbox transport is unavailable${mailbox.health_reason ? `: ${mailbox.health_reason}` : ""}`;
     return localReadAllowed
       ? ok(localExecution(params.mailboxId, mailbox.remote_resource_id))
-      : fail(err.forbidden("Mailbox transport is paused"));
+      : fail(err.forbidden(message));
   }
   if (!mailbox.remote_resource_id || !mailbox.scope_fingerprint) {
     return localReadAllowed ? ok(localExecution(params.mailboxId, null)) : fail(err.forbidden("An active provider binding is required"));

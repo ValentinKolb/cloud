@@ -7,12 +7,14 @@ import {
   type PanesValue,
   prompts,
   Select,
+  Switch,
   TagsInput,
   TextInput,
   Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -26,15 +28,13 @@ import type {
   SenderIdentity,
 } from "../../contracts";
 import { readApiError } from "./api-response";
+import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
 
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
 type UploadState = { file: File; progress: number; error: string | null };
 type DraftJournal = { revision: number; content: DraftEditableContentInput };
-type LeaseHeartbeatResult =
-  | { kind: "ok"; lease: AcquiredDraftLease }
-  | { kind: "rejected" }
-  | { kind: "unavailable" };
+type LeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: "rejected" } | { kind: "unavailable" };
 
 type ComposerSeed = {
   intent: DraftIntent;
@@ -44,6 +44,7 @@ type ComposerSeed = {
   cc?: string[];
   subject?: string;
   body?: string;
+  sourceAttachmentCount?: number;
 };
 
 const intentLabel = (intent: DraftIntent): string =>
@@ -92,6 +93,7 @@ export default function MailComposer(props: {
   surface: "compact" | "full";
   popout?: boolean;
   returnHref: string;
+  dateConfig: DateContext;
   onClose?: () => void;
 }) {
   let attachmentInput: HTMLInputElement | undefined;
@@ -109,6 +111,9 @@ export default function MailComposer(props: {
   const [subject, setSubject] = createSignal(props.initialDraft?.subject ?? props.seed?.subject ?? "");
   const [body, setBody] = createSignal(props.initialDraft?.body ?? props.seed?.body ?? "");
   const [format, setFormat] = createSignal<"plain" | "markdown">(props.initialDraft?.format ?? preferences.composeFormat);
+  const [includeSourceAttachments, setIncludeSourceAttachments] = createSignal(
+    props.seed?.intent === "forward" && (props.seed.sourceAttachmentCount ?? 0) > 0,
+  );
   const [uploads, setUploads] = createSignal<UploadState[]>([]);
   const [showCc, setShowCc] = createSignal(
     Boolean(props.initialDraft?.cc.length || props.initialDraft?.bcc.length || props.seed?.cc?.length),
@@ -193,10 +198,7 @@ export default function MailComposer(props: {
       .catch(() => undefined);
   };
 
-  const heartbeatLease = async (
-    currentDraft: MailDraft,
-    currentLease: AcquiredDraftLease,
-  ): Promise<LeaseHeartbeatResult> => {
+  const heartbeatLease = async (currentDraft: MailDraft, currentLease: AcquiredDraftLease): Promise<LeaseHeartbeatResult> => {
     try {
       const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$put({
         param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
@@ -354,6 +356,7 @@ export default function MailComposer(props: {
           conversationId: props.seed?.conversationId ?? null,
           intent: props.seed?.intent ?? "new",
           sourceMessageId: props.seed?.sourceMessageId ?? null,
+          includeSourceAttachments: includeSourceAttachments(),
           ...submittedContent,
         },
       });
@@ -595,10 +598,17 @@ export default function MailComposer(props: {
       setDraft(await response.json());
     });
 
-  const send = mutations.create<void, void>({
-    mutation: async () => {
-      if (to().length + cc().length + bcc().length === 0) throw new Error("Add at least one recipient.");
-      if (!body().trim() && !(draft()?.attachments.length ?? 0)) throw new Error("Write a message or attach a file before sending.");
+  const validateDelivery = () => {
+    if (to().length + cc().length + bcc().length === 0) throw new Error("Add at least one recipient.");
+    if (!body().trim() && !(draft()?.attachments.length ?? 0)) {
+      throw new Error("Write a message or attach a file before sending.");
+    }
+  };
+
+  const send = mutations.create<void, { scheduledAt?: string }, { scheduledAt?: string }>({
+    onBefore: (delivery) => delivery,
+    mutation: async (delivery) => {
+      validateDelivery();
       const saved = await persist();
       if (!saved) throw new Error(statusMessage());
       const response = await apiClient.mailboxes[":mailboxId"].commands.$post({
@@ -608,20 +618,33 @@ export default function MailComposer(props: {
           draftId: saved.id,
           expectedDraftRevision: saved.revision,
           senderIdentityId: identityId(),
-          undoSeconds: preferences.undoSeconds,
+          scheduledAt: delivery.scheduledAt,
+          undoSeconds: delivery.scheduledAt ? 0 : preferences.undoSeconds,
           idempotencyKey: crypto.randomUUID(),
         },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to queue message"));
       localStorage.removeItem(journalKey(props.mailboxId, saved.id));
     },
-    onSuccess: () => {
-      toast.success("Message queued");
+    onSuccess: (_, delivery) => {
+      toast.success(
+        delivery?.scheduledAt ? `Delivery scheduled for ${dates.formatDateTime(delivery.scheduledAt, props.dateConfig)}` : "Message queued",
+      );
       props.onClose?.();
       if (props.surface === "full") navigateTo(props.returnHref);
     },
     onError: (error) => prompts.error(error.message),
   });
+
+  const schedule = async () => {
+    try {
+      validateDelivery();
+    } catch (error) {
+      return await prompts.error(error instanceof Error ? error.message : "Message is not ready to schedule");
+    }
+    const scheduledAt = await chooseScheduledSendTime(props.dateConfig);
+    if (scheduledAt) send.mutate({ scheduledAt });
+  };
 
   const discard = async () => {
     const currentDraft = draft();
@@ -832,36 +855,32 @@ export default function MailComposer(props: {
 
   return (
     <div class="mail-composer-surface h-full min-w-0 overflow-hidden">
-      <header class={`flex shrink-0 items-center gap-2 px-3 py-2 ${props.surface === "full" ? "bg-[var(--ui-surface-subtle)]" : ""}`}>
-        <Show when={props.surface === "full" && !props.popout}>
-          <Tooltip content="Minimize composer">
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="Minimize composer"
-              disabled={handoffInProgress()}
-              onClick={() => void handoffTo(props.returnHref)}
-            >
-              <i class="ti ti-minimize" aria-hidden="true" />
+      <Show when={!props.popout}>
+        <header class={`flex shrink-0 items-center gap-2 px-3 py-2 ${props.surface === "full" ? "bg-[var(--ui-surface-subtle)]" : ""}`}>
+          <Show when={props.surface === "full"}>
+            <Tooltip content="Minimize composer">
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="Minimize composer"
+                disabled={handoffInProgress()}
+                onClick={() => void handoffTo(props.returnHref)}
+              >
+                <i class="ti ti-minimize" aria-hidden="true" />
+              </button>
+            </Tooltip>
+          </Show>
+          <span class="min-w-0 flex-1 truncate text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
+          <Show when={status() === "error" || status() === "readonly"}>
+            <span class="min-w-0 truncate text-xs text-red-600 dark:text-red-300" role="status">
+              {statusMessage()}
+            </span>
+          </Show>
+          <Show when={status() === "readonly" && draft()}>
+            <button type="button" class="btn-secondary btn-sm" onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}>
+              {lease() ? "Retry" : "Take over"}
             </button>
-          </Tooltip>
-        </Show>
-        <span class="min-w-0 flex-1 truncate text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
-        <Show when={status() === "error" || status() === "readonly"}>
-          <span class="min-w-0 truncate text-xs text-red-600 dark:text-red-300" role="status">
-            {statusMessage()}
-          </span>
-        </Show>
-        <Show when={status() === "readonly" && draft()}>
-          <button
-            type="button"
-            class="btn-secondary btn-sm"
-            onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}
-          >
-            {lease() ? "Retry" : "Take over"}
-          </button>
-        </Show>
-        <Show when={!props.popout}>
+          </Show>
           <Tooltip content="Open in new window">
             <button
               type="button"
@@ -873,24 +892,38 @@ export default function MailComposer(props: {
               <i class="ti ti-app-window" aria-hidden="true" />
             </button>
           </Tooltip>
-        </Show>
-        <Show when={props.surface === "compact"}>
-          <Tooltip content="Full-size composer">
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="Open full-size composer"
-              disabled={!editable() || handoffInProgress()}
-              onClick={openFullSize}
-            >
-              <i class="ti ti-maximize" aria-hidden="true" />
+          <Show when={props.surface === "compact"}>
+            <Tooltip content="Full-size composer">
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="Open full-size composer"
+                disabled={!editable() || handoffInProgress()}
+                onClick={openFullSize}
+              >
+                <i class="ti ti-maximize" aria-hidden="true" />
+              </button>
+            </Tooltip>
+            <button type="button" class="icon-btn" aria-label="Close composer" onClick={props.onClose}>
+              <i class="ti ti-x" aria-hidden="true" />
             </button>
-          </Tooltip>
-          <button type="button" class="icon-btn" aria-label="Close composer" onClick={props.onClose}>
-            <i class="ti ti-x" aria-hidden="true" />
-          </button>
-        </Show>
-      </header>
+          </Show>
+        </header>
+      </Show>
+
+      <Show when={props.popout && (status() === "error" || status() === "readonly")}>
+        <div
+          class="flex shrink-0 items-center gap-2 bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300"
+          role="status"
+        >
+          <span class="min-w-0 flex-1 truncate">{statusMessage()}</span>
+          <Show when={status() === "readonly" && draft()}>
+            <button type="button" class="btn-secondary btn-sm" onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}>
+              {lease() ? "Retry" : "Take over"}
+            </button>
+          </Show>
+        </div>
+      </Show>
 
       <div class={`flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto ${props.surface === "full" ? "px-4" : "px-3"}`}>
         <div class="grid shrink-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 py-2 text-sm">
@@ -1015,13 +1048,42 @@ export default function MailComposer(props: {
             </For>
           </div>
         </Show>
+        <Show when={!draft() && props.seed?.intent === "forward" && (props.seed.sourceAttachmentCount ?? 0) > 0}>
+          <div class="shrink-0 py-2">
+            <Switch
+              label={`Include ${props.seed?.sourceAttachmentCount} original attachment${
+                props.seed?.sourceAttachmentCount === 1 ? "" : "s"
+              }`}
+              value={includeSourceAttachments}
+              onChange={setIncludeSourceAttachments}
+            />
+          </div>
+        </Show>
       </div>
 
       <footer class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
-        <button type="button" class="btn-primary btn-sm" disabled={!editable() || send.loading()} onClick={() => send.mutate()}>
-          <i class={`ti ${send.loading() ? "ti-loader-2 animate-spin" : intentIcon(composerIntent())}`} aria-hidden="true" />
-          {intentLabel(composerIntent())}
-        </button>
+        <div class="mail-delivery-actions inline-flex shrink-0">
+          <button
+            type="button"
+            class="btn-primary btn-sm rounded-r-none"
+            disabled={!editable() || send.loading()}
+            onClick={() => send.mutate({})}
+          >
+            <i class={`ti ${send.loading() ? "ti-loader-2 animate-spin" : intentIcon(composerIntent())}`} aria-hidden="true" />
+            {intentLabel(composerIntent())}
+          </button>
+          <Tooltip content="Schedule delivery">
+            <button
+              type="button"
+              class="btn-primary btn-sm min-w-8 rounded-l-none border-l border-l-white/30 px-2"
+              aria-label="Schedule delivery"
+              disabled={!editable() || send.loading()}
+              onClick={() => void schedule()}
+            >
+              <i class="ti ti-clock" aria-hidden="true" />
+            </button>
+          </Tooltip>
+        </div>
         <Tooltip content="Attach files">
           <button type="button" class="icon-btn" aria-label="Attach files" disabled={!editable()} onClick={() => attachmentInput?.click()}>
             <i class="ti ti-paperclip" aria-hidden="true" />

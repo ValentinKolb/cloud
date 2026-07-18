@@ -2820,6 +2820,182 @@ const hardenComposeTemplateReferences = async (db: SqlClient): Promise<void> => 
   `;
 };
 
+const addStableScheduledSendOrdering = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.outbox_submissions ADD COLUMN requested_at TIMESTAMPTZ`;
+  await db`UPDATE mail.outbox_submissions SET requested_at = scheduled_at`;
+  await db`ALTER TABLE mail.outbox_submissions ALTER COLUMN requested_at SET NOT NULL`;
+  await db`
+    CREATE INDEX outbox_scheduled_view_idx
+    ON mail.outbox_submissions (mailbox_id, requested_at, id)
+    WHERE state IN ('scheduled', 'undo_window')
+  `;
+};
+
+const guardStableScheduledSendOrdering = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE OR REPLACE FUNCTION mail.guard_outbox_requested_at()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF TG_OP = 'INSERT' THEN
+        NEW.requested_at := COALESCE(NEW.requested_at, NEW.scheduled_at);
+      ELSIF NEW.requested_at IS DISTINCT FROM OLD.requested_at THEN
+        RAISE EXCEPTION 'outbox requested_at is immutable' USING ERRCODE = '55000';
+      END IF;
+      RETURN NEW;
+    END;
+    $$
+  `;
+  await db`DROP TRIGGER IF EXISTS outbox_requested_at_guard ON mail.outbox_submissions`;
+  await db`
+    CREATE TRIGGER outbox_requested_at_guard
+    BEFORE INSERT OR UPDATE OF requested_at ON mail.outbox_submissions
+    FOR EACH ROW EXECUTE FUNCTION mail.guard_outbox_requested_at()
+  `;
+};
+
+const normalizeProviderBindingAccountEvidence = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE OR REPLACE FUNCTION mail.normalize_provider_binding_account_evidence()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      locator_account_id TEXT;
+      evidence_account_id TEXT;
+    BEGIN
+      locator_account_id := NULLIF(NEW.remote_locator ->> 'accountId', '');
+      IF locator_account_id IS NULL THEN
+        RETURN NEW;
+      END IF;
+
+      evidence_account_id := NULLIF(NEW.verification_evidence ->> 'accountId', '');
+      IF evidence_account_id IS NULL THEN
+        NEW.verification_evidence := jsonb_set(
+          COALESCE(NEW.verification_evidence, '{}'::jsonb),
+          '{accountId}',
+          to_jsonb(locator_account_id),
+          true
+        );
+      ELSIF evidence_account_id <> locator_account_id THEN
+        RAISE EXCEPTION 'provider binding account evidence does not match its remote locator'
+          USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END;
+    $$
+  `;
+  await db`DROP TRIGGER IF EXISTS provider_bindings_account_evidence_guard ON mail.provider_bindings`;
+  await db`
+    CREATE TRIGGER provider_bindings_account_evidence_guard
+    BEFORE INSERT OR UPDATE OF remote_locator, verification_evidence ON mail.provider_bindings
+    FOR EACH ROW EXECUTE FUNCTION mail.normalize_provider_binding_account_evidence()
+  `;
+  await db`
+    UPDATE mail.provider_bindings
+    SET verification_evidence = verification_evidence
+    WHERE NULLIF(remote_locator ->> 'accountId', '') IS NOT NULL
+      AND NULLIF(verification_evidence ->> 'accountId', '') IS NULL
+  `;
+  await db`
+    ALTER TABLE mail.provider_bindings
+    ADD CONSTRAINT provider_bindings_account_evidence_matches
+    CHECK (
+      NULLIF(remote_locator ->> 'accountId', '') IS NULL
+      OR verification_evidence ->> 'accountId' = remote_locator ->> 'accountId'
+    )
+  `;
+};
+
+const addManagedAutomaticReplyConfigurations = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE UNIQUE INDEX sender_identities_id_mailbox_idx
+    ON mail.sender_identities (id, mailbox_id)
+  `;
+  await db`
+    CREATE TABLE mail.automatic_reply_configurations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      workflow_id UUID NOT NULL,
+      response_schedule_id UUID NOT NULL,
+      sender_identity_id UUID NOT NULL,
+      name TEXT NOT NULL CHECK (name = btrim(name) AND char_length(name) BETWEEN 1 AND 80),
+      normalized_name TEXT NOT NULL CHECK (
+        normalized_name = lower(regexp_replace(btrim(name), '\\s+', ' ', 'g'))
+        AND char_length(normalized_name) BETWEEN 1 AND 80
+      ),
+      subject TEXT NOT NULL CHECK (char_length(subject) BETWEEN 1 AND 998),
+      body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 2097152),
+      format TEXT NOT NULL CHECK (format IN ('plain', 'markdown')),
+      minimum_interval_hours INTEGER NOT NULL CHECK (minimum_interval_hours BETWEEN 0 AND 8760),
+      inactive_behavior TEXT NOT NULL CHECK (inactive_behavior IN ('skip', 'defer')),
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (workflow_id, mailbox_id)
+        REFERENCES mail.workflows(id, mailbox_id) ON DELETE RESTRICT,
+      FOREIGN KEY (response_schedule_id, mailbox_id)
+        REFERENCES mail.response_schedules(id, mailbox_id) ON DELETE RESTRICT,
+      FOREIGN KEY (sender_identity_id, mailbox_id)
+        REFERENCES mail.sender_identities(id, mailbox_id) ON DELETE RESTRICT,
+      UNIQUE (mailbox_id, normalized_name),
+      UNIQUE (workflow_id),
+      UNIQUE (response_schedule_id)
+    )
+  `;
+  await db`
+    CREATE INDEX automatic_reply_configurations_mailbox_idx
+    ON mail.automatic_reply_configurations (mailbox_id, enabled DESC, normalized_name, id)
+  `;
+  await db`
+    CREATE TRIGGER automatic_reply_configurations_touch_updated_at
+    BEFORE UPDATE ON mail.automatic_reply_configurations
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+};
+
+const hardenManagedAutomaticReplyConfigurations = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE UNIQUE INDEX automatic_reply_configurations_one_active_idx
+    ON mail.automatic_reply_configurations (mailbox_id)
+    WHERE enabled
+  `;
+  await db`DROP INDEX mail.automatic_reply_rate_idx`;
+  await db`
+    CREATE INDEX automatic_reply_rate_idx
+    ON mail.automatic_reply_effects (mailbox_id, recipient, state, updated_at DESC)
+    WHERE state IN ('queued', 'confirmed', 'needs_attention')
+  `;
+};
+
+const addAutomaticReplyDeliveryTimestamps = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.automatic_reply_effects ADD COLUMN confirmed_at TIMESTAMPTZ`;
+  await db`
+    UPDATE mail.automatic_reply_effects
+    SET confirmed_at = updated_at
+    WHERE state = 'confirmed'
+  `;
+  await db`DROP INDEX mail.automatic_reply_rate_idx`;
+  await db`
+    CREATE INDEX automatic_reply_rate_idx
+    ON mail.automatic_reply_effects (mailbox_id, recipient, state, confirmed_at DESC)
+    WHERE state IN ('queued', 'confirmed', 'needs_attention')
+  `;
+};
+
+const guardAutomaticReplyDeliveryTimestamps = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.automatic_reply_effects DROP CONSTRAINT IF EXISTS automatic_reply_effects_confirmed_at_check`;
+  await db`
+    ALTER TABLE mail.automatic_reply_effects
+    ADD CONSTRAINT automatic_reply_effects_confirmed_at_check
+    CHECK (state <> 'confirmed' OR confirmed_at IS NOT NULL)
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -2867,6 +3043,13 @@ const migrations = [
   { version: 44, name: "conversation_reference_request_ledger", run: addConversationReferenceRequestLedger },
   { version: 45, name: "compose_templates_and_styles", run: addComposeTemplatesAndStyles },
   { version: 46, name: "compose_template_reference_hardening", run: hardenComposeTemplateReferences },
+  { version: 47, name: "stable_scheduled_send_ordering", run: addStableScheduledSendOrdering },
+  { version: 48, name: "stable_scheduled_send_ordering_guard", run: guardStableScheduledSendOrdering },
+  { version: 49, name: "provider_binding_account_evidence", run: normalizeProviderBindingAccountEvidence },
+  { version: 50, name: "managed_automatic_reply_configurations", run: addManagedAutomaticReplyConfigurations },
+  { version: 51, name: "managed_automatic_reply_invariants", run: hardenManagedAutomaticReplyConfigurations },
+  { version: 52, name: "automatic_reply_delivery_timestamps", run: addAutomaticReplyDeliveryTimestamps },
+  { version: 53, name: "automatic_reply_delivery_timestamp_guard", run: guardAutomaticReplyDeliveryTimestamps },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

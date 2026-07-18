@@ -1,5 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { z } from "zod";
 import type { ConversationView, ConversationWorkStatus, SavedConversationViewFilter } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { resolveMailExecution } from "./execution";
@@ -146,6 +147,7 @@ export type ConversationSummary = {
   messageCount: number;
   preview: string | null;
   folderId: string | null;
+  unreadFolderIds: string[];
 };
 
 type DbConversation = {
@@ -166,7 +168,10 @@ type DbConversation = {
   message_count: number;
   preview: string | null;
   folder_id: string | null;
+  unread_folder_ids: unknown;
 };
+
+const unreadFolderIdsSchema = z.array(z.uuid());
 
 export const listConversations = async (params: {
   context: MailRequestContext;
@@ -205,14 +210,8 @@ export const listConversations = async (params: {
       c.revision,
       c.updated_at,
       CASE WHEN ${view}::text = 'recently_active' THEN c.updated_at ELSE c.latest_message_at END AS sort_date,
-      EXISTS (
-        SELECT 1
-        FROM mail.conversation_messages unread_cm
-        JOIN mail.message_placements unread_mp ON unread_mp.message_id = unread_cm.message_id
-        WHERE unread_cm.conversation_id = c.id
-          AND unread_mp.deleted_at IS NULL
-          AND NOT ('\\Seen' = ANY(unread_mp.flags))
-      ) AS unread,
+      cardinality(unread_state.folder_ids) > 0 AS unread,
+      unread_state.folder_ids AS unread_folder_ids,
       EXISTS (
         SELECT 1
         FROM mail.conversation_messages attachment_cm
@@ -232,6 +231,18 @@ export const listConversations = async (params: {
       ORDER BY reference.allocated_at, reference.id
       LIMIT 1
     ) primary_reference ON true
+    LEFT JOIN LATERAL (
+      SELECT ARRAY(
+        SELECT DISTINCT unread_mp.folder_id::text
+        FROM mail.conversation_messages unread_cm
+        JOIN mail.message_placements unread_mp ON unread_mp.message_id = unread_cm.message_id
+        WHERE unread_cm.conversation_id = c.id
+          AND unread_mp.deleted_at IS NULL
+          AND NOT ('\\Seen' = ANY(unread_mp.flags))
+          AND (${folderId}::uuid IS NULL OR unread_mp.folder_id = ${folderId}::uuid)
+        ORDER BY unread_mp.folder_id::text
+      ) AS folder_ids
+    ) unread_state ON true
     LEFT JOIN LATERAL (
       SELECT
         LEFT(COALESCE(mc.plain_text, ''), 320) AS preview,
@@ -350,6 +361,7 @@ export const listConversations = async (params: {
     messageCount: row.message_count,
     preview: row.preview || null,
     folderId: row.folder_id,
+    unreadFolderIds: unreadFolderIdsSchema.parse(row.unread_folder_ids),
   }));
   const last = items.at(-1);
   const lastRow = pageRows.at(-1);

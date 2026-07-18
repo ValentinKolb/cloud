@@ -1,0 +1,170 @@
+import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { createSignal, For, Show } from "solid-js";
+import type { CancelScheduledSendInput, ScheduledSendPage } from "../../contracts";
+import { apiClient } from "../../api/client";
+import { readApiError } from "./api-response";
+
+const recipients = (item: ScheduledSendPage["items"][number]): string => {
+  const all = [...item.to, ...item.cc, ...item.bcc];
+  if (all.length === 0) return "No recipients";
+  const first = all[0]!;
+  const label = first.name || first.address;
+  return all.length === 1 ? label : `${label} and ${all.length - 1} more`;
+};
+
+const chooseDisposition = () =>
+  prompts.dialog<CancelScheduledSendInput["disposition"] | null>(
+    (close) => (
+      <div class="flex flex-col gap-4">
+        <p class="text-sm text-secondary">
+          The scheduled delivery will be stopped immediately. Keep the message as a shared draft to edit it later, or discard it.
+        </p>
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+            Keep scheduled
+          </button>
+          <button type="button" class="btn-danger btn-sm" onClick={() => close("discard")}>
+            <i class="ti ti-trash" aria-hidden="true" /> Discard message
+          </button>
+          <button type="button" class="btn-primary btn-sm" onClick={() => close("draft")}>
+            <i class="ti ti-file-pencil" aria-hidden="true" /> Keep as draft
+          </button>
+        </div>
+      </div>
+    ),
+    { title: "Cancel scheduled delivery?", icon: "ti ti-calendar-cancel", size: "large" },
+  );
+
+export default function MailScheduledView(props: {
+  mailboxId: string;
+  page: ScheduledSendPage;
+  error: string | null;
+  dateConfig: DateContext;
+  canWrite: boolean;
+  loading: boolean;
+  onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
+  onRefresh: () => Promise<void>;
+}) {
+  const [cancellingId, setCancellingId] = createSignal<string | null>(null);
+
+  const cancel = async (scheduledSendId: string) => {
+    const disposition = await chooseDisposition();
+    if (!disposition) return;
+    setCancellingId(scheduledSendId);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"]["scheduled-sends"][":scheduledSendId"].cancel.$post({
+        param: { mailboxId: props.mailboxId, scheduledSendId },
+        json: { disposition },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to cancel scheduled delivery"));
+      toast.success(disposition === "draft" ? "Scheduled delivery cancelled; draft restored" : "Scheduled message discarded");
+      await props.onRefresh();
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to cancel scheduled delivery");
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  return (
+    <section class="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy={props.loading}>
+      <header class="flex shrink-0 items-center gap-3 border-b border-[var(--ui-border)] px-4 py-3">
+        <span class="flex h-8 w-8 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+          <i class="ti ti-calendar-time" aria-hidden="true" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <h1 class="text-base font-semibold text-primary">Scheduled</h1>
+          <p class="text-xs text-dimmed">
+            {props.page.total === 1 ? "1 message waiting for delivery" : `${props.page.total} messages waiting for delivery`}
+          </p>
+        </div>
+      </header>
+      <div class="min-h-0 flex-1 overflow-y-auto p-3">
+        <Show
+          when={!props.error}
+          fallback={<Placeholder icon="ti ti-alert-circle" title="Scheduled messages unavailable" description={props.error!} />}
+        >
+          <Show
+            when={props.page.items.length > 0}
+            fallback={
+              <Placeholder
+                icon="ti ti-calendar-check"
+                title="No scheduled messages"
+                description="Messages scheduled from the composer will appear here until delivery."
+              />
+            }
+          >
+            <div class="flex flex-col gap-2">
+              <For each={props.page.items}>
+                {(item) => (
+                  <article class="paper flex min-w-0 items-start gap-3 p-3">
+                    <span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                      <i class="ti ti-clock" aria-hidden="true" />
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-primary">{item.subject || "(no subject)"}</h2>
+                        <time class="shrink-0 text-sm font-medium text-primary" dateTime={item.scheduledAt}>
+                          {dates.formatDateTime(item.scheduledAt, props.dateConfig)}
+                        </time>
+                      </div>
+                      <p class="mt-0.5 truncate text-xs text-secondary">To {recipients(item)}</p>
+                      <p class="mt-2 line-clamp-2 text-sm leading-5 text-secondary">{item.bodyPreview || "No message body"}</p>
+                      <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-dimmed">
+                        <span>
+                          <i class="ti ti-user mr-1" aria-hidden="true" />
+                          Scheduled by {item.scheduledBy.displayName}
+                        </span>
+                        <span title={dates.formatDateTime(item.createdAt, props.dateConfig)}>
+                          Created {dates.formatDateTimeRelative(item.createdAt, props.dateConfig)}
+                        </span>
+                      <Show when={item.lastError}>
+                        {(error) => (
+                          <span class="text-red-600" title={error()}>
+                            <i class="ti ti-alert-circle mr-1" aria-hidden="true" />
+                            {item.nextAttemptAt
+                              ? `Retry ${dates.formatDateTime(item.nextAttemptAt, props.dateConfig)}`
+                              : "Delivery retry pending"}
+                          </span>
+                        )}
+                        </Show>
+                      </div>
+                    </div>
+                    <Show when={props.canWrite}>
+                      <button
+                        type="button"
+                        class="btn-secondary btn-sm shrink-0"
+                        disabled={cancellingId() === item.id}
+                        onClick={() => void cancel(item.id)}
+                      >
+                        <i
+                          class={`ti ${cancellingId() === item.id ? "ti-loader-2 animate-spin" : "ti-calendar-cancel"}`}
+                          aria-hidden="true"
+                        />
+                        Cancel
+                      </button>
+                    </Show>
+                  </article>
+                )}
+              </For>
+              <Show when={props.page.nextCursor}>
+                {(cursor) => (
+                  <Link
+                    href={`/app/mail/${props.mailboxId}?scheduled=1&cursor=${encodeURIComponent(cursor())}`}
+                    class="btn-secondary btn-sm self-center"
+                    onNavigate={props.onNavigate}
+                    scroll="preserve"
+                  >
+                    Load more
+                  </Link>
+                )}
+              </Show>
+            </div>
+          </Show>
+        </Show>
+      </div>
+    </section>
+  );
+}

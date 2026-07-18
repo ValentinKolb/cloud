@@ -1,11 +1,12 @@
 import * as mailboxAccess from "./access";
+import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
 import * as collaboration from "./collaboration";
-import * as composeTemplates from "./compose-templates";
-import { cancelSendCommand, commandRuntime } from "./command-runtime";
+import { commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
-import * as conversations from "./conversations";
+import * as composeTemplates from "./compose-templates";
 import * as conversationReferences from "./conversation-reference";
+import * as conversations from "./conversations";
 import * as draftLeases from "./draft-leases";
 import * as draftUploads from "./draft-uploads";
 import * as drafts from "./drafts";
@@ -23,6 +24,8 @@ import * as providerConnections from "./provider-connections";
 import * as reminders from "./reminders";
 import * as responseSchedules from "./response-schedule";
 import * as savedViews from "./saved-views";
+import * as scheduledSends from "./scheduled-sends";
+import { cancelSendCommand } from "./scheduled-sends";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
 import * as settingsContext from "./settings-context";
@@ -36,14 +39,15 @@ const workflowMaterializationRuntime = createMailWorkflowMaterializationRuntime(
 
 export type { MailRequestContext } from "./auth";
 export {
+  automaticReplyConfigurations,
   bindings,
   cancelSendCommand,
   collaboration,
-  composeTemplates,
   commandRuntime,
   commands,
-  conversations,
+  composeTemplates,
   conversationReferences,
+  conversations,
   draftLeases,
   drafts,
   draftUploads,
@@ -62,6 +66,7 @@ export {
   reminders,
   responseSchedules,
   savedViews,
+  scheduledSends,
   search,
   senderIdentities,
   settingsContext,
@@ -73,6 +78,7 @@ export {
 
 export const mailService = {
   access: mailboxAccess,
+  automaticReplyConfigurations,
   bindings,
   commands,
   collaboration,
@@ -96,6 +102,7 @@ export const mailService = {
   reminders,
   responseSchedules,
   savedViews,
+  scheduledSends,
   search,
   senderIdentities,
   settingsContext,

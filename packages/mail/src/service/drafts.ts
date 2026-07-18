@@ -10,6 +10,7 @@ import {
   type DraftRecoveryCopy,
   draftContentInputSchema,
   draftEditableContentInputSchema,
+  MAX_DRAFT_ATTACHMENT_BYTES,
   type MailDraft,
 } from "../contracts";
 import { requireMailboxPermission } from "./access";
@@ -253,6 +254,41 @@ const insertActivity = async (params: {
   `;
 };
 
+const copyForwardAttachments = async (params: { db: typeof sql; draftId: string; sourceMessageId: string }): Promise<Result<number>> => {
+  const [invalid] = await params.db<{ invalid: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM mail.attachments attachment
+      LEFT JOIN mail.message_part_blobs blob ON blob.id = attachment.blob_id
+      WHERE attachment.message_id = ${params.sourceMessageId}::uuid
+        AND (blob.id IS NULL OR blob.complete = false OR blob.byte_length > ${MAX_DRAFT_ATTACHMENT_BYTES})
+    ) AS invalid
+  `;
+  if (invalid?.invalid) {
+    return fail(err.badInput("One or more original attachments cannot be forwarded"));
+  }
+
+  const copied = await params.db<{ id: string }[]>`
+    INSERT INTO mail.draft_attachments (
+      draft_id, blob_id, filename, content_type, byte_length, content_hash, position
+    )
+    SELECT
+      ${params.draftId}::uuid,
+      attachment.blob_id,
+      left(COALESCE(NULLIF(attachment.filename, ''), 'attachment'), 255),
+      left(COALESCE(NULLIF(attachment.content_type, ''), 'application/octet-stream'), 255),
+      blob.byte_length,
+      blob.content_hash,
+      (row_number() OVER (ORDER BY attachment.id) - 1)::int
+    FROM mail.attachments attachment
+    JOIN mail.message_part_blobs blob ON blob.id = attachment.blob_id AND blob.complete = true
+    WHERE attachment.message_id = ${params.sourceMessageId}::uuid
+    ORDER BY attachment.id
+    RETURNING id
+  `;
+  return ok(copied.length);
+};
+
 const storeRecoveryCopy = async (params: {
   db: typeof sql;
   draftId: string;
@@ -299,6 +335,9 @@ export const createDraft = async (params: {
       if (!identity.ok) return identity;
       const draftContext = await resolveDraftContext({ mailboxId: params.mailboxId, input: parsed.data, db: tx });
       if (!draftContext.ok) return draftContext;
+      if (parsed.data.includeSourceAttachments && draftContext.data.intent !== "forward") {
+        return fail(err.badInput("Original attachments can only be included when forwarding a message"));
+      }
       const defaultSignature =
         draftContext.data.intent === "new"
           ? await resolveDefaultSignatureSource({
@@ -308,9 +347,7 @@ export const createDraft = async (params: {
               senderIdentityId: parsed.data.senderIdentityId,
             })
           : null;
-      const initialBody = defaultSignature
-        ? [parsed.data.body.trimEnd(), defaultSignature].filter(Boolean).join("\n\n")
-        : parsed.data.body;
+      const initialBody = defaultSignature ? [parsed.data.body.trimEnd(), defaultSignature].filter(Boolean).join("\n\n") : parsed.data.body;
       const initialContent = draftContentInputSchema.safeParse({ ...parsed.data, body: initialBody });
       if (!initialContent.success) {
         return fail(err.badInput(initialContent.error.issues[0]?.message ?? "Default signature makes the draft too large"));
@@ -340,6 +377,22 @@ export const createDraft = async (params: {
         RETURNING ${draftColumns}
       `;
       if (!row) return fail(err.internal("Draft insert returned no row"));
+      let attachmentCount = 0;
+      if (parsed.data.includeSourceAttachments && draftContext.data.sourceMessageId) {
+        const copied = await copyForwardAttachments({
+          db: tx,
+          draftId: row.id,
+          sourceMessageId: draftContext.data.sourceMessageId,
+        });
+        if (!copied.ok) return copied;
+        attachmentCount = copied.data;
+      }
+      const [created] = await tx<DbDraft[]>`
+        SELECT ${draftColumns}
+        FROM mail.drafts d
+        WHERE d.id = ${row.id}::uuid
+      `;
+      if (!created) return fail(err.internal("Created draft could not be loaded"));
       await insertActivity({
         db: tx,
         mailboxId: params.mailboxId,
@@ -348,10 +401,15 @@ export const createDraft = async (params: {
         action: "draft.created",
         targetType: "draft",
         targetId: row.id,
-        metadata: { revision: Number(row.revision), intent: draftContext.data.intent, sourceMessageId: draftContext.data.sourceMessageId },
+        metadata: {
+          revision: Number(created.revision),
+          intent: draftContext.data.intent,
+          sourceMessageId: draftContext.data.sourceMessageId,
+          attachmentCount,
+        },
       });
       return ok({
-        ...mapDraft(row),
+        ...mapDraft(created),
         initialSignatureSource: defaultSignature,
       });
     });

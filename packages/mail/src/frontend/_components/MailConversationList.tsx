@@ -29,6 +29,7 @@ export default function MailConversationList(props: {
   loading: boolean;
   onCollapse: () => void;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
+  onNavigateItem: (event: LinkNavigateEvent, item: MailListItem) => void | Promise<void>;
   onOpenHref: (href: string, replace?: boolean) => void | Promise<void>;
 }) {
   const requestUrl = () => new URL(props.requestUrl);
@@ -76,18 +77,7 @@ export default function MailConversationList(props: {
     if (!values) return;
     const currentUrl = requestUrl();
     const next = new URL(buildMailListHref(currentUrl, true), currentUrl.origin);
-    for (const field of [
-      "from",
-      "to",
-      "subject",
-      "body",
-      "attachment",
-      "comment",
-      "reference",
-      "folderName",
-      "tag",
-      "keyword",
-    ] as const) {
+    for (const field of ["from", "to", "subject", "body", "attachment", "comment", "reference", "folderName", "tag", "keyword"] as const) {
       const value = (values[field] ?? "").trim();
       if (value) next.searchParams.set(field, value);
       else next.searchParams.delete(field);
@@ -195,7 +185,7 @@ export default function MailConversationList(props: {
                 return (
                   <Link
                     href={buildMailSelectionHref(requestUrl(), item)}
-                    onNavigate={props.onNavigate}
+                    onNavigate={(event) => props.onNavigateItem(event, item)}
                     scroll="preserve"
                     aria-current={selected ? "page" : undefined}
                     class="mail-list-row focus-ui"

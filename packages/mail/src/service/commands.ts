@@ -16,6 +16,7 @@ import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, 
 import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
 import { renderComposeDraft } from "./compose-templates";
+import { publishMailMailboxEvent } from "./events";
 import { resolveMailExecution } from "./execution";
 import { outboundDraftSnapshotSchema } from "./outbound-mime";
 
@@ -252,6 +253,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
       sourceFolderId: input.folderId,
     });
   }
+  const undoSeconds = input.scheduledAt ? 0 : input.undoSeconds;
   return ok({
     ...base,
     target: {
@@ -259,13 +261,13 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
       expectedDraftRevision: input.expectedDraftRevision,
       senderIdentityId: input.senderIdentityId,
     },
-    payload: { scheduledAt: input.scheduledAt ?? null, undoSeconds: input.undoSeconds },
+    payload: { scheduledAt: input.scheduledAt ?? null, undoSeconds },
     folderRequirements: [],
     senderIdentityId: input.senderIdentityId,
     draftId: input.draftId,
     expectedDraftRevision: input.expectedDraftRevision,
     scheduledAt: input.scheduledAt ?? null,
-    undoSeconds: input.undoSeconds,
+    undoSeconds,
   });
 };
 
@@ -432,7 +434,11 @@ const createSendOutbox = async (params: {
   if (!Number.isFinite(scheduledAt.getTime())) {
     throw Object.assign(new Error("Invalid scheduled send time"), { code: "INVALID_SCHEDULE" });
   }
-  const effectiveScheduledAt = new Date(Math.max(Date.now(), scheduledAt.getTime()));
+  if (prepared.scheduledAt && params.actor.kind !== "workflow" && scheduledAt.getTime() < Date.now() + 30_000) {
+    const invalid = err.badInput("Choose a scheduled send time at least 30 seconds in the future");
+    throw Object.assign(new Error(invalid.message), invalid);
+  }
+  const effectiveScheduledAt = prepared.scheduledAt ? scheduledAt : new Date();
   const undoUntil = new Date(effectiveScheduledAt.getTime() + prepared.undoSeconds * 1_000);
   const snapshot = outboundDraftSnapshotSchema.safeParse({
     revision: Number(draft.revision),
@@ -466,6 +472,7 @@ const createSendOutbox = async (params: {
       selected_binding_id,
       stable_message_id,
       state,
+      requested_at,
       scheduled_at,
       undo_until,
       draft_snapshot
@@ -478,6 +485,7 @@ const createSendOutbox = async (params: {
       ${params.selectedBindingId}::uuid,
       ${stableMessageId},
       ${prepared.undoSeconds > 0 ? "undo_window" : "scheduled"},
+      ${effectiveScheduledAt},
       ${effectiveScheduledAt},
       ${undoUntil},
       ${snapshot.data}::jsonb
@@ -637,7 +645,12 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
       'requested',
       'command',
       ${row.id}::uuid,
-      ${{ selectedBindingId: execution.data.bindingId, correlationId: prepared.correlationId }}::jsonb
+      ${{
+        selectedBindingId: execution.data.bindingId,
+        correlationId: prepared.correlationId,
+        scheduledAt: prepared.scheduledAt ?? null,
+        undoSeconds: prepared.undoSeconds ?? null,
+      }}::jsonb
     )
   `;
   await audit.record(
@@ -651,6 +664,8 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
         commandId: row.id,
         selectedBindingId: execution.data.bindingId,
         target: prepared.target,
+        scheduledAt: prepared.scheduledAt ?? null,
+        undoSeconds: prepared.undoSeconds ?? null,
         workflowVersionId: actor.kind === "workflow" ? actor.workflowVersionId : null,
       },
     },
@@ -667,6 +682,15 @@ const createActorCommandWithActor = async (params: CreateActorCommandInternalPar
   try {
     const result = await sql.begin((tx) => createActorCommandInTransaction(params, tx));
     if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
+    if (result.ok && params.input.kind === "send" && params.input.scheduledAt) {
+      await publishMailMailboxEvent({
+        mailboxId: params.mailboxId,
+        conversationId: null,
+        reason: "scheduled_send",
+        targetId: result.data.id,
+        activityId: `scheduled-send-created:${result.data.id}`,
+      });
+    }
     return result;
   } catch (error) {
     if (isServiceError(error)) return fail(error);
@@ -694,6 +718,7 @@ export const createActorCommands = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   inputs: ActorCommandInput[];
+  afterCreate?: (tx: typeof sql, commands: MailCommand[]) => Promise<void>;
 }): Promise<Result<MailCommand[]>> => {
   try {
     const result = await sql.begin(async (tx) => {
@@ -706,6 +731,7 @@ export const createActorCommands = async (params: {
         if (!command.ok) throw command.error;
         commands.push(command.data);
       }
+      await params.afterCreate?.(tx, commands);
       return ok(commands);
     });
     if (result.ok) await enqueueActorCommands(result.data);

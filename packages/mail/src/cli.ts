@@ -46,6 +46,8 @@ import {
   responseScheduleDefinitionSchema,
   type ResponseScheduleDefinitionInput,
   type SavedConversationViewFilter,
+  type ScheduledSendPage,
+  type CancelScheduledSendResult,
   type SenderIdentity,
   savedConversationViewFilterSchema,
   type WorkflowEffectBudget,
@@ -3130,6 +3132,62 @@ export default defineCliCommands({
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
         if (ctx.options.output === "json") ctx.json({ draft, command: result });
         else ctx.print(`${flags.wait ? "Sent" : "Queued"} message ${result.id} (${result.state}).`);
+      },
+    }),
+    command("scheduled list", {
+      summary: "List messages waiting for scheduled delivery",
+      flags: {
+        ...mailboxFlag,
+        cursor: flag.string({ description: "Pagination cursor" }),
+        limit: flag.int({ min: 1, max: 100, default: 50, description: "Maximum results" }),
+      },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ limit: String(flags.limit) });
+        if (flags.cursor) query.set("cursor", flags.cursor);
+        const page = await readApi<ScheduledSendPage>(ctx, `/mailboxes/${mailbox.id}/scheduled-sends?${query}`);
+        printTable(
+          ctx,
+          page,
+          page.items.map((item) => ({
+            scheduled: item.scheduledAt,
+            nextAttempt: item.nextAttemptAt ?? "",
+            to: item.to.map((address) => address.address).join(", "),
+            subject: item.subject || "(no subject)",
+            by: item.scheduledBy.displayName,
+            state: item.state,
+            id: item.id,
+          })),
+          [
+            { key: "scheduled", label: "SCHEDULED" },
+            { key: "nextAttempt", label: "NEXT ATTEMPT" },
+            { key: "to", label: "TO" },
+            { key: "subject", label: "SUBJECT" },
+            { key: "by", label: "BY" },
+            { key: "state", label: "STATE" },
+            { key: "id", label: "SCHEDULE ID" },
+          ],
+        );
+      },
+    }),
+    command("scheduled cancel", {
+      summary: "Cancel a scheduled delivery",
+      args: { scheduledSendId: arg.required({ description: "Scheduled send id" }) },
+      flags: {
+        ...mailboxFlag,
+        discard: flag.boolean({ description: "Discard the message instead of restoring its draft" }),
+        yes: confirmFlag("Confirm scheduled delivery cancellation"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to cancel the scheduled delivery.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const result = await readApi<CancelScheduledSendResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/scheduled-sends/${args.scheduledSendId}/cancel`,
+          jsonRequest("POST", { disposition: flags.discard ? "discard" : "draft" }),
+        );
+        if (printStructured(ctx, result)) return;
+        ctx.print(result.disposition === "draft" ? `Restored draft ${result.draftId}.` : `Discarded message ${result.draftId}.`);
       },
     }),
     command("reference scheme list", {

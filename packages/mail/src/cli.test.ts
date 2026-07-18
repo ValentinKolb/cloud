@@ -27,6 +27,7 @@ const BINDING_ID = "00000000-0000-4000-8000-000000000020";
 const TAG_ID = "00000000-0000-4000-8000-000000000021";
 const REFERENCE_SCHEME_ID = "00000000-0000-4000-8000-000000000022";
 const COMPOSE_TEMPLATE_ID = "00000000-0000-4000-8000-000000000023";
+const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -1280,6 +1281,81 @@ test("send cancellation uses the public command id", async () => {
   expect(result.exitCode).toBe(0);
   expect(requestedPath).toBe(`/api/mail/mailboxes/${MAILBOX_ID}/commands/${COMMAND_ID}/cancel`);
   expect(JSON.parse(result.stdout)).toEqual({ cancelled: true, commandId: COMMAND_ID });
+});
+
+test("scheduled sends expose list and explicit cancellation disposition", async () => {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/scheduled-sends`) {
+      return api({
+        items: [
+          {
+            id: SCHEDULED_SEND_ID,
+            commandId: COMMAND_ID,
+            draftId: DRAFT_ID,
+            conversationId: null,
+            intent: "new",
+            to: [{ name: null, address: "recipient@example.com" }],
+            cc: [],
+            bcc: [],
+            subject: "Later",
+            bodyPreview: "Scheduled body",
+            scheduledAt: "2026-07-18T12:00:00.000Z",
+            nextAttemptAt: null,
+            state: "scheduled",
+            attempt: 0,
+            lastError: null,
+            scheduledBy: { kind: "user", displayName: "Mail User" },
+            createdAt: "2026-07-18T10:00:00.000Z",
+          },
+        ],
+        nextCursor: null,
+        total: 1,
+      });
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/scheduled-sends/${SCHEDULED_SEND_ID}/cancel`
+    ) {
+      requests.push({ method: request.method, path: url.pathname, body: await request.json() });
+      return api({ disposition: "discard", draftId: DRAFT_ID });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const listed = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "scheduled",
+    "list",
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  expect(listed.exitCode).toBe(0);
+  expect(JSON.parse(listed.stdout)).toMatchObject({ total: 1, items: [{ id: SCHEDULED_SEND_ID }] });
+
+  const cancelled = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "scheduled",
+    "cancel",
+    SCHEDULED_SEND_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--discard",
+    "--yes",
+  ]);
+  expect(cancelled.exitCode).toBe(0);
+  expect(JSON.parse(cancelled.stdout)).toEqual({ disposition: "discard", draftId: DRAFT_ID });
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/scheduled-sends/${SCHEDULED_SEND_ID}/cancel`,
+      body: { disposition: "discard" },
+    },
+  ]);
 });
 
 test("folder create submits one durable provider command and waits for rediscovery", async () => {

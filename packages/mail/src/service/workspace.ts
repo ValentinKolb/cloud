@@ -4,25 +4,25 @@ import {
   type ConversationView,
   conversationViewSchema,
   type Mailbox,
-  type MailDraft,
   type MailSearchExpression,
+  type ScheduledSendPage,
   type SenderIdentity,
 } from "../contracts";
 import type { MailRequestContext } from "./auth";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./collaboration";
 import * as collaboration from "./collaboration";
 import * as conversationReferences from "./conversation-reference";
-import * as drafts from "./drafts";
 import { latestMailCollaborationEventCursor } from "./events";
-import * as mailboxes from "./mailboxes";
 import type { ConversationLocalTags, LocalTag } from "./local-tags";
 import * as localTags from "./local-tags";
+import * as mailboxes from "./mailboxes";
 import type { ConversationSummary, ConversationViewCounts, MailFolderView, MessageDetail } from "./messages";
 import * as messages from "./messages";
 import type { ConversationReminder } from "./reminders";
 import * as reminders from "./reminders";
 import type { SavedConversationView } from "./saved-views";
 import * as savedViews from "./saved-views";
+import * as scheduledSends from "./scheduled-sends";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
 
@@ -44,6 +44,7 @@ export type MailListItem = {
   responseNeeded: boolean;
   snoozedUntil: string | null;
   sourceFolderId: string | null;
+  unreadFolderIds: string[];
 };
 
 const EMPTY_VIEW_COUNTS: ConversationViewCounts = {
@@ -102,7 +103,10 @@ export type MailboxPageData = {
   initialLiveCursor: string | null;
   folders: MailFolderView[];
   identities: SenderIdentity[];
-  drafts: MailDraft[];
+  scheduledMode: boolean;
+  scheduledCount: number;
+  scheduledPage: ScheduledSendPage | null;
+  scheduledError: string | null;
   activeView: ConversationView | null;
   savedViewId: string | null;
   savedViews: SavedConversationView[];
@@ -170,19 +174,21 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
   responseNeeded: conversation.responseNeeded,
   snoozedUntil: conversation.snoozedUntil,
   sourceFolderId: conversation.folderId,
+  unreadFolderIds: conversation.unreadFolderIds,
 });
 
 const loadConversationDetails = async (params: { context: MailRequestContext; mailboxId: string; conversationId: string }) => {
-  const [detailResult, stateResult, tagResult, commentsResult, usersResult, activityResult, reminderResult, referenceResult] = await Promise.all([
-    messages.listConversationMessageDetails({ ...params, limit: 100 }),
-    collaboration.getConversationCollaboration(params),
-    localTags.getConversationLocalTags(params),
-    collaboration.listConversationComments({ ...params, limit: 100 }),
-    collaboration.listAssignableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
-    collaboration.listActivity({ ...params, limit: 30 }),
-    reminders.getConversationReminder(params),
-    conversationReferences.listConversationReferences(params),
-  ]);
+  const [detailResult, stateResult, tagResult, commentsResult, usersResult, activityResult, reminderResult, referenceResult] =
+    await Promise.all([
+      messages.listConversationMessageDetails({ ...params, limit: 100 }),
+      collaboration.getConversationCollaboration(params),
+      localTags.getConversationLocalTags(params),
+      collaboration.listConversationComments({ ...params, limit: 100 }),
+      collaboration.listAssignableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
+      collaboration.listActivity({ ...params, limit: 30 }),
+      reminders.getConversationReminder(params),
+      conversationReferences.listConversationReferences(params),
+    ]);
 
   return {
     detailMessages: detailResult.ok ? detailResult.data : [],
@@ -194,7 +200,7 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     reminder: reminderResult.ok ? reminderResult.data : null,
     collaborationError: !stateResult.ok ? stateResult.error.message : !commentsResult.ok ? commentsResult.error.message : null,
     selectedReference: referenceResult.ok
-      ? (referenceResult.data.find((reference) => reference.role === "primary") ?? referenceResult.data[0])?.value ?? null
+      ? ((referenceResult.data.find((reference) => reference.role === "primary") ?? referenceResult.data[0])?.value ?? null)
       : null,
   };
 };
@@ -258,6 +264,7 @@ const loadListItems = async (params: {
         responseNeeded: false,
         snoozedUntil: null,
         sourceFolderId: null,
+        unreadFolderIds: [],
       })),
     };
   }
@@ -301,6 +308,7 @@ export const loadMailboxPageData = async (params: {
 }): Promise<MailboxPageData | null> => {
   const permission = await collaboration.requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!permission.ok || permission.data === "none") return null;
+  const scheduledMode = params.requestUrl.searchParams.get("scheduled") === "1";
 
   let initialLiveCursor: string | null = null;
   try {
@@ -312,15 +320,16 @@ export const loadMailboxPageData = async (params: {
     });
   }
 
-  const [mailboxResult, folderResult, identityResult, viewCountsResult, savedViewResult, draftResult, localTagResult] = await Promise.all([
-    mailboxes.getMailbox(params.context, params.mailboxId),
-    messages.listFolders(params.context, params.mailboxId),
-    senderIdentities.listSenderIdentities(params.context, params.mailboxId),
-    messages.getConversationViewCounts({ context: params.context, mailboxId: params.mailboxId }),
-    savedViews.listSavedConversationViews({ context: params.context, mailboxId: params.mailboxId }),
-    drafts.listDrafts(params.context, params.mailboxId, 20),
-    localTags.listLocalTags(params.context, params.mailboxId),
-  ]);
+  const [mailboxResult, folderResult, identityResult, viewCountsResult, savedViewResult, localTagResult, scheduledCountResult] =
+    await Promise.all([
+      mailboxes.getMailbox(params.context, params.mailboxId),
+      messages.listFolders(params.context, params.mailboxId),
+      senderIdentities.listSenderIdentities(params.context, params.mailboxId),
+      messages.getConversationViewCounts({ context: params.context, mailboxId: params.mailboxId }),
+      savedViews.listSavedConversationViews({ context: params.context, mailboxId: params.mailboxId }),
+      localTags.listLocalTags(params.context, params.mailboxId),
+      scheduledSends.countScheduledSends({ context: params.context, mailboxId: params.mailboxId }),
+    ]);
   if (!mailboxResult.ok) return null;
 
   const parsedView = conversationViewSchema.safeParse(params.requestUrl.searchParams.get("view") ?? undefined);
@@ -333,23 +342,36 @@ export const loadMailboxPageData = async (params: {
   const selectedConversationId = optionalUuidSearchParam(params.requestUrl, "conversation");
   const selectedMessageId = selectedConversationId ? null : optionalUuidSearchParam(params.requestUrl, "message");
   const folders = folderResult.ok ? folderResult.data : [];
-  const list = await loadListItems({
-    context: params.context,
-    mailboxId: params.mailboxId,
-    folderId,
-    activeView,
-    savedViewId,
-    query,
-    searchExpression,
-    cursor: listCursor ?? undefined,
-  });
-
-  const selection = await loadSelectionDetail({
-    context: params.context,
-    mailboxId: params.mailboxId,
-    conversationId: selectedConversationId,
-    messageId: selectedMessageId,
-  });
+  const [list, selection, scheduledPageResult] = await Promise.all([
+    scheduledMode
+      ? Promise.resolve({ items: [], nextCursor: null, error: null })
+      : loadListItems({
+          context: params.context,
+          mailboxId: params.mailboxId,
+          folderId,
+          activeView,
+          savedViewId,
+          query,
+          searchExpression,
+          cursor: listCursor ?? undefined,
+        }),
+    scheduledMode
+      ? Promise.resolve(EMPTY_SELECTION_DETAIL)
+      : loadSelectionDetail({
+          context: params.context,
+          mailboxId: params.mailboxId,
+          conversationId: selectedConversationId,
+          messageId: selectedMessageId,
+        }),
+    scheduledMode
+      ? scheduledSends.listScheduledSends({
+          context: params.context,
+          mailboxId: params.mailboxId,
+          cursor: listCursor ?? undefined,
+          limit: 50,
+        })
+      : Promise.resolve(null),
+  ]);
 
   const activeFolder = folders.find((folder) => folder.id === folderId);
   const activeSavedView = savedViewResult.ok ? savedViewResult.data.find((view) => view.id === savedViewId) : null;
@@ -364,7 +386,10 @@ export const loadMailboxPageData = async (params: {
     initialLiveCursor,
     folders,
     identities: identityResult.ok ? identityResult.data : [],
-    drafts: draftResult.ok ? draftResult.data : [],
+    scheduledMode,
+    scheduledCount: scheduledPageResult?.ok ? scheduledPageResult.data.total : scheduledCountResult.ok ? scheduledCountResult.data : 0,
+    scheduledPage: scheduledPageResult?.ok ? scheduledPageResult.data : null,
+    scheduledError: scheduledPageResult && !scheduledPageResult.ok ? scheduledPageResult.error.message : null,
     localTags: localTagResult.ok ? localTagResult.data : [],
     activeView,
     savedViewId,
@@ -378,13 +403,15 @@ export const loadMailboxPageData = async (params: {
     listCursor,
     nextListCursor: list.nextCursor,
     listError: list.error,
-    listTitle: searchExpression
-      ? query
-        ? `Results for “${query}”`
-        : "Filtered search"
-      : activeView
-        ? VIEW_LABELS[activeView]
-        : (activeSavedView?.name ?? activeFolder?.name ?? "All mail"),
+    listTitle: scheduledMode
+      ? "Scheduled"
+      : searchExpression
+        ? query
+          ? `Results for “${query}”`
+          : "Filtered search"
+        : activeView
+          ? VIEW_LABELS[activeView]
+          : (activeSavedView?.name ?? activeFolder?.name ?? "All mail"),
     ...selection,
     selectedSubject,
   };

@@ -2,6 +2,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import type { MailboxSettingsContext } from "../settings-context";
 import * as mailboxAccess from "./access";
 import type { MailRequestContext } from "./auth";
+import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
 import * as composeTemplates from "./compose-templates";
 import * as conversationReferences from "./conversation-reference";
@@ -44,8 +45,17 @@ export const loadMailboxSettingsContext = async (
 
   if (permission !== "admin") return ok({ mailbox: mailboxResult.data, permission, compose, admin: null });
 
-  const [accessResult, connectionResult, bindingResult, folderResult, identityResult, referenceSchemeResult, responseScheduleResult, workflowResult] =
-    await Promise.all([
+  const [
+    accessResult,
+    connectionResult,
+    bindingResult,
+    folderResult,
+    identityResult,
+    referenceSchemeResult,
+    responseScheduleResult,
+    automaticReplyResult,
+    workflowResult,
+  ] = await Promise.all([
     mailboxAccess.listMailboxAccess(context, mailboxId),
     providerConnections.listProviderConnections(context, mailboxId),
     bindings.listProviderBindings(context, mailboxId),
@@ -53,6 +63,7 @@ export const loadMailboxSettingsContext = async (
     senderIdentities.listSenderIdentities(context, mailboxId),
     conversationReferences.listConversationReferenceSchemes(context, mailboxId),
     responseSchedules.listResponseSchedules(context, mailboxId),
+    automaticReplyConfigurations.listAutomaticReplyConfigurations(context, mailboxId),
     workflows.listWorkflows(context, mailboxId),
   ]);
   if (!accessResult.ok) return fail(accessResult.error);
@@ -62,6 +73,7 @@ export const loadMailboxSettingsContext = async (
   if (!identityResult.ok) return fail(identityResult.error);
   if (!referenceSchemeResult.ok) return fail(referenceSchemeResult.error);
   if (!responseScheduleResult.ok) return fail(responseScheduleResult.error);
+  if (!automaticReplyResult.ok) return fail(automaticReplyResult.error);
   if (!workflowResult.ok) return fail(workflowResult.error);
 
   return ok({
@@ -74,6 +86,7 @@ export const loadMailboxSettingsContext = async (
       bindings: bindingResult.data,
       folders: folderResult.data,
       identities: identityResult.data,
+      automaticReplies: automaticReplyResult.data,
       referenceSchemes: referenceSchemeResult.data,
       responseSchedules: responseScheduleResult.data,
       workflows: workflowResult.data,

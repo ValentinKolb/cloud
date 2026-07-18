@@ -6,17 +6,15 @@ import {
   stopRuntimeResources,
 } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { job, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { z } from "zod";
 import type { CommandState, MailCommand, RemoteMessagePrecondition } from "../contracts";
 import { remoteMessagePreconditionSchema } from "../contracts";
-import { requireMailboxPermission } from "./access";
-import type { MailRequestContext } from "./auth";
 import { rediscoverProviderBinding } from "./bindings";
 import { commandStillAuthorized } from "./command-authorization";
 import { imapSmtpConnector, type RemoteMessageState, type RemoteMutationTarget } from "./connectors";
+import { publishMailMailboxEvent } from "./events";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import {
   enqueueMaintenanceCommand,
@@ -88,6 +86,16 @@ type DbDestinationFolder = {
 };
 
 const parseJsonRecord = (value: JsonRecord | string): JsonRecord => (typeof value === "string" ? (JSON.parse(value) as JsonRecord) : value);
+
+const localStateProjectionSchema = z
+  .object({
+    remoteMessageRefId: z.string().uuid(),
+    previousFlags: z.array(z.string().min(1).max(100)).max(100),
+    previousKeywords: z.array(z.string().min(1).max(100)).max(100),
+    projectedFlags: z.array(z.string().min(1).max(100)).max(100),
+    projectedKeywords: z.array(z.string().min(1).max(100)).max(100),
+  })
+  .strict();
 
 const normalizeCode = (error: unknown, fallback: string): string => {
   const code = (error as { code?: unknown } | null)?.code;
@@ -211,7 +219,14 @@ const commandState = async (
   const code = error ? normalizeCode(error, "MAIL_COMMAND_FAILED") : null;
   const message = error ? errorMessage(error, "Mail command failed") : null;
   const updated = await sql.begin(async (tx) => {
-    const [updated] = await tx<{ mailbox_id: string; actor_kind: string; actor_id: string | null }[]>`
+    const [updated] = await tx<
+      {
+        mailbox_id: string;
+        actor_kind: string;
+        actor_id: string | null;
+        transport_metadata: JsonRecord | string;
+      }[]
+    >`
       UPDATE mail.commands
       SET
         state = ${state},
@@ -223,9 +238,26 @@ const commandState = async (
       WHERE id = ${command.id}::uuid
         AND attempt = ${command.attempt}
         AND state = 'executing'
-      RETURNING mailbox_id, actor_kind, actor_id
+      RETURNING mailbox_id, actor_kind, actor_id, transport_metadata
     `;
     if (!updated) return null;
+    if (state === "failed" || state === "cancelled") {
+      const projection = localStateProjectionSchema.safeParse(parseJsonRecord(updated.transport_metadata).localStateProjection);
+      if (projection.success) {
+        await tx`
+          UPDATE mail.message_placements
+          SET
+            flags = ${toPgTextArray(projection.data.previousFlags)}::text[],
+            keywords = ${toPgTextArray(projection.data.previousKeywords)}::text[],
+            updated_at = now()
+          WHERE remote_message_ref_id = ${projection.data.remoteMessageRefId}::uuid
+            AND flags @> ${toPgTextArray(projection.data.projectedFlags)}::text[]
+            AND flags <@ ${toPgTextArray(projection.data.projectedFlags)}::text[]
+            AND keywords @> ${toPgTextArray(projection.data.projectedKeywords)}::text[]
+            AND keywords <@ ${toPgTextArray(projection.data.projectedKeywords)}::text[]
+        `;
+      }
+    }
     await tx`
       INSERT INTO mail.activity_events (
         mailbox_id, command_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
@@ -1927,7 +1959,7 @@ const finishOutbox = async (params: {
 }): Promise<boolean> => {
   const code = params.error ? normalizeCode(params.error, "MAIL_SEND_FAILED") : null;
   const message = params.error ? errorMessage(params.error, "Mail send failed") : null;
-  return sql.begin(async (tx) => {
+  const updated = await sql.begin(async (tx) => {
     if (!(await lockOutboxFence(tx, params.outbox, params.command))) return false;
     await tx`
       UPDATE mail.outbox_submissions
@@ -1954,11 +1986,16 @@ const finishOutbox = async (params: {
     await tx`UPDATE mail.drafts SET state = ${params.draftState} WHERE id = ${params.outbox.draft_id}::uuid`;
     await tx`
       UPDATE mail.automatic_reply_effects
-      SET state = CASE
-        WHEN ${params.commandState} IN ('confirmed', 'reconciled') THEN 'confirmed'
-        WHEN ${params.commandState} IN ('ambiguous', 'needs_attention') THEN 'needs_attention'
-        ELSE 'failed'
-      END
+      SET
+        state = CASE
+          WHEN ${params.commandState} IN ('confirmed', 'reconciled') THEN 'confirmed'
+          WHEN ${params.commandState} IN ('ambiguous', 'needs_attention') THEN 'needs_attention'
+          ELSE 'failed'
+        END,
+        confirmed_at = CASE
+          WHEN ${params.commandState} IN ('confirmed', 'reconciled') THEN COALESCE(confirmed_at, now())
+          ELSE confirmed_at
+        END
       WHERE command_id = ${params.outbox.command_id}::uuid
     `;
     await tx`
@@ -1974,12 +2011,27 @@ const finishOutbox = async (params: {
         ${params.commandState === "confirmed" || params.commandState === "reconciled" ? "confirmed" : "failed"},
         'outbox_submission',
         ${params.outbox.id}::uuid,
-        ${{ outboxState: params.outboxState, commandState: params.commandState, code }}::jsonb
+        ${{
+          outboxState: params.outboxState,
+          commandState: params.commandState,
+          code,
+          scheduledAt: parseJsonRecord(params.command.payload).scheduledAt ?? null,
+        }}::jsonb
       FROM mail.commands c
       WHERE c.id = ${params.outbox.command_id}::uuid
     `;
     return true;
   });
+  if (updated && typeof parseJsonRecord(params.command.payload).scheduledAt === "string") {
+    await publishMailMailboxEvent({
+      mailboxId: params.command.mailbox_id,
+      conversationId: null,
+      reason: "scheduled_send",
+      targetId: params.outbox.id,
+      activityId: `scheduled-send-state:${params.outbox.id}:${params.outbox.attempt}:${params.outboxState}`,
+    });
+  }
+  return updated;
 };
 
 const isRetryablePreDispatchError = (error: unknown): boolean => {
@@ -1996,8 +2048,8 @@ const scheduleOutboxRetry = async (params: {
   fallbackMessage: string;
 }): Promise<void> => {
   const delaySeconds = Math.min(15 * 60, 15 * 2 ** Math.max(0, params.outbox.attempt));
-  await sql.begin(async (tx) => {
-    if (!(await lockOutboxFence(tx, params.outbox, params.command))) return;
+  const updated = await sql.begin(async (tx) => {
+    if (!(await lockOutboxFence(tx, params.outbox, params.command))) return false;
     await tx`
       UPDATE mail.outbox_submissions
       SET
@@ -2020,7 +2072,17 @@ const scheduleOutboxRetry = async (params: {
       WHERE id = ${params.command.id}::uuid
     `;
     await tx`UPDATE mail.drafts SET state = 'scheduled' WHERE id = ${params.outbox.draft_id}::uuid`;
+    return true;
   });
+  if (updated && typeof parseJsonRecord(params.command.payload).scheduledAt === "string") {
+    await publishMailMailboxEvent({
+      mailboxId: params.command.mailbox_id,
+      conversationId: null,
+      reason: "scheduled_send",
+      targetId: params.outbox.id,
+      activityId: `scheduled-send-retry:${params.outbox.id}:${params.outbox.attempt}`,
+    });
+  }
 };
 
 const sentMatches = async (params: {
@@ -2413,50 +2475,6 @@ export const executeOutboxSubmissionWithHeartbeat = async (
 };
 
 export const executeOutboxSubmission = async (outboxId: string): Promise<string | null> => executeOutboxSubmissionWithHeartbeat(outboxId);
-
-export const cancelSendCommand = async (params: {
-  context: MailRequestContext;
-  mailboxId: string;
-  commandId: string;
-}): Promise<Result<void>> => {
-  const permission = await requireMailboxPermission(params.context, params.mailboxId, "write");
-  if (!permission.ok) return permission;
-  try {
-    return await sql.begin(async (tx) => {
-      const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
-      if (!allowed.ok) return allowed;
-      const [outbox] = await tx<{ id: string; command_id: string; draft_id: string; state: string }[]>`
-        SELECT id, command_id, draft_id, state
-        FROM mail.outbox_submissions
-        WHERE command_id = ${params.commandId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE
-      `;
-      if (!outbox) return fail(err.notFound("Scheduled send"));
-      if (!["scheduled", "undo_window"].includes(outbox.state)) {
-        return fail(err.conflict("Outbox submission is already being processed"));
-      }
-      await tx`
-        UPDATE mail.outbox_submissions
-        SET state = 'cancelled', last_error_code = NULL, last_error_message = NULL
-        WHERE id = ${outbox.id}::uuid
-      `;
-      await tx`
-        UPDATE mail.commands
-        SET state = 'cancelled', finished_at = now(), last_error_code = NULL, last_error_message = NULL
-        WHERE id = ${outbox.command_id}::uuid
-      `;
-      await tx`
-        UPDATE mail.automatic_reply_effects
-        SET state = 'cancelled'
-        WHERE command_id = ${outbox.command_id}::uuid AND state = 'queued'
-      `;
-      await tx`UPDATE mail.drafts SET state = 'draft' WHERE id = ${outbox.draft_id}::uuid`;
-      return ok();
-    });
-  } catch {
-    return fail(err.internal("Failed to cancel scheduled send"));
-  }
-};
 
 const recoverStaleExecutions = async (): Promise<number> => {
   const result = await sql.begin(async (tx) => {
