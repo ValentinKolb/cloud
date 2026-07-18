@@ -5,13 +5,13 @@ import { bindGridsWorkflow } from "../../../workflows/binder";
 import { GRIDS_WORKFLOW_CHANNELS, GRIDS_WORKFLOW_LAUNCHER_KINDS, GridsWorkflowRunStatusSchema } from "../../../workflows/contracts";
 import { gridsWorkflowManifest } from "../../../workflows/manifest";
 
-const helpSource = await Bun.file(new URL("./grids-help-content.tsx", import.meta.url)).text();
-const controlFlowHelp =
-  helpSource.match(/<DocSection title="Control flow">([\s\S]*?)<DocSection title="Values and references">/)?.[1] ?? "";
+const helpSource = await Bun.file(new URL("../../../help/documents/grids-workflows.help.md", import.meta.url)).text();
+const controlFlowHelp = helpSource.match(/### Control flow\n([\s\S]*?)\n### Values and references/)?.[1] ?? "";
 
-const workflowSnippets = [...helpSource.matchAll(/<WorkflowSnippet\s+title="([^"]+)"\s+code=\{`([\s\S]*?)`\}/g)].map(
-  ([, title, source]) => ({ title: title!, source: source!.replaceAll("\\${{", "${{") }),
-);
+const workflowSnippets = [...helpSource.matchAll(/\*\*([^*\n]+)\*\*\s*\n+```yaml\n([\s\S]*?)```/g)].map(([, title, source]) => ({
+  title: title!,
+  source: source!.trim(),
+}));
 
 const ids = {
   items: "11111111-1111-4111-8111-111111111111",
@@ -90,7 +90,7 @@ describe("Grids workflow help", () => {
 
   test("compiles and binds every complete workflow snippet", async () => {
     expect(workflowSnippets.length).toBeGreaterThan(0);
-    expect(workflowSnippets.length).toBe(helpSource.match(/<WorkflowSnippet/g)?.length ?? 0);
+    expect(workflowSnippets.length).toBe(helpSource.match(/```yaml/g)?.length ?? 0);
     expect(new Set(workflowSnippets.map(({ title }) => title)).size).toBe(workflowSnippets.length);
 
     for (const { title, source } of workflowSnippets.filter(({ title }) => !title.endsWith("(fragment)"))) {
@@ -106,7 +106,7 @@ describe("Grids workflow help", () => {
       "Input declarations (fragment)",
     ]);
     expect(helpSource).not.toContain("batch: true");
-    expect(helpSource).not.toContain("<DocInlineCode>batch</DocInlineCode>");
+    expect(helpSource).not.toMatch(/`batch`/);
   });
 
   test("documents record-event filter syntax and every supported operator", () => {
@@ -152,7 +152,7 @@ describe("Grids workflow help", () => {
 
   test("documents every recursive workflow condition operator", () => {
     for (const operator of ["equals", "notEquals", "contains", "startsWith", "endsWith", "exists", "all", "any", "not"]) {
-      expect(controlFlowHelp, `missing workflow condition help for ${operator}`).toContain(`<DocInlineCode>${operator}</DocInlineCode>`);
+      expect(controlFlowHelp, `missing workflow condition help for ${operator}`).toContain(`\`${operator}\``);
     }
     expect(workflowSnippets.map(({ title }) => title)).toContain("Recursive conditions");
   });

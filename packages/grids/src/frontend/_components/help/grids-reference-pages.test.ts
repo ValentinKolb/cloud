@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { GQL_EXAMPLES } from "../../../help/gql-examples";
 import { parseGridsQueryDsl } from "../../../query-dsl/parser";
-import { GQL_EXAMPLES } from "./grids-reference-pages";
 
 describe("Grids GQL reference examples", () => {
   test("copyable GQL examples parse with the public parser", () => {

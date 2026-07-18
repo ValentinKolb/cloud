@@ -4,6 +4,7 @@ export const GRIDS_HELP_TOPIC_IDS = [
   "grids-build-base",
   "grids-tables-fields",
   "grids-views-reports",
+  "grids-combined-tables",
   "grids-gql",
   "grids-formulas",
   "grids-forms-dashboards",

@@ -3,6 +3,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
+import { gridsHelp } from "../help";
 import { gridsService } from "../service";
 import AdminGridsActions from "./_components/AdminGridsActions.island";
 import GridsLayoutHelpRegistrar from "./_components/help/GridsLayoutHelpRegistrar.island";
@@ -56,7 +57,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Grids" stretch>
-      <GridsLayoutHelpRegistrar />
+      <GridsLayoutHelpRegistrar documents={gridsHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="grids-admin">
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-3" style="view-transition-name: admin-grids-title">

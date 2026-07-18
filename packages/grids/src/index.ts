@@ -1,10 +1,11 @@
-import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
 import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
 import apiRoutes from "./api";
 import { app } from "./config";
 import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
+import { gridsHelp } from "./help";
 import { migrate } from "./migrate";
 import { gridsService } from "./service";
 import { startRecordEventOutbox, stopRecordEventOutbox } from "./service/record-event-outbox";
@@ -13,6 +14,7 @@ import { startWorkflowKernelRuntime, stopWorkflowKernelRuntime } from "./service
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/api/grids/help", new Hono<AuthContext>().use(auth.requireRole("user")).route("/", gridsHelp.router))
   .route("/api/grids", apiRoutes)
   .route("/app/grids", pageRoutes)
   .route("/admin/grids", adminRoutes)

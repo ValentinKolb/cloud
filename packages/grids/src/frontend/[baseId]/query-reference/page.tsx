@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { currentActorUser } from "../../../api/permissions";
 import { ssr } from "../../../config";
+import { gridsHelp } from "../../../help";
 import { gridsService } from "../../../service";
 import QueryReferenceWindow, { normalizeQueryReferenceTab } from "../../_components/query/QueryReferenceWindow";
 
@@ -66,6 +67,7 @@ export default ssr<AuthContext>(async (c) => {
       fieldsByTable={catalog.fieldsByTable}
       viewsByTable={catalog.viewsByTable}
       recordCountsByTable={recordCountsByTable}
+      documents={gridsHelp.manifest}
       defaultTab={defaultTab}
       inspectedSourceId={sourceId}
     />

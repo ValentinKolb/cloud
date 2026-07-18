@@ -3,6 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { currentActorUser } from "../../api/permissions";
 import { withInitialGqlResults } from "../../api/workspace-query-preview";
 import { ssr } from "../../config";
+import { gridsHelp } from "../../help";
 import { parseDocumentViewMode } from "../_components/sidebar/GridsSettingsStore";
 import GridsWorkspace from "../_components/workspace/GridsWorkspace";
 import { loadGridsWorkspaceState } from "../_components/workspace/workspace-state";
@@ -47,7 +48,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>
-      <GridsWorkspace state={state} />
+      <GridsWorkspace state={state} helpDocuments={gridsHelp.manifest} />
     </Layout>
   );
 });

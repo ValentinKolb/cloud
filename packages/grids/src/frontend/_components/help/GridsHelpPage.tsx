@@ -1,17 +1,10 @@
+import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
-import GridsLayoutHelp from "./GridsLayoutHelp";
 import type { GridsHelpTopicId } from "./grids-help-routing";
 
 /**
- * Full-page Help uses the exact same registered content as the in-app Help.
- * Grids keeps its established reference copy intact while sharing one shell,
- * navigation model, and window/full-page presentation.
+ * Full-page Help uses the same Markdown manifest as the in-app Help.
  */
-export default function GridsHelpPage(props: { initialTopic?: GridsHelpTopicId }) {
-  return (
-    <>
-      <GridsLayoutHelp />
-      <Layout.HelpPage documents={[]} initialTopic={props.initialTopic} />
-    </>
-  );
+export default function GridsHelpPage(props: { documents: readonly HelpDocumentManifest[]; initialTopic?: GridsHelpTopicId }) {
+  return <Layout.HelpPage documents={props.documents} initialTopic={props.initialTopic} />;
 }

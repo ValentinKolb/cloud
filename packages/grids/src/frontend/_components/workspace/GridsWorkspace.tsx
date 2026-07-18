@@ -1,5 +1,6 @@
+import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import GridsLayoutHelp from "../help/GridsLayoutHelp";
+import GridsLayoutHelpRegistrar from "../help/GridsLayoutHelpRegistrar.island";
 import RememberGridsPath from "../sidebar/RememberGridsPath.island";
 import GridsRoute from "./GridsRoute.island";
 import GridsSidebar from "./GridsSidebar";
@@ -58,13 +59,13 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
   return { ...state, catalog };
 };
 
-export default function GridsWorkspace(props: { state: OkWorkspaceState }) {
+export default function GridsWorkspace(props: { state: OkWorkspaceState; helpDocuments: readonly HelpDocumentManifest[] }) {
   return (
     <>
       <RememberGridsPath path={props.state.rememberPath} />
       <WorkspaceMetadataRefresh baseId={props.state.base.id} initialCursor={props.state.metadataEventCursor} />
       <AppWorkspace class="min-h-0 flex-1">
-        <GridsLayoutHelp />
+        <GridsLayoutHelpRegistrar documents={props.helpDocuments} />
         <GridsSidebar state={props.state} />
         <GridsRoute state={routeClientState(props.state)} />
       </AppWorkspace>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GRIDS_HELP_TOPIC_IDS, normalizeGridsHelpTopic } from "./GridsHelpPage";
+import { GRIDS_HELP_TOPIC_IDS, normalizeGridsHelpTopic } from "./grids-help-routing";
 
 describe("Grids full-page help", () => {
   test("keeps the existing topic IDs available to the shared Help shell", () => {
@@ -9,6 +9,7 @@ describe("Grids full-page help", () => {
       "grids-build-base",
       "grids-tables-fields",
       "grids-views-reports",
+      "grids-combined-tables",
       "grids-gql",
       "grids-formulas",
       "grids-forms-dashboards",

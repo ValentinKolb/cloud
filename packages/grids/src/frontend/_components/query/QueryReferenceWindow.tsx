@@ -1,8 +1,11 @@
+import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
+import { Layout } from "@valentinkolb/cloud/ssr/islands";
 import {
   AppWorkspace,
   CopyButton,
   DataTable,
   type DataTableColumn,
+  DocCode,
   DocInlineCode,
   DocLead,
   DocNote,
@@ -12,17 +15,10 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
+import { GQL_EXAMPLES } from "../../../help/gql-examples";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
-import { FormulaSnippet, GridsStartPage, GridsWorkflowsPage } from "../help/grids-help-content";
-import {
-  GQL_EXAMPLES,
-  GridsGqlExamplesPage,
-  GridsGqlHowItWorksPage,
-  GridsGqlReferencePage,
-  GridsTemplatesPage,
-} from "../help/grids-reference-pages";
 
 const TAB_ALIASES = {
   overview: "basics",
@@ -62,6 +58,7 @@ type Props = {
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
   recordCountsByTable: Record<string, number>;
+  documents: readonly HelpDocumentManifest[];
 };
 
 type SourceRow = {
@@ -170,6 +167,30 @@ limit 20`;
 };
 
 const Doc = (props: { children: JSX.Element }) => <DocPage class="!mx-0 !max-w-none w-full">{props.children}</DocPage>;
+const FormulaSnippet = (props: { code: string; title?: string }) => <DocCode title={props.title} code={props.code} copy />;
+const assistantFileHref = (baseId: string, file: "SKILL.md" | "context.md") =>
+  `/api/grids/gql/by-base/${encodeURIComponent(baseId)}/assistant/${file}`;
+
+const GqlAssistantFiles = (props: { baseId: string }) => (
+  <Doc>
+    <DocSection title="AI assistant files">
+      <div class="paper flex flex-wrap items-center justify-between gap-3 p-4">
+        <div class="min-w-0">
+          <h3 class="font-semibold text-primary">Download assistant context</h3>
+          <p class="mt-1 text-sm text-dimmed">Use the skill once, then pair it with this base's permission-filtered schema context.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a class="btn-input btn-sm" href={assistantFileHref(props.baseId, "SKILL.md")} download="SKILL.md">
+            <i class="ti ti-download" /> SKILL.md
+          </a>
+          <a class="btn-input btn-sm" href={assistantFileHref(props.baseId, "context.md")} download="context.md">
+            <i class="ti ti-download" /> context.md
+          </a>
+        </div>
+      </div>
+    </DocSection>
+  </Doc>
+);
 
 const plural = (count: number, singular: string, pluralLabel = `${singular}s`) => `${count} ${count === 1 ? singular : pluralLabel}`;
 
@@ -750,6 +771,22 @@ export default function QueryReferenceWindow(props: Props) {
   );
 
   const catalogExample = createMemo(() => buildExampleForCatalog(props.tables, props.fieldsByTable));
+  const helpTopic = (): string | null => {
+    switch (activeTab()) {
+      case "basics":
+        return "grids-overview";
+      case "gql":
+      case "examples":
+      case "how-it-works":
+        return "grids-gql";
+      case "templates":
+        return "grids-documents-pdfs";
+      case "workflows":
+        return "grids-workflows";
+      default:
+        return null;
+    }
+  };
   const content = (): JSX.Element => {
     switch (activeTab()) {
       case "datatypes":
@@ -765,19 +802,47 @@ export default function QueryReferenceWindow(props: Props) {
         );
       case "formulas":
         return <FormulasTab functionRows={functionRows()} />;
-      case "gql":
-        return <GridsGqlReferencePage baseId={props.baseId} />;
-      case "templates":
-        return <GridsTemplatesPage />;
       case "examples":
-        return <GridsGqlExamplesPage catalogExample={catalogExample()} />;
+        return (
+          <div class="flex min-h-0 flex-1 flex-col overflow-auto">
+            <Doc>
+              <DocSection title="For this base">
+                <DocCode title="Generated from the first table" code={catalogExample()} language="text" copy />
+              </DocSection>
+            </Doc>
+            <Layout.HelpPage
+              documents={props.documents.filter((document) => document.id === "grids-gql")}
+              initialTopic="grids-gql"
+              includeShortcuts={false}
+              embedded
+            />
+          </div>
+        );
+      case "gql":
+        return (
+          <div class="flex min-h-0 flex-1 flex-col overflow-auto">
+            <GqlAssistantFiles baseId={props.baseId} />
+            <Layout.HelpPage
+              documents={props.documents.filter((document) => document.id === "grids-gql")}
+              initialTopic="grids-gql"
+              includeShortcuts={false}
+              embedded
+            />
+          </div>
+        );
+      case "templates":
       case "how-it-works":
-        return <GridsGqlHowItWorksPage />;
       case "workflows":
-        return <GridsWorkflowsPage />;
       case "basics":
       default:
-        return <GridsStartPage />;
+        return (
+          <Layout.HelpPage
+            documents={props.documents.filter((document) => document.id === helpTopic())}
+            initialTopic={helpTopic() ?? undefined}
+            includeShortcuts={false}
+            embedded
+          />
+        );
     }
   };
 
