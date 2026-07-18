@@ -1,9 +1,9 @@
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { type AuthContext } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import { pulseHelp } from "../../help";
+import PulseLayoutHelp from "../PulseLayoutHelp.island";
 import PulseWorkspace from "../PulseWorkspace.island";
-import PulseLayoutHelp from "../PulseLayoutHelp";
 import { loadPulseWorkspacePageData } from "./page-data";
 
 export default ssr<AuthContext>(async (c) => {

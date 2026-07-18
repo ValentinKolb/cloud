@@ -3,9 +3,11 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
+import { notebookHelp } from "../help";
 import { notebooksService } from "../service";
 import AdminNotebookActions from "./_components/AdminNotebookActions.island";
 import AdminNotebooksAppSettings from "./_components/AdminNotebooksAppSettings.island";
+import NotebookLayoutHelp from "./[id]/_components/help/NotebookLayoutHelp.island";
 
 const PER_PAGE = 100;
 
@@ -44,6 +46,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Notebooks" stretch>
+      <NotebookLayoutHelp documents={notebookHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-notebooks-title">

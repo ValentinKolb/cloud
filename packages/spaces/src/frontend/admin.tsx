@@ -3,8 +3,10 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
+import { spacesHelp } from "../help";
 import { spacesService } from "../service";
 import AdminSpaceActions from "./_components/AdminSpaceActions.island";
+import SpacesLayoutHelp from "./_components/help/SpacesLayoutHelp.island";
 
 const PER_PAGE = 100;
 
@@ -43,6 +45,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Spaces" stretch>
+      <SpacesLayoutHelp documents={spacesHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="spaces-admin">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-spaces-title">

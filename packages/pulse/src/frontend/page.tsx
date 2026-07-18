@@ -1,10 +1,10 @@
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
-import { pulseService } from "../service";
-import type { AuthContext } from "@valentinkolb/cloud/server";
 import { pulseHelp } from "../help";
+import { pulseService } from "../service";
+import PulseLayoutHelp from "./PulseLayoutHelp.island";
 import PulseOverview from "./PulseOverview.island";
-import PulseLayoutHelp from "./PulseLayoutHelp";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");

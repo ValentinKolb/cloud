@@ -11,7 +11,7 @@ import {
 import { fuzzy } from "@valentinkolb/stdlib";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { docHref, findDocPage, type UiLabDocPage, uiLabDocs, uiLabSearchEntries } from "./registry";
-import UiLabLayoutHelp from "./UiLabLayoutHelp.island";
+import UiLabLayoutHelp from "./UiLabLayoutHelp";
 
 type UiLabDocsProps = {
   section: string;

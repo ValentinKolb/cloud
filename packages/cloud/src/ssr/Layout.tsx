@@ -251,7 +251,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth, focusM
             <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="rail" label="Open apps" />
             <div class="mt-auto flex flex-col items-center gap-1">
               <GlobalSearchTrigger variant="rail" searchHelpApps={searchHelpApps} />
-              <HotkeysHelpRail searchHelpApps={searchHelpApps} accent={currentApp?.appearance?.accent} />
+              <HotkeysHelpRail variant="rail" registerHotkey searchHelpApps={searchHelpApps} accent={currentApp?.appearance?.accent} />
               <ThemeToggleRail />
             </div>
           </nav>
@@ -285,6 +285,13 @@ export default function Layout({ children, c, title, fullPage, fullWidth, focusM
             </div>
           </div>
           <div class="flex shrink-0 items-center gap-1">
+            <HotkeysHelpRail
+              variant="header"
+              registerHotkey={!showRail}
+              class={showRail ? "md:hidden" : ""}
+              searchHelpApps={searchHelpApps}
+              accent={currentApp?.appearance?.accent}
+            />
             {user && (
               <GlobalSearchTrigger variant="header" registerHotkey class={showRail ? "md:hidden" : ""} searchHelpApps={searchHelpApps} />
             )}

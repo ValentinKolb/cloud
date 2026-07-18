@@ -3,7 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { currentActorUser } from "../api/permissions";
 import { ssr } from "../config";
 import { gridsService } from "../service";
-import GridsLayoutHelp from "./_components/help/GridsLayoutHelp";
+import GridsLayoutHelpRegistrar from "./_components/help/GridsLayoutHelpRegistrar.island";
 import BasesOverview from "./_components/overview/BasesOverview.island";
 import { parseLastGridsPath } from "./_components/sidebar/GridsSettingsStore";
 
@@ -53,7 +53,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Grids" }]}>
-      <GridsLayoutHelp />
+      <GridsLayoutHelpRegistrar />
       <BasesOverview
         bases={visible.items}
         total={visible.total}

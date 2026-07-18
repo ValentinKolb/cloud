@@ -1,11 +1,14 @@
-import { ssr } from "../config";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { ssr } from "../config";
+import { coreHelp } from "../help";
+import CoreLayoutHelp from "./CoreLayoutHelp.island";
 
 /** 404 Not Found page. */
 export default ssr((c) => {
   c.status(404);
   return () => (
     <Layout c={c} title="Page Not Found">
+      <CoreLayoutHelp documents={coreHelp.manifest} />
       <div class="max-w-sm mx-auto flex flex-col items-center gap-6 py-16">
         <div class="text-7xl font-light text-gray-300 dark:text-gray-600">404</div>
 

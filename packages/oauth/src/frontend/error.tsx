@@ -1,6 +1,8 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { oauthHelp } from "@/help";
+import { ssr } from "../config";
+import OAuthLayoutHelp from "./_components/OAuthLayoutHelp.island";
 
 /** OAuth error page shown when authorization fails. */
 export default ssr<AuthContext>(async (c) => {
@@ -10,6 +12,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Authorization Error" }]}>
+      <OAuthLayoutHelp documents={oauthHelp.manifest} />
       <div class="max-w-md mx-auto flex flex-col gap-6">
         <div class="paper p-6 text-center">
           <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">

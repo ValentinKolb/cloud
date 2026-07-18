@@ -12,10 +12,12 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
+import { notebookHelp } from "@/help";
 import { notebooksService } from "@/service";
 import { ssr } from "../../../config";
 import { buildAttachmentsUrl } from "../../params";
 import AttachmentsOverview from "../_components/attachments-overview/AttachmentsOverview.island";
+import NotebookLayoutHelp from "../_components/help/NotebookLayoutHelp.island";
 import { parseSettings } from "../_components/settings/NotebookSettingsStore";
 import NotebookSidebar from "../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../_components/sidebar/types";
@@ -39,6 +41,7 @@ export default ssr<AuthContext>(async (c) => {
   if (!notebook) {
     return () => (
       <Layout c={c} title="Not Found">
+        <NotebookLayoutHelp documents={notebookHelp.manifest} />
         <div class="max-w-md mx-auto mt-16">
           <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
             <i class="ti ti-alert-circle text-sm" />
@@ -57,6 +60,7 @@ export default ssr<AuthContext>(async (c) => {
   if (permission === "none") {
     return () => (
       <Layout c={c} title="Access Denied">
+        <NotebookLayoutHelp documents={notebookHelp.manifest} />
         <div class="max-w-md mx-auto mt-16">
           <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
             <i class="ti ti-lock text-sm" />
@@ -119,6 +123,7 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Attachments" },
       ]}
     >
+      <NotebookLayoutHelp documents={notebookHelp.manifest} />
       <AppWorkspace class="flex-1 min-h-0">
         <NotebookSidebar ctx={ctx} />
         <AppWorkspace.Content>

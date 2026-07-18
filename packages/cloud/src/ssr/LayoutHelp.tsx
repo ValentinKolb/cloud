@@ -1,9 +1,10 @@
 import type { HelpDocumentManifest, HelpDocumentPayload, HelpSearchPayload } from "@valentinkolb/cloud/shared";
 import { hotkeys } from "@valentinkolb/stdlib/solid";
 import { children, createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { MarkdownView, openFloatingWindow, prompts } from "../ui";
+import { MarkdownView, prompts } from "../ui";
 import { appAccentStyle } from "./app-appearance";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
+import { HELP_PAGE_PARAM, layoutHelpPageHref } from "./layout-help-url";
 
 type HelpTopicBase = {
   id: string;
@@ -128,12 +129,13 @@ const Shortcuts = (props: { openSearchHelp: () => void }) => {
 const HelpShell = (props: {
   session: HelpSession;
   close: () => void;
-  detach?: () => void;
+  pageHref?: (topicId: string | null) => string;
   searchHelpApps: GlobalSearchHelpApp[];
   documents?: readonly HelpDocumentManifest[];
   includeShortcuts?: boolean;
   accent?: string;
-  surface?: "modal" | "floating" | "page" | "embedded";
+  surface?: "modal" | "page" | "embedded";
+  syncPageUrl?: boolean;
 }) => {
   const [externalTopics, setExternalTopics] = createSignal(mergeTopics(sortedTopics(), props.documents));
   const [view, setView] = createSignal<HelpView>(props.session.view);
@@ -295,13 +297,17 @@ const HelpShell = (props: {
     props.session.articleScrollTop = 0;
     setActiveId(id);
     setView("article");
+    if (props.syncPageUrl) history.replaceState(history.state, "", layoutHelpPageHref(window.location.href, id));
     try {
       localStorage.setItem(LAST_TOPIC_KEY, id);
     } catch {
       /* Help does not depend on storage. */
     }
   };
-  const goBack = () => setView(query().trim() ? "search" : "hub");
+  const goBack = () => {
+    setView(query().trim() ? "search" : "hub");
+    if (props.syncPageUrl) history.replaceState(history.state, "", layoutHelpPageHref(window.location.href, null));
+  };
 
   const TopicList = (listProps: { items: HelpTopic[] }) => (
     <div class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1.5">
@@ -353,16 +359,19 @@ const HelpShell = (props: {
               Guides, workflows, and shortcuts
             </p>
           </div>
-          <Show when={props.detach}>
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="Open help in floating window"
-              title="Keep help open beside the app"
-              onClick={props.detach}
-            >
-              <i class="ti ti-app-window" />
-            </button>
+          <Show when={props.pageHref}>
+            {(pageHref) => (
+              <a
+                href={pageHref()(view() === "article" ? activeId() : null)}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="icon-btn"
+                aria-label="Open help in a new browser window"
+                title="Open full-page help"
+              >
+                <i class="ti ti-app-window" />
+              </a>
+            )}
           </Show>
           <button type="button" class="icon-btn" aria-label="Close help" onClick={props.close}>
             <i class="ti ti-x" />
@@ -540,42 +549,45 @@ export function LayoutHelpPage(props: LayoutHelpPageProps) {
   );
 }
 
+/** Render a reload-safe full-page Help view when the current URL opts in. */
+export function LayoutHelpBrowserPage(props: { searchHelpApps?: GlobalSearchHelpApp[]; accent?: string }) {
+  const [topic, setTopic] = createSignal<string | null | undefined>(undefined);
+
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has(HELP_PAGE_PARAM)) setTopic(params.get(HELP_PAGE_PARAM));
+  });
+
+  return (
+    <Show when={topic() !== undefined}>
+      <div class="fixed inset-0 z-[100] overflow-y-auto bg-[var(--ui-surface-raised)]">
+        <HelpShell
+          session={createSession(topic() || undefined)}
+          close={() => {}}
+          searchHelpApps={props.searchHelpApps ?? []}
+          includeShortcuts={false}
+          accent={props.accent}
+          surface="page"
+          syncPageUrl
+        />
+      </div>
+    </Show>
+  );
+}
+
 export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = [], accent?: string) {
   const session = createSession();
-  let openFloating: (() => void) | undefined;
-
-  const openModal = () => {
-    void prompts.dialog<void>(
-      (close) => (
-        <HelpShell
-          session={session}
-          close={close}
-          searchHelpApps={searchHelpApps}
-          accent={accent}
-          surface="modal"
-          detach={() => {
-            close();
-            queueMicrotask(() => openFloating?.());
-          }}
-        />
-      ),
-      { surface: "bare", header: false, size: "wide" },
-    );
-  };
-
-  openFloating = () => {
-    openFloatingWindow(
-      (close) => <HelpShell session={session} close={close} searchHelpApps={searchHelpApps} accent={accent} surface="floating" />,
-      {
-        title: "Help",
-        icon: "ti ti-help",
-        accent,
-        initialWidth: 760,
-        initialHeight: 680,
-        minWidth: 380,
-        minHeight: 360,
-      },
-    );
-  };
-  openModal();
+  void prompts.dialog<void>(
+    (close) => (
+      <HelpShell
+        session={session}
+        close={close}
+        searchHelpApps={searchHelpApps}
+        accent={accent}
+        surface="modal"
+        pageHref={(topicId) => layoutHelpPageHref(window.location.href, topicId)}
+      />
+    ),
+    { surface: "bare", header: false, size: "wide" },
+  );
 }
