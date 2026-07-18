@@ -240,6 +240,7 @@ const HelpShell = (props: {
     }
     const update = () => setExternalTopics(mergeTopics(sortedTopics(), props.documents));
     window.addEventListener(HELP_TOPICS_EVENT, update);
+    update();
     onCleanup(() => window.removeEventListener(HELP_TOPICS_EVENT, update));
     restoreArticleScroll();
   });
