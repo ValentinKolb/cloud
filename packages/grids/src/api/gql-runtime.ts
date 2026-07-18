@@ -13,9 +13,15 @@ import {
   resolveDslQueryToRecordQuery,
 } from "../query-dsl/resolver";
 import { type DslResultCursor, decodeDslResultCursor, gqlResultFingerprint } from "../query-dsl/result-cursor";
-import { collectDslFieldTableIds, collectDslPlanExtraFieldTableIds, needsDslViewCatalog } from "../query-dsl/source-plan";
+import {
+  collectDslFieldTableIds,
+  collectDslPlanExtraFieldTableIds,
+  collectDslPlanTableIds,
+  needsDslViewCatalog,
+} from "../query-dsl/source-plan";
 import type { DslQueryAst } from "../query-dsl/types";
 import { gridsService } from "../service";
+import type { FederatedRevisionScope } from "../service/federated-tables";
 import { buildTrustedGqlResolverContext, hydrateDslViewQueries } from "../service/gql-resolver-context";
 import type { Field, Table } from "../service/types";
 import { type GqlRuntimeOperation, type GqlRuntimeTracer, traceGqlRuntime } from "./gql-observability";
@@ -163,6 +169,9 @@ const previewResolvedGqlPlan = async (
     cursor?: DslResultCursor | null;
     cursorFingerprint?: string;
     cursorSigningKey?: string;
+    labelRelationValues?: boolean;
+    expectedFederatedRevisionScope?: FederatedRevisionScope;
+    onFederatedRevisionScope?: (scope: FederatedRevisionScope) => void;
   },
 ): Promise<DslQueryPreviewResponse> => {
   const dateConfig = await getDateConfig(c);
@@ -174,6 +183,9 @@ const previewResolvedGqlPlan = async (
     cursor: options.cursor,
     cursorFingerprint: options.cursorFingerprint,
     cursorSigningKey: options.cursorSigningKey,
+    labelRelationValues: options.labelRelationValues,
+    expectedFederatedRevisionScope: options.expectedFederatedRevisionScope,
+    onFederatedRevisionScope: options.onFederatedRevisionScope,
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
     viewer: currentActorViewer(c),
   });
@@ -199,6 +211,18 @@ const gqlCursorSigningKey = (): string => {
   return key;
 };
 
+const cursorScopeForPlan = async (
+  scope: string,
+  plan: DslResolvedSqlQueryPlan,
+  fieldsByTableId: Record<string, Field[]>,
+): Promise<string> => {
+  const tableIds = collectDslPlanTableIds(plan, fieldsByTableId);
+  const revisions = (await gridsService.table.federation.captureRevisionScope(tableIds)).map(
+    (revision) => `${revision.tableId}:${revision.revisionId}:${revision.revisionToken}`,
+  );
+  return revisions.length > 0 ? `${scope}:federation:${revisions.join(",")}` : scope;
+};
+
 export const canonicalGqlSource = async (
   c: Context<AuthContext>,
   baseId: string,
@@ -220,7 +244,13 @@ export const executeGqlSource = async (
   c: Context<AuthContext>,
   baseId: string,
   body: DslQueryPreviewBody,
-  options: { maxRows?: number; operation?: GqlRuntimeOperation; tracer?: GqlRuntimeTracer } = {},
+  options: {
+    maxRows?: number;
+    operation?: GqlRuntimeOperation;
+    tracer?: GqlRuntimeTracer;
+    labelRelationValues?: boolean;
+    expectedFederatedRevisionScope?: FederatedRevisionScope;
+  } = {},
 ) => {
   const operation = options.operation ?? "preview";
   const trace = await (options.tracer ?? traceGqlRuntime)({
@@ -261,7 +291,11 @@ export const executeGqlSource = async (
       : body.currentTableId
         ? `table:${body.currentTableId}`
         : "base";
-    const cursorFingerprint = gqlResultFingerprint({ baseId, canonicalSource: canonical.source, scope: sourceScope });
+    const cursorFingerprint = gqlResultFingerprint({
+      baseId,
+      canonicalSource: canonical.source,
+      scope: await cursorScopeForPlan(sourceScope, resolved.plan, ctx.fieldsByTableId),
+    });
     const decodedCursor = decodeRuntimeCursor(body.cursor, cursorFingerprint, cursorSigningKey);
     if (!decodedCursor.ok) {
       const response = { ok: false as const, diagnostics: decodedCursor.diagnostics };
@@ -269,6 +303,7 @@ export const executeGqlSource = async (
       return { ok: true as const, response };
     }
 
+    let revisionScope: FederatedRevisionScope = [];
     const response = await previewResolvedGqlPlan(c, resolved.plan, ctx.fieldsByTableId, {
       limit: body.limit,
       pageSize: body.pageSize,
@@ -276,9 +311,14 @@ export const executeGqlSource = async (
       cursorFingerprint,
       cursorSigningKey,
       maxRows: options.maxRows,
+      labelRelationValues: options.labelRelationValues,
+      expectedFederatedRevisionScope: options.expectedFederatedRevisionScope,
+      onFederatedRevisionScope: (scope) => {
+        revisionScope = scope;
+      },
     });
     await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
-    return { ok: true as const, response };
+    return { ok: true as const, response, revisionScope };
   } catch (error) {
     await trace.end({ stage: "runtime", outcome: "error", error });
     throw error;
@@ -341,7 +381,11 @@ export const executeSavedViewSource = async (
       return response;
     }
     const cursorSigningKey = gqlCursorSigningKey();
-    const cursorFingerprint = gqlResultFingerprint({ baseId, canonicalSource: view.source, scope: `view:${view.id}` });
+    const cursorFingerprint = gqlResultFingerprint({
+      baseId,
+      canonicalSource: view.source,
+      scope: await cursorScopeForPlan(`view:${view.id}`, resolved.plan, context.fieldsByTableId),
+    });
     const decodedCursor = decodeRuntimeCursor(options.cursor, cursorFingerprint, cursorSigningKey);
     if (!decodedCursor.ok) {
       const response = { ok: false as const, diagnostics: decodedCursor.diagnostics };

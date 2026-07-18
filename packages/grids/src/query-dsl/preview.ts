@@ -4,12 +4,14 @@ import type { DslQueryPreviewColumn, DslQueryPreviewDiagnostic, DslQueryPreviewR
 import { decimalStringToCanonical } from "../formula/numeric";
 import { normalizeRefKey } from "../ref-syntax";
 import { buildComputedFieldSqlMap } from "../service/computed-projections";
+import { type FederatedRevisionScope, verifyRevisionScope } from "../service/federated-tables";
 import { storageOf } from "../service/field-storage";
 import { buildRelationLabelCacheForIds, type ExpansionViewer } from "../service/relations";
 import { compileSearchClause } from "../service/search";
 import type { Field } from "../service/types";
 import { type DslResolvedSqlQueryPlan, isDslAggregateOnlyPlan } from "./resolver";
 import { type DslResultCursor, encodeDslResultCursor } from "./result-cursor";
+import { collectDslPlanTableIds } from "./source-plan";
 import type { DslSqlAggregateOutputColumn, DslSqlGroupOutputColumn, DslSqlOutputColumn } from "./sql-compiler";
 import {
   compileDslAggregateQueryPlanToSql,
@@ -19,6 +21,7 @@ import {
   dslDerivedJoinRecordAlias,
   dslJoinRecordAlias,
 } from "./sql-compiler";
+import { buildDslSqlRecordSource } from "./sql-record-source";
 
 type DslQueryPreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type DslQueryPreviewRow = DslQueryPreviewSuccess["rows"][number];
@@ -34,6 +37,13 @@ type DslQueryPreviewOptions = {
   maxRows?: number;
   /** Viewer for `search` over relation fields (target-table read scoping). */
   viewer?: ExpansionViewer;
+  /** Records-table consumers need raw relation ids and build their existing
+   * label cache separately. Query-style consumers default to display labels. */
+  labelRelationValues?: boolean;
+  /** Pins multi-page/internal consumers to the exact Combined revisions used
+   * by their first statement. */
+  expectedFederatedRevisionScope?: FederatedRevisionScope;
+  onFederatedRevisionScope?: (scope: FederatedRevisionScope) => void;
 };
 
 const MAX_PREVIEW_ROWS = 500;
@@ -48,8 +58,22 @@ const MAX_PREVIEW_JOIN_FANOUT = 50;
 // slow query from holding a connection. 100k-row aggregates run well under it.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATEMENT_TIMEOUT_CODE = "57014";
+const FEDERATED_REVISION_ERROR_CODE = "P0001";
+
+const revisionScopeKey = (scope: FederatedRevisionScope): string =>
+  scope
+    .map((entry) => `${entry.tableId}:${entry.revisionId}:${entry.revisionToken}`)
+    .sort()
+    .join(",");
 
 const asOptionalUuid = (value: string | undefined): string | undefined => (value && UUID_RE.test(value) ? value : undefined);
+
+const asIso = (value: unknown): string | null => {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value !== "string") return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
 
 const normalizeValue = (value: unknown, column?: { sqlType?: string }): unknown => {
   if (typeof value === "bigint") return Number(value);
@@ -245,6 +269,13 @@ const isTimeout = (error: unknown): boolean =>
   (("code" in error && (error as { code?: unknown }).code === STATEMENT_TIMEOUT_CODE) ||
     ("message" in error && String((error as { message?: unknown }).message).includes("statement timeout")));
 
+const federatedRevisionMessage = (error: unknown): string | null => {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  if ((error as { code?: unknown }).code !== FEDERATED_REVISION_ERROR_CODE) return null;
+  const message = "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
+  return message || "This combined table is unavailable because its published sources changed.";
+};
+
 const relationTargetTableId = (field: Field): string | undefined => {
   if (field.type !== "relation") return undefined;
   const targetTableId = (field.config as { targetTableId?: unknown }).targetTableId;
@@ -308,6 +339,8 @@ const joinOr = (parts: unknown[]): unknown => parts.slice(1).reduce((acc, part) 
 const compileDslSearchClause = async (
   plan: DslResolvedSqlQueryPlan,
   options: DslQueryPreviewOptions,
+  relationSource: "links" | "recordData",
+  recordSourcesByTableId: Map<string, NonNullable<Awaited<ReturnType<typeof buildDslSqlRecordSource>>>>,
 ): Promise<{ clause: unknown } | undefined> => {
   const clauses: unknown[] = [];
   if (plan.query.search) {
@@ -317,6 +350,8 @@ const compileDslSearchClause = async (
           search: plan.query.search,
           fields: options.fieldsByTableId[plan.tableId] ?? [],
           viewer: options.viewer,
+          relationSource,
+          recordSourcesByTableId,
         })
       ).clause,
     );
@@ -332,6 +367,8 @@ const compileDslSearchClause = async (
           fields: options.fieldsByTableId[search.tableId] ?? [],
           alias: dslJoinRecordAlias(joinIndex),
           viewer: options.viewer,
+          relationSource: recordSourcesByTableId.has(search.tableId) ? "recordData" : "links",
+          recordSourcesByTableId,
         })
       ).clause,
     );
@@ -356,6 +393,8 @@ const compileDslSearchClause = async (
             fields: options.fieldsByTableId[search.tableId] ?? [],
             alias,
             viewer: options.viewer,
+            relationSource: recordSourcesByTableId.has(search.tableId) ? "recordData" : "links",
+            recordSourcesByTableId,
           })
         ).clause,
       );
@@ -373,10 +412,54 @@ export const previewDslQuery = async (
   const bounds = pageBoundsForPlan(plan, options);
 
   try {
+    const sourceTableIds = collectDslPlanTableIds(plan, options.fieldsByTableId);
+    const recordSourcesByTableId = new Map(
+      (
+        await Promise.all(
+          sourceTableIds.map(
+            async (tableId) =>
+              [
+                tableId,
+                await buildDslSqlRecordSource(
+                  tableId,
+                  options.fieldsByTableId,
+                  tableId === plan.tableId
+                    ? {
+                        ...(plan.query.filter ? { filter: plan.query.filter } : {}),
+                        ...(plan.wherePredicate ? { wherePredicate: plan.wherePredicate } : {}),
+                        ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+                        ...(plan.query.includeDeleted ? { includeDeleted: true } : {}),
+                        ...(plan.query.deletedOnly ? { deletedOnly: true } : {}),
+                      }
+                    : undefined,
+                ),
+              ] as const,
+          ),
+        )
+      ).filter((entry): entry is readonly [string, NonNullable<(typeof entry)[1]>] => entry[1] !== null),
+    );
+    const revisionScope = [...recordSourcesByTableId].map(([tableId, source]) => ({
+      tableId,
+      revisionId: source.revisionId,
+      revisionToken: source.revisionToken,
+    }));
+    if (
+      options.expectedFederatedRevisionScope &&
+      revisionScopeKey(revisionScope) !== revisionScopeKey(options.expectedFederatedRevisionScope)
+    ) {
+      return fail(err.conflict("combined table publication changed while the query was running; retry the query"));
+    }
+    options.onFederatedRevisionScope?.(revisionScope);
+    const finish = async (response: DslQueryPreviewSuccess): Promise<Result<DslQueryPreviewSuccess>> => {
+      const current = await verifyRevisionScope(revisionScope);
+      return current.ok ? ok(response) : fail(current.error);
+    };
+    const recordSource = recordSourcesByTableId.get(plan.tableId);
     // Full-text search compiles async (relation search batch-reads target
     // labels with the viewer's read scope), so it's built once here and handed
     // to the synchronous SQL compilers as a ready predicate.
-    const searchClause = (await compileDslSearchClause(plan, options))?.clause;
+    const searchClause = (await compileDslSearchClause(plan, options, recordSource ? "recordData" : "links", recordSourcesByTableId))
+      ?.clause;
     const viewSourceSearch = plan.viewSourceQuery?.search ?? plan.derivedViewSource?.query.search;
     const viewSourceSearchClause = viewSourceSearch
       ? (
@@ -384,6 +467,8 @@ export const previewDslQuery = async (
             search: viewSourceSearch,
             fields: options.fieldsByTableId[plan.tableId] ?? [],
             viewer: options.viewer,
+            relationSource: recordSource ? "recordData" : "links",
+            recordSourcesByTableId,
           })
         ).clause
       : undefined;
@@ -411,6 +496,8 @@ export const previewDslQuery = async (
       computedFieldSql,
       computedFieldSqlByJoinAlias,
       viewSourceSearchClause,
+      recordSourcesByTableId,
+      ...(recordSource ? { recordSource } : {}),
     };
     const rowPreviewBounds = {
       ...compileInputs,
@@ -434,11 +521,11 @@ export const previewDslQuery = async (
       const previewRows = visible.map((row) => ({
         values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
       }));
-      return ok({
+      return finish({
         ok: true,
         mode: "groups",
         columns,
-        rows: await labelRelationPreviewValues(previewRows, columns, options),
+        rows: options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options),
         limit: bounds.pageSize,
         truncated,
         page,
@@ -462,11 +549,11 @@ export const previewDslQuery = async (
       const previewRows = visible.map((row) => ({
         values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
       }));
-      return ok({
+      return finish({
         ok: true,
         mode: "groups",
         columns,
-        rows: await labelRelationPreviewValues(previewRows, columns, options),
+        rows: options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options),
         limit: bounds.pageSize,
         truncated,
         page,
@@ -480,7 +567,7 @@ export const previewDslQuery = async (
 
       const rows = await runPreview<{ result: Record<string, unknown> }>(compiled.query.sql);
       const columns = aggregateColumns(compiled.query.columns);
-      return ok({
+      return finish({
         ok: true,
         mode: "groups",
         columns,
@@ -516,19 +603,35 @@ export const previewDslQuery = async (
     const previewRows = visible.map((row) => ({
       ...(typeof row.__record_id === "string" && UUID_RE.test(row.__record_id) ? { recordId: row.__record_id } : {}),
       ...(typeof row.__table_id === "string" && UUID_RE.test(row.__table_id) ? { tableId: row.__table_id } : {}),
+      ...(typeof row.__record_version === "number" && asIso(row.__record_created_at) && asIso(row.__record_updated_at)
+        ? {
+            recordMeta: {
+              version: row.__record_version,
+              deletedAt: asIso(row.__record_deleted_at),
+              createdBy:
+                typeof row.__record_created_by === "string" && UUID_RE.test(row.__record_created_by) ? row.__record_created_by : null,
+              updatedBy:
+                typeof row.__record_updated_by === "string" && UUID_RE.test(row.__record_updated_by) ? row.__record_updated_by : null,
+              createdAt: asIso(row.__record_created_at)!,
+              updatedAt: asIso(row.__record_updated_at)!,
+            },
+          }
+        : {}),
       values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
     }));
-    return ok({
+    return finish({
       ok: true,
       mode: "rows",
       columns,
-      rows: await labelRelationPreviewValues(previewRows, columns, options),
+      rows: options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options),
       limit: bounds.pageSize,
       truncated,
       page,
     });
   } catch (error) {
     if (isTimeout(error)) return fail(err.badInput("This query took too long (over 5s). Add a filter or a smaller limit and try again."));
+    const revisionMessage = federatedRevisionMessage(error);
+    if (revisionMessage) return fail(err.badInput(revisionMessage));
     throw error;
   }
 };

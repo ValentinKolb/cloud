@@ -6,6 +6,7 @@ import * as dashboards from "./dashboards";
 import * as documents from "./documents";
 import * as emailTemplates from "./email-templates";
 import * as exporter from "./export";
+import * as federatedTables from "./federated-tables";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import * as fields from "./fields";
 import * as files from "./files";
@@ -76,6 +77,22 @@ export const gridsService = {
     update: tables.update,
     remove: tables.remove,
     restore: tables.restore,
+    federation: {
+      getDraft: federatedTables.getDraft,
+      getCurrent: federatedTables.getCurrent,
+      getActive: federatedTables.getActive,
+      captureRevisionScope: federatedTables.captureRevisionScope,
+      validateDraft: federatedTables.validateDraft,
+      sourceIdsRequiringAuthorization: federatedTables.sourceIdsRequiringAuthorization,
+      listSourceCandidates: federatedTables.listSourceCandidates,
+      updateDraft: federatedTables.updateDraft,
+      publishDraft: federatedTables.publishDraft,
+      revokeSource: federatedTables.revokeSource,
+      listPublicationsForSource: federatedTables.listPublicationsForSource,
+      refreshForField: federatedTables.refreshForField,
+      refreshForSourceTable: federatedTables.refreshForSourceTable,
+      refreshForSourceBase: federatedTables.refreshForSourceBase,
+    },
   },
   field: {
     listByTable: fields.listByTable,
@@ -229,6 +246,7 @@ export const gridsService = {
   file: {
     listForRecord: files.listForRecord,
     listForRecordField: files.listForRecordField,
+    listFirstImagePreviews: files.listFirstImagePreviews,
     upload: files.upload,
     getContent: files.getContent,
     remove: files.remove,

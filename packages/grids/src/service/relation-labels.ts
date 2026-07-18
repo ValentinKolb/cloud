@@ -1,9 +1,11 @@
 import { sql } from "bun";
+import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql } from "./parent-checks";
 import { type ExpansionViewer, filterRelationTargetsByViewer } from "./relation-access";
 import { collectRelationTargetIds, loadRelationTargets, relationLabelFields } from "./relation-targets";
+import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
 
 export { relationLabelFields } from "./relation-targets";
@@ -85,9 +87,14 @@ export const lookupRecords = async (params: {
   excludeIds?: string[];
 }): Promise<{ items: { id: string; label: string }[] }> => {
   const limit = Math.min(Math.max(params.limit ?? 10, 1), 50);
-  const presentable = relationLabelFields(await listFields(params.targetTableId));
+  const fields = await listFields(params.targetTableId);
+  const presentable = relationLabelFields(fields);
   const searchTargets = presentable.filter((field) => LABEL_TEXT_TYPES.has(field.type));
-  const conditions: any[] = [sql`r.table_id = ${params.targetTableId}::uuid`, sql`r.deleted_at IS NULL`];
+  const table = await getTable(params.targetTableId);
+  const recordSource =
+    table?.kind === "federated" ? await buildDslSqlRecordSource(params.targetTableId, { [params.targetTableId]: fields }) : null;
+  const conditions: any[] = [sql`r.deleted_at IS NULL`];
+  if (!recordSource) conditions.push(sql`r.table_id = ${params.targetTableId}::uuid`);
   const query = params.q?.trim();
   if (query && searchTargets.length > 0) {
     const pattern = `%${query.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
@@ -100,14 +107,22 @@ export const lookupRecords = async (params: {
     conditions.push(sql`r.id <> ALL(${sql.array(params.excludeIds, "UUID")})`);
   }
   const where = conditions.reduce((left, right) => sql`${left} AND ${right}`);
-  const rows = await sql<DbRow[]>`
-    SELECT r.id, r.data
-    FROM grids.records r
-    ${liveRecordParentJoinSql("r", "rt", "rb")}
-    WHERE ${where}
-    ORDER BY r.created_at DESC
-    LIMIT ${limit}
-  `;
+  const rows = recordSource
+    ? await sql<DbRow[]>`
+        SELECT r.id, r.data
+        FROM ${recordSource.relation} r
+        WHERE ${where}
+        ORDER BY r.created_at DESC, r.source_table_id, r.id
+        LIMIT ${limit}
+      `
+    : await sql<DbRow[]>`
+        SELECT r.id, r.data
+        FROM grids.records r
+        ${liveRecordParentJoinSql("r", "rt", "rb")}
+        WHERE ${where}
+        ORDER BY r.created_at DESC
+        LIMIT ${limit}
+      `;
   return {
     items: rows.map((row) => {
       const data = parseJsonbRow<Record<string, unknown>>(row.data, {});

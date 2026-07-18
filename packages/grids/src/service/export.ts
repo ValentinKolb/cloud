@@ -1,40 +1,47 @@
 import { markdown as markdownRenderer } from "@valentinkolb/cloud/shared";
 import { type DateContext, dates, err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { sql } from "bun";
 import type { ExportFieldSpec, RecordQuery, SearchSpec } from "../contracts";
+import { parseGridsQueryDsl } from "../query-dsl/parser";
+import { previewDslQuery } from "../query-dsl/preview";
+import { simpleQueryToGqlSource } from "../query-dsl/record-query-source";
+import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
+import { type DslResultCursor, decodeDslResultCursor } from "../query-dsl/result-cursor";
+import { type FederatedRevisionScope, verifyRevisionScope } from "./federated-tables";
 import { listByTable as listFields } from "./fields";
-import { parseJsonbRow } from "./jsonb";
+import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import { list as listRecords } from "./records";
+import { loadRelationTargets } from "./relation-targets";
 import type { ExpansionViewer } from "./relations";
 import { buildRelationLabelCache, relationLabelFields } from "./relations";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
 
-type DbRow = Record<string, unknown>;
 type ExportFormatOptions = { markdown: "raw" | "html"; dateConfig?: DateContext };
 type RelationExportConfig = NonNullable<ExportFieldSpec["relation"]>;
 
-/** Hard cap on rows per export call so a single request can't blow up
- *  memory or saturate the connection. Power users do iterative exports
- *  for now; true streaming via cursor lands in a polish phase. */
-const MAX_EXPORT_ROWS = 10_000;
+const EXPORT_PAGE_SIZE = 500;
+const EXPORT_CURSOR_FINGERPRINT = "grids-internal-export";
+const EXPORT_CURSOR_SIGNING_KEY = "grids-internal-export-cursor";
 
-const fetchAllForExport = async (params: {
+type ExportPage = { items: GridRecord[]; done: boolean; revisionScope?: FederatedRevisionScope };
+type ExportPageReader = () => Promise<Result<ExportPage>>;
+
+const createStoredPageReader = (params: {
   tableId: string;
   query: RecordQuery;
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
-}): Promise<Result<{ items: GridRecord[]; truncated: boolean }>> => {
-  const limit = Math.min(params.query.limit ?? MAX_EXPORT_ROWS, MAX_EXPORT_ROWS);
-  const items: GridRecord[] = [];
+}): ExportPageReader => {
   let cursor: string | null = null;
-
-  while (items.length < limit) {
+  let returned = 0;
+  return async () => {
+    const remaining = params.query.limit === undefined ? EXPORT_PAGE_SIZE : Math.max(params.query.limit - returned, 0);
+    if (remaining === 0) return ok({ items: [], done: true });
     const page = await listRecords({
       tableId: params.tableId,
       cursor,
-      limit: Math.min(500, limit - items.length),
+      limit: Math.min(EXPORT_PAGE_SIZE, remaining),
       includeDeleted: params.query.includeDeleted,
       deletedOnly: params.query.deletedOnly,
       filter: params.query.filter ?? null,
@@ -46,15 +53,92 @@ const fetchAllForExport = async (params: {
       dateConfig: params.dateConfig,
     });
     if (!page.ok) return fail(page.error);
-    items.push(...page.data.items);
+    returned += page.data.items.length;
     cursor = page.data.nextCursor;
-    if (!cursor || page.data.items.length === 0) break;
-  }
+    return ok({
+      items: page.data.items,
+      done: cursor === null || page.data.items.length === 0 || (params.query.limit !== undefined && returned >= params.query.limit),
+    });
+  };
+};
 
-  return ok({
-    items,
-    truncated: (params.query.limit ?? MAX_EXPORT_ROWS) >= MAX_EXPORT_ROWS && cursor !== null,
+const createFederatedPageReader = async (params: {
+  baseId: string;
+  tableId: string;
+  query: RecordQuery;
+  viewer?: ExpansionViewer;
+  dateConfig?: DateContext;
+}): Promise<Result<ExportPageReader>> => {
+  const converted = simpleQueryToGqlSource({ tableId: params.tableId, query: params.query });
+  if (!converted.ok) return fail(err.badInput(converted.reason));
+  const parsed = parseGridsQueryDsl(converted.source);
+  if (!parsed.ok) return fail(err.badInput(parsed.diagnostics.map((diagnostic) => diagnostic.message).join("; ")));
+  const context = await buildTrustedGqlResolverContext({
+    baseId: params.baseId,
+    currentTableId: params.tableId,
+    ast: parsed.ast,
+    purpose: "saved-view-render",
   });
+  const resolved = resolveDslQueryToQueryPlan(parsed.ast, context);
+  if (!resolved.ok) return fail(err.badInput(resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ")));
+  const cursorFingerprint = `${EXPORT_CURSOR_FINGERPRINT}:${params.tableId}`;
+  let cursor: DslResultCursor | null = null;
+  let finished = false;
+  let expectedRevisionScope: FederatedRevisionScope | undefined;
+  return ok(async () => {
+    if (finished) return ok({ items: [], done: true });
+    if (expectedRevisionScope) {
+      const current = await verifyRevisionScope(expectedRevisionScope);
+      if (!current.ok) return fail(err.conflict("combined table publication changed during export; restart the export"));
+    }
+    let pageRevisionScope: FederatedRevisionScope = [];
+    const preview = await previewDslQuery(resolved.plan, {
+      fieldsByTableId: context.fieldsByTableId,
+      timeZone: params.dateConfig?.timeZone,
+      pageSize: EXPORT_PAGE_SIZE,
+      maxRows: EXPORT_PAGE_SIZE,
+      cursor,
+      cursorFingerprint,
+      cursorSigningKey: EXPORT_CURSOR_SIGNING_KEY,
+      viewer: params.viewer,
+      labelRelationValues: false,
+      expectedFederatedRevisionScope: expectedRevisionScope,
+      onFederatedRevisionScope: (scope) => {
+        pageRevisionScope = scope;
+      },
+    });
+    if (!preview.ok) return fail(preview.error);
+    expectedRevisionScope ??= pageRevisionScope;
+    if (preview.data.mode !== "rows") return fail(err.badInput("grouped exports are not supported"));
+    const items = preview.data.rows.flatMap((row): GridRecord[] => {
+      if (!row.recordId || !row.recordMeta) return [];
+      return [
+        {
+          id: row.recordId,
+          tableId: params.tableId,
+          data: Object.fromEntries(
+            preview.data.columns.flatMap((column) => (column.fieldId ? [[column.fieldId, row.values[column.key]]] : [])),
+          ),
+          ...row.recordMeta,
+        },
+      ];
+    });
+    cursor = decodeDslResultCursor(preview.data.page?.nextCursor, EXPORT_CURSOR_SIGNING_KEY);
+    finished = cursor === null || items.length === 0;
+    return ok({ items, done: finished, revisionScope: expectedRevisionScope });
+  });
+};
+
+const createExportPageReader = async (params: {
+  tableId: string;
+  query: RecordQuery;
+  viewer?: ExpansionViewer;
+  dateConfig?: DateContext;
+}): Promise<Result<ExportPageReader>> => {
+  const table = await getTable(params.tableId);
+  if (!table) return fail(err.notFound("Table"));
+  if (table.kind === "federated") return createFederatedPageReader({ ...params, baseId: table.baseId });
+  return ok(createStoredPageReader(params));
 };
 
 /**
@@ -103,10 +187,9 @@ export const csvQuote = (s: string, delimiter = ","): string => {
 type ExportFormat = "csv" | "json";
 
 type ExportResult = {
-  body: string;
+  body: ReadableStream<Uint8Array>;
   contentType: string;
   filename: string;
-  truncated: boolean;
 };
 
 type ExportColumn =
@@ -231,7 +314,7 @@ const buildRelationContext = async (params: {
   for (const { field, spec } of relationSpecs) {
     if (spec?.relation?.mode !== "fields") continue;
     const targetTableId = (field.config as { targetTableId?: string }).targetTableId;
-    if (!targetTableId || !(await canReadTargetTable(targetTableId, params.viewer))) continue;
+    if (!targetTableId) continue;
     const ids = idsByTargetTable.get(targetTableId) ?? new Set<string>();
     for (const rec of params.records) {
       for (const id of relationIds(rec.data[field.id])) ids.add(id);
@@ -245,23 +328,12 @@ const buildRelationContext = async (params: {
   const expanded: Record<string, Record<string, unknown>> = {};
   for (const [targetTableId, idSet] of idsByTargetTable) {
     if (idSet.size === 0) continue;
-    let fieldIds = [...(fieldsByTargetTable.get(targetTableId) ?? new Set<string>())];
-    if (fieldIds.length === 0) {
-      fieldIds = relationLabelFields(await listFields(targetTableId)).map((f) => f.id);
-    }
-    const ids = sql.array([...idSet], "UUID");
-    const rows = await sql<DbRow[]>`
-      SELECT id, data
-      FROM grids.records
-      WHERE table_id = ${targetTableId}::uuid
-        AND id = ANY(${ids})
-        AND deleted_at IS NULL
-    `;
-    for (const row of rows) {
-      const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
+    const fieldIds = [...(fieldsByTargetTable.get(targetTableId) ?? new Set<string>())];
+    const targets = await loadRelationTargets(targetTableId, idSet);
+    for (const row of targets.records) {
       const subset: Record<string, unknown> = {};
-      for (const fieldId of fieldIds) subset[fieldId] = data[fieldId] ?? null;
-      expanded[row.id as string] = subset;
+      for (const fieldId of fieldIds) subset[fieldId] = row.data[fieldId] ?? null;
+      expanded[row.id] = subset;
     }
   }
 
@@ -336,93 +408,113 @@ export const exportRecords = async (params: {
   });
   if (!picked.ok) return fail(picked.error);
 
-  const fetched = await fetchAllForExport({
+  const pageReader = await createExportPageReader({
     tableId: params.tableId,
     query,
     viewer: params.viewer,
     dateConfig: params.dateConfig,
   });
-  if (!fetched.ok) return fail(fetched.error);
-  const { items, truncated } = fetched.data;
-  const ctx = await buildRelationContext({
-    records: items,
-    fields,
-    selected: picked.data.selected,
-    viewer: params.viewer,
-  });
+  if (!pageReader.ok) return fail(pageReader.error);
   const options: ExportFormatOptions = { markdown: params.markdown ?? "raw", dateConfig: params.dateConfig };
   const delimiter = params.csv?.delimiter ?? ",";
 
   const date = new Date().toISOString().slice(0, 10);
   const filename = `grids-export-${date}.${params.format}`;
 
-  if (params.format === "json") {
-    // One JSON document with field metadata + rows. Field names rather
-    // than ids in the row keys for human-readability.
-    const body = JSON.stringify(
-      {
+  const encoder = new TextEncoder();
+  const chunks = async function* (): AsyncGenerator<Uint8Array> {
+    let firstJsonRecord = true;
+    if (params.format === "json") {
+      const prefix = {
         exportedAt: new Date().toISOString(),
         tableId: params.tableId,
-        truncated,
         fields: picked.data.selected.map(({ field, spec }) => ({
           id: field.id,
           name: spec?.label?.trim() || field.name,
           type: field.type,
           relation: spec?.relation,
         })),
-        records: items.map((rec) => {
-          const out: Record<string, unknown> = { id: rec.id };
+      };
+      yield encoder.encode(`${JSON.stringify(prefix).slice(0, -1)},\"records\":[`);
+    } else {
+      const header = ["id", ...picked.data.columns.map((column) => column.label)]
+        .map((value) => csvQuote(value, delimiter))
+        .join(delimiter);
+      yield encoder.encode(`${header}\r\n`);
+    }
+
+    while (true) {
+      const page = await pageReader.data();
+      if (!page.ok) throw new Error(page.error.message);
+      const ctx = await buildRelationContext({
+        records: page.data.items,
+        fields,
+        selected: picked.data.selected,
+        viewer: params.viewer,
+      });
+      if (page.data.revisionScope) {
+        const current = await verifyRevisionScope(page.data.revisionScope);
+        if (!current.ok) throw new Error("combined table publication changed during export; restart the export");
+      }
+      for (const record of page.data.items) {
+        if (params.format === "json") {
+          const out: Record<string, unknown> = { id: record.id };
           for (const { field, spec } of picked.data.selected) {
             out[spec?.label?.trim() || field.name] = jsonValue({
-              record: rec,
+              record,
               field,
               relation: spec?.relation,
               ctx,
               options,
             });
           }
-          return out;
-        }),
-      },
-      null,
-      2,
-    );
-    return ok({ body, contentType: "application/json; charset=utf-8", filename, truncated });
-  }
-
-  // CSV
-  const header = ["id", ...picked.data.columns.map((c) => c.label)].map((s) => csvQuote(s, delimiter)).join(delimiter);
-  const lines: string[] = [header];
-  for (const rec of items) {
-    const cells = [
-      rec.id,
-      ...picked.data.columns.map((col) => {
-        if (col.kind === "relationField") {
-          return relationTargetValue({
-            record: rec,
-            relationField: col.relationField,
-            targetField: col.targetField,
-            ctx,
-            options,
-          });
+          yield encoder.encode(`${firstJsonRecord ? "" : ","}${JSON.stringify(out)}`);
+          firstJsonRecord = false;
+        } else {
+          const cells = [
+            record.id,
+            ...picked.data.columns.map((column) => {
+              if (column.kind === "relationField") {
+                return relationTargetValue({
+                  record,
+                  relationField: column.relationField,
+                  targetField: column.targetField,
+                  ctx,
+                  options,
+                });
+              }
+              if (column.field.type === "relation") {
+                return relationValue({
+                  record,
+                  field: column.field,
+                  mode: column.relation?.mode === "labels" ? "labels" : "ids",
+                  ctx,
+                });
+              }
+              return formatCellForExport(record.data[column.field.id], column.field, options);
+            }),
+          ];
+          yield encoder.encode(`${cells.map((cell) => csvQuote(cell, delimiter)).join(delimiter)}\r\n`);
         }
-        if (col.field.type === "relation") {
-          return relationValue({
-            record: rec,
-            field: col.field,
-            mode: col.relation?.mode === "labels" ? "labels" : "ids",
-            ctx,
-          });
-        }
-        return formatCellForExport(rec.data[col.field.id], col.field, options);
-      }),
-    ];
-    lines.push(cells.map((cell) => csvQuote(cell, delimiter)).join(delimiter));
-  }
-  return ok({
-    body: `${lines.join("\r\n")}\r\n`,
-    contentType: "text/csv; charset=utf-8",
-    filename,
-    truncated,
+      }
+      if (page.data.done) break;
+    }
+    if (params.format === "json") yield encoder.encode("]}");
+  };
+  const iterator = chunks();
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await iterator.next();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await iterator.return(undefined);
+    },
   });
+  return ok({ body, contentType: params.format === "json" ? "application/json; charset=utf-8" : "text/csv; charset=utf-8", filename });
 };

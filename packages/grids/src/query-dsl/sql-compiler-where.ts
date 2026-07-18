@@ -9,6 +9,7 @@ type PredicateCompileOptions = {
   timeZone?: string;
   computedFieldSql?: Map<string, FormulaSqlExpression>;
   resolveField?: FormulaSqlFieldResolver;
+  relationSource?: "links" | "recordData";
 };
 
 type PredicateCompileResult = { ok: true; sql: unknown } | { ok: false; error: string };
@@ -44,7 +45,7 @@ export const compileWherePredicate = (
     case "tree": {
       const compiled = compileFilter(node.kind === "tree" ? node.tree : node.leaf, fields, { timeZone: options.timeZone });
       if (!compiled.ok) return { ok: false, error: compiled.error };
-      return { ok: true, sql: renderClause(compiled.clause) };
+      return { ok: true, sql: renderClause(compiled.clause, { relationSource: options.relationSource }) };
     }
     case "recordMeta":
       return { ok: true, sql: compileRecordMetaFilter(node.meta) };

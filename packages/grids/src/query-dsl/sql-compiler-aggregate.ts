@@ -1,11 +1,11 @@
 import { sql } from "bun";
 import { aggregateOutputKey } from "../service/aggregate-capabilities";
-import { compileAggregates } from "../service/aggregate-compiler";
 import { compileFilter, renderClause } from "../service/filter-compiler";
 import type { DslResolvedSqlQueryPlan } from "./resolver";
 import { aliveFields } from "./sql-compiler-fields";
 import { joinFragments } from "./sql-compiler-fragments";
 import {
+  aggregateExprForField,
   aggregateKey,
   compileFormulaAggregateColumn,
   compileGroupExtraWhere,
@@ -13,6 +13,7 @@ import {
   viewAggregateSqlType,
 } from "./sql-compiler-grouping";
 import { recordDeletedCondition, scopedFormulaResolverForPlan } from "./sql-compiler-scope";
+import { dslRecordRelation, dslRecordTableCondition, dslRelationValuesInRecordData } from "./sql-compiler-source";
 import type { DslSqlAggregateCompileResult, DslSqlAggregateOutputColumn, DslSqlCompileOptions } from "./sql-compiler-types";
 
 const failAggregate = (error: string): DslSqlAggregateCompileResult => ({ ok: false, error });
@@ -41,8 +42,14 @@ export const compileDslAggregateQueryPlanToSql = (
   const resolveFormulaField = scopedFormulaResolverForPlan(plan, fields, new Map(), options);
   const filter = compileFilter(plan.query.filter ?? null, fields, { timeZone: options.timeZone });
   if (!filter.ok) return failAggregate(`filter: ${filter.error}`);
-  const aggregateCompiled = compileAggregates(aggregations, fields);
-  if (!aggregateCompiled.ok) return failAggregate(`aggregate: ${aggregateCompiled.error}`);
+  const fieldsById = new Map(fields.map((field) => [field.id, field]));
+  const aggregateColumns: Array<{ key: string; expr: unknown }> = [];
+  for (const aggregation of aggregations) {
+    const field = aggregation.fieldId === "*" ? null : (fieldsById.get(aggregation.fieldId) ?? null);
+    const compiled = aggregateExprForField({ ...aggregation, tableId: plan.tableId }, field, "r", options);
+    if (!compiled.ok) return failAggregate(`aggregate: ${compiled.error}`);
+    aggregateColumns.push({ key: aggregateOutputKey(aggregation.fieldId, aggregation.agg), expr: compiled.expr });
+  }
   const extraWhere = compileGroupExtraWhere(plan, fields, options, resolveFormulaField);
   if (!extraWhere.ok) return failAggregate(extraWhere.error);
   const formulaColumns: Array<{ key: string; expr: unknown }> = [];
@@ -51,10 +58,9 @@ export const compileDslAggregateQueryPlanToSql = (
     if (!compiled.ok) return failAggregate(compiled.error);
     formulaColumns.push(compiled);
   }
-  const allAggregateColumns = [...aggregateCompiled.columns, ...formulaColumns];
+  const allAggregateColumns = [...aggregateColumns, ...formulaColumns];
   const jsonPairs = allAggregateColumns.map((column) => sql`${column.key}::text, ${column.expr}`);
   if (jsonPairs.length === 0) return failAggregate("query has no aggregate output");
-  const fieldsById = new Map(fields.map((field) => [field.id, field]));
   const columns: DslSqlAggregateOutputColumn[] = aggregations.map(
     (aggregation): DslSqlAggregateOutputColumn => ({
       key: aggregateOutputKey(aggregation.fieldId, aggregation.agg),
@@ -74,9 +80,9 @@ export const compileDslAggregateQueryPlanToSql = (
     });
   }
 
-  const where = sql`r.table_id = ${plan.tableId}::uuid
+  const where = sql`${dslRecordTableCondition(plan.tableId, options)}
     AND ${recordDeletedCondition(plan)}
-    AND ${renderClause(filter.clause)}
+    AND ${renderClause(filter.clause, { relationSource: dslRelationValuesInRecordData(options) ? "recordData" : "links" })}
     AND ${extraWhere.where ?? sql`TRUE`}
     AND ${options.searchClause ?? sql`TRUE`}`;
   return {
@@ -84,7 +90,7 @@ export const compileDslAggregateQueryPlanToSql = (
     query: {
       sql: sql`
         SELECT jsonb_build_object(${joinFragments(jsonPairs, sql`, `)}) AS result
-        FROM grids.records r
+        FROM ${dslRecordRelation(options)}
         JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE ${where}

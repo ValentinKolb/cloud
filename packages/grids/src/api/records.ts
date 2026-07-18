@@ -351,7 +351,6 @@ const app = new Hono<AuthContext>()
         headers: {
           "Content-Type": result.data.contentType,
           "Content-Disposition": `attachment; filename="${result.data.filename}"`,
-          "X-Truncated": result.data.truncated ? "1" : "0",
         },
       });
     },

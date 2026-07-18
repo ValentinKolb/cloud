@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { Field } from "../service/types";
 import type { DslResolvedSqlQueryPlan, DslTableSource, DslViewSource } from "./resolver";
-import { collectDslFieldTableIds, collectDslPlanExtraFieldTableIds, needsDslViewCatalog } from "./source-plan";
+import { collectDslFieldTableIds, collectDslPlanExtraFieldTableIds, collectDslPlanTableIds, needsDslViewCatalog } from "./source-plan";
 import type { DslQueryAst, DslSourceRef } from "./types";
 
 const ast = (overrides: Partial<DslQueryAst> = {}): DslQueryAst => ({
@@ -98,5 +99,80 @@ describe("DSL source planning", () => {
 
     expect(collectDslPlanExtraFieldTableIds(plan)).toEqual([]);
     expect(collectDslPlanExtraFieldTableIds({ ...plan, readableTableIds: [orders.id, customers.id] })).toEqual([customers.id]);
+  });
+
+  test("collects explicitly joined tables for revision scopes", () => {
+    const relationField: Field = {
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      shortId: "REL01",
+      tableId: orders.id,
+      name: "Customer",
+      description: null,
+      icon: null,
+      type: "relation",
+      config: { targetTableId: customers.id },
+      position: 0,
+      required: false,
+      presentable: false,
+      hideInTable: false,
+      defaultValue: null,
+      indexed: false,
+      uniqueConstraint: false,
+      deletedAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const plan: DslResolvedSqlQueryPlan = {
+      source: orders,
+      tableId: orders.id,
+      query: {},
+      readableTableIds: [orders.id, customers.id],
+      joins: [
+        {
+          mode: "left",
+          alias: "customer",
+          direction: "forward",
+          source: customers,
+          tableId: customers.id,
+          fromScope: null,
+          fromTableId: orders.id,
+          relationFieldId: relationField.id,
+          depth: 1,
+        },
+      ],
+    };
+
+    expect(new Set(collectDslPlanTableIds(plan, { [orders.id]: [relationField] }))).toEqual(new Set([orders.id, customers.id]));
+  });
+
+  test("does not activate an unused relation target", () => {
+    const relationField: Field = {
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      shortId: "REL01",
+      tableId: orders.id,
+      name: "Customer",
+      description: null,
+      icon: null,
+      type: "relation",
+      config: { targetTableId: customers.id },
+      position: 0,
+      required: false,
+      presentable: false,
+      hideInTable: false,
+      defaultValue: null,
+      indexed: false,
+      uniqueConstraint: false,
+      deletedAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const plan: DslResolvedSqlQueryPlan = {
+      source: orders,
+      tableId: orders.id,
+      query: {},
+      readableTableIds: [orders.id, customers.id],
+    };
+
+    expect(collectDslPlanTableIds(plan, { [orders.id]: [relationField] })).toEqual([orders.id]);
   });
 });

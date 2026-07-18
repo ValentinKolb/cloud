@@ -122,7 +122,7 @@ const qualifiedRefSource = (ref: DslQualifiedRef): string =>
 
 const qualifiedRefExpression = (ref: DslQualifiedRef): Expr => ({
   kind: "field",
-  fieldId: qualifiedRefSource(ref),
+  fieldId: ref.scope ? qualifiedRefSource(ref) : ref.ref,
 });
 
 export const resolveComputedValueAggregation = (

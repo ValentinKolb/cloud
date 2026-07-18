@@ -51,7 +51,7 @@ export const currentResourceBoundBaseId = <T extends AuthContext>(c: Context<T>)
   return serviceAccount.appId === "grids" && serviceAccount.resourceType === "base" ? serviceAccount.resourceId : null;
 };
 
-const credentialPermission = <T extends AuthContext>(c: Context<T>): PermissionLevel => {
+export const currentCredentialPermission = <T extends AuthContext>(c: Context<T>): PermissionLevel => {
   const actor = currentActor(c);
   return actor?.kind === "service_account" ? permissionFromCredentialScopes(actor.scopes) : "admin";
 };
@@ -81,7 +81,7 @@ export const gateCredentialScope = async <T extends AuthContext>(
   required: PermissionLevel,
   options: { allowResourceBound?: boolean } = {},
 ): Promise<Result<PermissionLevel>> => {
-  const level = credentialPermission(c);
+  const level = currentCredentialPermission(c);
   if (PERMISSION_RANK[level] < PERMISSION_RANK[required]) {
     return fail(err.forbidden("The API credential does not grant the required Grids scope."));
   }
@@ -138,7 +138,7 @@ export const currentWorkflowPrincipal = <T extends AuthContext>(c: Context<T>): 
 const effectivePermission = async (c: Context<AuthContext>, target: ResolveTarget): Promise<PermissionLevel> => {
   if (!targetMatchesResourceBinding(c, target)) return "none";
   const grants = await loadCurrentGrants(c, target);
-  return minPermission(gridsService.permission.resolve(grants, target), credentialPermission(c));
+  return minPermission(gridsService.permission.resolve(grants, target), currentCredentialPermission(c));
 };
 
 /**
@@ -171,7 +171,7 @@ export const resolveWithGrants = async (
 ): Promise<{ level: PermissionLevel; grants: Grant[] }> => {
   if (!targetMatchesResourceBinding(c, target)) return { level: "none", grants: [] };
   const grants = await loadCurrentGrants(c, target);
-  const level = minPermission(gridsService.permission.resolve(grants, target), credentialPermission(c));
+  const level = minPermission(gridsService.permission.resolve(grants, target), currentCredentialPermission(c));
   return { level, grants };
 };
 

@@ -1,35 +1,76 @@
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, CheckboxCard, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Table } from "../../../service";
+import type { Table, TableKind } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
 
 export default function CreateTableButton(props: { baseId: string; baseShortId: string }) {
-  const createMutation = mutations.create<Table, { name: string }>({
+  const createMutation = mutations.create<Table, { name: string; kind: TableKind }>({
     mutation: async (input) => {
       const res = await apiClient.tables["by-base"][":baseId"].$post({
         param: { baseId: props.baseId },
-        json: { name: input.name },
+        json: { name: input.name, kind: input.kind },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create table"));
       return res.json();
     },
-    onSuccess: (table) => navigateTo(`/app/grids/${props.baseShortId}/table/${table.shortId}`),
+    onSuccess: (table) => navigateTo(`/app/grids/${props.baseShortId}/table/${table.shortId}?edit=true`),
     onError: (e) => prompts.error(e.message),
   });
 
   const handleClick = async () => {
-    const result = await prompts.form({
-      title: "New table",
-      icon: "ti ti-table-plus",
-      fields: {
-        name: { type: "text", label: "Name", required: true, placeholder: "e.g. Tasks, Contacts" },
-      },
-      confirmText: "Create",
-    });
+    const result = await dialogCore.open<{ name: string; kind: TableKind } | null>((close) => {
+      const [name, setName] = createSignal("");
+      const [kind, setKind] = createSignal<TableKind>("stored");
+      return (
+        <PanelDialog>
+          <PanelDialog.Header title="New table" icon="ti ti-table-plus" close={() => close(null)} />
+          <PanelDialog.Body>
+            <PanelDialog.Section title="Table type" subtitle="Choose where this table reads its records." icon="ti ti-database">
+              <CheckboxCard
+                label="Stored table"
+                description="Create and edit records directly in this table."
+                icon="ti ti-table"
+                variant="input"
+                value={() => kind() === "stored"}
+                onChange={() => setKind("stored")}
+              />
+              <CheckboxCard
+                label="Combined table"
+                description="Publish a read-only table that combines mapped fields from other tables."
+                icon="ti ti-table-share"
+                variant="input"
+                value={() => kind() === "federated"}
+                onChange={() => setKind("federated")}
+              />
+              <TextInput label="Name" value={name} onInput={setName} placeholder="e.g. Global inventory" required />
+            </PanelDialog.Section>
+          </PanelDialog.Body>
+          <PanelDialog.Footer>
+            <span />
+            <div class="flex items-center gap-2">
+              <button type="button" class="btn-input btn-sm" onClick={() => close(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="btn-primary btn-sm"
+                onClick={() => {
+                  const trimmed = name().trim();
+                  if (trimmed) close({ name: trimmed, kind: kind() });
+                }}
+              >
+                Create
+              </button>
+            </div>
+          </PanelDialog.Footer>
+        </PanelDialog>
+      );
+    }, panelDialogOptions);
     if (!result) return;
-    createMutation.mutate({ name: String(result.name).trim() });
+    createMutation.mutate(result);
   };
 
   return (

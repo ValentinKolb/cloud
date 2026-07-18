@@ -5,6 +5,7 @@ import { listByTable as listFields } from "./fields";
 import { validateFormConfig } from "./form-config-validation";
 import { parseJsonbRow } from "./jsonb";
 import { emitTableMetadataEvent } from "./metadata-events";
+import { requireStoredTableWritable } from "./parent-checks";
 import { insertWithShortId } from "./short-id";
 import type { Field } from "./types";
 
@@ -382,6 +383,8 @@ const generatePublicToken = (): string => {
 export const create = async (input: CreateFormInput, actorId: string | null): Promise<Result<Form>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
+  const writable = await requireStoredTableWritable(input.tableId);
+  if (!writable.ok) return writable;
   const configValid = await validateFormConfig(input.tableId, input.config ?? { fields: [] });
   if (!configValid.ok) return configValid;
   const config = configValid.data;

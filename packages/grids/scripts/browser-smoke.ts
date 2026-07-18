@@ -1101,7 +1101,9 @@ const runRecordAuditSmoke = async (browser: Browser, fixture: Fixture) => {
   });
   await expectVisibleText(page, "Done editing", "audit policy route enters edit mode");
   const generalButton = page.getByText("General", { exact: true }).first();
-  if ((await generalButton.count()) === 0) {
+  try {
+    await generalButton.waitFor({ state: "visible", timeout: TIMEOUT });
+  } catch {
     fail(`table admin toolbar missing in edit mode: ${(await page.locator("body").innerText()).slice(0, 1_200)}`);
   }
   const tableSettings = page.getByRole("dialog").filter({ hasText: "Data integrity" });

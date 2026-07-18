@@ -1,3 +1,4 @@
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { parseJsonbRow } from "./jsonb";
 import type { Field } from "./types";
@@ -62,6 +63,29 @@ export const listByTable = async (tableId: string, includeDeleted = false): Prom
         ORDER BY f.position, f.created_at
       `;
   return rows.map(mapFieldRow);
+};
+
+/** Loads fields for several live tables in one round trip. Federation source
+ * planning uses this to keep query preparation bounded at the 50-source cap. */
+export const listByTables = async (tableIds: readonly string[]): Promise<Map<string, Field[]>> => {
+  if (tableIds.length === 0) return new Map();
+  const rows = await sql<DbRow[]>`
+    SELECT f.*
+    FROM grids.fields f
+    JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE f.table_id = ANY(${toPgUuidArray([...tableIds])}::uuid[])
+      AND f.deleted_at IS NULL
+    ORDER BY f.table_id, f.position, f.created_at
+  `;
+  const grouped = new Map<string, Field[]>();
+  for (const row of rows) {
+    const field = mapFieldRow(row);
+    const fields = grouped.get(field.tableId) ?? [];
+    fields.push(field);
+    grouped.set(field.tableId, fields);
+  }
+  return grouped;
 };
 
 /**

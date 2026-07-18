@@ -22,6 +22,7 @@ type RecordsAdminControllerOptions = {
   baseId: string;
   baseShortId: string;
   tableId: string;
+  tableKind: "stored" | "federated";
   tableShortId: string;
   tableName: Accessor<string>;
   setTableName: Setter<string>;
@@ -49,6 +50,7 @@ type RecordsAdminControllerOptions = {
   activeViewAccessEntries?: AccessEntry[];
   canEditActiveView?: boolean;
   canManageTable: boolean;
+  canManageBase: boolean;
   dateConfig?: DateContext;
   refetch: () => void;
   setViewDisplayConfig: Setter<RecordDisplayConfig | null>;
@@ -62,6 +64,7 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
 
   const tableHeader = () => ({
     id: options.tableId,
+    kind: options.tableKind,
     baseId: options.baseId,
     baseShortId: options.baseShortId,
     shortId: options.tableShortId,
@@ -77,6 +80,7 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
   const openFieldSettings = (field: Field) => {
     openFieldEditDialog({
       field,
+      tableKind: options.tableKind,
       baseShortId: options.baseShortId,
       tableShortId: options.tableShortId,
       otherTables: options.otherTables,
@@ -96,6 +100,7 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
       table: tableHeader(),
       fields: options.fields(),
       initialAccessEntries: options.initialAccessEntries,
+      canManageBase: options.canManageBase,
       onSaved: (table) => {
         options.setTableName(table.name);
         options.setTableDescription(table.description ?? null);

@@ -1,4 +1,5 @@
 import { queue, topic } from "@valentinkolb/sync";
+import { sql } from "bun";
 import { z } from "zod";
 
 const TOPIC_PREFIX = "cloud:grids:events";
@@ -60,7 +61,7 @@ export const recordEventWorkPartition = (recordId: string): number => {
 };
 
 const recordEventIdempotencyKey = (event: GridsRecordEvent): string =>
-  `${event.type}:${event.recordId}:${event.version ?? "deleted"}:${event.occurredAt}`;
+  `${event.type}:${event.tableId}:${event.recordId}:${event.version ?? "deleted"}:${event.occurredAt}`;
 
 export const publishRecordEvent = async (event: GridsRecordEvent, options: { replayKey?: string } = {}): Promise<void> => {
   const idempotencyKey = recordEventIdempotencyKey(event);
@@ -80,6 +81,74 @@ export const publishRecordEvent = async (event: GridsRecordEvent, options: { rep
       idempotencyTtlMs: TOPIC_RETENTION_MS,
       meta: { baseId: event.baseId },
       data: event,
+    }),
+  ]);
+};
+
+export const resolveFederatedTargetsForRecordEvent = async (
+  event: GridsRecordEvent,
+): Promise<Array<{ baseId: string; tableId: string; changedFieldIds: string[] }>> => {
+  const mappingCondition =
+    event.changedFieldIds.length === 0
+      ? sql`TRUE`
+      : sql`(
+          mapping.source_field_id = ANY(${sql.array(event.changedFieldIds, "UUID")}::uuid[])
+          OR mapped_source_field.type IN ('formula', 'lookup', 'rollup')
+        )`;
+  const rows = await sql<Array<{ base_id: string; table_id: string; changed_field_ids: string[] }>>`
+    SELECT target.base_id::text,
+           target.id::text AS table_id,
+           COALESCE(
+             array_agg(DISTINCT mapping.target_field_id::text) FILTER (WHERE mapping.target_field_id IS NOT NULL),
+             ARRAY[]::text[]
+           ) AS changed_field_ids
+    FROM grids.federated_table_revisions revision
+    JOIN grids.tables target
+      ON target.id = revision.table_id
+     AND target.kind = 'federated'
+     AND target.deleted_at IS NULL
+    JOIN grids.bases target_base
+      ON target_base.id = target.base_id
+     AND target_base.deleted_at IS NULL
+    JOIN grids.federated_table_sources source
+      ON source.revision_id = revision.id
+     AND source.source_table_id = ${event.tableId}::uuid
+     AND source.authorized_at IS NOT NULL
+     AND source.revoked_at IS NULL
+    LEFT JOIN grids.federated_field_mappings mapping
+      ON mapping.revision_id = revision.id
+     AND mapping.source_table_id = source.source_table_id
+    LEFT JOIN grids.fields mapped_source_field
+      ON mapped_source_field.id = mapping.source_field_id
+     AND mapped_source_field.table_id = source.source_table_id
+    WHERE revision.status = 'active'
+      AND ${mappingCondition}
+    GROUP BY target.base_id, target.id
+    HAVING ${event.changedFieldIds.length === 0 ? sql`TRUE` : sql`COUNT(mapping.target_field_id) > 0`}
+  `;
+  return rows.map((row) => ({ baseId: row.base_id, tableId: row.table_id, changedFieldIds: row.changed_field_ids }));
+};
+
+export const publishRecordEventWithFederatedTargets = async (
+  event: GridsRecordEvent,
+  options: { replayKey?: string } = {},
+): Promise<void> => {
+  const targets = await resolveFederatedTargetsForRecordEvent(event);
+  await Promise.all([
+    publishRecordEvent(event, options),
+    ...targets.flatMap((target) => {
+      return [
+        publishRecordEvent(
+          {
+            ...event,
+            baseId: target.baseId,
+            tableId: target.tableId,
+            changedFieldIds: target.changedFieldIds,
+            actorId: null,
+          },
+          options,
+        ),
+      ];
     }),
   ]);
 };

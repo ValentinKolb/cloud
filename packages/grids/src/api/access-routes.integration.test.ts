@@ -28,6 +28,7 @@ const appFor = (fixture: Fixture) => {
   const deps = {
     gate,
     actorId: () => fixture.userId,
+    authorization: () => ({ subject: { type: "user" as const, userId: fixture.userId }, permissionCap: "admin" as const }),
   };
   return new Hono<AuthContext>().route("/", createAccessResourceRoutes(deps)).route("/", createAccessEntryRoutes(deps));
 };

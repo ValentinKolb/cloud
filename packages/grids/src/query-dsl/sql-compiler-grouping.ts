@@ -202,6 +202,22 @@ export const groupFieldProjection = (
   const descriptor = storageOf(field);
   if (descriptor.kind === "relationLink") {
     const alias = `jg_rl_${index}`;
+    if (options.recordSourcesByTableId?.has(group.tableId) || (options.recordSource && recordAlias === "r")) {
+      return {
+        ok: true,
+        expr: sql`${sql.unsafe(alias)}.value`,
+        sqlType: "text",
+        joins: [
+          sql`CROSS JOIN LATERAL jsonb_array_elements_text(
+            CASE
+              WHEN jsonb_typeof(${sql.unsafe(recordAlias)}.data->${field.id}) = 'array'
+              THEN ${sql.unsafe(recordAlias)}.data->${field.id}
+              ELSE '[]'::jsonb
+            END
+          ) AS ${sql.unsafe(alias)}(value)`,
+        ],
+      };
+    }
     return {
       ok: true,
       expr: sql`${sql.unsafe(alias)}.to_record_id::text`,
@@ -250,6 +266,7 @@ export const aggregateExprForField = (
   aggregation: DslResolvedSqlAggregation,
   field: Field | null,
   recordAlias: string,
+  options: DslSqlCompileOptions,
 ): { ok: true; expr: unknown; sqlType: FormulaSqlType } | { ok: false; error: string } => {
   if (aggregation.fieldId === "*") {
     if (aggregation.agg !== "count") return { ok: false, error: `agg "${aggregation.agg}" requires a field; only count works on "*"` };
@@ -259,35 +276,34 @@ export const aggregateExprForField = (
   if (!isFieldAggregatable(field, aggregation.agg)) {
     return { ok: false, error: `agg "${aggregation.agg}" not compatible with field type "${field.type}"` };
   }
-  const descriptor = storageOf(field);
-  const typedProjection = descriptor.project(field, recordAlias);
-  const rawValue = descriptor.kind === "system" ? typedProjection : sql`${sql.unsafe(recordAlias)}.data->>${field.id}`;
-  const isSystem = descriptor.kind === "system";
+  const projection = fieldProjection(field, recordAlias, {
+    fields: aliveFields(options.fieldsByTableId[aggregation.tableId ?? field.tableId] ?? []),
+    timeZone: options.timeZone,
+    readableTableIds: [],
+    computedFieldSql: computedFieldSqlForScope(options, aggregation.joinAlias),
+  });
+  if (!projection.ok) return projection;
+  const typedProjection = projection.projection;
+  const rawValue = sql`(${typedProjection})::text`;
   const sqlType = aggregateSqlTypeForField(field, aggregation.agg, false);
 
   switch (aggregation.agg) {
     case "count":
       return {
         ok: true,
-        expr: isSystem
-          ? sql`COUNT(${rawValue}) FILTER (WHERE ${rawValue} IS NOT NULL)::bigint`
-          : sql`COUNT(${rawValue}) FILTER (WHERE ${rawValue} IS NOT NULL AND ${rawValue} <> '')::bigint`,
+        expr: sql`COUNT(${typedProjection}) FILTER (WHERE ${typedProjection} IS NOT NULL AND ${rawValue} <> '')::bigint`,
         sqlType: "numeric",
       };
     case "countEmpty":
       return {
         ok: true,
-        expr: isSystem
-          ? sql`COUNT(*) FILTER (WHERE ${rawValue} IS NULL)::bigint`
-          : sql`COUNT(*) FILTER (WHERE ${rawValue} IS NULL OR ${rawValue} = '')::bigint`,
+        expr: sql`COUNT(*) FILTER (WHERE ${typedProjection} IS NULL OR ${rawValue} = '')::bigint`,
         sqlType: "numeric",
       };
     case "countUnique":
       return {
         ok: true,
-        expr: isSystem
-          ? sql`COUNT(DISTINCT ${rawValue}) FILTER (WHERE ${rawValue} IS NOT NULL)::bigint`
-          : sql`COUNT(DISTINCT ${rawValue}) FILTER (WHERE ${rawValue} IS NOT NULL AND ${rawValue} <> '')::bigint`,
+        expr: sql`COUNT(DISTINCT ${typedProjection}) FILTER (WHERE ${typedProjection} IS NOT NULL AND ${rawValue} <> '')::bigint`,
         sqlType: "numeric",
       };
     case "sum":

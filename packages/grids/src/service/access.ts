@@ -1,8 +1,9 @@
-import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/server";
+import type { AccessEntry, AccessSubject, PermissionLevel, Principal } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { logAudit, type SqlClient } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
+import { hasAtLeast, loadGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 
 const ACCESS_RESOURCES = {
   base: {
@@ -92,6 +93,46 @@ type DbAccessSnapshot = {
 
 export type AccessResourceType = keyof typeof ACCESS_RESOURCES;
 type AccessResourceDefinition = (typeof ACCESS_RESOURCES)[AccessResourceType];
+
+export type BaseAdminAuthorization = {
+  subject: AccessSubject | null;
+  permissionCap: PermissionLevel;
+  resourceBoundBaseId?: string | null;
+};
+
+/**
+ * Serializes base ACL mutations with publication authorization checks. The
+ * membership locks make the group graph stable while authorization is read;
+ * membership writes already take PostgreSQL's conflicting ROW EXCLUSIVE lock.
+ */
+export const lockBaseAuthorization = async (baseIds: readonly string[], client: SqlClient): Promise<void> => {
+  for (const baseId of [...new Set(baseIds)].sort()) {
+    await client`SELECT pg_advisory_xact_lock(hashtextextended(${`grids:base-authorization:${baseId}`}, 0))`;
+  }
+  await client`LOCK TABLE auth.user_groups_v2, auth.group_groups_v2 IN SHARE MODE`;
+};
+
+export const hasTransactionalBaseAdmin = async (
+  baseId: string,
+  authorization: BaseAdminAuthorization,
+  client: SqlClient,
+): Promise<boolean> => {
+  if (authorization.resourceBoundBaseId !== undefined && authorization.resourceBoundBaseId !== baseId) return false;
+  if (!hasAtLeast(authorization.permissionCap, "admin")) return false;
+  const grants = await loadGrantsForSubject({ baseId, subject: authorization.subject }, client);
+  return hasAtLeast(resolveEffectivePermission(grants, { baseId }), "admin");
+};
+
+const authorizeMutation = async (
+  binding: AccessBinding,
+  authorization: BaseAdminAuthorization | undefined,
+  client: SqlClient,
+): Promise<Result<void>> => {
+  if (!authorization) return ok();
+  return (await hasTransactionalBaseAdmin(binding.baseId, authorization, client))
+    ? ok()
+    : fail(err.forbidden("You no longer have admin access to this base."));
+};
 
 export const validateAccessPermission = (resourceType: AccessResourceType, permission: string): string | null => {
   const definition = ACCESS_RESOURCES[resourceType];
@@ -261,6 +302,22 @@ const insertAccessBinding = async (
   `;
 };
 
+const validateResourcePermission = async (
+  resourceType: AccessResourceType,
+  resourceId: string,
+  permission: PermissionLevel,
+  client: SqlClient,
+): Promise<Result<void>> => {
+  if (resourceType !== "table" || permission !== "write") return ok();
+  const [table] = await client<Array<{ kind: string }>>`
+    SELECT kind
+    FROM grids.tables
+    WHERE id = ${resourceId}::uuid
+  `;
+  if (!table) return fail(err.notFound("Table"));
+  return table.kind === "federated" ? fail(err.badInput("combined tables only accept read access")) : ok();
+};
+
 const logAccessAudit = async (params: {
   action: "access.granted" | "access.updated" | "access.revoked";
   binding: AccessBinding;
@@ -292,8 +349,16 @@ export const grantAccess = async (params: {
   principal: Principal;
   permission: PermissionLevel;
   actorId?: string | null;
+  authorization?: BaseAdminAuthorization;
 }): Promise<Result<{ accessId: string }>> => {
   const createdAccess = await sql.begin(async (tx): Promise<Result<{ accessId: string }>> => {
+    const resource = await resolveResourceBinding(params.resourceType, params.resourceId, { client: tx });
+    if (!resource) return fail(err.notFound("Resource"));
+    await lockBaseAuthorization([resource.baseId], tx);
+    const authorized = await authorizeMutation(resource, params.authorization, tx);
+    if (!authorized.ok) return fail(authorized.error);
+    const permission = await validateResourcePermission(params.resourceType, params.resourceId, params.permission, tx);
+    if (!permission.ok) return fail(permission.error);
     const created = await insertAccessRow({ principal: params.principal, permission: params.permission }, tx);
     if (!created.ok) return fail(created.error);
     await insertAccessBinding(params.resourceType, params.resourceId, created.data.id, tx);
@@ -413,10 +478,20 @@ export const listAccessForBaseTree = async (baseId: string): Promise<ScopedAcces
  * Updates an existing access entry's permission level and logs the ACL
  * change in the same DB transaction.
  */
-export const updateAccessLevel = async (accessId: string, level: PermissionLevel, actorId: string | null = null): Promise<Result<void>> => {
-  const binding = await resolveAccessBinding(accessId);
-  if (!binding) return fail(err.notFound("Access entry"));
-  const result = await sql.begin(async (tx) => {
+export const updateAccessLevel = async (
+  accessId: string,
+  level: PermissionLevel,
+  actorId: string | null = null,
+  authorization?: BaseAdminAuthorization,
+): Promise<Result<void>> => {
+  const result = await sql.begin(async (tx): Promise<Result<AccessBinding>> => {
+    const binding = await resolveAccessBinding(accessId, tx);
+    if (!binding) return fail(err.notFound("Access entry"));
+    await lockBaseAuthorization([binding.baseId], tx);
+    const authorized = await authorizeMutation(binding, authorization, tx);
+    if (!authorized.ok) return fail(authorized.error);
+    const permission = await validateResourcePermission(binding.resourceType, resourceIdFromBinding(binding), level, tx);
+    if (!permission.ok) return fail(permission.error);
     const access = await getAccessSnapshot(accessId, tx);
     if (!access) return fail(err.notFound("Access entry"));
     const update = await tx`
@@ -435,10 +510,11 @@ export const updateAccessLevel = async (accessId: string, level: PermissionLevel
         client: tx,
       });
     }
-    return ok();
+    return ok(binding);
   });
-  if (result.ok) await emitAccessChanged(binding, accessId, actorId);
-  return result;
+  if (!result.ok) return fail(result.error);
+  await emitAccessChanged(result.data, accessId, actorId);
+  return ok();
 };
 
 /**
@@ -448,10 +524,17 @@ export const updateAccessLevel = async (accessId: string, level: PermissionLevel
  * underlying access row too. CASCADE on the junctions handles the cleanup
  * automatically once the access row is gone.
  */
-export const revokeAccess = async (accessId: string, actorId: string | null = null): Promise<Result<void>> => {
-  const binding = await resolveAccessBinding(accessId);
-  if (!binding) return fail(err.notFound("Access entry"));
-  const result = await sql.begin(async (tx) => {
+export const revokeAccess = async (
+  accessId: string,
+  actorId: string | null = null,
+  authorization?: BaseAdminAuthorization,
+): Promise<Result<void>> => {
+  const result = await sql.begin(async (tx): Promise<Result<AccessBinding>> => {
+    const binding = await resolveAccessBinding(accessId, tx);
+    if (!binding) return fail(err.notFound("Access entry"));
+    await lockBaseAuthorization([binding.baseId], tx);
+    const authorized = await authorizeMutation(binding, authorization, tx);
+    if (!authorized.ok) return fail(authorized.error);
     const access = await getAccessSnapshot(accessId, tx);
     if (!access) return fail(err.notFound("Access entry"));
     const deleted = await tx`
@@ -467,10 +550,11 @@ export const revokeAccess = async (accessId: string, actorId: string | null = nu
       nextPermission: null,
       client: tx,
     });
-    return ok();
+    return ok(binding);
   });
-  if (result.ok) await emitAccessChanged(binding, accessId, actorId);
-  return result;
+  if (!result.ok) return fail(result.error);
+  await emitAccessChanged(result.data, accessId, actorId);
+  return ok();
 };
 
 /**

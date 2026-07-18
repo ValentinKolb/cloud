@@ -20,6 +20,7 @@ import {
 import { joinFragments } from "./sql-compiler-fragments";
 import { compileRelationJoin } from "./sql-compiler-joins";
 import { compileViewSourceRecordScope, recordDeletedCondition, scopedFormulaResolverForPlan } from "./sql-compiler-scope";
+import { dslRecordRelation, dslRecordTableCondition, dslRelationValuesInRecordData } from "./sql-compiler-source";
 import {
   type DslSqlCompiledQuery,
   type DslSqlCompileOptions,
@@ -85,6 +86,7 @@ const compileSqlSort = (
     computedFieldSql?: Map<string, FormulaSqlExpression>;
     computedFieldSqlByJoinAlias?: Map<string, Map<string, FormulaSqlExpression>>;
     cursorValues?: unknown[];
+    recordSource?: DslSqlCompileOptions["recordSource"];
   },
 ): { ok: true; keyset: ReturnType<typeof compileDslKeyset> & { ok: true } } | { ok: false; error: string } => {
   const fieldsById = new Map(fields.map((field) => [field.id, field]));
@@ -187,14 +189,28 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
   const joinAliases = new Map<string, string>();
   const joinSql: unknown[] = [];
   for (const [index, join] of (plan.joins ?? []).entries()) {
-    const compiled = compileRelationJoin(join, index, joinAliases, { joinFanoutLimit: options.joinFanoutLimit });
+    const compiled = compileRelationJoin(join, index, joinAliases, {
+      joinFanoutLimit: options.joinFanoutLimit,
+      recordSource: options.recordSource,
+      recordSourcesByTableId: options.recordSourcesByTableId,
+    });
     if (!compiled.ok) return fail(compiled.error);
     joinAliases.set(join.alias, compiled.recordAlias);
     joinSql.push(compiled.fragment);
   }
   const resolveFormulaField = scopedFormulaResolverForPlan(plan, baseFields, joinAliases, options);
 
-  const selectFragments: unknown[] = [sql`r.id::text AS __record_id`, sql`r.table_id::text AS __table_id`];
+  const selectFragments: unknown[] = [
+    sql`r.id::text AS __record_id`,
+    sql`r.table_id::text AS __table_id`,
+    sql`r.version AS __record_version`,
+    sql`r.deleted_at AS __record_deleted_at`,
+    sql`r.created_by::text AS __record_created_by`,
+    sql`r.updated_by::text AS __record_updated_by`,
+    sql`r.created_at AS __record_created_at`,
+    sql`r.updated_at AS __record_updated_at`,
+    ...(options.recordSource ? [sql`r.source_table_id::text AS __source_table_id`, sql`r.source_base_id::text AS __source_base_id`] : []),
+  ];
   const columns: DslSqlOutputColumn[] = [];
   const outputProjections = new Map<string, { projection: unknown; sqlType: DslSqlOutputColumn["sqlType"] }>();
   const outputColumns = outputColumnsForPlan(plan, baseFields);
@@ -268,14 +284,15 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
     computedFieldSql: options.computedFieldSql,
     computedFieldSqlByJoinAlias: options.computedFieldSqlByJoinAlias,
     cursorValues: options.cursorValues,
+    recordSource: options.recordSource,
   });
   if (!sort.ok) return fail(`sort: ${sort.error}`);
   selectFragments.push(sort.keyset.select);
 
   const conditions: unknown[] = [
-    sql`r.table_id = ${plan.tableId}::uuid`,
+    dslRecordTableCondition(plan.tableId, options),
     recordDeletedCondition(plan),
-    renderClause(filter.clause),
+    renderClause(filter.clause, { relationSource: dslRelationValuesInRecordData(options) ? "recordData" : "links" }),
     compileRecordMetaFilter(plan.query.recordMeta ?? null),
   ];
   const viewScope = compileViewSourceRecordScope(plan, baseFields, options);
@@ -286,6 +303,7 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
       timeZone: options.timeZone,
       computedFieldSql: options.computedFieldSql,
       resolveField: resolveFormulaField,
+      relationSource: dslRelationValuesInRecordData(options) ? "recordData" : "links",
     });
     if (!compiled.ok) return fail(`where: ${compiled.error}`);
     conditions.push(compiled.sql);
@@ -299,7 +317,7 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
   return ok({
     sql: sql`
       SELECT ${joinFragments(selectFragments, sql`, `)}
-      FROM grids.records r
+      FROM ${dslRecordRelation(options)}
       JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
       JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
       ${joinFragments(joinSql, sql` `)}

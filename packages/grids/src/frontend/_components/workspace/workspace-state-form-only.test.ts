@@ -15,6 +15,7 @@ const formTable = {
   id: "22222222-2222-4222-8222-222222222222",
   shortId: "TBL01",
   baseId: base.id,
+  kind: "stored" as const,
   name: "Hidden table",
   description: null,
   icon: null,

@@ -5,7 +5,7 @@ import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-
 import { logAudit, type SqlClient } from "./audit";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
-import { requireTableAlive } from "./parent-checks";
+import { requireStoredTableWritable } from "./parent-checks";
 import { buildRecordAuditContext, loadTableAuditPolicy } from "./record-audit";
 import { captureRecordEventSnapshot, notifyRecordEventOutbox } from "./record-event-outbox";
 import { buildPersistedUpdateData, buildRecordDiff, mapRecordRow, splitRelationsFromData } from "./record-persistence";
@@ -154,8 +154,8 @@ export const createInTransaction = async (
     dateConfig?: DateContext;
   } = {},
 ): Promise<Result<CreateRecordInTransactionResult>> => {
-  const parentAlive = await requireTableAlive(tableId, client);
-  if (!parentAlive.ok) return parentAlive;
+  const writable = await requireStoredTableWritable(tableId, client);
+  if (!writable.ok) return writable;
 
   if (!opts.bypassDirectInsertCheck) {
     const [row] = await client<{ disable_direct_insert: boolean }[]>`
@@ -350,6 +350,8 @@ export const updateInTransaction = async (
   ifMatchVersion?: number,
   opts: { dateConfig?: DateContext; audit?: RecordMutationAudit } = {},
 ): Promise<Result<UpdateRecordInTransactionResult>> => {
+  const writable = await requireStoredTableWritable(tableId, client);
+  if (!writable.ok) return writable;
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   if (ifMatchVersion !== undefined && ifMatchVersion !== existing.version) {
@@ -461,6 +463,8 @@ export const softDelete = async (
   actorId: string | null,
   audit?: RecordMutationAudit,
 ): Promise<Result<void>> => {
+  const writable = await requireStoredTableWritable(tableId);
+  if (!writable.ok) return writable;
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   const eventPayload = {
@@ -524,8 +528,8 @@ export const restore = async (
   };
   const restored = await sql
     .begin(async (tx): Promise<Result<string>> => {
-      const parentAlive = await requireTableAlive(tableId, tx);
-      if (!parentAlive.ok) return parentAlive;
+      const writable = await requireStoredTableWritable(tableId, tx);
+      if (!writable.ok) return writable;
       const auditPolicy = await loadTableAuditPolicy(tx, tableId);
       if (!auditPolicy.ok) return auditPolicy;
       const auditContext = buildRecordAuditContext(auditPolicy.data, "restore", [], audit);

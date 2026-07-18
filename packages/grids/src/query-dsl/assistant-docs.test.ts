@@ -114,6 +114,9 @@ describe("GQL assistant docs", () => {
 
     expect(skill).toContain("## Capabilities");
     expect(skill).toContain("Read visible tables with `from table ...` and visible saved views with `from view ...`.");
+    expect(skill).toContain("Query a visible Combined table with the same `from table ...` syntax.");
+    expect(skill).toContain("do not infer or request its physical source tables");
+    expect(skill).toContain("Physical source access is not required or implied.");
     expect(skill).toContain("Use a saved view as a source even when its parent table is not listed in `context.md`");
     expect(skill).toContain("Join related tables through relation fields");
     expect(skill).toContain("GQL execution happens on the server in SQL");
@@ -123,6 +126,7 @@ describe("GQL assistant docs", () => {
     expect(skill).toContain("Joins are relation/id joins, not arbitrary SQL joins.");
     expect(skill).toContain("never write `items.Name = alias.Name`");
     expect(skill).toContain("If no relation field connects the records, ask the user to create or use a relation field before joining.");
+    expect(skill).toContain("Do not ask the reader to obtain source-base access.");
     expect(skill).toContain("Derived or grouped saved views expose only their listed output columns.");
     expect(skill).toContain("do not wrap them in `formula(...)`");
     expect(skill).toContain("Do not generate `AND(...)`, `OR(...)`, or `NOT(...)` calls.");

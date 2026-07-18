@@ -3,13 +3,31 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { resolveAccessBinding, revokeAccess, updateAccessLevel, validateAccessPermission } from "../service/access";
-import { currentActorUserId, gateAt } from "./permissions";
+import {
+  type BaseAdminAuthorization,
+  resolveAccessBinding,
+  revokeAccess,
+  updateAccessLevel,
+  validateAccessPermission,
+} from "../service/access";
+import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 
 const UpdateLevelSchema = z.object({ permission: PermissionLevelSchema });
 
-type AccessEntryRouteDeps = { gate: typeof gateAt; actorId: typeof currentActorUserId };
-const defaultDeps: AccessEntryRouteDeps = { gate: gateAt, actorId: currentActorUserId };
+type AccessEntryRouteDeps = {
+  gate: typeof gateAt;
+  actorId: typeof currentActorUserId;
+  authorization: (c: Parameters<typeof gateAt>[0]) => BaseAdminAuthorization;
+};
+const defaultDeps: AccessEntryRouteDeps = {
+  gate: gateAt,
+  actorId: currentActorUserId,
+  authorization: (c) => ({
+    subject: currentAccessSubject(c),
+    permissionCap: currentCredentialPermission(c),
+    resourceBoundBaseId: currentResourceBoundBaseId(c),
+  }),
+};
 
 export const createAccessEntryRoutes = (deps: AccessEntryRouteDeps = defaultDeps) =>
   new Hono<AuthContext>()
@@ -35,7 +53,7 @@ export const createAccessEntryRoutes = (deps: AccessEntryRouteDeps = defaultDeps
         const { permission } = c.req.valid("json");
         const validationError = validateAccessPermission(binding.resourceType, permission);
         if (validationError) return c.json({ message: validationError }, 400);
-        const result = await updateAccessLevel(accessId, permission, deps.actorId(c));
+        const result = await updateAccessLevel(accessId, permission, deps.actorId(c), deps.authorization(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },
@@ -57,7 +75,7 @@ export const createAccessEntryRoutes = (deps: AccessEntryRouteDeps = defaultDeps
         if (!binding) return c.json({ message: "Access entry not found" }, 404);
         const gate = await deps.gate(c, { baseId: binding.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const result = await revokeAccess(accessId, deps.actorId(c));
+        const result = await revokeAccess(accessId, deps.actorId(c), deps.authorization(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },

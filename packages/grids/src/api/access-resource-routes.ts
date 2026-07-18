@@ -5,6 +5,7 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
   type AccessResourceType,
+  type BaseAdminAuthorization,
   grantAccess,
   listBaseAccess,
   listDashboardAccess,
@@ -18,7 +19,7 @@ import {
 } from "../service/access";
 import { get as getTable } from "../service/tables";
 import { getWorkflow } from "../service/workflow-kernel-store";
-import { currentActorUserId, gateAt } from "./permissions";
+import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 
 const AccessListSchema = z.array(AccessEntrySchema);
 const CreatedAccessSchema = z.object({ accessId: z.string().uuid() });
@@ -34,8 +35,20 @@ type AccessRouteConfig = {
   list: (resourceId: string) => ReturnType<typeof listBaseAccess>;
 };
 
-type AccessRouteDeps = { gate: typeof gateAt; actorId: typeof currentActorUserId };
-const defaultDeps: AccessRouteDeps = { gate: gateAt, actorId: currentActorUserId };
+type AccessRouteDeps = {
+  gate: typeof gateAt;
+  actorId: typeof currentActorUserId;
+  authorization: (c: Context<AuthContext>) => BaseAdminAuthorization;
+};
+const defaultDeps: AccessRouteDeps = {
+  gate: gateAt,
+  actorId: currentActorUserId,
+  authorization: (c) => ({
+    subject: currentAccessSubject(c),
+    permissionCap: currentCredentialPermission(c),
+    resourceBoundBaseId: currentResourceBoundBaseId(c),
+  }),
+};
 
 const resolveRegisteredResource = async (resourceType: Exclude<AccessResourceType, "base" | "table" | "workflow">, resourceId: string) => {
   const binding = await resolveResourceBinding(resourceType, resourceId, {
@@ -171,6 +184,7 @@ const grantResourceAccess = async (
         resourceType: config.resourceType,
         resourceId: id,
         actorId: deps.actorId(c),
+        authorization: deps.authorization(c),
         ...body,
       }),
     201,

@@ -7,7 +7,7 @@ const tableId = "22222222-2222-4222-8222-222222222222";
 const viewId = "33333333-3333-4333-8333-333333333333";
 const userId = "44444444-4444-4444-8444-444444444444";
 
-const table = { id: tableId, baseId };
+const table = { id: tableId, baseId, kind: "stored" as const };
 const view = {
   id: viewId,
   tableId,
@@ -62,6 +62,7 @@ const makeDeps = (
     resolve: async () => ({ level: overrides.viewLevel ?? "read", grants: [] }),
     viewer: () => ({ userId, userGroups: [], serviceAccountId: null }),
     hasExplicitGrant: () => overrides.explicitViewGrant ?? false,
+    verifyFederatedRevision: async () => ok(),
   } as unknown as RouteDeps;
 };
 

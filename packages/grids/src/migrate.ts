@@ -114,6 +114,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'stored',
       name TEXT NOT NULL,
       description TEXT,
       icon TEXT,
@@ -125,10 +126,37 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT tables_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT tables_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT tables_kind_chk CHECK (kind IN ('stored', 'federated'))
     )
   `.simple();
+  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'stored'`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tables_kind_chk' AND conrelid = 'grids.tables'::regclass) THEN
+        ALTER TABLE grids.tables ADD CONSTRAINT tables_kind_chk CHECK (kind IN ('stored', 'federated'));
+      END IF;
+    END $$
+  `.simple();
   await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS audit_policy JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
+  await sql`
+    UPDATE grids.tables
+    SET disable_direct_insert = TRUE,
+        audit_policy = '{}'::jsonb
+    WHERE kind = 'federated'
+      AND (disable_direct_insert IS NOT TRUE OR audit_policy <> '{}'::jsonb)
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tables_federated_read_only_chk' AND conrelid = 'grids.tables'::regclass) THEN
+        ALTER TABLE grids.tables
+          ADD CONSTRAINT tables_federated_read_only_chk
+          CHECK (kind <> 'federated' OR (disable_direct_insert AND audit_policy = '{}'::jsonb));
+      END IF;
+    END $$
+  `.simple();
   // Hot-path index: list live tables of a base in order.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base_live ON grids.tables(base_id, position) WHERE deleted_at IS NULL`.simple();
   const [duplicateTableName] = await sql<Array<{ baseId: string; name: string }>>`
@@ -191,6 +219,11 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
     )
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_fields_table ON grids.fields(table_id, position) WHERE deleted_at IS NULL`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_fields_relation_target
+    ON grids.fields ((config->>'targetTableId'), table_id)
+    WHERE deleted_at IS NULL AND type = 'relation'
+  `.simple();
   const [duplicateFieldName] = await sql<Array<{ tableId: string; name: string }>>`
     SELECT table_id::text AS "tableId", lower(btrim(name)) AS name
     FROM grids.fields
@@ -228,6 +261,226 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       AND config ? 'scale'
   `.simple();
   console.log("  ✓ grids.fields");
+
+  // ──────────────────────────────────────────────────────────────────
+  // federated table revisions — draft configuration is isolated from
+  // the single active revision consumed by readers.
+  // ──────────────────────────────────────────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.federated_table_revisions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
+      revision INT NOT NULL CHECK (revision > 0),
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'degraded', 'superseded')),
+      diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      published_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      published_at TIMESTAMPTZ,
+      UNIQUE (table_id, revision)
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_federated_revision_draft
+    ON grids.federated_table_revisions(table_id)
+    WHERE status = 'draft'
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_federated_revision_current
+    ON grids.federated_table_revisions(table_id)
+    WHERE status IN ('active', 'degraded')
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.federated_table_sources (
+      id UUID NOT NULL DEFAULT gen_random_uuid(),
+      revision_id UUID NOT NULL REFERENCES grids.federated_table_revisions(id) ON DELETE CASCADE,
+      source_table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE RESTRICT,
+      position INT NOT NULL DEFAULT 0 CHECK (position >= 0),
+      authorized_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      authorized_at TIMESTAMPTZ,
+      revoked_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      revoked_at TIMESTAMPTZ,
+      PRIMARY KEY (revision_id, source_table_id)
+    )
+  `.simple();
+  await sql`ALTER TABLE grids.federated_table_sources ADD COLUMN IF NOT EXISTS id UUID`.simple();
+  await sql`UPDATE grids.federated_table_sources SET id = gen_random_uuid() WHERE id IS NULL`.simple();
+  await sql`ALTER TABLE grids.federated_table_sources ALTER COLUMN id SET DEFAULT gen_random_uuid()`.simple();
+  await sql`ALTER TABLE grids.federated_table_sources ALTER COLUMN id SET NOT NULL`.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_federated_sources_id
+    ON grids.federated_table_sources(id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_federated_sources_source
+    ON grids.federated_table_sources(source_table_id, revision_id)
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.federated_field_mappings (
+      revision_id UUID NOT NULL,
+      target_field_id UUID NOT NULL REFERENCES grids.fields(id) ON DELETE RESTRICT,
+      source_table_id UUID NOT NULL,
+      source_field_id UUID NOT NULL REFERENCES grids.fields(id) ON DELETE RESTRICT,
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      PRIMARY KEY (revision_id, target_field_id, source_table_id),
+      FOREIGN KEY (revision_id, source_table_id)
+        REFERENCES grids.federated_table_sources(revision_id, source_table_id)
+        ON DELETE CASCADE
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_federated_mappings_source_field
+    ON grids.federated_field_mappings(source_field_id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_federated_mappings_target_field
+    ON grids.federated_field_mappings(target_field_id)
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.validate_federated_revision_target()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM grids.tables target
+        WHERE target.id = NEW.table_id AND target.kind = 'federated'
+      ) THEN
+        RAISE EXCEPTION 'federated revision target must be a combined table';
+      END IF;
+      RETURN NEW;
+    END;
+    $$
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS trg_grids_validate_federated_revision_target ON grids.federated_table_revisions`.simple();
+  await sql`
+    CREATE TRIGGER trg_grids_validate_federated_revision_target
+    BEFORE INSERT OR UPDATE OF table_id ON grids.federated_table_revisions
+    FOR EACH ROW EXECUTE FUNCTION grids.validate_federated_revision_target()
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.validate_federated_source()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM grids.federated_table_revisions revision
+        JOIN grids.tables source_table ON source_table.id = NEW.source_table_id
+        WHERE revision.id = NEW.revision_id
+          AND source_table.kind = 'stored'
+          AND source_table.id <> revision.table_id
+      ) THEN
+        RAISE EXCEPTION 'federated source must be a distinct stored table';
+      END IF;
+      RETURN NEW;
+    END;
+    $$
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS trg_grids_validate_federated_source ON grids.federated_table_sources`.simple();
+  await sql`
+    CREATE TRIGGER trg_grids_validate_federated_source
+    BEFORE INSERT OR UPDATE OF revision_id, source_table_id ON grids.federated_table_sources
+    FOR EACH ROW EXECUTE FUNCTION grids.validate_federated_source()
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.validate_federated_mapping()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM grids.federated_table_revisions revision
+        JOIN grids.fields target_field
+          ON target_field.id = NEW.target_field_id
+         AND target_field.table_id = revision.table_id
+        JOIN grids.fields source_field
+          ON source_field.id = NEW.source_field_id
+         AND source_field.table_id = NEW.source_table_id
+        WHERE revision.id = NEW.revision_id
+      ) THEN
+        RAISE EXCEPTION 'federated mapping fields must belong to their declared tables';
+      END IF;
+      RETURN NEW;
+    END;
+    $$
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS trg_grids_validate_federated_mapping ON grids.federated_field_mappings`.simple();
+  await sql`
+    CREATE TRIGGER trg_grids_validate_federated_mapping
+    BEFORE INSERT OR UPDATE OF revision_id, target_field_id, source_table_id, source_field_id
+    ON grids.federated_field_mappings
+    FOR EACH ROW EXECUTE FUNCTION grids.validate_federated_mapping()
+  `.simple();
+  await sql`DROP FUNCTION IF EXISTS grids.assert_federated_revision(UUID, UUID, INT)`.simple();
+  await sql`DROP FUNCTION IF EXISTS grids.assert_federated_revision(UUID, UUID, TIMESTAMPTZ, INT)`.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.assert_federated_revision(
+      p_table_id UUID,
+      p_revision_id UUID,
+      p_revision_token TEXT,
+      p_source_count INT
+    ) RETURNS BOOLEAN
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      valid_sources INT;
+      invalid_mappings INT;
+    BEGIN
+      SELECT COUNT(*)::int INTO valid_sources
+      FROM grids.federated_table_revisions revision
+      JOIN grids.tables target
+        ON target.id = revision.table_id
+       AND target.kind = 'federated'
+       AND target.deleted_at IS NULL
+      JOIN grids.bases target_base
+        ON target_base.id = target.base_id
+       AND target_base.deleted_at IS NULL
+      JOIN grids.federated_table_sources source
+        ON source.revision_id = revision.id
+       AND source.authorized_at IS NOT NULL
+       AND source.revoked_at IS NULL
+      JOIN grids.tables source_table
+        ON source_table.id = source.source_table_id
+       AND source_table.kind = 'stored'
+       AND source_table.deleted_at IS NULL
+      JOIN grids.bases source_base
+        ON source_base.id = source_table.base_id
+       AND source_base.deleted_at IS NULL
+      WHERE revision.id = p_revision_id
+        AND revision.table_id = p_table_id
+        AND extract(epoch FROM revision.updated_at)::numeric::text = p_revision_token
+        AND revision.status = 'active';
+
+      IF valid_sources <> p_source_count THEN
+        RAISE EXCEPTION 'combined table publication changed; reload the query'
+          USING ERRCODE = 'P0001';
+      END IF;
+      SELECT COUNT(*)::int INTO invalid_mappings
+      FROM grids.federated_field_mappings mapping
+      JOIN grids.federated_table_revisions revision ON revision.id = mapping.revision_id
+      LEFT JOIN grids.fields target_field
+        ON target_field.id = mapping.target_field_id
+       AND target_field.table_id = revision.table_id
+       AND target_field.deleted_at IS NULL
+      LEFT JOIN grids.fields source_field
+        ON source_field.id = mapping.source_field_id
+       AND source_field.table_id = mapping.source_table_id
+       AND source_field.deleted_at IS NULL
+      WHERE mapping.revision_id = p_revision_id
+        AND (target_field.id IS NULL OR source_field.id IS NULL);
+      IF invalid_mappings <> 0 THEN
+        RAISE EXCEPTION 'combined table publication mapping changed; reload the query'
+          USING ERRCODE = 'P0001';
+      END IF;
+      RETURN TRUE;
+    END;
+    $$
+  `.simple();
+  console.log("  ✓ grids.federated_table_revisions");
 
   // ──────────────────────────────────────────────────────────────────
   // records (JSONB-keyed by field ID)

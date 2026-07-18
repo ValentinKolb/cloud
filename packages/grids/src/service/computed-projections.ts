@@ -2,8 +2,8 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { ComputedColumnSpec } from "../contracts";
 import { decimalStringToCanonical } from "../formula/numeric";
+import { get as getField } from "./field-read";
 import { storageOf } from "./field-storage";
-import { get as getField } from "./fields";
 import { compileFormulaSourceToSql, type FormulaSqlExpression, type FormulaSqlType } from "./formula-sql-compiler";
 import { liveRecordParentJoinSql } from "./parent-checks";
 import { assertSqlIdentifier } from "./sql-ident";
@@ -295,17 +295,18 @@ export const buildComputedFieldSqlMap = async (
  */
 export const buildFormulaSqlProjections = (
   fields: Field[],
-  options: { dateConfig?: DateContext; now?: Date } = {},
+  options: { dateConfig?: DateContext; now?: Date; recordAlias?: string } = {},
 ): ComputedProjection[] => {
   const out: ComputedProjection[] = [];
   const now = options.now ?? new Date();
+  const recordAlias = assertSqlIdentifier(options.recordAlias ?? "r");
   for (const field of fields) {
     if (field.deletedAt || field.type !== "formula") continue;
     const expression = (field.config as { expression?: unknown }).expression;
     if (typeof expression !== "string" || expression.trim().length === 0) continue;
     const compiled = compileFormulaSourceToSql(expression, {
       fields,
-      recordAlias: "r",
+      recordAlias,
       dateConfig: options.dateConfig,
       now,
     });
@@ -315,6 +316,7 @@ export const buildFormulaSqlProjections = (
       fieldId: field.id,
       alias,
       outputType: outputTypeForFormula(compiled.expression.type),
+      expr: compiled.expression.sql,
       fragment: sql`${compiled.expression.sql} AS ${sql.unsafe(alias)}`,
     });
   }

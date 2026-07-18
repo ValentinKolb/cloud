@@ -115,9 +115,11 @@ const searchToGql = (search: SearchSpec | undefined): string | undefined => {
   return `${gqlStringLiteral(search.q.trim())}${fields}`;
 };
 
-export const simpleQueryToGqlSource = (args: { tableId: string; query: RecordQuery }): ConvertResult => {
+const recordQueryToGqlSource = (args: { tableId: string; query: RecordQuery }, allowAggregateOnly: boolean): ConvertResult => {
   if ((args.query.aggregations?.length ?? 0) > 0 && (args.query.groupBy?.length ?? 0) === 0) {
-    return unsupported("table footer aggregations are not part of row GQL source; use a direct GQL aggregate query");
+    if (!allowAggregateOnly) {
+      return unsupported("table footer aggregations are not part of row GQL source; use a direct GQL aggregate query");
+    }
   }
 
   const lines = [`from ${gqlSourceRef("table", args.tableId)}`];
@@ -159,5 +161,10 @@ export const simpleQueryToGqlSource = (args: { tableId: string; query: RecordQue
   if (args.query.limit) lines.push(`limit ${args.query.limit}`);
   return { ok: true, source: lines.join("\n") };
 };
+
+export const simpleQueryToGqlSource = (args: { tableId: string; query: RecordQuery }): ConvertResult => recordQueryToGqlSource(args, false);
+
+export const aggregateQueryToGqlSource = (args: { tableId: string; query: RecordQuery }): ConvertResult =>
+  recordQueryToGqlSource(args, true);
 
 export { filterToGqlWhere };

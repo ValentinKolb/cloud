@@ -231,10 +231,14 @@ export const UpdateBaseSchema = z.object({
 });
 
 // ── Table ─────────────────────────────────────────────────────────────────
+export const TableKindSchema = z.enum(["stored", "federated"]);
+export type TableKind = z.infer<typeof TableKindSchema>;
+
 export const TableSchema = z.object({
   id: z.string().uuid(),
   shortId: ShortIdSchema,
   baseId: z.string().uuid(),
+  kind: TableKindSchema,
   name: z.string(),
   description: z.string().nullable(),
   icon: IconNameSchema,
@@ -251,6 +255,7 @@ export type Table = z.infer<typeof TableSchema>;
 
 export const CreateTableSchema = z.object({
   name: z.string().min(1).max(200),
+  kind: TableKindSchema.optional(),
   description: z.string().max(1000).nullable().optional(),
   icon: IconNameSchema,
   columns: z.array(z.lazy(() => FieldColumnSpecSchema)).optional(),
@@ -266,6 +271,149 @@ export const UpdateTableSchema = z.object({
   auditPolicy: TableAuditPolicySchema.optional(),
   disableDirectInsert: z.boolean().optional(),
 });
+
+// ── Federated table configuration ─────────────────────────────────────────
+export const FederatedRevisionStatusSchema = z.enum(["draft", "active", "degraded", "superseded"]);
+export type FederatedRevisionStatus = z.infer<typeof FederatedRevisionStatusSchema>;
+
+export const FederatedDiagnosticSchema = z.object({
+  code: z.string().min(1).max(100),
+  message: z.string().min(1).max(1000),
+  sourceTableId: z.string().uuid().optional(),
+  targetFieldId: z.string().uuid().optional(),
+  sourceFieldId: z.string().uuid().optional(),
+});
+export type FederatedDiagnostic = z.infer<typeof FederatedDiagnosticSchema>;
+
+export const FederatedSourceSchema = z.object({
+  id: z.string().uuid(),
+  revisionId: z.string().uuid(),
+  sourceTableId: z.string().uuid(),
+  position: z.number().int().nonnegative(),
+  authorizedBy: z.string().uuid().nullable(),
+  authorizedAt: z.string().datetime().nullable(),
+  revokedBy: z.string().uuid().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+});
+export type FederatedSource = z.infer<typeof FederatedSourceSchema>;
+
+export const FederatedFieldMappingSchema = z.object({
+  revisionId: z.string().uuid(),
+  targetFieldId: z.string().uuid(),
+  sourceTableId: z.string().uuid(),
+  sourceFieldId: z.string().uuid(),
+  config: z.record(z.string(), z.unknown()),
+});
+export type FederatedFieldMapping = z.infer<typeof FederatedFieldMappingSchema>;
+
+export const FederatedRevisionSchema = z.object({
+  id: z.string().uuid(),
+  tableId: z.string().uuid(),
+  revision: z.number().int().positive(),
+  status: FederatedRevisionStatusSchema,
+  diagnostics: z.array(FederatedDiagnosticSchema),
+  createdBy: z.string().uuid().nullable(),
+  publishedBy: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  publishedAt: z.string().datetime().nullable(),
+  sources: z.array(FederatedSourceSchema),
+  mappings: z.array(FederatedFieldMappingSchema),
+});
+export type FederatedRevision = z.infer<typeof FederatedRevisionSchema>;
+
+export const FederatedMappingWriteSchema = z.object({
+  targetFieldId: z.string().uuid(),
+  sourceTableId: z.string().uuid(),
+  sourceFieldId: z.string().uuid(),
+  config: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const FederatedDraftInputSchema = z.object({
+  sourceTableIds: z.array(z.string().uuid()).max(50),
+  retainedSourceIds: z.array(z.string().uuid()).max(50).optional(),
+  mappings: z.array(FederatedMappingWriteSchema).max(10_000),
+});
+export type FederatedDraftInput = z.infer<typeof FederatedDraftInputSchema>;
+
+export const UpdateFederatedDraftSchema = FederatedDraftInputSchema.extend({
+  draftToken: z.string().min(1),
+});
+export type UpdateFederatedDraftInput = z.infer<typeof UpdateFederatedDraftSchema>;
+
+export const ValidateFederatedDraftSchema = FederatedDraftInputSchema;
+
+export const FederatedSourceViewSchema = z.object({
+  id: z.string().uuid(),
+  sourceTableId: z.string().uuid().nullable(),
+  position: z.number().int().nonnegative(),
+  authorizedAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+});
+
+export const FederatedFieldMappingViewSchema = FederatedFieldMappingSchema.omit({ revisionId: true });
+
+export const FederatedRevisionViewSchema = FederatedRevisionSchema.omit({ sources: true, mappings: true }).extend({
+  revisionToken: z.string().min(1),
+  sources: z.array(FederatedSourceViewSchema),
+  mappings: z.array(FederatedFieldMappingViewSchema),
+});
+export type FederatedRevisionView = z.infer<typeof FederatedRevisionViewSchema>;
+
+export const FederatedTableConfigSchema = z.object({
+  current: FederatedRevisionViewSchema.nullable(),
+  draft: FederatedRevisionViewSchema,
+});
+export type FederatedTableConfig = z.infer<typeof FederatedTableConfigSchema>;
+
+export const FederatedSourceCandidateSchema = z.object({
+  base: BaseSchema.pick({ id: true, shortId: true, name: true }),
+  table: TableSchema.pick({ id: true, shortId: true, baseId: true, name: true, description: true, icon: true }),
+  fieldCount: z.number().int().nonnegative(),
+});
+export type FederatedSourceCandidate = z.infer<typeof FederatedSourceCandidateSchema>;
+export const FederatedSourceCandidateQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export const FederatedSourceCandidatePageSchema = z.object({
+  items: z.array(FederatedSourceCandidateSchema),
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().min(1),
+  offset: z.number().int().nonnegative(),
+});
+export type FederatedSourceCandidatePage = z.infer<typeof FederatedSourceCandidatePageSchema>;
+
+export const FederatedValidationSchema = z.object({
+  valid: z.boolean(),
+  diagnostics: z.array(FederatedDiagnosticSchema),
+});
+export type FederatedValidation = z.infer<typeof FederatedValidationSchema>;
+
+export const FederatedSourcePublicationSchema = z.object({
+  targetBaseId: z.string().uuid(),
+  targetBaseShortId: ShortIdSchema,
+  targetBaseName: z.string(),
+  targetTableId: z.string().uuid(),
+  targetTableShortId: ShortIdSchema,
+  targetTableName: z.string(),
+  revision: z.number().int().positive(),
+  status: z.enum(["active", "degraded"]),
+  publishedAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+  mappings: z.array(
+    z.object({
+      sourceFieldId: z.string().uuid(),
+      sourceFieldName: z.string(),
+      targetFieldId: z.string().uuid(),
+      targetFieldName: z.string(),
+      targetFieldType: z.string(),
+    }),
+  ),
+});
+export type FederatedSourcePublication = z.infer<typeof FederatedSourcePublicationSchema>;
+export const FederatedSourcePublicationListSchema = z.array(FederatedSourcePublicationSchema);
 
 // ── Field ─────────────────────────────────────────────────────────────────
 export const FieldSchema = z.object({
@@ -773,6 +921,16 @@ const DslQueryPreviewSuccessSchema = z.object({
     z.object({
       recordId: z.string().uuid().optional(),
       tableId: z.string().uuid().optional(),
+      recordMeta: z
+        .object({
+          version: z.number().int(),
+          deletedAt: z.string().datetime().nullable(),
+          createdBy: z.string().uuid().nullable(),
+          updatedBy: z.string().uuid().nullable(),
+          createdAt: z.string().datetime(),
+          updatedAt: z.string().datetime(),
+        })
+        .optional(),
       values: z.record(z.string(), z.unknown()),
     }),
   ),

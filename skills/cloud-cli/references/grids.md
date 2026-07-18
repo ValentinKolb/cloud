@@ -8,6 +8,7 @@ Grids stores structured operational data in bases made of tables, fields, record
 - [Agent workflow](#agent-workflow)
 - [Resolve resources and pass input](#resolve-resources-and-pass-input)
 - [Build schema and records](#build-schema-and-records)
+- [Publish Combined tables](#publish-combined-tables)
 - [Query data with GQL](#query-data-with-gql)
 - [Create views, forms, and dashboards](#create-views-forms-and-dashboards)
 - [Generate documents](#generate-documents)
@@ -18,7 +19,8 @@ Grids stores structured operational data in bases made of tables, fields, record
 ## Core model
 
 - A **base** is the main data and access boundary. `cld grids use <base>` stores a default base for later commands.
-- A **table** owns fields and records. Tables, fields, and most other named resources have a UUID, a short id, and a name.
+- A **table** owns fields and records. A stored table owns writable records; a Combined table publishes a read-only canonical schema over
+  explicitly mapped stored tables. Tables, fields, and most other named resources have a UUID, a short id, and a name.
 - A **field** defines storage, validation, and presentation for one record value. Record write payloads use field UUIDs as keys.
 - A **record** is a versioned row. Relations store target record UUIDs. Computed and system fields are read-only.
 - A **view** is a saved GQL query plus display settings. Views can be shared or personal.
@@ -108,6 +110,8 @@ cld grids tables get Authors --json
 
 Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore`. Table commands are `tables list|get|create|update|delete|restore`.
 
+Pass `--kind stored` for a normal table or `--kind federated` for a user-facing Combined table. Stored is the default.
+
 `bases restore`, `tables restore`, and the other restore commands require the deleted resource UUID rather than a name lookup.
 
 ### Field types
@@ -162,6 +166,9 @@ cld grids records update Authors <record-uuid> \
   --json
 ```
 
+For a Combined table, `records shape` returns no writable fields. Query or export its canonical fields; record creation, imports, forms,
+file uploads, edits, deletes, and restores are unavailable.
+
 Use `--if-version` for optimistic concurrency when updating a previously read record. `records import` accepts an array or `{ "items": [...] }` and creates the batch in one transaction.
 
 Read and transfer records with:
@@ -192,6 +199,139 @@ cld grids snapshots create Assets <record-uuid> --json
 cld grids snapshots list Assets <record-uuid> --json
 ```
 
+## Publish Combined tables
+
+A Combined table exposes one canonical, read-only table over stored source tables from one or more bases. Readers need permission only on
+the Combined target. They do not gain source-base navigation, schema, history, or mutation rights. Queries, saved views, dashboards,
+documents, workflow reads, and exports use the canonical fields through normal Grids behavior.
+
+Publication is fail-closed. Revocation, source deletion, or incompatible schema drift makes the complete published revision unavailable;
+Grids does not return a silently smaller partial union. One Combined table supports at most 50 stored sources and 200 canonical fields.
+Combined tables cannot source other Combined tables.
+
+### Create the target and canonical schema
+
+Create the table with the contract value `federated`, then add the fields readers should query:
+
+```bash
+cld grids tables create Reporting \
+  --name "All inventory" \
+  --kind federated \
+  --json
+
+cld grids fields create Reporting "All inventory" \
+  --name Name \
+  --type text \
+  --json
+```
+
+Use `tables get` to inspect the table itself. Use `tables combined get` to inspect its draft and published revisions.
+
+### Discover and map sources
+
+Candidates include only stored tables whose base the current actor may administer:
+
+```bash
+cld grids tables combined candidates Reporting "All inventory" --json
+```
+
+The friendly JSON body resolves base, table, and field names, short ids, or UUIDs. Select-option mappings run from source option to
+canonical target option.
+
+```json
+{
+  "sources": [
+    {
+      "base": "Warehouse East",
+      "table": "Items",
+      "mappings": [
+        { "target": "Name", "source": "Title" },
+        {
+          "target": "Status",
+          "source": "State",
+          "options": { "In stock": "Available" }
+        }
+      ]
+    }
+  ]
+}
+```
+
+Validate without saving, save the complete replacement draft, inspect it, and publish:
+
+```bash
+cld grids tables combined validate Reporting "All inventory" \
+  --body-file combined.json \
+  --json
+
+cld grids tables combined draft Reporting "All inventory" \
+  --body-file combined.json \
+  --json
+
+cld grids tables combined get Reporting "All inventory" --json
+cld grids tables combined publish Reporting "All inventory" --json
+```
+
+`validate` returns `{ "valid": boolean, "diagnostics": [...] }`. `draft` and `publish` return one permission-shaped revision view;
+`get` returns `{ "current": revision|null, "draft": revision }`. A source entry contains its publication-entry `id`, position, authorization
+time, revocation time, and a nullable `sourceTableId`. The source table id and its mappings are shown only when the actor also administers
+that source base.
+
+When editing as a target admin without access to an existing source, preserve its opaque source-entry id with a raw body:
+
+```json
+{
+  "sourceTableIds": ["<new-or-visible-source-table-uuid>"],
+  "retainedSourceIds": ["<existing-publication-entry-uuid>"],
+  "mappings": [
+    {
+      "targetFieldId": "<canonical-field-uuid>",
+      "sourceTableId": "<visible-source-table-uuid>",
+      "sourceFieldId": "<source-field-uuid>",
+      "config": {}
+    }
+  ]
+}
+```
+
+Publishing always requires admin access to the target base. Source-base admin access is required only for scope that is new, broadened,
+or being restored after revocation. Retaining, narrowing, or removing an existing unrevoked mapping does not reauthorize it. The grant
+persists if the original authorizer later loses their role.
+
+### Read, inspect, revoke, and repair
+
+GQL uses no special Combined syntax:
+
+```gql
+from table "All inventory"
+where Status = 'Available'
+sort Name asc
+```
+
+```bash
+cld grids gql run Reporting --query-file available-inventory.gql --json
+cld grids records export Reporting "All inventory" --format csv --out inventory.csv
+```
+
+A source-base admin can inspect every Combined target and exact mapped scope that publishes one stored table. The target UUID in this
+response is required for revocation:
+
+```bash
+cld grids tables combined publications "Warehouse East" Items --json
+
+cld grids tables combined revoke "Warehouse East" Items \
+  --target-table <combined-table-uuid> \
+  --yes
+```
+
+Revocation immediately makes that target revision unavailable. To repair mappings or drift, update the JSON body, run `validate`, save it
+with `draft`, and run `publish` again. Restoring revoked source scope requires an admin of that source base. Delete the target through the
+normal confirmed table lifecycle:
+
+```bash
+cld grids tables delete Reporting "All inventory" --yes
+```
+
 ## Query data with GQL
 
 GQL is a line-oriented query language compiled and executed by the Grids backend. Read its live grammar before authoring a query:
@@ -203,6 +343,9 @@ cld grids gql skill --out SKILL.md
 ```
 
 `gql context` is permission-safe and base-specific. It contains only schema the current user may discover. Use it together with the downloaded skill when another agent must author GQL.
+
+A visible Combined table uses the same `from table ...` syntax as a stored table. Its canonical fields are the complete exposed schema;
+do not infer physical source tables, fields, or permissions from the downloaded context.
 
 ```gql
 from table Authors
@@ -455,6 +598,7 @@ list, use, current
 bases list|get|create|update|delete|restore
 access reference|list|grant|set|revoke|search-principals
 tables list|get|create|update|delete|restore
+tables combined get|candidates|publications|validate|draft|publish|revoke
 fields types|type|list|get|create|update|delete|restore|dependents|reorder
 records shape|list|query|get|create|import|export|update|delete|restore|audit
 records files list|upload|download|delete

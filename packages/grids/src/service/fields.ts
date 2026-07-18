@@ -4,6 +4,8 @@ import { sql } from "bun";
 import { isKnownFieldType } from "../field-types";
 import { normalizeRefKey } from "../ref-syntax";
 import { logAudit, type SqlClient } from "./audit";
+import { buildFormulaSqlProjections } from "./computed-projections";
+import { degradeForTableSchemaChange, lockFederatedSchemaTables, refreshForTableSchemaChange } from "./federated-tables";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import {
   dropFieldIndex,
@@ -14,7 +16,7 @@ import {
   findUniqueConflicts,
   isUniqueable,
 } from "./field-indexes";
-import { get, mapFieldRow } from "./field-read";
+import { get, listByTable, mapFieldRow } from "./field-read";
 import { cleanupPreparedUniqueIndex } from "./field-unique-index-lifecycle";
 import { materializeFieldDefault, validateDefaultValue, validateFieldConfig, validateLinkOrComputedConfig } from "./field-validation";
 import { emitTableMetadataEvent } from "./metadata-events";
@@ -72,12 +74,31 @@ const ensureUniqueFieldName = async (tableId: string, name: string, exceptFieldI
   return (row?.count ?? 0) === 0 ? ok() : fail(err.conflict("field name must be unique within this table"));
 };
 
+const validateCombinedCanonicalField = async (tableKind: string, candidate: Field): Promise<Result<void>> => {
+  if (tableKind !== "federated") return ok();
+  if (candidate.type === "lookup" || candidate.type === "rollup") {
+    return fail(err.badInput(`Combined tables do not support canonical ${candidate.type} fields; use a SQL-stable formula instead`));
+  }
+  if (candidate.type !== "formula") return ok();
+  const fields = await listByTable(candidate.tableId);
+  const prospective = [...fields.filter((field) => field.id !== candidate.id), candidate];
+  const compiled = buildFormulaSqlProjections(prospective).some((projection) => projection.fieldId === candidate.id);
+  return compiled ? ok() : fail(err.badInput("Combined-table formulas must compile completely to SQL"));
+};
+
 export const create = async (input: CreateFieldInput, actorId: string | null): Promise<Result<Field>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
   if (!isKnownFieldType(input.type)) return fail(err.badInput(`unknown field type "${input.type}"`));
   const uniqueName = await ensureUniqueFieldName(input.tableId, name);
   if (!uniqueName.ok) return uniqueName;
+  const [parentTable] = await sql<{ kind: string }[]>`
+    SELECT kind FROM grids.tables WHERE id = ${input.tableId}::uuid AND deleted_at IS NULL
+  `;
+  if (!parentTable) return fail(err.notFound("Table"));
+  if (parentTable.kind === "federated" && (input.required || input.defaultValue !== undefined || input.indexed || input.uniqueConstraint)) {
+    return fail(err.badInput("Combined-table fields cannot define write constraints, defaults, or storage indexes"));
+  }
 
   const rawConfig = input.config ?? {};
   const cfgValidation = validateFieldConfig(input.type, rawConfig);
@@ -100,8 +121,30 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   // jsonb. JSON.stringify on the wrapper produces a valid JSONB literal
   // for primitives (`true`, `42`, `"hello"`) and keeps objects working.
   const defaultValueJsonb = defaultValue === undefined || defaultValue === null ? null : JSON.stringify(defaultValue);
-  const uniqueConstraint = input.type === "id" ? true : (input.uniqueConstraint ?? false);
+  const uniqueConstraint = parentTable.kind === "federated" ? false : input.type === "id" ? true : (input.uniqueConstraint ?? false);
   const fieldId = Bun.randomUUIDv7();
+  const now = new Date().toISOString();
+  const canonicalValidation = await validateCombinedCanonicalField(parentTable.kind, {
+    id: fieldId,
+    shortId: "pending",
+    tableId: input.tableId,
+    name,
+    description,
+    icon,
+    type: input.type,
+    config,
+    position: input.position ?? 0,
+    required: input.required ?? false,
+    presentable: input.presentable ?? false,
+    hideInTable: input.hideInTable ?? false,
+    defaultValue: defaultValue ?? null,
+    indexed: input.indexed ?? false,
+    uniqueConstraint,
+    deletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!canonicalValidation.ok) return canonicalValidation;
 
   let uniqueIndexPrepared = false;
   if (uniqueConstraint && isUniqueable(input.type)) {
@@ -117,6 +160,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   let inserted: Result<Field>;
   try {
     inserted = await sql.begin(async (tx): Promise<Result<Field>> => {
+      if (parentTable.kind === "federated") await degradeForTableSchemaChange(input.tableId, actorId, tx);
       const created = await writeNamedResource(
         () =>
           insertWithShortId<DbRow>(
@@ -199,10 +243,11 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     resource: { kind: "field", id: field.id, tableId: input.tableId },
     actorId,
   });
+  if (parentTable.kind === "federated") await refreshForTableSchemaChange(input.tableId, actorId);
   return ok(field);
 };
 
-const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput): Promise<Result<FieldUpdateState>> => {
+const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput, tableKind: string): Promise<Result<FieldUpdateState>> => {
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
 
@@ -217,7 +262,7 @@ const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput): Pr
   const linkValidation = await validateLinkOrComputedConfig(existing.type, config as Record<string, unknown>, existing.tableId);
   if (!linkValidation.ok) return linkValidation;
 
-  const rawDefaultValue = input.defaultValue !== undefined ? input.defaultValue : existing.defaultValue;
+  const rawDefaultValue = tableKind === "federated" ? null : input.defaultValue !== undefined ? input.defaultValue : existing.defaultValue;
   const defaultValid = validateDefaultValue(existing.type, config as Record<string, unknown>, rawDefaultValue);
   if (!defaultValid.ok) return defaultValid;
 
@@ -228,12 +273,13 @@ const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput): Pr
     icon: updatedNullableText(input.icon, existing.icon ?? null),
     config,
     position: input.position ?? existing.position,
-    required: input.required ?? existing.required,
+    required: tableKind === "federated" ? false : (input.required ?? existing.required),
     presentable: input.presentable ?? existing.presentable,
     hideInTable: input.hideInTable ?? existing.hideInTable,
     defaultValue: defaultValid.data,
-    indexed: input.indexed ?? existing.indexed,
-    uniqueConstraint: existing.type === "id" ? true : (input.uniqueConstraint ?? existing.uniqueConstraint),
+    indexed: tableKind === "federated" ? false : (input.indexed ?? existing.indexed),
+    uniqueConstraint:
+      tableKind === "federated" ? false : existing.type === "id" ? true : (input.uniqueConstraint ?? existing.uniqueConstraint),
   });
 };
 
@@ -363,8 +409,28 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   const existing = await get(id);
   if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
 
-  const nextResult = await validateFieldUpdate(existing, input);
+  const [parentTable] = await sql<{ kind: string }[]>`
+    SELECT kind FROM grids.tables WHERE id = ${existing.tableId}::uuid AND deleted_at IS NULL
+  `;
+  if (!parentTable) return fail(err.notFound("Table"));
+  if (
+    parentTable.kind === "federated" &&
+    (input.required === true ||
+      (input.defaultValue !== undefined && input.defaultValue !== null) ||
+      input.indexed === true ||
+      input.uniqueConstraint === true)
+  ) {
+    return fail(err.badInput("Combined-table fields cannot define write constraints, defaults, or storage indexes"));
+  }
+
+  const nextResult = await validateFieldUpdate(existing, input, parentTable.kind);
   if (!nextResult.ok) return nextResult;
+  const canonicalValidation = await validateCombinedCanonicalField(parentTable.kind, {
+    ...existing,
+    ...nextResult.data,
+    defaultValue: nextResult.data.defaultValue ?? null,
+  });
+  if (!canonicalValidation.ok) return canonicalValidation;
   const uniqueName = await ensureUniqueFieldName(existing.tableId, nextResult.data.name, existing.id);
   if (!uniqueName.ok) return uniqueName;
 
@@ -385,6 +451,7 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   try {
     txResult = await sql
       .begin(async (tx): Promise<Result<Field>> => {
+        await degradeForTableSchemaChange(existing.tableId, actorId, tx);
         const fieldResult = await persistFieldUpdate(id, nextResult.data, tx);
         if (!fieldResult.ok) throw fieldResult;
         const field = fieldResult.data;
@@ -429,6 +496,7 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
     resource: { kind: "field", id: synchronizedField.data.id, tableId: existing.tableId },
     actorId,
   });
+  await refreshForTableSchemaChange(existing.tableId, actorId);
   return synchronizedField;
 };
 
@@ -442,6 +510,11 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
 export const reorder = async (tableId: string, fieldIds: string[], actorId: string | null): Promise<Result<void>> => {
   if (fieldIds.length === 0) return ok();
 
+  const [parentTable] = await sql<{ kind: string }[]>`
+    SELECT kind FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
+  `;
+  if (!parentTable) return fail(err.notFound("Table"));
+
   // Filter to ids that actually belong to this table — protects against
   // the client passing an id from another (e.g. recently-renamed) table.
   const owned = await sql<{ id: string }[]>`
@@ -452,27 +525,35 @@ export const reorder = async (tableId: string, fieldIds: string[], actorId: stri
   const validOrdered = fieldIds.filter((id) => ownedIds.has(id));
   if (validOrdered.length === 0) return ok();
 
-  // Single-statement reorder via VALUES (id, position).
+  // Single-statement reorder via VALUES (id, position). Combined-table field
+  // order is part of the canonical schema, so invalidate its active revision
+  // in the same transaction before publishing the new order.
   const positions = `{${validOrdered.map((_, i) => i).join(",")}}`;
   const ids = toPgUuidArray(validOrdered);
-  await sql`
-    UPDATE grids.fields AS f
-    SET position = u.position, updated_at = now()
-    FROM unnest(${ids}::uuid[], ${positions}::int[]) AS u(id, position)
-    WHERE f.id = u.id AND f.table_id = ${tableId}::uuid
-  `;
-
-  await logAudit({
-    tableId,
-    userId: actorId,
-    action: "updated",
-    diff: { fieldOrder: { old: null, new: validOrdered } },
+  await sql.begin(async (tx) => {
+    if (parentTable.kind === "federated") await degradeForTableSchemaChange(tableId, actorId, tx);
+    await tx`
+      UPDATE grids.fields AS f
+      SET position = u.position, updated_at = now()
+      FROM unnest(${ids}::uuid[], ${positions}::int[]) AS u(id, position)
+      WHERE f.id = u.id AND f.table_id = ${tableId}::uuid
+    `;
+    await logAudit(
+      {
+        tableId,
+        userId: actorId,
+        action: "updated",
+        diff: { fieldOrder: { old: null, new: validOrdered } },
+      },
+      tx,
+    );
   });
   await emitTableMetadataEvent(tableId, {
     type: "field.reordered",
     resource: { kind: "field", id: tableId, tableId },
     actorId,
   });
+  if (parentTable.kind === "federated") await refreshForTableSchemaChange(tableId, actorId);
 
   return ok();
 };
@@ -492,6 +573,12 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const existing = await get(id);
   if (!existing) return fail(err.notFound("Field"));
   if (existing.deletedAt === null) return ok(existing);
+  const [parentTable] = await sql<{ kind: string }[]>`
+    SELECT kind FROM grids.tables WHERE id = ${existing.tableId}::uuid AND deleted_at IS NULL
+  `;
+  if (!parentTable) return fail(err.notFound("Table"));
+  const canonicalValidation = await validateCombinedCanonicalField(parentTable.kind, { ...existing, deletedAt: null });
+  if (!canonicalValidation.ok) return canonicalValidation;
   const restoreUniqueIndex = existing.uniqueConstraint && isUniqueable(existing.type);
   if (restoreUniqueIndex) {
     try {
@@ -506,6 +593,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   let restored: Result<Field>;
   try {
     restored = await sql.begin(async (tx): Promise<Result<Field>> => {
+      await degradeForTableSchemaChange(existing.tableId, actorId, tx);
       const result = await writeNamedResource(
         () =>
           tx.savepoint(async (sp) => {
@@ -539,6 +627,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   });
   // Re-create the expression index if the field was indexed.
   if (existing.indexed) void ensureFieldIndex(id, existing.type, existing.tableId, existing.config);
+  await refreshForTableSchemaChange(existing.tableId, actorId);
   return ok({ ...existing, deletedAt: null });
 };
 
@@ -547,22 +636,27 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
 
   const deleted = await sql.begin(async (tx): Promise<Result<void>> => {
+    // Keep the same lock order as Combined-table publication: schema lock,
+    // then table/revision rows. This prevents publish/delete deadlocks and
+    // makes the dependent scan stable for the complete mutation.
+    await lockFederatedSchemaTables([existing.tableId], tx);
     // Serialize policy edits and field deletion through the parent table.
     // This keeps selected-field audit requirements valid under concurrent
     // admin requests.
-    const [table] = await tx<{ id: string }[]>`
-      SELECT id::text AS id
+    const [table] = await tx<{ id: string; kind: string }[]>`
+      SELECT id::text AS id, kind
       FROM grids.tables
       WHERE id = ${existing.tableId}::uuid AND deleted_at IS NULL
       FOR UPDATE
     `;
     if (!table) return fail(err.notFound("Table"));
 
-    const blockers = (await getFieldDependents(id)).filter((dependent) => dependent.blocking);
+    const blockers = (await getFieldDependents(id, tx)).filter((dependent) => dependent.blocking);
     if (hasBlockingDependents(blockers)) {
       return fail(err.conflict(`Field is still used by ${blockers.map((dependent) => dependent.resourceName).join(", ")}`));
     }
 
+    await degradeForTableSchemaChange(existing.tableId, actorId, tx);
     const [deleted] = await tx<DbRow[]>`
       UPDATE grids.fields SET deleted_at = now(), updated_at = now()
       WHERE id = ${id}::uuid AND deleted_at IS NULL
@@ -603,6 +697,7 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
     resource: { kind: "field", id, tableId: existing.tableId },
     actorId,
   });
+  await refreshForTableSchemaChange(existing.tableId, actorId);
   return ok();
 };
 

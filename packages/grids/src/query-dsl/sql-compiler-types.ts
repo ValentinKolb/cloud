@@ -13,6 +13,12 @@ export type DslSqlOutputColumn = {
 
 export type DslSqlCompileOptions = {
   fieldsByTableId: Record<string, Field[]>;
+  /** Physical row source for the base table. Stored tables omit this and keep
+   * the direct grids.records fast path. Combined tables provide one guarded,
+   * canonical SQL relation with the same record shape. */
+  recordSource?: DslSqlRecordSource;
+  /** Federated row sources for joined target tables, keyed by canonical table id. */
+  recordSourcesByTableId?: Map<string, DslSqlRecordSource>;
   timeZone?: string;
   limit?: number;
   offset?: number;
@@ -28,6 +34,16 @@ export type DslSqlCompileOptions = {
   computedFieldSqlByJoinAlias?: Map<string, Map<string, FormulaSqlExpression>>;
   /** Pre-compiled search predicate for the saved view used as source. */
   viewSourceSearchClause?: unknown;
+};
+
+export type DslSqlRecordSource = {
+  kind: "federated";
+  relation: unknown;
+  revision: number;
+  revisionId: string;
+  revisionToken: string;
+  sourceTableIds: string[];
+  relationMappings: Array<{ targetFieldId: string; sourceTableId: string; sourceFieldId: string }>;
 };
 
 export type DslSqlCompiledQuery = {

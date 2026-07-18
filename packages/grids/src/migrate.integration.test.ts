@@ -42,7 +42,7 @@ describe("grids schema migration", () => {
           FROM information_schema.tables
           WHERE table_schema = 'grids'
         `;
-        expect(row?.tableCount).toBe(33);
+        expect(row?.tableCount).toBe(36);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -99,6 +99,84 @@ describe("grids schema migration", () => {
         expect(created?.revision).toBe(1);
         expect(updated?.revision).toBe(2);
         expect(constraint?.count).toBe(1);
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "enforces combined table revision, source, mapping, and read-only invariants",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrate(database);
+        const baseId = uuid();
+        const storedTableId = uuid();
+        const combinedTableId = uuid();
+        const storedFieldId = uuid();
+        const combinedFieldId = uuid();
+        const revisionId = uuid();
+        await database`
+          INSERT INTO grids.bases (id, short_id, name)
+          VALUES (${baseId}::uuid, ${shortId("B")}, 'Combined schema invariants')
+        `;
+        await database`
+          INSERT INTO grids.tables (id, short_id, base_id, kind, name, disable_direct_insert)
+          VALUES
+            (${storedTableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'stored', 'Stored', FALSE),
+            (${combinedTableId}::uuid, ${shortId("C")}, ${baseId}::uuid, 'federated', 'Combined', TRUE)
+        `;
+        await database`
+          INSERT INTO grids.fields (id, short_id, table_id, name, type)
+          VALUES
+            (${storedFieldId}::uuid, ${shortId("F")}, ${storedTableId}::uuid, 'Stored field', 'text'),
+            (${combinedFieldId}::uuid, ${shortId("F")}, ${combinedTableId}::uuid, 'Canonical field', 'text')
+        `;
+        await database`
+          INSERT INTO grids.federated_table_revisions (id, table_id, revision, status)
+          VALUES (${revisionId}::uuid, ${combinedTableId}::uuid, 1, 'draft')
+        `;
+        await database`
+          INSERT INTO grids.federated_table_sources (revision_id, source_table_id)
+          VALUES (${revisionId}::uuid, ${storedTableId}::uuid)
+        `;
+        await database`
+          INSERT INTO grids.federated_field_mappings (revision_id, target_field_id, source_table_id, source_field_id)
+          VALUES (${revisionId}::uuid, ${combinedFieldId}::uuid, ${storedTableId}::uuid, ${storedFieldId}::uuid)
+        `;
+
+        await expect(
+          (async () => {
+            await database`
+            INSERT INTO grids.federated_table_revisions (table_id, revision)
+            VALUES (${storedTableId}::uuid, 1)
+            `;
+          })(),
+        ).rejects.toThrow("revision target must be a combined table");
+        await expect(
+          (async () => {
+            await database`
+            INSERT INTO grids.federated_table_sources (revision_id, source_table_id)
+            VALUES (${revisionId}::uuid, ${combinedTableId}::uuid)
+            `;
+          })(),
+        ).rejects.toThrow("source must be a distinct stored table");
+        await expect(
+          (async () => {
+            await database`
+            INSERT INTO grids.federated_field_mappings (revision_id, target_field_id, source_table_id, source_field_id)
+            VALUES (${revisionId}::uuid, ${storedFieldId}::uuid, ${storedTableId}::uuid, ${storedFieldId}::uuid)
+            `;
+          })(),
+        ).rejects.toThrow("mapping fields must belong to their declared tables");
+        await expect(
+          (async () => {
+            await database`
+            UPDATE grids.tables
+            SET disable_direct_insert = FALSE
+            WHERE id = ${combinedTableId}::uuid
+            `;
+          })(),
+        ).rejects.toThrow("tables_federated_read_only_chk");
       });
     },
     30_000,

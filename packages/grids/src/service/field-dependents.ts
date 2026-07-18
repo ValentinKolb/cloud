@@ -2,10 +2,11 @@ import { sql } from "bun";
 import { TableAuditPolicySchema } from "../contracts";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { normalizeRefKey } from "../ref-syntax";
+import type { SqlClient } from "./audit";
 
 export type FieldDependent = {
   /** Kind of resource that references the field. */
-  type: "view" | "form" | "formula" | "lookup" | "rollup" | "relation_display" | "audit_policy";
+  type: "view" | "form" | "formula" | "lookup" | "rollup" | "relation_display" | "audit_policy" | "federation_mapping";
   /** ID of the dependent resource. */
   resourceId: string;
   /** Human label for error messages. */
@@ -70,14 +71,14 @@ export const findFieldRefContexts = (config: Record<string, unknown>, fieldId: s
  * Formula references are extracted through the formula parser so both
  * UUID and named references follow the language's actual syntax.
  */
-export const getFieldDependents = async (fieldId: string): Promise<FieldDependent[]> => {
+export const getFieldDependents = async (fieldId: string, client: SqlClient = sql): Promise<FieldDependent[]> => {
   const dependents: FieldDependent[] = [];
 
   // Fetch the source field once so we know its table + base scope. We
   // also need the table's other fields' slug→id map to resolve `#slug`
   // formula refs, and the other tables in the same base for the cross-
   // table relation/lookup/rollup scan.
-  const [sourceRow] = await sql<DbRow[]>`
+  const [sourceRow] = await client<DbRow[]>`
     SELECT f.id::text AS id, f.table_id::text AS table_id, t.base_id::text AS base_id
     FROM grids.fields f
     JOIN grids.tables t ON t.id = f.table_id
@@ -91,7 +92,7 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   // Views store GQL in source and presentation in ui. Both can contain
   // stable field ids, but dependents stay non-blocking because a deleted
   // field should surface as a compile-time view error, not prevent deletion.
-  const viewRows = await sql<DbRow[]>`
+  const viewRows = await client<DbRow[]>`
     SELECT v.id, v.name, v.source, v.ui
     FROM grids.views v
     WHERE v.table_id = ${sourceTableId}::uuid AND v.deleted_at IS NULL
@@ -113,7 +114,7 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   // ── forms ─────────────────────────────────────────────
   // Forms persist field IDs inside their config.fields[]. Keep the scan
   // here so deleting a field auto-cleans form references (UI promises it).
-  const formRows = await sql<DbRow[]>`
+  const formRows = await client<DbRow[]>`
     SELECT fo.id, fo.name, fo.config
     FROM grids.forms fo
     WHERE fo.table_id = ${sourceTableId}::uuid AND fo.deleted_at IS NULL
@@ -136,7 +137,7 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   // Selected-field update requirements are compliance configuration,
   // not presentation metadata. Silently dropping them would weaken the
   // policy, so the user must update the policy before deleting the field.
-  const [tableRow] = await sql<{ name: string; audit_policy: unknown }[]>`
+  const [tableRow] = await client<{ name: string; audit_policy: unknown }[]>`
     SELECT name, audit_policy
     FROM grids.tables
     WHERE id = ${sourceTableId}::uuid AND deleted_at IS NULL
@@ -157,6 +158,29 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
     });
   }
 
+  // ── combined-table mappings ───────────────────────────────────
+  // Mapping identity is explicit and versioned. Removing either side of a
+  // mapping would otherwise make a published revision silently change shape.
+  const federationRows = await client<{ table_id: string; table_name: string; context: string }[]>`
+    SELECT DISTINCT target.id::text AS table_id, target.name AS table_name,
+      CASE WHEN mapping.target_field_id = ${fieldId}::uuid THEN 'canonical field' ELSE 'source field' END AS context
+    FROM grids.federated_field_mappings mapping
+    JOIN grids.federated_table_revisions revision ON revision.id = mapping.revision_id
+    JOIN grids.tables target ON target.id = revision.table_id
+    WHERE (mapping.target_field_id = ${fieldId}::uuid OR mapping.source_field_id = ${fieldId}::uuid)
+      AND revision.status IN ('draft', 'active', 'degraded')
+      AND target.deleted_at IS NULL
+  `;
+  for (const row of federationRows) {
+    dependents.push({
+      type: "federation_mapping",
+      resourceId: row.table_id,
+      resourceName: `${row.table_name} combined-table mapping`,
+      context: row.context,
+      blocking: true,
+    });
+  }
+
   // ── computed / link field configs across the whole base ──────
   // A lookup or rollup can reach this field through a relation from
   // another table, so same-table scanning is insufficient.
@@ -164,7 +188,7 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   // every projection has to be qualified — without aliases Postgres
   // raises 42702 "column reference 'id' is ambiguous". Aliasing both
   // tables also keeps the WHERE legible.
-  const candidateFields = await sql<DbRow[]>`
+  const candidateFields = await client<DbRow[]>`
     SELECT f.id, f.name, f.type, f.table_id::text AS table_id, f.config
     FROM grids.fields f
     JOIN grids.tables t ON t.id = f.table_id
@@ -182,7 +206,7 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   const ensureSlugMap = async (tableId: string): Promise<Record<string, string>> => {
     let map = slugMapsByTable.get(tableId);
     if (map) return map;
-    const rows = await sql<{ id: string; short_id: string; name: string }[]>`
+    const rows = await client<{ id: string; short_id: string; name: string }[]>`
       SELECT id::text AS id, short_id, name
       FROM grids.fields
       WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL AND short_id IS NOT NULL

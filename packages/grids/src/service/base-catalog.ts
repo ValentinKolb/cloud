@@ -61,6 +61,7 @@ const mapTable = (row: DbRow): Table => ({
   id: row.id as string,
   shortId: row.short_id as string,
   baseId: row.base_id as string,
+  kind: row.kind === "federated" ? "federated" : "stored",
   name: row.name as string,
   description: (row.description as string | null) ?? null,
   icon: (row.icon as string | null) ?? null,

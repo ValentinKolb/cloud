@@ -4,6 +4,7 @@ import { sql } from "bun";
 import { DocumentProfileSchema } from "../contracts";
 import { grantAccess } from "./access";
 import { logAudit } from "./audit";
+import { degradeForSourceBaseChange, refreshForSourceBase } from "./federated-tables";
 import { parseJsonbRow } from "./jsonb";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
@@ -303,18 +304,24 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
  * lifecycle.
  */
 export const remove = async (id: string, actorId: string | null): Promise<Result<void>> => {
-  const result = await sql`
-    UPDATE grids.bases SET deleted_at = now()
-    WHERE id = ${id}::uuid AND deleted_at IS NULL
-  `;
-  if (result.count === 0) return fail(err.notFound("base"));
-  await logAudit({ baseId: id, userId: actorId, action: "deleted" });
+  const removed = await sql.begin(async (tx): Promise<Result<void>> => {
+    await degradeForSourceBaseChange(id, actorId, tx);
+    const result = await tx`
+      UPDATE grids.bases SET deleted_at = now()
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+    `;
+    if (result.count === 0) return fail(err.notFound("base"));
+    await logAudit({ baseId: id, userId: actorId, action: "deleted" }, tx);
+    return ok();
+  });
+  if (!removed.ok) return removed;
   await emitMetadataEvent({
     type: "base.deleted",
     baseId: id,
     resource: { kind: "base", id },
     actorId,
   });
+  await refreshForSourceBase(id, actorId);
   return ok();
 };
 
@@ -325,20 +332,27 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
  * accident; the table I trashed last week is unrelated".
  */
 export const restore = async (id: string, actorId: string | null): Promise<Result<Base>> => {
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.bases SET deleted_at = NULL, updated_at = now()
-    WHERE id = ${id}::uuid AND deleted_at IS NOT NULL
-    RETURNING ${COLS}
-  `;
-  if (!row) return fail(err.notFound("base"));
+  const restored = await sql.begin(async (tx): Promise<Result<DbRow>> => {
+    await degradeForSourceBaseChange(id, actorId, tx);
+    const [row] = await tx<DbRow[]>`
+      UPDATE grids.bases SET deleted_at = NULL, updated_at = now()
+      WHERE id = ${id}::uuid AND deleted_at IS NOT NULL
+      RETURNING ${COLS}
+    `;
+    if (!row) return fail(err.notFound("base"));
+    await logAudit({ baseId: id, userId: actorId, action: "restored" }, tx);
+    return ok(row);
+  });
+  if (!restored.ok) return restored;
+  const row = restored.data;
   const base = mapRow(row);
-  await logAudit({ baseId: id, userId: actorId, action: "restored" });
   await emitMetadataEvent({
     type: "base.restored",
     baseId: id,
     resource: { kind: "base", id },
     actorId,
   });
+  await refreshForSourceBase(id, actorId);
   return ok(base);
 };
 

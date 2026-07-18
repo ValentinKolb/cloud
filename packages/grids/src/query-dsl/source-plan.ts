@@ -1,4 +1,5 @@
 import { normalizeRefKey } from "../ref-syntax";
+import type { Field } from "../service/types";
 import type { DslResolvedSqlQueryPlan, DslTableSource, DslViewSource } from "./resolver";
 import type { DslQueryAst, DslSourceRef } from "./types";
 
@@ -53,5 +54,17 @@ export const collectDslPlanExtraFieldTableIds = (plan: DslResolvedSqlQueryPlan):
     }
   }
 
+  return [...tableIds];
+};
+
+/** Returns every table read by the primary SQL plan. Relation label and search
+ * dependencies are loaded separately once the resolver has identified them. */
+export const collectDslPlanTableIds = (plan: DslResolvedSqlQueryPlan, _fieldsByTableId: Record<string, Field[]>): string[] => {
+  const tableIds = new Set<string>([
+    plan.tableId,
+    ...(plan.joins ?? []).flatMap((join) => [join.fromTableId, join.tableId]),
+    ...(plan.derivedViewSource?.joins ?? []).map((join) => join.tableId),
+    ...(plan.derivedViewSource?.relationJoins ?? []).flatMap((join) => [join.fromTableId, join.tableId]),
+  ]);
   return [...tableIds];
 };

@@ -229,7 +229,7 @@ const buildRecordsRoute = async (params: {
     formsForTable: gridsService.permission.hasAtLeast(view.activeTableLevel, "read")
       ? (common.catalog.formsByTable[activeTable.id] ?? [])
       : [],
-    canWriteRecords: gridsService.permission.hasAtLeast(view.activeTableLevel, "write"),
+    canWriteRecords: activeTable.kind === "stored" && gridsService.permission.hasAtLeast(view.activeTableLevel, "write"),
     canManageActiveTable: canManageTable,
     activeTableAccessEntries: gridsService.permission.hasAtLeast(view.activeTableLevel, "admin")
       ? await gridsService.access.listForTable(activeTable.id)

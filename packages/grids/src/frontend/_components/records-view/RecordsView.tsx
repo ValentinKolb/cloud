@@ -67,6 +67,7 @@ type Props = {
   baseId: string;
   /** UUID of the active table — for API calls (POST /api/grids/.../by-table/<uuid>). */
   tableId: string;
+  tableKind: "stored" | "federated";
   /** Human table name for record-write dialog context. */
   tableName: string;
   tableDescription: string | null;
@@ -92,6 +93,7 @@ type Props = {
   forms: Form[];
   canWrite: boolean;
   canManageTable: boolean;
+  canManageBase: boolean;
   trashMode: boolean;
   initialAdminMode: boolean;
   initialAccessEntries: AccessEntry[];
@@ -723,6 +725,7 @@ export default function RecordsView(props: Props) {
     baseId: props.baseId,
     baseShortId: props.baseShortId,
     tableId: props.tableId,
+    tableKind: props.tableKind,
     tableShortId: props.tableShortId,
     tableName,
     setTableName,
@@ -750,6 +753,7 @@ export default function RecordsView(props: Props) {
     activeViewAccessEntries: props.activeViewAccessEntries,
     canEditActiveView: props.canEditActiveView,
     canManageTable: props.canManageTable,
+    canManageBase: props.canManageBase,
     dateConfig: props.dateConfig,
     refetch: () => void refetch(),
     setViewDisplayConfig,
@@ -947,6 +951,7 @@ export default function RecordsView(props: Props) {
                 activeViewAvailable={!!props.activeView}
                 canEditActiveView={!!props.canEditActiveView}
                 hiddenViewColumnCount={hiddenViewColumnCount()}
+                allowForms={props.tableKind === "stored"}
                 formsButtonLabel={formsButtonLabel()}
                 onOpenTableSettings={openTableSettings}
                 onAddField={() => void openAddField()}

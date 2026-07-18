@@ -13,7 +13,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { FieldColumnSpec } from "../../../contracts";
+import type { FieldColumnSpec, TableKind } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field } from "../../../service";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
@@ -43,6 +43,7 @@ const UNIQUE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "da
 
 type OpenFieldEditArgs = {
   field: Field;
+  tableKind: TableKind;
   baseShortId?: string;
   tableShortId?: string;
   otherTables: Array<{ id: string; name: string }>;
@@ -67,6 +68,7 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
       <PanelDialog.Header title={`Edit field — ${props.args.field.name}`} icon="ti ti-pencil" close={closeIfClean} />
       <FieldEditor
         field={props.args.field}
+        tableKind={props.args.tableKind}
         baseShortId={props.args.baseShortId}
         tableShortId={props.args.tableShortId}
         otherTables={props.args.otherTables}
@@ -96,6 +98,7 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
 
 function FieldEditor(props: {
   field: Field;
+  tableKind: TableKind;
   baseShortId?: string;
   tableShortId?: string;
   otherTables: Array<{ id: string; name: string }>;
@@ -135,12 +138,13 @@ function FieldEditor(props: {
   const [columnLabel, setColumnLabel] = createSignal(initialColumn()?.label ?? "");
   let formatControls: ColumnFormatControlsHandle | undefined;
   const [dirty, setDirty] = createSignal(false);
-  const supportsRequired = () => RECORD_INPUT_FIELD_TYPES.has(props.field.type);
-  const supportsDefaultValue = () => RECORD_INPUT_FIELD_TYPES.has(props.field.type);
+  const isCombined = () => props.tableKind === "federated";
+  const supportsRequired = () => !isCombined() && RECORD_INPUT_FIELD_TYPES.has(props.field.type);
+  const supportsDefaultValue = () => !isCombined() && RECORD_INPUT_FIELD_TYPES.has(props.field.type);
   const supportsPresentable = () => PRESENTABLE_TYPES.has(props.field.type);
-  const supportsIndexed = () => INDEXABLE_TYPES.has(props.field.type);
-  const supportsUnique = () => UNIQUE_TYPES.has(props.field.type);
-  const forceUnique = () => props.field.type === "id";
+  const supportsIndexed = () => !isCombined() && INDEXABLE_TYPES.has(props.field.type);
+  const supportsUnique = () => !isCombined() && UNIQUE_TYPES.has(props.field.type);
+  const forceUnique = () => !isCombined() && props.field.type === "id";
 
   // Touch-tracker — any field-level edit flips the dirty bit.
   const wrap =

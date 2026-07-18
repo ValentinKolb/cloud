@@ -34,6 +34,7 @@ const table = {
   id: tableId,
   shortId: "TBL01",
   baseId,
+  kind: "stored" as const,
   name: "Hidden table",
   description: null,
   icon: null,

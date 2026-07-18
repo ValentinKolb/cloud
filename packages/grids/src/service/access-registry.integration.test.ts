@@ -13,6 +13,7 @@ import {
   listTableAccess,
   listViewAccess,
   listWorkflowAccess,
+  lockBaseAuthorization,
   resolveAccessBinding,
   resolveResourceBinding,
 } from "./access";
@@ -89,6 +90,55 @@ beforeAll(async () => {
 });
 
 describe("access resource registry integration", () => {
+  postgresTest("rechecks base administration after a concurrent revocation", async () => {
+    const item = fixture();
+    const [user] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
+    if (!user) throw new Error("Access registry integration test needs one auth user");
+    const [adminAccess] = await sql<Array<{ id: string }>>`
+      INSERT INTO auth.access (user_id, permission)
+      VALUES (${user.id}::uuid, 'admin')
+      RETURNING id::text
+    `;
+    if (!adminAccess) throw new Error("Failed to create admin access fixture");
+    let releaseRevocation = () => {};
+    let revocationLocked = () => {};
+    const waitForRelease = new Promise<void>((resolve) => {
+      releaseRevocation = resolve;
+    });
+    const waitForLock = new Promise<void>((resolve) => {
+      revocationLocked = resolve;
+    });
+    try {
+      await insertFixture(item);
+      await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${item.baseId}::uuid, ${adminAccess.id}::uuid)`;
+      const revocation = sql.begin(async (tx) => {
+        await lockBaseAuthorization([item.baseId], tx);
+        await tx`DELETE FROM auth.access WHERE id = ${adminAccess.id}::uuid`;
+        revocationLocked();
+        await waitForRelease;
+      });
+      await waitForLock;
+      const grant = grantAccess({
+        resourceType: "table",
+        resourceId: item.tableId,
+        principal: { type: "public" },
+        permission: "read",
+        actorId: user.id,
+        authorization: { subject: { type: "user", userId: user.id }, permissionCap: "admin" },
+      });
+      await Bun.sleep(20);
+      releaseRevocation();
+      await revocation;
+      const result = await grant;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.status).toBe(403);
+      expect(await listTableAccess(item.tableId)).toHaveLength(0);
+    } finally {
+      releaseRevocation();
+      await cleanup(item, [adminAccess.id]);
+    }
+  });
+
   postgresTest("grants, lists, resolves, and base-tree projects every registered resource", async () => {
     const item = fixture();
     const accessIds: string[] = [];

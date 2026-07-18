@@ -15,6 +15,7 @@ const table = (id: string, deletedAt: string | null = null): Table => ({
   id,
   shortId: id,
   baseId: "base",
+  kind: "stored",
   name: id,
   description: null,
   icon: null,

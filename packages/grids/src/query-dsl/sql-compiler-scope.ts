@@ -8,6 +8,7 @@ import type { Field } from "../service/types";
 import type { DslResolvedSqlQueryPlan } from "./resolver";
 import { createDslScopedFormulaFieldResolver } from "./scoped-formula";
 import { aliveFields } from "./sql-compiler-fields";
+import { dslRecordRelation, dslRecordTableCondition, dslRelationValuesInRecordData } from "./sql-compiler-source";
 import type { DslSqlCompileOptions } from "./sql-compiler-types";
 
 export const scopedFormulaResolverForPlan = (
@@ -48,7 +49,7 @@ const queryDeletedCondition = (query: RecordQuery): unknown =>
 export const compileViewSourceRecordScope = (
   plan: DslResolvedSqlQueryPlan,
   fields: Field[],
-  options: Pick<DslSqlCompileOptions, "timeZone" | "viewSourceSearchClause">,
+  options: Pick<DslSqlCompileOptions, "timeZone" | "viewSourceSearchClause" | "recordSource">,
 ): { ok: true; condition?: unknown } | { ok: false; error: string } => {
   const source = plan.viewSourceQuery;
   if (!source) return { ok: true };
@@ -62,9 +63,9 @@ export const compileViewSourceRecordScope = (
   const orderBy = sort.result.orderBy;
   const limit = Math.min(Math.max(source.limit ?? 10_000, 1), 10_000);
   const conditions = [
-    sql`r.table_id = ${plan.tableId}::uuid`,
+    dslRecordTableCondition(plan.tableId, options),
     queryDeletedCondition(source),
-    renderClause(filter.clause),
+    renderClause(filter.clause, { relationSource: dslRelationValuesInRecordData(options) ? "recordData" : "links" }),
     options.viewSourceSearchClause ?? sql`TRUE`,
     compileRecordMetaFilter(source.recordMeta ?? null),
   ];
@@ -73,7 +74,7 @@ export const compileViewSourceRecordScope = (
     ok: true,
     condition: sql`r.id IN (
       SELECT r.id
-      FROM grids.records r
+      FROM ${dslRecordRelation(options)}
       JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
       JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
       WHERE ${where}

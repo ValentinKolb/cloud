@@ -86,6 +86,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
       <RecordsView
         baseId={state.base.id}
         tableId={records.activeTable.id}
+        tableKind={records.activeTable.kind}
         tableName={records.activeTable.name}
         tableDescription={records.activeTable.description ?? null}
         tableIcon={records.activeTable.icon ?? null}
@@ -102,6 +103,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
         forms={records.formsForTable}
         canWrite={records.canWriteRecords}
         canManageTable={records.canManageActiveTable}
+        canManageBase={state.canManageBase}
         trashMode={records.initialState.query.deletedOnly === true}
         initialAdminMode={state.adminModeRequested}
         initialAccessEntries={records.activeTableAccessEntries}

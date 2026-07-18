@@ -7,6 +7,7 @@ import { get as getTable } from "./tables";
 import type { Field } from "./types";
 
 type SearchClause = { clause: any };
+type RecordSource = { relation: unknown };
 
 const SCALAR_SEARCH_TYPES = new Set(["text", "longtext", "id", "number", "percent", "duration", "date", "boolean"]);
 
@@ -74,6 +75,8 @@ const relationClause = async (params: {
   viewer?: ExpansionViewer;
   targetFieldsCache: Map<string, Field[]>;
   targetReadCache: Map<string, boolean>;
+  relationSource?: "links" | "recordData";
+  recordSourcesByTableId?: Map<string, RecordSource>;
 }): Promise<SearchClause | null> => {
   const cfg = params.field.config as { targetTableId?: string };
   if (!cfg.targetTableId) return null;
@@ -96,20 +99,40 @@ const relationClause = async (params: {
     .filter((clause): clause is NonNullable<typeof clause> => clause !== null);
   if (fieldClauses.length === 0) return null;
   const targetWhere = fieldClauses.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+  const targetSource = params.recordSourcesByTableId?.get(cfg.targetTableId);
+  const targetRelation = targetSource ? sql`${targetSource.relation} target` : sql`grids.records target`;
 
-  return {
-    clause: sql`EXISTS (
+  return params.relationSource === "recordData"
+    ? {
+        clause: sql`EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements_text(
+        CASE
+          WHEN jsonb_typeof(${dataFor(params.alias)}->${params.field.id}) = 'array'
+          THEN ${dataFor(params.alias)}->${params.field.id}
+          ELSE '[]'::jsonb
+        END
+      ) relation_id(value)
+      JOIN ${targetRelation}
+        ON target.id = relation_id.value::uuid
+       AND target.table_id = ${cfg.targetTableId}::uuid
+       AND target.deleted_at IS NULL
+      WHERE ${targetWhere}
+    )`,
+      }
+    : {
+        clause: sql`EXISTS (
     SELECT 1
     FROM grids.record_links search_rl
-    JOIN grids.records target
+    JOIN ${targetRelation}
       ON target.id = search_rl.to_record_id
      AND target.table_id = ${cfg.targetTableId}::uuid
      AND target.deleted_at IS NULL
     WHERE search_rl.from_record_id = ${sql.unsafe(`${params.alias}.id`)}
       AND search_rl.from_field_id = ${params.field.id}::uuid
       AND (${targetWhere})
-  )`,
-  };
+    )`,
+      };
 };
 
 export const compileSearchClause = async (params: {
@@ -117,6 +140,8 @@ export const compileSearchClause = async (params: {
   fields: Field[];
   alias?: string;
   viewer?: ExpansionViewer;
+  relationSource?: "links" | "recordData";
+  recordSourcesByTableId?: Map<string, RecordSource>;
 }): Promise<SearchClause> => {
   const q = params.search?.q.trim();
   if (!q) return { clause: sql`TRUE` };
@@ -148,6 +173,8 @@ export const compileSearchClause = async (params: {
         viewer: params.viewer,
         targetFieldsCache,
         targetReadCache,
+        relationSource: params.relationSource,
+        recordSourcesByTableId: params.recordSourcesByTableId,
       });
       if (rel) clauses.push(rel.clause);
     }

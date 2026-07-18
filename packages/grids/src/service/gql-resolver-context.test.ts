@@ -12,6 +12,7 @@ const table = (id: string, shortId: string, name: string) => ({
   id,
   shortId,
   baseId,
+  kind: "stored" as const,
   name,
   description: null,
   icon: null,

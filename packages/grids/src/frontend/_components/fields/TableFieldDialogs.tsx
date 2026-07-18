@@ -1,11 +1,12 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy } from "../../../contracts";
+import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy, TableKind } from "../../../contracts";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 
 export { openFieldEditDialog } from "./FieldEditorDialog";
 
 export type TableHeader = {
   id: string;
+  kind: TableKind;
   /** UUID of the parent base. Kept for API calls that still take UUIDs. */
   baseId: string;
   /** URL-safe slug of the parent base. Used for href construction. */
@@ -21,16 +22,20 @@ export type TableHeader = {
   disableDirectInsert: boolean;
 };
 
-export function TablePermissions(props: { tableId: string; initialEntries: AccessEntry[] }) {
+export function TablePermissions(props: { tableId: string; tableKind: TableKind; initialEntries: AccessEntry[] }) {
   return (
     <ScopedPermissionEditor
       scope={{ type: "table", id: props.tableId }}
       initialEntries={props.initialEntries}
       canEdit
-      allowedLevels={[
-        { level: "read", label: "View" },
-        { level: "write", label: "Edit" },
-      ]}
+      allowedLevels={
+        props.tableKind === "federated"
+          ? [{ level: "read", label: "View" }]
+          : [
+              { level: "read", label: "View" },
+              { level: "write", label: "Edit" },
+            ]
+      }
     />
   );
 }

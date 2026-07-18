@@ -7,6 +7,7 @@ export function RecordsAdminToolbar(props: {
   activeViewAvailable: boolean;
   canEditActiveView: boolean;
   hiddenViewColumnCount: number;
+  allowForms: boolean;
   formsButtonLabel: string;
   onOpenTableSettings: () => void;
   onAddField: () => void;
@@ -28,9 +29,11 @@ export function RecordsAdminToolbar(props: {
             <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onAddField}>
               <i class="ti ti-plus" /> Add field
             </button>
-            <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onOpenForms}>
-              <i class="ti ti-forms" /> {props.formsButtonLabel}
-            </button>
+            <Show when={props.allowForms}>
+              <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onOpenForms}>
+                <i class="ti ti-forms" /> {props.formsButtonLabel}
+              </button>
+            </Show>
             <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onOpenTemplates}>
               <i class="ti ti-file-type-pdf" /> Templates
             </button>

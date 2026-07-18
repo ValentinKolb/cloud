@@ -6,6 +6,7 @@ import type {
   RecordAuditContext,
   RecordDisplayConfig,
   TableAuditPolicy,
+  TableKind,
 } from "../contracts";
 
 export type { Base, Field, GridRecord, Table } from "../contracts";
@@ -77,7 +78,13 @@ export type AuditAction =
   | "record_snapshot.created"
   | "document_link.created"
   | "document_link.revoked"
-  | "document_link.accessed";
+  | "document_link.accessed"
+  | "federation.draft.updated"
+  | "federation.published"
+  | "federation.source.revoked"
+  | "federation.revalidating"
+  | "federation.degraded"
+  | "federation.repaired";
 
 export type AuditEntry = {
   id: string;
@@ -129,6 +136,7 @@ export type UpdateBaseInput = {
 
 export type CreateTableInput = {
   baseId: string;
+  kind?: TableKind;
   name: string;
   description?: string | null;
   icon?: string | null;

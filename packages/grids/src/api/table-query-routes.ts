@@ -4,11 +4,20 @@ import { type Context, Hono } from "hono";
 import type { ClientErrorStatusCode, ServerErrorStatusCode } from "hono/utils/http-status";
 import { describeRoute } from "hono-openapi";
 import type { infer as ZodInfer } from "zod";
-import { type ComputedColumnSpec, type RecordQuery, TableQueryBodySchema, TableQueryResponseSchema } from "../contracts";
+import {
+  type ComputedColumnSpec,
+  type DslQueryPreviewResponse,
+  type GridRecord,
+  type RecordQuery,
+  TableQueryBodySchema,
+  TableQueryResponseSchema,
+} from "../contracts";
+import { aggregateQueryToGqlSource, simpleQueryToGqlSource } from "../query-dsl/record-query-source";
 import { gridsService } from "../service";
+import { verifyRevisionScope } from "../service/federated-tables";
 import type { GroupAggregationSpec } from "../service/group-compiler";
 import { validateRecordQueryForTable } from "../service/query-validation";
-import { compileGqlToRecordQuery } from "./gql-runtime";
+import { compileGqlToRecordQuery, executeGqlSource } from "./gql-runtime";
 import { currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
 
 type TableQueryBody = ZodInfer<typeof TableQueryBodySchema>;
@@ -23,7 +32,7 @@ type QueryView = {
   ui?: { columns?: RecordQuery["columns"]; groupedColumnOrder?: string[]; hiddenGroupedColumns?: string[] };
 };
 type QueryTarget = {
-  table: { id: string; baseId: string };
+  table: { id: string; baseId: string; kind: "stored" | "federated" };
   view: QueryView | null;
   trustedView: QueryView | null;
 };
@@ -31,23 +40,184 @@ type QueryTarget = {
 type TableQueryRouteDeps = {
   service: typeof gridsService;
   compileGql: typeof compileGqlToRecordQuery;
+  executeGql: typeof executeGqlSource;
   validateQuery: typeof validateRecordQueryForTable;
   dateConfig: typeof getDateConfig;
   gate: typeof gateAt;
   resolve: typeof resolveWithGrants;
   viewer: typeof currentActorViewer;
   hasExplicitGrant: typeof hasExplicitGrant;
+  verifyFederatedRevision: typeof verifyRevisionScope;
 };
 
 const defaultDeps: TableQueryRouteDeps = {
   service: gridsService,
   compileGql: compileGqlToRecordQuery,
+  executeGql: executeGqlSource,
   validateQuery: validateRecordQueryForTable,
   dateConfig: getDateConfig,
   gate: gateAt,
   resolve: resolveWithGrants,
   viewer: currentActorViewer,
   hasExplicitGrant,
+  verifyFederatedRevision: verifyRevisionScope,
+};
+
+const withoutLimit = (query: RecordQuery): RecordQuery => {
+  const { limit: _limit, ...rest } = query;
+  return rest;
+};
+
+const withoutFooterAggregations = (query: RecordQuery): RecordQuery => {
+  if ((query.groupBy?.length ?? 0) > 0) return query;
+  const { aggregations: _aggregations, ...rest } = query;
+  return rest;
+};
+
+const previewError = (response: DslQueryPreviewResponse): RouteFailure | null =>
+  response.ok ? null : fail(400, response.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL query");
+
+const gridRecordForPreviewRow = (
+  row: Extract<DslQueryPreviewResponse, { ok: true }>["rows"][number],
+  columns: Extract<DslQueryPreviewResponse, { ok: true }>["columns"],
+  query: RecordQuery,
+  tableId: string,
+): GridRecord | null => {
+  if (!row.recordId || !row.recordMeta) return null;
+  const data: Record<string, unknown> = {};
+  for (const [index, column] of columns.entries()) {
+    const queryColumn = query.columns?.[index];
+    const key = column.fieldId ?? (queryColumn && "kind" in queryColumn && queryColumn.kind === "computed" ? queryColumn.id : undefined);
+    if (key) data[key] = row.values[column.key];
+  }
+  return {
+    id: row.recordId,
+    tableId,
+    data,
+    ...row.recordMeta,
+  };
+};
+
+const runFederatedQuery = async (
+  c: Context<AuthContext>,
+  deps: TableQueryRouteDeps,
+  params: {
+    target: QueryTarget;
+    query: RecordQuery;
+    body: TableQueryBody;
+    tableFields: Awaited<ReturnType<typeof gridsService.field.listByTable>>;
+    viewer: ReturnType<typeof currentActorViewer>;
+  },
+): Promise<RouteSuccess<TableQueryResponse> | RouteFailure> => {
+  const { target, query, body, tableFields, viewer } = params;
+  const pageQuery = withoutLimit(withoutFooterAggregations(query));
+  const source = simpleQueryToGqlSource({ tableId: target.table.id, query: pageQuery });
+  if (!source.ok) return fail(400, source.reason);
+
+  const executed = await deps.executeGql(
+    c,
+    target.table.baseId,
+    {
+      query: source.source,
+      currentTableId: target.table.id,
+      currentSource: { kind: "table", tableId: target.table.id },
+      cursor: body.cursor,
+      pageSize: Math.min(Math.max(query.limit ?? 100, 1), 1000),
+      surface: "records-view",
+    },
+    { operation: "execute", labelRelationValues: false, maxRows: 1000 },
+  );
+  const response = executed.response;
+  const error = previewError(response);
+  if (error) return error;
+  if (!response.ok) return fail(400, "invalid GQL query");
+  const revisionScope = executed.revisionScope ?? [];
+
+  const nextCursor = response.page?.nextCursor ?? null;
+  if (response.mode === "groups") {
+    const groupColumns = response.columns.filter((column) => column.aggregate === undefined);
+    const aggregateColumns = response.columns.filter((column) => column.aggregate !== undefined);
+    const buckets = response.rows.map((row) => ({
+      keys: groupColumns.map((column) => row.values[column.key]),
+      values: Object.fromEntries(aggregateColumns.map((column) => [column.key, row.values[column.key]])),
+    }));
+    const relationLabels = await deps.service.relations.buildLabelCacheForGroupedKeys(
+      buckets,
+      (query.groupBy ?? []).map((group) => group.fieldId),
+      tableFields,
+      viewer,
+    );
+    return {
+      ok: true,
+      data: {
+        buckets,
+        nextCursor,
+        relationLabels,
+        ...(response.explode ? { explode: true } : {}),
+      },
+    };
+  }
+
+  const items = response.rows.flatMap((row) => {
+    const record = gridRecordForPreviewRow(row, response.columns, pageQuery, target.table.id);
+    return record ? [record] : [];
+  });
+  const relationLabels = await deps.service.relations.buildLabelCache(items, tableFields, viewer);
+  let aggregates: Record<string, unknown> | undefined;
+  if ((query.aggregations?.length ?? 0) > 0) {
+    const aggregateSource = aggregateQueryToGqlSource({
+      tableId: target.table.id,
+      query: withoutLimit({
+        ...query,
+        columns: undefined,
+        groupBy: undefined,
+        groupSort: undefined,
+        sort: undefined,
+      }),
+    });
+    if (!aggregateSource.ok) return fail(400, aggregateSource.reason);
+    const aggregateExecution = await deps.executeGql(
+      c,
+      target.table.baseId,
+      {
+        query: aggregateSource.source,
+        currentTableId: target.table.id,
+        currentSource: { kind: "table", tableId: target.table.id },
+        surface: "records-view",
+      },
+      {
+        operation: "execute",
+        labelRelationValues: false,
+        maxRows: 1,
+        expectedFederatedRevisionScope: revisionScope,
+      },
+    );
+    const aggregateError = previewError(aggregateExecution.response);
+    if (aggregateError) {
+      const current = await deps.verifyFederatedRevision(revisionScope);
+      if (!current.ok) return fail(409, current.error.message);
+      return aggregateError;
+    }
+    if (aggregateExecution.response.ok) aggregates = aggregateExecution.response.rows[0]?.values ?? {};
+  }
+  let filePreviews: TableQueryResponse["filePreviews"];
+  if (body.filePreviewFieldIds && body.filePreviewFieldIds.length > 0) {
+    try {
+      filePreviews = await deps.service.file.listFirstImagePreviews({
+        tableId: target.table.id,
+        recordIds: items.map((item) => item.id),
+        fieldIds: body.filePreviewFieldIds,
+        expectedFederatedRevisionScope: revisionScope,
+      });
+    } catch (error) {
+      const current = await deps.verifyFederatedRevision(revisionScope);
+      if (!current.ok) return fail(409, current.error.message);
+      throw error;
+    }
+  }
+  const currentRevision = await deps.verifyFederatedRevision(revisionScope);
+  if (!currentRevision.ok) return fail(409, currentRevision.error.message);
+  return { ok: true, data: { items, aggregates, nextCursor, relationLabels, filePreviews } };
 };
 
 const fail = (status: RouteFailure["status"], message: string): RouteFailure => ({ ok: false, status, message });
@@ -247,7 +417,12 @@ export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) 
 
       const [tableFields, dateConfig] = await Promise.all([deps.service.field.listByTable(target.data.table.id), deps.dateConfig(c)]);
       const params = { target: target.data, query: resolved.data, body, tableFields, dateConfig, viewer: deps.viewer(c) };
-      const result = resolved.data.groupBy?.length ? await runGroupedQuery(deps, params) : await runListQuery(deps, params);
+      const result =
+        target.data.table.kind === "federated"
+          ? await runFederatedQuery(c, deps, params)
+          : resolved.data.groupBy?.length
+            ? await runGroupedQuery(deps, params)
+            : await runListQuery(deps, params);
       return result.ok ? c.json(result.data) : c.json({ message: result.message }, result.status);
     },
   );

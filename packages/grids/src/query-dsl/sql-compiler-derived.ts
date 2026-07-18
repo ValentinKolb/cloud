@@ -56,6 +56,7 @@ const derivedJoinBaseAlias = (index: number): string => `djb${index}`;
 const compileDerivedRelationJoin = (
   join: DslResolvedDerivedRelationJoin,
   index: number,
+  options: Pick<DslSqlCompileOptions, "recordSourcesByTableId">,
 ): { ok: true; fragment: unknown; recordAlias: string } | { ok: false; error: string } => {
   if (!join.column.targetTableId) return { ok: false, error: `derived join "${join.alias}" has no target table` };
   if (join.column.targetTableId !== join.tableId) {
@@ -65,11 +66,15 @@ const compileDerivedRelationJoin = (
   const recordAlias = dslDerivedJoinRecordAlias(index);
   const tableAlias = derivedJoinTableAlias(index);
   const baseAlias = derivedJoinBaseAlias(index);
+  const targetSource = options.recordSourcesByTableId?.get(join.tableId);
+  const targetRelation = targetSource
+    ? sql`${targetSource.relation} ${sql.unsafe(recordAlias)}`
+    : sql`grids.records ${sql.unsafe(recordAlias)}`;
   return {
     ok: true,
     recordAlias,
     fragment: sql`
-      ${joinSql} grids.records ${sql.unsafe(recordAlias)}
+      ${joinSql} ${targetRelation}
         ON ${sql.unsafe(recordAlias)}.id = (${derivedColumnReference(join.column)})::uuid
        AND ${sql.unsafe(recordAlias)}.table_id = ${join.tableId}::uuid
        AND ${sql.unsafe(recordAlias)}.deleted_at IS NULL
@@ -372,7 +377,7 @@ const derivedAggregateExpression = (
     if (!recordAlias) return { ok: false, error: `aggregate uses unknown join alias "${aggregation.joinAlias}"` };
     const fields = aliveFields(options.fieldsByTableId[aggregation.tableId ?? ""] ?? []);
     const field = fieldById(fields, aggregation.fieldId);
-    const compiled = aggregateExprForField(aggregation, field ?? null, recordAlias);
+    const compiled = aggregateExprForField(aggregation, field ?? null, recordAlias, options);
     return compiled.ok ? { ok: true, expr: compiled.expr, type: compiled.sqlType } : compiled;
   }
   const column = aggregation.column;
@@ -619,14 +624,18 @@ export const compileDslDerivedViewSourcePlanToSql = (
   const joinAliases = new Map<string, string>();
   const joinSql: unknown[] = [];
   for (const [index, join] of (derived.joins ?? []).entries()) {
-    const compiled = compileDerivedRelationJoin(join, index);
+    const compiled = compileDerivedRelationJoin(join, index, options);
     if (!compiled.ok) return failGroup(compiled.error);
     joinAliases.set(join.alias, compiled.recordAlias);
     joinSql.push(compiled.fragment);
   }
   for (const [index, join] of (derived.relationJoins ?? []).entries()) {
     if (join.fromScope === null) return failGroup(`join "${join.alias}" cannot use the derived view source as a record`);
-    const compiled = compileRelationJoin(join, index, joinAliases, { joinFanoutLimit: options.joinFanoutLimit });
+    const compiled = compileRelationJoin(join, index, joinAliases, {
+      joinFanoutLimit: options.joinFanoutLimit,
+      recordSource: options.recordSource,
+      recordSourcesByTableId: options.recordSourcesByTableId,
+    });
     if (!compiled.ok) return failGroup(compiled.error);
     joinAliases.set(join.alias, compiled.recordAlias);
     joinSql.push(compiled.fragment);

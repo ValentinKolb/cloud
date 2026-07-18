@@ -233,12 +233,15 @@ const fieldExampleValue = (field: Field): unknown => {
 
 export const recordShapeForFields = (table: Table, fields: Field[]) => {
   const alive = fields.filter((field) => !field.deletedAt);
-  const writable = alive.filter((field) => field.type in RECORD_WRITABLE_FIELD_TYPES);
-  const readOnly = alive.filter((field) => !(field.type in RECORD_WRITABLE_FIELD_TYPES));
+  const writable = table.kind === "stored" ? alive.filter((field) => field.type in RECORD_WRITABLE_FIELD_TYPES) : [];
+  const readOnly = table.kind === "stored" ? alive.filter((field) => !(field.type in RECORD_WRITABLE_FIELD_TYPES)) : alive;
   const example = Object.fromEntries(writable.map((field) => [field.id, fieldExampleValue(field)]));
   return {
-    table: { id: table.id, shortId: table.shortId, name: table.name },
-    payload: "Record create/update bodies are plain JSON objects keyed by field UUID.",
+    table: { id: table.id, shortId: table.shortId, name: table.name, kind: table.kind },
+    payload:
+      table.kind === "stored"
+        ? "Record create/update bodies are plain JSON objects keyed by field UUID."
+        : "Combined tables are read-only. Query or export their canonical fields instead of sending record payloads.",
     example,
     writableFields: writable.map((field) => ({
       id: field.id,
@@ -264,7 +267,11 @@ export const printRecordShape = (ctx: CloudCliContext, shape: ReturnType<typeof 
     return;
   }
   ctx.print(`Record payload for ${shape.table.name} (${shape.table.shortId})`);
-  ctx.print("Use field UUID keys. Field names and short ids are only lookup aids.");
+  if (shape.table.kind === "federated") {
+    ctx.print("Combined tables are read-only. Use GQL, views, dashboards, documents, workflows, or export to consume their data.");
+    ctx.print("");
+  }
+  if (shape.table.kind === "stored") ctx.print("Use field UUID keys. Field names and short ids are only lookup aids.");
   ctx.print("");
   ctx.print("Example body:");
   ctx.print(JSON.stringify(shape.example, null, 2));
@@ -304,6 +311,7 @@ export const tableRows = (items: Table[]) =>
   items.map((table) => ({
     shortId: table.shortId,
     name: table.name,
+    kind: table.kind === "federated" ? "combined" : "stored",
     fields: table.columns.length,
     updatedAt: table.updatedAt,
     id: table.id,

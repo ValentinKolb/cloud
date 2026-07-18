@@ -40,6 +40,32 @@ export const requireTableAlive = async (tableId: string, client: SqlClient = sql
       });
 };
 
+/** Record mutations are only valid for stored tables. Federated tables are
+ * read models; their publication grants never authorize writes to sources. */
+export const requireStoredTableWritable = async (tableId: string, client: SqlClient = sql): Promise<Result<void>> => {
+  const [row] = await client<{ kind: string }[]>`
+    SELECT t.kind
+    FROM grids.tables t
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE t.id = ${tableId}::uuid AND t.deleted_at IS NULL
+    FOR SHARE OF t, b
+  `;
+  if (!row) {
+    return fail({
+      code: "CONFLICT",
+      message: "Parent table or base is trashed; restore the parent first",
+      status: 409,
+    });
+  }
+  return row.kind === "stored"
+    ? ok()
+    : fail({
+        code: "BAD_INPUT",
+        message: "Combined tables are read-only. Update the source record instead.",
+        status: 400,
+      });
+};
+
 /**
  * JOIN fragment for target-record reads that must obey the same live-parent
  * invariant as records.list/get. Aliases are internal constants at call sites;

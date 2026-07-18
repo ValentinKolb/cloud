@@ -191,6 +191,7 @@ export const list = async (params: {
   const filePreviews =
     params.filePreviewFieldIds && params.filePreviewFieldIds.length > 0
       ? await listFirstImagePreviews({
+          tableId: params.tableId,
           recordIds: items.map((record) => record.id),
           fieldIds: params.filePreviewFieldIds,
         })

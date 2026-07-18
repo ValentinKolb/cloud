@@ -1,6 +1,7 @@
 import type { DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type LookupTargetMeta, lookupTargetMeta } from "../lookup-display";
+import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
 import {
   applyComputedProjections,
   buildComputedProjections,
@@ -12,6 +13,7 @@ import { withLookupTargetMetadata } from "./lookup-display";
 import { liveRecordParentJoinSql } from "./parent-checks";
 import { mapRecordRow } from "./record-persistence";
 import { attachRelationExpansion, type ExpansionViewer, enrichRecordsWithFormulas, hydrateRelationsFromLinks } from "./relations";
+import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -146,8 +148,47 @@ export type RecordReader = {
   getMany: (recordIds: string[]) => Promise<GridRecord[]>;
 };
 
+const createFederatedReader = async (tableId: string, fields: Field[], opts: RecordReadOptions): Promise<RecordReader> => {
+  const recordSource = await buildDslSqlRecordSource(tableId, { [tableId]: fields });
+  if (!recordSource) throw new Error("Combined table source is not available");
+  const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: opts.dateConfig });
+  const projectionFragments = projectionFragmentsFor(formulaSql);
+  const formulaFieldIds = new Set(formulaSql.map((projection) => projection.fieldId));
+  const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
+
+  const getMany = async (recordIds: string[]): Promise<GridRecord[]> => {
+    if (recordIds.length === 0) return [];
+    const rows = await sql<DbRow[]>`
+      SELECT r.*${projectionFragments}
+      FROM ${recordSource.relation} r
+      WHERE r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
+        AND r.deleted_at IS NULL
+    `;
+    const records = rows.map(mapRecordRow);
+    const recordsById = new Map(records.map((record) => [record.id, record]));
+    applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, formulaSql);
+    enrichRecordsWithFormulas(records, fieldsWithLookupMeta, {
+      dateConfig: opts.dateConfig,
+      skipFormulaFieldIds: formulaFieldIds,
+    });
+    if (opts.includeRelations) await attachRelationExpansion(records, fieldsWithLookupMeta, opts.viewer);
+    return recordIds.flatMap((id) => {
+      const record = recordsById.get(id);
+      return record ? [record] : [];
+    });
+  };
+
+  return {
+    fields,
+    get: async (recordId) => (await getMany([recordId]))[0] ?? null,
+    getMany,
+  };
+};
+
 export const createReader = async (tableId: string, opts: RecordReadOptions = {}): Promise<RecordReader> => {
   const fields = opts.fields ?? (await listFields(tableId));
+  const table = await getTable(tableId);
+  if (table?.kind === "federated") return createFederatedReader(tableId, fields, opts);
   const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
   const computed = await buildComputedProjections(fields);
   const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: opts.dateConfig });

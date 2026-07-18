@@ -11,8 +11,9 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { FederatedSourcePublication } from "../../../contracts";
 import type { Field, Form, Table } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
@@ -21,6 +22,7 @@ import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs"
 import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
 import { auditPolicySummary, openAuditPolicyDialog } from "./AuditPolicyDialog";
+import { openFederatedTableDialog } from "./FederatedTableDialog";
 import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 
 export { openDocumentTemplateEditorDialog, openDocumentTemplatesDialog } from "./DocumentTemplateDialogs";
@@ -29,6 +31,7 @@ export const openTableSettingsDialog = (args: {
   table: TableHeader;
   fields: Field[];
   initialAccessEntries: AccessEntry[];
+  canManageBase: boolean;
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
 }) => dialogCore.open<void>((close) => <TableSettingsDialog args={args} close={close} />, panelDialogOptions);
@@ -38,6 +41,7 @@ function TableSettingsDialog(props: {
     table: TableHeader;
     fields: Field[];
     initialAccessEntries: AccessEntry[];
+    canManageBase: boolean;
     onSaved: (table: Table) => void;
     onDeleted?: () => void;
   };
@@ -54,6 +58,7 @@ function TableSettingsDialog(props: {
         table={props.args.table}
         fields={props.args.fields}
         initialAccessEntries={props.args.initialAccessEntries}
+        canManageBase={props.args.canManageBase}
         onDirtyChange={setDirty}
         onSaved={(table) => {
           setDirty(false);
@@ -67,7 +72,7 @@ function TableSettingsDialog(props: {
 }
 
 export const createFieldFromPrompt = async (args: { table: TableHeader }): Promise<Field | null> => {
-  const type = await chooseFieldType();
+  const type = await chooseFieldType(args.table.kind);
   if (!type) return null;
 
   const result = await prompts.form({
@@ -130,7 +135,7 @@ const FIELD_TYPE_PICKER_DESCRIPTIONS: Record<string, string> = {
 
 const CREATE_TYPE_OPTIONS = TYPE_OPTIONS.filter((type) => type.value !== "json");
 
-const chooseFieldType = () =>
+const chooseFieldType = (tableKind: TableHeader["kind"]) =>
   dialogCore.open<string | null>(
     (close) => (
       <PanelDialog>
@@ -138,7 +143,7 @@ const chooseFieldType = () =>
         <PanelDialog.Body>
           <p class="text-sm text-secondary">Pick the basic data shape first. You can tune details after the field exists.</p>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <For each={CREATE_TYPE_OPTIONS}>
+            <For each={CREATE_TYPE_OPTIONS.filter((type) => tableKind !== "federated" || !["lookup", "rollup"].includes(type.value))}>
               {(type) => (
                 <button type="button" class="paper p-3 text-left hover:paper-highlighted transition" onClick={() => close(type.value)}>
                   <div class="flex items-start gap-3">
@@ -221,6 +226,7 @@ function TableSettingsBody(props: {
   table: TableHeader;
   fields: Field[];
   initialAccessEntries: AccessEntry[];
+  canManageBase: boolean;
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -244,6 +250,36 @@ function TableSettingsBody(props: {
   const displayConfig = () => draft.draft().displayConfig;
   const auditPolicy = () => draft.draft().auditPolicy;
   const disableDirectInsert = () => draft.draft().disableDirectInsert;
+  const [publications, setPublications] = createSignal<FederatedSourcePublication[]>([]);
+  const [publicationsLoading, setPublicationsLoading] = createSignal(false);
+
+  const loadPublications = async () => {
+    if (props.table.kind !== "stored" || !props.canManageBase) return;
+    setPublicationsLoading(true);
+    try {
+      const response = await apiClient.tables[":tableId"].federation.publications.$get({ param: { tableId: props.table.id } });
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not load combined-table publications"));
+      setPublications(await response.json());
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Could not load combined-table publications");
+    } finally {
+      setPublicationsLoading(false);
+    }
+  };
+  onMount(() => void loadPublications());
+
+  const revokePublication = async (publication: FederatedSourcePublication) => {
+    const confirmed = await prompts.confirm(
+      `Revoke ${props.table.name} from "${publication.targetTableName}"? Readers will lose the entire combined result until its admin publishes a repair.`,
+      { title: "Revoke publication?", variant: "danger", confirmText: "Revoke" },
+    );
+    if (!confirmed) return;
+    const response = await apiClient.tables[":tableId"].federation.sources[":sourceTableId"].revoke.$post({
+      param: { tableId: publication.targetTableId, sourceTableId: props.table.id },
+    });
+    if (!response.ok) return prompts.error(await errorMessage(response, "Could not revoke publication"));
+    await loadPublications();
+  };
 
   const saveMut = mutations.create<Table, void>({
     mutation: async () => {
@@ -323,14 +359,16 @@ function TableSettingsBody(props: {
             lines={2}
             placeholder="Optional"
           />
-          <CheckboxCard
-            label="Add records through forms"
-            description="New records use forms by default. Admins can still edit the table directly."
-            icon="ti ti-forms"
-            variant="input"
-            value={disableDirectInsert}
-            onChange={(v) => patch({ disableDirectInsert: v })}
-          />
+          <Show when={props.table.kind === "stored"}>
+            <CheckboxCard
+              label="Add records through forms"
+              description="New records use forms by default. Admins can still edit the table directly."
+              icon="ti ti-forms"
+              variant="input"
+              value={disableDirectInsert}
+              onChange={(v) => patch({ disableDirectInsert: v })}
+            />
+          </Show>
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Display" subtitle="Choose how records are shown on table pages." icon="ti ti-layout">
@@ -341,27 +379,97 @@ function TableSettingsBody(props: {
           />
         </PanelDialog.Section>
 
-        <PanelDialog.Section
-          title="Data integrity"
-          subtitle="Require structured context for sensitive record operations."
-          icon="ti ti-shield-check"
-        >
-          <button
-            type="button"
-            class="paper flex w-full items-center gap-3 p-3 text-left hover:paper-highlighted"
-            onClick={() => void configureAudit()}
+        <Show when={props.table.kind === "federated" && props.canManageBase}>
+          <PanelDialog.Section
+            title="Combined data"
+            subtitle="Select source tables, map canonical fields, and publish a revision."
+            icon="ti ti-table-share"
           >
-            <i class="ti ti-shield-check text-lg text-dimmed" />
-            <span class="min-w-0 flex-1">
-              <span class="block text-sm font-medium text-primary">Audit requirements</span>
-              <span class="block truncate text-xs text-dimmed">{auditPolicySummary(auditPolicy())}</span>
-            </span>
-            <i class="ti ti-chevron-right text-dimmed" aria-hidden="true" />
-          </button>
-        </PanelDialog.Section>
+            <button
+              type="button"
+              class="paper flex w-full items-center gap-3 p-3 text-left hover:paper-highlighted"
+              onClick={() => void openFederatedTableDialog({ tableId: props.table.id, tableName: name(), targetFields: props.fields })}
+            >
+              <i class="ti ti-table-share text-lg text-dimmed" />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-primary">Configure sources and mappings</span>
+                <span class="block text-xs text-dimmed">Draft changes are isolated until you publish them.</span>
+              </span>
+              <i class="ti ti-chevron-right text-dimmed" aria-hidden="true" />
+            </button>
+          </PanelDialog.Section>
+        </Show>
+
+        <Show when={props.table.kind === "stored" && props.canManageBase && (publicationsLoading() || publications().length > 0)}>
+          <PanelDialog.Section
+            title="Combined-table publications"
+            subtitle="These publications delegate the mapped fields to separately permissioned read-only tables."
+            icon="ti ti-database-share"
+          >
+            <Show when={!publicationsLoading()} fallback={<div class="text-sm text-dimmed">Loading publications…</div>}>
+              <For each={publications()}>
+                {(publication) => (
+                  <div class="paper flex items-center gap-3 p-3">
+                    <i class="ti ti-table-share text-lg text-dimmed" aria-hidden="true" />
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-sm font-medium text-primary">{publication.targetTableName}</div>
+                      <div class="truncate text-xs text-dimmed">
+                        {publication.targetBaseName} · revision {publication.revision} · {publication.mappings.length} mapped fields
+                      </div>
+                      <div class="mt-2 flex flex-wrap gap-1">
+                        <For each={publication.mappings}>
+                          {(mapping) => (
+                            <span class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-secondary">
+                              {mapping.sourceFieldName} <i class="ti ti-arrow-right mx-1" aria-hidden="true" /> {mapping.targetFieldName}
+                            </span>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                    <span class={publication.revokedAt ? "text-xs text-danger" : "text-xs text-secondary"}>
+                      {publication.revokedAt ? "Revoked" : publication.status === "active" ? "Active" : "Action required"}
+                    </span>
+                    <Show when={!publication.revokedAt}>
+                      <button
+                        type="button"
+                        class="btn-ghost btn-sm text-danger"
+                        title="Revoke publication"
+                        onClick={() => void revokePublication(publication)}
+                      >
+                        <i class="ti ti-unlink" aria-hidden="true" />
+                        <span class="sr-only">Revoke {publication.targetTableName}</span>
+                      </button>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </PanelDialog.Section>
+        </Show>
+
+        <Show when={props.table.kind === "stored"}>
+          <PanelDialog.Section
+            title="Data integrity"
+            subtitle="Require structured context for sensitive record operations."
+            icon="ti ti-shield-check"
+          >
+            <button
+              type="button"
+              class="paper flex w-full items-center gap-3 p-3 text-left hover:paper-highlighted"
+              onClick={() => void configureAudit()}
+            >
+              <i class="ti ti-shield-check text-lg text-dimmed" />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-primary">Audit requirements</span>
+                <span class="block truncate text-xs text-dimmed">{auditPolicySummary(auditPolicy())}</span>
+              </span>
+              <i class="ti ti-chevron-right text-dimmed" aria-hidden="true" />
+            </button>
+          </PanelDialog.Section>
+        </Show>
 
         <PanelDialog.Section title="Permissions" subtitle="These permissions apply only to this table." icon="ti ti-lock">
-          <TablePermissions tableId={props.table.id} initialEntries={props.initialAccessEntries} />
+          <TablePermissions tableId={props.table.id} tableKind={props.table.kind} initialEntries={props.initialAccessEntries} />
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Danger zone" subtitle="Remove this table from the active app." icon="ti ti-trash">

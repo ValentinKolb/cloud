@@ -56,6 +56,10 @@ const documentLinkId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const fileId = "12121212-1212-4212-8212-121212121212";
 const accessId = "23232323-2323-4232-8232-232323232323";
 const auditQuestionId = "34343434-3434-4434-8434-343434343434";
+const combinedTableId = "24242424-2424-4242-8242-242424242424";
+const sourceTableId = "25252525-2525-4252-8252-252525252525";
+const federatedRevisionId = "27272727-2727-4272-8272-272727272727";
+const federatedSourceId = "28282828-2828-4282-8282-282828282828";
 
 const jsonResponse = (value: unknown, status = 200) => Response.json(value, { status });
 
@@ -121,6 +125,7 @@ const table = {
   shortId: "auth1",
   baseId,
   name: "Authors",
+  kind: "stored" as const,
   description: null,
   icon: "ti ti-table",
   columns: [],
@@ -130,6 +135,15 @@ const table = {
   deletedAt: null,
   createdAt: "2026-07-07T00:00:00.000Z",
   updatedAt: "2026-07-07T00:00:00.000Z",
+};
+
+const combinedTable = {
+  ...table,
+  id: combinedTableId,
+  shortId: "all01",
+  name: "All authors",
+  kind: "federated" as const,
+  disableDirectInsert: true,
 };
 
 const field = {
@@ -151,6 +165,30 @@ const field = {
   deletedAt: null,
   createdAt: "2026-07-07T00:00:00.000Z",
   updatedAt: "2026-07-07T00:00:00.000Z",
+};
+
+const combinedDraftView = {
+  id: federatedRevisionId,
+  tableId: combinedTableId,
+  revision: 2,
+  status: "draft" as const,
+  diagnostics: [],
+  createdBy: null,
+  publishedBy: null,
+  createdAt: "2026-07-18T08:00:00.000Z",
+  updatedAt: "2026-07-18T08:05:00.000Z",
+  revisionToken: "1752825900.000000",
+  publishedAt: null,
+  sources: [
+    {
+      id: federatedSourceId,
+      sourceTableId: null,
+      position: 0,
+      authorizedAt: "2026-07-17T12:00:00.000Z",
+      revokedAt: null,
+    },
+  ],
+  mappings: [],
 };
 
 const record = {
@@ -370,7 +408,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(126);
+    expect(commands).toHaveLength(133);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -511,6 +549,197 @@ describe("grids CLI", () => {
       ]),
       readOnlyFields: [expect.objectContaining({ id: formulaField.id, name: "Name length", type: "formula" })],
     });
+  });
+
+  test("marks Combined table record shapes as read-only", async () => {
+    const { ctx, jsonValues } = createContext(
+      ["records", "shape", baseId, "All authors"],
+      {},
+      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse([field])],
+      { output: "json" },
+    );
+
+    await gridsCli.run(ctx);
+
+    expect(jsonValues[0]).toMatchObject({
+      table: { id: combinedTable.id, kind: "federated" },
+      payload: "Combined tables are read-only. Query or export their canonical fields instead of sending record payloads.",
+      example: {},
+      writableFields: [],
+      readOnlyFields: [expect.objectContaining({ id: fieldId, name: "Name" })],
+    });
+  });
+
+  test("validates friendly Combined table mappings through resolved names", async () => {
+    const sourceTable = { ...table, id: sourceTableId, shortId: "src01", name: "Regional authors" };
+    const targetField = { ...field, tableId: combinedTable.id };
+    const sourceField = { ...field, id: "26262626-2626-4262-8262-262626262626", tableId: sourceTable.id, name: "Display name" };
+    const body = {
+      sources: [{ base: "Bookshop", table: "Regional authors", mappings: [{ target: "Name", source: "Display name" }] }],
+    };
+    const { ctx, calls, lines } = createContext(["tables", "combined", "validate", baseId, "All authors"], { body: JSON.stringify(body) }, [
+      jsonResponse(base),
+      jsonResponse([combinedTable]),
+      jsonResponse([targetField]),
+      jsonResponse({ items: [base], total: 1, limit: 500, offset: 0 }),
+      jsonResponse([sourceTable]),
+      jsonResponse([sourceField]),
+      jsonResponse({ valid: true, diagnostics: [] }),
+    ]);
+
+    await gridsCli.run(ctx);
+
+    expect(calls.at(-1)?.path).toBe(`/api/grids/tables/${combinedTable.id}/federation/validate`);
+    expect(JSON.parse(String(calls.at(-1)?.init?.body))).toEqual({
+      sourceTableIds: [sourceTable.id],
+      mappings: [
+        {
+          targetFieldId: targetField.id,
+          sourceTableId: sourceTable.id,
+          sourceFieldId: sourceField.id,
+          config: {},
+        },
+      ],
+    });
+    expect(lines).toEqual(["Combined table configuration is valid."]);
+  });
+
+  test("uses permission-shaped management views for Combined get, draft, and publish", async () => {
+    const current = {
+      ...combinedDraftView,
+      id: "29292929-2929-4292-8292-292929292929",
+      revision: 1,
+      status: "active" as const,
+      publishedAt: "2026-07-17T12:00:00.000Z",
+    };
+    const get = createContext(
+      ["tables", "combined", "get", baseId, "All authors"],
+      {},
+      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse({ current, draft: combinedDraftView })],
+      { output: "json" },
+    );
+
+    await gridsCli.run(get.ctx);
+
+    expect(get.calls.at(-1)?.path).toBe(`/api/grids/tables/${combinedTableId}/federation`);
+    expect(get.jsonValues[0]).toEqual({ current, draft: combinedDraftView });
+    expect((get.jsonValues[0] as { draft: typeof combinedDraftView }).draft.sources[0]).toEqual({
+      id: federatedSourceId,
+      sourceTableId: null,
+      position: 0,
+      authorizedAt: "2026-07-17T12:00:00.000Z",
+      revokedAt: null,
+    });
+
+    const body = { sourceTableIds: [], retainedSourceIds: [federatedSourceId], mappings: [] };
+    const draft = createContext(
+      ["tables", "combined", "draft", baseId, "All authors"],
+      { body: JSON.stringify(body) },
+      [
+        jsonResponse(base),
+        jsonResponse([combinedTable]),
+        jsonResponse({ current: null, draft: combinedDraftView }),
+        jsonResponse(combinedDraftView),
+      ],
+      { output: "json" },
+    );
+
+    await gridsCli.run(draft.ctx);
+
+    expect(draft.calls.at(-1)?.path).toBe(`/api/grids/tables/${combinedTableId}/federation/draft`);
+    expect(draft.calls.at(-1)?.init?.method).toBe("PUT");
+    expect(JSON.parse(String(draft.calls.at(-1)?.init?.body))).toEqual({
+      ...body,
+      draftToken: combinedDraftView.revisionToken,
+    });
+    expect(draft.jsonValues[0]).toEqual(combinedDraftView);
+
+    const published = { ...combinedDraftView, status: "active" as const, publishedAt: "2026-07-18T08:10:00.000Z" };
+    const publish = createContext(
+      ["tables", "combined", "publish", baseId, "All authors"],
+      {},
+      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse(published)],
+      { output: "json" },
+    );
+
+    await gridsCli.run(publish.ctx);
+
+    expect(publish.calls.at(-1)?.path).toBe(`/api/grids/tables/${combinedTableId}/federation/publish`);
+    expect(publish.calls.at(-1)?.init?.method).toBe("POST");
+    expect(publish.jsonValues[0]).toEqual(published);
+  });
+
+  test("lists Combined source candidates and source-admin publications", async () => {
+    const sourceTable = { ...table, id: sourceTableId, shortId: "src01", name: "Regional authors" };
+    const candidates = {
+      items: [{ base: { id: base.id, shortId: base.shortId, name: base.name }, table: sourceTable, fieldCount: 3 }],
+      total: 1,
+      limit: 25,
+      offset: 25,
+    };
+    const candidateContext = createContext(
+      ["tables", "combined", "candidates", baseId, "All authors"],
+      { q: "regional", "per-page": "25", page: "2" },
+      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse(candidates)],
+      { output: "json" },
+    );
+
+    await gridsCli.run(candidateContext.ctx);
+
+    expect(candidateContext.calls.at(-1)?.path).toBe(
+      `/api/grids/tables/${combinedTableId}/federation/source-candidates?limit=25&offset=25&q=regional`,
+    );
+    expect(candidateContext.jsonValues[0]).toEqual(candidates);
+
+    const publications = [
+      {
+        targetBaseId: baseId,
+        targetBaseShortId: base.shortId,
+        targetBaseName: base.name,
+        targetTableId: combinedTableId,
+        targetTableShortId: combinedTable.shortId,
+        targetTableName: combinedTable.name,
+        revision: 1,
+        status: "active",
+        publishedAt: "2026-07-17T12:00:00.000Z",
+        revokedAt: null,
+        mappings: [
+          {
+            sourceFieldId: fieldId,
+            sourceFieldName: "Name",
+            targetFieldId: fieldId,
+            targetFieldName: "Name",
+            targetFieldType: "text",
+          },
+        ],
+      },
+    ];
+    const publicationContext = createContext(
+      ["tables", "combined", "publications", baseId, "Regional authors"],
+      {},
+      [jsonResponse(base), jsonResponse([sourceTable]), jsonResponse(publications)],
+      { output: "json" },
+    );
+
+    await gridsCli.run(publicationContext.ctx);
+
+    expect(publicationContext.calls.at(-1)?.path).toBe(`/api/grids/tables/${sourceTableId}/federation/publications`);
+    expect(publicationContext.jsonValues[0]).toEqual(publications);
+  });
+
+  test("revokes a Combined publication from the source table with the target UUID flag", async () => {
+    const sourceTable = { ...table, id: sourceTableId, shortId: "src01", name: "Regional authors" };
+    const { ctx, calls, lines } = createContext(
+      ["tables", "combined", "revoke", baseId, "Regional authors"],
+      { "target-table": combinedTableId, yes: true },
+      [jsonResponse(base), jsonResponse([sourceTable]), new Response(null, { status: 204 })],
+    );
+
+    await gridsCli.run(ctx);
+
+    expect(calls.at(-1)?.path).toBe(`/api/grids/tables/${combinedTableId}/federation/sources/${sourceTableId}/revoke`);
+    expect(calls.at(-1)?.init?.method).toBe("POST");
+    expect(lines).toEqual([`Revoked Regional authors from Combined table ${combinedTableId}.`]);
   });
 
   test("creates records with raw JSON payloads", async () => {

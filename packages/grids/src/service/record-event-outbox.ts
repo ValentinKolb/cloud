@@ -2,7 +2,7 @@ import { logger, trace } from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import type { SqlClient } from "./audit";
-import { type GridsRecordEvent, GridsRecordEventSchema, publishRecordEvent } from "./record-events";
+import { type GridsRecordEvent, GridsRecordEventSchema, publishRecordEventWithFederatedTargets } from "./record-events";
 
 const log = logger("grids:record-event-outbox");
 const RECONCILE_INTERVAL_MS = 15_000;
@@ -90,7 +90,7 @@ export const captureRecordEventSnapshot = async (
 
 export const dispatchRecordEventOutbox = async (
   id: string,
-  publish: (event: GridsRecordEvent) => Promise<void> = publishRecordEvent,
+  publish: (event: GridsRecordEvent) => Promise<void> = publishRecordEventWithFederatedTargets,
 ): Promise<"delivered" | "already-delivered" | "dead"> => {
   const result = await sql.begin(async (tx) => {
     const [row] = await tx<OutboxRow[]>`
