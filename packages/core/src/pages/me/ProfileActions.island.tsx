@@ -1,6 +1,6 @@
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
-import { Dropdown, openAvatarUploadDialog, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { openAvatarUploadDialog, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 
@@ -26,6 +26,7 @@ type Props = {
   } | null;
   appName?: string;
   freeIpaEnabled: boolean;
+  actions?: ("avatar" | "profile" | "details" | "extend")[];
 };
 
 const SSH_KEY_PATTERN = /^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521))\s+[A-Za-z0-9+/=]+/;
@@ -344,38 +345,44 @@ export default function ProfileActions(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
+  const enabledActions = new Set(props.actions ?? ["avatar", "profile", "details", "extend"]);
   const actions = [
     {
+      id: "avatar" as const,
       icon: "ti ti-camera",
       label: "Change Avatar",
       action: () => void handleChangeAvatar(),
     },
-    ...(canMutateAccount ? [{ icon: "ti ti-pencil", label: "Edit Profile", action: () => void handleEditProfile() }] : []),
-    ...(isIpa ? [{ icon: "ti ti-address-book", label: "Contact & Details", action: () => void handleEditDetails() }] : []),
+    ...(canMutateAccount
+      ? [{ id: "profile" as const, icon: "ti ti-pencil", label: "Edit Profile", action: () => void handleEditProfile() }]
+      : []),
+    ...(isIpa
+      ? [{ id: "details" as const, icon: "ti ti-address-book", label: "Contact & SSH Details", action: () => void handleEditDetails() }]
+      : []),
     ...(canMutateAccount
       ? [
           {
+            id: "extend" as const,
             icon: "ti ti-calendar-plus",
             label: extendMutation.loading() ? "Extending..." : "Extend Account",
             action: () => void extendMutation.mutate(),
           },
         ]
       : []),
-  ];
+  ].filter((action) => enabledActions.has(action.id));
 
   return (
     <Show when={actions.length > 0}>
-      <Dropdown
-        position="bottom-left"
-        width="w-56"
-        trigger={
-          <span class="btn-secondary btn-sm">
-            <i class="ti ti-dots text-sm" />
-            Profile actions
-          </span>
-        }
-        elements={actions}
-      />
+      <div class="flex flex-wrap items-center gap-2">
+        <For each={actions}>
+          {(action) => (
+            <button type="button" class="btn-secondary btn-sm" onClick={action.action}>
+              <i class={action.icon} />
+              {action.label}
+            </button>
+          )}
+        </For>
+      </div>
     </Show>
   );
 }

@@ -11,6 +11,7 @@ type Props = {
   provider: UserProvider;
   profile: UserProfile;
   freeIpaEnabled: boolean;
+  section?: "all" | "preferences" | "security";
 };
 
 // ── Toggle Button Group ──
@@ -50,7 +51,7 @@ function ActionRow(props: { icon: string; label: string; description: string; on
       type="button"
       onClick={props.onClick}
       class={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-        props.variant === "danger" ? "hover:bg-red-50 dark:hover:bg-red-950/30" : "hover:bg-blue-50/45 dark:hover:bg-blue-950/20"
+        props.variant === "danger" ? "hover:bg-red-50 dark:hover:bg-red-950/30" : "hover:bg-[var(--ui-hover)]"
       }`}
     >
       <i class={`ti ${props.icon} text-base shrink-0 ${props.variant === "danger" ? "text-red-500" : "text-dimmed"}`} />
@@ -59,7 +60,7 @@ function ActionRow(props: { icon: string; label: string; description: string; on
         <span class="text-xs text-dimmed block">{props.description}</span>
       </div>
       <i
-        class={`ti ti-chevron-right shrink-0 text-xs text-dimmed transition-transform group-hover:translate-x-0.5 ${props.variant === "danger" ? "group-hover:text-red-500" : "group-hover:text-blue-600 dark:group-hover:text-blue-400"}`}
+        class={`ti ti-chevron-right shrink-0 text-xs text-dimmed transition-transform group-hover:translate-x-0.5 ${props.variant === "danger" ? "group-hover:text-red-500" : "group-hover:text-primary"}`}
       />
     </button>
   );
@@ -209,45 +210,58 @@ export default function ProfileSettings(props: Props) {
 
   const isIpa = props.provider === "ipa" && props.freeIpaEnabled;
   const isGuest = props.profile === "guest";
+  const showPreferences = props.section !== "security";
+  const showSecurity = props.section !== "preferences";
+  const title = props.section === "preferences" ? "Appearance" : props.section === "security" ? "Sign-in and account" : "Account settings";
+  const description =
+    props.section === "preferences"
+      ? "Choose how Cloud looks on this browser."
+      : props.section === "security"
+        ? "Manage your password, current session, and account lifecycle."
+        : "Appearance, password, and session controls.";
 
   return (
     <section class="paper p-5">
       <div class="mb-5">
         <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
-          <i class="ti ti-user-cog text-sm" />
-          Account settings
+          <i class={`ti ${props.section === "preferences" ? "ti-adjustments" : "ti-user-cog"} text-sm`} />
+          {title}
         </h2>
-        <p class="mt-1 text-xs text-dimmed">Appearance, password, and session controls.</p>
+        <p class="mt-1 text-xs text-dimmed">{description}</p>
       </div>
 
       <div class="flex flex-col gap-4">
-        <ToggleGroup
-          label="Color mode"
-          value={theme}
-          onChange={handleTheme}
-          options={[
-            { value: "light", label: "Light", icon: "ti-sun" },
-            { value: "dark", label: "Dark", icon: "ti-moon" },
-          ]}
-        />
+        <Show when={showPreferences}>
+          <ToggleGroup
+            label="Color mode"
+            value={theme}
+            onChange={handleTheme}
+            options={[
+              { value: "light", label: "Light", icon: "ti-sun" },
+              { value: "dark", label: "Dark", icon: "ti-moon" },
+            ]}
+          />
+        </Show>
 
-        <div class="flex flex-col gap-1">
-          <Show when={isIpa}>
-            <ActionRow icon="ti-lock" label="Change Password" description="Update your FreeIPA password" onClick={handleChangePassword} />
-          </Show>
+        <Show when={showSecurity}>
+          <div class="flex flex-col gap-1">
+            <Show when={isIpa}>
+              <ActionRow icon="ti-lock" label="Change Password" description="Update your FreeIPA password" onClick={handleChangePassword} />
+            </Show>
 
-          <ActionRow icon="ti-logout" label="Sign Out" description="Log out of your account" onClick={handleLogout} variant="danger" />
+            <ActionRow icon="ti-logout" label="Sign Out" description="End this browser session" onClick={handleLogout} />
 
-          <Show when={isGuest}>
-            <ActionRow
-              icon="ti-trash"
-              label="Delete Account"
-              description="Permanently delete your account and all data"
-              onClick={handleDelete}
-              variant="danger"
-            />
-          </Show>
-        </div>
+            <Show when={isGuest}>
+              <ActionRow
+                icon="ti-trash"
+                label="Delete Account"
+                description="Permanently delete your account and all data"
+                onClick={handleDelete}
+                variant="danger"
+              />
+            </Show>
+          </div>
+        </Show>
       </div>
     </section>
   );

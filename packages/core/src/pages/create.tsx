@@ -13,8 +13,14 @@ import loginPage from "./auth/page";
 import passwordResetPage from "./auth/password-reset/page";
 import { resolveHomePath } from "./home";
 import { makeLegalPage } from "./legal/page-handler";
+import accessPage from "./me/access.page";
+import developerPage from "./me/developer.page";
+import notificationHistoryPage from "./me/notification-history.page";
 import notificationsPage from "./me/notifications.page";
 import profilePage from "./me/page";
+import preferencesPage from "./me/preferences.page";
+import personalProfilePage from "./me/profile.page";
+import securityPage from "./me/security.page";
 import notFoundPage from "./NotFound";
 
 /**
@@ -50,7 +56,13 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     )
     // Profile
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
+    .get("/me/profile", auth.requireRole("authenticated", auth.redirectToLogin), ...personalProfilePage)
+    .get("/me/preferences", auth.requireRole("authenticated", auth.redirectToLogin), ...preferencesPage)
+    .get("/me/security", auth.requireRole("authenticated", auth.redirectToLogin), ...securityPage)
+    .get("/me/access", auth.requireRole("authenticated", auth.redirectToLogin), ...accessPage)
     .get("/me/notifications", auth.requireRole("authenticated", auth.redirectToLogin), ...notificationsPage)
+    .get("/me/notifications/history", auth.requireRole("authenticated", auth.redirectToLogin), ...notificationHistoryPage)
+    .get("/me/developer", auth.requireRole("authenticated", auth.redirectToLogin), ...developerPage)
     // Admin pages (admin only)
     .get("/admin", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
     .get("/admin/announcements", auth.requireRole("admin", auth.redirectToLogin), ...announcementsAdminPage)

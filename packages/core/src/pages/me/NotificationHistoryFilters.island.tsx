@@ -21,7 +21,7 @@ export default function NotificationHistoryFilters(props: { status?: Notificatio
     if (value === "all") params.delete("status");
     else params.set("status", value);
     const query = params.toString();
-    navigateTo(query ? `/me/notifications?${query}` : "/me/notifications");
+    navigateTo(query ? `/me/notifications/history?${query}` : "/me/notifications/history");
   };
 
   return (

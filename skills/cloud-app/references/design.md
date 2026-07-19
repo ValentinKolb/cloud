@@ -224,6 +224,12 @@ The header identifies the current resource, not the app twice.
 - Resize capability is consistent across an app. If one primary view exposes a resizable sidebar, every primary view keeps it unless a documented UX constraint genuinely requires a different shell. Search, history, archive, and management flows must not silently drop resize behavior; use a modal for temporary collection work or retain the same workspace shell.
 - Icon-only collapse is opt-in and curated. Crossing the shared narrow-width threshold snaps smoothly to a compact state and restores the previous expanded width when reopened. Show only high-value, recognizable actions in that state; do not compress an entire dense list into ambiguous repeated icons. Every icon has an accessible name and a tooltip or title.
 
+## Personal account surfaces
+
+Personal account management is a global Cloud surface, not another app workspace. Use one identity hero with a persistent, horizontally scrollable category navigation and one focused content area. Do not add the app rail, a second settings sidebar, or a generic "Settings" header.
+
+Keep common profile actions directly visible on the overview and profile surfaces. Group the remaining capabilities by user intent—preferences, security, access, notifications, and developer tooling—so every existing task is reachable with at most one category change. Progressive disclosure may simplify dense content, but it must not bury routine actions behind nested menus or remove an existing capability. Preserve direct URLs for every category and keep destructive actions inside their relevant category rather than collecting them in a generic overflow menu.
+
 ## Controls
 
 ### Buttons

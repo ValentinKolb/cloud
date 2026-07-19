@@ -1,415 +1,189 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { accountsAppService, audit, coreSettings, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
-import { canManageAnyGroups, getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
-import { getRuntimeContext, hasDedicatedRuntimeRoute, Layout } from "@valentinkolb/cloud/ssr";
-import { Avatar } from "@valentinkolb/cloud/ui";
+import { accountsAppService, audit, coreSettings, notifications, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
+import { Layout } from "@valentinkolb/cloud/ssr";
 import { dates } from "@valentinkolb/stdlib";
 import { ssr } from "../../config";
 import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
-import AccountActivity from "./AccountActivity.island";
-import ApiKeysSettings from "./ApiKeysSettings.island";
-import PasskeysSettings from "./PasskeysSettings.island";
-import ProfileActions from "./ProfileActions.island";
-import ProfileSettings from "./ProfileSettings.island";
-import RequestFreeIpaAccount from "./RequestFreeIpaAccount.island";
-import WithdrawAccountRequest from "./WithdrawAccountRequest.island";
+import AccountHub, { AccountPageHeader, AccountProfileActions } from "./AccountHub";
 
-const formatAddress = (a: {
-  street: string | null;
-  postalCode: string | null;
-  city: string | null;
-  state: string | null;
-}): string | null => {
-  const parts: string[] = [];
-  if (a.street) parts.push(a.street);
-  if (a.postalCode && a.city) parts.push(`${a.postalCode} ${a.city}`);
-  else if (a.city) parts.push(a.city);
-  else if (a.postalCode) parts.push(a.postalCode);
-  if (a.state) parts.push(a.state);
-  return parts.length > 0 ? parts.join(", ") : null;
-};
-
-const parseActivityDays = (value: string | undefined): 7 | 30 | 90 => {
-  if (value === "7") return 7;
-  if (value === "90") return 90;
-  return 30;
-};
-
-const publicCloudUrl = (value: string): string => {
-  const raw = value.trim().replace(/\/+$/, "");
-  const configured = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
-  const local = configured.hostname === "localhost" || configured.hostname === "127.0.0.1" || configured.hostname === "::1";
-  return new URL(/^https?:\/\//i.test(raw) || !local ? configured : `http://${raw}`).origin;
+const accountExpiryCopy = (expiresAt: string): string => {
+  const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return "Your account has expired.";
+  if (days === 0) return "Your account expires today.";
+  return `Your account expires in ${days} ${days === 1 ? "day" : "days"}.`;
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const [rawAppName, rawAppUrl, freeIpaEnabledRaw] = await Promise.all([
+  const user = c.get("user");
+  const [rawAppName, freeIpaEnabledRaw] = await Promise.all([
     coreSettings.get<string>("app.name"),
-    coreSettings.get<string>("app.url"),
     coreSettings.get<boolean>("freeipa.enable"),
   ]);
-  const appName = rawAppName || "My App";
+  const appName = rawAppName || "Cloud";
   const freeIpaEnabled = Boolean(freeIpaEnabledRaw);
-  const sessionUser = c.get("user");
-  const accountsUiAvailable = hasDedicatedRuntimeRoute(getRuntimeContext(c).apps, "/app/accounts/groups", "core");
-  const manages = sessionUser.manages;
-  const canManageGroups = canManageAnyGroups(sessionUser);
-  const showAllGroups = c.req.query("groups") === "all";
-  const activityDays = parseActivityDays(c.req.query("activityDays"));
-  const action = c.req.query("action");
-  const isIpaUser = sessionUser.provider === "ipa";
-  const ipaData = sessionUser.ipa;
-  const isGuestProfile = sessionUser.profile === "guest";
-  const directGroups = sessionUser.memberofGroup;
-  const supplementalRoles = sessionUser.roles.filter((role) => role === "admin" || role === "group-manager");
-  const isExpiredAccount = sessionUser.accountExpires ? new Date(sessionUser.accountExpires) < new Date() : false;
-  const cloudUrl = publicCloudUrl(rawAppUrl);
-  const cliInstallCommand = `curl -fsSL ${cloudUrl}/cli | sh`;
-  const [pendingRequest, apiKeys, passkeys, activityPage] = await Promise.all([
-    sessionUser.provider === "local"
-      ? accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id })
-      : Promise.resolve(null),
-    serviceAccountCredentials.listForDelegatedUser({ userId: sessionUser.id }),
-    webauthn.listForUser({ userId: sessionUser.id }),
-    audit.listSelfServiceActivity({ userId: sessionUser.id, days: activityDays, pagination: { page: 1, perPage: 50 } }),
+  const [pendingRequest, apiKeys, passkeys, activityPage, notificationPreferences] = await Promise.all([
+    user.provider === "local" ? accountsAppService.accountRequest.getPendingForUser({ userId: user.id }) : Promise.resolve(null),
+    serviceAccountCredentials.listForDelegatedUser({ userId: user.id }),
+    webauthn.listForUser({ userId: user.id }),
+    audit.listSelfServiceActivity({ userId: user.id, days: 30, pagination: { page: 1, perPage: 5 } }),
+    notifications.user.preferences.list(user.id),
   ]);
-  const address = formatAddress(ipaData?.address ?? { street: null, postalCode: null, city: null, state: null });
-
-  let displayGroups: string[] = [];
-  if (showAllGroups) {
-    displayGroups = (await accountsAppService.user.group.list({ userId: sessionUser.id, recursive: true })).items;
-  } else {
-    displayGroups = directGroups;
-  }
-
-  const profileBadgeClass =
-    sessionUser.profile === "guest"
-      ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
-      : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300";
-  const providerBadgeClass =
-    sessionUser.provider === "ipa"
-      ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
-      : "bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300";
+  const customizedNotifications = notificationPreferences.definitions.filter((preference) => preference.customized).length;
+  const action = c.req.query("action");
 
   return () => (
-    <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Profile" }]}>
+    <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Account" }]}>
       <CoreLayoutHelp documents={coreHelp.manifest} />
-      <div class="mx-auto flex max-w-6xl flex-col gap-4 px-2">
-        {action === "extend" && (
-          <div class="info-block-info text-sm">
-            Need more time? Use <strong>Extend Account</strong> below to renew your account expiry.
-          </div>
-        )}
+      <AccountHub
+        user={user}
+        active="overview"
+        actions={<AccountProfileActions user={user} appName={appName} freeIpaEnabled={freeIpaEnabled} />}
+      >
+        <div class="flex flex-col gap-2">
+          <AccountPageHeader title="Account overview" description="Your identity, access, security, and personal Cloud preferences." />
 
-        <section class="paper overflow-hidden" style="view-transition-name: profile-card">
-          <div class="grid gap-5 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-            <div class="flex min-w-0 gap-4">
-              <Avatar
-                username={sessionUser.displayName || sessionUser.uid}
-                userId={sessionUser.id}
-                avatarHash={sessionUser.avatarHash}
-                size="lg"
-                class="bg-zinc-100 shadow-[var(--ui-shadow-surface)] dark:bg-zinc-800"
-                style="view-transition-name: user-avatar"
-              />
+          {action === "extend" && (
+            <div class="info-block-info text-sm">
+              Use <strong>Extend Account</strong> above to renew your account expiry.
+            </div>
+          )}
+
+          {user.accountExpires && (
+            <section class="paper flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <i class="ti ti-calendar-exclamation" />
+              </span>
               <div class="min-w-0 flex-1">
-                <div class="flex min-w-0 items-center gap-2">
-                  <h1 class="text-xl font-semibold leading-tight text-primary">{sessionUser.displayName || sessionUser.uid}</h1>
-                </div>
-                {sessionUser.displayName && !isGuestProfile && <p class="mt-1 text-xs text-dimmed">{sessionUser.uid}</p>}
+                <h3 class="text-sm font-semibold text-primary">{accountExpiryCopy(user.accountExpires)}</h3>
+                <p class="mt-1 text-xs text-dimmed">
+                  Extend access before {dates.formatDate(user.accountExpires)} to avoid an interruption.
+                </p>
               </div>
+              <AccountProfileActions user={user} appName={appName} freeIpaEnabled={freeIpaEnabled} actions={["extend"]} />
+            </section>
+          )}
+
+          {pendingRequest && (
+            <a
+              href="/me/access"
+              class="paper flex items-center gap-3 p-4 no-underline transition-colors hover:bg-[var(--ui-surface-subtle)]"
+            >
+              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                <i class="ti ti-clock" />
+              </span>
+              <div class="min-w-0 flex-1">
+                <h3 class="text-sm font-semibold text-primary">FreeIPA account request pending</h3>
+                <p class="mt-1 text-xs text-dimmed">
+                  Submitted {dates.formatDate(pendingRequest.createdAt.toISOString())}. Open Access to review it.
+                </p>
+              </div>
+              <i class="ti ti-chevron-right text-dimmed" />
+            </a>
+          )}
+
+          {user.provider === "ipa" && user.profile === "guest" && (
+            <div class="info-block-info text-sm">
+              Your account has limited access. Ask a group manager to add you to a group to unlock full features.
             </div>
+          )}
 
-            <ProfileActions
-              userId={sessionUser.id}
-              provider={sessionUser.provider}
-              profile={sessionUser.profile}
-              uid={sessionUser.uid}
-              givenname={sessionUser.givenname}
-              sn={sessionUser.sn}
-              displayName={sessionUser.displayName}
-              avatarHash={sessionUser.avatarHash}
-              ipa={sessionUser.ipa}
-              appName={appName}
-              freeIpaEnabled={freeIpaEnabled}
-            />
-          </div>
-
-          <div class="px-5 pb-5 sm:px-6">
-            <div class="mb-4 flex flex-wrap gap-2">
-              <span class={`tag ${profileBadgeClass}`}>{getAccountTypeLabel(sessionUser)}</span>
-              <span class={`tag ${providerBadgeClass}`}>{getManagementLabel(sessionUser)}</span>
-              {supplementalRoles.map((role) => (
-                <span
-                  class={`tag ${role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"}`}
-                >
-                  {getSupplementalRoleLabel(role)}
+          <section class="grid gap-2 sm:grid-cols-2">
+            <a href="/me/security" class="paper group p-4 no-underline transition-colors hover:bg-[var(--ui-surface-subtle)]">
+              <div class="flex items-start gap-3">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                  <i class="ti ti-shield-lock" />
                 </span>
-              ))}
-              {isExpiredAccount && <span class="tag bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300">Expired</span>}
-            </div>
-            <div class="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
-              {sessionUser.mail && (
-                <div class="flex min-w-0 items-center gap-2">
-                  <i class="ti ti-mail shrink-0 text-dimmed" />
-                  <span class="truncate text-secondary">{sessionUser.mail}</span>
+                <div class="min-w-0 flex-1">
+                  <h3 class="text-sm font-semibold text-primary group-hover:text-secondary">Security</h3>
+                  <p class="mt-1 text-xs text-dimmed">
+                    {passkeys.length} {passkeys.length === 1 ? "passkey" : "passkeys"} ·{" "}
+                    {activityPage.items.length > 0 ? "Recent activity available" : "No recent activity"}
+                  </p>
                 </div>
-              )}
-              {ipaData?.phone && (
-                <div class="flex min-w-0 items-center gap-2">
-                  <i class="ti ti-phone shrink-0 text-dimmed" />
-                  <span class="truncate text-secondary">{ipaData.phone}</span>
-                </div>
-              )}
-              {isIpaUser && ipaData?.employeeType && (
-                <div class="flex min-w-0 items-center gap-2">
-                  <i class="ti ti-briefcase shrink-0 text-dimmed" />
-                  <span class="truncate text-secondary">{ipaData.employeeType}</span>
-                </div>
-              )}
-              {isIpaUser && ipaData?.mobile && ipaData.mobile !== ipaData.phone && (
-                <div class="flex min-w-0 items-center gap-2">
-                  <i class="ti ti-device-mobile shrink-0 text-dimmed" />
-                  <span class="truncate text-secondary">{ipaData.mobile}</span>
-                </div>
-              )}
-              {isIpaUser && address && (
-                <div class="flex min-w-0 items-center gap-2">
-                  <i class="ti ti-map-pin shrink-0 text-dimmed" />
-                  <span class="truncate text-secondary">{address}</span>
-                </div>
-              )}
-              {sessionUser.accountExpires && (
-                <div class="flex min-w-0 items-center gap-2">
-                  <i class="ti ti-calendar-event shrink-0 text-dimmed" />
-                  <span class={`truncate text-dimmed ${isExpiredAccount ? "text-red-600 dark:text-red-400" : ""}`}>
-                    {isGuestProfile ? "Guest access expires" : "Account expires"} {dates.formatDate(sessionUser.accountExpires)}
-                  </span>
-                </div>
-              )}
-              {isIpaUser && ipaData?.passwordExpires && (
-                <div class="flex min-w-0 items-center gap-2">
-                  <i class="ti ti-key shrink-0 text-dimmed" />
-                  <span class="truncate text-dimmed">Password expires {dates.formatDate(ipaData.passwordExpires)}</span>
-                </div>
-              )}
-              {isIpaUser && (ipaData?.sshFingerprints.length ?? 0) > 0 && (
-                <div class="flex min-w-0 items-center gap-2">
-                  <i class="ti ti-terminal shrink-0 text-dimmed" />
-                  <span class="truncate text-dimmed">
-                    {ipaData?.sshPublicKeys.length ?? 0} SSH {(ipaData?.sshPublicKeys.length ?? 0) === 1 ? "key" : "keys"} configured
-                  </span>
-                </div>
-              )}
-            </div>
-            {isIpaUser && isGuestProfile && (
-              <div class="mt-4 info-block-info text-xs">
-                Your account has limited access. Ask a group manager to add you to a group to unlock full features.
+                <i class="ti ti-chevron-right text-dimmed" />
               </div>
-            )}
-          </div>
-        </section>
+            </a>
 
-        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <main class="flex min-w-0 flex-col gap-4">
-            <section class="paper p-5 sm:p-6">
-              <div class="grid gap-6 xl:grid-cols-2">
-                <PasskeysSettings initialPasskeys={passkeys} surface="section" />
-                <ApiKeysSettings initialKeys={apiKeys} surface="section" />
-              </div>
-            </section>
-
-            <section class="paper p-5 sm:p-6">
-              <AccountActivity initialItems={activityPage.items} days={activityDays} surface="section" />
-            </section>
-
-            <section class="paper p-5 sm:p-6">
-              <div class="mb-5 flex items-start justify-between gap-3">
-                <div>
-                  <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
-                    <i class="ti ti-shield-lock text-sm" />
-                    Access & membership
-                  </h2>
-                  <p class="mt-1 text-xs text-dimmed">Groups and delegated management visible to your account.</p>
+            <a href="/me/access" class="paper group p-4 no-underline transition-colors hover:bg-[var(--ui-surface-subtle)]">
+              <div class="flex items-start gap-3">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                  <i class="ti ti-users-group" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <h3 class="text-sm font-semibold text-primary group-hover:text-secondary">Access and groups</h3>
+                  <p class="mt-1 text-xs text-dimmed">
+                    {user.memberofGroup.length} direct memberships · {user.manages.length} managed groups
+                  </p>
                 </div>
+                <i class="ti ti-chevron-right text-dimmed" />
               </div>
+            </a>
 
-              <div class="grid gap-6 xl:grid-cols-2">
-                <div class="min-w-0">
-                  <div class="mb-3 flex items-center justify-between gap-3">
-                    <h3 class="flex items-center gap-1.5 text-xs font-semibold uppercase text-dimmed">
-                      <i class="ti ti-users-group text-sm" />
-                      Groups
-                    </h3>
-                    {displayGroups.length > 0 && (
-                      <a
-                        href={showAllGroups ? "/me" : "/me?groups=all"}
-                        class={`tag transition-colors ${
-                          showAllGroups
-                            ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"
-                            : "bg-zinc-100 text-dimmed hover:text-secondary dark:bg-zinc-800"
-                        }`}
-                        title={showAllGroups ? "Show direct memberships only" : "Show all memberships (including inherited)"}
-                      >
-                        <i class="ti ti-git-branch" />
-                        {showAllGroups ? "All" : "Direct"}
-                      </a>
-                    )}
-                  </div>
-                  {displayGroups.length > 0 ? (
-                    <div class="flex flex-wrap gap-1.5">
-                      {displayGroups.map((group) => {
-                        const isDirect = directGroups.includes(group);
-                        const className = `tag ${
-                          isDirect
-                            ? "bg-zinc-100 text-secondary dark:bg-zinc-800"
-                            : "bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
-                        }`;
-                        const title = isDirect ? "Direct membership" : "Inherited via group hierarchy";
-                        const label = (
-                          <>
-                            {group}
-                            {!isDirect && <i class="ti ti-git-branch ml-0.5 text-[10px] opacity-70" />}
-                          </>
-                        );
-                        return accountsUiAvailable ? (
-                          <a
-                            href={`/app/accounts/groups?scope=member&search=${encodeURIComponent(group)}`}
-                            class={`${className} transition-colors ${
-                              isDirect ? "hover:text-primary" : "hover:bg-violet-100 dark:hover:bg-violet-900/50"
-                            }`}
-                            title={title}
-                          >
-                            {label}
-                          </a>
-                        ) : (
-                          <span class={className} title={title}>
-                            {label}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
-                      <i class="ti ti-users-group text-2xl text-dimmed" />
-                      <p class="mt-2 text-xs text-dimmed">Not a member of any groups yet.</p>
-                      {accountsUiAvailable && (
-                        <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">
-                          Browse groups
-                        </a>
-                      )}
-                    </div>
-                  )}
-                  {showAllGroups && displayGroups.length > directGroups.length && (
-                    <p class="mt-2 flex items-center gap-1 text-[10px] text-dimmed">
-                      <i class="ti ti-git-branch text-[10px]" />
-                      Inherited via group hierarchy.
-                    </p>
-                  )}
+            <a href="/me/notifications" class="paper group p-4 no-underline transition-colors hover:bg-[var(--ui-surface-subtle)]">
+              <div class="flex items-start gap-3">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                  <i class="ti ti-bell" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <h3 class="text-sm font-semibold text-primary group-hover:text-secondary">Notifications</h3>
+                  <p class="mt-1 text-xs text-dimmed">
+                    {customizedNotifications > 0
+                      ? `${customizedNotifications} customized ${customizedNotifications === 1 ? "preference" : "preferences"}`
+                      : "Using app defaults"}
+                  </p>
                 </div>
-
-                <div class="min-w-0">
-                  <h3 class="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase text-dimmed">
-                    <i class="ti ti-shield text-sm" />
-                    Manages
-                  </h3>
-                  {canManageGroups && manages.length > 0 ? (
-                    <div class="flex flex-wrap gap-1.5">
-                      {manages.map((group) =>
-                        accountsUiAvailable ? (
-                          <a
-                            href={`/app/accounts/groups?scope=managed&search=${encodeURIComponent(group)}`}
-                            class="tag bg-blue-100 text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900/80"
-                          >
-                            {group}
-                          </a>
-                        ) : (
-                          <span class="tag bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">{group}</span>
-                        ),
-                      )}
-                    </div>
-                  ) : (
-                    <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
-                      <i class="ti ti-shield text-2xl text-dimmed" />
-                      <p class="mt-2 text-xs text-dimmed">You don't manage any groups.</p>
-                      {accountsUiAvailable && (
-                        <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">
-                          Browse groups
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <i class="ti ti-chevron-right text-dimmed" />
               </div>
-            </section>
-          </main>
+            </a>
 
-          <aside class="flex min-w-0 flex-col gap-4">
-            <section class="paper p-5">
-              <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
-                <i class="ti ti-bell text-sm" />
-                Notifications
-              </h2>
-              <p class="mt-1 text-xs text-dimmed">Choose delivery channels and review recent outcomes.</p>
-              <a href="/me/notifications" class="btn-secondary btn-sm mt-4 inline-flex">
-                <i class="ti ti-settings" />
-                Manage notifications
+            <a href="/me/developer" class="paper group p-4 no-underline transition-colors hover:bg-[var(--ui-surface-subtle)]">
+              <div class="flex items-start gap-3">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                  <i class="ti ti-terminal-2" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <h3 class="text-sm font-semibold text-primary group-hover:text-secondary">Developer</h3>
+                  <p class="mt-1 text-xs text-dimmed">
+                    {apiKeys.length} personal API {apiKeys.length === 1 ? "key" : "keys"} · CLI and SSH setup
+                  </p>
+                </div>
+                <i class="ti ti-chevron-right text-dimmed" />
+              </div>
+            </a>
+          </section>
+
+          <section class="paper p-5">
+            <div class="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-sm font-semibold text-primary">Recent security activity</h3>
+                <p class="mt-1 text-xs text-dimmed">The latest account-relevant events. Full history remains in Security.</p>
+              </div>
+              <a href="/me/security" class="btn-simple btn-sm shrink-0">
+                View all
+                <i class="ti ti-arrow-right" />
               </a>
-            </section>
-
-            <section class="paper p-5">
-              <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
-                <i class="ti ti-terminal-2 text-sm" />
-                Cloud CLI
-              </h2>
-              <p class="mt-1 text-xs text-dimmed">
-                Work with your favorite Cloud apps from the terminal. The installer can add the agent skill too.
-              </p>
-              <code class="mt-4 block overflow-x-auto rounded-md bg-zinc-100 px-3 py-2 font-mono text-[11px] text-secondary dark:bg-zinc-800">
-                {cliInstallCommand}
-              </code>
-              <p class="mt-3 text-xs text-dimmed">
-                Then run <code class="font-mono text-secondary">cld login --server {cloudUrl}</code>.
-              </p>
-            </section>
-
-            {sessionUser.provider === "local" && (freeIpaEnabled || pendingRequest) && (
-              <section class="paper p-5">
-                <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
-                  <i class="ti ti-building-fortress text-sm" />
-                  Request FreeIPA Account
-                </h2>
-                <p class="mt-1 text-xs text-dimmed">Request a centrally managed account if you need broader group-based access.</p>
-                {pendingRequest ? (
-                  <div class="mt-4 flex flex-col gap-3">
-                    <div class="info-block-info text-xs">
-                      Request pending since {dates.formatDate(pendingRequest.createdAt.toISOString())}.
+            </div>
+            {activityPage.items.length > 0 ? (
+              <div class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-2">
+                {activityPage.items.slice(0, 3).map((entry) => (
+                  <div class="grid gap-1 rounded-[var(--ui-radius-control)] p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div class="min-w-0">
+                      <p class="truncate text-sm font-medium text-primary">{entry.label}</p>
+                      <p class="mt-0.5 truncate text-xs text-dimmed">{entry.context || "Account"}</p>
                     </div>
-                    <div class="flex justify-end">
-                      <WithdrawAccountRequest />
-                    </div>
+                    <span class="text-xs text-dimmed">{dates.formatDateTimeRelative(entry.createdAt)}</span>
                   </div>
-                ) : (
-                  <div class="mt-4">
-                    <RequestFreeIpaAccount
-                      givenname={sessionUser.givenname}
-                      sn={sessionUser.sn}
-                      displayName={sessionUser.displayName}
-                      phone={null}
-                      agbUrl="/legal/terms"
-                      privacyUrl="/legal/privacy"
-                      appName={appName}
-                    />
-                  </div>
-                )}
-              </section>
+                ))}
+              </div>
+            ) : (
+              <p class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4 text-xs text-dimmed">
+                No recent account activity.
+              </p>
             )}
-
-            <ProfileSettings provider={sessionUser.provider} profile={sessionUser.profile} freeIpaEnabled={freeIpaEnabled} />
-          </aside>
+          </section>
         </div>
-      </div>
+      </AccountHub>
     </Layout>
   );
 });

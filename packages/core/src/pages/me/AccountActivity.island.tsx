@@ -1,7 +1,7 @@
-import { dates } from "@valentinkolb/stdlib";
-import { navigateTo } from "@valentinkolb/ssr/nav";
 import type { AccountActivity as AccountActivityEntry } from "@valentinkolb/cloud/contracts";
-import { DataTable, FilterChip, type DataTableColumn, type FilterChipSection } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
+import { dates } from "@valentinkolb/stdlib";
 
 type ActivityDays = 7 | 30 | 90;
 
@@ -39,7 +39,7 @@ const setActivityDays = (value: string) => {
   if (value === "30") params.delete("activityDays");
   else params.set("activityDays", value);
   const query = params.toString();
-  navigateTo(query ? `/me?${query}` : "/me");
+  navigateTo(query ? `/me/security?${query}` : "/me/security");
 };
 
 export default function AccountActivity(props: Props) {
