@@ -22,6 +22,13 @@ cld mail rediscover --mailbox <mailbox-id> --wait
 cld mail configure --mailbox <mailbox-id> --sync enabled
 ```
 
+Mailbox admins can delegate guided automatic-reply management to writers without granting access to providers, sender configuration, reusable schedules, or YAML workflows:
+
+```bash
+cld mail configure --mailbox <mailbox-id> --automatic-replies writers
+cld mail configure --mailbox <mailbox-id> --automatic-replies admins
+```
+
 ## Configure a mailbox
 
 Create a mailbox and make it the default for later commands:

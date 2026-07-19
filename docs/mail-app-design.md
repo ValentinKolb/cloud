@@ -71,7 +71,7 @@ This snapshot records the verified Mail backend, CLI, and core application exper
 | 2. IMAP onboarding, sync, and search | Backend core implemented | Generic manual IMAP/SMTP setup and live verification; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; periodic reconciliation; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; repair and health operations; canonical field-specific structured search with keyset pagination, native FTS and optional `pg_textsearch`; mailbox-local tags with revision-safe API, CLI, Details-panel assignment, audit, activity, and live invalidation; and explicit 20,000- and 100,000-message performance gates. | Provider presets, RFC 6186 and Thunderbird autoconfiguration, OAuth setup, and setup UX. |
 | 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; message-bound plus outgoing attachment UX; private and mailbox signatures/snippets; default signatures per sender identity; canonical preview/send rendering; and validated mailbox email CSS. | Rich attachment previewers and broader multi-message bulk selection. |
 | 4. Collaboration | Backend and primary UI implemented | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; mailbox-scoped live invalidation; permission-safe API and CLI; and the combined Mail, ownership, comments, reminders, and audit Details panel. | Explicit presence indicators and richer shared-draft takeover and conflict guidance. |
-| 5. Deterministic workflows | Shared-kernel backend and CLI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable move, send, keyword, and collaboration budgets; permission and credential rechecks; durable command waiting; fenced recovery; immutable reference allocation; version-pinned response schedules; guarded RFC-safe automatic replies; typed API and CLI. | Workflow authoring UI, richer Mail actions, run controls, and AI decision nodes. |
+| 5. Deterministic workflows | Shared-kernel backend, CLI, and management UI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable move, send, keyword, and collaboration budgets; permission and credential rechecks; durable command waiting; fenced recovery; immutable reference allocation; version-pinned response schedules; guarded RFC-safe automatic replies; typed API and CLI; and a dedicated Automations workspace with guided replies, reusable availability, references, version management, and run history. | Richer Mail actions, run controls, and AI decision nodes. |
 | 6. AI decisions and agents | Not started | Mail is exposed through typed API and CLI operations suitable for later tools. | Mail AI resource, tools, approvals, workflow decision nodes, summaries, classification, suggested drafts, and bulk-plan generation. |
 | 7. Product-speed pass | Primary workspace implemented | Calm Cloud-native mailbox overview; resizable AppWorkspace navigation; dense one-line conversation rows; structured search; URL-backed SSR-first frontend navigation; collapsible conversation list; threaded reader; one combined and resizable Details panel; contained reply/forward composer; dedicated full-size and pop-out composer; durable local draft journal; permission-aware self-service settings; responsive empty/error states; and authenticated desktop/mobile verification against a live mailbox. | Comprehensive keyboard shortcuts, reader/list prefetch, explicit frontend performance gates, and final accessibility regression coverage. |
 | 8-9. Enhanced connectors | Not started | Provider-neutral connector, capability, identity, and command boundaries are established. | JMAP, Microsoft Graph, and Gmail API connectors and their conformance suites. |
@@ -802,7 +802,7 @@ Runs retain pinned source identity, target progress, inputs/query, actor authori
 
 ### Current product gaps
 
-The backend and CLI are ahead of the Mail UI. There is no visual workflow editor, in-app workflow help, pause/resume, or per-target retry UI. Automatic replies and named response schedules are available as typed backend, CLI, and mailbox-admin settings primitives, but acknowledgement and out-of-office presets are not yet a complete guided product flow. AI decisions, richer actions, conflict analysis, and generated bulk-plan UX remain product work and must not be presented as available behavior.
+The Mail UI exposes guided out-of-office, office-hours acknowledgement, and custom automatic-reply flows in the mailbox **Automations** workspace. The same workspace keeps reusable schedules, references, canonical YAML versions, activation, and recent runs available to mailbox admins without mixing them into everyday mailbox settings. There is no visual workflow editor, pause/resume, or per-target retry UI. AI decisions, richer actions, conflict analysis, and generated bulk-plan UX remain product work and must not be presented as available behavior.
 
 ## Agents and AI
 
@@ -1028,9 +1028,11 @@ Snooze returns a conversation at a time. Conditional reminders return it only if
 
 ### Automatic-response setup
 
-Mailbox settings offer acknowledgement and out-of-office presets, but saving a preset creates an ordinary versioned workflow. There is no second responder engine or hidden provider rule.
+**Automations** is a first-class mailbox workspace rather than a settings tab. Its overview and **Automatic replies** section offer acknowledgement and out-of-office presets, but saving a preset creates an ordinary versioned workflow. There is no second responder engine or hidden provider rule. Mailbox admins access reusable schedules, conversation references, workflow versions, and run history through **Availability** and **Advanced**.
 
-Setup selects a verified sender identity, template, reference scheme if needed, timezone and schedule, deduplication policy, and suppression defaults. Before activation, the UI previews the exact subject and body with sample data and summarizes which automated or list messages will be suppressed. An active absence window is visible in mailbox settings and can be disabled with one audited action.
+Setup selects a verified sender identity, content, timezone and schedule, deduplication policy, and suppression defaults. Before activation, the UI previews the exact subject and body with sample data and summarizes which automated or list messages will be suppressed. The Automations overview shows the active reply, which can be reviewed or disabled with one audited action.
+
+**Settings > Access** contains the mailbox policy for guided replies. The secure default is admin-only. An administrator may allow writers to create and change automatic replies so employees can manage their own absences. This delegation does not grant sender-identity administration, reusable schedule administration, conversation-reference administration, or YAML workflow administration.
 
 ### Contact context
 
@@ -1113,7 +1115,7 @@ Accepted mapping:
 | Permission | Capabilities |
 | --- | --- |
 | `read` | List, search, and read mail and shared drafts; download permitted attachments; view activity; write, edit, and delete own internal comments; mention collaborators. Draft access includes envelope fields and Bcc because drafts are mailbox content. |
-| `write` | Read plus every ordinary message and collaboration operation: flags, keywords, moves, copy, archive, trash, message deletion, local tags, assignment, status, references, draft creation and editing, takeover, discard, and send. |
+| `write` | Read plus every ordinary message and collaboration operation: flags, keywords, moves, copy, archive, trash, message deletion, local tags, assignment, status, references, draft creation and editing, takeover, discard, and send. A mailbox policy may additionally delegate guided automatic-reply management. |
 | `admin` | Write plus mailbox-owned provider connections, all mailbox binding links, sender identities, remote folder creation/rename/deletion, mailbox settings, sharing, workflows, rules, policies, signatures, and reversible mailbox deletion. |
 
 Service-account credential scopes can only reduce resource permission. Tool and automation policies can reduce it further.
@@ -1136,7 +1138,7 @@ Cloud permission authorizes access to the mailbox and mirrored content. Remote o
 
 One-shot bulk plans may be executed by a writer only for actions that writer could perform individually. Recurring rules, connection changes, sender identities, and autonomous-action policies require mailbox administration permission.
 
-Manual conversation merge and split require `write` and an expected conversation revision. Activating automatic replies, selecting their sender identity, or changing deduplication and schedule policy requires `admin`; execution then uses the frozen workflow version and a resolver-selected eligible transport binding.
+Manual conversation merge and split require `write` and an expected conversation revision. Automatic-reply creation, activation, sender selection, deduplication, and embedded schedule changes require either `admin` or `write` when the mailbox's guided-reply policy explicitly delegates them. Sender-identity configuration, named schedules, references, and arbitrary workflow changes still require `admin`. Execution uses the frozen workflow version and a resolver-selected eligible transport binding.
 
 ### Revocation
 
@@ -1394,7 +1396,7 @@ Implemented verification covers:
 - atomic conversation-reference allocation, merge/split alias semantics, exact reference search, response-schedule version fencing, automatic-reply loop suppression, concurrent deduplication, recipient rate limits, and durable outbox materialization;
 - deduplicated live incremental `messageReceived` delivery, historical-import suppression, revoked-actor skips, expired-trigger-claim recovery, and revision-fenced schedule slots.
 
-Remaining product scenarios include pause/resume and targeted retry, workflow authoring UI, richer action coverage, guided acknowledgement/out-of-office setup, AI decisions, and generated bulk plans.
+Remaining product scenarios include pause/resume and targeted retry, a richer workflow-authoring experience beyond canonical YAML, richer action coverage, AI decisions, and generated bulk plans.
 
 ### Scale scenarios
 
