@@ -12,7 +12,22 @@ export type ApiDocSource = {
   url: string;
 };
 
-const isSafeOpenApiUrl = (url: string): boolean => (/^\/(?!\/)/.test(url) || /^https?:\/\//i.test(url));
+export const buildApiDocsGuideSource = (markdown: string) => ({
+  default: true,
+  slug: "start",
+  title: "Start here",
+  content: {
+    openapi: "3.1.0",
+    info: {
+      title: "Using Cloud API Docs",
+      version: "1.0.0",
+      description: markdown,
+    },
+    paths: {},
+  },
+});
+
+const isSafeOpenApiUrl = (url: string): boolean => /^\/(?!\/)/.test(url) || /^https?:\/\//i.test(url);
 
 export const buildApiDocSources = (apps: readonly OpenApiApp[]): ApiDocSource[] => {
   const seen = new Set<string>();

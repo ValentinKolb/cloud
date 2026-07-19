@@ -1,7 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { buildApiDocSources, buildScalarSources } from "../sources";
+import { buildApiDocSources, buildApiDocsGuideSource, buildScalarSources } from "../sources";
 
 describe("buildScalarSources", () => {
+  test("builds a default overview source before an API is selected", () => {
+    expect(buildApiDocsGuideSource("Choose an app.")).toMatchObject({
+      default: true,
+      slug: "start",
+      title: "Start here",
+      content: {
+        info: { title: "Using Cloud API Docs", description: "Choose an app." },
+        paths: {},
+      },
+    });
+  });
+
   test("returns sorted safe OpenAPI sources", () => {
     expect(
       buildScalarSources([

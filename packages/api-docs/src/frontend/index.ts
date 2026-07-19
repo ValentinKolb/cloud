@@ -1,7 +1,8 @@
 import { Scalar } from "@scalar/hono-api-reference";
 import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
 import { Hono } from "hono";
-import { buildScalarSources } from "../sources";
+import { apiDocsHelp } from "../help";
+import { buildApiDocsGuideSource, buildScalarSources } from "../sources";
 
 /**
  * Page router for the API Docs aggregator. Mounted at `/app/api-docs`.
@@ -17,7 +18,7 @@ const pages = new Hono().get(
   "/",
   Scalar(async (c) => {
     const runtime = getRuntimeContext(c);
-    const sources = buildScalarSources(runtime.apps);
+    const sources = [buildApiDocsGuideSource(apiDocsHelp.getMarkdown("api-docs-start") ?? ""), ...buildScalarSources(runtime.apps)];
 
     return {
       theme: "saturn",
