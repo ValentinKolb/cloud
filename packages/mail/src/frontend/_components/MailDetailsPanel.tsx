@@ -1,4 +1,15 @@
-import { Avatar, DateTimeInput, MarkdownEditor, MultiSelect, Placeholder, prompts, Select, Switch, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import {
+  Avatar,
+  DateTimeInput,
+  MarkdownEditor,
+  MultiSelect,
+  Placeholder,
+  prompts,
+  Select,
+  Switch,
+  Tooltip,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -7,6 +18,7 @@ import { apiClient } from "../../api/client";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "../../service/collaboration";
 import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
 import type { MessageDetail } from "../../service/messages";
+import type { ConversationPresenceParticipant } from "../../service/presence";
 import type { ConversationReminder } from "../../service/reminders";
 import { readApiError } from "./api-response";
 
@@ -24,11 +36,14 @@ export default function MailDetailsPanel(props: {
   conversationId: string;
   currentUserId: string;
   canWrite: boolean;
+  canAdmin: boolean;
   initialState: ConversationCollaboration;
   initialLocalTags: LocalTag[];
   initialConversationLocalTags: ConversationLocalTags;
   initialComments: ConversationComment[];
   assignableUsers: MailAssignableUser[];
+  mentionableUsers: MailAssignableUser[];
+  presence: ConversationPresenceParticipant[];
   activity: MailActivityEvent[];
   initialReminder: ConversationReminder | null;
   messages: MessageDetail[];
@@ -41,6 +56,8 @@ export default function MailDetailsPanel(props: {
   const [tagState, setTagState] = createSignal(props.initialConversationLocalTags);
   const [comments, setComments] = createSignal(props.initialComments);
   const [commentBody, setCommentBody] = createSignal("");
+  const [mentionUserIds, setMentionUserIds] = createSignal<string[]>([]);
+  const [replyingTo, setReplyingTo] = createSignal<ConversationComment | null>(null);
   const [commentError, setCommentError] = createSignal<string | null>(null);
   const [reminder, setReminderValue] = createSignal(props.initialReminder);
   const watching = createMemo(() => state().watchers.some((watcher) => watcher.id === props.currentUserId));
@@ -48,17 +65,6 @@ export default function MailDetailsPanel(props: {
   const attachmentCount = () => props.messages.reduce((total, message) => total + message.attachments.length, 0);
   const addressList = (addresses: Array<{ name: string | null; address: string }>) =>
     addresses.map((address) => address.name || address.address).join(", ");
-
-  createEffect(() => {
-    props.conversationId;
-    setState(props.initialState);
-    setAvailableTags(props.initialLocalTags);
-    setTagState(props.initialConversationLocalTags);
-    setComments(props.initialComments);
-    setReminderValue(props.initialReminder);
-    setCommentBody("");
-    setCommentError(null);
-  });
 
   const update = mutations.create<ConversationCollaboration, CollaborationPatch>({
     mutation: async (patch) => {
@@ -143,7 +149,11 @@ export default function MailDetailsPanel(props: {
       setCommentError(null);
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments.$post({
         param: { mailboxId: props.mailboxId, conversationId: props.conversationId },
-        json: { body, mentionUserIds: [] },
+        json: {
+          body,
+          mentionUserIds: mentionUserIds(),
+          parentCommentId: replyingTo()?.id ?? null,
+        },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to add comment"));
       return await response.json();
@@ -152,20 +162,23 @@ export default function MailDetailsPanel(props: {
       if (!comment) return;
       setComments((current) => [...current, comment]);
       setCommentBody("");
+      setMentionUserIds([]);
+      setReplyingTo(null);
     },
     onError: (error) => prompts.error(error.message),
   });
 
   const removeComment = mutations.create<string | null, ConversationComment>({
     mutation: async (comment) => {
+      const conversationId = props.conversationId;
       const confirmed = await prompts.confirm("The comment remains in the audit trail as deleted.", {
         title: "Delete internal comment?",
         confirmText: "Delete comment",
         variant: "danger",
       });
-      if (!confirmed) return null;
+      if (!confirmed || conversationId !== props.conversationId) return null;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments[":commentId"].$delete({
-        param: { mailboxId: props.mailboxId, conversationId: props.conversationId, commentId: comment.id },
+        param: { mailboxId: props.mailboxId, conversationId, commentId: comment.id },
         json: { expectedRevision: comment.revision },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to delete comment"));
@@ -176,6 +189,35 @@ export default function MailDetailsPanel(props: {
         setComments((current) =>
           current.map((comment) => (comment.id === commentId ? { ...comment, deletedAt: new Date().toISOString(), body: null } : comment)),
         );
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const editComment = mutations.create<ConversationComment | null, ConversationComment>({
+    mutation: async (comment) => {
+      const conversationId = props.conversationId;
+      const values = await prompts.form({
+        title: "Edit internal comment",
+        icon: "ti ti-edit",
+        fields: {
+          body: { type: "text", label: "Comment", default: comment.body ?? "", required: true, multiline: true, lines: 6 },
+        },
+        confirmText: "Save comment",
+      });
+      if (!values || conversationId !== props.conversationId) return null;
+      const body = String(values.body ?? "").trim();
+      if (!body) throw new Error("Comment cannot be empty");
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments[":commentId"].$patch({
+        param: { mailboxId: props.mailboxId, conversationId, commentId: comment.id },
+        json: { expectedRevision: comment.revision, body, mentionUserIds: comment.mentionUserIds },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update comment"));
+      return response.json();
+    },
+    onSuccess: (comment) => {
+      if (!comment) return;
+      setComments((current) => current.map((item) => (item.id === comment.id ? comment : item)));
+      toast.success("Comment updated");
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -207,6 +249,27 @@ export default function MailDetailsPanel(props: {
     onError: (error) => prompts.error(error.message),
   });
 
+  createEffect(() => {
+    props.conversationId;
+    update.abort();
+    updateTags.abort();
+    toggleWatch.abort();
+    addComment.abort();
+    removeComment.abort();
+    editComment.abort();
+    saveReminder.abort();
+    cancelReminder.abort();
+    setState(props.initialState);
+    setAvailableTags(props.initialLocalTags);
+    setTagState(props.initialConversationLocalTags);
+    setComments(props.initialComments);
+    setReminderValue(props.initialReminder);
+    setCommentBody("");
+    setMentionUserIds([]);
+    setReplyingTo(null);
+    setCommentError(null);
+  });
+
   return (
     <div class="flex h-full min-h-0 flex-col">
       <header class="detail-header">
@@ -224,6 +287,22 @@ export default function MailDetailsPanel(props: {
         </div>
       </header>
       <div class="detail-stack">
+        <Show when={props.presence.length > 0}>
+          <section class="detail-section">
+            <h3 class="detail-section-label">Here now</h3>
+            <div class="flex flex-col gap-2">
+              <For each={props.presence}>
+                {(participant) => (
+                  <div class="flex items-center gap-2">
+                    <Avatar username={participant.displayName} userId={participant.userId} avatarHash={participant.avatarHash} size="sm" />
+                    <span class="min-w-0 flex-1 truncate text-sm text-primary">{participant.displayName}</span>
+                    <span class="badge">{participant.mode === "composing" ? "Composing" : "Viewing"}</span>
+                  </div>
+                )}
+              </For>
+            </div>
+          </section>
+        </Show>
         <section class="detail-section">
           <h3 class="detail-section-label">Mail</h3>
           <dl class="grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-2 text-xs">
@@ -262,7 +341,13 @@ export default function MailDetailsPanel(props: {
           <div class="mb-3 flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Local tags</h3>
             <Tooltip content="Create local tag">
-              <button type="button" class="icon-btn" aria-label="Create local tag" disabled={!props.canWrite} onClick={() => void createTag()}>
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="Create local tag"
+                disabled={!props.canWrite}
+                onClick={() => void createTag()}
+              >
                 <i class="ti ti-tag-plus" aria-hidden="true" />
               </button>
             </Tooltip>
@@ -355,41 +440,89 @@ export default function MailDetailsPanel(props: {
           >
             <div class="mb-3 flex flex-col gap-3">
               <For each={comments()}>
-                {(comment) => (
-                  <article class="group flex items-start gap-2.5">
-                    <Avatar
-                      username={comment.author.displayName}
-                      userId={comment.author.kind === "user" ? comment.author.id : undefined}
-                      avatarHash={comment.author.avatarHash}
-                      size="sm"
-                    />
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center gap-2">
-                        <span class="truncate text-xs font-semibold text-primary">{comment.author.displayName}</span>
-                        <time class="text-xs text-dimmed" dateTime={comment.createdAt}>
-                          {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
-                        </time>
-                        <Show when={comment.author.kind === "user" && comment.author.id === props.currentUserId && !comment.deletedAt}>
-                          <button
-                            type="button"
-                            class="icon-btn ml-auto opacity-0 group-hover:opacity-100 focus:opacity-100"
-                            aria-label="Delete comment"
-                            onClick={() => removeComment.mutate(comment)}
-                          >
-                            <i class="ti ti-trash" aria-hidden="true" />
-                          </button>
+                {(comment) => {
+                  const parent = () => comments().find((candidate) => candidate.id === comment.parentCommentId);
+                  const canModerate = () =>
+                    !comment.deletedAt && (props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId));
+                  return (
+                    <article class="group flex items-start gap-2.5">
+                      <Avatar
+                        username={comment.author.displayName}
+                        userId={comment.author.kind === "user" ? comment.author.id : undefined}
+                        avatarHash={comment.author.avatarHash}
+                        size="sm"
+                      />
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                          <span class="truncate text-xs font-semibold text-primary">{comment.author.displayName}</span>
+                          <time class="text-xs text-dimmed" dateTime={comment.createdAt}>
+                            {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
+                          </time>
+                          <span class="ml-auto flex items-center gap-1">
+                            <Show when={canModerate()}>
+                              <span class="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                                <button
+                                  type="button"
+                                  class="icon-btn"
+                                  aria-label="Edit comment"
+                                  onClick={() => editComment.mutate(comment)}
+                                >
+                                  <i class="ti ti-edit" aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  class="icon-btn"
+                                  aria-label="Delete comment"
+                                  onClick={() => removeComment.mutate(comment)}
+                                >
+                                  <i class="ti ti-trash" aria-hidden="true" />
+                                </button>
+                              </span>
+                            </Show>
+                            <Show when={!comment.deletedAt}>
+                              <button
+                                type="button"
+                                class="btn-simple btn-xs"
+                                onClick={() => {
+                                  setReplyingTo(comment);
+                                  setCommentBody("");
+                                }}
+                              >
+                                <i class="ti ti-arrow-back-up" aria-hidden="true" /> Reply
+                              </button>
+                            </Show>
+                          </span>
+                        </div>
+                        <Show when={comment.parentCommentId}>
+                          <p class="mt-1 truncate text-xs text-dimmed">
+                            <i class="ti ti-arrow-back-up mr-1" aria-hidden="true" />
+                            Reply to {parent()?.author.displayName ?? "an earlier comment"}
+                          </p>
                         </Show>
+                        <p
+                          class={`mt-1 whitespace-pre-wrap break-words text-sm ${
+                            comment.deletedAt ? "italic text-dimmed" : "text-primary"
+                          }`}
+                        >
+                          {comment.deletedAt ? "Comment deleted" : comment.body}
+                        </p>
                       </div>
-                      <p
-                        class={`mt-1 whitespace-pre-wrap break-words text-sm ${comment.deletedAt ? "italic text-dimmed" : "text-primary"}`}
-                      >
-                        {comment.deletedAt ? "Comment deleted" : comment.body}
-                      </p>
-                    </div>
-                  </article>
-                )}
+                    </article>
+                  );
+                }}
               </For>
             </div>
+          </Show>
+          <Show when={replyingTo()}>
+            {(comment) => (
+              <div class="mb-2 flex items-center gap-2 text-xs text-dimmed">
+                <i class="ti ti-arrow-back-up" aria-hidden="true" />
+                <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
+                <button type="button" class="btn-simple btn-xs" onClick={() => setReplyingTo(null)}>
+                  Cancel
+                </button>
+              </div>
+            )}
           </Show>
           <MarkdownEditor
             value={commentBody}
@@ -401,6 +534,15 @@ export default function MailDetailsPanel(props: {
             noToolbar
             showStats={false}
             error={Boolean(commentError())}
+            disabled={addComment.loading()}
+          />
+          <MultiSelect
+            label="Mention people"
+            value={mentionUserIds}
+            onChange={setMentionUserIds}
+            options={props.mentionableUsers.map((user) => ({ id: user.id, label: user.displayName, description: user.description }))}
+            placeholder="Notify mailbox collaborators"
+            clearable
             disabled={addComment.loading()}
           />
           <div class="mt-2 flex items-center justify-between gap-2">

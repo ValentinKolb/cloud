@@ -2,9 +2,10 @@ import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { AppWorkspace, toast } from "@valentinkolb/cloud/ui";
 import { documentNavigate, type LinkNavigateEvent, navigate } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { batch, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
 import { apiClient } from "../api/client";
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../live-events";
+import type { ConversationPresenceSnapshot } from "../service/presence";
 import type { MailboxPageData, MailListItem } from "../service/workspace";
 import { readApiError } from "./_components/api-response";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
@@ -14,6 +15,7 @@ import MailDetailsPanel from "./_components/MailDetailsPanel";
 import MailScheduledView from "./_components/MailScheduledView";
 import MailSidebar from "./_components/MailSidebar";
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
+import { buildMailListHref } from "./_components/mail-navigation";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
@@ -32,11 +34,15 @@ export default function MailWorkspace(props: {
   const [listCollapsed, setListCollapsed] = createSignal(props.initialPreferences.listCollapsed);
   const [detailsOpen, setDetailsOpen] = createSignal(false);
   const [composerActive, setComposerActive] = createSignal(false);
+  const [presence, setPresence] = createSignal<ConversationPresenceSnapshot>({ participants: [] });
   const [settingsOpening, setSettingsOpening] = createSignal(false);
+  const mailboxId = props.data.mailbox.id;
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
   let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
+  let updatePresenceMode: (() => void) | null = null;
   let routeRequest = 0;
   const pendingReadConversationIds = new Set<string>();
+  const selectedConversationId = createMemo(() => data().selectedConversationId);
 
   const replaceWorkspaceRoute = async (href: string): Promise<"applied" | "failed" | "stale"> => {
     const request = ++routeRequest;
@@ -76,6 +82,38 @@ export default function MailWorkspace(props: {
     else if (result === "failed") documentNavigate(href, { replace });
   };
 
+  const loadMoreConversations = async (href: string) => {
+    if (routeLoading()) return;
+    const request = ++routeRequest;
+    const sourceUrl = requestUrl();
+    setRouteLoading(true);
+    try {
+      const target = new URL(href, window.location.origin);
+      if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${data().mailbox.id}`)
+        throw new Error("Invalid mailbox page");
+      const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get({
+        param: { mailboxId: data().mailbox.id },
+        query: { href: `${target.pathname}${target.search}` },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not load more conversations"));
+      const next = await response.json();
+      if (request !== routeRequest || requestUrl() !== sourceUrl) return;
+      setData((current) => {
+        const known = new Set(current.listItems.map((item) => item.id));
+        return {
+          ...current,
+          listItems: [...current.listItems, ...next.listItems.filter((item) => !known.has(item.id))],
+          nextListCursor: next.nextListCursor,
+          listError: next.listError,
+        };
+      });
+    } catch (error) {
+      if (request === routeRequest) toast.error(error instanceof Error ? error.message : "Could not load more conversations");
+    } finally {
+      if (request === routeRequest) setRouteLoading(false);
+    }
+  };
+
   const persistPreferences = () => {
     if (preferenceTimer) clearTimeout(preferenceTimer);
     preferenceTimer = setTimeout(() => writeMailWorkspacePreferences({ listCollapsed: listCollapsed() }), 120);
@@ -85,6 +123,59 @@ export default function MailWorkspace(props: {
     setListCollapsed(collapsed);
     persistPreferences();
   };
+
+  createEffect(() => {
+    const conversationId = selectedConversationId();
+    if (!conversationId) {
+      updatePresenceMode = null;
+      setPresence({ participants: [] });
+      return;
+    }
+    const peerId = crypto.randomUUID();
+    let stopped = false;
+    let requestQueue = Promise.resolve();
+    const heartbeat = () => {
+      if (document.visibilityState !== "visible") return;
+      requestQueue = requestQueue.then(async () => {
+        if (stopped) return;
+        try {
+          const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].presence.$put({
+            param: { mailboxId, conversationId },
+            json: { peerId, mode: untrack(composerActive) ? "composing" : "viewing" },
+          });
+          if (response.ok && !stopped) setPresence(await response.json());
+        } catch {
+          // Presence is best-effort and must never interrupt mailbox work.
+        }
+      });
+    };
+    const updateMode = () => void heartbeat();
+    updatePresenceMode = updateMode;
+    void heartbeat();
+    const timer = window.setInterval(() => void heartbeat(), 10_000);
+    const onVisibility = () => void heartbeat();
+    document.addEventListener("visibilitychange", onVisibility);
+    onCleanup(() => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (updatePresenceMode === updateMode) updatePresenceMode = null;
+      setPresence({ participants: [] });
+      void requestQueue
+        .then(() =>
+          apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].presence.$delete({
+            param: { mailboxId, conversationId },
+            json: { peerId },
+          }),
+        )
+        .catch(() => undefined);
+    });
+  });
+
+  createEffect(() => {
+    composerActive();
+    updatePresenceMode?.();
+  });
 
   const liveRefresh = createMailLiveRefreshCoordinator({
     delayMs: 180,
@@ -107,6 +198,7 @@ export default function MailWorkspace(props: {
         mailboxId: data().mailbox.id,
         currentUserId: props.currentUserId,
         currentUserEmail: props.currentUserEmail,
+        dateConfig: props.dateConfig,
       });
       if (result.deleted) return documentNavigate("/app/mail");
       if (!result.workspaceChanged) return;
@@ -186,7 +278,7 @@ export default function MailWorkspace(props: {
 
   const canWrite = createMemo(() => rank(data().permission) >= 2);
   const canAdmin = createMemo(() => rank(data().permission) >= 3);
-  const hasSelection = createMemo(() => data().detailMessages.length > 0);
+  const hasSelection = createMemo(() => Boolean(data().selectedConversationId || data().selectedMessageId));
   const selectedListItem = createMemo(() => data().listItems.find((item) => item.conversationId === data().selectedConversationId));
   const selectedUnread = createMemo(
     () => selectedListItem()?.unread ?? data().detailMessages.some((message) => !message.flags.includes("\\Seen")),
@@ -255,6 +347,7 @@ export default function MailWorkspace(props: {
       <MailSidebar
         mailboxId={data().mailbox.id}
         mailboxName={data().mailbox.name}
+        syncEnabled={data().mailbox.syncEnabled}
         folders={data().folders}
         savedViews={data().savedViews}
         scheduledMode={data().scheduledMode}
@@ -301,6 +394,7 @@ export default function MailWorkspace(props: {
                     onNavigate={navigateWorkspace}
                     onNavigateItem={navigateConversation}
                     onOpenHref={openWorkspaceHref}
+                    onLoadMore={loadMoreConversations}
                   />
                 </AppWorkspace.MainPane>
                 <MailConversationReader
@@ -311,11 +405,18 @@ export default function MailWorkspace(props: {
                   selectionKey={data().selectedConversationId ?? data().selectedMessageId}
                   selectedConversationId={data().selectedConversationId}
                   unread={selectedUnread()}
-                  sourceFolderId={selectedListItem()?.sourceFolderId ?? null}
+                  sourceFolderId={
+                    data().folderId ??
+                    (data().activeView === "inbox" ? (data().folders.find((folder) => folder.role === "inbox")?.id ?? null) : null) ??
+                    selectedListItem()?.sourceFolderId ??
+                    null
+                  }
                   unreadSourceFolderIds={selectedListItem()?.unreadFolderIds ?? []}
                   reference={data().selectedReference}
                   subject={data().selectedSubject}
                   messages={data().detailMessages}
+                  totalMessageCount={selectedListItem()?.messageCount ?? data().detailMessages.length}
+                  error={data().detailError}
                   dateConfig={props.dateConfig}
                   listCollapsed={listCollapsed()}
                   detailsOpen={detailsOpen()}
@@ -323,6 +424,7 @@ export default function MailWorkspace(props: {
                   onToggleDetails={() => canShowDetails() && setDetailsOpen((open) => !open)}
                   onUnreadChange={setConversationUnread}
                   onReconcile={reconcileWorkspace}
+                  onSelectionRemoved={() => openWorkspaceHref(buildMailListHref(new URL(requestUrl())), true)}
                   onComposerActiveChange={updateComposerActive}
                   onNavigate={navigateWorkspace}
                 />
@@ -351,11 +453,14 @@ export default function MailWorkspace(props: {
               conversationId={data().selectedConversationId!}
               currentUserId={props.currentUserId}
               canWrite={canWrite()}
+              canAdmin={canAdmin()}
               initialState={data().collaborationState!}
               initialLocalTags={data().localTags}
               initialConversationLocalTags={data().conversationLocalTags!}
               initialComments={data().comments}
               assignableUsers={data().assignableUsers}
+              mentionableUsers={data().mentionableUsers}
+              presence={presence().participants}
               activity={data().activity}
               initialReminder={data().reminder}
               messages={data().detailMessages}

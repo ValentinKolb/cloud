@@ -181,6 +181,23 @@ const ownedEntry = async (draftId: string, holder: DraftLeaseHolder, token: stri
   return entry && sameHolder(entry.value.holder, holder) && entry.value.token === token ? entry.value : null;
 };
 
+export const withOwnedDraftLease = async <T>(params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  draftId: string;
+  token: string;
+  operation: () => Promise<Result<T>>;
+}): Promise<Result<T>> => {
+  const allowed = await authorizeDraft({ ...params, permission: "write" });
+  if (!allowed.ok) return allowed;
+  const holder = holderFromContext(params.context);
+  return withLeaseState(params.draftId, async () => {
+    const lease = await ownedEntry(params.draftId, holder, params.token);
+    if (!lease) return conflict("Draft lease is no longer owned by this session");
+    return params.operation();
+  });
+};
+
 export const heartbeatDraftLease = async (params: {
   context: MailRequestContext;
   mailboxId: string;

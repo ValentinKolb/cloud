@@ -57,6 +57,7 @@ export default function MailOverview(props: {
         mailboxId: mailbox.id,
         currentUserId: props.currentUserId,
         currentUserEmail: props.currentUserEmail,
+        initialTab: "connections",
       }).then((result) => navigateTo(result.deleted ? "/app/mail" : `/app/mail/${mailbox.id}`));
     },
     onError: (error) => prompts.error(error.message),
@@ -80,7 +81,12 @@ export default function MailOverview(props: {
       if (!mailbox) return;
       setDeletedMailboxes((current) => current.filter((entry) => entry.id !== mailbox.id));
       toast.success("Mailbox restored in paused state");
-      navigateTo(`/app/mail/${mailbox.id}`);
+      void openMailboxSettingsDialog({
+        mailboxId: mailbox.id,
+        currentUserId: props.currentUserId,
+        currentUserEmail: props.currentUserEmail,
+        initialTab: "status",
+      }).then((result) => navigateTo(result.deleted ? "/app/mail" : `/app/mail/${mailbox.id}`));
     },
     onError: (error) => prompts.error(error.message),
   });

@@ -21,6 +21,7 @@ import {
   type ComposePreview,
   type ComposeSignatureDefault,
   type ComposeTemplate,
+  createAutomaticReplyConfigurationSchema,
   type DeletedMailbox,
   type DeletedMailboxPage,
   type DraftAttachmentUpload,
@@ -55,6 +56,7 @@ import {
   type WorkflowValidation,
   workflowTargetQuerySchema,
 } from "./contracts";
+import type { AutomaticReplyConfiguration } from "./service/automatic-reply-configuration";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
 import type {
   ConversationReference,
@@ -64,6 +66,7 @@ import type {
 import type { MergeConversationsResult, SplitConversationResult } from "./service/conversations";
 import type { ConversationLocalTags, LocalTag } from "./service/local-tags";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
+import type { DiscoveredMailConfiguration } from "./service/onboarding-discovery";
 import type { ConversationReminder } from "./service/reminders";
 import type { ResponseSchedule } from "./service/response-schedule";
 import type { SavedConversationView } from "./service/saved-views";
@@ -277,6 +280,12 @@ const optionalResponseScheduleDefinitionInput = flag.input({
   stdinName: "definition-stdin",
   description: "Replacement response schedule definition as JSON or YAML",
 });
+const automaticReplyConfigurationInput = flag.input({
+  required: true,
+  fileName: "configuration-file",
+  stdinName: "configuration-stdin",
+  description: "Automatic reply configuration as JSON or YAML",
+});
 
 const parseStructuredDocument = (value: string, label: string): unknown => {
   try {
@@ -342,6 +351,14 @@ const readOptionalResponseScheduleDefinition = async (
   if (!raw.trim()) throw new Error("Response schedule definition cannot be empty.");
   const parsed = responseScheduleDefinitionSchema.safeParse(parseStructuredDocument(raw, "Response schedule definition"));
   if (!parsed.success) throw new Error(`Invalid response schedule definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
+  return parsed.data;
+};
+
+const readAutomaticReplyConfiguration = async (input: Parameters<typeof readCliInput>[0]) => {
+  const raw = await readCliInput(input, { label: "automatic reply configuration", required: true });
+  if (!raw?.trim()) throw new Error("Automatic reply configuration cannot be empty.");
+  const parsed = createAutomaticReplyConfigurationSchema.safeParse(parseStructuredDocument(raw, "Automatic reply configuration"));
+  if (!parsed.success) throw new Error(`Invalid automatic reply configuration: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
 };
 
@@ -2498,6 +2515,34 @@ export default defineCliCommands({
       kind: "move_to_role",
       role: "junk",
     }),
+    command("provider discover", {
+      summary: "Discover IMAP and SMTP settings for an email address",
+      args: { email: arg.required({ description: "Mailbox email address" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ email: args.email });
+        const candidates = await readApi<DiscoveredMailConfiguration[]>(ctx, `/mailboxes/${mailbox.id}/provider-discovery?${query}`);
+        printTable(
+          ctx,
+          candidates,
+          candidates.map((candidate) => ({
+            source: candidate.source,
+            username: candidate.username,
+            imap: `${candidate.imap.host}:${candidate.imap.port} (${candidate.imap.tlsMode})`,
+            smtp: `${candidate.smtp.host}:${candidate.smtp.port} (${candidate.smtp.tlsMode})`,
+            auth: candidate.authentication.join(","),
+          })),
+          [
+            { key: "source", label: "SOURCE" },
+            { key: "username", label: "USERNAME" },
+            { key: "imap", label: "IMAP" },
+            { key: "smtp", label: "SMTP" },
+            { key: "auth", label: "AUTH" },
+          ],
+        );
+      },
+    }),
     command("provider add", {
       summary: "Verify and store a write-only IMAP/SMTP provider credential",
       flags: { ...mailboxFlag, ...providerConnectionFlags },
@@ -2947,11 +2992,25 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (flags.revision === undefined) throw new Error("Missing expected draft revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const draft = await readApi<MailDraft>(
+        const lease = await readApi<AcquiredDraftLease>(
           ctx,
-          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/recovery-copies/${args.recoveryId}/restore`,
-          jsonRequest("POST", { expectedRevision: flags.revision }),
+          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`,
+          jsonRequest("POST", { takeover: false }),
         );
+        let draft: MailDraft;
+        try {
+          draft = await readApi<MailDraft>(
+            ctx,
+            `/mailboxes/${mailbox.id}/drafts/${args.draftId}/recovery-copies/${args.recoveryId}/restore`,
+            jsonRequest("POST", { expectedRevision: flags.revision, leaseToken: lease.token }),
+          );
+        } finally {
+          await readApi<void>(
+            ctx,
+            `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`,
+            jsonRequest("DELETE", { token: lease.token }),
+          ).catch(() => undefined);
+        }
         if (ctx.options.output === "json") ctx.json(draft);
         else ctx.print(`Restored recovery copy into draft ${draft.id}; revision ${draft.revision}.`);
       },
@@ -3422,6 +3481,71 @@ export default defineCliCommands({
         );
         if (printStructured(ctx, schedule)) return;
         ctx.print(`Updated response schedule ${schedule.name} to revision ${schedule.revision}.`);
+      },
+    }),
+    command("automatic-reply list", {
+      summary: "List managed automatic reply configurations",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const configurations = await readApi<AutomaticReplyConfiguration[]>(ctx, `/mailboxes/${mailbox.id}/automatic-replies`);
+        printTable(
+          ctx,
+          configurations,
+          configurations.map((configuration) => ({
+            name: configuration.name,
+            sender: configuration.senderIdentityId,
+            enabled: configuration.enabled ? "yes" : "no",
+            format: configuration.format,
+            revision: configuration.revision,
+            id: configuration.id,
+          })),
+          [
+            { key: "name", label: "NAME" },
+            { key: "sender", label: "SENDER ID" },
+            { key: "enabled", label: "ENABLED" },
+            { key: "format", label: "FORMAT" },
+            { key: "revision", label: "REV" },
+            { key: "id", label: "CONFIGURATION ID" },
+          ],
+        );
+      },
+    }),
+    command("automatic-reply create", {
+      summary: "Create a managed automatic reply from a JSON or YAML configuration",
+      flags: { ...mailboxFlag, configuration: automaticReplyConfigurationInput },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const configuration = await readApi<AutomaticReplyConfiguration>(
+          ctx,
+          `/mailboxes/${mailbox.id}/automatic-replies`,
+          jsonRequest("POST", await readAutomaticReplyConfiguration(flags.configuration)),
+        );
+        if (printStructured(ctx, configuration)) return;
+        ctx.print(`Created automatic reply ${configuration.name} (${configuration.id}).`);
+      },
+    }),
+    command("automatic-reply update", {
+      summary: "Replace an automatic reply configuration at an expected revision",
+      args: { configurationId: arg.required({ description: "Automatic reply configuration id" }) },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
+        configuration: automaticReplyConfigurationInput,
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.revision === undefined) throw new Error("Missing expected automatic reply revision.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const configuration = await readApi<AutomaticReplyConfiguration>(
+          ctx,
+          `/mailboxes/${mailbox.id}/automatic-replies/${args.configurationId}`,
+          jsonRequest("PATCH", {
+            expectedRevision: flags.revision,
+            ...(await readAutomaticReplyConfiguration(flags.configuration)),
+          }),
+        );
+        if (printStructured(ctx, configuration)) return;
+        ctx.print(`Updated automatic reply ${configuration.name} to revision ${configuration.revision}.`);
       },
     }),
     command("workflow validate", {

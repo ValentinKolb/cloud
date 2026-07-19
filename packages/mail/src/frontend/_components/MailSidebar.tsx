@@ -36,6 +36,7 @@ const folderIcon = (role: string): string =>
 export default function MailSidebar(props: {
   mailboxId: string;
   mailboxName: string;
+  syncEnabled: boolean;
   folders: MailFolderView[];
   savedViews: SavedConversationView[];
   scheduledMode: boolean;
@@ -251,9 +252,15 @@ export default function MailSidebar(props: {
         </AppWorkspace.SidebarBody>
         <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
           {props.canAdmin && (
-            <button type="button" class="sidebar-item w-full" onClick={() => sync.mutate()} disabled={sync.loading()}>
+            <button
+              type="button"
+              class="sidebar-item w-full"
+              onClick={() => sync.mutate()}
+              disabled={sync.loading() || !props.syncEnabled}
+              title={props.syncEnabled ? "Synchronize mailbox now" : "Resume the mailbox in Status settings before synchronizing"}
+            >
               <i class={`ti ${sync.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
-              <span>Sync mailbox</span>
+              <span>{props.syncEnabled ? "Sync mailbox" : "Mailbox paused"}</span>
             </button>
           )}
           <button type="button" class="sidebar-item w-full" disabled={props.settingsOpening} onClick={props.onOpenSettings}>

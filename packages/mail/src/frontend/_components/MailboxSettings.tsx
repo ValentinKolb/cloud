@@ -1,4 +1,5 @@
 import { NumberInput, PermissionEditor, prompts, Select, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -6,6 +7,8 @@ import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 import MailComposeSettings from "./MailComposeSettings";
+import MailOperationalSettings from "./MailOperationalSettings";
+import MailOrganizationSettings from "./MailOrganizationSettings";
 import { MailConnectionSettings, MailSenderSettings } from "./MailProviderSettings";
 import MailResponsePolicySettings from "./MailResponsePolicySettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
@@ -21,8 +24,10 @@ const FOLDER_ROLES: Array<{ id: ConfigurableFolderRole; label: string; icon: str
 
 export default function MailboxSettings(props: {
   context: MailboxSettingsContext;
+  initialTab?: string;
   currentUserId: string;
   currentUserEmail: string | null;
+  dateConfig: DateContext;
   reloading: boolean;
   onReload: () => Promise<void>;
   onContextChange: (update: (context: MailboxSettingsContext) => MailboxSettingsContext) => void;
@@ -37,7 +42,7 @@ export default function MailboxSettings(props: {
   const initialPreferences = readMailUserPreferences(props.context.mailbox.id);
   const [composeFormat, setComposeFormat] = createSignal(initialPreferences.composeFormat);
   const [undoSeconds, setUndoSeconds] = createSignal(initialPreferences.undoSeconds);
-  const [activeTab, setActiveTab] = createSignal("preferences");
+  const [activeTab, setActiveTab] = createSignal(props.initialTab ?? "preferences");
 
   const savePreferences = mutation.create<void, void>({
     mutation: async () => {
@@ -162,6 +167,20 @@ export default function MailboxSettings(props: {
         </div>
       </SettingsModal.Tab>
 
+      <SettingsModal.Tab
+        id="organization"
+        title="Views & tags"
+        icon="ti ti-tags"
+        description="Reusable navigation views and mailbox-local conversation labels."
+      >
+        <MailOrganizationSettings
+          mailboxId={props.context.mailbox.id}
+          permission={props.context.permission}
+          initial={props.context.organization}
+          onWorkspaceChange={props.onWorkspaceChange}
+        />
+      </SettingsModal.Tab>
+
       <Show when={props.context.compose}>
         {(compose) => (
           <SettingsModal.Tab
@@ -217,6 +236,23 @@ export default function MailboxSettings(props: {
                 mailbox
               </button>
             </div>
+          </SettingsModal.Tab>
+
+          <SettingsModal.Tab
+            id="status"
+            title="Status"
+            icon="ti ti-heartbeat"
+            description="Transport health, synchronization, and provider discovery."
+          >
+            <MailOperationalSettings
+              mailbox={props.context.mailbox}
+              health={admin().health}
+              bindings={admin().bindings}
+              dateConfig={props.dateConfig}
+              reloading={props.reloading}
+              onReload={props.onReload}
+              onWorkspaceChange={props.onWorkspaceChange}
+            />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
@@ -295,6 +331,7 @@ export default function MailboxSettings(props: {
               initialWorkflows={admin().workflows.filter(
                 (workflow) => !admin().automaticReplies.some((configuration) => configuration.workflowId === workflow.id),
               )}
+              initialRuns={admin().workflowRuns}
             />
           </SettingsModal.Tab>
 
@@ -321,7 +358,8 @@ export default function MailboxSettings(props: {
             description="Read can view and comment; write can operate mail; admin configures the mailbox."
           >
             <PermissionEditor
-              initialEntries={admin().accessEntries.filter((entry) => entry.principal.type !== "service_account")}
+              initialEntries={admin().accessEntries}
+              allowServiceAccounts
               canEdit
               grantAccess={async (principal, permission) => {
                 const response = await apiClient.mailboxes[":mailboxId"].access.$post({

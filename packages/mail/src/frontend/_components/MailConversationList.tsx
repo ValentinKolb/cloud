@@ -31,10 +31,15 @@ export default function MailConversationList(props: {
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
   onNavigateItem: (event: LinkNavigateEvent, item: MailListItem) => void | Promise<void>;
   onOpenHref: (href: string, replace?: boolean) => void | Promise<void>;
+  onLoadMore: (href: string) => void | Promise<void>;
 }) {
   const requestUrl = () => new URL(props.requestUrl);
   const [searchValue, setSearchValue] = createSignal(props.query);
   const listHref = () => buildMailListHref(requestUrl());
+  const searchActive = () =>
+    ["q", "from", "to", "subject", "body", "attachment", "comment", "reference", "folderName", "tag", "keyword"].some((name) =>
+      Boolean(requestUrl().searchParams.get(name)?.trim()),
+    );
 
   createEffect(() => setSearchValue(props.query));
 
@@ -157,12 +162,12 @@ export default function MailConversationList(props: {
           />
         ) : props.items.length === 0 ? (
           <Placeholder
-            icon={props.query ? "ti ti-search" : "ti ti-mail-off"}
+            icon={searchActive() ? "ti ti-search" : "ti ti-mail-off"}
             variant="panel"
-            title={props.query ? "No matching messages" : "No conversations here"}
-            description={props.query ? "Try a different search term." : "New synchronized mail will appear in this view."}
+            title={searchActive() ? "No matching messages" : "No conversations here"}
+            description={searchActive() ? "Change or clear the active search filters." : "New synchronized mail will appear in this view."}
             action={
-              props.query ? (
+              searchActive() ? (
                 <Link
                   href={buildMailListHref(requestUrl(), true)}
                   class="btn-secondary btn-sm"
@@ -241,9 +246,9 @@ export default function MailConversationList(props: {
         )}
         <Show when={nextHref()}>
           <div class="flex justify-center py-3">
-            <Link href={nextHref()!} class="btn-secondary btn-sm" onNavigate={props.onNavigate} scroll="preserve">
+            <button type="button" class="btn-secondary btn-sm" disabled={props.loading} onClick={() => void props.onLoadMore(nextHref()!)}>
               <i class="ti ti-chevron-down" aria-hidden="true" /> More conversations
-            </Link>
+            </button>
           </div>
         </Show>
       </div>

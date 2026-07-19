@@ -28,6 +28,7 @@ const TAG_ID = "00000000-0000-4000-8000-000000000021";
 const REFERENCE_SCHEME_ID = "00000000-0000-4000-8000-000000000022";
 const COMPOSE_TEMPLATE_ID = "00000000-0000-4000-8000-000000000023";
 const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
+const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -158,7 +159,12 @@ test("compose template and style commands preserve exact source input", async ()
       return api({ mailboxId: MAILBOX_ID, customCss: "", revision: 1, updatedAt: "2026-07-17T00:00:00.000Z" });
     }
     if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/compose-style` && request.method === "PUT") {
-      return api({ mailboxId: MAILBOX_ID, customCss: ".mail-content { color: #123456; }", revision: 2, updatedAt: "2026-07-17T00:00:01.000Z" });
+      return api({
+        mailboxId: MAILBOX_ID,
+        customCss: ".mail-content { color: #123456; }",
+        revision: 2,
+        updatedAt: "2026-07-17T00:00:01.000Z",
+      });
     }
     return api({ message: "unexpected" }, { status: 500 });
   });
@@ -281,10 +287,7 @@ test("reference scheme update can explicitly clear the mailbox default", async (
   };
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
-    if (
-      request.method === "PATCH" &&
-      url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/reference-schemes/${REFERENCE_SCHEME_ID}`
-    ) {
+    if (request.method === "PATCH" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/reference-schemes/${REFERENCE_SCHEME_ID}`) {
       requestBody = await request.json();
       return api(scheme);
     }
@@ -1314,10 +1317,7 @@ test("scheduled sends expose list and explicit cancellation disposition", async 
         total: 1,
       });
     }
-    if (
-      request.method === "POST" &&
-      url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/scheduled-sends/${SCHEDULED_SEND_ID}/cancel`
-    ) {
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/scheduled-sends/${SCHEDULED_SEND_ID}/cancel`) {
       requests.push({ method: request.method, path: url.pathname, body: await request.json() });
       return api({ disposition: "discard", draftId: DRAFT_ID });
     }
@@ -1325,14 +1325,7 @@ test("scheduled sends expose list and explicit cancellation disposition", async 
   });
   servers.push(server);
 
-  const listed = await runCli(`http://127.0.0.1:${server.port}`, [
-    "--json",
-    "mail",
-    "scheduled",
-    "list",
-    "--mailbox",
-    MAILBOX_ID,
-  ]);
+  const listed = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "scheduled", "list", "--mailbox", MAILBOX_ID]);
   expect(listed.exitCode).toBe(0);
   expect(JSON.parse(listed.stdout)).toMatchObject({ total: 1, items: [{ id: SCHEDULED_SEND_ID }] });
 
@@ -1644,6 +1637,67 @@ test("draft lease commands expose the complete advisory lease lifecycle", async 
     { method: "POST", body: { takeover: true } },
     { method: "PUT", body: { token: UPLOAD_ID } },
     { method: "DELETE", body: { token: UPLOAD_ID } },
+  ]);
+});
+
+test("draft recovery restore owns and releases a lease around the mutation", async () => {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const body = await request.json();
+    requests.push({ method: request.method, path: url.pathname, body });
+    const leasePath = `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/lease`;
+    if (request.method === "POST" && url.pathname === leasePath) {
+      return api({
+        holder: { kind: "user", id: USER_ID, displayName: "Mail User", avatarHash: null },
+        acquiredAt: "2026-07-12T00:00:00.000Z",
+        expiresAt: "2026-07-12T00:00:30.000Z",
+        token: UPLOAD_ID,
+      });
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/recovery-copies/${ATTACHMENT_ID}/restore`
+    ) {
+      return api({ id: DRAFT_ID, revision: 4 });
+    }
+    if (request.method === "DELETE" && url.pathname === leasePath) return api(null);
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "draft",
+    "recovery",
+    "restore",
+    DRAFT_ID,
+    ATTACHMENT_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "3",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({ id: DRAFT_ID, revision: 4 });
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/lease`,
+      body: { takeover: false },
+    },
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/recovery-copies/${ATTACHMENT_ID}/restore`,
+      body: { expectedRevision: 3, leaseToken: UPLOAD_ID },
+    },
+    {
+      method: "DELETE",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/lease`,
+      body: { token: UPLOAD_ID },
+    },
   ]);
 });
 
@@ -2302,4 +2356,119 @@ test("workflow run cancel requires confirmation and forwards the reason", async 
   expect(result.exitCode).toBe(0);
   expect(requestBody as Record<string, unknown> | null).toEqual({ reason: "Operator canceled" });
   expect(JSON.parse(result.stdout)).toMatchObject({ id: WORKFLOW_RUN_ID, state: "canceled" });
+});
+
+test("provider discovery exposes mailbox-scoped autoconfiguration candidates", async () => {
+  const candidate = {
+    source: "provider_autoconfig",
+    email: "support@example.com",
+    username: "support@example.com",
+    imap: { host: "imap.example.com", port: 993, tlsMode: "implicit" },
+    smtp: { host: "smtp.example.com", port: 587, tlsMode: "starttls" },
+    authentication: ["password"],
+  };
+  const requestedEmails: (string | null)[] = [];
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/provider-discovery`) {
+      requestedEmails.push(url.searchParams.get("email"));
+      return api([candidate]);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "provider",
+    "discover",
+    "support@example.com",
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(requestedEmails).toEqual(["support@example.com"]);
+  expect(JSON.parse(result.stdout)).toEqual([candidate]);
+});
+
+test("automatic reply commands cover list, create, and revision-checked update", async () => {
+  const input = {
+    name: "Out of office",
+    enabled: true,
+    senderIdentityId: IDENTITY_ID,
+    subject: "Re: your message",
+    body: "I am away.",
+    format: "plain",
+    minimumIntervalHours: 24,
+    inactiveBehavior: "skip",
+    schedule: {
+      timeZone: "UTC",
+      activeRanges: [],
+      weeklyWindows: [{ weekday: 1, start: "09:00", end: "17:00" }],
+      exceptions: [],
+    },
+  };
+  const configuration = {
+    id: AUTOMATIC_REPLY_ID,
+    mailboxId: MAILBOX_ID,
+    workflowId: WORKFLOW_ID,
+    responseScheduleId: REFERENCE_SCHEME_ID,
+    ...input,
+    revision: 1,
+    createdAt: "2026-07-19T00:00:00.000Z",
+    updatedAt: "2026-07-19T00:00:00.000Z",
+  };
+  const requests: Array<{ method: string; body: unknown }> = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/automatic-replies`) {
+      if (request.method === "GET") return api([configuration]);
+      const body = await request.json();
+      requests.push({ method: request.method, body });
+      return api(configuration);
+    }
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/automatic-replies/${AUTOMATIC_REPLY_ID}`) {
+      const body = await request.json();
+      requests.push({ method: request.method, body });
+      return api({ ...configuration, revision: 2 });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const serverUrl = `http://127.0.0.1:${server.port}`;
+  const source = JSON.stringify(input);
+
+  const listed = await runCli(serverUrl, ["--json", "mail", "automatic-reply", "list", "--mailbox", MAILBOX_ID]);
+  const created = await runCli(
+    serverUrl,
+    ["--json", "mail", "automatic-reply", "create", "--mailbox", MAILBOX_ID, "--configuration-stdin"],
+    source,
+  );
+  const updated = await runCli(
+    serverUrl,
+    [
+      "--json",
+      "mail",
+      "automatic-reply",
+      "update",
+      AUTOMATIC_REPLY_ID,
+      "--mailbox",
+      MAILBOX_ID,
+      "--revision",
+      "1",
+      "--configuration-stdin",
+    ],
+    source,
+  );
+
+  expect([listed.exitCode, created.exitCode, updated.exitCode]).toEqual([0, 0, 0]);
+  expect(JSON.parse(listed.stdout)).toEqual([configuration]);
+  expect(JSON.parse(created.stdout)).toMatchObject({ id: AUTOMATIC_REPLY_ID, revision: 1 });
+  expect(JSON.parse(updated.stdout)).toMatchObject({ id: AUTOMATIC_REPLY_ID, revision: 2 });
+  expect(requests).toEqual([
+    { method: "POST", body: input },
+    { method: "PATCH", body: { expectedRevision: 1, ...input } },
+  ]);
 });

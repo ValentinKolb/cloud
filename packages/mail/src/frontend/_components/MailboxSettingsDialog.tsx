@@ -1,4 +1,5 @@
 import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -10,7 +11,7 @@ const settingsDialogFrameClass = "flex h-[86vh] min-h-0 flex-col overflow-hidden
 
 type MailboxSettingsDialogOutcome = { deleted?: boolean };
 
-export type MailboxSettingsDialogResult = {
+type MailboxSettingsDialogResult = {
   deleted: boolean;
   workspaceChanged: boolean;
 };
@@ -19,6 +20,8 @@ type MailboxSettingsDialogProps = {
   mailboxId: string;
   currentUserId: string;
   currentUserEmail: string | null;
+  dateConfig?: DateContext;
+  initialTab?: string;
   close: (outcome?: MailboxSettingsDialogOutcome) => void;
   onWorkspaceChange: () => void;
 };
@@ -79,8 +82,10 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
       <div class={settingsDialogFrameClass}>
         <MailboxSettings
           context={context()!}
+          initialTab={props.initialTab}
           currentUserId={props.currentUserId}
           currentUserEmail={props.currentUserEmail}
+          dateConfig={props.dateConfig ?? {}}
           reloading={load.loading()}
           onReload={reload}
           onContextChange={(update) => setContext((current) => (current ? update(current) : current))}
@@ -97,6 +102,8 @@ export const openMailboxSettingsDialog = async (params: {
   mailboxId: string;
   currentUserId: string;
   currentUserEmail: string | null;
+  dateConfig?: DateContext;
+  initialTab?: string;
 }): Promise<MailboxSettingsDialogResult> => {
   let workspaceChanged = false;
   const outcome = await prompts.dialog<MailboxSettingsDialogOutcome>(

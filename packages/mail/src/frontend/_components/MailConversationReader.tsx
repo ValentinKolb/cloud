@@ -73,6 +73,8 @@ export default function MailConversationReader(props: {
   reference: string | null;
   subject: string;
   messages: MessageDetail[];
+  totalMessageCount: number;
+  error: string | null;
   dateConfig: DateContext;
   listCollapsed: boolean;
   detailsOpen: boolean;
@@ -80,6 +82,7 @@ export default function MailConversationReader(props: {
   onToggleDetails: () => void;
   onUnreadChange: (conversationId: string, unread: boolean) => void;
   onReconcile: () => Promise<void>;
+  onSelectionRemoved: () => Promise<void>;
   onComposerActiveChange: (active: boolean) => void;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
@@ -163,9 +166,11 @@ export default function MailConversationReader(props: {
   const triage = mutations.create<TriageRequest, TriageRequest, TriageRequest>({
     onBefore: (action) => action,
     mutation: (action, { abortSignal }) => executeTriage(action, abortSignal),
-    onSuccess: () => {
+    onSuccess: (action) => {
       toast.success("Mail action completed");
-      void props.onReconcile();
+      void (action.kind === "archive" || action.kind === "trash" || action.kind === "junk"
+        ? props.onSelectionRemoved()
+        : props.onReconcile());
     },
     onError: (error, action) => {
       if (action?.previousUnread !== null && action?.previousUnread !== undefined) {
@@ -420,6 +425,26 @@ export default function MailConversationReader(props: {
 
   return (
     <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface)]">
+      <Show when={props.error}>
+        {(error) => (
+          <Placeholder
+            state="error"
+            variant="panel"
+            title="Could not load this message"
+            description={error()}
+            action={
+              <button type="button" class="btn-secondary btn-sm" onClick={() => void props.onReconcile()}>
+                <i class="ti ti-refresh" aria-hidden="true" /> Retry
+              </button>
+            }
+          />
+        )}
+      </Show>
+      <Show when={!props.error && props.totalMessageCount > props.messages.length}>
+        <div class="info-block-warning mx-3 mt-3 text-xs" role="status">
+          Showing the latest {props.messages.length} of {props.totalMessageCount} messages in this unusually long conversation.
+        </div>
+      </Show>
       <Show
         when={props.messages.length > 0}
         fallback={
@@ -485,17 +510,35 @@ export default function MailConversationReader(props: {
             <Show when={props.canWrite}>
               <div class="flex items-center gap-1">
                 <Tooltip content="Archive">
-                  <button type="button" class="icon-btn" aria-label="Archive conversation" onClick={() => runTriage("archive")}>
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    aria-label="Archive conversation"
+                    disabled={triage.loading()}
+                    onClick={() => runTriage("archive")}
+                  >
                     <i class="ti ti-archive" aria-hidden="true" />
                   </button>
                 </Tooltip>
                 <Tooltip content="Move to junk">
-                  <button type="button" class="icon-btn" aria-label="Move conversation to junk" onClick={() => runTriage("junk")}>
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    aria-label="Move conversation to junk"
+                    disabled={triage.loading()}
+                    onClick={() => runTriage("junk")}
+                  >
                     <i class="ti ti-alert-octagon" aria-hidden="true" />
                   </button>
                 </Tooltip>
                 <Tooltip content="Delete">
-                  <button type="button" class="icon-btn" aria-label="Delete conversation" onClick={() => runTriage("trash")}>
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    aria-label="Delete conversation"
+                    disabled={triage.loading()}
+                    onClick={() => runTriage("trash")}
+                  >
                     <i class="ti ti-trash" aria-hidden="true" />
                   </button>
                 </Tooltip>

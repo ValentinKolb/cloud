@@ -1,9 +1,9 @@
 import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
-import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import { Link, type LinkNavigateEvent, navigateTo } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
-import type { CancelScheduledSendInput, ScheduledSendPage } from "../../contracts";
 import { apiClient } from "../../api/client";
+import type { CancelScheduledSendInput, CancelScheduledSendResult, ScheduledSendPage } from "../../contracts";
 import { readApiError } from "./api-response";
 
 const recipients = (item: ScheduledSendPage["items"][number]): string => {
@@ -59,7 +59,12 @@ export default function MailScheduledView(props: {
         json: { disposition },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to cancel scheduled delivery"));
+      const result: CancelScheduledSendResult = await response.json();
       toast.success(disposition === "draft" ? "Scheduled delivery cancelled; draft restored" : "Scheduled message discarded");
+      if (result.disposition === "draft") {
+        navigateTo(`/app/mail/${props.mailboxId}/compose/${result.draftId}`);
+        return;
+      }
       await props.onRefresh();
     } catch (error) {
       await prompts.error(error instanceof Error ? error.message : "Failed to cancel scheduled delivery");
@@ -70,7 +75,7 @@ export default function MailScheduledView(props: {
 
   return (
     <section class="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy={props.loading}>
-      <header class="flex shrink-0 items-center gap-3 border-b border-[var(--ui-border)] px-4 py-3">
+      <header class="flex shrink-0 items-center gap-3 px-4 py-3">
         <span class="flex h-8 w-8 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
           <i class="ti ti-calendar-time" aria-hidden="true" />
         </span>
@@ -120,15 +125,15 @@ export default function MailScheduledView(props: {
                         <span title={dates.formatDateTime(item.createdAt, props.dateConfig)}>
                           Created {dates.formatDateTimeRelative(item.createdAt, props.dateConfig)}
                         </span>
-                      <Show when={item.lastError}>
-                        {(error) => (
-                          <span class="text-red-600" title={error()}>
-                            <i class="ti ti-alert-circle mr-1" aria-hidden="true" />
-                            {item.nextAttemptAt
-                              ? `Retry ${dates.formatDateTime(item.nextAttemptAt, props.dateConfig)}`
-                              : "Delivery retry pending"}
-                          </span>
-                        )}
+                        <Show when={item.lastError}>
+                          {(error) => (
+                            <span class="text-red-600" title={error()}>
+                              <i class="ti ti-alert-circle mr-1" aria-hidden="true" />
+                              {item.nextAttemptAt
+                                ? `Retry ${dates.formatDateTime(item.nextAttemptAt, props.dateConfig)}`
+                                : "Delivery retry pending"}
+                            </span>
+                          )}
                         </Show>
                       </div>
                     </div>

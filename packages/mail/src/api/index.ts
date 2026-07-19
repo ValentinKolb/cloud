@@ -1,19 +1,20 @@
 import { Readable } from "node:stream";
 import { GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
-import { err, fail, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import {
+  archiveComposeTemplateInputSchema,
   cancelConversationReminderSchema,
   cancelScheduledSendInputSchema,
+  composePreviewInputSchema,
+  composeSuggestionsInputSchema,
   configurableFolderRoleSchema,
   conversationPresenceHeartbeatSchema,
   conversationPresenceLeaveSchema,
   conversationTriageInputSchema,
   conversationViewSchema,
-  composePreviewInputSchema,
-  composeSuggestionsInputSchema,
   createComposeTemplateInputSchema,
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
@@ -26,19 +27,18 @@ import {
   draftContentInputSchema,
   draftEditableContentInputSchema,
   draftLeaseTokenSchema,
-  archiveComposeTemplateInputSchema,
   mailCommandInputSchema,
   mergeConversationsInputSchema,
   providerConnectionInputSchema,
   renderComposeSnippetInputSchema,
   searchBackendSchema,
   searchRequestSchema,
-  setConversationReminderSchema,
   setComposeSignatureDefaultInputSchema,
+  setConversationReminderSchema,
   splitConversationInputSchema,
+  updateComposeTemplateInputSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
-  updateComposeTemplateInputSchema,
   updateMailboxComposeStyleInputSchema,
   updateSavedConversationViewSchema,
   updateSenderIdentityInputSchema,
@@ -47,8 +47,8 @@ import {
   bindings,
   cancelSendCommand,
   collaboration,
-  composeTemplates,
   commands,
+  composeTemplates,
   conversations,
   draftLeases,
   drafts,
@@ -72,6 +72,7 @@ import {
 } from "../service";
 import { resolveByteRange } from "../service/byte-range";
 import type { AttachmentDownload } from "../service/messages";
+import { discoverMailConfigurations } from "../service/onboarding-discovery";
 import { loadMailboxPageData } from "../service/workspace";
 import wsRoutes from "../ws";
 import resourceRoutes from "./resources";
@@ -123,6 +124,7 @@ const updateDraftSchema = z.object({ expectedRevision: z.number().int().positive
 const roleParamSchema = z.object({ mailboxId: z.string().uuid(), role: configurableFolderRoleSchema });
 const folderRoleInputSchema = z.object({ folderId: z.string().uuid() });
 const draftRevisionSchema = z.object({ expectedRevision: z.coerce.number().int().positive() });
+const draftRecoveryRestoreSchema = draftRevisionSchema.extend({ leaseToken: z.string().uuid() });
 const attachmentUploadQuerySchema = draftRevisionSchema.extend({ filename: z.string().trim().min(1).max(255) });
 const attachmentChunkQuerySchema = z.object({ offset: z.coerce.number().int().nonnegative() });
 const acquireDraftLeaseSchema = z.object({ takeover: z.boolean().default(false) }).strict();
@@ -131,6 +133,7 @@ const notificationTargetParamSchema = z.object({
   kind: z.enum(["mention", "reminder"]),
   sourceId: z.string().uuid(),
 });
+const providerDiscoveryQuerySchema = z.object({ email: z.string().email().max(320) });
 
 const parseWorkspaceRouteUrl = (mailboxId: string, href: string): URL | null => {
   try {
@@ -232,6 +235,12 @@ const attachmentDownloadResponse = async (
 };
 
 const mailOperationsApi = new Hono<AuthContext>()
+  .get("/mailboxes/:mailboxId/provider-discovery", v("param", uuidParamSchema), v("query", providerDiscoveryQuerySchema), async (c) => {
+    const mailboxId = c.req.valid("param").mailboxId;
+    const allowed = await mailboxAccess.requireMailboxPermission(requestContext(c), mailboxId, "admin");
+    if (!allowed.ok) return respond(c, allowed);
+    return respond(c, ok(await discoverMailConfigurations(c.req.valid("query").email)));
+  })
   .get("/mailboxes", v("query", limitQuerySchema), async (c) =>
     respond(c, mailboxes.listMailboxes(requestContext(c), c.req.valid("query").limit)),
   )
@@ -728,19 +737,15 @@ const mailOperationsApi = new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/compose-templates", v("param", uuidParamSchema), async (c) =>
     respond(c, composeTemplates.listComposeTemplates(requestContext(c), c.req.valid("param").mailboxId)),
   )
-  .post(
-    "/mailboxes/:mailboxId/compose-templates",
-    v("param", uuidParamSchema),
-    v("json", createComposeTemplateInputSchema),
-    async (c) =>
-      respond(
-        c,
-        composeTemplates.createComposeTemplate({
-          context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
-        }),
-      ),
+  .post("/mailboxes/:mailboxId/compose-templates", v("param", uuidParamSchema), v("json", createComposeTemplateInputSchema), async (c) =>
+    respond(
+      c,
+      composeTemplates.createComposeTemplate({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
   )
   .patch(
     "/mailboxes/:mailboxId/compose-templates/:templateId",
@@ -775,61 +780,45 @@ const mailOperationsApi = new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/compose-style", v("param", uuidParamSchema), async (c) =>
     respond(c, composeTemplates.getMailboxComposeStyle(requestContext(c), c.req.valid("param").mailboxId)),
   )
-  .put(
-    "/mailboxes/:mailboxId/compose-style",
-    v("param", uuidParamSchema),
-    v("json", updateMailboxComposeStyleInputSchema),
-    async (c) =>
-      respond(
-        c,
-        composeTemplates.updateMailboxComposeStyle({
-          context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
-        }),
-      ),
+  .put("/mailboxes/:mailboxId/compose-style", v("param", uuidParamSchema), v("json", updateMailboxComposeStyleInputSchema), async (c) =>
+    respond(
+      c,
+      composeTemplates.updateMailboxComposeStyle({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
   )
-  .post(
-    "/mailboxes/:mailboxId/compose-preview",
-    v("param", uuidParamSchema),
-    v("json", composePreviewInputSchema),
-    async (c) =>
-      respond(
-        c,
-        composeTemplates.previewComposeDraft({
-          context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
-        }),
-      ),
+  .post("/mailboxes/:mailboxId/compose-preview", v("param", uuidParamSchema), v("json", composePreviewInputSchema), async (c) =>
+    respond(
+      c,
+      composeTemplates.previewComposeDraft({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
   )
-  .post(
-    "/mailboxes/:mailboxId/compose-snippet",
-    v("param", uuidParamSchema),
-    v("json", renderComposeSnippetInputSchema),
-    async (c) =>
-      respond(
-        c,
-        composeTemplates.renderComposeSnippet({
-          context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
-        }),
-      ),
+  .post("/mailboxes/:mailboxId/compose-snippet", v("param", uuidParamSchema), v("json", renderComposeSnippetInputSchema), async (c) =>
+    respond(
+      c,
+      composeTemplates.renderComposeSnippet({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
   )
-  .post(
-    "/mailboxes/:mailboxId/compose-suggestions",
-    v("param", uuidParamSchema),
-    v("json", composeSuggestionsInputSchema),
-    async (c) =>
-      respond(
-        c,
-        composeTemplates.renderComposeSuggestions({
-          context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
-        }),
-      ),
+  .post("/mailboxes/:mailboxId/compose-suggestions", v("param", uuidParamSchema), v("json", composeSuggestionsInputSchema), async (c) =>
+    respond(
+      c,
+      composeTemplates.renderComposeSuggestions({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
   )
   .post("/mailboxes/:mailboxId/sender-identities", v("param", uuidParamSchema), v("json", createSenderIdentityInputSchema), async (c) =>
     respond(
@@ -911,7 +900,7 @@ const mailOperationsApi = new Hono<AuthContext>()
   .post(
     "/mailboxes/:mailboxId/drafts/:draftId/recovery-copies/:recoveryCopyId/restore",
     v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), recoveryCopyId: z.string().uuid() })),
-    v("json", draftRevisionSchema),
+    v("json", draftRecoveryRestoreSchema),
     async (c) =>
       respond(
         c,
@@ -919,6 +908,7 @@ const mailOperationsApi = new Hono<AuthContext>()
           context: requestContext(c),
           ...c.req.valid("param"),
           expectedRevision: c.req.valid("json").expectedRevision,
+          leaseToken: c.req.valid("json").leaseToken,
         }),
       ),
   )

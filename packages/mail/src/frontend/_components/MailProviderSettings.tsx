@@ -3,6 +3,7 @@ import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { Mailbox, SenderIdentity } from "../../contracts";
+import type { DiscoveredMailConfiguration } from "../../service/onboarding-discovery";
 import type { MailboxAdminSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 
@@ -29,6 +30,7 @@ const EditorHeading = (props: { title: string; description: string; onBack: () =
 
 export function MailConnectionSettings(props: ProviderSettingsProps) {
   const [editing, setEditing] = createSignal(false);
+  const [replacingConnectionId, setReplacingConnectionId] = createSignal<string | null>(null);
   const [name, setName] = createSignal(props.mailbox.name);
   const [email, setEmail] = createSignal(props.currentUserEmail ?? "");
   const [username, setUsername] = createSignal(props.currentUserEmail ?? "");
@@ -41,10 +43,12 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   const [auth, setAuth] = createSignal<"password" | "oauth2">("password");
   const [secret, setSecret] = createSignal("");
   const [createSender, setCreateSender] = createSignal(true);
+  const [discoverySource, setDiscoverySource] = createSignal<string | null>(null);
   const currentConnection = createMemo(() => props.admin.connections.find((connection) => connection.status !== "revoked"));
   const currentBinding = createMemo(() => props.admin.bindings.find((binding) => binding.state !== "revoked"));
 
   const resetEditor = () => {
+    setReplacingConnectionId(null);
     setName(props.mailbox.name);
     setEmail(props.currentUserEmail ?? "");
     setUsername(props.currentUserEmail ?? "");
@@ -57,7 +61,59 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     setAuth("password");
     setSecret("");
     setCreateSender(true);
+    setDiscoverySource(null);
   };
+
+  const replaceEditor = () => {
+    const connection = currentConnection();
+    if (!connection) return;
+    setReplacingConnectionId(connection.id);
+    setName(connection.name);
+    setEmail(connection.email);
+    setUsername(connection.username);
+    setImapHost(connection.imap.host);
+    setImapPort(connection.imap.port);
+    setImapTls(connection.imap.tlsMode);
+    setSmtpHost(connection.smtp.host);
+    setSmtpPort(connection.smtp.port);
+    setSmtpTls(connection.smtp.tlsMode);
+    setAuth(connection.secret.kind);
+    setSecret("");
+    setCreateSender(false);
+    setDiscoverySource(null);
+    setEditing(true);
+  };
+
+  const discover = mutation.create<DiscoveredMailConfiguration[], void>({
+    mutation: async () => {
+      const response = await apiClient.mailboxes[":mailboxId"]["provider-discovery"].$get({
+        param: { mailboxId: props.mailbox.id },
+        query: { email: email().trim() },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not discover provider settings"));
+      return response.json();
+    },
+    onSuccess: (candidates) => {
+      const candidate = candidates[0];
+      if (!candidate) {
+        setDiscoverySource(null);
+        return void toast("No provider configuration was published. Enter the server settings manually.", {
+          title: "No settings found",
+        });
+      }
+      setUsername(candidate.username);
+      setImapHost(candidate.imap.host);
+      setImapPort(candidate.imap.port);
+      setImapTls(candidate.imap.tlsMode);
+      setSmtpHost(candidate.smtp.host);
+      setSmtpPort(candidate.smtp.port);
+      setSmtpTls(candidate.smtp.tlsMode);
+      setAuth(candidate.authentication.includes("password") ? "password" : "oauth2");
+      setDiscoverySource(candidate.source.replaceAll("_", " "));
+      toast.success("Provider settings found");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
   const canSubmit = createMemo(
     () =>
@@ -85,26 +141,43 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     return true;
   };
 
-  const connect = mutation.create<{ senderCreated: boolean }, void>({
+  const connect = mutation.create<{ senderCreated: boolean; replaced: boolean }, void>({
     mutation: async () => {
-      const connectionResponse = await apiClient.mailboxes[":mailboxId"].connections.$post({
-        param: { mailboxId: props.mailbox.id },
-        json: {
-          name: name().trim(),
-          email: email().trim(),
-          username: username().trim(),
-          imap: { host: imapHost().trim(), port: imapPort(), tlsMode: imapTls() },
-          smtp: { host: smtpHost().trim(), port: smtpPort(), tlsMode: smtpTls() },
-          secret: auth() === "oauth2" ? { kind: "oauth2", accessToken: secret() } : { kind: "password", password: secret() },
-        },
-      });
+      const input = {
+        name: name().trim(),
+        email: email().trim(),
+        username: username().trim(),
+        imap: { host: imapHost().trim(), port: imapPort(), tlsMode: imapTls() },
+        smtp: { host: smtpHost().trim(), port: smtpPort(), tlsMode: smtpTls() },
+        secret:
+          auth() === "oauth2" ? { kind: "oauth2" as const, accessToken: secret() } : { kind: "password" as const, password: secret() },
+      };
+      const replacementId = replacingConnectionId();
+      const connectionResponse = replacementId
+        ? await apiClient.mailboxes[":mailboxId"].connections[":connectionId"].$put({
+            param: { mailboxId: props.mailbox.id, connectionId: replacementId },
+            json: input,
+          })
+        : await apiClient.mailboxes[":mailboxId"].connections.$post({
+            param: { mailboxId: props.mailbox.id },
+            json: input,
+          });
       if (!connectionResponse.ok) throw new Error(await readApiError(connectionResponse, "Provider verification failed"));
       const created = await connectionResponse.json();
-      return { senderCreated: await attachConnection(created.connection.id) };
+      return replacementId
+        ? { senderCreated: false, replaced: true }
+        : { senderCreated: await attachConnection(created.connection.id), replaced: false };
     },
     onSuccess: (result) => {
-      toast.success(result.senderCreated ? "Provider and default sender connected" : "Provider connected");
+      toast.success(
+        result.replaced
+          ? "Provider credentials replaced"
+          : result.senderCreated
+            ? "Provider and default sender connected"
+            : "Provider connected",
+      );
       setEditing(false);
+      setReplacingConnectionId(null);
       props.onWorkspaceChange();
       void props.onReload();
     },
@@ -112,6 +185,28 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
       void props.onReload();
       prompts.error(error.message);
     },
+  });
+
+  const revoke = mutation.create<boolean, string>({
+    mutation: async (connectionId) => {
+      const confirmed = await prompts.confirm(
+        "This permanently removes the encrypted credential, revokes its remote mailbox binding, and stops provider operations until another connection is configured.",
+        { title: "Remove provider connection?", confirmText: "Remove connection", variant: "danger" },
+      );
+      if (!confirmed) return false;
+      const response = await apiClient.mailboxes[":mailboxId"].connections[":connectionId"].$delete({
+        param: { mailboxId: props.mailbox.id, connectionId },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to remove provider connection"));
+      return true;
+    },
+    onSuccess: async (revoked) => {
+      if (!revoked) return;
+      toast.success("Provider connection removed");
+      props.onWorkspaceChange();
+      await props.onReload();
+    },
+    onError: (error) => prompts.error(error.message),
   });
 
   const finishSetup = mutation.create<{ senderCreated: boolean }, string>({
@@ -130,14 +225,38 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
       fallback={
         <div class="flex flex-col gap-4">
           <EditorHeading
-            title="Connect provider"
-            description="Verify IMAP and SMTP before storing the encrypted credential."
+            title={replacingConnectionId() ? "Replace provider credentials" : "Connect provider"}
+            description={
+              replacingConnectionId()
+                ? "Enter the complete connection again. The new credential is verified before replacing the current one."
+                : "Verify IMAP and SMTP before storing the encrypted credential."
+            }
             onBack={() => setEditing(false)}
           />
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <TextInput label="Label" description="Shown only in mailbox settings." value={name} onInput={setName} required />
-            <TextInput label="Email address" type="email" value={email} onInput={setEmail} required />
+            <div class="flex items-end gap-2">
+              <div class="min-w-0 flex-1">
+                <TextInput label="Email address" type="email" value={email} onInput={setEmail} required />
+              </div>
+              <button
+                type="button"
+                class="btn-secondary btn-sm shrink-0"
+                disabled={!email().trim() || discover.loading()}
+                onClick={() => discover.mutate()}
+              >
+                <i class={`ti ${discover.loading() ? "ti-loader-2 animate-spin" : "ti-wand"}`} aria-hidden="true" />
+                Find settings
+              </button>
+            </div>
           </div>
+          <Show when={discoverySource()}>
+            {(source) => (
+              <div class="info-block-success text-xs" role="status">
+                Server settings were filled from {source()}. Review them, then enter the account secret.
+              </div>
+            )}
+          </Show>
           <TextInput label="Username" description="Login name sent to IMAP and SMTP." value={username} onInput={setUsername} required />
           <div>
             <p class="mb-2 text-xs font-semibold text-primary">Incoming mail</p>
@@ -191,19 +310,21 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
               autocomplete="off"
             />
           </div>
-          <Checkbox
-            label="Create the default sender for this address"
-            description="Recommended for normal mailboxes. Disable only when the remote folder and sender use different accounts."
-            value={createSender}
-            onChange={setCreateSender}
-          />
+          <Show when={!replacingConnectionId()}>
+            <Checkbox
+              label="Create the default sender for this address"
+              description="Recommended for normal mailboxes. Disable only when the remote folder and sender use different accounts."
+              value={createSender}
+              onChange={setCreateSender}
+            />
+          </Show>
           <div class="sticky bottom-0 flex justify-end gap-2 bg-[var(--ui-surface)] py-2">
             <button type="button" class="btn-simple btn-sm" disabled={connect.loading()} onClick={() => setEditing(false)}>
               Cancel
             </button>
             <button type="button" class="btn-primary btn-sm" disabled={!canSubmit() || connect.loading()} onClick={() => connect.mutate()}>
               <i class={connect.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} aria-hidden="true" />
-              Verify and connect
+              {replacingConnectionId() ? "Verify and replace" : "Verify and connect"}
             </button>
           </div>
         </div>
@@ -243,6 +364,18 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                 </span>
               </span>
               <span class="badge">{connection().status}</span>
+              <button type="button" class="btn-secondary btn-sm" disabled={props.reloading || revoke.loading()} onClick={replaceEditor}>
+                <i class="ti ti-key" aria-hidden="true" /> Replace
+              </button>
+              <button
+                type="button"
+                class="icon-btn text-red-600"
+                aria-label="Remove provider connection"
+                disabled={props.reloading || revoke.loading()}
+                onClick={() => revoke.mutate(connection().id)}
+              >
+                <i class="ti ti-trash" aria-hidden="true" />
+              </button>
               <Show when={!currentBinding()}>
                 <button
                   type="button"
@@ -273,14 +406,17 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   );
 }
 
-type SenderEditor = { kind: "create" } | { kind: "verify"; identity: SenderIdentity };
+type SenderEditor = { kind: "create" } | { kind: "edit"; identity: SenderIdentity } | { kind: "verify"; identity: SenderIdentity };
 
 export function MailSenderSettings(props: ProviderSettingsProps) {
   const [editor, setEditor] = createSignal<SenderEditor | null>(null);
   const [identities, setIdentities] = createSignal(props.admin.identities);
   const [displayName, setDisplayName] = createSignal("");
   const [address, setAddress] = createSignal("");
+  const [replyTo, setReplyTo] = createSignal("");
+  const [envelopeSender, setEnvelopeSender] = createSignal("");
   const [sentFolderId, setSentFolderId] = createSignal("");
+  const [draftsFolderId, setDraftsFolderId] = createSignal("");
   const [isDefault, setIsDefault] = createSignal(false);
   const [allowAutomation, setAllowAutomation] = createSignal(true);
   const [bindingId, setBindingId] = createSignal("");
@@ -289,7 +425,9 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
 
   createEffect(() => setIdentities(props.admin.identities));
 
-  const selectableFolders = createMemo(() => props.admin.folders.filter((folder) => folder.selectable));
+  const selectableFolders = createMemo(() =>
+    props.admin.folders.filter((folder) => folder.selectable && folder.discoveryState === "active"),
+  );
   const activeBindings = createMemo(() => props.admin.bindings.filter((binding) => binding.state === "active"));
   const replaceIdentity = (identity: SenderIdentity) =>
     setIdentities((current) =>
@@ -301,10 +439,25 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
   const openCreate = () => {
     setDisplayName("");
     setAddress(props.admin.connections[0]?.email ?? props.currentUserEmail ?? "");
+    setReplyTo("");
+    setEnvelopeSender("");
     setSentFolderId(selectableFolders().find((folder) => folder.role === "sent")?.id ?? "");
+    setDraftsFolderId(selectableFolders().find((folder) => folder.role === "drafts")?.id ?? "");
     setIsDefault(identities().length === 0);
     setAllowAutomation(true);
     setEditor({ kind: "create" });
+  };
+
+  const openEdit = (identity: SenderIdentity) => {
+    setDisplayName(identity.displayName);
+    setAddress(identity.fromAddress);
+    setReplyTo(identity.replyTo ?? "");
+    setEnvelopeSender(identity.envelopeSender ?? "");
+    setSentFolderId(identity.sentFolderId ?? "");
+    setDraftsFolderId(identity.draftsFolderId ?? "");
+    setIsDefault(identity.isDefault);
+    setAllowAutomation(identity.authenticationPolicy.automation === "mailbox");
+    setEditor({ kind: "edit", identity });
   };
 
   const openVerify = (identity: SenderIdentity) => {
@@ -321,8 +474,11 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
         json: {
           displayName: displayName().trim(),
           fromAddress: address().trim(),
+          replyTo: replyTo().trim() || null,
+          envelopeSender: envelopeSender().trim() || null,
           authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
           sentFolderId: sentFolderId() || null,
+          draftsFolderId: draftsFolderId() || null,
           isDefault: isDefault(),
         },
       });
@@ -335,6 +491,59 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
       setEditor(null);
       props.onWorkspaceChange();
       void props.onReload();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const updateIdentity = mutation.create<SenderIdentity, void>({
+    mutation: async () => {
+      const current = editor();
+      if (!current || current.kind !== "edit") throw new Error("No sender identity selected");
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$patch({
+        param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
+        json: {
+          displayName: displayName().trim(),
+          fromAddress: address().trim(),
+          replyTo: replyTo().trim() || null,
+          envelopeSender: envelopeSender().trim() || null,
+          authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
+          sentFolderId: sentFolderId() || null,
+          draftsFolderId: draftsFolderId() || null,
+          isDefault: isDefault(),
+        },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update sender identity"));
+      return response.json();
+    },
+    onSuccess: (identity) => {
+      replaceIdentity(identity);
+      toast.success("Sender identity updated");
+      setEditor(null);
+      props.onWorkspaceChange();
+      void props.onReload();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const disableIdentity = mutation.create<{ disabled: boolean; identity: SenderIdentity }, SenderIdentity>({
+    mutation: async (identity) => {
+      const confirmed = await prompts.confirm(
+        "Existing sent mail remains unchanged. This address can no longer be selected for new messages or automatic replies.",
+        { title: `Disable ${identity.fromAddress}?`, confirmText: "Disable sender", variant: "danger" },
+      );
+      if (!confirmed) return { disabled: false, identity };
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$delete({
+        param: { mailboxId: props.mailbox.id, senderIdentityId: identity.id },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to disable sender identity"));
+      return { disabled: true, identity };
+    },
+    onSuccess: async ({ disabled, identity }) => {
+      if (!disabled) return;
+      setIdentities((current) => current.filter((item) => item.id !== identity.id));
+      toast.success("Sender identity disabled");
+      props.onWorkspaceChange();
+      await props.onReload();
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -425,6 +634,18 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
                       Verify
                     </button>
                   </Show>
+                  <button type="button" class="icon-btn" aria-label={`Edit ${identity.fromAddress}`} onClick={() => openEdit(identity)}>
+                    <i class="ti ti-edit" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-btn text-red-600"
+                    aria-label={`Disable ${identity.fromAddress}`}
+                    disabled={disableIdentity.loading()}
+                    onClick={() => disableIdentity.mutate(identity)}
+                  >
+                    <i class="ti ti-trash" aria-hidden="true" />
+                  </button>
                 </div>
               )}
             </For>
@@ -435,7 +656,7 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
       {(currentEditor) => (
         <div class="flex flex-col gap-4">
           <Show
-            when={currentEditor().kind === "create"}
+            when={currentEditor().kind !== "verify"}
             fallback={
               <>
                 <EditorHeading
@@ -470,17 +691,41 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
             }
           >
             <EditorHeading
-              title="Add sender"
-              description="Configure the From address collaborators can use."
+              title={currentEditor().kind === "edit" ? "Edit sender" : "Add sender"}
+              description="Configure the sender collaborators and automatic replies can use."
               onBack={() => setEditor(null)}
             />
             <TextInput label="Display name" description="The name recipients see." value={displayName} onInput={setDisplayName} />
             <TextInput label="From address" type="email" value={address} onInput={setAddress} required />
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <TextInput
+                label="Reply-to address"
+                description="Optional address for recipient replies."
+                type="email"
+                value={replyTo}
+                onInput={setReplyTo}
+              />
+              <TextInput
+                label="Envelope sender"
+                description="Optional return-path used for delivery."
+                type="email"
+                value={envelopeSender}
+                onInput={setEnvelopeSender}
+              />
+            </div>
             <Select
               label="Sent folder"
               description="Required when the provider does not save submitted mail automatically."
               value={sentFolderId}
               onChange={setSentFolderId}
+              options={selectableFolders().map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" }))}
+              clearable
+            />
+            <Select
+              label="Drafts folder"
+              description="Provider folder used for projected drafts."
+              value={draftsFolderId}
+              onChange={setDraftsFolderId}
               options={selectableFolders().map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" }))}
               clearable
             />
@@ -492,16 +737,31 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
               </p>
             </div>
             <div class="sticky bottom-0 flex justify-end gap-2 bg-[var(--ui-surface)] py-2">
-              <button type="button" class="btn-simple btn-sm" disabled={createIdentity.loading()} onClick={() => setEditor(null)}>
+              <button
+                type="button"
+                class="btn-simple btn-sm"
+                disabled={createIdentity.loading() || updateIdentity.loading()}
+                onClick={() => setEditor(null)}
+              >
                 Cancel
               </button>
               <button
                 type="button"
                 class="btn-primary btn-sm"
-                disabled={!address().trim() || createIdentity.loading()}
-                onClick={() => createIdentity.mutate()}
+                disabled={!address().trim() || createIdentity.loading() || updateIdentity.loading()}
+                onClick={() => (currentEditor().kind === "edit" ? updateIdentity.mutate() : createIdentity.mutate())}
               >
-                <i class={createIdentity.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} aria-hidden="true" /> Add sender
+                <i
+                  class={
+                    createIdentity.loading() || updateIdentity.loading()
+                      ? "ti ti-loader-2 animate-spin"
+                      : currentEditor().kind === "edit"
+                        ? "ti ti-device-floppy"
+                        : "ti ti-plus"
+                  }
+                  aria-hidden="true"
+                />
+                {currentEditor().kind === "edit" ? "Save sender" : "Add sender"}
               </button>
             </div>
           </Show>

@@ -742,12 +742,25 @@ suite("mail PostgreSQL foundation", () => {
     const recoveryCopies = await listDraftRecoveryCopies({ context, mailboxId: mailbox.data.id, draftId: draft.data.id });
     expect(recoveryCopies.ok && recoveryCopies.data).toHaveLength(1);
     if (!recoveryCopies.ok || !recoveryCopies.data[0]) return;
+    const recoveryLease = await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: draft.data.id });
+    expect(recoveryLease.ok).toBe(true);
+    if (!recoveryLease.ok) return;
+    const restoreWithoutLease = await restoreDraftRecoveryCopy({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      recoveryCopyId: recoveryCopies.data[0].id,
+      expectedRevision: draft.data.revision,
+      leaseToken: crypto.randomUUID(),
+    });
+    expect(restoreWithoutLease.ok).toBe(false);
     const restoredDraft = await restoreDraftRecoveryCopy({
       context,
       mailboxId: mailbox.data.id,
       draftId: draft.data.id,
       recoveryCopyId: recoveryCopies.data[0].id,
       expectedRevision: draft.data.revision,
+      leaseToken: recoveryLease.data.token,
     });
     expect(restoredDraft.ok && restoredDraft.data.body).toBe("Recovered stale body");
     expect(restoredDraft.ok && restoredDraft.data.recoveryCopyCount).toBe(0);

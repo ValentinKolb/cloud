@@ -73,8 +73,8 @@ const optionalUuidSearchParam = (url: URL, name: string): string | null => {
 };
 
 const searchExpressionFromUrl = (url: URL, query: string): MailSearchExpression | null => {
-  if (query) return { type: "text", field: "any", query, match: "words" };
   const terms: MailSearchExpression[] = [];
+  if (query) terms.push({ type: "text", field: "any", query, match: "words" });
   for (const [parameter, fields] of [
     ["from", ["from"]],
     ["to", ["to", "cc"]],
@@ -121,11 +121,13 @@ export type MailboxPageData = {
   listError: string | null;
   listTitle: string;
   detailMessages: MessageDetail[];
+  detailError: string | null;
   collaborationState: ConversationCollaboration | null;
   localTags: LocalTag[];
   conversationLocalTags: ConversationLocalTags | null;
   comments: ConversationComment[];
   assignableUsers: MailAssignableUser[];
+  mentionableUsers: MailAssignableUser[];
   activity: MailActivityEvent[];
   reminder: ConversationReminder | null;
   collaborationError: string | null;
@@ -136,10 +138,12 @@ export type MailboxPageData = {
 type MailSelectionDetail = Pick<
   MailboxPageData,
   | "detailMessages"
+  | "detailError"
   | "collaborationState"
   | "conversationLocalTags"
   | "comments"
   | "assignableUsers"
+  | "mentionableUsers"
   | "activity"
   | "reminder"
   | "collaborationError"
@@ -148,10 +152,12 @@ type MailSelectionDetail = Pick<
 
 const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
   detailMessages: [],
+  detailError: null,
   collaborationState: null,
   conversationLocalTags: null,
   comments: [],
   assignableUsers: [],
+  mentionableUsers: [],
   activity: [],
   reminder: null,
   collaborationError: null,
@@ -178,24 +184,36 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
 });
 
 const loadConversationDetails = async (params: { context: MailRequestContext; mailboxId: string; conversationId: string }) => {
-  const [detailResult, stateResult, tagResult, commentsResult, usersResult, activityResult, reminderResult, referenceResult] =
-    await Promise.all([
-      messages.listConversationMessageDetails({ ...params, limit: 100 }),
-      collaboration.getConversationCollaboration(params),
-      localTags.getConversationLocalTags(params),
-      collaboration.listConversationComments({ ...params, limit: 100 }),
-      collaboration.listAssignableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
-      collaboration.listActivity({ ...params, limit: 30 }),
-      reminders.getConversationReminder(params),
-      conversationReferences.listConversationReferences(params),
-    ]);
+  const [
+    detailResult,
+    stateResult,
+    tagResult,
+    commentsResult,
+    usersResult,
+    mentionableUsersResult,
+    activityResult,
+    reminderResult,
+    referenceResult,
+  ] = await Promise.all([
+    messages.listConversationMessageDetails({ ...params, limit: 100 }),
+    collaboration.getConversationCollaboration(params),
+    localTags.getConversationLocalTags(params),
+    collaboration.listConversationComments({ ...params, limit: 100 }),
+    collaboration.listAssignableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
+    collaboration.listMentionableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
+    collaboration.listActivity({ ...params, limit: 30 }),
+    reminders.getConversationReminder(params),
+    conversationReferences.listConversationReferences(params),
+  ]);
 
   return {
     detailMessages: detailResult.ok ? detailResult.data : [],
+    detailError: detailResult.ok ? null : detailResult.error.message,
     collaborationState: stateResult.ok ? stateResult.data : null,
     conversationLocalTags: tagResult.ok ? tagResult.data : null,
     comments: commentsResult.ok ? commentsResult.data.items : [],
     assignableUsers: usersResult.ok ? usersResult.data : [],
+    mentionableUsers: mentionableUsersResult.ok ? mentionableUsersResult.data : [],
     activity: activityResult.ok ? activityResult.data.items : [],
     reminder: reminderResult.ok ? reminderResult.data : null,
     collaborationError: !stateResult.ok ? stateResult.error.message : !commentsResult.ok ? commentsResult.error.message : null,
@@ -225,7 +243,9 @@ const loadSelectionDetail = async (params: {
     mailboxId: params.mailboxId,
     messageId: params.messageId,
   });
-  return detail.ok ? { ...EMPTY_SELECTION_DETAIL, detailMessages: [detail.data] } : EMPTY_SELECTION_DETAIL;
+  return detail.ok
+    ? { ...EMPTY_SELECTION_DETAIL, detailMessages: [detail.data] }
+    : { ...EMPTY_SELECTION_DETAIL, detailError: detail.error.message };
 };
 
 const loadListItems = async (params: {

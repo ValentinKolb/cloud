@@ -543,7 +543,7 @@ export default function MailAutomaticReplySettings(props: {
           />
         }
       >
-        <div class="divide-y divide-[var(--ui-border)]">
+        <div class="flex flex-col gap-2">
           <For each={configurations()}>
             {(configuration) => (
               <div class="flex items-center gap-3 py-2">

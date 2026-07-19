@@ -24,6 +24,8 @@ import type {
   ComposeSuggestion,
   DraftEditableContentInput,
   DraftIntent,
+  DraftRecoveryCopy,
+  MailCommand,
   MailDraft,
   SenderIdentity,
 } from "../../contracts";
@@ -32,7 +34,7 @@ import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
 
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
-type UploadState = { file: File; progress: number; error: string | null };
+type UploadState = { file: File; progress: number; error: string | null; uploadId: string | null; draftId: string | null };
 type DraftJournal = { revision: number; content: DraftEditableContentInput };
 type LeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: "rejected" } | { kind: "unavailable" };
 
@@ -434,8 +436,12 @@ export default function MailComposer(props: {
         json: { expectedRevision: currentDraft.revision, draft: nextContent },
       });
       if (!response.ok) {
+        const message = await readApiError(response, "Draft could not be saved");
         setStatus("error");
-        setStatusMessage(await readApiError(response, "Draft could not be saved"));
+        setStatusMessage(message);
+        if (message.includes("recovery copy")) {
+          setDraft((current) => (current ? { ...current, recoveryCopyCount: current.recoveryCopyCount + 1 } : current));
+        }
         return null;
       }
       const saved = await response.json();
@@ -446,6 +452,65 @@ export default function MailComposer(props: {
       setStatusMessage("");
       return saved;
     });
+  };
+
+  const restoreRecoveryCopy = async () => {
+    const currentDraft = draft();
+    if (!currentDraft || !editable()) return;
+    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["recovery-copies"].$get({
+      param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
+    });
+    if (!response.ok) return prompts.error(await readApiError(response, "Could not load draft recovery copies"));
+    const copies: DraftRecoveryCopy[] = await response.json();
+    const unresolved = copies.filter((copy) => !copy.restoredAt);
+    if (unresolved.length === 0) {
+      setDraft({ ...currentDraft, recoveryCopyCount: 0 });
+      return void toast("No unresolved recovery copies remain.", { title: "Draft is current" });
+    }
+    const labels = new Map(
+      unresolved.map((copy, index) => {
+        const preview = copy.content.body.trim().replaceAll(/\s+/g, " ").slice(0, 80) || "(empty message)";
+        return [
+          copy.id,
+          `${index + 1}. ${dates.formatDateTimeRelative(copy.createdAt, props.dateConfig)} · ${copy.createdBy.kind} · ${preview}`,
+        ];
+      }),
+    );
+    const values = await prompts.form({
+      title: "Restore draft changes",
+      fields: {
+        recoveryCopyId: {
+          type: "select",
+          label: "Recovery copy",
+          options: unresolved.map((copy) => ({ id: copy.id, label: labels.get(copy.id) ?? copy.id })),
+          default: unresolved[0]?.id,
+          required: true,
+        },
+      },
+      confirmText: "Restore copy",
+    });
+    if (!values) return;
+    const selected = unresolved.find((copy) => copy.id === values.recoveryCopyId);
+    if (!selected) return prompts.error("The selected recovery copy is no longer available.");
+    const currentLease = lease();
+    if (!editable() || !currentLease) return prompts.error("This draft is no longer editable in this session.");
+    const restoreResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["recovery-copies"][":recoveryCopyId"].restore.$post({
+      param: {
+        mailboxId: props.mailboxId,
+        draftId: currentDraft.id,
+        recoveryCopyId: selected.id,
+      },
+      json: { expectedRevision: currentDraft.revision, leaseToken: currentLease.token },
+    });
+    if (!restoreResponse.ok) return prompts.error(await readApiError(restoreResponse, "Could not restore draft changes"));
+    const restored = await restoreResponse.json();
+    setDraft(restored);
+    applyDraftContent(restored);
+    lastSavedContent = JSON.stringify(content());
+    localStorage.removeItem(journalKey(props.mailboxId, restored.id));
+    setStatus("saved");
+    setStatusMessage("");
+    toast.success("Draft changes restored");
   };
 
   createEffect(() => {
@@ -541,13 +606,17 @@ export default function MailComposer(props: {
   const uploadFile = async (file: File) => {
     const saved = await persist();
     if (!saved) throw new Error("Save the draft before attaching files.");
-    setUploads((current) => [...current, { file, progress: 0, error: null }]);
+    setUploads((current) => [
+      ...current.filter((entry) => entry.file !== file),
+      { file, progress: 0, error: null, uploadId: null, draftId: saved.id },
+    ]);
     const createResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"].$post({
       param: { mailboxId: props.mailboxId, draftId: saved.id },
       json: { filename: file.name, contentType: file.type || "application/octet-stream", byteLength: file.size },
     });
     if (!createResponse.ok) throw new Error(await readApiError(createResponse, `Failed to attach ${file.name}`));
     const upload = await createResponse.json();
+    setUploads((current) => current.map((entry) => (entry.file === file ? { ...entry, uploadId: upload.id, draftId: saved.id } : entry)));
     for (let offset = 0; offset < file.size; offset += upload.chunkSize) {
       const chunk = file.slice(offset, Math.min(file.size, offset + upload.chunkSize));
       const response = await fetch(
@@ -570,6 +639,25 @@ export default function MailComposer(props: {
       setDraft(await finalizeResponse.json());
     });
     setUploads((current) => current.filter((entry) => entry.file !== file));
+  };
+
+  const cancelUpload = async (upload: UploadState) => {
+    if (upload.uploadId && upload.draftId) {
+      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"][":uploadId"].$delete({
+        param: { mailboxId: props.mailboxId, draftId: upload.draftId, uploadId: upload.uploadId },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, `Failed to cancel upload for ${upload.file.name}`));
+    }
+    setUploads((current) => current.filter((entry) => entry.file !== upload.file));
+  };
+
+  const retryUpload = async (upload: UploadState) => {
+    try {
+      await cancelUpload(upload);
+      await uploadFile(upload.file);
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : `Failed to retry ${upload.file.name}`);
+    }
   };
 
   const addFiles = async (files: File[]) => {
@@ -599,13 +687,14 @@ export default function MailComposer(props: {
     });
 
   const validateDelivery = () => {
+    if (uploads().length > 0) throw new Error("Finish or cancel attachment uploads before sending.");
     if (to().length + cc().length + bcc().length === 0) throw new Error("Add at least one recipient.");
     if (!body().trim() && !(draft()?.attachments.length ?? 0)) {
       throw new Error("Write a message or attach a file before sending.");
     }
   };
 
-  const send = mutations.create<void, { scheduledAt?: string }, { scheduledAt?: string }>({
+  const send = mutations.create<MailCommand, { scheduledAt?: string }, { scheduledAt?: string }>({
     onBefore: (delivery) => delivery,
     mutation: async (delivery) => {
       validateDelivery();
@@ -624,11 +713,20 @@ export default function MailComposer(props: {
         },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to queue message"));
+      const command = await response.json();
       localStorage.removeItem(journalKey(props.mailboxId, saved.id));
+      return command;
     },
-    onSuccess: (_, delivery) => {
+    onSuccess: (command, delivery) => {
+      const scheduled = Boolean(delivery?.scheduledAt);
       toast.success(
-        delivery?.scheduledAt ? `Delivery scheduled for ${dates.formatDateTime(delivery.scheduledAt, props.dateConfig)}` : "Message queued",
+        scheduled ? `Delivery scheduled for ${dates.formatDateTime(delivery!.scheduledAt!, props.dateConfig)}` : "Message queued",
+        !scheduled && preferences.undoSeconds > 0
+          ? {
+              duration: Math.max(5_000, preferences.undoSeconds * 1_000),
+              action: { label: `Undo within ${preferences.undoSeconds} seconds`, href: `/app/mail/${props.mailboxId}?scheduled=1` },
+            }
+          : undefined,
       );
       props.onClose?.();
       if (props.surface === "full") navigateTo(props.returnHref);
@@ -881,6 +979,11 @@ export default function MailComposer(props: {
               {lease() ? "Retry" : "Take over"}
             </button>
           </Show>
+          <Show when={editable() && (draft()?.recoveryCopyCount ?? 0) > 0}>
+            <button type="button" class="btn-secondary btn-sm" onClick={() => void restoreRecoveryCopy()}>
+              <i class="ti ti-history" aria-hidden="true" /> Recover changes
+            </button>
+          </Show>
           <Tooltip content="Open in new window">
             <button
               type="button"
@@ -922,6 +1025,15 @@ export default function MailComposer(props: {
               {lease() ? "Retry" : "Take over"}
             </button>
           </Show>
+        </div>
+      </Show>
+
+      <Show when={props.popout && editable() && (draft()?.recoveryCopyCount ?? 0) > 0}>
+        <div class="flex shrink-0 items-center gap-2 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          <span class="min-w-0 flex-1">Saved conflict changes are available for this draft.</span>
+          <button type="button" class="btn-secondary btn-sm" onClick={() => void restoreRecoveryCopy()}>
+            <i class="ti ti-history" aria-hidden="true" /> Recover
+          </button>
         </div>
       </Show>
 
@@ -1030,6 +1142,7 @@ export default function MailComposer(props: {
                     type="button"
                     class="icon-btn"
                     aria-label={`Remove ${attachment.filename}`}
+                    disabled={!editable()}
                     onClick={() => removeAttachment(attachment.id)}
                   >
                     <i class="ti ti-x" aria-hidden="true" />
@@ -1043,6 +1156,24 @@ export default function MailComposer(props: {
                   <i class={`ti ${upload.error ? "ti-alert-circle text-red-500" : "ti-loader-2 animate-spin"}`} aria-hidden="true" />
                   <span class="max-w-48 truncate">{upload.file.name}</span>
                   <span class="text-xs text-dimmed">{upload.error ?? `${upload.progress}%`}</span>
+                  <Show when={upload.error}>
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      aria-label={`Retry ${upload.file.name}`}
+                      onClick={() => void retryUpload(upload)}
+                    >
+                      <i class="ti ti-refresh" aria-hidden="true" />
+                    </button>
+                  </Show>
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    aria-label={`Cancel ${upload.file.name}`}
+                    onClick={() => void cancelUpload(upload).catch((error) => prompts.error(error.message))}
+                  >
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </button>
                 </span>
               )}
             </For>
@@ -1066,7 +1197,7 @@ export default function MailComposer(props: {
           <button
             type="button"
             class="btn-primary btn-sm rounded-r-none"
-            disabled={!editable() || send.loading()}
+            disabled={!editable() || send.loading() || uploads().length > 0}
             onClick={() => send.mutate({})}
           >
             <i class={`ti ${send.loading() ? "ti-loader-2 animate-spin" : intentIcon(composerIntent())}`} aria-hidden="true" />
@@ -1077,7 +1208,7 @@ export default function MailComposer(props: {
               type="button"
               class="btn-primary btn-sm min-w-8 rounded-l-none border-l border-l-white/30 px-2"
               aria-label="Schedule delivery"
-              disabled={!editable() || send.loading()}
+              disabled={!editable() || send.loading() || uploads().length > 0}
               onClick={() => void schedule()}
             >
               <i class="ti ti-clock" aria-hidden="true" />
@@ -1116,7 +1247,7 @@ export default function MailComposer(props: {
         />
         <span class="flex-1" />
         <Tooltip content="Discard draft">
-          <button type="button" class="icon-btn" aria-label="Discard draft" disabled={!draft()} onClick={discard}>
+          <button type="button" class="icon-btn" aria-label="Discard draft" disabled={!draft() || !editable()} onClick={discard}>
             <i class="ti ti-trash" aria-hidden="true" />
           </button>
         </Tooltip>

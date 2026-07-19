@@ -182,7 +182,7 @@ export default function MailResponseScheduleFields(props: {
       <div>
         <p class="text-sm font-medium text-primary">Weekly hours</p>
         <p class="mb-2 text-xs text-dimmed">Add one or more windows for every day when replies may be sent.</p>
-        <div class="divide-y divide-[var(--ui-border)]">
+        <div class="flex flex-col gap-2">
           <For each={WEEKDAYS}>
             {(day) => {
               const enabled = () => windowsForDay(day.id).length > 0;
@@ -222,7 +222,7 @@ export default function MailResponseScheduleFields(props: {
           </button>
         </div>
         <Show when={props.value().exceptions.length > 0} fallback={<p class="text-xs text-dimmed">No exceptions.</p>}>
-          <div class="divide-y divide-[var(--ui-border)]">
+          <div class="flex flex-col gap-2">
             <For each={props.value().exceptions}>
               {(exception, index) => {
                 const replace = (next: typeof exception) =>

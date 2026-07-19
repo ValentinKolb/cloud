@@ -17,6 +17,7 @@ import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveDefaultSignatureSource } from "./compose-templates";
+import { withOwnedDraftLease } from "./draft-leases";
 import type { AttachmentDownload } from "./messages";
 
 type DraftActor = Extract<ActorRef, { kind: "user" | "service_account" | "workflow" }>;
@@ -648,24 +649,32 @@ export const restoreDraftRecoveryCopy = async (params: {
   draftId: string;
   recoveryCopyId: string;
   expectedRevision: number;
+  leaseToken: string;
 }): Promise<Result<MailDraft>> => {
   if (!Number.isInteger(params.expectedRevision) || params.expectedRevision < 1) return fail(err.badInput("Invalid draft revision"));
   const actor = mutableActor(params.context);
   if (!actor) return fail(err.forbidden("Draft editor is invalid"));
   try {
-    return await sql.begin(async (tx) => {
-      const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
-      if (!allowed.ok) return allowed;
-      const [draft] = await tx<{ revision: string | number; state: string }[]>`
+    return await withOwnedDraftLease({
+      context: params.context,
+      mailboxId: params.mailboxId,
+      draftId: params.draftId,
+      token: params.leaseToken,
+      operation: () =>
+        sql.begin(async (tx) => {
+          const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
+          if (!allowed.ok) return allowed;
+          const [draft] = await tx<{ revision: string | number; state: string }[]>`
         SELECT revision, state
         FROM mail.drafts
         WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
         FOR UPDATE
       `;
-      if (!draft) return fail(err.notFound("Draft"));
-      if (draft.state !== "draft") return fail(err.badInput("Draft can no longer be edited"));
-      if (Number(draft.revision) !== params.expectedRevision) return conflict("Draft changed before the recovery copy could be restored");
-      const [copy] = await tx<DbRecoveryCopy[]>`
+          if (!draft) return fail(err.notFound("Draft"));
+          if (draft.state !== "draft") return fail(err.badInput("Draft can no longer be edited"));
+          if (Number(draft.revision) !== params.expectedRevision)
+            return conflict("Draft changed before the recovery copy could be restored");
+          const [copy] = await tx<DbRecoveryCopy[]>`
         SELECT ${recoveryColumns}
         FROM mail.draft_recovery_copies recovery
         WHERE recovery.id = ${params.recoveryCopyId}::uuid
@@ -673,12 +682,12 @@ export const restoreDraftRecoveryCopy = async (params: {
           AND recovery.restored_at IS NULL
         FOR UPDATE
       `;
-      if (!copy) return fail(err.notFound("Draft recovery copy"));
-      const content = draftEditableContentInputSchema.safeParse(parseRecord(copy.content));
-      if (!content.success) return fail(err.internal("Draft recovery copy is invalid"));
-      const identity = await validateIdentity({ mailboxId: params.mailboxId, senderIdentityId: content.data.senderIdentityId, db: tx });
-      if (!identity.ok) return identity;
-      const [updated] = await tx<DbDraft[]>`
+          if (!copy) return fail(err.notFound("Draft recovery copy"));
+          const content = draftEditableContentInputSchema.safeParse(parseRecord(copy.content));
+          if (!content.success) return fail(err.internal("Draft recovery copy is invalid"));
+          const identity = await validateIdentity({ mailboxId: params.mailboxId, senderIdentityId: content.data.senderIdentityId, db: tx });
+          if (!identity.ok) return identity;
+          const [updated] = await tx<DbDraft[]>`
         UPDATE mail.drafts d
         SET
           sender_identity_id = ${content.data.senderIdentityId}::uuid,
@@ -694,8 +703,8 @@ export const restoreDraftRecoveryCopy = async (params: {
         WHERE d.id = ${params.draftId}::uuid AND d.origin = 'user'
         RETURNING ${draftColumns}
       `;
-      if (!updated) return fail(err.internal("Draft recovery returned no row"));
-      await tx`
+          if (!updated) return fail(err.internal("Draft recovery returned no row"));
+          await tx`
         UPDATE mail.draft_recovery_copies
         SET
           restored_at = now(),
@@ -704,22 +713,23 @@ export const restoreDraftRecoveryCopy = async (params: {
           resulting_revision = ${Number(updated.revision)}
         WHERE id = ${copy.id}::uuid
       `;
-      await insertActivity({
-        db: tx,
-        mailboxId: params.mailboxId,
-        conversationId: updated.conversation_id,
-        actor,
-        action: "draft.recovery_restored",
-        targetType: "draft",
-        targetId: params.draftId,
-        metadata: { recoveryCopyId: copy.id, revision: Number(updated.revision) },
-      });
-      const [refreshed] = await tx<DbDraft[]>`
+          await insertActivity({
+            db: tx,
+            mailboxId: params.mailboxId,
+            conversationId: updated.conversation_id,
+            actor,
+            action: "draft.recovery_restored",
+            targetType: "draft",
+            targetId: params.draftId,
+            metadata: { recoveryCopyId: copy.id, revision: Number(updated.revision) },
+          });
+          const [refreshed] = await tx<DbDraft[]>`
         SELECT ${draftColumns}
         FROM mail.drafts d
         WHERE d.id = ${params.draftId}::uuid AND d.origin = 'user'
       `;
-      return refreshed ? ok(mapDraft(refreshed)) : fail(err.internal("Restored draft could not be reloaded"));
+          return refreshed ? ok(mapDraft(refreshed)) : fail(err.internal("Restored draft could not be reloaded"));
+        }),
     });
   } catch {
     return fail(err.internal("Failed to restore draft recovery copy"));

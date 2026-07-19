@@ -2,8 +2,8 @@ import {
   dialogCore,
   MarkdownEditor,
   PanelDialog,
-  panelDialogOptions,
   Placeholder,
+  panelDialogOptions,
   prompts,
   Select,
   TextInput,
@@ -119,9 +119,7 @@ function ComposeTemplateEditor(props: {
                 onChange={(value) => setScope(value === "mailbox" ? "mailbox" : "private")}
                 options={[
                   { id: "private", label: "Private", icon: "ti ti-lock" },
-                  ...(props.canCreateMailboxTemplate
-                    ? [{ id: "mailbox", label: "Mailbox", icon: "ti ti-users" }]
-                    : []),
+                  ...(props.canCreateMailboxTemplate ? [{ id: "mailbox", label: "Mailbox", icon: "ti ti-users" }] : []),
                 ]}
               />
             </div>
@@ -150,7 +148,7 @@ function ComposeTemplateEditor(props: {
             </p>
             <MarkdownEditor value={body} onInput={setBody} lines={14} ariaLabel="Template content" spellcheck />
           </div>
-          <div class="flex flex-wrap gap-1.5" aria-label="Available compose variables">
+          <div class="flex flex-wrap gap-1.5" role="group" aria-label="Available compose variables">
             <For each={TEMPLATE_VARIABLES}>
               {(variable) => (
                 <button
@@ -243,11 +241,14 @@ export default function MailComposeSettings(props: {
     );
 
   const archiveTemplate = async (template: ComposeTemplate) => {
-    const confirmed = await prompts.confirm("Existing drafts keep their inserted content. This only removes the template from future use.", {
-      title: `Archive ${template.name}?`,
-      confirmText: "Archive",
-      variant: "danger",
-    });
+    const confirmed = await prompts.confirm(
+      "Existing drafts keep their inserted content. This only removes the template from future use.",
+      {
+        title: `Archive ${template.name}?`,
+        confirmText: "Archive",
+        variant: "danger",
+      },
+    );
     if (!confirmed) return;
     const response = await apiClient.mailboxes[":mailboxId"]["compose-templates"][":templateId"].$delete({
       param: { mailboxId: props.mailboxId, templateId: template.id },
@@ -294,7 +295,9 @@ export default function MailComposeSettings(props: {
       }
       const next = await response.json();
       setDefaults((items) => [
-        ...items.filter((item) => !(item.senderIdentityId === identity.id && (scope === "private" ? item.userId !== null : item.userId === null))),
+        ...items.filter(
+          (item) => !(item.senderIdentityId === identity.id && (scope === "private" ? item.userId !== null : item.userId === null)),
+        ),
         ...(next ? [next] : []),
       ]);
       toast.success("Signature default updated");
@@ -356,7 +359,7 @@ export default function MailComposeSettings(props: {
             />
           }
         >
-          <div class="divide-y divide-[var(--ui-border)]">
+          <div class="flex flex-col gap-2">
             <For each={templates()}>
               {(template) => (
                 <div class="flex items-center gap-3 py-2">
@@ -372,7 +375,12 @@ export default function MailComposeSettings(props: {
                     <button type="button" class="icon-btn" aria-label={`Edit ${template.name}`} onClick={() => void openTemplate(template)}>
                       <i class="ti ti-pencil" aria-hidden="true" />
                     </button>
-                    <button type="button" class="icon-btn" aria-label={`Archive ${template.name}`} onClick={() => void archiveTemplate(template)}>
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      aria-label={`Archive ${template.name}`}
+                      onClick={() => void archiveTemplate(template)}
+                    >
                       <i class="ti ti-archive" aria-hidden="true" />
                     </button>
                   </Show>

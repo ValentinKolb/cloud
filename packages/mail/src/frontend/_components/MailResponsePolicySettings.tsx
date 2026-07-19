@@ -248,7 +248,7 @@ export default function MailResponsePolicySettings(props: {
           when={schemes().length > 0}
           fallback={<Placeholder title="No reference schemes" description="Add a scheme before allocating references." icon="ti ti-hash" />}
         >
-          <div class="divide-y divide-[var(--ui-border)]">
+          <div class="flex flex-col gap-2">
             <For each={schemes()}>
               {(scheme) => (
                 <div class="flex items-center gap-3 py-2">
@@ -293,7 +293,7 @@ export default function MailResponsePolicySettings(props: {
             />
           }
         >
-          <div class="divide-y divide-[var(--ui-border)]">
+          <div class="flex flex-col gap-2">
             <For each={schedules()}>
               {(schedule) => (
                 <div class="flex items-center gap-3 py-2">

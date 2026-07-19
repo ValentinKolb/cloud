@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { encryptSecret } from "@valentinkolb/cloud/services";
 import type { WorkflowInvocation, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { executeWorkflowPlan, type WorkflowRuntimeRepositoryPort } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
@@ -374,6 +375,7 @@ suite("mail canonical workflow runtime", () => {
       VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${"a".repeat(64)}, 'active')
       RETURNING id
     `;
+    const encryptedSecret = await encryptSecret({ kind: "password", password: "workflow-fixture-secret" });
     const [connection] = await sql<{ id: string }[]>`
       INSERT INTO mail.provider_connections (
         owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
@@ -382,7 +384,7 @@ suite("mail canonical workflow runtime", () => {
       ) VALUES (
         ${mailboxId}::uuid, 'Workflow fixture', 'support@example.com', 'support@example.com',
         'imap.example.com', 993, 'implicit', 'smtp.example.com', 587, 'starttls',
-        'password', 'fixture-ciphertext', 'support@example.com', '{}'::jsonb, '{}'::jsonb, now()
+        'password', ${encryptedSecret}, 'support@example.com', '{}'::jsonb, '{}'::jsonb, now()
       )
       RETURNING id
     `;
