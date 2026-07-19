@@ -1,8 +1,10 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
+import { mailHelp } from "../help";
 import type { MailRequestContext } from "../service";
 import { mailboxes } from "../service";
+import MailLayoutHelp from "./_components/help/MailLayoutHelp.island";
 import MailOverview from "./MailOverview.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -21,6 +23,7 @@ export default ssr<AuthContext>(async (c) => {
     : [];
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Mail" }]}>
+      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailOverview
         mailboxes={list}
         deletedMailboxes={deletedResult.ok ? deletedResult.data.items : []}

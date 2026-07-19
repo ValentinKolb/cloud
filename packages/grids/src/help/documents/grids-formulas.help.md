@@ -9,7 +9,7 @@ Formulas calculate a value from fields in one record. Use them for totals, label
 
 Create a **Formula field** when the result belongs on every record. Add a **Computed column** when the calculation is only needed in one query. In GQL, the same expression language can filter records or create an output column.
 
-### Where formulas run
+## Where formulas run {icon="math-function"}
 
 - **Formula fields** recalculate when records are read and can appear in views, cards, detail panels, dashboards, and documents.
 - **Computed columns** are temporary query output and do not change the table schema.
@@ -18,16 +18,18 @@ Create a **Formula field** when the result belongs on every record. Add a **Comp
 
 Formula evaluation and GQL compilation happen on the server. A formula does not depend on the browser having loaded every record.
 
-### Expression rules
+## Expression rules {icon="book-2"}
 
+:::reference
 - **Fields:** Reference fields by name. Quote names with spaces or punctuation: `"Unit price"`.
 - **Text values:** Use single quotes for text values: `'Open'`. Double quotes mean a field name.
 - **Empty values:** Empty input stays empty unless the expression handles it. Use IFEMPTY for expected fallbacks.
 - **Errors:** Formula errors render as an error value. Use IFERROR for expected divide-by-zero, missing-value, or conversion cases.
+:::
 
 Build a formula from a representative record and check empty, zero, and boundary values. If a field changes type or is removed, update dependent formulas before relying on their output.
 
-### Common formulas
+## Common formulas {icon="math-function"}
 
 **Line total**
 
@@ -65,7 +67,7 @@ DATEDIFF(TODAY(), dueDate, 'days')
 IFERROR(total / quantity, 0)
 ```
 
-### Full function reference
+## Full function reference {icon="book-2"}
 
 | Group     | Function                           | What it does                                                             | Returns |
 | --------- | ---------------------------------- | ------------------------------------------------------------------------ | ------- |

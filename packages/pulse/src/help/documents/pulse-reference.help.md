@@ -7,7 +7,7 @@ order: 135
 ---
 This is the canonical Pulse reference for building queries and dashboards. Use the syntax sections for stable rules, then use Inventory to copy the exact names, source ids, resource ids, and dimensions from the current base.
 
-## What this reference covers
+## What this reference covers {icon="layout-grid"}
 
 :::info Query DSL
 Fetch metric series, raw or aggregated events, and current states. The explorer and dashboard widgets use the same language.
@@ -21,14 +21,16 @@ Describe dashboard controls, sections, cards, markdown notes, and visual widgets
 Browse the current base. Filter by source or entity, then copy scoped snippets instead of memorizing names.
 :::
 
-## Use it as shared context
+## Use it as shared context {icon="shield-lock"}
 
+:::reference
 - **Start from the task:** Decide whether the question needs a metric trend, event rows, current states, or a dashboard view before choosing syntax.
 - **Copy names from Inventory:** Metrics, events, states, sources, resources, and dimensions are observed data. Do not guess them from examples.
 - **Keep resource and entity aligned:** The UI says resource. Query DSL says entity. They refer to the same identifier, such as container:app-core or customer:acme.
 - **Prefer reviewable text:** Queries and dashboards are text contracts. Generated changes should keep names explicit, scopes narrow, and descriptions close to charts.
+:::
 
-## Common starting points
+## Common starting points {icon="square-plus"}
 
 **Counter throughput**
 

@@ -7,7 +7,7 @@ order: 105
 ---
 The Grids model separates saved facts from the ways people enter, inspect, present, and act on them. Understanding that separation prevents duplicate data and makes access easier to reason about.
 
-### From a base to a value
+## From a base to a value {icon="point"}
 
 A **base** is the boundary around one area of work. It contains tables and the resources built around them. Separate bases are useful when subjects have different owners, permissions, or operating rules.
 
@@ -17,13 +17,13 @@ A **record** is one saved thing in a table. In a Customers table, each customer 
 
 A **field** stores one fact on every record in that table. Name, status, amount, due date, attachment, and owner are fields. The field type controls how a value is entered, validated, searched, filtered, displayed, and exported.
 
-### Connect records instead of copying text
+## Connect records instead of copying text {icon="table"}
 
 A **relation** links a record to records in another table. An invoice can link to one customer; a loan can link to several items. The linked table chooses a short **record label** so people see “Studio camera” instead of an internal id.
 
 Use a relation when the linked thing has its own details or lifecycle. Use a normal field when the value belongs only to the current record. A lookup can display a value from a related record without copying it, and a rollup can summarize related values.
 
-### Resources serve different jobs
+## Resources serve different jobs {icon="point"}
 
 The navigation around tables contains resources that use the saved data:
 
@@ -35,7 +35,7 @@ The navigation around tables contains resources that use the saved data:
 
 Each resource can have its own access rules. Seeing data included inside a readable view or dashboard does not automatically grant access to the original table or to a linked target opened separately.
 
-### A useful mental check
+## A useful mental check {icon="route"}
 
 When deciding where something belongs, ask:
 

@@ -10,11 +10,13 @@ Write notes as readable Markdown, then use links, tags, attachments, and the sid
 
 **Markdown**
 
-### Write a useful note
+## Write a useful note {icon="pencil"}
 
+:::reference
 - **Headings:** Use #, ##, and deeper headings to create sections. The first H1, or otherwise the first visible line, is also the note title used by navigation and search.
 - **Lists and tasks:** Use - for lists and - [ ] or - [x] for tasks.
 - **Slash menu:** Use the editor insert menu for common blocks such as notes, files, tables, and scripts.
+:::
 
 **Normal note**
 
@@ -35,7 +37,7 @@ Use short paragraphs. Keep one idea per section.
 
 **Readable emphasis**
 
-### Callouts
+## Callouts {icon="message-circle"}
 
 Use callouts for context, decisions, warnings, and status that should be visible while scanning a note.
 
@@ -59,11 +61,13 @@ Risk: waiting for final prices.
 
 **Organization**
 
-### Links, tags, and attachments
+## Links, tags, and attachments {icon="link"}
 
+:::reference
 - **Note links:** The Markdown form is [Label](note://shortId), but the editor can insert links for you.
 - **Tags:** Use #garden style tags for cross-note grouping. Tag filters match parsed tags, not arbitrary words.
 - **Attachments:** Images render inline. Other files render as links. Both use attach://shortId references.
+:::
 
 **Hub note with links**
 

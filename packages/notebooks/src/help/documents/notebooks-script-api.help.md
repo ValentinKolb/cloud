@@ -10,18 +10,20 @@ Script blocks expose four globals: `current`, `nb`, `ui`, and `std`. Type a name
 
 **Script API**
 
-### Runtime contract
+## Runtime contract {icon="contract"}
 
+:::reference
 - **No imports:** Script blocks use exposed globals only: current, nb, ui, and std.
 - **Current notebook boundary:** The nb APIs are scoped to the current notebook. There is no parameter for reading another notebook.
 - **Short note ids:** Note ids in nb calls are the short ids used in note URLs and note:// links.
 - **Bounded reads:** Structured searches default to limit: 50 and cap at 200. Search can mark large client-side results with __truncated.
+:::
 
 **Current note**
 
-### current
+## current {icon="file-text"}
 
-#### Current metadata
+### Current metadata
 
 Read properties of the note that contains the script.
 
@@ -36,7 +38,7 @@ Read properties of the note that contains the script.
 | `updatedAt` | `string` | `current.updatedAt` | Last update timestamp. |
 | `lockedAt` | `string \| null` | `current.lockedAt` | Lock timestamp, or null when the note is not locked. |
 
-#### Current writes
+### Current writes
 
 These methods update the note that hosts the script. Write methods are edit-mode APIs.
 
@@ -48,7 +50,7 @@ These methods update the note that hosts the script. Write methods are edit-mode
 | `insertContentAt` | `void` | `await current.insertContentAt({ line, col? }, markdown)` | Insert Markdown at a 0-based line and optional column. |
 | `replaceLine` | `void` | `await current.replaceLine(line, text)` | Replace one 0-based line without changing the rest of the note. |
 
-#### Named blocks on `current`
+### Named blocks on `current`
 
 Singular helpers return the first matching named block or undefined. Plural helpers return arrays and can be called without a name.
 
@@ -67,9 +69,9 @@ Singular helpers return the first matching named block or undefined. Plural help
 
 **Notebook API**
 
-### nb
+## nb {icon="notebook"}
 
-#### `nb` notes
+### `nb` notes
 
 Search and manage notes inside the current notebook.
 
@@ -83,7 +85,7 @@ Search and manage notes inside the current notebook.
 | `update` | `note` | `await nb.update(shortId, { parentId })` | Move a note below another note or to the root with null. |
 | `remove` | `void` | `await nb.remove(shortId)` | Remove a note by short id. |
 
-#### `nb` attachments
+### `nb` attachments
 
 Upload, list, insert, and remove attachments scoped to the current notebook.
 
@@ -97,7 +99,7 @@ Upload, list, insert, and remove attachments scoped to the current notebook.
 | `insertIntoContent` | `void` | `await nb.attachments.insertIntoContent(shortId)` | Append a Markdown attachment link or image reference to the current note. |
 | `remove` | `void` | `await nb.attachments.remove(shortId)` | Remove an attachment by short id. |
 
-#### `nb` tags
+### `nb` tags
 
 Read the notebook tag index.
 
@@ -108,9 +110,9 @@ Read the notebook tag index.
 
 **KV**
 
-### State APIs
+## State APIs {icon="database"}
 
-#### `current.kv`
+### `current.kv`
 
 Collaborative per-current-note state. Calls are synchronous and shared with collaborators.
 
@@ -122,7 +124,7 @@ Collaborative per-current-note state. Calls are synchronous and shared with coll
 | `keys` | `string[]` | `current.kv.keys()` | List keys sorted alphabetically. |
 | `observe` | `() => void` | `current.kv.observe("key", callback)` | Subscribe to changes for one key and receive an unsubscribe function. |
 
-#### `nb.localKV`
+### `nb.localKV`
 
 Private per-user, per-notebook state. Calls are async and persisted locally in the browser.
 
@@ -136,9 +138,9 @@ Private per-user, per-notebook state. Calls are async and persisted locally in t
 
 **Rendering and interaction**
 
-### ui
+## ui {icon="layout-dashboard"}
 
-#### `ui` layout and content
+### `ui` layout and content
 
 Build visible output for the script block.
 
@@ -154,7 +156,7 @@ Build visible output for the script block.
 | `md` | `element` | `ui.md(markdown)` | Render Markdown through the same read-mode engine. |
 | `html` | `element` | `ui.html(rawHtml)` | Trusted-script escape hatch. The string is set as raw HTML. |
 
-#### `ui` data views
+### `ui` data views
 
 Render notebook data as links, tables, and charts.
 
@@ -165,7 +167,7 @@ Render notebook data as links, tables, and charts.
 | `table` | `element` | `ui.table(rowsOrTable, options?)` | Render rows or a KitTableView using the notebook table surface. |
 | `chart` | `element` | `ui.chart(kind, options)` | Render a stdlib SVG chart. Width is measured from the container; height is configurable. |
 
-#### `ui` actions and mounting
+### `ui` actions and mounting
 
 Attach actions and mount output.
 
@@ -177,7 +179,7 @@ Attach actions and mount output.
 | `render` | `void` | `ui.render(...elements)` | Mount one or more elements into the script output. |
 | `show` | `void` | `element.show()` | Every ui element can mount itself into the script output. |
 
-#### `ui.prompt`
+### `ui.prompt`
 
 Open platform prompts from a script.
 
@@ -190,8 +192,9 @@ Open platform prompts from a script.
 
 **Curated stdlib**
 
-### std
+## std {icon="library"}
 
+:::reference
 - **std.text:** String helpers such as slugify, humanize, truncate, case conversion, and pprintBytes.
 - **std.dates:** Date/time formatting and calendar utilities.
 - **std.fuzzy:** Fuzzy search and typo correction helpers.
@@ -204,3 +207,4 @@ Open platform prompts from a script.
 - **std.files:** Browser file downloads, ZIP archives, file/folder pickers, and MIME helpers.
 - **std.images:** Browser image processing pipeline helpers.
 - **std.clipboard:** Script-facing clipboard facade with copy(text).
+:::

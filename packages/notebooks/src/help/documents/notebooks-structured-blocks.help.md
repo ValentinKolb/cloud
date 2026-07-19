@@ -10,16 +10,18 @@ Named blocks are the bridge from readable notes to script-readable data. Put a s
 
 **@ref**
 
-### The block contract
+## The block contract {icon="contract"}
 
+:::reference
 - **Stable names:** Use short lowercase names such as @plants or @tasks. Rename carefully because scripts call those names.
 - **One name, one meaning:** Do not reuse the same name for different concepts. Automation should not have to guess which block to use.
 - **Visible data:** Keep source data visible in Markdown so another user can understand the script without reading code first.
 - **Script access:** Scripts read blocks with helpers such as current.table("plants"), current.todo("tasks"), and current.data("recipe").
+:::
 
 **Structured data**
 
-### Tables
+## Tables {icon="table"}
 
 Tables work well for small structured lists such as plants, recipes, contacts, books, tasks, or expenses.
 
@@ -36,13 +38,15 @@ Tables work well for small structured lists such as plants, recipes, contacts, b
 
 **Other blocks**
 
-### Lists, todos, data, and sections
+## Lists, todos, data, and sections {icon="braces"}
 
+:::reference
 - **Table:** Rows and columns. Scripts receive columns and row objects.
 - **List:** Bullet items. Useful for small named collections.
 - **Todo:** Task items with done/content/line metadata.
 - **Data:** YAML-like data block parsed as an object.
 - **Section:** Named Markdown section that scripts can read or append to.
+:::
 
 **Data sources for scripts**
 

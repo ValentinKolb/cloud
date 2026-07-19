@@ -10,7 +10,7 @@ Table formulas turn Markdown table cells into computed values. They are intentio
 
 **Formula shape**
 
-### Small examples
+## Small examples {icon="flask"}
 
 **Progress**
 
@@ -32,16 +32,18 @@ Table formulas turn Markdown table cells into computed values. They are intentio
 
 **Syntax**
 
-### Formula rules
+## Formula rules {icon="ruler-2"}
 
+:::reference
 - **Start with =:** A table formula cell starts with =, for example =SUM(Hours).
 - **Reference columns by name:** Use the column name directly. Wrap names with spaces in backticks, for example =SUM(`Total Cost`).
 - **Comparisons return numbers:** >, <, ==, and related operators return 1 or 0.
 - **Formula cells do not count themselves:** Column totals skip their own formula cell, so =SUM(Hours) does not include the total cell.
+:::
 
 **Reference**
 
-### Function catalog
+## Function catalog {icon="book-2"}
 
 ### Autocomplete and rendering use this surface
 
@@ -51,7 +53,7 @@ The same function names are used by table autocomplete, edit preview, and read-m
 
 Use uppercase for readability, but the formula evaluator accepts lower-case function names too.
 
-#### Progress and percentages
+### Progress and percentages
 
 Use these when a cell should show completion or a percent.
 
@@ -61,7 +63,7 @@ Use these when a cell should show completion or a percent.
 | `PROGRESS` | `PROGRESS(done, total)` | `=PROGRESS(2, 10)` | 2/10 progress bar<br>total must not be 0. |
 | `PERCENT` | `PERCENT(part, total)` | `=PERCENT(Done, Total)` | percent number<br>Returns 40 for 40%, not 0.4. |
 
-#### Column aggregates
+### Column aggregates
 
 Read one whole column. Empty or non-numeric cells are ignored for numeric functions.
 
@@ -79,7 +81,7 @@ Read one whole column. Empty or non-numeric cells are ignored for numeric functi
 | `COUNTIF` | `COUNTIF(column, value)` | `=COUNTIF(Status, "done")` | matching cell count<br>Exact string match. |
 | `SUMIF` | `SUMIF(sumColumn, conditionColumn, value)` | `=SUMIF(Hours, Status, "done")` | conditional sum |
 
-#### Row aggregates
+### Row aggregates
 
 Read the current row. The cell containing the formula is skipped.
 
@@ -89,7 +91,7 @@ Read the current row. The cell containing the formula is skipped.
 | `ROWAVG` | `ROWAVG()` | `=ROWAVG()` | average of numeric cells in this row |
 | `ROWMEAN` | `ROWMEAN()` | `=ROWMEAN()` | same as ROWAVG() |
 
-#### Logic and conditions
+### Logic and conditions
 
 Build simple decisions. Truthy means non-zero number or non-empty text.
 
@@ -103,7 +105,7 @@ Build simple decisions. Truthy means non-zero number or non-empty text.
 | `NOT` | `NOT(value)` | `=NOT(Status == "done")` | 1 or 0 |
 | `CONTAINS` | `CONTAINS(text, search)` | `=CONTAINS(Notes, "urgent")` | 1 when text contains search, else 0 |
 
-#### Text
+### Text
 
 Clean and combine text values.
 
@@ -119,7 +121,7 @@ Clean and combine text values.
 | `SUBSTRING` | `SUBSTRING(text, start, length)` | `=SUBSTRING(Code, 2, 4)` | text slice<br>start is 0-based. length is how many characters to take. |
 | `REPLACE` | `REPLACE(text, search, replacement)` | `=REPLACE(Name, "old", "new")` | text with all matches replaced |
 
-#### Math
+### Math
 
 Use arithmetic directly, or call helpers when a cell needs formatting.
 
@@ -133,7 +135,7 @@ Use arithmetic directly, or call helpers when a cell needs formatting.
 | `POW` | `POW(base, exponent)` | `=POW(2, 8)` | power |
 | `MOD` | `MOD(a, b)` | `=MOD(Row, 2)` | remainder |
 
-#### Date and time
+### Date and time
 
 Return simple date strings or compare dates.
 

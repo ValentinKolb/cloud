@@ -9,7 +9,7 @@ A view is a named way to use table data. It keeps a GQL query and display settin
 
 Create a view when people repeatedly need the same subset, order, columns, card board, calendar, or grouped report. Use an unsaved table query while exploring; save it when the result becomes part of regular work.
 
-### Shape the records
+## Shape the records {icon="table"}
 
 The visual controls and GQL describe the same server-side query:
 
@@ -24,7 +24,7 @@ Search is useful for exploration. Use a filter when the rule must be reusable an
 
 Add a sort whenever order has business meaning. If several records share the same value, Grids adds a stable tie-breaker for pagination; an explicit second sort can still make the order clearer to readers.
 
-### Choose how the result is displayed
+## Choose how the result is displayed {icon="layout-list"}
 
 **Table** is the default for dense comparison and editing. Choose visible columns and their order for the task.
 
@@ -34,23 +34,25 @@ Add a sort whenever order has business meaning. If several records share the sam
 
 A grouped or aggregate-only query returns summary rows rather than editable records. It is suitable for reports, charts, dashboards, documents, and exports.
 
-### Save a useful view
+## Save a useful view {icon="layout-list"}
 
+:::steps
 1. Open the source table and use Query, Filter, Sort, or Computed to describe the result.
 2. Check the result with representative and empty data.
 3. Choose the display mode and only the columns people need.
 4. Save the current setup as a view and give it a task-oriented name, such as **Open invoices**.
 5. Share it only with the people who should see its included result.
+:::
 
 A shared view is visible by default to readers of its source table. A personal view belongs to its owner. Explicit view access can also expose the saved result without exposing the source table itself.
 
-### Reports and pagination
+## Reports and pagination {icon="point"}
 
 Use grouping and aggregations for reports. A monthly revenue report, for example, groups invoices by month and sums Total. Put pre-group filters before the grouping; use `having` in GQL when the rule applies to an aggregate result.
 
 Views without an explicit `limit` can be paged through the complete matching result. A `limit` deliberately caps the logical result across pages. Pages are live reads, so records changed between page requests can move; use a stable sort for predictable navigation.
 
-### Reuse or keep local
+## Reuse or keep local {icon="route"}
 
 Save a view when people need it in navigation, permissions, or several dashboards. For a query used by only one dashboard widget, store GQL directly in that widget instead of filling navigation with one-use views.
 

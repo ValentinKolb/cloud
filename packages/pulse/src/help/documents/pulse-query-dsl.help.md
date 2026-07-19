@@ -7,20 +7,22 @@ order: 120
 ---
 Query DSL answers one data question at a time. Pick whether you need a metric series, raw or aggregated events, or current states, then narrow the query with source, resource, and dimension filters.
 
-## Pick the statement by question
+## Pick the statement by question {icon="point"}
 
 - **How did a number change?** Use `metric`. Add an aggregation such as `avg`, `latest`, `rate`, or `increase`.
 - **What happened recently?** Use `events`. Return raw rows for inspection, or count, sum, and count unique actors or sessions in SQL.
 - **What is true now?** Use `states`. States return the latest known value for facts such as online status, version, configuration, inventory, or current health.
 
-## Build a query in four steps
+## Build a query in four steps {icon="search"}
 
+:::steps
 1. **Name the signal:** Choose the metric, event kind, or state key from the UI or Inventory.
 2. **Choose the shape:** Metrics need an aggregation. Events can return rows or use count, sum, or unique aggregation.
 3. **Set the time range:** Use since for the range, and every for metric or aggregated-event buckets.
 4. **Narrow the scope:** Add source, entity, entity_type, or where filters when the result includes too many variants or rows.
+:::
 
-## Statement types
+## Statement types {icon="book-2"}
 
 **Metric**
 
@@ -61,7 +63,7 @@ states [<key>|*]
   [limit <rows>]
 ```
 
-## Examples
+## Examples {icon="point"}
 
 **Current value for one device**
 
@@ -119,7 +121,7 @@ states integration.enabled entity "webshop" limit 50
 
 Use states for current truth. Add since only when stale values should disappear.
 
-## Clause reference
+## Clause reference {icon="search"}
 
 | Clause | Applies to | Meaning | Example |
 | --- | --- | --- | --- |
@@ -136,7 +138,7 @@ Use states for current truth. Add since only when stale values should disappear.
 | `where <key>=<value>` | all | Filter dimensions by exact equality. Separate multiple filters with commas. | `where env=prod, region=eu` |
 | `limit <rows>` | events, states | Limit returned rows. Use a positive integer no larger than 1000. | `limit 100` |
 
-## Aggregations
+## Aggregations {icon="point"}
 
 Choose aggregation from the shape of the data, not from the chart you want. Gauges describe a value at a time, counters only grow, and latency distributions need percentiles.
 
@@ -153,7 +155,7 @@ Choose aggregation from the shape of the data, not from the chart you want. Gaug
 | `events count / sum` | Count events or sum their numeric value in each bucket. | Visits, orders, errors, revenue, and other point-in-time facts. | `events order.created sum every 1h since 7d group by currency` |
 | `events unique actor / session` | Count distinct first-class actorId or sessionId values in each bucket. | Visitors, active users, sessions, and engagement without high-cardinality dimensions. | `events page.viewed unique actor every 1d since 30d` |
 
-## Rules that matter
+## Rules that matter {icon="book-2"}
 
 :::info Metrics aggregate samples
 `metric` requires a metric and aggregation. Use `every` to choose buckets and `since` to define the time range.

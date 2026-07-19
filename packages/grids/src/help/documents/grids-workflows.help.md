@@ -9,13 +9,13 @@ Workflows carry out repeatable operations in Grids. Use one when a person or eve
 
 A workflow is more than a hidden automation. It has typed inputs, a reviewed YAML definition, permissions, revisions, and a run history that shows what happened at each step.
 
-### Decide whether to use a workflow
+## Decide whether to use a workflow {icon="route"}
 
 Use a normal field or formula when you only need to store or calculate one value. Use a form when you only need guided record creation. Use a workflow when the operation has several steps, must be run consistently, needs a scanner or bulk action, contacts another system, or needs an observable success or failure.
 
 A small workflow is preferable to a large one with unrelated branches. Give it one outcome-oriented name, such as **Return item** or **Send approved invoice**.
 
-### Create and test a first workflow
+## Create and test a first workflow {icon="route"}
 
 The normal Name and Description fields explain the workflow to users. YAML defines only executable behavior: inputs, optional automatic triggers, and steps.
 
@@ -35,6 +35,7 @@ steps:
         Status: Checked
 ```
 
+:::steps
 1. Open **Workflows** in Edit mode and create a workflow.
 2. Enter the name and description outside YAML.
 3. Add the smallest input and step definition that produces the intended result.
@@ -42,8 +43,9 @@ steps:
 5. Run a **dryRun** with a representative input and inspect every predicted effect.
 6. Run **execute**, then inspect the completed run and changed record.
 7. Add an automatic trigger or saved launcher only after direct execution is correct.
+:::
 
-### Understand the YAML contract
+## Understand the YAML contract {icon="code"}
 
 Workflow YAML is deliberately strict. The root accepts only `inputs`, `triggers`, and `steps`. Inputs and triggers are optional; `steps` is required and must contain at least one step. Omit an unused section instead of writing an empty `triggers: {}` block.
 
@@ -57,28 +59,32 @@ Input names, `saveAs` names, `setVariable.name`, and `forEach.as` aliases are id
 
 Each action step contains exactly one action. Control-flow steps use their documented keys, such as `if` with `then` and optional `else`. Unknown root keys, input properties, trigger properties, action fields, and control-flow keys are errors. The editor reports them with a line and column rather than ignoring them.
 
-### How runs start
+## How runs start {icon="square-plus"}
 
 A workflow can start in three ways:
 
+:::reference
 - **Direct invocation:** The Grids UI, authenticated API, or CLI supplies its inputs.
 - **Saved launcher:** A scanner, bulk action, or dashboard button supplies a surface-specific input.
 - **Automatic trigger:** A schedule or record event declared in YAML supplies trigger values.
+:::
 
 All three create the same kind of run from typed inputs and the active workflow revision. A workflow does not need a YAML trigger.
 
 Scanner, bulk, and dashboard launchers are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard launcher may keep fixed input values.
 
-### Understand a run
+## Understand a run {icon="layout-grid"}
 
+:::reference
 - **Inputs:** Typed values supplied by a direct caller, launcher, or automatic trigger. Record inputs resolve before steps execute.
 - **Start:** Invoke directly, use a persisted launcher, or declare an automatic trigger. A workflow does not need a YAML trigger.
 - **Steps:** Actions and control flow executed in order. Failed steps stop the run and write diagnostics to the run history.
 - **Observe:** Each run keeps its revision, mode, channel, inputs, status, timing, step outcomes, result or error, and generated documents.
+:::
 
 An idempotency key identifies one logical invocation. Retrying with the same key reuses it; reusing the key for different input is rejected. This prevents an uncertain client retry from quietly creating a second logical run.
 
-### Inputs reference
+## Inputs reference {icon="book-2"}
 
 Every input has `type`. Optional `label` and `description` text appears in generated controls. `required: true` rejects a missing value; omitting `required` makes the input optional.
 
@@ -117,19 +123,23 @@ inputs:
       - High
 ```
 
-### Starting a workflow
+## Starting a workflow {icon="route"}
 
+:::reference
 - **Direct invocation:** Manual UI, API, and CLI callers invoke the same workflow directly with an input object, execute or dryRun mode, and an idempotency key.
 - **Persisted launchers:** Scanner, bulk, and dashboard launchers are saved resources attached to a workflow. They are configured and validated outside workflow YAML.
 - **Automatic triggers:** Only schedule and recordEvent belong under triggers in YAML. The triggers block is optional when a workflow starts only through direct invocation or launchers.
 - **Revision and deduplication:** Callers may require the expected active revision. Idempotency keys reuse the same logical invocation and reject conflicting reuse.
+:::
 
-### Automatic trigger reference
+## Automatic trigger reference {icon="route"}
 
+:::reference
 - **schedule:** Runs delivered future slots from a five-field cron expression. timezone is an optional IANA timezone and defaults to UTC. Duplicate slots reuse one logical run; slots missed while the scheduler process is offline are skipped rather than backfilled.
 - **recordEvent:** Runs when a record is created, updated, or deleted. Add an optional table restriction and optional server-side filter.
 - **with bindings:** Map trigger values into declared workflow inputs. Every required input must receive a compatible value before the automatic run can start.
 - **Trigger values:** Schedules expose occurredAt and slot. Record events expose record, event, and occurredAt through the trigger root.
+:::
 
 A workflow may declare both trigger kinds. Trigger bindings can read only `trigger.*` values; they cannot read run inputs or values created by steps. If an automatic trigger cannot bind every required input, validation fails. Keep interactive-only workflows trigger-free and start them directly or through a launcher.
 
@@ -181,28 +191,32 @@ steps:
         Reviewed at: ${{ inputs.eventAt }}
 ```
 
+:::reference
 - **Filter shape:** A leaf uses fieldId, op, and value; fieldId accepts a field name, short id, or uuid. Text leaves may also set caseInsensitive. Combine leaves with a group containing op: AND or op: OR and a filters list. isEmpty, isNotEmpty, today, thisWeek, and thisMonth omit value.
 - **Text operators:** equals, notEquals, contains, notContains, startsWith, endsWith, regex, isEmpty, isNotEmpty.
 - **Number operators:** =, !=, <, <=, >, >=, between, isEmpty, isNotEmpty. between takes a two-number \[from, to] list.
 - **Date operators:** =, notEquals, before, after, onOrBefore, onOrAfter, between, today, thisWeek, thisMonth, lastNDays, isEmpty, isNotEmpty. between takes a two-value \[from, to] list. Use ISO dates, timezone-aware ISO date-times for fields with time, and a non-negative integer for lastNDays.
 - **Boolean, select, and relation operators:** Boolean fields use =, isEmpty, isNotEmpty. Select fields use is, isNot, isAnyOf, isNoneOf, isEmpty, isNotEmpty; list operators take option-id arrays. Relation fields use containsAny, notContainsAny, isEmpty, isNotEmpty; list operators take non-empty record UUID arrays.
+:::
 
 :::note Required inputs
 Direct callers can provide every declared input. Launchers provide their configured binding plus any invocation inputs. Each automatic trigger must use `with` to provide all required inputs from compatible trigger values.
 :::
 
-### Launcher reference
+## Launcher reference {icon="book-2"}
 
+:::reference
 - **Scanner:** Binds one record input. Resolve scanned text by a generated scan code or by a configured field that enforces unique values. The scanner surface shows the camera and a running log of accepted, failed, and completed scans.
 - **Bulk:** Binds one recordList input from explicit record IDs or a row-shaped table query, with at most 10,000 records per run.
 - **Dashboard:** Exposes the workflow as a dashboard action and may persist input bindings such as a fixed reporting range.
 - **Launcher lifecycle:** Each launcher has its own name, enabled state, validated workflow revision, and diagnostics. Review launcher diagnostics when workflow inputs change.
+:::
 
 :::note Outside YAML
 Launcher configuration is persisted with the workflow, not copied into its source. One workflow can therefore support multiple named scanner, bulk, or dashboard surfaces without changing the executable definition.
 :::
 
-### Step reference
+## Step reference {icon="book-2"}
 
 | Step | Required fields | Optional fields and defaults | Dry run |
 | --- | --- | --- | --- |
@@ -289,16 +303,18 @@ steps:
       message: "${{ inputs.item.Name }} checked in."
 ```
 
-### Control flow
+## Control flow {icon="route"}
 
 Control flow is still a normal step. That keeps nested behavior explicit and makes diagnostics point at the failing branch instead of guessing what the workflow meant.
 
+:::reference
 - **if:** Requires one condition and a non-empty `then` list. `else` is optional.
 - **switch:** Requires a value and at least one `cases` entry. Every case has `when` and a non-empty `do` list. `default` is optional.
 - **forEach:** Requires a raw `recordList` reference, an `as` identifier, and a non-empty `do` list. It preserves list order.
 - **Value comparisons:** `equals` and `notEquals` take exactly two literal or dynamic values.
 - **Text comparisons:** `contains`, `startsWith`, and `endsWith` take exactly two text values.
 - **Presence and nesting:** `exists` takes one raw value reference. `all` and `any` require at least one condition. `not` wraps one condition.
+:::
 
 **Branches and loops**
 
@@ -384,26 +400,30 @@ steps:
           message: Item does not match.
 ```
 
-### Values and references
+## Values and references {icon="book-2"}
 
+:::reference
 - **Literal strings:** Plain strings are always literal values. Write `Checked`, URLs, email addresses, and dotted text directly when the workflow should use that exact text.
 - **Dynamic values:** A dynamic value must be the whole `${{ ... }}` string. Use `${{ inputs.name }}`, append a record field such as `${{ inputs.item.Status }}`, read a saved value with `${{ savedValue }}`, or evaluate `${{ now() }}`. The expression language does not perform arithmetic, concatenate text, or call other functions.
 - **Dedicated references:** Reference-only slots stay raw: `record: inputs.item`, `forEach: inputs.items`, `document: savedDocument`, and `exists: inputs.item.Field`. Do not wrap these slots in expression syntax.
 - **Scope:** Inputs are available for the whole run. `saveAs` and `setVariable` names are available only after their step. A `forEach` alias exists only inside its `do` steps; values created inside branches and loops do not escape that scope.
 - **Result messages:** `succeed` and `fail` messages are literal text that may embed one or more expressions, for example `Processed ${{ inputs.item.Name }}`.
 - **Structured values:** Lists and objects may contain literals and dynamic values recursively. This is useful for `set`, `values`, `data`, and `json`.
+:::
 
 :::note Saved output paths
 Saved outputs expose structured paths. Documents provide `id`, `shortId`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`, `documentNumber`, `filename`, `tags`, `generatedBy`, and `generatedAt`. Document links provide `kind`, `id`, `url`, `expiresAt`, and `documentRunId`. Email results provide `subject`, `templateId`, and `recipients`; each recipient provides `id`, `deliveryId`, `kind`, `recipient`, and `status`. HTTP results provide `status`, `ok`, and `body`. Read them with expressions such as `${{ link.url }}`, `${{ emailResult.recipients }}`, or `${{ hook.status }}`.
 :::
 
-### Email templates
+## Email templates {icon="file-description"}
 
 Email templates are managed from the workflow page in Edit mode. They are base-level Liquid templates with a subject, HTML, CSS, sample data, and preview. A workflow step chooses one template and passes only the `data` that email needs.
 
+:::reference
 - **Template lookup:** `sendEmail.template` accepts an enabled email template name, short id, or uuid. Ambiguous names are rejected.
 - **Recipients:** Use `email` for an email address value or `user` for a Cloud user id. Each entry must pick one recipient type.
 - **Liquid roots:** Templates can read `data`, `app`, `business`, `workflow`, `run`, and `date`.
+:::
 
 **Send a generated document link**
 
@@ -443,33 +463,37 @@ steps:
 <p>{{ business.legalName | default: app.name }}</p>
 ```
 
-### Run modes and observability
+## Run modes and observability {icon="route"}
 
+:::reference
 - **execute:** Runs the active revision and performs its record changes, durable intents, and external requests.
 - **dryRun:** Plans the workflow, checks current references and permissions, and records predicted effects without applying changes or sending external requests.
 - **Channels:** Direct UI, API, and CLI calls use api. Saved launchers use dashboard, scanner, or bulk. Automatic triggers use schedule or recordEvent.
 - **Run statuses:** A run is queued, running, waiting, succeeded, failed, canceled, or needs_attention.
 - **Step statuses:** Step history uses the run states where applicable and can also show skipped, indeterminate, or unsupported planning outcomes.
 - **Run detail:** Inspect revision, channel, mode, input, start and finish times, duration, result message or structured error, each step outcome, and generated documents.
+:::
 
 :::note Dry runs are recorded
 A dry run is a normal observable run with mode `dryRun`. Review its predicted effects and step outcomes; it does not prove that a later execute run will see unchanged records, permissions, or external systems.
 :::
 
-### Permissions and limits
+## Permissions and limits {icon="shield-lock"}
 
+:::reference
 - **Run permission:** Direct calls and standalone launcher runs require workflow write access. Dashboard widget runs use included dashboard authorization; actions still check their target resources.
 - **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and dashboard launchers run as the user or service account that starts them. Direct calls share the api channel; authorization still records the authenticated principal.
 - **Automatic run identity:** Schedules and record events run as the workflow owner with the owner's current groups. A record event keeps the user who changed the record in trigger metadata, but does not inherit that user's permissions.
 - **Action permission:** Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow.
 - **Email delivery:** Email template management requires base admin access. Workflow runs can use enabled email templates without exposing template HTML in autocomplete.
 - **HTTP guardrails:** httpRequest pins the validated DNS address for the socket connection, limits request and response bodies to 64 KiB, applies the timeout to DNS and transfer, and blocks private or reserved targets by default. Administrators can restrict requests to an exact or wildcard host allowlist. Private-network requests require both the private-network setting and a matching non-empty host allowlist.
+:::
 
 One workflow may declare at most 100 inputs and 1,000 steps across all branches and loops. Control flow and recursive conditions may each be nested 20 levels deep, with at most 1,000 conditions. A `recordList`, bulk selection, or `forEach` loop can contain at most 10,000 records. Workflow YAML itself is limited to 200,000 characters.
 
 These are validation and execution boundaries, not recommended design targets. Split a workflow before it approaches them so one run still has one understandable purpose.
 
-### Scanner example
+## Scanner example {icon="point"}
 
 **Scanner workflow YAML**
 
@@ -501,7 +525,7 @@ steps:
 Add a scanner launcher for the `item` record input. Choose generated scan-code resolution or configure a unique field such as `Label code`. The launcher remains outside this YAML.
 :::
 
-### Bulk document example
+## Bulk document example {icon="file-description"}
 
 **Bulk document workflow YAML**
 

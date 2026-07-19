@@ -19,6 +19,18 @@ describe("notebookHelp", () => {
     for (const id of expectedIds) expect(notebookHelp.getMarkdown(id)?.length).toBeGreaterThan(20);
   });
 
+  test("renders the complete corpus without leaking guided-help syntax", async () => {
+    for (const id of expectedIds) {
+      const response = await notebookHelp.router.request(`/${id}`);
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.html).not.toContain("<p>:::");
+      expect(payload.html).not.toContain('{icon="');
+      expect(payload.html).toMatch(/<h2 id="[^"]+"/);
+    }
+  });
+
   test("distinguishes guided steps from reference paths", async () => {
     const response = await notebookHelp.router.request("/notebooks-start");
     const payload = await response.json();
@@ -48,7 +60,7 @@ describe("notebookHelp", () => {
     const formulaPayload = await formulaResponse.json();
 
     expect(scriptResponse.status).toBe(200);
-    expect(scriptPayload.html).toContain("<h4>Current metadata</h4>");
+    expect(scriptPayload.html).toContain('<h3 id="current-metadata">Current metadata</h3>');
     expect(scriptPayload.html).toContain('<div class="md-table-wrap">');
     expect(scriptPayload.html).toContain(">What it does</span>");
     expect(scriptPayload.html).toContain(">await current.setContent(markdown)</code>");
@@ -57,7 +69,7 @@ describe("notebookHelp", () => {
     expect(scriptPayload.html).not.toContain("<h5><code");
 
     expect(formulaResponse.status).toBe(200);
-    expect(formulaPayload.html).toContain("<h4>Progress and percentages</h4>");
+    expect(formulaPayload.html).toContain('<h3 id="progress-and-percentages">Progress and percentages</h3>');
     expect(formulaPayload.html).toContain('<div class="md-table-wrap">');
     expect(formulaPayload.html).toContain(">Result and notes</span>");
     expect(formulaPayload.html).toContain(">PROGRESS</code></span>");

@@ -9,7 +9,7 @@ GQL is the Grids Query Language. It describes which saved data you want and how 
 
 You do not need GQL for ordinary table work. Start with Search, Filter, Sort, and Computed controls. Use GQL when text makes a precise query easier to understand, reuse, or review.
 
-### Read a first query
+## Read a first query {icon="search"}
 
 This query reads the Books table, keeps available books, chooses three fields, orders the newest first, and returns at most 25 rows:
 
@@ -31,7 +31,7 @@ Each line is one clause:
 
 Write field and table names as shown in Grids. Put names containing spaces in double quotes, such as `"Birth year"`. Put text values in single quotes, such as `'Available'`.
 
-### Build a query safely
+## Build a query safely {icon="search"}
 
 Start with only the source and preview it:
 
@@ -43,7 +43,7 @@ Then add one concern at a time: a filter, selected fields, and finally a meaning
 
 Omitting `select` returns all source fields. This is convenient while exploring. List important fields explicitly when a saved result, document, or integration needs a stable output.
 
-### Common query tasks
+## Common query tasks {icon="search"}
 
 **Find exact records**
 
@@ -106,7 +106,7 @@ limit 50
 
 The relation field on the left must target the joined alias's `id`. Use `left join` when records without a related target should remain in the result.
 
-### Clause order
+## Clause order {icon="search"}
 
 Not every query needs every clause. When clauses are combined, keep them in this order so the source remains easy to scan:
 
@@ -131,7 +131,7 @@ Line breaks are optional. Use semicolons when several clauses share one line, an
 from table Orders; where Status = 'Paid'; sort "Ordered at" desc; limit 10
 ```
 
-### Clause reference
+## Clause reference {icon="search"}
 
 | Clause | Purpose |
 | --- | --- |
@@ -151,7 +151,7 @@ from table Orders; where Status = 'Paid'; sort "Ordered at" desc; limit 10
 
 The two deleted-record clauses are mutually exclusive. Normal queries return live records only.
 
-### Names, aliases, and values
+## Names, aliases, and values {icon="point"}
 
 - Use readable table, view, and field names when they are unambiguous.
 - Quote names containing spaces or punctuation with double quotes.
@@ -162,7 +162,7 @@ The two deleted-record clauses are mutually exclusive. Normal queries return liv
 
 When `from` is omitted in a table or view query editor, the current page can provide the source. Write it explicitly when the query should remain understandable outside that page.
 
-### Conditions and helpers
+## Conditions and helpers {icon="search"}
 
 Use `=`, `!=`, `>`, `>=`, `<`, and `<=` for comparisons. Combine conditions with `and`, `or`, `not`, and parentheses:
 
@@ -192,7 +192,7 @@ select Name, Price, "Purchase price"
 
 Open **Formulas** for expression syntax and the complete function catalog.
 
-### Paging and result bounds
+## Paging and result bounds {icon="point"}
 
 Without `limit`, a result view can continue through all matching rows using server cursors. With `limit 100`, the complete logical result stops after 100 rows even if the UI displays it in smaller pages.
 
@@ -200,7 +200,7 @@ Cursors are opaque, signed, and tied to the exact query and source. Changing the
 
 For automated reads, the CLI can request one bounded page with `--page-size` or continue with `--all --max-rows N`.
 
-### Permissions and execution
+## Permissions and execution {icon="shield-lock"}
 
 GQL is parsed, resolved against the visible schema, permission-checked, compiled to SQL, and executed on the server. Filtering, sorting, joins, grouping, and aggregation are not performed in the browser.
 
@@ -208,20 +208,22 @@ Every table, view, join, and relation target must be readable in the current con
 
 GQL deliberately refuses raw SQL features such as arbitrary join predicates, subqueries, common table expressions, window functions, and raw SQL expressions. A query that cannot be represented safely fails with a diagnostic.
 
-### Views and query results
+## Views and query results {icon="search"}
 
 Row-shaped table and view results can be displayed and paged like records. Grouped and aggregate-only results use a summary table and are not editable. Compatible query results can be saved as views and reused by dashboards, documents, and exports.
 
 Use a saved view when people revisit the result or it needs independent access. Keep GQL local to a dashboard widget or document when the query exists only for that resource.
 
-### Troubleshoot a query
+## Troubleshoot a query {icon="lifebuoy"}
 
+:::reference
 - **Unknown source or field:** Check spelling, quoting, current base, and access.
 - **Ambiguous name:** Add a source alias or use a scoped field such as `customer.Name`.
 - **Join must target an id:** Join the relation field to the joined alias's `.id`.
 - **Grouped sort is rejected:** Sort by a group or aggregate output that exists in the summary.
 - **Missing rows:** Check `where`, `search`, source view, deleted mode, and `limit`.
 - **Unstable page order:** Add a business sort before paging or using `offset`.
+:::
 
 :::note GQL is not a second data model
 GQL shapes saved data. It does not copy records or bypass the access, field, and relation rules of the base.

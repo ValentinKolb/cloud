@@ -14,12 +14,14 @@ Script blocks run in the browser of users who open the note. They can use browse
 
 **Script workflow**
 
-### Build in this order
+## Build in this order {icon="list-check"}
 
-- **Read:** Read named blocks, tags, notes, attachments, or state through the public API.
-- **Render:** Render the smallest useful output first: metric, table, chart, note list, or Markdown.
-- **Act:** Add buttons and prompts after the read path is clear.
-- **Keep context:** Leave names, headings, and descriptions in the note so people and agents can understand why the script exists.
+:::steps
+1. **Read:** Read named blocks, tags, notes, attachments, or state through the public API.
+2. **Render:** Render the smallest useful output first: metric, table, chart, note list, or Markdown.
+3. **Act:** Add buttons and prompts after the read path is clear.
+4. **Keep context:** Leave names, headings, and descriptions in the note so people and agents can understand why the script exists.
+:::
 
 **Small script structure**
 
@@ -42,7 +44,7 @@ ui.button("Add idea", async () => {
 
 **Examples**
 
-### Useful patterns
+## Useful patterns {icon="code"}
 
 **Live dashboard from note data**
 

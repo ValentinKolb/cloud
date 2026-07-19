@@ -7,20 +7,22 @@ order: 106
 ---
 Start from the work people need to complete, not from a list of every feature Grids offers. A good first base makes one process easier with a small number of clear tables and views.
 
-### Describe the work first
+## Describe the work first {icon="square-plus"}
 
 Write down the main items people handle and the questions they ask about them. For equipment loans, the items might be equipment, people, and loans. The questions might be “What is available?”, “Who has this item?”, and “Which loans are overdue?”
 
 Each kind of item usually becomes a table. Each fact needed to answer those questions becomes a field. Repeated connections between kinds of items become relations.
 
-### Build the first useful version
+## Build the first useful version {icon="square-plus"}
 
+:::steps
 1. **Create the main table.** Give it a concrete plural name such as Items, Invoices, or Requests.
 2. **Add identity and working fields.** Start with a readable name, status, owner, and the dates or numbers needed for the process.
 3. **Choose a record label.** Pick the short field people should recognize in relations and pickers.
 4. **Enter representative records.** Include ordinary, incomplete, and unusual cases. Correct confusing field names now.
 5. **Create one operational view.** Filter and sort the records for a repeated task, such as Open requests or Overdue loans.
 6. **Set access before inviting users.** Give people only the resources and actions they need.
+:::
 
 Do not add a dashboard merely to repeat the table, or a workflow for a process people do not yet understand. Add the next resource when its purpose is concrete:
 
@@ -33,7 +35,7 @@ Do not add a dashboard merely to repeat the table, or a workflow for a process p
 | A repeatable multi-step action | A workflow |
 | One governed read-only table across bases | A Combined table |
 
-### Configure the base around the work
+## Configure the base around the work {icon="settings"}
 
 Open **Base settings** in Edit mode for settings that apply across the base:
 
@@ -45,7 +47,7 @@ Open **Base settings** in Edit mode for settings that apply across the base:
 
 Choose a default dashboard only after it is useful to the base's normal readers. A broken or highly specialized dashboard is a poor entrance even when its individual widgets are correct.
 
-### Example: equipment loans
+## Example: equipment loans {icon="point"}
 
 Create **Items**, **People**, and **Loans** tables. A Loans record can relate to one person and several items, and store loaned-at, due-at, returned-at, and status fields.
 
@@ -60,7 +62,7 @@ Then create:
 
 The result remains understandable because each feature has one job and all of them use the same records.
 
-### Before expanding
+## Before expanding {icon="point"}
 
 Use the base with real work. Check whether users can recognize records, understand status values, find the right view, and know what they are allowed to change. If the model is unclear in a small sample, more automation will only hide the problem.
 

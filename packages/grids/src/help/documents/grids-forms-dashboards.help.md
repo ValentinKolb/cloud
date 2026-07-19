@@ -9,7 +9,7 @@ Forms and dashboards simplify how people use a base. A form collects one record 
 
 They do not replace tables. Forms write table records, and dashboard data comes from saved views or GQL queries.
 
-### Create a focused form
+## Create a focused form {icon="forms"}
 
 Every table has a virtual default form based on its fields. Create a custom form when users need different labels, help text, required inputs, defaults, a smaller field set, or a controlled public link.
 
@@ -28,7 +28,7 @@ Turn on **Public form** only when anonymous submissions are intended. The public
 
 Test a form with incomplete and invalid input before sharing it. Confirm that required fields, relation creation, success text, and redirect behavior are understandable without knowledge of the table.
 
-### Build a dashboard around a job
+## Build a dashboard around a job {icon="layout-dashboard"}
 
 A dashboard should answer “What does this person need to see or do here?” Start with one audience, such as an inventory desk or finance reviewer, and add only widgets that support that job.
 
@@ -49,7 +49,7 @@ Number, Records, Chart, and Summary widgets can read either a **Saved view** or 
 
 The data source defines records, groups, and aggregate values. The widget defines presentation such as chart type, labels, number format, size, and height. If a chart is empty, inspect the grouped source before changing chart settings.
 
-### Match the source to the widget
+## Match the source to the widget {icon="layout-dashboard"}
 
 Start with the question the widget should answer, then shape its source. The editor validates the source before saving.
 
@@ -67,7 +67,7 @@ For a time series, group a date field by `day`, `week`, `month`, `quarter`, or `
 
 A Number widget may add a separate grouped trend source with a 2–60 bucket window. This changes only the small trend line; it does not change the main value.
 
-### Arrange the working page
+## Arrange the working page {icon="route"}
 
 Edit mode lets you add rows, move rows and widgets, choose a widget width, and set each row to **Compact**, **Standard**, or **Tall**. Widths use a 12-column row: quarter, third, half, two-thirds, three-quarters, or full width. Prefer Compact for numbers and actions, Standard for mixed content, and Tall for charts, record results, and forms.
 
@@ -75,11 +75,13 @@ Use Text widgets for instructions close to the action they explain. Use Link wid
 
 When a widget reports an error or no data, open its settings and check the source first:
 
+:::steps
 1. Run the saved view or local GQL query and confirm that it returns rows.
 2. For charts, confirm that the result contains the required group and aggregate columns.
 3. Confirm that the reader has dashboard access and that embedded forms or workflows are still enabled.
+:::
 
-### Share dashboards deliberately
+## Share dashboards deliberately {icon="shield-lock"}
 
 A personal dashboard belongs to its owner. A shared dashboard is visible by default to base readers, and explicit dashboard access can narrow or grant access.
 

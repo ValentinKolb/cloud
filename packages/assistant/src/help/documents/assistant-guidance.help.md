@@ -1,0 +1,43 @@
+---
+id: assistant-guidance
+title: Better results
+icon: ti ti-bulb
+description: Give useful context, work with files, personalize responses, and recover when a run goes wrong.
+order: 120
+---
+
+Assistant works best when the request states the outcome, the relevant context, and any limits that matter. You do not need a special prompt format.
+
+## Write a useful request {icon="pencil"}
+
+:::steps
+1. **Name the outcome:** Say what you want to receive, such as a summary, plan, explanation, draft, comparison, or code change.
+2. **Include the source material:** Paste the relevant text or attach the files offered by the composer. Mention which parts matter most.
+3. **State important constraints:** Include the audience, language, length, format, deadline, or things that must not change.
+4. **Ask for a check:** For important work, ask Assistant to identify assumptions, uncertainties, or missing information before relying on the answer.
+:::
+
+## Keep context under control {icon="point"}
+
+- **Continue the same chat** when the next request depends on earlier messages.
+- **Start a new chat** when the task is unrelated or the old context could be misleading.
+- **Fork from a message** when you want to explore another direction without replacing the useful branch.
+- **Use `/compact`** when a long chat should continue with a shorter summary of its context.
+- **Add a chat description** when future-you needs to know why the conversation matters.
+
+## Personalization and memory {icon="point"}
+
+- **Instructions** describe stable preferences such as language, tone, background, or response format.
+- **Memory** lets Assistant reuse saved facts when memory is enabled. Review the saved entries instead of placing temporary task details there.
+- **Chat context** is still the best place for project-specific facts, source material, and one-off constraints.
+
+:::warning Review consequential output
+Treat generated facts, calculations, external actions, and changes to important data as proposals until you have checked them. Approval prompts exist so you can review an action before the turn continues.
+:::
+
+## If a response stalls or misses the task {icon="point"}
+
+- Stop a run that is clearly heading in the wrong direction, then send a shorter correction.
+- Retry when the request was sound but the run failed or produced an incomplete response.
+- Check the selected model and the status shown by the composer when no response starts.
+- Split a large request into a small first result and a follow-up instead of repeating an overloaded prompt.

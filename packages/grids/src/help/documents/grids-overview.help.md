@@ -11,7 +11,7 @@ You do not need database experience to start. Think of a **base** as the workspa
 
 For example, an inventory base might contain separate tables for Items, Locations, Loans, and People. One Items record could contain a name, asset number, status, location, and relation to the current loan.
 
-### What you can build
+## What you can build {icon="square-plus"}
 
 Once the records are useful, the same saved data can support different jobs:
 
@@ -24,19 +24,21 @@ Once the records are useful, the same saved data can support different jobs:
 
 These features do not create separate copies of the business data. Tables remain the source of truth.
 
-### Start with one useful process
+## Start with one useful process {icon="square-plus"}
 
 Choose a small process that already has clear items, such as equipment loans or incoming requests. Then:
 
+:::steps
 1. Create one table for the main kind of item.
 2. Add only the fields needed to recognize and work with each record.
 3. Enter a few real records and correct unclear names or field types.
 4. Create a view for one repeated task.
 5. Add a form, dashboard, document, or workflow only when it removes a real manual step.
+:::
 
 This order keeps mistakes inexpensive. A clear table and a few representative records make every later choice easier.
 
-### Where to continue
+## Where to continue {icon="arrow-right"}
 
 - Read **Core model** if bases, tables, records, and relations are new to you.
 - Follow **Build a base** for a practical first build.

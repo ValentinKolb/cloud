@@ -9,7 +9,7 @@ A table stores one kind of record. Its fields define which facts every record ca
 
 Choose a field type for the meaning of the value, not merely for how it should look.
 
-### Fields for entered values
+## Fields for entered values {icon="table"}
 
 | Field type | Use it for | Important behavior |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ Choose a field type for the meaning of the value, not merely for how it should l
 
 Use **Required** when an empty value would make a record invalid. A **Default** fills a value only when a new record omits that field. Use **Unique** for identifiers that must not repeat, such as an asset code or invoice number.
 
-### Fields that connect or calculate
+## Fields that connect or calculate {icon="table"}
 
 - **Relation** links one record to one or several records in another table. The target table's record label is shown in pickers and cells.
 - **Lookup** displays one field from a related record without copying it.
@@ -37,7 +37,7 @@ Use **Required** when an empty value would make a record invalid. A **Default** 
 
 Choose a relation when the target has its own details or lifecycle. A customer name typed into every invoice is only text; a Customer relation keeps the invoice connected when the customer's details change.
 
-### Formulas in a table
+## Formulas in a table {icon="table"}
 
 Formula fields use the same expression language as computed query columns. Reference fields by name, quote names containing spaces with double quotes, and keep text literals in single quotes.
 
@@ -61,13 +61,13 @@ DATEDIFF(TODAY(), "Due date", 'days')
 
 Open **Formulas** for the full function reference. Use `IFERROR` only when an error is an expected case, such as division by zero; otherwise let the error reveal a broken formula.
 
-### Search, filters, and indexes
+## Search, filters, and indexes {icon="search"}
 
 Text, long text, ids, numbers, percentages, durations, dates, booleans, select labels, and readable relation labels participate in broad search. Use filters for exact conditions and for calculated, lookup, rollup, file, or empty-value rules.
 
 An index helps fields used often for filtering, sorting, search, joins, or unique checks. Every index also adds write work, so add one for an observed access pattern rather than every field.
 
-### Record identity and history
+## Record identity and history {icon="table"}
 
 Choose one short, readable **record label** for every table. It is the title shown in relation pickers and detail panels. A long description is usually a poor label even when it is unique.
 
@@ -75,7 +75,7 @@ Records use optimistic version checks. If another user or tab changes a record b
 
 Moving a record to trash is reversible. Restoring it creates a new history event; it does not erase the deletion event.
 
-### Require change context
+## Require change context {icon="point"}
 
 In **Table settings → Data integrity**, an admin can require answers before sensitive field updates, moving records to trash, or restoring them. Questions can apply to every update or only when selected fields change.
 

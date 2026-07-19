@@ -7,15 +7,17 @@ order: 130
 ---
 Dashboard DSL is the dashboard source of truth. Write the operating view as text, preview it, and keep layout, queries, notes, and visual warning states reviewable in one place.
 
-## Build in layers
+## Build in layers {icon="square-plus"}
 
+:::steps
 1. **Start with one section:** Give the dashboard a name and add the smallest section that answers one real question.
 2. **Add one widget:** Use stat, gauge, line, bar, histogram, heatmap, or table depending on the query output.
 3. **Add controls when repetition appears:** Use controls for range, source, entity, entity_type, label, or text values that multiple widgets share.
 4. **Group related widgets:** Use rows for side-by-side charts, cards for a related cluster, and sections for larger topics.
 5. **Explain decisions in place:** Use descriptions and markdown for operating notes, assumptions, and links.
+:::
 
-## Smallest useful dashboard
+## Smallest useful dashboard {icon="layout-dashboard"}
 
 **Minimal dashboard**
 
@@ -31,7 +33,7 @@ dashboard "Ops" {
 
 This is enough to render a dashboard: a root document, one section, one widget, and one query. Add structure when the dashboard starts repeating itself.
 
-## Add controls when values repeat
+## Add controls when values repeat {icon="point"}
 
 **Controls and variables**
 
@@ -52,7 +54,7 @@ dashboard "Ops" {
 
 Controls create variables such as `$range` or `$entity_id`. Public displays use the default values, so choose defaults that make sense without interaction.
 
-## Full shape
+## Full shape {icon="point"}
 
 **Shape**
 
@@ -127,7 +129,7 @@ dashboard "Solar overview" {
 }
 ```
 
-## Statement reference
+## Statement reference {icon="book-2"}
 
 | Statement | Scope | Meaning | Example |
 | --- | --- | --- | --- |
@@ -144,7 +146,7 @@ dashboard "Solar overview" {
 | `warn\|critical when value <op> <value>` | metric widget | Applies visual state to metric values only. Operators are >, >=, <, <=, =, and !=. Optional message text can explain the condition. | `critical when value > 95 message "Capacity almost full"` |
 | `# comment or // comment` | anywhere whitespace is allowed | Adds a line comment in the dashboard DSL source. Comments are ignored by the parser. | `# explain why this section exists` |
 
-## Design rules
+## Design rules {icon="book-2"}
 
 :::info Dashboards compose query output
 Widget `query` lines use the same Query DSL. Metric widgets render values and charts; table widgets render raw event rows and current states. Event aggregation points are available in the Query Explorer and CLI, not dashboard widgets.

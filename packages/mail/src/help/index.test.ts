@@ -1,0 +1,93 @@
+import { describe, expect, test } from "bun:test";
+import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
+import { bindMailWorkflow } from "../workflows/binder";
+import { buildMailWorkflowCatalog } from "../workflows/catalog";
+import { mailWorkflowManifest } from "../workflows/manifest";
+import { mailHelp } from ".";
+
+const expectedIds = [
+  "mail-start",
+  "mail-work",
+  "mail-compose",
+  "mail-collaboration",
+  "mail-admin",
+  "mail-automation",
+  "mail-workflows",
+  "mail-troubleshooting",
+];
+
+describe("mailHelp", () => {
+  test("serves the task-oriented Mail help collection", async () => {
+    expect(mailHelp.manifest.map((document) => document.id)).toEqual(expectedIds);
+
+    const expectedContent = new Map([
+      ["mail-start", "Mail organizes email around **mailboxes**"],
+      ["mail-work", "Use **Search mailbox** for a broad search"],
+      ["mail-compose", "Only one editing session holds the draft lease"],
+      ["mail-collaboration", "Internal comments are visible to people who can read the mailbox"],
+      ["mail-admin", "Pause mailbox** stops incoming synchronization"],
+      ["mail-automation", "Reference-number settings define the format"],
+      ["mail-workflows", "Mail workflow YAML has three top-level keys"],
+      ["mail-troubleshooting", 'Sending says "Mailbox transport is paused"'],
+    ]);
+
+    for (const [id, text] of expectedContent) {
+      const response = await mailHelp.router.request(`/${id}`);
+      const payload = await response.json();
+      expect(response.status).toBe(200);
+      expect(payload.markdown).toContain(text);
+    }
+  });
+
+  test("keeps every internal help link on a registered Mail topic", () => {
+    const registered = new Set(expectedIds);
+    for (const id of expectedIds) {
+      const markdown = mailHelp.getMarkdown(id);
+      expect(markdown).toBeDefined();
+      const links = markdown!.matchAll(/\/app\/mail\?help=([a-z0-9-]+)/g);
+      for (const link of links) expect(registered.has(link[1]!)).toBe(true);
+    }
+  });
+
+  test("registers the same help on every Mail workspace route", async () => {
+    const routes = [
+      "../frontend/page.tsx",
+      "../frontend/[mailboxId]/page.tsx",
+      "../frontend/[mailboxId]/automations/page.tsx",
+      "../frontend/[mailboxId]/compose/page.tsx",
+      "../frontend/[mailboxId]/compose/[draftId]/page.tsx",
+    ];
+
+    for (const route of routes) {
+      const source = await Bun.file(new URL(route, import.meta.url)).text();
+      expect(source).toContain("<MailLayoutHelp documents={mailHelp.manifest} />");
+    }
+  });
+
+  test("finds operational recovery topics through help search", async () => {
+    const response = await mailHelp.router.request("/search?q=paused");
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.ids).toContain("mail-admin");
+    expect(payload.ids).toContain("mail-troubleshooting");
+  });
+
+  test("keeps every documented workflow example valid for the Mail vocabulary", async () => {
+    const markdown = [mailHelp.getMarkdown("mail-automation"), mailHelp.getMarkdown("mail-workflows")].join("\n");
+    const examples = [...markdown.matchAll(/```yaml\n([\s\S]*?)```/g)].map((match) => match[1]!);
+    const catalog = buildMailWorkflowCatalog({
+      folders: [{ id: "10000000-0000-4000-8000-000000000001", name: "Invoices" }],
+      assignableUsers: [{ id: "20000000-0000-4000-8000-000000000001", name: "Alice Example" }],
+      senderIdentities: [{ id: "40000000-0000-4000-8000-000000000001", name: "Support" }],
+    });
+
+    expect(examples.length).toBeGreaterThanOrEqual(7);
+    for (const source of examples) {
+      const compiled = await compileWorkflow(source, mailWorkflowManifest);
+      expect(compiled.ok).toBe(true);
+      if (!compiled.ok) continue;
+      expect((await bindMailWorkflow(compiled.ir, catalog)).ok).toBe(true);
+    }
+  });
+});

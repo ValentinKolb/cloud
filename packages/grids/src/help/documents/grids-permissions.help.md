@@ -9,7 +9,7 @@ Grids checks access at the resource a person is using. This makes it possible to
 
 Cloud administrators are not automatic Grids superusers. They can manage access from the Grids administration area, but ordinary Grids pages still follow the same grants as every other user.
 
-### Understand the access levels
+## Understand the access levels {icon="shield-lock"}
 
 Not every resource supports every level:
 
@@ -28,7 +28,7 @@ Not every resource supports every level:
 
 Structural tasks such as creating tables, forms, dashboards, document templates, and workflows require base administration even when the resulting resource can later be shared more narrowly.
 
-### Inheritance and specific grants
+## Inheritance and specific grants {icon="point"}
 
 A table normally inherits access from its base. A child resource normally inherits through its table or base. When a more specific resource has matching access entries, that resource decides instead of the broader parent.
 
@@ -41,13 +41,13 @@ In practice:
 - a form can accept a submission from a user who cannot browse the table;
 - a dashboard can include data while links from it still check their own targets.
 
-### Included data and linked targets
+## Included data and linked targets {icon="point"}
 
 **Included data** is rendered as part of the resource already opened, such as records in a view or numbers on a dashboard. It follows that resource's access.
 
 A **linked target** is a different resource opened separately. A dashboard link, a related record, or the original table checks its own access when opened. Do not assume that seeing a label grants navigation to its source.
 
-### Documents and workflows
+## Documents and workflows {icon="route"}
 
 Document template access has distinct purposes:
 
@@ -57,13 +57,15 @@ Document template access has distinct purposes:
 
 Workflow **Read** exposes the workflow and its permitted observability. **Write** starts direct or saved-launcher runs. **Admin** changes source, launchers, permissions, and configuration. Every run rechecks access to the records, templates, and other targets its steps use.
 
-### Share safely
+## Share safely {icon="shield-lock"}
 
+:::steps
 1. Start with the narrowest useful resource.
 2. Grant a group rather than many individuals when their role is stable.
 3. Use a resource-specific grant when users should not browse its parent.
 4. Test with a non-admin account.
 5. Review links and actions, not only what is visible on the first screen.
+:::
 
 Public forms and expiring public document links are deliberate exceptions. Anyone holding the token can use that public surface until it is disabled, revoked, or expires.
 
