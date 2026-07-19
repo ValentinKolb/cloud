@@ -1,5 +1,4 @@
 import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
-import { Layout } from "@valentinkolb/cloud/ssr/islands";
 import {
   AppWorkspace,
   CopyButton,
@@ -19,6 +18,7 @@ import { GQL_EXAMPLES } from "../../../help/gql-examples";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
+import GridsEmbeddedHelp from "./GridsEmbeddedHelp.island";
 
 const TAB_ALIASES = {
   overview: "basics",
@@ -828,24 +828,14 @@ export default function QueryReferenceWindow(props: Props) {
                 <DocCode title="Generated from the first table" code={catalogExample()} language="text" copy />
               </DocSection>
             </Doc>
-            <Layout.HelpPage
-              documents={props.documents.filter((document) => document.id === "grids-gql")}
-              initialTopic="grids-gql"
-              includeShortcuts={false}
-              embedded
-            />
+            <GridsEmbeddedHelp documents={props.documents.filter((document) => document.id === "grids-gql")} initialTopic="grids-gql" />
           </div>
         );
       case "gql":
         return (
           <div class="flex min-h-0 flex-1 flex-col overflow-auto">
             <GqlAssistantFiles baseId={props.baseId} />
-            <Layout.HelpPage
-              documents={props.documents.filter((document) => document.id === "grids-gql")}
-              initialTopic="grids-gql"
-              includeShortcuts={false}
-              embedded
-            />
+            <GridsEmbeddedHelp documents={props.documents.filter((document) => document.id === "grids-gql")} initialTopic="grids-gql" />
           </div>
         );
       case "templates":
@@ -854,11 +844,9 @@ export default function QueryReferenceWindow(props: Props) {
       case "basics":
       default:
         return (
-          <Layout.HelpPage
+          <GridsEmbeddedHelp
             documents={props.documents.filter((document) => document.id === helpTopic())}
             initialTopic={helpTopic() ?? undefined}
-            includeShortcuts={false}
-            embedded
           />
         );
     }

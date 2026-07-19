@@ -9,6 +9,7 @@ import { Marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { markdownClient } from "./client";
 import { codeExtension } from "./extensions/code";
+import { guidedHelpExtension } from "./extensions/guided-help";
 import { imagesExtension } from "./extensions/images";
 import { infoBlocksExtension } from "./extensions/info-blocks";
 import { katexExtension } from "./extensions/katex";
@@ -41,6 +42,7 @@ const createMarked = (profile: MarkdownProfile = "content") => {
   // Inline-style decorators come last so they run after structural tokenizers.
   marked.use(markExtension());
   marked.use(subSupExtension());
+  if (profile === "help") marked.use(guidedHelpExtension());
 
   return marked;
 };
@@ -85,7 +87,7 @@ const sanitizeRenderedHtml = (html: string): string =>
       "tr",
     ],
     allowedAttributes: {
-      "*": ["aria-hidden", "aria-label", "class", "title"],
+      "*": ["aria-hidden", "aria-label", "class", "data-help-icon", "id", "title"],
       a: ["href", "name", "rel", "target", "title"],
       annotation: ["encoding"],
       code: ["class"],
