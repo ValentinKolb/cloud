@@ -43,6 +43,20 @@ steps:
 6. Run **execute**, then inspect the completed run and changed record.
 7. Add an automatic trigger or saved launcher only after direct execution is correct.
 
+### Understand the YAML contract
+
+Workflow YAML is deliberately strict. The root accepts only `inputs`, `triggers`, and `steps`. Inputs and triggers are optional; `steps` is required and must contain at least one step. Omit an unused section instead of writing an empty `triggers: {}` block.
+
+| Root key | Shape | Purpose |
+| --- | --- | --- |
+| `inputs` | Object keyed by input name | Declares values supplied when a run starts |
+| `triggers` | Object keyed by trigger kind | Starts runs automatically and binds trigger values to inputs |
+| `steps` | Non-empty list | Executes actions and control flow in order |
+
+Input names, `saveAs` names, `setVariable.name`, and `forEach.as` aliases are identifiers: start with a letter or underscore, then use only letters, digits, and underscores. Names are case-sensitive. A saved name cannot reuse an input, another saved value, a loop alias, or the reserved roots `inputs`, `trigger`, `bindings`, and `context`.
+
+Each action step contains exactly one action. Control-flow steps use their documented keys, such as `if` with `then` and optional `else`. Unknown root keys, input properties, trigger properties, action fields, and control-flow keys are errors. The editor reports them with a line and column rather than ignoring them.
+
 ### How runs start
 
 A workflow can start in three ways:
@@ -66,10 +80,20 @@ An idempotency key identifies one logical invocation. Retrying with the same key
 
 ### Inputs reference
 
-- **Input types:** `record`, `recordList`, `text`, `number`, `boolean`, `date`, `dateTime`, and `select`.
-- **Common fields:** Every input has `type`. Add `label`, `description`, and `required` so callers and generated input controls can explain what the run needs.
-- **Record inputs:** `record` and `recordList` require a `table`. Table references may use the table name, short id, or uuid if unambiguous.
-- **Select inputs:** `select` requires an `options` list. The submitted value must match one option exactly.
+Every input has `type`. Optional `label` and `description` text appears in generated controls. `required: true` rejects a missing value; omitting `required` makes the input optional.
+
+| Type | Run value | Additional declaration |
+| --- | --- | --- |
+| `record` | One record UUID | Required `table` name, short id, or uuid |
+| `recordList` | Ordered list of record UUIDs, at most 10,000 | Required `table` name, short id, or uuid |
+| `text` | String | None |
+| `number` | Finite number | None |
+| `boolean` | `true` or `false` | None |
+| `date` | Date in `YYYY-MM-DD` format | None |
+| `dateTime` | ISO date-time | None |
+| `select` | String equal to one configured option | Required `options` list with 1–200 values |
+
+Record inputs are checked against the bound table and current read permission before steps start. Unknown inputs, missing records, inaccessible tables, wrong value types, and values outside a select's options reject the invocation.
 
 **Input declarations (fragment)**
 
@@ -106,6 +130,8 @@ inputs:
 - **recordEvent:** Runs when a record is created, updated, or deleted. Add an optional table restriction and optional server-side filter.
 - **with bindings:** Map trigger values into declared workflow inputs. Every required input must receive a compatible value before the automatic run can start.
 - **Trigger values:** Schedules expose occurredAt and slot. Record events expose record, event, and occurredAt through the trigger root.
+
+A workflow may declare both trigger kinds. Trigger bindings can read only `trigger.*` values; they cannot read run inputs or values created by steps. If an automatic trigger cannot bind every required input, validation fails. Keep interactive-only workflows trigger-free and start them directly or through a launcher.
 
 **Scheduled workflow**
 
@@ -178,13 +204,23 @@ Launcher configuration is persisted with the workflow, not copied into its sourc
 
 ### Step reference
 
-- **updateRecord:** Changes fields on one record. Required fields: `record` and `set`. If the table requires change context, pass `audit` answers keyed by the question IDs shown in the table's Data integrity settings.
-- **createRecord:** Inserts a record. Required fields: `table` and `values`. Optional: `saveAs`.
-- **generateDocument:** Generates a PDF for one record. Supports `template`, `record`, `filename`, `tags`, and `saveAs`.
-- **createDocumentLink:** Creates an expiring public download link for a document generated earlier in the run. Required field: `document`. Optional fields: `expiresIn`, `comment`, and `saveAs`.
-- **sendEmail:** Sends one configured email template. Required fields: `template` and `to`. Recipients can be `email` values or Cloud `user` ids. Optional fields: `data` and `saveAs`.
-- **httpRequest:** Sends one JSON HTTP request. Methods: GET, POST, PUT, PATCH, DELETE. Optional fields: headers, json, timeoutMs, saveAs. Redirects are returned, not followed.
-- **setVariable, succeed, and fail:** setVariable stores a value for later steps. succeed stops the run with a visible success message; fail stops it with a visible error message.
+| Step | Required fields | Optional fields and defaults | Dry run |
+| --- | --- | --- | --- |
+| `updateRecord` | `record`, non-empty `set` | `audit` answers keyed by audit-question UUID | Validates and predicts the record update |
+| `createRecord` | `table`, non-empty `values` | `saveAs` | Validates and predicts the new record |
+| `generateDocument` | `template`, `record` | `filename`, up to 20 `tags`, `saveAs` | Validates access and values; does not generate |
+| `createDocumentLink` | `document` output reference | `expiresIn` (`1d`, `7d`, `30d`, `90d`; default `30d`), `comment`, `saveAs` | Validates the document and access; does not create a link |
+| `sendEmail` | `template`, 1–50 `to` recipients | `data` with up to 200 keys, `saveAs` | Validates template, recipients, data, and access; does not send |
+| `httpRequest` | Absolute HTTP or HTTPS `url` | `method` (default `POST`), `headers`, `json`, `timeoutMs` (default 15,000; range 1,000–60,000), `saveAs` | Performs target and policy preflight; does not send |
+| `setVariable` | `name`, `value` | None | Stores the planned value in the current scope |
+| `succeed` | `message` | None | Stops planning with a successful terminal result |
+| `fail` | `message` | None | Stops planning with the failure that execution would produce |
+
+`updateRecord` and `createRecord` field keys accept readable field names, short ids, or UUIDs when unambiguous. If a table requires change context, `updateRecord.audit` must answer the applicable questions by their question UUID. `generateDocument.template` and `sendEmail.template` accept an enabled template name, short id, or UUID. Ambiguous and inaccessible references are rejected during validation.
+
+Each `sendEmail.to` item contains exactly one recipient: `email` resolves to an email address and `user` resolves to a Cloud user UUID. `httpRequest.headers` accepts at most 100 entries, each up to 1,000 characters; its URL is limited to 4,000 characters. The JSON request body and text response body are each limited to 64 KiB.
+
+`httpRequest.method` accepts `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`. It defaults to `POST`. Requests carry JSON only; use `json` for an optional structured body rather than encoding form data or arbitrary binary content.
 
 **Actions**
 
@@ -257,9 +293,12 @@ steps:
 
 Control flow is still a normal step. That keeps nested behavior explicit and makes diagnostics point at the failing branch instead of guessing what the workflow meant.
 
-- **Value comparisons:** Use `equals` or `notEquals` with two literal or dynamic values.
-- **Text comparisons:** Use `contains`, `startsWith`, or `endsWith` with two text values.
-- **Presence and nesting:** `exists` takes one raw value reference. Combine conditions recursively with `all`, `any`, and `not`.
+- **if:** Requires one condition and a non-empty `then` list. `else` is optional.
+- **switch:** Requires a value and at least one `cases` entry. Every case has `when` and a non-empty `do` list. `default` is optional.
+- **forEach:** Requires a raw `recordList` reference, an `as` identifier, and a non-empty `do` list. It preserves list order.
+- **Value comparisons:** `equals` and `notEquals` take exactly two literal or dynamic values.
+- **Text comparisons:** `contains`, `startsWith`, and `endsWith` take exactly two text values.
+- **Presence and nesting:** `exists` takes one raw value reference. `all` and `any` require at least one condition. `not` wraps one condition.
 
 **Branches and loops**
 
@@ -348,13 +387,14 @@ steps:
 ### Values and references
 
 - **Literal strings:** Plain strings are always literal values. Write `Checked`, URLs, email addresses, and dotted text directly when the workflow should use that exact text.
-- **Dynamic values:** A dynamic value must be the whole `${{ ... }}` string. Use `${{ inputs.name }}`, append a record field such as `${{ inputs.item.Status }}`, read a saved value with `${{ savedValue }}`, or evaluate `${{ now() }}`.
+- **Dynamic values:** A dynamic value must be the whole `${{ ... }}` string. Use `${{ inputs.name }}`, append a record field such as `${{ inputs.item.Status }}`, read a saved value with `${{ savedValue }}`, or evaluate `${{ now() }}`. The expression language does not perform arithmetic, concatenate text, or call other functions.
 - **Dedicated references:** Reference-only slots stay raw: `record: inputs.item`, `forEach: inputs.items`, `document: savedDocument`, and `exists: inputs.item.Field`. Do not wrap these slots in expression syntax.
 - **Scope:** Inputs are available for the whole run. `saveAs` and `setVariable` names are available only after their step. A `forEach` alias exists only inside its `do` steps; values created inside branches and loops do not escape that scope.
 - **Result messages:** `succeed` and `fail` messages are literal text that may embed one or more expressions, for example `Processed ${{ inputs.item.Name }}`.
+- **Structured values:** Lists and objects may contain literals and dynamic values recursively. This is useful for `set`, `values`, `data`, and `json`.
 
 :::note Saved output paths
-Saved outputs expose structured paths. Documents provide `id`, `shortId`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`, `documentNumber`, `filename`, `tags`, `generatedBy`, and `generatedAt`. Document links provide `url`, `expiresAt`, and `documentRunId`. Email results provide `subject`, `templateId`, and `recipients`. HTTP results provide `status`, `ok`, and `body`. Read them with expressions such as `${{ link.url }}` or `${{ hook.status }}`.
+Saved outputs expose structured paths. Documents provide `id`, `shortId`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`, `documentNumber`, `filename`, `tags`, `generatedBy`, and `generatedAt`. Document links provide `kind`, `id`, `url`, `expiresAt`, and `documentRunId`. Email results provide `subject`, `templateId`, and `recipients`; each recipient provides `id`, `deliveryId`, `kind`, `recipient`, and `status`. HTTP results provide `status`, `ok`, and `body`. Read them with expressions such as `${{ link.url }}`, `${{ emailResult.recipients }}`, or `${{ hook.status }}`.
 :::
 
 ### Email templates
@@ -424,7 +464,10 @@ A dry run is a normal observable run with mode `dryRun`. Review its predicted ef
 - **Action permission:** Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow.
 - **Email delivery:** Email template management requires base admin access. Workflow runs can use enabled email templates without exposing template HTML in autocomplete.
 - **HTTP guardrails:** httpRequest pins the validated DNS address for the socket connection, limits request and response bodies to 64 KiB, applies the timeout to DNS and transfer, and blocks private or reserved targets by default. Administrators can restrict requests to an exact or wildcard host allowlist. Private-network requests require both the private-network setting and a matching non-empty host allowlist.
-- **Bulk size:** Bulk selections and forEach loops are capped at 10,000 records per run.
+
+One workflow may declare at most 100 inputs and 1,000 steps across all branches and loops. Control flow and recursive conditions may each be nested 20 levels deep, with at most 1,000 conditions. A `recordList`, bulk selection, or `forEach` loop can contain at most 10,000 records. Workflow YAML itself is limited to 200,000 characters.
+
+These are validation and execution boundaries, not recommended design targets. Split a workflow before it approaches them so one run still has one understandable purpose.
 
 ### Scanner example
 

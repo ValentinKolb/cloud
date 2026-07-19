@@ -140,7 +140,7 @@ from table Orders; where Status = 'Paid'; sort "Ordered at" desc; limit 10
 | `select` | Choose, rename, or calculate output columns. Formulas and aggregates need an alias. |
 | `where` | Filter source records before grouping. |
 | `search` | Search all searchable fields, or named fields after `in`. |
-| `group by` | Create one summary row per value or supported date bucket. |
+| `group by` | Create one summary row per value. Date fields support `by day`, `week`, `month`, `quarter`, or `year`. |
 | `aggregate` | Calculate `count`, `countEmpty`, `countUnique`, `sum`, `avg`, `min`, `max`, `median`, `earliest`, or `latest`. |
 | `having` | Filter grouped rows after aggregates exist. |
 | `sort` | Order rows or summaries; supports `asc`, `desc`, `nulls first`, and `nulls last`. |

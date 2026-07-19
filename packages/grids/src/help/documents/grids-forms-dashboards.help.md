@@ -49,6 +49,36 @@ Number, Records, Chart, and Summary widgets can read either a **Saved view** or 
 
 The data source defines records, groups, and aggregate values. The widget defines presentation such as chart type, labels, number format, size, and height. If a chart is empty, inspect the grouped source before changing chart settings.
 
+### Match the source to the widget
+
+Start with the question the widget should answer, then shape its source. The editor validates the source before saving.
+
+| Widget | Expected source |
+| --- | --- |
+| Number | One value. The first aggregate column is preferred; otherwise the first output column is used. |
+| Records | Row or summary results. The dashboard shows the first page; a saved view can also link to its full page when the reader may open it. |
+| Summary | One row or grouped bucket. Every output column in that first result becomes a compact labeled value. |
+| Donut or bar chart | One grouped column and at least one aggregate. The first aggregate supplies the values. |
+| Line chart | One grouped column and one or more aggregates. Each aggregate becomes a series. |
+| Sparkline | One grouped column and at least one aggregate. The first aggregate supplies the trend. |
+| Scatter chart | One grouped column and at least two aggregates. The first two aggregates become the x and y values. |
+
+For a time series, group a date field by `day`, `week`, `month`, `quarter`, or `year`, aggregate the measure, and sort the date ascending. A chart's optional bucket limit keeps the most recent 1–1,000 source buckets after the query has filtered and sorted them.
+
+A Number widget may add a separate grouped trend source with a 2–60 bucket window. This changes only the small trend line; it does not change the main value.
+
+### Arrange the working page
+
+Edit mode lets you add rows, move rows and widgets, choose a widget width, and set each row to **Compact**, **Standard**, or **Tall**. Widths use a 12-column row: quarter, third, half, two-thirds, three-quarters, or full width. Prefer Compact for numbers and actions, Standard for mixed content, and Tall for charts, record results, and forms.
+
+Use Text widgets for instructions close to the action they explain. Use Link widgets for deliberate navigation to another dashboard, table, view, form, or external URL. A Workflow widget uses a saved dashboard or scanner launcher; it does not embed workflow YAML in the dashboard.
+
+When a widget reports an error or no data, open its settings and check the source first:
+
+1. Run the saved view or local GQL query and confirm that it returns rows.
+2. For charts, confirm that the result contains the required group and aggregate columns.
+3. Confirm that the reader has dashboard access and that embedded forms or workflows are still enabled.
+
 ### Share dashboards deliberately
 
 A personal dashboard belongs to its owner. A shared dashboard is visible by default to base readers, and explicit dashboard access can narrow or grant access.

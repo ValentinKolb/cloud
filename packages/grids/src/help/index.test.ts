@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { DOCUMENT_TEMPLATE_STARTERS } from "../document-template-starters";
+import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
+import { GROUP_GRANULARITIES } from "../query-dsl/intelligence-grammar";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { gridsHelp } from ".";
 
@@ -65,16 +68,32 @@ describe("grids help", () => {
     expect(formsDashboards).toContain("saved view");
     expect(formsDashboards).toContain("Query");
     expect(formsDashboards).toContain("stored directly in the widget");
+    for (const chartType of ["Donut", "bar", "Line", "Sparkline", "Scatter"]) {
+      expect(formsDashboards, `missing dashboard chart type ${chartType}`).toContain(chartType);
+    }
 
     const documents = gridsHelp.getMarkdown("grids-documents-pdfs")!;
     for (const capability of ["recursive snapshot", "public link", "1, 7, 30, or 90 days", "barcode_data_url"]) {
       expect(documents, `missing document capability ${capability}`).toContain(capability);
+    }
+    for (const starter of DOCUMENT_TEMPLATE_STARTERS) {
+      expect(documents, `missing document starter ${starter.name}`).toContain(`\`${starter.name}\``);
+    }
+
+    const formulas = gridsHelp.getMarkdown("grids-formulas")!;
+    for (const fn of GRID_FORMULA_FUNCTIONS) {
+      expect(formulas, `missing formula function ${fn.name}`).toContain(fn.signature);
     }
 
     const permissions = gridsHelp.getMarkdown("grids-permissions")!;
     expect(permissions).toContain("Cloud administrators are not automatic Grids superusers");
     for (const resource of ["Base", "Stored table", "Combined table", "View", "Form", "Dashboard", "Document template", "Workflow"]) {
       expect(permissions, `missing permission resource ${resource}`).toContain(resource);
+    }
+
+    const gql = gridsHelp.getMarkdown("grids-gql")!;
+    for (const granularity of GROUP_GRANULARITIES) {
+      expect(gql, `missing GQL date granularity ${granularity}`).toContain(granularity);
     }
   });
 

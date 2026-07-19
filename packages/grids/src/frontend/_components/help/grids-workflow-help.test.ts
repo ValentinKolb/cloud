@@ -13,6 +13,23 @@ const workflowSnippets = [...helpSource.matchAll(/\*\*([^*\n]+)\*\*\s*\n+```yaml
   source: source!.trim(),
 }));
 
+const manifestTerms = (schema: unknown): string[] => {
+  if (!schema || typeof schema !== "object") return [];
+  const value = schema as { kind?: unknown; properties?: unknown; enum?: unknown; items?: unknown; variants?: unknown };
+  const terms: string[] = [];
+  if (value.properties && typeof value.properties === "object") {
+    for (const [key, child] of Object.entries(value.properties)) {
+      terms.push(key, ...manifestTerms(child));
+    }
+  }
+  if (Array.isArray(value.enum)) terms.push(...value.enum.filter((entry): entry is string => typeof entry === "string"));
+  if (value.items) terms.push(...manifestTerms(value.items));
+  if (Array.isArray(value.variants)) {
+    for (const variant of value.variants) terms.push(...manifestTerms(variant));
+  }
+  return terms;
+};
+
 const ids = {
   items: "11111111-1111-4111-8111-111111111111",
   movements: "22222222-2222-4222-8222-222222222222",
@@ -64,10 +81,13 @@ const catalog = buildWorkflowCatalog({
 });
 
 describe("Grids workflow help", () => {
-  test("documents the shared-kernel workflow vocabulary", () => {
+  test("documents the complete manifest vocabulary and limits", () => {
     expect(gridsWorkflowManifest.triggers.map((trigger) => trigger.kind)).toEqual(["schedule", "recordEvent"]);
 
     for (const term of [
+      ...gridsWorkflowManifest.inputs.map((input) => input.kind),
+      ...gridsWorkflowManifest.triggers.map((trigger) => trigger.kind),
+      ...gridsWorkflowManifest.actions.map((action) => action.kind),
       ...GRIDS_WORKFLOW_CHANNELS,
       ...GRIDS_WORKFLOW_LAUNCHER_KINDS,
       ...GridsWorkflowRunStatusSchema.options,
@@ -75,6 +95,36 @@ describe("Grids workflow help", () => {
       "dryRun",
     ]) {
       expect(helpSource, `missing workflow help for ${term}`).toMatch(new RegExp(`\\b${term}\\b`));
+    }
+
+    for (const limit of Object.values(gridsWorkflowManifest.limits ?? {})) {
+      expect(helpSource, `missing workflow help for limit ${limit}`).toContain(limit.toLocaleString("en-US"));
+    }
+
+    const configTerms = [
+      ...gridsWorkflowManifest.inputs.flatMap((input) => manifestTerms(input.config)),
+      ...gridsWorkflowManifest.triggers.flatMap((trigger) => manifestTerms(trigger.config)),
+      ...gridsWorkflowManifest.actions.flatMap((action) => manifestTerms(action.config)),
+    ];
+    for (const term of new Set(configTerms)) {
+      expect(helpSource, `missing workflow property or enum ${term}`).toMatch(new RegExp(`\\b${term}\\b`));
+    }
+  });
+
+  test("documents the strict YAML shape and reference rules", () => {
+    for (const rootKey of ["inputs", "triggers", "steps"]) {
+      expect(helpSource).toContain(`\`${rootKey}\``);
+    }
+    for (const rule of [
+      "exactly one action",
+      "Unknown root keys",
+      "start with a letter or underscore",
+      "case-sensitive",
+      "A dynamic value must be the whole",
+      "does not perform arithmetic",
+      "Reference-only slots stay raw",
+    ]) {
+      expect(helpSource, `missing workflow language rule: ${rule}`).toContain(rule);
     }
   });
 
