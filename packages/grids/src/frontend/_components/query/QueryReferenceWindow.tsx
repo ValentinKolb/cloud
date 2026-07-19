@@ -216,10 +216,16 @@ const dataTypeRows: DataTypeRow[] = [
     watch: "Do not use long text as the record label; it makes relations and detail headers hard to scan.",
   },
   {
-    type: "Number / decimal / percent",
+    type: "Number / percent",
     icon: "ti-decimal",
-    use: "Counts, money, measurements, ratios, progress, and calculations.",
-    watch: "Use decimal for money. Percent values are stored as ratios, so 0.75 displays as 75%.",
+    use: "Counts, money, measurements, percentages, progress, and calculations.",
+    watch: "Number fields use decimal-safe arithmetic. Percent fields use 0–100 by default and can be configured for a 0–1 fraction scale.",
+  },
+  {
+    type: "Boolean",
+    icon: "ti-toggle-left",
+    use: "Yes/no facts such as approved, active, returned, or billable.",
+    watch: "An optional boolean can also be empty. Use a required field when the process needs an explicit yes or no.",
   },
   {
     type: "Date / date-time",
@@ -228,10 +234,22 @@ const dataTypeRows: DataTypeRow[] = [
     watch: "Use date for whole days. Use date-time only when the exact moment matters.",
   },
   {
+    type: "Duration",
+    icon: "ti-clock-hour-4",
+    use: "Elapsed time such as call length, work duration, or response time.",
+    watch: "Durations are stored as seconds and accept seconds, MM:SS, or HH:MM:SS input.",
+  },
+  {
     type: "Select",
     icon: "ti-tags",
     use: "Known option lists such as status, priority, type, condition, or category labels.",
     watch: "Use relations instead when options need their own fields, permissions, forms, or history.",
+  },
+  {
+    type: "JSON",
+    icon: "ti-braces",
+    use: "Structured data that does not need separate Grids fields.",
+    watch: "Use normal fields when people need to search, filter, explain, or validate individual properties.",
   },
   {
     type: "Relation",
@@ -252,10 +270,10 @@ const dataTypeRows: DataTypeRow[] = [
     watch: "Formula errors render as an error value. Use IFERROR for expected empty or divide-by-zero cases.",
   },
   {
-    type: "ID",
+    type: "ID / system fields",
     icon: "ti-id",
-    use: "Stable human or machine identifiers such as SKU, asset ID, order number, UUID, or ULID.",
-    watch: "Use a visible ID only when people or external systems need to refer to it.",
+    use: "Generated identifiers plus created/updated timestamps and actors.",
+    watch: "System fields are managed by Grids. Add a visible ID only when people or external systems need to refer to it.",
   },
   {
     type: "File",

@@ -2,30 +2,68 @@
 id: grids-build-base
 title: Build a base
 icon: ti ti-route
-description: Map common work to the smallest useful Grids feature.
+description: Turn a real process into a small, useful Grids base.
 order: 106
 ---
-Build the smallest base that makes the work clear. Add tables, views, forms, dashboards, documents, and workflows when each one removes a real manual step.
+Start from the work people need to complete, not from a list of every feature Grids offers. A good first base makes one process easier with a small number of clear tables and views.
 
-### Common choices
+### Describe the work first
 
-- **Collect data:** Create a table, then a form for guided entry. Use field descriptions for examples and validation intent.
-- **Track work:** Use status, owner, due date, and saved views such as Open, Waiting, Done, or Overdue.
-- **Report numbers:** Create a grouped view with aggregations, then use it in stats, charts, exports, or dashboard widgets.
-- **Connect records:** Use relation fields. Mark one short field on the target table as the record label.
-- **Generate documents:** Create a document template on the source table. Load data with GQL, lay it out with Liquid HTML, then generate PDFs from records.
-- **Notify another system:** Create a record-triggered workflow with a filter and an httpRequest action.
+Write down the main items people handle and the questions they ask about them. For equipment loans, the items might be equipment, people, and loans. The questions might be “What is available?”, “Who has this item?”, and “Which loans are overdue?”
 
-### Boundaries
+Each kind of item usually becomes a table. Each fact needed to answer those questions becomes a field. Repeated connections between kinds of items become relations.
 
-- **Make a table:** Use a table when records have their own lifecycle, permissions, forms, dashboards, documents, or relations.
-- **Make a field:** Use a field when the value is one property of the same record.
-- **Make a view:** Use a view when people need to revisit the same subset, display mode, or report.
+### Build the first useful version
 
-### End-to-end example
+1. **Create the main table.** Give it a concrete plural name such as Items, Invoices, or Requests.
+2. **Add identity and working fields.** Start with a readable name, status, owner, and the dates or numbers needed for the process.
+3. **Choose a record label.** Pick the short field people should recognize in relations and pickers.
+4. **Enter representative records.** Include ordinary, incomplete, and unusual cases. Correct confusing field names now.
+5. **Create one operational view.** Filter and sort the records for a repeated task, such as Open requests or Overdue loans.
+6. **Set access before inviting users.** Give people only the resources and actions they need.
 
-1. **Create tables:** For invoices, create Customers and Invoices. Mark Customer name as the customer record label.
-2. **Add invoice fields:** Add Invoice date, Due date, Status, Subtotal, Tax, Total, Paid, and Receipt.
-3. **Create work views:** Create views such as Open invoices, Overdue invoices, Paid invoices, and Monthly income.
-4. **Add output surfaces:** Use a dashboard for operational summaries and a document template when invoices need generated PDFs.
-5. **Automate after the model is stable:** Use a workflow after the table, view, permission, and document rules are clear enough to trust.
+Do not add a dashboard merely to repeat the table, or a workflow for a process people do not yet understand. Add the next resource when its purpose is concrete:
+
+| Need | Add |
+| --- | --- |
+| Focused data entry | A form |
+| A reusable subset, report, card board, or calendar | A view |
+| A role-specific operating page | A dashboard |
+| A printable or shareable PDF | A document template |
+| A repeatable multi-step action | A workflow |
+| One governed read-only table across bases | A Combined table |
+
+### Configure the base around the work
+
+Open **Base settings** in Edit mode for settings that apply across the base:
+
+- **General** keeps the base name and description understandable in the Grids overview.
+- **Default dashboard** chooses the first working page people open when they enter the base.
+- **Documents** stores the business identity, address, contact, payment, and footer values available to PDF and email templates.
+- **Permissions** controls who can enter the base before more specific resource rules are considered.
+- **Trash** lists deleted tables, fields, forms, and dashboards that can still be restored.
+
+Choose a default dashboard only after it is useful to the base's normal readers. A broken or highly specialized dashboard is a poor entrance even when its individual widgets are correct.
+
+### Example: equipment loans
+
+Create **Items**, **People**, and **Loans** tables. A Loans record can relate to one person and several items, and store loaned-at, due-at, returned-at, and status fields.
+
+Then create:
+
+- an **Available items** view for daily lookup;
+- an **Open loans** view sorted by due date;
+- a **Request loan** form for guided input;
+- an **Inventory overview** dashboard for staff;
+- a **Loan agreement** document template;
+- a **Return item** scanner workflow after the return rules are stable.
+
+The result remains understandable because each feature has one job and all of them use the same records.
+
+### Before expanding
+
+Use the base with real work. Check whether users can recognize records, understand status values, find the right view, and know what they are allowed to change. If the model is unclear in a small sample, more automation will only hide the problem.
+
+:::note Templates as a starting point
+A Grids template can create a complete example base. Treat it as an editable working example: rename its resources, inspect the sample records, and remove what your process does not need.
+:::

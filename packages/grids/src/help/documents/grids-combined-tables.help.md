@@ -2,14 +2,18 @@
 id: grids-combined-tables
 title: Combined tables
 icon: ti ti-table-share
-description: Publish one read-only canonical table over explicitly mapped source tables.
+description: Publish one governed read-only table across several bases.
 order: 122
 ---
-A Combined table publishes one canonical, read-only table over stored tables from one or more bases. Use it when operational bases should remain separate but readers need one governed dataset for search, GQL, views, dashboards, documents, workflows, or export.
+A Combined table presents records from several stored tables as one governed, read-only table. It is useful when teams should keep operating in separate bases but another audience needs one consistent dataset for audit, reporting, search, dashboards, documents, workflows, or export.
+
+For example, regional teams can keep different Inventory bases while an audit base publishes one **All inventory** table. Readers query its canonical Name, Status, and Location fields even when the source tables use different names or select options.
+
+Do not use a Combined table merely to show a subset from one table; use a view for that. Do not use it when readers must edit the source records through the combined surface, because publication is deliberately read-only.
 
 ### What a Combined table changes
 
-The Combined table owns its name, fields, views, and permissions. Source admins explicitly authorize selected source tables and field mappings. Readers use only the Combined table and need no access to the source bases. Grids executes the union, filters, sorting, pagination, grouping, and aggregation in PostgreSQL; the browser never concatenates source rows.
+The Combined table owns its name, canonical fields, views, and permissions. Source admins explicitly authorize selected source tables and field mappings. Readers use only the Combined table and need no access to the source bases. Grids runs union, search, filters, sorting, pagination, grouping, and aggregation in PostgreSQL; the browser never joins result lists itself.
 
 - **Canonical schema:** Create the fields readers should see, then map each source field to the matching canonical field. Missing mappings return null for that source.
 - **Independent access:** Target readers receive only canonical data. They do not inherit source navigation, schema, history, or mutation rights.

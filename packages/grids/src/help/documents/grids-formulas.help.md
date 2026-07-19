@@ -2,17 +2,21 @@
 id: grids-formulas
 title: Formulas
 icon: ti ti-function
-description: Formula syntax and the complete function catalog.
+description: Calculate values from fields with one shared expression language.
 order: 126
 ---
-Formulas calculate values from fields in one record. The same expression model is used by formula fields, computed columns, query predicates, and query output, so one reference is enough for humans, CLI workflows, and future agent context.
+Formulas calculate a value from fields in one record. Use them for totals, labels, date differences, conditions, and other results that should follow the saved inputs automatically.
+
+Create a **Formula field** when the result belongs on every record. Add a **Computed column** when the calculation is only needed in one query. In GQL, the same expression language can filter records or create an output column.
 
 ### Where formulas run
 
-- **Formula fields:** A saved table field that recalculates when records are read and can be shown in views, cards, detail panels, dashboards, and templates.
-- **Computed columns:** A temporary output column for analysis. It does not change the table schema unless the user saves a real field.
-- **GQL predicates:** A server-side condition used by where and having. Use formulas here to filter rows by derived values.
-- **GQL output:** A calculated result column written as formula(expression) as alias.
+- **Formula fields** recalculate when records are read and can appear in views, cards, detail panels, dashboards, and documents.
+- **Computed columns** are temporary query output and do not change the table schema.
+- **GQL conditions** use an expression inside `where` or `having`.
+- **GQL output** uses `formula(expression) as alias`.
+
+Formula evaluation and GQL compilation happen on the server. A formula does not depend on the browser having loaded every record.
 
 ### Expression rules
 
@@ -20,6 +24,8 @@ Formulas calculate values from fields in one record. The same expression model i
 - **Text values:** Use single quotes for text values: `'Open'`. Double quotes mean a field name.
 - **Empty values:** Empty input stays empty unless the expression handles it. Use IFEMPTY for expected fallbacks.
 - **Errors:** Formula errors render as an error value. Use IFERROR for expected divide-by-zero, missing-value, or conversion cases.
+
+Build a formula from a representative record and check empty, zero, and boundary values. If a field changes type or is removed, update dependent formulas before relying on their output.
 
 ### Common formulas
 
@@ -61,53 +67,55 @@ IFERROR(total / quantity, 0)
 
 ### Full function reference
 
-| Group     | Function                           | What it does                                                             | Returns |      |
-| --------- | ---------------------------------- | ------------------------------------------------------------------------ | ------- | ---- |
-| Aggregate | SUM(value, ...)                    | Add numeric values.                                                      | number  | Copy |
-| Aggregate | AVG(value, ...)                    | Average numeric values.                                                  | number  | Copy |
-| Aggregate | MEAN(value, ...)                   | Alias for AVG.                                                           | number  | Copy |
-| Aggregate | COUNT(value, ...)                  | Count non-empty values.                                                  | number  | Copy |
-| Aggregate | MIN(value, ...)                    | Smallest numeric value.                                                  | number  | Copy |
-| Aggregate | MAX(value, ...)                    | Largest numeric value.                                                   | number  | Copy |
-| Aggregate | MEDIAN(value, ...)                 | Middle numeric value.                                                    | number  | Copy |
-| Number    | ABS(number)                        | Absolute value.                                                          | number  | Copy |
-| Number    | ROUND(number, digits?)             | Round a number.                                                          | number  | Copy |
-| Number    | FLOOR(number)                      | Round down.                                                              | number  | Copy |
-| Number    | CEIL(number)                       | Round up.                                                                | number  | Copy |
-| Number    | SQRT(number)                       | Square root.                                                             | number  | Copy |
-| Number    | POW(base, exponent)                | Power.                                                                   | number  | Copy |
-| Number    | MOD(a, b)                          | Remainder.                                                               | number  | Copy |
-| Number    | PERCENT(part, total)               | Part as percent of total.                                                | number  | Copy |
-| Logic     | IF(condition, then, else)          | Choose by condition.                                                     | any     | Copy |
-| Logic     | IFEMPTY(value, fallback)           | Fallback for empty values.                                               | any     | Copy |
-| Logic     | IFERROR(value, fallback)           | Fallback for formula errors.                                             | any     | Copy |
-| Logic     | AND(value, ...)                    | All values are truthy. In GQL where/having, prefer the \`and\` operator. | boolean | Copy |
-| Logic     | OR(value, ...)                     | Any value is truthy. In GQL where/having, prefer the \`or\` operator.    | boolean | Copy |
-| Logic     | NOT(value)                         | Invert truthiness. In GQL where/having, prefer the \`not\` operator.     | boolean | Copy |
-| Logic     | ISBLANK(value)                     | True when empty.                                                         | boolean | Copy |
-| Text      | CONTAINS(text, search)             | Substring match.                                                         | boolean | Copy |
-| Text      | STARTSWITH(text, prefix)           | True when text starts with prefix.                                       | boolean | Copy |
-| Text      | ENDSWITH(text, suffix)             | True when text ends with suffix.                                         | boolean | Copy |
-| Text      | ICONTAINS(text, search)            | Case-insensitive substring match.                                        | boolean | Copy |
-| Text      | ISTARTSWITH(text, prefix)          | Case-insensitive starts-with match.                                      | boolean | Copy |
-| Text      | IENDSWITH(text, suffix)            | Case-insensitive ends-with match.                                        | boolean | Copy |
-| Text      | CONCAT(value, ...)                 | Join values as text.                                                     | text    | Copy |
-| Text      | LEN(text)                          | Text length.                                                             | number  | Copy |
-| Text      | LOWER(text)                        | Lowercase text.                                                          | text    | Copy |
-| Text      | UPPER(text)                        | Uppercase text.                                                          | text    | Copy |
-| Text      | TRIM(text)                         | Trim whitespace.                                                         | text    | Copy |
-| Text      | LEFT(text, n)                      | First n characters.                                                      | text    | Copy |
-| Text      | RIGHT(text, n)                     | Last n characters.                                                       | text    | Copy |
-| Text      | SUBSTRING(text, start, length)     | Text slice with 0-based start.                                           | text    | Copy |
-| Text      | REPLACE(text, search, replacement) | Replace all matches.                                                     | text    | Copy |
-| Date      | TODAY()                            | Current date.                                                            | date    | Copy |
-| Date      | NOW()                              | Current date and time.                                                   | date    | Copy |
-| Date      | YEAR(date)                         | Year number.                                                             | number  | Copy |
-| Date      | MONTH(date)                        | Month number.                                                            | number  | Copy |
-| Date      | DAY(date)                          | Day number.                                                              | number  | Copy |
-| Date      | DATEADD(date, count, unit?)        | Add time to a date; the unit defaults to days.                           | date    | Copy |
-| Date      | DATEDIFF(from, to, unit?)          | Difference between dates; the unit defaults to days.                     | number  | Copy |
+| Group     | Function                           | What it does                                                             | Returns |
+| --------- | ---------------------------------- | ------------------------------------------------------------------------ | ------- |
+| Aggregate | SUM(value, ...)                    | Add numeric values.                                                      | number  |
+| Aggregate | AVG(value, ...)                    | Average numeric values.                                                  | number  |
+| Aggregate | MEAN(value, ...)                   | Alias for AVG.                                                           | number  |
+| Aggregate | COUNT(value, ...)                  | Count non-empty values.                                                  | number  |
+| Aggregate | MIN(value, ...)                    | Smallest numeric value.                                                  | number  |
+| Aggregate | MAX(value, ...)                    | Largest numeric value.                                                   | number  |
+| Aggregate | MEDIAN(value, ...)                 | Middle numeric value.                                                    | number  |
+| Number    | ABS(number)                        | Absolute value.                                                          | number  |
+| Number    | ROUND(number, digits?)             | Round a number.                                                          | number  |
+| Number    | FLOOR(number)                      | Round down.                                                              | number  |
+| Number    | CEIL(number)                       | Round up.                                                                | number  |
+| Number    | SQRT(number)                       | Square root.                                                             | number  |
+| Number    | POW(base, exponent)                | Power.                                                                   | number  |
+| Number    | MOD(a, b)                          | Remainder.                                                               | number  |
+| Number    | PERCENT(part, total)               | Part as percent of total.                                                | number  |
+| Logic     | IF(condition, then, else)          | Choose by condition.                                                     | any     |
+| Logic     | IFEMPTY(value, fallback)           | Fallback for empty values.                                               | any     |
+| Logic     | IFERROR(value, fallback)           | Fallback for formula errors.                                             | any     |
+| Logic     | AND(value, ...)                    | All values are truthy. In GQL where/having, prefer the \`and\` operator. | boolean |
+| Logic     | OR(value, ...)                     | Any values are truthy. In GQL where/having, prefer the \`or\` operator.  | boolean |
+| Logic     | NOT(value)                         | Invert truthiness. In GQL where/having, prefer the \`not\` operator.     | boolean |
+| Logic     | ISBLANK(value)                     | True when empty.                                                         | boolean |
+| Text      | CONTAINS(text, search)             | Substring match.                                                         | boolean |
+| Text      | STARTSWITH(text, prefix)           | True when text starts with prefix.                                       | boolean |
+| Text      | ENDSWITH(text, suffix)             | True when text ends with suffix.                                         | boolean |
+| Text      | ICONTAINS(text, search)            | Case-insensitive substring match.                                        | boolean |
+| Text      | ISTARTSWITH(text, prefix)          | Case-insensitive starts-with match.                                      | boolean |
+| Text      | IENDSWITH(text, suffix)            | Case-insensitive ends-with match.                                        | boolean |
+| Text      | CONCAT(value, ...)                 | Join values as text.                                                     | text    |
+| Text      | LEN(text)                          | Text length.                                                             | number  |
+| Text      | LOWER(text)                        | Lowercase text.                                                          | text    |
+| Text      | UPPER(text)                        | Uppercase text.                                                          | text    |
+| Text      | TRIM(text)                         | Trim whitespace.                                                         | text    |
+| Text      | LEFT(text, n)                      | First n characters.                                                      | text    |
+| Text      | RIGHT(text, n)                     | Last n characters.                                                       | text    |
+| Text      | SUBSTRING(text, start, length)     | Text slice with 0-based start.                                           | text    |
+| Text      | REPLACE(text, search, replacement) | Replace all matches.                                                     | text    |
+| Date      | TODAY()                            | Current date.                                                            | date    |
+| Date      | NOW()                              | Current date and time.                                                   | date    |
+| Date      | YEAR(date)                         | Year number.                                                             | number  |
+| Date      | MONTH(date)                        | Month number.                                                            | number  |
+| Date      | DAY(date)                          | Day number.                                                              | number  |
+| Date      | DATEADD(date, count, unit?)        | Add time to a date; the unit defaults to days.                           | date    |
+| Date      | DATEDIFF(from, to, unit?)          | Difference between dates; the unit defaults to days.                     | number  |
 
-:::note For scripts, CLI, and agents
-Treat field names, formulas, GQL, templates, and workflows as public text surfaces. Prefer exact names from the reference or current base inventory, keep aliases readable, and quote values deliberately so generated changes are reviewable.
+`DATEADD` accepts days, hours, minutes, months, and years. `DATEDIFF` accepts days, hours, minutes, and seconds. The result of `DATEDIFF(from, to, unit)` is `to - from`.
+
+:::note Formula fields do not store a second value
+They are calculated from the current record when read. Change the source fields when the result is wrong rather than editing the displayed formula result.
 :::

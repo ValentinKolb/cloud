@@ -2,22 +2,18 @@
 id: grids-documents-pdfs
 title: Documents & PDFs
 icon: ti ti-file-type-pdf
-description: GQL sources, Liquid HTML, snapshots, and generated documents.
+description: Create, generate, organize, and share PDFs from saved records.
 order: 135
 ---
 Document templates turn table records into repeatable PDFs. Use them for invoices, contracts, labels, certificates, delivery notes, quotes, packing lists, checklists, and record summaries.
 
-### How templates work
+Each template belongs to one table and defines one document family. A generated document belongs to one selected record, receives a stable number and filename, and keeps a snapshot so it can be reproduced after the live records change.
 
-A template belongs to one table and describes one document family for records in that table. The selected preview record gives the template its current-record context. GQL decides which rows and columns the document can use. Liquid decides how those values become HTML. Gotenberg turns that HTML into a PDF.
+Use a document template when output must be formatted for people, printed, shared by an expiring link, or redownloaded later. Use CSV or JSON export when you only need data for another system.
 
-Use a template when the output must be generated from saved record data, redownloaded later, or backed by a snapshot. Use a normal export when you only need a data file.
+### From record to PDF
 
-The useful split is data first, layout second. If the document needs fewer rows, related rows, totals, or a defined sort order, express that in GQL. If the document needs different wording, tables, page breaks, letterheads, labels, barcodes, or conditions, express that in Liquid HTML and CSS.
-
-### How generation works
-
-Generation starts from a selected record. Grids renders the template's GQL source with Liquid, runs that GQL on the server, renders the body, header, footer, and page CSS with the returned data, then sends the HTML to Gotenberg for PDF rendering. A saved generation creates a bounded record snapshot and a document run with a stable document number.
+The template separates data selection from page layout. **GQL** loads the rows and columns the document may use. **Liquid HTML and CSS** turn those values into wording, tables, conditions, loops, images, barcodes, page breaks, headers, and footers. **Gotenberg** renders the resulting HTML as PDF.
 
 **Pipeline**
 
@@ -30,16 +26,19 @@ selected record
   -> store snapshot + document run metadata
 ```
 
-### Create and preview
+Keep filtering, sorting, joins, grouping, and totals in GQL so they run in the database. Keep Liquid focused on presentation.
 
-Most templates start from a starter, then get narrowed to the record and related data the document should print. Use the preview record as an anchor: it lets the editor show the exact rendered GQL, the exact data tree, and the PDF output for the same record.
+### Create your first template
 
 1. **Open templates:** Open the table in edit mode and choose Templates. Templates belong to the table they generate documents for.
-2. **Start from a starter:** Pick a starter such as Invoice, Loan agreement, Label, QR label, Overview, Record detail, Quote, Packing list, or Checklist.
-3. **Choose a preview record:** The preview record supplies the current record context. The Data tab then shows the exact variables available to Liquid.
-4. **Adjust the GQL source:** Keep the default source for single-record PDFs. Add joins, selects, grouping, or broader sources when the document needs related or batch data.
-5. **Edit the HTML parts:** Body, header, footer, and page CSS are separate so multipage business documents can keep stable letterheads and page numbers.
-6. **Render before saving:** Use the PDF preview and open-in-new-tab action for layout checks. New templates start disabled, and enabling a draft without a successful preview asks for confirmation.
+2. **Choose a starter:** Pick the structure closest to the output you need. Every starter remains fully editable.
+3. **Select a preview record:** The same record anchors the rendered GQL, Data tree, and PDF preview.
+4. **Inspect before editing:** Source shows the GQL after record values are inserted. Data shows the exact Liquid paths. Preview shows the PDF.
+5. **Change one layer at a time:** Adjust GQL when data is wrong; adjust Body, Header, Footer, or Page CSS when layout is wrong.
+6. **Preview representative data:** Test long text, missing values, many rows, and page breaks. New templates start disabled.
+7. **Enable and share access:** Users with template Write access can then select a record and generate a saved document.
+
+The selected preview record is only test context. Generating later prompts the user to select the actual record and can override the filename or add tags.
 
 ### Starters
 
@@ -70,7 +69,7 @@ A template has one data part and up to four layout parts. The GQL source is rend
 | Footer     | Liquid + HTML | Optional Gotenberg footer rendered on each page.                                                 | Legal footer, bank data, page numbers with `pageNumber` and `totalPages`. |
 | Page CSS   | Liquid + CSS  | Optional CSS injected into the PDF body document.                                                | @page size/margins, table headers, page breaks, print typography.         |
 
-### Use data in Liquid
+### Understand the available data
 
 The Data tab is the source of truth for the current preview record. It shows the exact shape Liquid receives after the GQL source has run. Copy paths from this tree instead of guessing object shapes.
 
@@ -138,13 +137,13 @@ The default number pattern is non-sequential and collision-resistant: `{{ templa
 
 **Business-style number**
 
-```css
+```text
 INV-{{ date.yyyy }}-{{ run.shortId }}
 ```
 
 **Readable filename**
 
-```css
+```text
 invoice-{{ record.data.Name | default: document.number }}-{{ document.number }}.pdf
 ```
 
@@ -382,9 +381,19 @@ Additional BWIP symbol ids
 
 ### Preview, data, source
 
-- **Preview:** Renders the current unsaved draft as a PDF. Use Open preview for full-screen inspection.
+- **Preview:** Renders the current unsaved draft as a PDF. Use **Open preview** for full-screen inspection.
 - **Data:** Shows the exact Liquid paths for the selected preview record. Copy paths from here instead of guessing object shapes.
-- **Source:** Shows the rendered GQL source after Liquid variables have been substituted. Use it to debug current-record filters.
+- **Source:** Shows the GQL after Liquid variables have been substituted. Use it to debug current-record filters.
+
+### Work with generated documents
+
+The document page lists every generated run for a template. Use **Table** for a searchable list or **Folders** to browse by year and month. Searching switches to the table result so matching documents are not hidden inside folders.
+
+Before generation you can override the template filename and add tags. With template Write access, open a generated document's details to change its filename or tags later. The document number remains stable.
+
+Template Read access allows a user to browse and redownload generated documents. Write access also allows generation and metadata changes. Admin access manages the template itself.
+
+To share one generated PDF without a Cloud login, create a public link for 1, 7, 30, or 90 days. The link downloads only that stored document snapshot. An optional comment explains its purpose. The creator or a document editor can revoke the link before it expires.
 
 ### Snapshots and runs
 
@@ -394,6 +403,23 @@ Generating a PDF creates a recursive snapshot of the root record and related rec
 - **Template edits:** Changing a template affects future generations. Existing runs redownload from the template snapshot and data captured for that run.
 - **Manual snapshots:** The record detail panel also has a Snapshot button for capturing a record state without generating a PDF.
 - **Deleted templates:** Deleting a template removes it from the active list, but existing generated documents remain available through their runs.
+
+### Practical limits
+
+Grids rejects templates that exceed these bounds instead of silently truncating a query or document:
+
+| Input | Limit |
+| --- | ---: |
+| GQL source | 20,000 bytes |
+| Body HTML | 200,000 bytes |
+| Header HTML, footer HTML, or page CSS | 50,000 bytes each |
+| Number or filename pattern | 5,000 bytes each |
+| Rendered body HTML | 300,000 bytes |
+| GQL result used by one document | 10,000 rows |
+| Record images exposed to Liquid | 12 images, up to 2 MB each |
+| Recursive snapshot | 4 relation levels and 500 records |
+
+These are safety ceilings, not layout targets. For a document with thousands of rows, test page breaks and rendering time with realistic data before enabling the template.
 
 ### Common issues
 

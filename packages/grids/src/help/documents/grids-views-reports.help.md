@@ -2,30 +2,58 @@
 id: grids-views-reports
 title: Views & reports
 icon: ti ti-filter
-description: Search, filters, sorting, grouping, aggregations, display modes, and reports.
+description: Save repeated ways of finding, arranging, and summarizing records.
 order: 120
 ---
-Views define how people inspect records. They can filter, sort, group, aggregate, and choose a display mode without duplicating data. Use them for operational lists, card boards, calendars, grouped reports, chart sources, exports, and dashboard embeds.
+A view is a named way to use table data. It keeps a GQL query and display settings without copying the records. Change a record in one view and the same record changes everywhere it appears.
 
-### Query building blocks
+Create a view when people repeatedly need the same subset, order, columns, card board, calendar, or grouped report. Use an unsaved table query while exploring; save it when the result becomes part of regular work.
 
-- **Filter:** Use filters for exact reusable rules. Search is broad; filters are explicit.
-- **Sort:** Sort decides the order after search and filters apply. Add tie-breakers when results need stable order.
-- **Group:** Group turns many records into one row per category. Grouped rows are summaries, not editable source records.
-- **Aggregate:** Aggregations calculate count, unique count, sum, min, max, latest, earliest, median, or average per group.
+### Shape the records
 
-### Display modes
+The visual controls and GQL describe the same server-side query:
 
-- **Table:** Best for dense editing, scanning many columns, and operational work.
-- **Cards:** Best when a few fields, a title, and optional image should be read at a glance.
-- **Calendar:** Best when one date or date-time field places each record on a calendar.
+- **Search** finds a term across searchable displayed values.
+- **Filter** keeps records that match exact rules.
+- **Sort** defines their order.
+- **Computed** adds a calculated result column without changing the table schema.
+- **Group** turns records into one summary row per category.
+- **Aggregate** calculates values such as count, unique count, sum, average, median, earliest, latest, minimum, or maximum.
 
-### Search and exact filters
+Search is useful for exploration. Use a filter when the rule must be reusable and exact, such as Status is Open, Amount is greater than 1,000, or Due date is before today.
 
-- **Search:** Search displayed values while exploring a table or view. It respects the current view, so filtered-out records stay hidden.
-- **Search scope:** Search includes text, long text, numbers, dates, booleans, select labels, and readable relation labels.
-- **Exact filters:** Use filters for exact numeric, date, select, empty, permission-sensitive, formula, lookup, and file-related rules.
+Add a sort whenever order has business meaning. If several records share the same value, Grids adds a stable tie-breaker for pagination; an explicit second sort can still make the order clearer to readers.
 
-:::note When to use GQL
-Use GQL when a report, document source, dashboard widget, or preview needs more precision than the click UI. The GQL section documents the text syntax.
+### Choose how the result is displayed
+
+**Table** is the default for dense comparison and editing. Choose visible columns and their order for the task.
+
+**Cards** are useful when each record should read as one item with a short title, selected fields, and an optional image.
+
+**Calendar** places records by one date or date-time field. Use it for bookings, due dates, shifts, and scheduled work.
+
+A grouped or aggregate-only query returns summary rows rather than editable records. It is suitable for reports, charts, dashboards, documents, and exports.
+
+### Save a useful view
+
+1. Open the source table and use Query, Filter, Sort, or Computed to describe the result.
+2. Check the result with representative and empty data.
+3. Choose the display mode and only the columns people need.
+4. Save the current setup as a view and give it a task-oriented name, such as **Open invoices**.
+5. Share it only with the people who should see its included result.
+
+A shared view is visible by default to readers of its source table. A personal view belongs to its owner. Explicit view access can also expose the saved result without exposing the source table itself.
+
+### Reports and pagination
+
+Use grouping and aggregations for reports. A monthly revenue report, for example, groups invoices by month and sums Total. Put pre-group filters before the grouping; use `having` in GQL when the rule applies to an aggregate result.
+
+Views without an explicit `limit` can be paged through the complete matching result. A `limit` deliberately caps the logical result across pages. Pages are live reads, so records changed between page requests can move; use a stable sort for predictable navigation.
+
+### Reuse or keep local
+
+Save a view when people need it in navigation, permissions, or several dashboards. For a query used by only one dashboard widget, store GQL directly in that widget instead of filling navigation with one-use views.
+
+:::note Open the GQL topic for advanced shapes
+Use GQL for joins, precise grouping, `having`, deleted records, scoped search, or any query that is clearer in text than in several controls.
 :::

@@ -2,20 +2,26 @@
 id: grids-workflows
 title: Workflows
 icon: ti ti-route
-description: Workflow YAML inputs, triggers, steps, runs, permissions, and examples.
+description: Automate repeatable work with typed inputs, safe actions, and observable runs.
 order: 140
 ---
-Workflows run repeatable operations in Grids. The UI stores the workflow name, description, enabled state, permissions, and run history; YAML stores the executable definition: inputs, optional automatic triggers, and steps. Scanner, bulk, and dashboard launchers are saved separately.
+Workflows carry out repeatable operations in Grids. Use one when a person or event should run the same checked sequence of record changes, document generation, email delivery, or JSON HTTP requests.
 
-### How workflows work
+A workflow is more than a hidden automation. It has typed inputs, a reviewed YAML definition, permissions, revisions, and a run history that shows what happened at each step.
 
-A workflow is one saved executable definition. Start it directly from the Grids UI, authenticated API, or CLI, attach a persisted launcher for scanner, bulk, or dashboard use, or declare an automatic schedule or record event in YAML. These paths all create the same kind of run from typed inputs and the active workflow revision.
+### Decide whether to use a workflow
 
-Direct invocation is generic: the caller supplies the workflow inputs, mode, and a stable idempotency key. Launchers add only the surface-specific input binding. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard launcher may bind saved input values.
+Use a normal field or formula when you only need to store or calculate one value. Use a form when you only need guided record creation. Use a workflow when the operation has several steps, must be run consistently, needs a scanner or bulk action, contacts another system, or needs an observable success or failure.
 
-Keep display metadata out of YAML. Write the name and description in the normal fields at the top of the editor. Write only behavior in YAML, and manage saved launchers separately, so the compiled plan and each launch surface can be validated independently.
+A small workflow is preferable to a large one with unrelated branches. Give it one outcome-oriented name, such as **Return item** or **Send approved invoice**.
 
-**Directly invokable YAML**
+### Create and test a first workflow
+
+The normal Name and Description fields explain the workflow to users. YAML defines only executable behavior: inputs, optional automatic triggers, and steps.
+
+This workflow asks for one Items record and changes its status:
+
+**Update one record**
 
 ```yaml
 inputs:
@@ -29,12 +35,34 @@ steps:
         Status: Checked
 ```
 
-### Run lifecycle
+1. Open **Workflows** in Edit mode and create a workflow.
+2. Enter the name and description outside YAML.
+3. Add the smallest input and step definition that produces the intended result.
+4. Save until the YAML and Grids references validate.
+5. Run a **dryRun** with a representative input and inspect every predicted effect.
+6. Run **execute**, then inspect the completed run and changed record.
+7. Add an automatic trigger or saved launcher only after direct execution is correct.
+
+### How runs start
+
+A workflow can start in three ways:
+
+- **Direct invocation:** The Grids UI, authenticated API, or CLI supplies its inputs.
+- **Saved launcher:** A scanner, bulk action, or dashboard button supplies a surface-specific input.
+- **Automatic trigger:** A schedule or record event declared in YAML supplies trigger values.
+
+All three create the same kind of run from typed inputs and the active workflow revision. A workflow does not need a YAML trigger.
+
+Scanner, bulk, and dashboard launchers are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard launcher may keep fixed input values.
+
+### Understand a run
 
 - **Inputs:** Typed values supplied by a direct caller, launcher, or automatic trigger. Record inputs resolve before steps execute.
 - **Start:** Invoke directly, use a persisted launcher, or declare an automatic trigger. A workflow does not need a YAML trigger.
 - **Steps:** Actions and control flow executed in order. Failed steps stop the run and write diagnostics to the run history.
 - **Observe:** Each run keeps its revision, mode, channel, inputs, status, timing, step outcomes, result or error, and generated documents.
+
+An idempotency key identifies one logical invocation. Retrying with the same key reuses it; reusing the key for different input is rejected. This prevents an uncertain client retry from quietly creating a second logical run.
 
 ### Inputs reference
 
@@ -139,7 +167,7 @@ Direct callers can provide every declared input. Launchers provide their configu
 
 ### Launcher reference
 
-- **Scanner:** Binds one record input. Resolve scanned text by a generated scan code or by a configured field that enforces unique values.
+- **Scanner:** Binds one record input. Resolve scanned text by a generated scan code or by a configured field that enforces unique values. The scanner surface shows the camera and a running log of accepted, failed, and completed scans.
 - **Bulk:** Binds one recordList input from explicit record IDs or a row-shaped table query, with at most 10,000 records per run.
 - **Dashboard:** Exposes the workflow as a dashboard action and may persist input bindings such as a fixed reporting range.
 - **Launcher lifecycle:** Each launcher has its own name, enabled state, validated workflow revision, and diagnostics. Review launcher diagnostics when workflow inputs change.
@@ -331,7 +359,7 @@ Saved outputs expose structured paths. Documents provide `id`, `shortId`, `templ
 
 ### Email templates
 
-Email templates are managed from the workflow page in edit mode. They are base-level Liquid templates with a subject and an HTML body. A workflow step chooses one template and passes only the data that email needs.
+Email templates are managed from the workflow page in Edit mode. They are base-level Liquid templates with a subject, HTML, CSS, sample data, and preview. A workflow step chooses one template and passes only the `data` that email needs.
 
 - **Template lookup:** `sendEmail.template` accepts an enabled email template name, short id, or uuid. Ambiguous names are rejected.
 - **Recipients:** Use `email` for an email address value or `user` for a Cloud user id. Each entry must pick one recipient type.

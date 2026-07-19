@@ -2,28 +2,47 @@
 id: grids-overview
 title: Overview
 icon: ti ti-layout-grid
-description: What Grids is for and the first useful build path.
+description: Understand what Grids does and where to begin.
 order: 100
 ---
-Grids is a database app for structured office work. A base contains tables, tables contain records, and fields describe the facts each record stores. Views, forms, dashboards, exports, search, aggregations, document templates, and workflows all read from that saved table data.
+Grids helps a team keep structured information and the work around it in one place. You can track inventory, invoices, projects, requests, customers, contracts, or another process where every item follows a consistent shape.
 
-### What Grids is for
+You do not need database experience to start. Think of a **base** as the workspace for one subject. Inside it, a **table** lists one kind of item, a **record** is one item in that list, and a **field** stores one fact about the item.
 
-- **Structured records:** Use tables when the data has fields, lifecycle, permissions, forms, views, dashboards, documents, or relations.
-- **Operational views:** Use views when people revisit the same subset, order, grouping, aggregation, card board, or calendar.
-- **Guided input:** Use forms when users should create records through a focused flow instead of opening the whole table.
-- **Reports and dashboards:** Use dashboards for stats, charts, embedded views, Markdown, links, and workflow buttons.
-- **Documents:** Use document templates to render PDFs from records with GQL data sources and Liquid HTML.
-- **Workflows:** Use workflows for repeatable operations invoked directly, exposed through saved launchers, or started automatically by schedules and record events.
+For example, an inventory base might contain separate tables for Items, Locations, Loans, and People. One Items record could contain a name, asset number, status, location, and relation to the current loan.
 
-### First useful path
+### What you can build
 
-1. **Model the main table:** Add the smallest set of fields that users need today. Make the table useful before adding dashboards.
-2. **Enter real sample records:** Real records reveal bad field names, missing required rules, and select options that are too vague.
-3. **Add saved views:** Create views for repeated work: open work, recent records, grouped reports, cards, and calendars.
-4. **Add forms and dashboards:** Use forms for data entry and dashboards for team-facing summaries or operating pages.
-5. **Add documents and workflows last:** Create PDF templates and workflow actions once the table, view, and permission rules are clear enough to trust.
+Once the records are useful, the same saved data can support different jobs:
 
-:::note Source of truth
-Tables store data. Views shape queries. Forms create records. Dashboards present included data. Document templates generate PDFs from selected records. Workflows define inputs and steps; automatic triggers and saved launchers decide how runs start.
+- **Views** show the records people need for a task, such as available items or overdue loans.
+- **Forms** give people a focused way to add records without opening the full table.
+- **Dashboards** combine numbers, charts, record lists, forms, instructions, links, and workflow actions.
+- **Documents** turn records into PDFs such as invoices, labels, agreements, and reports.
+- **Workflows** carry out repeatable steps manually, from a scanner or selection, on a schedule, or after a record changes.
+- **Combined tables** publish one governed, read-only dataset from tables in several bases.
+
+These features do not create separate copies of the business data. Tables remain the source of truth.
+
+### Start with one useful process
+
+Choose a small process that already has clear items, such as equipment loans or incoming requests. Then:
+
+1. Create one table for the main kind of item.
+2. Add only the fields needed to recognize and work with each record.
+3. Enter a few real records and correct unclear names or field types.
+4. Create a view for one repeated task.
+5. Add a form, dashboard, document, or workflow only when it removes a real manual step.
+
+This order keeps mistakes inexpensive. A clear table and a few representative records make every later choice easier.
+
+### Where to continue
+
+- Read **Core model** if bases, tables, records, and relations are new to you.
+- Follow **Build a base** for a practical first build.
+- Use **Tables & fields** when choosing how a value should be stored.
+- Open the topic for a feature when you are ready to add it.
+
+:::note Edit mode
+Normal mode is for using a base. Turn on **Edit mode** when you need to change its structure, resources, or settings. What you can see and change still depends on your access.
 :::
