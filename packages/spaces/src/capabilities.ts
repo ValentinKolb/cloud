@@ -1,5 +1,6 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
 import { getSearchUser } from "@/actor";
+import { buildSpaceItemHref } from "./routes";
 import type { ItemAcrossKind } from "./service";
 import { spacesService } from "./service";
 
@@ -76,7 +77,7 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
     return {
       id: `space-item:${item.id}`,
       title: item.title,
-      href: `/app/spaces/${space.id}?item=${item.id}`,
+      href: buildSpaceItemHref(space.id, item.id),
       preview: item.description ?? undefined,
       icon: event ? "ti ti-calendar-event" : "ti ti-checkbox",
       priority: 8 as const,

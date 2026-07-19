@@ -3,6 +3,7 @@ import { type AuthContext, auth, getDateConfig } from "@valentinkolb/cloud/serve
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { getUserBackedActor } from "@/actor";
+import { buildSpaceItemHref } from "../routes";
 import { spacesService } from "../service";
 
 /**
@@ -89,7 +90,7 @@ const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/today", asy
         label: e.title,
         sub: e.spaceName,
         meta: formatTimeRange(e.startsAt, e.endsAt, dateConfig),
-        href: `/app/spaces/${e.spaceId}/${e.id}`,
+        href: buildSpaceItemHref(e.spaceId, e.id),
       }),
     ),
     ...snap.todos.map((t): WidgetListItem => {
@@ -100,7 +101,7 @@ const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/today", asy
         label: t.title,
         sub: t.spaceName,
         meta: formatRelativeDeadline(t.deadline),
-        href: `/app/spaces/${t.spaceId}/${t.id}`,
+        href: buildSpaceItemHref(t.spaceId, t.id),
       };
     }),
   ];
