@@ -1,5 +1,6 @@
+import type { DashboardWidgetSpan, DashboardWidgetZone } from "@valentinkolb/cloud/contracts";
 import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
-import { CheckboxCard, IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
@@ -9,8 +10,10 @@ import {
   type DashboardLegalLink,
   type DashboardSettings,
   type DashboardShortcut,
+  type DashboardWidgetLayoutOverride,
   type DashboardWidgetSummary,
   normalizeDashboardShortcutHref,
+  resolveDashboardWidgetLayout,
 } from "../shared";
 
 type Props = {
@@ -236,6 +239,10 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
   const [hidden, setHidden] = createSignal<string[]>([...props.settings.hiddenWidgets]);
   const [gradient, setGradient] = createSignal<string>(props.settings.gradient);
   const [shortcuts, setShortcuts] = createSignal<DashboardShortcut[]>([...props.settings.shortcuts]);
+  const initialLayout = resolveDashboardWidgetLayout(props.available, props.settings.layout);
+  const [widgetOrder, setWidgetOrder] = createSignal(initialLayout.map(({ widget }) => widget.key));
+  const [layoutOverrides, setLayoutOverrides] = createSignal<DashboardWidgetLayoutOverride[]>([...props.settings.layout.widgets]);
+  const [layoutTouched, setLayoutTouched] = createSignal(false);
 
   const toggleWidget = (key: string) => {
     const current = hidden();
@@ -243,6 +250,42 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
   };
 
   const removeShortcut = (id: string) => setShortcuts(shortcuts().filter((shortcut) => shortcut.id !== id));
+  const resolvedWidgets = createMemo(() =>
+    resolveDashboardWidgetLayout(props.available, {
+      widgets: layoutOverrides(),
+      order: widgetOrder(),
+    }),
+  );
+  const resolvedByKey = createMemo(() => new Map(resolvedWidgets().map((item) => [item.widget.key, item])));
+  const orderedWidgets = createMemo(() => resolvedWidgets().map(({ widget }) => widget));
+
+  const updateWidgetLayout = (key: string, change: { zone?: DashboardWidgetZone; span?: DashboardWidgetSpan }) => {
+    const resolved = resolvedByKey().get(key);
+    const current = layoutOverrides().find((entry) => entry.key === key);
+    const zone = change.zone ?? current?.zone ?? resolved?.zone ?? "overview";
+    const next: DashboardWidgetLayoutOverride = {
+      key,
+      zone,
+      span: zone === "context" ? "standard" : (change.span ?? current?.span ?? resolved?.span ?? "standard"),
+    };
+    setLayoutOverrides([...layoutOverrides().filter((entry) => entry.key !== key), next]);
+    setLayoutTouched(true);
+  };
+
+  const resetWidgetLayout = (key: string) => {
+    setLayoutOverrides(layoutOverrides().filter((entry) => entry.key !== key));
+    setLayoutTouched(true);
+  };
+
+  const moveWidget = (key: string, offset: -1 | 1) => {
+    const order = [...widgetOrder()];
+    const index = order.indexOf(key);
+    const target = index + offset;
+    if (index < 0 || target < 0 || target >= order.length) return;
+    [order[index], order[target]] = [order[target]!, order[index]!];
+    setWidgetOrder(order);
+    setLayoutTouched(true);
+  };
 
   const save = mutations.create<void, void>({
     mutation: async () => {
@@ -250,6 +293,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
         hiddenWidgets: hidden(),
         gradient: gradient(),
         shortcuts: shortcuts(),
+        layout: layoutTouched() ? { widgets: layoutOverrides(), order: widgetOrder() } : props.settings.layout,
       });
     },
     onSuccess: () => {
@@ -335,21 +379,96 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
       </section>
 
       <Show when={props.available.length > 0}>
-        <section class="flex flex-col gap-2">
-          <span class="text-[11px] uppercase tracking-wider text-dimmed">Widgets</span>
-          <div class="grid gap-2 sm:grid-cols-2">
-            <For each={props.available}>
-              {(widget) => (
-                <CheckboxCard
-                  variant="input"
-                  icon={widget.icon}
-                  label={widget.title}
-                  value={() => !hidden().includes(widget.key)}
-                  onChange={() => toggleWidget(widget.key)}
-                />
-              )}
-            </For>
+        <section class="flex flex-col gap-3">
+          <div>
+            <span class="text-[11px] uppercase tracking-wider text-dimmed">Widgets</span>
+            <p class="mt-1 text-xs text-dimmed">Choose what leads your briefing and how much room each widget gets.</p>
           </div>
+          <ul class="flex flex-col gap-2">
+            <For each={orderedWidgets()}>
+              {(widget, index) => {
+                const resolved = () => resolvedByKey().get(widget.key);
+                const overridden = () => layoutOverrides().some((entry) => entry.key === widget.key);
+                const recommendation = () => {
+                  const parts = [
+                    widget.presentation?.defaultZone === "focus" ? "Focus" : null,
+                    widget.presentation?.defaultZone === "context" ? "Side" : null,
+                    widget.presentation?.defaultSpan === "wide" ? "Wide" : null,
+                  ].filter(Boolean);
+                  return parts.length > 0 ? `App recommends ${parts.join(" · ")}` : null;
+                };
+                return (
+                  <li class="flex flex-col gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3">
+                    <div class="flex min-w-0 items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={!hidden().includes(widget.key)}
+                        onChange={() => toggleWidget(widget.key)}
+                        aria-label={`Show ${widget.title}`}
+                        class="h-4 w-4 shrink-0"
+                      />
+                      <i class={`${widget.icon} shrink-0 text-sm text-dimmed`} />
+                      <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm font-medium text-primary">{widget.title}</span>
+                        <Show when={recommendation()}>{(label) => <span class="block text-[11px] text-dimmed">{label()}</span>}</Show>
+                      </span>
+                      <div class="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          class="btn-ghost btn-sm"
+                          title="Move widget up"
+                          aria-label={`Move ${widget.title} up`}
+                          disabled={index() === 0}
+                          onClick={() => moveWidget(widget.key, -1)}
+                        >
+                          <i class="ti ti-arrow-up" />
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-ghost btn-sm"
+                          title="Move widget down"
+                          aria-label={`Move ${widget.title} down`}
+                          disabled={index() === orderedWidgets().length - 1}
+                          onClick={() => moveWidget(widget.key, 1)}
+                        >
+                          <i class="ti ti-arrow-down" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 pl-7">
+                      <SegmentedControl<DashboardWidgetZone>
+                        value={() => resolved()?.zone ?? "overview"}
+                        onChange={(zone) => updateWidgetLayout(widget.key, { zone })}
+                        ariaLabel={`${widget.title} section`}
+                        options={[
+                          { value: "focus", label: "Focus", icon: "ti ti-focus-2" },
+                          { value: "overview", label: "Overview", icon: "ti ti-layout-grid" },
+                          { value: "context", label: "Side", icon: "ti ti-layout-sidebar-right" },
+                        ]}
+                      />
+                      <Show when={resolved()?.zone !== "context"}>
+                        <SegmentedControl<DashboardWidgetSpan>
+                          value={() => resolved()?.span ?? "standard"}
+                          onChange={(span) => updateWidgetLayout(widget.key, { span })}
+                          ariaLabel={`${widget.title} width`}
+                          options={[
+                            { value: "standard", label: "Standard" },
+                            { value: "wide", label: "Wide" },
+                          ]}
+                        />
+                      </Show>
+                      <Show when={overridden()}>
+                        <button type="button" class="btn-ghost btn-sm" onClick={() => resetWidgetLayout(widget.key)}>
+                          Reset
+                        </button>
+                      </Show>
+                    </div>
+                  </li>
+                );
+              }}
+            </For>
+          </ul>
         </section>
       </Show>
 

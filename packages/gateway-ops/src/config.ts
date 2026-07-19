@@ -43,8 +43,8 @@ export const app = defineApp({
     },
   },
   widgets: [
-    { id: "health", path: "/api/gateway/widget/health" },
-    { id: "errors", path: "/api/logging/widget/errors" },
+    { id: "health", path: "/api/gateway/widget/health", presentation: { defaultZone: "context" } },
+    { id: "errors", path: "/api/logging/widget/errors", presentation: { defaultZone: "context" } },
   ],
   routes: [
     "/metrics",

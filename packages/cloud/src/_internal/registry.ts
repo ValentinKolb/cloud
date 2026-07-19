@@ -1,5 +1,6 @@
 import { ephemeral } from "@valentinkolb/sync";
 import type { AppRegistryEntry } from "../contracts/registry";
+import type { DashboardWidgetPresentation } from "../contracts/widgets";
 
 /**
  * Shared app registry backed by Redis via @valentinkolb/sync ephemeral store.
@@ -80,6 +81,7 @@ export type DashboardWidget = {
   widgetId: string;
   /** Fully-qualified URL — `<baseUrl>/<path>`. */
   url: string;
+  presentation?: DashboardWidgetPresentation;
 };
 
 export const listWidgets = async (): Promise<DashboardWidget[]> => {
@@ -93,6 +95,7 @@ export const listWidgets = async (): Promise<DashboardWidget[]> => {
         appIcon: app.icon,
         widgetId: w.id,
         url: `${app.baseUrl.replace(/\/$/, "")}${w.path.startsWith("/") ? w.path : `/${w.path}`}`,
+        presentation: w.presentation,
       });
     }
   }

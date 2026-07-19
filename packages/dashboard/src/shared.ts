@@ -1,3 +1,5 @@
+import type { DashboardWidgetPresentation, DashboardWidgetSpan, DashboardWidgetZone } from "@valentinkolb/cloud/contracts";
+
 export const DASHBOARD_COOKIE = "dashboard_settings";
 
 export type DashboardShortcut =
@@ -20,12 +22,25 @@ export type DashboardSettings = {
   hiddenWidgets: string[];
   gradient: string;
   shortcuts: DashboardShortcut[];
+  layout: DashboardLayoutSettings;
+};
+
+export type DashboardWidgetLayoutOverride = {
+  key: string;
+  zone: DashboardWidgetZone;
+  span: DashboardWidgetSpan;
+};
+
+export type DashboardLayoutSettings = {
+  widgets: DashboardWidgetLayoutOverride[];
+  order: string[];
 };
 
 export type DashboardWidgetSummary = {
   key: string;
   title: string;
   icon: string;
+  presentation?: DashboardWidgetPresentation;
 };
 
 export type DashboardAppSummary = {
@@ -47,11 +62,13 @@ export const DASHBOARD_MAX_SHORTCUTS = 50;
 export const DASHBOARD_MAX_ID_LENGTH = 120;
 export const DASHBOARD_MAX_TITLE_LENGTH = 80;
 export const DASHBOARD_MAX_HREF_LENGTH = 2_000;
+export const DASHBOARD_MAX_RECOMMENDED_FOCUS_WIDGETS = 2;
 
 export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   hiddenWidgets: [],
   gradient: "default",
   shortcuts: [],
+  layout: { widgets: [], order: [] },
 };
 
 export const normalizeDashboardShortcutHref = (href: string): string => {
@@ -80,6 +97,33 @@ const parseJsonString = (value: unknown): unknown => {
   } catch {
     return value;
   }
+};
+
+const normalizeDashboardLayout = (value: unknown): DashboardLayoutSettings => {
+  const parsed = parseJsonString(value);
+  const raw = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  const widgets = new Map<string, DashboardWidgetLayoutOverride>();
+
+  if (Array.isArray(raw.widgets)) {
+    for (const value of raw.widgets.slice(0, DASHBOARD_MAX_ITEMS)) {
+      if (!value || typeof value !== "object") continue;
+      const entry = value as Record<string, unknown>;
+      const key = typeof entry.key === "string" ? entry.key.trim().slice(0, DASHBOARD_MAX_ID_LENGTH) : "";
+      if (
+        !key ||
+        (entry.zone !== "focus" && entry.zone !== "overview" && entry.zone !== "context") ||
+        (entry.span !== "standard" && entry.span !== "wide")
+      ) {
+        continue;
+      }
+      widgets.set(key, { key, zone: entry.zone, span: entry.zone === "context" ? "standard" : entry.span });
+    }
+  }
+
+  return {
+    widgets: [...widgets.values()],
+    order: uniqueStrings(raw.order),
+  };
 };
 
 const normalizeShortcut = (value: unknown): DashboardShortcut | null => {
@@ -124,5 +168,73 @@ export const normalizeDashboardSettings = (value: unknown): DashboardSettings =>
           .filter((s): s is DashboardShortcut => Boolean(s))
           .slice(0, DASHBOARD_MAX_SHORTCUTS)
       : [],
+    layout: normalizeDashboardLayout(raw.layout),
   };
+};
+
+type DashboardWidgetLayoutCandidate = {
+  key: string;
+  presentation?: DashboardWidgetPresentation;
+};
+
+export type ResolvedDashboardWidget<T extends DashboardWidgetLayoutCandidate> = {
+  widget: T;
+  zone: DashboardWidgetZone;
+  span: DashboardWidgetSpan;
+};
+
+export const groupDashboardWidgetRows = <T extends DashboardWidgetLayoutCandidate>(
+  widgets: readonly ResolvedDashboardWidget<T>[],
+  maxStandardItems: number,
+): ResolvedDashboardWidget<T>[][] => {
+  const rows: ResolvedDashboardWidget<T>[][] = [];
+
+  for (const widget of widgets) {
+    const row = rows.at(-1);
+    if (widget.span === "wide" || !row || row[0]?.span === "wide" || row.length >= maxStandardItems) {
+      rows.push([widget]);
+    } else {
+      row.push(widget);
+    }
+  }
+
+  return rows;
+};
+
+export const resolveDashboardWidgetLayout = <T extends DashboardWidgetLayoutCandidate>(
+  widgets: readonly T[],
+  layout: DashboardLayoutSettings,
+): ResolvedDashboardWidget<T>[] => {
+  const order = new Map(layout.order.map((key, index) => [key, index]));
+  const ordered = widgets
+    .map((widget, index) => ({ widget, index }))
+    .sort((a, b) => {
+      const aOrder = order.get(a.widget.key);
+      const bOrder = order.get(b.widget.key);
+      if (aOrder === undefined && bOrder === undefined) return a.index - b.index;
+      if (aOrder === undefined) return 1;
+      if (bOrder === undefined) return -1;
+      return aOrder - bOrder;
+    })
+    .map(({ widget }) => widget);
+
+  const overrides = new Map(layout.widgets.map((entry) => [entry.key, entry]));
+  const explicitFocusCount = ordered.filter((widget) => overrides.get(widget.key)?.zone === "focus").length;
+  const recommendedFocusLimit = Math.max(0, DASHBOARD_MAX_RECOMMENDED_FOCUS_WIDGETS - explicitFocusCount);
+  let recommendedFocusCount = 0;
+
+  return ordered.map((widget) => {
+    const override = overrides.get(widget.key);
+    const useRecommendedFocus = !override && widget.presentation?.defaultZone === "focus" && recommendedFocusCount < recommendedFocusLimit;
+    if (useRecommendedFocus) recommendedFocusCount += 1;
+
+    const recommendedZone = widget.presentation?.defaultZone;
+    const zone =
+      override?.zone ?? (recommendedZone === "focus" ? (useRecommendedFocus ? "focus" : "overview") : (recommendedZone ?? "overview"));
+    return {
+      widget,
+      zone,
+      span: zone === "context" ? "standard" : (override?.span ?? widget.presentation?.defaultSpan ?? "standard"),
+    };
+  });
 };

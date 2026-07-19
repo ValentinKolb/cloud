@@ -24,7 +24,7 @@ export const app = defineApp({
     section: "more",
     requiresAuth: true,
   },
-  widgets: [{ id: "current", path: "/api/weather/widget/current" }],
+  widgets: [{ id: "current", path: "/api/weather/widget/current", presentation: { defaultZone: "context" } }],
   openapi: "/api/weather/openapi.json",
   routes: ["/api/weather", "/app/weather", "/admin/weather", "/public/weather"],
   settings: {

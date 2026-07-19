@@ -18,6 +18,7 @@ import type {
   AppMeta,
   AppSearchContext,
   CloudContext,
+  WidgetEndpoint,
 } from "../contracts/app";
 import { type BoundNotificationMap, bindNotificationDefinitions, type NotificationDefinitionMap } from "../contracts/notification-types";
 import type { AppRegistryEntry } from "../contracts/registry";
@@ -106,7 +107,7 @@ export type AppOptions<S extends AppSettingsMap = {}, N extends NotificationDefi
    * fetches them with the user's cookie forwarded; the endpoint is
    * responsible for permission gating (200 = render, 204 = skip silently).
    */
-  widgets?: ReadonlyArray<{ id: string; path: string }>;
+  widgets?: ReadonlyArray<WidgetEndpoint>;
   /**
    * Top-level URL prefixes the gateway should route to this app.
    *

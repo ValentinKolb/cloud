@@ -4,3 +4,89 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 @source "../**/*.{ts,tsx}";
 @custom-variant dark (&:where(.dark, .dark *));
+
+.dashboard-page {
+  display: flex;
+  width: 100%;
+  max-width: 112rem;
+  margin: 0 auto;
+  padding: 1rem;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.dashboard-intro,
+.dashboard-primary-column,
+.dashboard-widget-zone,
+.dashboard-context-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.dashboard-intro {
+  gap: 1.25rem;
+}
+
+.dashboard-briefing-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.dashboard-primary-column,
+.dashboard-widget-zone,
+.dashboard-context-column {
+  gap: 1rem;
+}
+
+.dashboard-widget-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 1rem;
+}
+
+.dashboard-focus-zone .widget-icon {
+  display: none;
+}
+
+.dashboard-focus-zone .widget-header {
+  padding: 1.25rem 1.25rem 0.75rem;
+}
+
+.dashboard-focus-zone .widget-title {
+  color: var(--color-zinc-900);
+  font-size: 1.25rem;
+  letter-spacing: -0.025em;
+  text-transform: none;
+}
+
+.dark .dashboard-focus-zone .widget-title {
+  color: var(--color-zinc-100);
+}
+
+.dashboard-focus-zone .widget-body {
+  margin: 0 1rem 1rem;
+  overflow: hidden;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-surface-subtle);
+}
+
+@media (min-width: 40rem) {
+  .dashboard-page {
+    padding: 1.5rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .dashboard-page {
+    padding: 2rem;
+  }
+
+  .dashboard-briefing-grid.has-context {
+    grid-template-columns: minmax(0, 1.55fr) minmax(17rem, 0.85fr);
+  }
+}

@@ -9,8 +9,14 @@ export const migrate = async (): Promise<void> => {
       gradient TEXT NOT NULL DEFAULT 'default',
       hidden_widgets TEXT[] NOT NULL DEFAULT '{}'::text[],
       shortcuts JSONB NOT NULL DEFAULT '[]'::jsonb,
+      widget_layout JSONB NOT NULL DEFAULT '{"widgets":[],"order":[]}'::jsonb,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `.simple();
+
+  await sql`
+    ALTER TABLE dashboard.user_settings
+    ADD COLUMN IF NOT EXISTS widget_layout JSONB NOT NULL DEFAULT '{"widgets":[],"order":[]}'::jsonb
   `.simple();
 
   await sql`

@@ -12,6 +12,18 @@
 
 export type WidgetTone = "emerald" | "amber" | "red" | "blue" | "zinc";
 
+export type DashboardWidgetZone = "focus" | "overview" | "context";
+export type DashboardWidgetSpan = "standard" | "wide";
+
+/**
+ * Stable, app-owned recommendation for a widget's initial dashboard layout.
+ * Explicit user layout settings always take precedence.
+ */
+export type DashboardWidgetPresentation = {
+  defaultZone?: DashboardWidgetZone;
+  defaultSpan?: DashboardWidgetSpan;
+};
+
 export type WidgetAccent = {
   tone: WidgetTone;
   /** Tabler icon class, e.g. `"ti ti-trending-up"`. */

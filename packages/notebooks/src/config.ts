@@ -23,7 +23,7 @@ export const app = defineApp({
     section: "primary",
     requiresAuth: true,
   },
-  widgets: [{ id: "recent", path: "/api/notebooks/widget/recent" }],
+  widgets: [{ id: "recent", path: "/api/notebooks/widget/recent", presentation: { defaultSpan: "wide" } }],
   openapi: "/api/notebooks/openapi.json",
   routes: ["/api/notebooks", "/app/notebooks", "/admin/notebooks", "/public/notebooks"],
 });

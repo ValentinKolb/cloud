@@ -1873,10 +1873,24 @@ Register widget endpoints in `defineApp()`:
 ```ts
 export const app = defineApp({
   id: "my-app",
-  widgets: [{ id: "overview", path: "/api/my-app/widget/overview" }],
+  widgets: [
+    {
+      id: "overview",
+      path: "/api/my-app/widget/overview",
+      presentation: { defaultZone: "focus", defaultSpan: "wide" },
+    },
+  ],
   // ...
 });
 ```
+
+`presentation` is an optional, stable recommendation for a widget's initial
+placement. Use it only when the widget regularly contains the user's next work
+or highest-priority status. The dashboard limits automatic focus recommendations
+and explicit user placement always wins. `defaultZone: "context"` recommends the
+optional right-hand context column for glanceable supporting information such as
+weather or platform health. Keep this metadata in `defineApp()`; `WidgetResponse`
+stays content-only and remains unchanged.
 
 Return a `WidgetResponse` from the endpoint. The dashboard forwards the user's
 cookie when fetching the endpoint; return `204` when the current user should not

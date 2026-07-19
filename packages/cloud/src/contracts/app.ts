@@ -1,4 +1,5 @@
 import type { Role, User } from "./shared";
+import type { DashboardWidgetPresentation } from "./widgets";
 
 /**
  * One link entry contributed by an app to the global legal/info footer
@@ -82,6 +83,8 @@ export type WidgetEndpoint = {
   id: string;
   /** Absolute path on the app's HTTP service, e.g. "/api/accounts/widget/open-requests". */
   path: string;
+  /** Optional initial layout recommendation. Explicit user choices win. */
+  presentation?: DashboardWidgetPresentation;
 };
 
 export type RuntimeAppMeta = AppMeta & {

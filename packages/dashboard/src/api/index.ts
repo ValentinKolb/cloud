@@ -42,6 +42,21 @@ const SettingsSchema = z.object({
   hiddenWidgets: z.array(z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH)).max(DASHBOARD_MAX_ITEMS).default([]),
   gradient: z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH).default("default"),
   shortcuts: z.array(ShortcutSchema).max(DASHBOARD_MAX_SHORTCUTS).default([]),
+  layout: z
+    .object({
+      widgets: z
+        .array(
+          z.object({
+            key: z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH),
+            zone: z.enum(["focus", "overview", "context"]),
+            span: z.enum(["standard", "wide"]),
+          }),
+        )
+        .max(DASHBOARD_MAX_ITEMS)
+        .default([]),
+      order: z.array(z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH)).max(DASHBOARD_MAX_ITEMS).default([]),
+    })
+    .default({ widgets: [], order: [] }),
 });
 
 const requireUserBackedActor = (c: Context<AuthContext>): Result<NonNullable<ReturnType<typeof getUserBackedActor>>> => {

@@ -478,14 +478,6 @@
   box-shadow: none;
 }
 
-.widget-header {
-  background: var(--ui-surface-subtle);
-}
-
-.widget-header:hover {
-  background: var(--ui-hover);
-}
-
 .widget-icon {
   background: var(--ui-surface-muted) !important;
   color: var(--color-zinc-600) !important;

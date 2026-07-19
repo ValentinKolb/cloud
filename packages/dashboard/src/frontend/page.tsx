@@ -16,7 +16,9 @@ import {
   type DashboardAppSummary,
   type DashboardSettings,
   type DashboardWidgetSummary,
+  groupDashboardWidgetRows,
   normalizeDashboardSettings,
+  resolveDashboardWidgetLayout,
 } from "../shared";
 import DashboardLayoutHelp from "./_components/help/DashboardLayoutHelp.island";
 import DashboardEditButton from "./DashboardEditButton.island";
@@ -164,6 +166,20 @@ const readLegacyDashboardSettings = (cookieHeader: string): DashboardSettings | 
 
 const widgetKey = (w: DashboardWidget): string => `${w.appId}/${w.widgetId}`;
 
+type RenderedWidgetResult = Extract<WidgetFetchResult, { status: 200 }> | Extract<WidgetFetchResult, { status: "error" }>;
+
+const DashboardWidgetCard = (props: { entry: RenderedWidgetResult }) => (
+  <Widget
+    title={props.entry.data.title}
+    icon={props.entry.data.icon ?? props.entry.source.appIcon}
+    href={props.entry.data.href}
+    meta={props.entry.data.meta}
+    size="content"
+  >
+    {props.entry.data.blocks.map((block) => renderBlock(block))}
+  </Widget>
+);
+
 const appIsAvailable = (app: AppRegistryEntry, user: User) => {
   const nav = app.nav;
   if (!nav || nav.section === "hidden") return false;
@@ -214,6 +230,7 @@ export default ssr<AuthContext>(async (c) => {
       key: widgetKey(w),
       title: w.appName,
       icon: w.appIcon,
+      presentation: w.presentation,
     }));
 
   // Pull visible widget endpoints, fetch in parallel, classify by status.
@@ -231,6 +248,7 @@ export default ssr<AuthContext>(async (c) => {
       key: widgetKey(r.source),
       title: r.data.title,
       icon: r.data.icon ?? r.source.appIcon,
+      presentation: r.source.presentation,
     })),
     ...hiddenSummaries,
   ];
@@ -238,57 +256,96 @@ export default ssr<AuthContext>(async (c) => {
     key: widgetKey(r.source),
     title: r.source.appName,
     icon: r.source.appIcon,
+    presentation: r.source.presentation,
   }));
+  const resolvedLayout = resolveDashboardWidgetLayout(
+    rendered.map((entry) => ({
+      key: widgetKey(entry.source),
+      presentation: entry.source.presentation,
+      entry,
+    })),
+    settings.layout,
+  );
+  const focusWidgets = resolvedLayout.filter((item) => item.zone === "focus");
+  const overviewWidgets = resolvedLayout.filter((item) => item.zone === "overview");
+  const contextWidgets = resolvedLayout.filter((item) => item.zone === "context");
+  const focusRows = groupDashboardWidgetRows(focusWidgets, 2);
+  const overviewRows = groupDashboardWidgetRows(overviewWidgets, 3);
 
   return () => (
     <Layout c={c} title="Dashboard">
       <DashboardLayoutHelp documents={dashboardHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
-        <div class="mx-auto flex w-full max-w-[68rem] flex-col gap-6 p-4 sm:p-6 lg:p-8">
-          <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between" style="view-transition-name: page-title">
-            <div class="min-w-0">
-              <p class="mb-1 text-xs font-medium text-dimmed">Your workspace</p>
-              <h1 class="text-2xl font-semibold text-primary sm:text-3xl">
-                Hi,{" "}
-                <span class={gradient.style ? "" : "app-accent-text"} style={gradient.style}>
-                  {greeting}
-                </span>
-              </h1>
-              <p class="mt-1 text-sm text-dimmed">A quick view across the apps and work that matter to you.</p>
-            </div>
-            <DashboardEditButton
+        <div class="dashboard-page">
+          <div class="dashboard-intro">
+            <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between" style="view-transition-name: page-title">
+              <div class="min-w-0">
+                <p class="mb-1 text-xs font-medium text-dimmed">Your workspace</p>
+                <h1 class="text-2xl font-semibold text-primary sm:text-3xl">
+                  Hi,{" "}
+                  <span class={gradient.style ? "" : "app-accent-text"} style={gradient.style}>
+                    {greeting}
+                  </span>
+                </h1>
+                <p class="mt-1 text-sm text-dimmed">A quick view across the apps and work that matter to you.</p>
+              </div>
+              <DashboardEditButton
+                apps={availableApps}
+                legalLinks={legalLinks}
+                settings={settings}
+                available={availableSummaries}
+                inaccessible={inaccessibleSummaries}
+              />
+            </header>
+
+            <DashboardControls
               apps={availableApps}
               legalLinks={legalLinks}
               settings={settings}
               available={availableSummaries}
               inaccessible={inaccessibleSummaries}
             />
-          </header>
-
-          <DashboardControls
-            apps={availableApps}
-            legalLinks={legalLinks}
-            settings={settings}
-            available={availableSummaries}
-            inaccessible={inaccessibleSummaries}
-          />
+          </div>
 
           {rendered.length === 0 ? (
             <Placeholder surface="paper" variant="panel">
               No widgets to show. Use <em>Edit dashboard</em> to enable any you have access to.
             </Placeholder>
           ) : (
-            <div class="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {rendered.map((entry) => (
-                <Widget
-                  title={entry.data.title}
-                  icon={entry.data.icon ?? entry.source.appIcon}
-                  href={entry.data.href}
-                  meta={entry.data.meta}
-                >
-                  {entry.data.blocks.map((block) => renderBlock(block))}
-                </Widget>
-              ))}
+            <div class={`dashboard-briefing-grid ${contextWidgets.length > 0 ? "has-context" : ""}`}>
+              <div class="dashboard-primary-column">
+                {focusWidgets.length > 0 ? (
+                  <section aria-label="Focus widgets" class="dashboard-widget-zone dashboard-focus-zone">
+                    {focusRows.map((row) => (
+                      <div class="dashboard-widget-row">
+                        {row.map((item) => (
+                          <DashboardWidgetCard entry={item.widget.entry} />
+                        ))}
+                      </div>
+                    ))}
+                  </section>
+                ) : null}
+
+                {overviewWidgets.length > 0 ? (
+                  <section aria-label="Overview widgets" class="dashboard-widget-zone">
+                    {overviewRows.map((row) => (
+                      <div class="dashboard-widget-row">
+                        {row.map((item) => (
+                          <DashboardWidgetCard entry={item.widget.entry} />
+                        ))}
+                      </div>
+                    ))}
+                  </section>
+                ) : null}
+              </div>
+
+              {contextWidgets.length > 0 ? (
+                <aside aria-label="Context widgets" class="dashboard-context-column">
+                  {contextWidgets.map((item) => (
+                    <DashboardWidgetCard entry={item.widget.entry} />
+                  ))}
+                </aside>
+              ) : null}
             </div>
           )}
         </div>

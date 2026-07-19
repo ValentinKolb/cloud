@@ -12,7 +12,7 @@ import { spacesService } from "../service";
  *
  *   - 0 todos AND 0 events  → 204 silent skip
  *   - has events            → list block "Today" first
- *   - has open todos        → stat block + list block (top deadlines)
+ *   - has open todos        → compact list of the next deadlines
  *
  * Priority maps to coloured icon for at-a-glance triage.
  */
@@ -57,7 +57,7 @@ const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/today", asy
   const dateConfig = getDateConfig(c);
   const snap = await spacesService.item.dashboardSnapshot({
     userId: user.id,
-    todoLimit: 5,
+    todoLimit: 3,
     dateConfig,
   });
 
@@ -79,19 +79,7 @@ const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/today", asy
     return c.json(body);
   }
 
-  const blocks: WidgetBlock[] = [];
-
-  // Stat first: open todos at a glance.
-  blocks.push({
-    kind: "stat",
-    value: snap.openTodoCount,
-    label: snap.openTodoCount === 1 ? "Open todo" : "Open todos",
-    sub: snap.urgentCount > 0 ? `${snap.urgentCount} urgent` : "all caught up on urgent",
-    valueClass: snap.urgentCount > 0 ? "text-amber-600 dark:text-amber-400" : undefined,
-    accent: snap.urgentCount > 0 ? { tone: "red", icon: "ti ti-flame" } : undefined,
-  });
-
-  // Combine events and todos into a single growing list to fit fixed height.
+  // Combine events and todos into a concise briefing list.
   // Events first (they have a clock + time meta), then deadlines.
   const items: WidgetListItem[] = [
     ...snap.events.map(
@@ -116,12 +104,19 @@ const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/today", asy
       };
     }),
   ];
-  blocks.push({ kind: "list", items, grow: true });
+  const blocks: WidgetBlock[] = [{ kind: "list", items: items.slice(0, 3) }];
 
   const body: WidgetResponse = {
-    title: snap.events.length > 0 ? "Today" : "Open todos",
+    title: "Today",
     icon: "ti ti-checklist",
     href: "/app/spaces",
+    meta: [
+      snap.events.length > 0 ? `${snap.events.length} today` : null,
+      snap.openTodoCount > 0 ? `${snap.openTodoCount} open` : null,
+      snap.urgentCount > 0 ? `${snap.urgentCount} urgent` : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
     blocks,
   };
   return c.json(body);

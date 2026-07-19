@@ -1,4 +1,5 @@
 import type { AppAdminNavigationGroup, AppAppearance } from "./app";
+import type { DashboardWidgetPresentation } from "./widgets";
 
 /**
  * App-registry entry type. Populated internally by `defineApp()` + the
@@ -32,6 +33,7 @@ export type AppRegistryWidget = {
   id: string;
   /** Absolute path on the app's HTTP service, e.g. "/api/quotes/widget/random". */
   path: string;
+  presentation?: DashboardWidgetPresentation;
 };
 
 export type AppRegistryEntry = {

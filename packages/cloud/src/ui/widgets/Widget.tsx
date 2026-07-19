@@ -1,9 +1,9 @@
 import type { JSX } from "solid-js";
 
 /**
- * Widget container — frames a stack of `Widget*` blocks with a title-bar
- * header. Blocks separate through their own spacing and surface treatment;
- * each block brings its own padding.
+ * Widget container — frames a stack of `Widget*` blocks with a compact,
+ * surface-level header. Blocks separate through their own spacing and surface
+ * treatment; each block brings its own padding.
  *
  * Designed so Stat / List / Status / Pills blocks can be freely combined
  * vertically — every dashboard widget is a custom composition of those.
@@ -22,15 +22,13 @@ type WidgetProps = {
   href?: string;
   /** Tiny meta string in the header (e.g. "last 24h"). */
   meta?: string;
+  /** Content-sized cards support briefing layouts; the default stays unchanged. */
+  size?: "content" | "compact" | "standard";
   children: JSX.Element;
 };
 
 const Widget = (props: WidgetProps): JSX.Element => {
-  // Header reads as a tinted band (colour, not a divider line) so it separates
-  // from the white body without a hairline. The link variant darkens on hover.
-  const headerClass = `widget-header flex items-center gap-2 px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/40 ${
-    props.href ? "hover:bg-zinc-100 dark:hover:bg-zinc-800/70 transition-colors" : ""
-  }`;
+  const headerClass = `widget-header group flex items-center gap-3 px-4 pt-4 pb-2 ${props.href ? "cursor-pointer" : ""}`;
   const headerInner = (
     <>
       {props.icon ? (
@@ -38,19 +36,19 @@ const Widget = (props: WidgetProps): JSX.Element => {
           <i class={`${props.icon} text-sm`} />
         </span>
       ) : null}
-      <span class="text-xs font-semibold uppercase tracking-wider text-secondary truncate">{props.title}</span>
-      {/* Right cluster: meta sits next to the chevron (both ml-auto'd
-          independently used to center the meta between title and chevron). */}
-      {props.meta || props.href ? (
-        <div class="ml-auto flex items-center gap-2 shrink-0">
-          {props.meta ? <span class="text-[10px] text-dimmed">{props.meta}</span> : null}
-          {props.href ? <i class="ti ti-chevron-right text-dimmed text-xs" /> : null}
-        </div>
-      ) : null}
+      <span class="min-w-0 flex-1">
+        <span class="widget-title block truncate text-xs font-semibold uppercase tracking-wider text-secondary group-hover:text-primary">
+          {props.title}
+        </span>
+        {props.meta ? <span class="widget-meta block truncate text-[10px] text-dimmed">{props.meta}</span> : null}
+      </span>
+      {props.href ? <i class="ti ti-chevron-right shrink-0 text-xs text-dimmed group-hover:text-secondary" /> : null}
     </>
   );
+  const sizeClass = props.size === "content" ? "" : props.size === "compact" ? "h-[12rem]" : "h-[25rem]";
+
   return (
-    <div class="widget-surface paper overflow-hidden flex flex-col h-[25rem]">
+    <div class={`widget-surface paper overflow-hidden flex flex-col ${sizeClass}`}>
       {props.href ? (
         <a href={props.href} class={headerClass}>
           {headerInner}
