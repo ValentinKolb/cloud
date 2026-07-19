@@ -240,7 +240,17 @@ export default ssr<AuthContext>(async (c) => {
   const inaccessible = results.filter((r): r is Extract<typeof r, { status: 403 }> => r?.status === 403);
   const failed = results.filter((r): r is Extract<typeof r, { status: "error" }> => r?.status === "error");
 
-  const rendered = [...visible, ...failed].filter((r) => !hiddenSet.has(widgetKey(r.source)));
+  const appHrefById = new Map(availableApps.map((app) => [app.id, app.href]));
+  const rendered = [
+    ...visible,
+    ...failed.map((result) => ({
+      ...result,
+      data: {
+        ...result.data,
+        href: result.data.href ?? appHrefById.get(result.source.appId),
+      },
+    })),
+  ].filter((r) => !hiddenSet.has(widgetKey(r.source)));
 
   // Summaries for the EditDashboard island — title/icon match what the user sees.
   const availableSummaries: DashboardWidgetSummary[] = [

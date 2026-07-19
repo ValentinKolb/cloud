@@ -247,8 +247,9 @@ export default function ProfileActions(props: Props) {
                             <button
                               type="button"
                               onClick={() => setKeys(keys().filter((_, idx) => idx !== i()))}
-                              class="text-red-500 hover:text-red-700 dark:hover:text-red-400 shrink-0"
+                              class="btn-ghost btn-sm shrink-0 text-red-500 hover:text-red-700 dark:hover:text-red-400"
                               title="Remove key"
+                              aria-label={`Remove ${info.comment || info.type} SSH key`}
                             >
                               <i class="ti ti-trash text-sm" />
                             </button>
@@ -376,7 +377,12 @@ export default function ProfileActions(props: Props) {
       <div class="flex flex-wrap items-center gap-2">
         <For each={actions}>
           {(action) => (
-            <button type="button" class="btn-secondary btn-sm" onClick={action.action}>
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              disabled={action.id === "extend" && extendMutation.loading()}
+              onClick={action.action}
+            >
               <i class={action.icon} />
               {action.label}
             </button>

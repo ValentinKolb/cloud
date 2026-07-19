@@ -59,7 +59,7 @@ export default function AccountHub(props: { user: User; active: AccountSection; 
           {props.actions && <div class="flex shrink-0 flex-wrap items-center gap-2">{props.actions}</div>}
         </div>
 
-        <nav class="mt-5 flex max-w-full gap-1 overflow-x-auto pb-1" aria-label="Account sections">
+        <nav class="mt-5 flex max-w-full flex-wrap gap-1" aria-label="Account sections">
           {sections.map((section) => {
             const active = section.id === props.active;
             return (
@@ -123,7 +123,7 @@ export function AccountProfileActions(props: {
 export function AccountSubnav(props: { active: string; items: { id: string; href: string; label: string; icon: string }[] }) {
   return (
     <nav
-      class="flex max-w-full gap-1 overflow-x-auto rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1"
+      class="flex max-w-full flex-wrap gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1"
       aria-label="Section views"
     >
       {props.items.map((item) => {

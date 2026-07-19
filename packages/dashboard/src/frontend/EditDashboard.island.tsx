@@ -12,6 +12,9 @@ import {
   type DashboardShortcut,
   type DashboardWidgetLayoutOverride,
   type DashboardWidgetSummary,
+  DASHBOARD_MAX_HREF_LENGTH,
+  DASHBOARD_MAX_TITLE_LENGTH,
+  isSafeDashboardShortcutHref,
   normalizeDashboardShortcutHref,
   resolveDashboardWidgetLayout,
 } from "../shared";
@@ -160,7 +163,15 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
   const [title, setTitle] = createSignal("");
   const [href, setHref] = createSignal("");
   const [icon, setIcon] = createSignal("ti ti-link");
-  const canSubmit = () => (kind() === "app" ? Boolean(appId()) : title().trim().length > 0 && href().trim().length > 0);
+  const normalizedHref = () => normalizeDashboardShortcutHref(href());
+  const hrefError = () => {
+    if (!href().trim() || isSafeDashboardShortcutHref(normalizedHref())) return undefined;
+    return "Use an HTTPS URL, an internal path beginning with /, or a mailto link.";
+  };
+  const canSubmit = () =>
+    kind() === "app"
+      ? Boolean(appId())
+      : title().trim().length > 0 && href().trim().length > 0 && hrefError() === undefined;
 
   const save = mutations.create<void, void>({
     mutation: async () => {
@@ -171,7 +182,7 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
               id: crypto.randomUUID(),
               kind: "link",
               title: title().trim(),
-              href: normalizeDashboardShortcutHref(href()),
+              href: normalizedHref(),
               icon: icon() || "ti ti-link",
             };
       await saveSettings({ ...settings, shortcuts: [...settings.shortcuts, shortcut] });
@@ -204,8 +215,28 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
         when={kind() === "app"}
         fallback={
           <div class="grid gap-4 sm:grid-cols-2">
-            <TextInput label="Title" value={title} onInput={setTitle} icon="ti ti-text-caption" required placeholder="Docs" />
-            <TextInput label="URL" value={href} onInput={setHref} icon="ti ti-link" required placeholder="example.com" />
+            <TextInput
+              label="Title"
+              value={title}
+              onInput={setTitle}
+              icon="ti ti-text-caption"
+              required
+              maxLength={DASHBOARD_MAX_TITLE_LENGTH}
+              placeholder="Docs"
+            />
+            <TextInput
+              label="URL"
+              value={href}
+              onInput={setHref}
+              error={hrefError}
+              icon="ti ti-link"
+              inputMode="url"
+              autocomplete="url"
+              spellcheck={false}
+              required
+              maxLength={DASHBOARD_MAX_HREF_LENGTH}
+              placeholder="example.com"
+            />
             <div class="sm:col-span-2">
               <IconInput label="Icon" value={icon} onChange={setIcon} required />
             </div>
@@ -316,6 +347,8 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
               <button
                 type="button"
                 title={preset.label}
+                aria-label={`${preset.label} name color`}
+                aria-pressed={gradient() === preset.id}
                 onClick={() => setGradient(preset.id)}
                 class={`h-7 w-7 rounded-full transition-all ${
                   gradient() === preset.id
@@ -400,18 +433,19 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                 return (
                   <li class="flex flex-col gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3">
                     <div class="flex min-w-0 items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={!hidden().includes(widget.key)}
-                        onChange={() => toggleWidget(widget.key)}
-                        aria-label={`Show ${widget.title}`}
-                        class="h-4 w-4 shrink-0"
-                      />
-                      <i class={`${widget.icon} shrink-0 text-sm text-dimmed`} />
-                      <span class="min-w-0 flex-1">
-                        <span class="block truncate text-sm font-medium text-primary">{widget.title}</span>
-                        <Show when={recommendation()}>{(label) => <span class="block text-[11px] text-dimmed">{label()}</span>}</Show>
-                      </span>
+                      <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={!hidden().includes(widget.key)}
+                          onChange={() => toggleWidget(widget.key)}
+                          class="h-4 w-4 shrink-0"
+                        />
+                        <i class={`${widget.icon} shrink-0 text-sm text-dimmed`} />
+                        <span class="min-w-0 flex-1">
+                          <span class="block truncate text-sm font-medium text-primary">{widget.title}</span>
+                          <Show when={recommendation()}>{(label) => <span class="block text-[11px] text-dimmed">{label()}</span>}</Show>
+                        </span>
+                      </label>
                       <div class="flex shrink-0 items-center gap-1">
                         <button
                           type="button"
