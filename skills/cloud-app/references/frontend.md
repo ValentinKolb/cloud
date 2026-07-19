@@ -2852,6 +2852,13 @@ no visible output and never registers its documents. Pass the server-created
 manifest into the island; do not import the help collection itself into the
 client bundle.
 
+Register the same collection on every user-facing route where the app shell can
+open Help. This includes the app's overview or list page before a notebook,
+base, space, account, or other entity has been selected. Help that appears only
+after selecting an entity is incomplete. Keep one collection across overview
+and detail routes unless the audiences or permissions genuinely require
+separate collections.
+
 The reader fetches the active article lazily. Help Markdown uses the safe help
 rendering profile: fenced `script` examples are displayed as code and never
 become executable script carriers; internal links stay in the current tab.
