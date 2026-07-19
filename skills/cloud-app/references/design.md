@@ -319,9 +319,6 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
 - If the hint needs an action, form field, or selectable content, use a popover or dialog instead.
 - Menu triggers expose `aria-expanded`; Arrow keys, Home, and End move between menu items without entering the page tab order.
 - Escape closes the top floating layer and returns focus to its trigger.
-- Long-lived reference workflows such as Help may detach into the shared
-  non-modal `FloatingWindow`. The same content and view state continue in the
-  window; detaching does not open a second independent help session.
 - Floating utility windows must be movable, resizable, viewport-clamped, and
   keyboard operable. They expose a labelled non-modal dialog, restore focus on
   close, and use a full-inset mobile fallback where dragging and resizing would
@@ -331,6 +328,9 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
   management, or app-specific shells without a proven product requirement.
 - Use `ti-app-window` consistently for buttons that detach content into a
   floating window. Do not substitute the generic `ti-window` icon.
+- Help does not use a floating utility window. Its window action opens the
+  shared, reload-safe full-page Help view in a normal browser tab or window so
+  navigation, refresh, copy-as-Markdown, and deep links remain predictable.
 - Long-lived or externally opened app reference pages use
   `Layout.HelpPage`. Pass the same `HelpDocumentManifest[]` used by
   `Layout.HelpDocuments`, select the requested article with `initialTopic`,

@@ -34,10 +34,14 @@ Review method:
    - The manifest is passed from the server into a `.island.tsx` registrar;
      `Layout.HelpDocuments` is not hidden inside a non-hydrated SSR component.
    - Help Markdown uses the safe profile: script fences remain inert code and internal links do not force a new tab.
-   - Modal and detached floating-window modes preserve the same query, article, cache, and reading position.
-   - The floating window remains keyboard operable, viewport-clamped, and usable on mobile.
+   - The modal and reload-safe full-page browser view use the same manifest,
+     article endpoint, search, navigation, and copy-as-Markdown behavior.
+   - The full-page action uses the current app route and a stable Help query
+     parameter so refresh, deep links, and browser navigation remain correct.
    - Standalone Help/reference routes render `Layout.HelpPage` with the same
      manifest and article endpoint instead of maintaining a parallel document.
+   - Guided Help annotations follow `references/help.md`; raw markers and icon
+     metadata never leak into rendered HTML.
 9. Verify commands where applicable:
    - bun run --cwd packages/<APP_PACKAGE> typecheck
    - git diff --check -- <changed-files>

@@ -2818,6 +2818,11 @@ End-user help is app-owned Markdown. The same source must remain useful to the
 in-product reader, CLI or agent consumers, and reviewers. Do not duplicate a
 second JSX help corpus or hide article content in client bundles.
 
+The complete authoring contract, including the supported guided Markdown
+markers and verification checklist, lives in
+[`help.md`](help.md). Keep this section as the integration overview; do not
+invent additional app-local markers or Help CSS.
+
 Define an explicit, server-owned collection:
 
 ```ts
@@ -2880,9 +2885,9 @@ become executable script carriers; internal links stay in the current tab.
 being migrated, not the target architecture for new help.
 
 The shared reader owns search, task-first navigation, article loading, modal
-focus handling, and detaching into the reusable floating utility window. App
-code owns content, explicit ordering, authentication, and factual accuracy.
-Do not add per-app dialog or window implementations.
+focus handling, copy-as-Markdown, and the reload-safe full-page browser view.
+App code owns content, explicit ordering, authentication, and factual accuracy.
+Do not add per-app dialog, window, or full-page renderer implementations.
 
 ### Optimistic Mutation Context
 

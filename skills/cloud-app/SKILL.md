@@ -178,6 +178,11 @@ export const { ssr, plugin } = app;
 
 `defineApp()` creates the SSR config, Bun plugin for island bundling, and the `ssr` page handler wrapper used in page files. All app identity, widget endpoints, notification definitions, and per-app settings live here — one place. The `settings` map is typed: keys are exposed on `c.get("settings")` for any route using `Hono<AppContext<typeof app>>`. Keep notification definitions in `src/notifications.ts`; see the end-user notification reference in `references/frontend.md`.
 
+For end-user Help, use app-owned Markdown with the shared reader. The complete
+collection, registration, guided marker, accessibility, and verification
+contract is in [`references/help.md`](references/help.md). Do not add JSX Help
+corpora, app-local Help CSS, or custom Help dialogs.
+
 Apps do not own the Cloud root route. Core redirects `/` to the operator-configured `app.home_path`; its default remains `/app/dashboard`. A replacement landing app only needs its own normal registered route plus the corresponding Core setting change.
 
 ### index.ts — App Bootstrap
