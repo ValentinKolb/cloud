@@ -6,6 +6,7 @@ import { ssr } from "../../config";
 import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
 import AccountHub, { AccountPageHeader, AccountProfileActions } from "./AccountHub";
+import SignOutButton from "./SignOutButton.island";
 
 const accountExpiryCopy = (expiresAt: string): string => {
   const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86_400_000);
@@ -38,10 +39,15 @@ export default ssr<AuthContext>(async (c) => {
       <AccountHub
         user={user}
         active="overview"
-        actions={<AccountProfileActions user={user} appName={appName} freeIpaEnabled={freeIpaEnabled} />}
+        actions={
+          <>
+            <AccountProfileActions user={user} appName={appName} freeIpaEnabled={freeIpaEnabled} />
+            <SignOutButton />
+          </>
+        }
       >
         <div class="flex flex-col gap-2">
-          <AccountPageHeader title="Account overview" description="Your identity, access, security, and personal Cloud preferences." />
+          <AccountPageHeader title="Account overview" description="Your identity, access, security, and personal Cloud setup." />
 
           {action === "extend" && (
             <div class="info-block-info text-sm">

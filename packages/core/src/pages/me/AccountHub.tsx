@@ -4,7 +4,7 @@ import { Avatar } from "@valentinkolb/cloud/ui";
 import type { JSXElement } from "solid-js";
 import ProfileActions from "./ProfileActions.island";
 
-export type AccountSection = "overview" | "profile" | "preferences" | "security" | "access" | "notifications" | "developer";
+export type AccountSection = "overview" | "profile" | "security" | "access" | "notifications" | "developer";
 
 export const notificationViews = [
   { id: "preferences", href: "/me/notifications", label: "Preferences", icon: "ti ti-adjustments" },
@@ -14,7 +14,6 @@ export const notificationViews = [
 const sections: { id: AccountSection; href: string; label: string; icon: string }[] = [
   { id: "overview", href: "/me", label: "Overview", icon: "ti ti-layout-dashboard" },
   { id: "profile", href: "/me/profile", label: "Profile", icon: "ti ti-user" },
-  { id: "preferences", href: "/me/preferences", label: "Preferences", icon: "ti ti-adjustments" },
   { id: "security", href: "/me/security", label: "Security", icon: "ti ti-shield-lock" },
   { id: "access", href: "/me/access", label: "Access", icon: "ti ti-users-group" },
   { id: "notifications", href: "/me/notifications", label: "Notifications", icon: "ti ti-bell" },

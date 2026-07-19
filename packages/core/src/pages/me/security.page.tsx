@@ -34,7 +34,7 @@ export default ssr<AuthContext>(async (c) => {
             description="Manage sign-in methods, your current session, and security-relevant account activity."
           />
           <PasskeysSettings initialPasskeys={passkeys} />
-          <ProfileSettings provider={user.provider} profile={user.profile} freeIpaEnabled={Boolean(freeIpaEnabledRaw)} section="security" />
+          <ProfileSettings provider={user.provider} profile={user.profile} freeIpaEnabled={Boolean(freeIpaEnabledRaw)} />
           <AccountActivity initialItems={activityPage.items} days={activityDays} />
         </div>
       </AccountHub>

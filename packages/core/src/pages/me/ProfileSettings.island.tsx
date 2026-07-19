@@ -1,47 +1,16 @@
-import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
-import { getCurrentThemePreference, setThemePreference } from "@valentinkolb/cloud/shared";
-import { prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
+import { prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { PasswordSetupFields } from "../auth/PasswordSetupFields";
+import { signOutCurrentSession } from "./account-session";
 
 type Props = {
   provider: UserProvider;
   profile: UserProfile;
   freeIpaEnabled: boolean;
-  section?: "all" | "preferences" | "security";
 };
-
-// ── Toggle Button Group ──
-
-function ToggleGroup(props: {
-  label: string;
-  options: { value: string; label: string; icon: string }[];
-  value: () => string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div class="flex flex-col gap-2">
-      <div>
-        <span class="text-sm text-primary">{props.label}</span>
-      </div>
-      <div class="w-full">
-        <SegmentedControl
-          value={props.value}
-          onChange={(value) => props.onChange(value)}
-          options={props.options.map((opt) => ({
-            value: opt.value,
-            label: opt.label,
-            icon: `ti ${opt.icon}`,
-          }))}
-          ariaLabel={props.label}
-        />
-      </div>
-    </div>
-  );
-}
 
 // ── Action Row ──
 
@@ -139,14 +108,6 @@ function ChangePasswordDialog(props: { close: (value: ChangePasswordPayload | nu
 // ── Main Component ──
 
 export default function ProfileSettings(props: Props) {
-  // ── Appearance state ──
-  const [theme, setTheme] = createSignal(getCurrentThemePreference());
-
-  const handleTheme = (value: string) => {
-    if (value !== "light" && value !== "dark") return;
-    setTheme(setThemePreference(value));
-  };
-
   // ── Account mutations ──
   const passwordMutation = mutations.create<void, { currentPassword: string; newPassword: string; confirmPassword: string }>({
     mutation: async (vars) => {
@@ -202,65 +163,34 @@ export default function ProfileSettings(props: Props) {
     }
   };
 
-  const handleLogout = async () => {
-    await browserNotificationClient.disable().catch(() => undefined);
-    await apiClient.auth.logout.$post();
-    window.location.href = "/auth/login";
-  };
-
   const isIpa = props.provider === "ipa" && props.freeIpaEnabled;
   const isGuest = props.profile === "guest";
-  const showPreferences = props.section !== "security";
-  const showSecurity = props.section !== "preferences";
-  const title = props.section === "preferences" ? "Appearance" : props.section === "security" ? "Sign-in and account" : "Account settings";
-  const description =
-    props.section === "preferences"
-      ? "Choose how Cloud looks on this browser."
-      : props.section === "security"
-        ? "Manage your password, current session, and account lifecycle."
-        : "Appearance, password, and session controls.";
 
   return (
     <section class="paper p-5">
       <div class="mb-5">
         <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
-          <i class={`ti ${props.section === "preferences" ? "ti-adjustments" : "ti-user-cog"} text-sm`} />
-          {title}
+          <i class="ti ti-user-cog text-sm" />
+          Sign-in and account
         </h2>
-        <p class="mt-1 text-xs text-dimmed">{description}</p>
+        <p class="mt-1 text-xs text-dimmed">Manage your password, current session, and account lifecycle.</p>
       </div>
 
-      <div class="flex flex-col gap-4">
-        <Show when={showPreferences}>
-          <ToggleGroup
-            label="Color mode"
-            value={theme}
-            onChange={handleTheme}
-            options={[
-              { value: "light", label: "Light", icon: "ti-sun" },
-              { value: "dark", label: "Dark", icon: "ti-moon" },
-            ]}
-          />
+      <div class="flex flex-col gap-1">
+        <Show when={isIpa}>
+          <ActionRow icon="ti-lock" label="Change Password" description="Update your FreeIPA password" onClick={handleChangePassword} />
         </Show>
 
-        <Show when={showSecurity}>
-          <div class="flex flex-col gap-1">
-            <Show when={isIpa}>
-              <ActionRow icon="ti-lock" label="Change Password" description="Update your FreeIPA password" onClick={handleChangePassword} />
-            </Show>
+        <ActionRow icon="ti-logout" label="Sign Out" description="End this browser session" onClick={() => void signOutCurrentSession()} />
 
-            <ActionRow icon="ti-logout" label="Sign Out" description="End this browser session" onClick={handleLogout} />
-
-            <Show when={isGuest}>
-              <ActionRow
-                icon="ti-trash"
-                label="Delete Account"
-                description="Permanently delete your account and all data"
-                onClick={handleDelete}
-                variant="danger"
-              />
-            </Show>
-          </div>
+        <Show when={isGuest}>
+          <ActionRow
+            icon="ti-trash"
+            label="Delete Account"
+            description="Permanently delete your account and all data"
+            onClick={handleDelete}
+            variant="danger"
+          />
         </Show>
       </div>
     </section>

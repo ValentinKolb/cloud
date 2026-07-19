@@ -228,7 +228,7 @@ The header identifies the current resource, not the app twice.
 
 Personal account management is a global Cloud surface, not another app workspace. Use one identity hero with a persistent, horizontally scrollable category navigation and one focused content area. Do not add the app rail, a second settings sidebar, or a generic "Settings" header.
 
-Keep common profile actions directly visible on the overview and profile surfaces. Group the remaining capabilities by user intent—preferences, security, access, notifications, and developer tooling—so every existing task is reachable with at most one category change. Progressive disclosure may simplify dense content, but it must not bury routine actions behind nested menus or remove an existing capability. Preserve direct URLs for every category and keep destructive actions inside their relevant category rather than collecting them in a generic overflow menu.
+Keep common profile actions and sign out directly visible on the overview. Appearance and theme stay in the global icon rail and are not repeated as an account category. Group the remaining capabilities by user intent—security, access, notifications, and developer tooling—so every existing task is reachable with at most one category change. Progressive disclosure may simplify dense content, but it must not bury routine actions behind nested menus or remove an existing capability. Preserve direct URLs for every category and keep destructive actions inside their relevant category rather than collecting them in a generic overflow menu.
 
 ## Controls
 
