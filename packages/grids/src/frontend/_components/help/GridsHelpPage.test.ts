@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GRIDS_HELP_TOPIC_IDS, normalizeGridsHelpTopic } from "./grids-help-routing";
+import { GRIDS_HELP_TOPIC_IDS, gridsHelpTopicHref, normalizeGridsHelpTopic } from "./grids-help-routing";
 
 describe("Grids full-page help", () => {
   test("keeps the existing topic IDs available to the shared Help shell", () => {
@@ -24,5 +24,10 @@ describe("Grids full-page help", () => {
     expect(normalizeGridsHelpTopic("grids-gql")).toBe("grids-gql");
     expect(normalizeGridsHelpTopic("unknown")).toBeUndefined();
     expect(normalizeGridsHelpTopic(undefined)).toBeUndefined();
+  });
+
+  test("keeps article navigation reload-safe on the standalone Help route", () => {
+    expect(gridsHelpTopicHref("grids-gql")).toBe("/app/grids/help/grids-gql");
+    expect(gridsHelpTopicHref(null)).toBe("/app/grids/help");
   });
 });

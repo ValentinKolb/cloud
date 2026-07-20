@@ -5,6 +5,7 @@ import { MarkdownView, prompts } from "../ui";
 import { appAccentStyle } from "./app-appearance";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 import { formatHelpBundleMarkdown, formatHelpDocumentMarkdown } from "./layout-help-markdown";
+import { adjacentHelpDocuments, focusHelpArticleHeading, resetHelpArticleScroll } from "./layout-help-navigation";
 import { HELP_PAGE_PARAM, layoutHelpPageHref } from "./layout-help-url";
 
 type HelpTopicBase = {
@@ -25,6 +26,8 @@ export type LayoutHelpPageProps = {
   accent?: string;
   /** Render inside an app-owned pane instead of occupying a standalone page. */
   embedded?: boolean;
+  /** Build the reload-safe URL for a topic on an app-owned standalone Help route. */
+  topicHref?: (topicId: string | null) => string;
 };
 
 type HelpTopic = (HelpTopicBase & { kind: "content"; children: JSX.Element }) | (HelpDocumentManifest & { kind: "document" });
@@ -163,6 +166,8 @@ const HelpShell = (props: {
   let root: HTMLDivElement | undefined;
   let scrollArea: HTMLDivElement | undefined;
   let articleContent: HTMLDivElement | undefined;
+  let articleHeading: HTMLHeadingElement | undefined;
+  let pendingArticleFocus = false;
   let requestVersion = 0;
   let searchVersion = 0;
   let copyAllController: AbortController | undefined;
@@ -218,6 +223,7 @@ const HelpShell = (props: {
     externalTopics().filter((topic): topic is HelpDocumentManifest & { kind: "document" } => topic.kind === "document"),
   );
   const activeTopic = createMemo(() => topics().find((topic) => topic.id === activeId()) ?? null);
+  const adjacentTopics = createMemo(() => adjacentHelpDocuments(documentTopics(), activeId()));
   const normalizedQuery = createMemo(() => query().trim().toLocaleLowerCase());
   const results = createMemo(() => {
     const value = normalizedQuery();
@@ -283,6 +289,16 @@ const HelpShell = (props: {
       return;
     }
     const frame = requestAnimationFrame(collectArticleSections);
+    onCleanup(() => cancelAnimationFrame(frame));
+  });
+
+  createEffect(() => {
+    activeId();
+    if (!pendingArticleFocus || view() !== "article") return;
+    const frame = requestAnimationFrame(() => {
+      focusHelpArticleHeading(articleHeading);
+      pendingArticleFocus = false;
+    });
     onCleanup(() => cancelAnimationFrame(frame));
   });
 
@@ -394,10 +410,13 @@ const HelpShell = (props: {
   };
 
   const openTopic = (id: string) => {
-    props.session.articleScrollTop = 0;
+    resetHelpArticleScroll(props.session, scrollArea);
+    pendingArticleFocus = true;
     setActiveId(id);
     setView("article");
-    if (props.syncPageUrl) history.replaceState(history.state, "", layoutHelpPageHref(window.location.href, id));
+    if (props.syncPageUrl) {
+      history.replaceState(history.state, "", props.pageHref?.(id) ?? layoutHelpPageHref(window.location.href, id));
+    }
     try {
       localStorage.setItem(LAST_TOPIC_KEY, id);
     } catch {
@@ -406,7 +425,9 @@ const HelpShell = (props: {
   };
   const goBack = () => {
     setView(query().trim() ? "search" : "hub");
-    if (props.syncPageUrl) history.replaceState(history.state, "", layoutHelpPageHref(window.location.href, null));
+    if (props.syncPageUrl) {
+      history.replaceState(history.state, "", props.pageHref?.(null) ?? layoutHelpPageHref(window.location.href, null));
+    }
   };
   const showHub = () => {
     setQuery("");
@@ -454,6 +475,43 @@ const HelpShell = (props: {
     </div>
   );
 
+  const TopicNavigation = () => (
+    <Show when={adjacentTopics().previous || adjacentTopics().next}>
+      <nav class="mt-12 grid gap-3 sm:grid-cols-2" aria-label="Help topic navigation">
+        <Show when={adjacentTopics().previous}>
+          {(previous) => (
+            <button
+              type="button"
+              class="group flex min-w-0 flex-col items-start gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4 text-left transition-colors hover:bg-[var(--ui-surface-muted)] focus-ui"
+              onClick={() => openTopic(previous().id)}
+            >
+              <span class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-dimmed">
+                <i class="ti ti-arrow-left" aria-hidden="true" />
+                Previous topic
+              </span>
+              <span class="text-sm font-medium text-primary group-hover:app-accent-text">{previous().title}</span>
+            </button>
+          )}
+        </Show>
+        <Show when={adjacentTopics().next}>
+          {(next) => (
+            <button
+              type="button"
+              class="group flex min-w-0 flex-col items-end gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4 text-right transition-colors hover:bg-[var(--ui-surface-muted)] focus-ui sm:col-start-2"
+              onClick={() => openTopic(next().id)}
+            >
+              <span class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-dimmed">
+                Next topic
+                <i class="ti ti-arrow-right" aria-hidden="true" />
+              </span>
+              <span class="text-sm font-medium text-primary group-hover:app-accent-text">{next().title}</span>
+            </button>
+          )}
+        </Show>
+      </nav>
+    </Show>
+  );
+
   return (
     <div
       ref={root}
@@ -483,7 +541,12 @@ const HelpShell = (props: {
             <i class={`${modalIcon()} text-lg`} />
           </span>
           <div class="min-w-0 flex-1">
-            <h2 id="layout-help-title" class="truncate font-semibold text-primary">
+            <h2
+              ref={articleHeading}
+              id="layout-help-title"
+              tabindex="-1"
+              class="truncate rounded-sm font-semibold text-primary focus-ui"
+            >
               {modalTitle()}
             </h2>
             <p id="layout-help-subtitle" class="truncate text-xs text-dimmed" title={modalDescription()}>
@@ -650,7 +713,13 @@ const HelpShell = (props: {
                     <i class={`${iconClass(topic().icon)} text-lg`} />
                   </span>
                   <div class="min-w-0 flex-1">
-                    <h3 class="text-2xl font-semibold tracking-tight text-primary">{topic().title}</h3>
+                    <h3
+                      ref={articleHeading}
+                      tabindex="-1"
+                      class="rounded-sm text-2xl font-semibold tracking-tight text-primary focus-ui"
+                    >
+                      {topic().title}
+                    </h3>
                     <Show when={topic().description}>
                       {(description) => <p class="mt-1.5 text-sm leading-relaxed text-dimmed">{description()}</p>}
                     </Show>
@@ -712,8 +781,11 @@ const HelpShell = (props: {
                           </ol>
                         </nav>
                       </Show>
-                      <div ref={articleContent} class="help-article-copy">
-                        <MarkdownView html={document().html} class="help-document" />
+                      <div class="help-article-copy">
+                        <div ref={articleContent}>
+                          <MarkdownView html={document().html} class="help-document" />
+                        </div>
+                        <TopicNavigation />
                       </div>
                     </div>
                   )}
@@ -768,6 +840,8 @@ export function LayoutHelpPage(props: LayoutHelpPageProps) {
       includeShortcuts={props.includeShortcuts}
       accent={props.accent}
       surface={props.embedded ? "embedded" : "page"}
+      pageHref={props.topicHref}
+      syncPageUrl={!props.embedded && !!props.topicHref}
     />
   );
 }

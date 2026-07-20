@@ -18,3 +18,6 @@ export type GridsHelpTopicId = (typeof GRIDS_HELP_TOPIC_IDS)[number];
 
 export const normalizeGridsHelpTopic = (value: string | null | undefined): GridsHelpTopicId | undefined =>
   GRIDS_HELP_TOPIC_IDS.includes(value as GridsHelpTopicId) ? (value as GridsHelpTopicId) : undefined;
+
+export const gridsHelpTopicHref = (topicId: string | null) =>
+  topicId ? `/app/grids/help/${encodeURIComponent(topicId)}` : "/app/grids/help";
