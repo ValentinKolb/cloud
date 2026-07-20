@@ -31,6 +31,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
   const recordsRoute = route.kind === "records" ? (route as WorkspaceRecordsRoute) : null;
   const queryResultViewRoute = route.kind === "queryResultView" ? (route as WorkspaceQueryResultViewRoute) : null;
   const workflowsRoute = route.kind === "workflows" ? (route as WorkspaceWorkflowsRoute) : null;
+  const canCreateStructure = state.adminModeRequested && state.canCreateTables;
   const renderQueryItem = () =>
     state.canUseQueryWorkspace ? (
       <SidebarLink href={`/app/grids/${state.base.shortId}/query`} active={route.kind === "query"}>
@@ -41,7 +42,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
 
   const renderNavigationSections = () => (
     <>
-      {(state.catalog.dashboards.length > 0 || state.canCreateTables) && (
+      {(state.catalog.dashboards.length > 0 || canCreateStructure) && (
         <AppWorkspace.SidebarSection title="Dashboards">
           {[...state.catalog.dashboards]
             .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
@@ -64,7 +65,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
                 </SidebarLink>
               );
             })}
-          {state.canCreateTables && <CreateDashboardButton baseId={state.base.id} baseShortId={state.base.shortId} />}
+          {canCreateStructure && <CreateDashboardButton baseId={state.base.id} baseShortId={state.base.shortId} />}
         </AppWorkspace.SidebarSection>
       )}
 
@@ -91,7 +92,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
             );
           })
         )}
-        {state.canCreateTables && <CreateTableButton baseId={state.base.id} baseShortId={state.base.shortId} />}
+        {canCreateStructure && <CreateTableButton baseId={state.base.id} baseShortId={state.base.shortId} />}
       </AppWorkspace.SidebarSection>
 
       <AppWorkspace.SidebarSection title="Views">
@@ -195,7 +196,11 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems scrollPreserveKey={`grids-sidebar-mobile-${state.base.id}`}>
           {state.canUseEditMode && (
-            <SidebarLink href={state.editModeToggleHref} class={state.adminModeRequested ? "font-medium text-primary" : undefined}>
+            <SidebarLink
+              href={state.editModeToggleHref}
+              tone={state.adminModeRequested ? "success" : undefined}
+              class={state.adminModeRequested ? "font-medium" : undefined}
+            >
               <AppWorkspace.SidebarItemIcon icon={state.adminModeRequested ? "ti ti-check" : "ti ti-tool"} />
               <AppWorkspace.SidebarItemLabel>{state.adminModeRequested ? "Done editing" : "Edit mode"}</AppWorkspace.SidebarItemLabel>
             </SidebarLink>
@@ -225,7 +230,11 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
         <AppWorkspace.SidebarBody scrollPreserveKey="grids-sidebar">{renderNavigationSections()}</AppWorkspace.SidebarBody>
         {state.canUseEditMode && (
           <AppWorkspace.SidebarFooter>
-            <SidebarLink href={state.editModeToggleHref} class={state.adminModeRequested ? "font-medium text-primary" : undefined}>
+            <SidebarLink
+              href={state.editModeToggleHref}
+              tone={state.adminModeRequested ? "success" : undefined}
+              class={state.adminModeRequested ? "font-medium" : undefined}
+            >
               <AppWorkspace.SidebarItemIcon icon={state.adminModeRequested ? "ti ti-check" : "ti ti-tool"} />
               <AppWorkspace.SidebarItemLabel>{state.adminModeRequested ? "Done editing" : "Edit mode"}</AppWorkspace.SidebarItemLabel>
             </SidebarLink>

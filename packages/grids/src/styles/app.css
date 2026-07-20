@@ -2,6 +2,15 @@
 @source "../**/*.{ts,tsx}";
 @custom-variant dark (&:where(.dark, .dark *));
 
+.grids-workspace-editing {
+  outline: 1px solid color-mix(in srgb, var(--color-emerald-500) 72%, transparent);
+  outline-offset: -1px;
+}
+
+.dark .grids-workspace-editing {
+  outline-color: color-mix(in srgb, var(--color-emerald-400) 68%, transparent);
+}
+
 .grids-code-display {
   color: rgb(24 24 27);
   display: inline-flex;

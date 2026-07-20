@@ -74,7 +74,7 @@ export default function CreateTableButton(props: { baseId: string; baseShortId: 
   };
 
   return (
-    <AppWorkspace.SidebarItem disabled={createMutation.loading()} onClick={() => void handleClick()}>
+    <AppWorkspace.SidebarItem tone="success" disabled={createMutation.loading()} onClick={() => void handleClick()}>
       <AppWorkspace.SidebarItemIcon icon={createMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
       <AppWorkspace.SidebarItemLabel>New table</AppWorkspace.SidebarItemLabel>
     </AppWorkspace.SidebarItem>

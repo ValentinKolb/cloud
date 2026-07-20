@@ -14,5 +14,7 @@ const WORKSPACE_SURFACES = {
   workflows: "inset",
 } satisfies Record<WorkspaceRouteKind, WorkspaceSurface>;
 
+export const workspaceRootClass = (editMode: boolean): string => `min-h-0 flex-1${editMode ? " grids-workspace-editing" : ""}`;
+
 export const workspaceMainClass = (kind: WorkspaceRouteKind): string | undefined =>
   WORKSPACE_SURFACES[kind] === "inset" ? "p-[var(--ui-space-shell)]" : undefined;

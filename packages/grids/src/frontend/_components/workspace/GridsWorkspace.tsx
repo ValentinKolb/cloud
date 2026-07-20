@@ -5,6 +5,7 @@ import RememberGridsPath from "../sidebar/RememberGridsPath.island";
 import GridsRoute from "./GridsRoute.island";
 import GridsSidebar from "./GridsSidebar";
 import WorkspaceMetadataRefresh from "./WorkspaceMetadataRefresh.island";
+import { workspaceRootClass } from "./workspace-layout";
 import type { OkWorkspaceState, WorkspaceCatalog } from "./workspace-state-model";
 
 const emptyClientCatalog = (): WorkspaceCatalog => ({
@@ -64,7 +65,7 @@ export default function GridsWorkspace(props: { state: OkWorkspaceState; helpDoc
     <>
       <RememberGridsPath path={props.state.rememberPath} />
       <WorkspaceMetadataRefresh baseId={props.state.base.id} initialCursor={props.state.metadataEventCursor} />
-      <AppWorkspace class="min-h-0 flex-1">
+      <AppWorkspace class={workspaceRootClass(props.state.adminModeRequested)}>
         <GridsLayoutHelpRegistrar documents={props.helpDocuments} />
         <GridsSidebar state={props.state} />
         <GridsRoute state={routeClientState(props.state)} />

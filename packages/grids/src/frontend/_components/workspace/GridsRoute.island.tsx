@@ -262,7 +262,9 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
                 when={state.catalog.sidebarForms.length > 0 || state.catalog.sidebarDocumentTemplates.length > 0}
                 fallback={
                   state.canCreateTables
-                    ? 'No tables yet. Choose "New table" in the sidebar.'
+                    ? state.adminModeRequested
+                      ? 'No tables yet. Choose "New table" in the sidebar.'
+                      : "No tables yet. Turn on Edit mode to create one."
                     : "No tables. You don't have write access to create one."
                 }
               >
