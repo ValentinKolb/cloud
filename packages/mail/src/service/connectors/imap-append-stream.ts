@@ -1,6 +1,6 @@
+import { once } from "node:events";
 import { createRequire } from "node:module";
 import type { Readable, Writable } from "node:stream";
-import { once } from "node:events";
 import type { ImapFlow } from "imapflow";
 
 type ImapAttribute = { type: string; value: string } | Array<{ type: string; value: string }>;
@@ -9,14 +9,17 @@ type ImapCommandResponse = {
   next(): void;
 };
 type StreamingImapFlow = ImapFlow & {
-  exec(
-    command: string,
-    attributes: ImapAttribute[],
-    options: { onPlusTag: () => Promise<void> },
-  ): Promise<ImapCommandResponse>;
+  exec(command: string, attributes: ImapAttribute[], options: { onPlusTag: () => Promise<void> }): Promise<ImapCommandResponse>;
   writeSocket: Writable;
   writeBytesCounter: number;
   close(): void;
+};
+
+export type ImapAppendError = Error & { effectPossible: boolean };
+
+const appendError = (error: unknown, effectPossible: boolean): ImapAppendError => {
+  const source = error instanceof Error ? error : new Error("IMAP APPEND failed");
+  return Object.assign(source, { effectPossible });
 };
 
 const require = createRequire(import.meta.url);
@@ -93,6 +96,6 @@ export const appendStream = async (params: {
   } catch (error) {
     params.source.destroy();
     client.close();
-    throw streamError ?? error;
+    throw appendError(streamError ?? error, streamed);
   }
 };

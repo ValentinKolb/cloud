@@ -9,20 +9,28 @@ import {
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { type JobCtx, job, ratelimit, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
+import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
-import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import type { ConnectorEnvelope, FlagChange } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
+import {
+  enqueueDraftImports,
+  enqueueDraftProjectionSnapshot,
+  recordDraftFolderSyncInTransaction,
+  startDraftProjectionRuntime,
+  stopDraftProjectionRuntime,
+  submitDueDraftProjectionWork,
+} from "./draft-provider-projection";
 import { deleteAbandonedDraftAttachmentUploads } from "./draft-uploads";
 import { resolveMailExecution } from "./execution";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
-import { assertMailboxTransportFence, loadMailboxTransportFence } from "./mailbox-lifecycle";
+import { assertMailboxTransportFence, loadMailboxTransportFence } from "./mailbox-transport-fence";
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
-import { mailProviderOperationMutex } from "./provider-operation-lock";
+import { mailProviderOperationMutex, withProviderOperationBarrier } from "./provider-operation-lock";
 import { getWorkflowSnapshot } from "./workflow-data";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 import { enqueueMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
@@ -920,7 +928,14 @@ export const commitSyncBatch = async (params: {
   envelopeKind: "incremental" | "backfill" | null;
   flagChanges: FlagChange[];
   reconcileWindow: ReconcileWindow | null;
-}): Promise<{ hydratedIds: string[]; workflowTriggerEventIds: string[]; flagsUpdated: number; removed: number }> => {
+}): Promise<{
+  hydratedIds: string[];
+  draftImportSnapshotIds: string[];
+  draftExportSnapshotIds: string[];
+  workflowTriggerEventIds: string[];
+  flagsUpdated: number;
+  removed: number;
+}> => {
   const result = await sql.begin(async (tx) => {
     const [resource] = await tx<{ id: string }[]>`
       SELECT id
@@ -942,7 +957,28 @@ export const commitSyncBatch = async (params: {
       SELECT id FROM mail.folders WHERE id = ${params.folderId}::uuid FOR UPDATE
     `;
     if (!lockedFolder) throw new Error("Folder disappeared during sync");
-    if (params.uidValidityChanged) {
+    const [effectiveRole] = await tx<{ is_drafts: boolean }[]>`
+      SELECT (
+        EXISTS (
+          SELECT 1
+          FROM mail.folder_role_overrides override
+          WHERE override.mailbox_id = ${params.folder.mailbox_id}::uuid
+            AND override.role = 'drafts'
+            AND override.folder_id = ${params.folderId}::uuid
+        )
+        OR (
+          ${params.folder.role} = 'drafts'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM mail.folder_role_overrides override
+            WHERE override.mailbox_id = ${params.folder.mailbox_id}::uuid
+              AND override.role = 'drafts'
+          )
+        )
+      ) AS is_drafts
+    `;
+    const isDraftFolder = effectiveRole?.is_drafts === true;
+    if (params.uidValidityChanged && !isDraftFolder) {
       await tx`
         WITH stale AS (
           UPDATE mail.remote_message_refs
@@ -958,36 +994,60 @@ export const commitSyncBatch = async (params: {
     }
 
     const hydratedIds: string[] = [];
+    let draftImportSnapshotIds: string[] = [];
+    let draftExportSnapshotIds: string[] = [];
+    let draftRemoved = 0;
     const workflowTriggerEventIds: string[] = [];
-    for (const message of params.envelopeBatch?.messages ?? []) {
-      hydratedIds.push(
-        await ingestEnvelope({
-          db: tx,
-          mailboxId: params.folder.mailbox_id,
-          remoteResourceId: params.folder.remote_resource_id,
-          folderId: params.folderId,
-          message,
-          captureWorkflowTriggers: params.envelopeKind === "incremental",
-          workflowTriggerEventIds,
-        }),
-      );
+    if (isDraftFolder) {
+      const projection = await recordDraftFolderSyncInTransaction({
+        db: tx,
+        mailboxId: params.folder.mailbox_id,
+        remoteResourceId: params.folder.remote_resource_id,
+        bindingId: params.bindingId,
+        folderId: params.folderId,
+        uidValidity: params.status.uidValidity,
+        uidValidityChanged: params.uidValidityChanged,
+        envelopes: params.envelopeBatch?.messages ?? [],
+        reconcileWindow: params.reconcileWindow,
+      });
+      draftImportSnapshotIds = projection.importSnapshotIds;
+      draftExportSnapshotIds = projection.exportSnapshotIds;
+      draftRemoved = projection.removed;
+    } else {
+      for (const message of params.envelopeBatch?.messages ?? []) {
+        hydratedIds.push(
+          await ingestEnvelope({
+            db: tx,
+            mailboxId: params.folder.mailbox_id,
+            remoteResourceId: params.folder.remote_resource_id,
+            folderId: params.folderId,
+            message,
+            captureWorkflowTriggers: params.envelopeKind === "incremental",
+            workflowTriggerEventIds,
+          }),
+        );
+      }
     }
-    const flagsUpdated = await applyFlagChanges({
-      db: tx,
-      folderId: params.folderId,
-      uidValidity: params.status.uidValidity,
-      changes: params.flagChanges,
-    });
-    const removed = params.reconcileWindow
-      ? await markMissingUids({
+    const flagsUpdated = isDraftFolder
+      ? 0
+      : await applyFlagChanges({
           db: tx,
           folderId: params.folderId,
           uidValidity: params.status.uidValidity,
-          lowUid: params.reconcileWindow.low,
-          highUid: params.reconcileWindow.high,
-          existingUids: params.reconcileWindow.uids,
-        })
-      : 0;
+          changes: params.flagChanges,
+        });
+    const removed = isDraftFolder
+      ? draftRemoved
+      : params.reconcileWindow
+        ? await markMissingUids({
+            db: tx,
+            folderId: params.folderId,
+            uidValidity: params.status.uidValidity,
+            lowUid: params.reconcileWindow.low,
+            highUid: params.reconcileWindow.high,
+            existingUids: params.reconcileWindow.uids,
+          })
+        : 0;
     await tx`
       UPDATE mail.folders
       SET
@@ -1065,13 +1125,14 @@ export const commitSyncBatch = async (params: {
         stats = ${{
           envelopeKind: params.envelopeKind,
           imported: hydratedIds.length,
+          draftImportsQueued: draftImportSnapshotIds.length,
           flagsUpdated,
           removed,
         }}::jsonb,
         finished_at = now()
       WHERE id = ${params.fence.runId}::uuid
     `;
-    return { hydratedIds, workflowTriggerEventIds, flagsUpdated, removed };
+    return { hydratedIds, draftImportSnapshotIds, draftExportSnapshotIds, workflowTriggerEventIds, flagsUpdated, removed };
   });
   return result;
 };
@@ -1178,6 +1239,8 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         for (const messageId of result.hydratedIds) {
           await submitHydrationJob(messageId);
         }
+        await enqueueDraftImports(result.draftImportSnapshotIds);
+        await Promise.all(result.draftExportSnapshotIds.map((snapshotId) => enqueueDraftProjectionSnapshot(snapshotId)));
         await Promise.all(result.workflowTriggerEventIds.map((eventId) => enqueueMailWorkflowTriggerEvent(eventId)));
         const hasMore =
           cursor.incrementalNextHigh != null || !cursor.backfillComplete || cursor.flagNextLow != null || cursor.reconcileNextLow != null;
@@ -1522,7 +1585,13 @@ const submitRediscoveryJob = async (bindingId: string, allowCredentialRevision: 
 
 const mailScheduler = scheduler({ id: "mail" });
 
-const submitDueWork = async (): Promise<{ bindings: number; folders: number; messages: number }> => {
+const submitDueWork = async (): Promise<{
+  bindings: number;
+  folders: number;
+  messages: number;
+  draftExports: number;
+  draftImports: number;
+}> => {
   const bindings = await sql<{ id: string }[]>`
     SELECT binding.id
     FROM mail.provider_bindings binding
@@ -1594,7 +1663,14 @@ const submitDueWork = async (): Promise<{ bindings: number; folders: number; mes
   for (const message of messages) {
     await submitHydrationJob(message.id);
   }
-  return { bindings: bindings.length, folders: folders.length, messages: messages.length };
+  const draftProjection = await submitDueDraftProjectionWork();
+  return {
+    bindings: bindings.length,
+    folders: folders.length,
+    messages: messages.length,
+    draftExports: draftProjection.exports,
+    draftImports: draftProjection.imports,
+  };
 };
 
 export const enqueueMailboxSync = async (mailboxId: string): Promise<number> => {
@@ -1621,9 +1697,56 @@ export const enqueueFolderSync = async (folderId: string): Promise<void> => {
   await submitSyncFolderJob(folderId);
 };
 
+export const enqueueFolderReconciliation = async (folderId: string, fromUid: number): Promise<void> => {
+  const boundedUid = Math.max(1, Number.isSafeInteger(fromUid) ? fromUid : 1);
+  const reconcileWindowStart = Math.floor((boundedUid - 1) / RECONCILE_WINDOW_SIZE) * RECONCILE_WINDOW_SIZE + 1;
+  const [folder] = await sql<{ remote_resource_id: string }[]>`
+    SELECT remote_resource_id
+    FROM mail.folders
+    WHERE id = ${folderId}::uuid
+      AND selected_for_sync = true
+      AND discovery_state = 'active'
+      AND sync_status <> 'excluded'
+  `;
+  if (!folder) return;
+  const barrier = await withProviderOperationBarrier([folder.remote_resource_id], async (assertLeaseActive) => {
+    await assertLeaseActive();
+    await sql`
+      UPDATE mail.folders
+      SET
+        envelope_cursor = jsonb_set(
+          envelope_cursor,
+          '{reconcileNextLow}',
+          to_jsonb(
+            LEAST(
+              COALESCE((envelope_cursor ->> 'reconcileNextLow')::int, ${reconcileWindowStart}),
+              ${reconcileWindowStart}
+            )
+          ),
+          true
+        ),
+        last_reconciled_at = NULL
+      WHERE id = ${folderId}::uuid
+        AND envelope_cursor ->> 'version' = '1'
+    `;
+    await assertLeaseActive();
+  });
+  if (!barrier.acquired) {
+    throw Object.assign(new Error("Mail sync resource is busy while requesting reconciliation"), {
+      code: "SYNC_BUSY",
+    });
+  }
+  await submitSyncFolderJob(folderId);
+};
+
+export const enqueueBindingRediscovery = async (bindingId: string): Promise<void> => {
+  await submitRediscoveryJob(bindingId, false);
+};
+
 const mailRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
     syncTasks.open();
+    await startDraftProjectionRuntime();
     await mailScheduler.create({
       id: "mail:sync-due",
       cron: "* * * * *",
@@ -1654,6 +1777,7 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
     syncTasks.close();
     await stopRuntimeResources([
       () => mailScheduler.stop(),
+      () => stopDraftProjectionRuntime(),
       () => stopRuntimeJobs(syncTasks, [rediscoveryJob, syncFolderJob, hydrationJob]),
     ]);
   },

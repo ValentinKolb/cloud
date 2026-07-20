@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Readable } from "node:stream";
+import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, listMailboxAccess, revokeMailboxAccess } from "./access";
@@ -9,6 +10,7 @@ import { createActorCommand } from "./commands";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
 import { acquireDraftLease, getDraftLease, heartbeatDraftLease, releaseDraftLease } from "./draft-leases";
+import { recordDraftFolderSyncInTransaction } from "./draft-provider-projection";
 import {
   appendDraftAttachmentUpload,
   cancelDraftAttachmentUpload,
@@ -128,6 +130,7 @@ suite("mail PostgreSQL foundation", () => {
     if (automaticSearch.ok) expect(automaticSearch.data.searchBackend).toBe("auto");
 
     const scope = "a".repeat(64);
+    const encryptedSecret = await encryptSecret({ kind: "password", password: "persistence-fixture-secret" });
     const [connection] = await sql<{ id: string }[]>`
       INSERT INTO mail.provider_connections (
         owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
@@ -136,7 +139,7 @@ suite("mail PostgreSQL foundation", () => {
       ) VALUES (
         ${mailbox.data.id}::uuid, 'Fixture', 'sender@example.com', 'sender@example.com',
         'imap.example.com', 993, 'implicit', 'smtp.example.com', 587, 'starttls',
-        'password', 'fixture-ciphertext', 'sender@example.com', '{}'::jsonb, '{}'::jsonb, now()
+        'password', ${encryptedSecret}, 'sender@example.com', '{}'::jsonb, '{}'::jsonb, now()
       ) RETURNING id
     `;
     const [resource] = await sql<{ id: string }[]>`
@@ -1158,7 +1161,9 @@ suite("mail PostgreSQL foundation", () => {
     `;
     await sql`
       INSERT INTO mail.message_search_chunks (message_id, position, search_document)
-      VALUES (${message!.id}::uuid, 0, to_tsvector('simple'::regconfig, 'A unique integration body phrase'))
+      VALUES
+        (${message!.id}::uuid, 0, to_tsvector('simple'::regconfig, 'A unique integration body phrase')),
+        (${message!.id}::uuid, 1, to_tsvector('simple'::regconfig, 'cobalt'))
     `;
     await sql`
       INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
@@ -1185,6 +1190,50 @@ suite("mail PostgreSQL foundation", () => {
       INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
       VALUES (${attachmentConversation!.id}::uuid, ${message!.id}::uuid, 0, 'headers')
     `;
+    await sql`
+      UPDATE mail.conversations
+      SET
+        work_status = 'waiting',
+        assignee_user_id = ${context.actor.kind === "user" ? context.actor.user.id : null}::uuid,
+        response_needed = true
+      WHERE id = ${attachmentConversation!.id}::uuid
+    `;
+    const [secondMatchingMessage] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, internal_date, size_bytes, content_hash,
+        hydration_status, plain_text, normalized_subject
+      ) VALUES (
+        ${mailbox.data.id}::uuid, '<integration-2@example.com>', 'Searchable follow-up', now() + interval '1 second', 43,
+        ${"c".repeat(64)}, 'complete', 'A second unique integration body phrase', 'searchable follow-up'
+      ) RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_search_chunks (message_id, position, search_document)
+      VALUES (${secondMatchingMessage!.id}::uuid, 0, to_tsvector('simple'::regconfig, 'A second unique integration body phrase'))
+    `;
+    await sql`
+      INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
+      VALUES (${secondMatchingMessage!.id}::uuid, 'from', 0, 'Alice Fixture', 'alice@example.com', 'alice@example.com')
+    `;
+    const [secondRemoteRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+      VALUES (${folder!.id}::uuid, ${secondMatchingMessage!.id}::uuid, 1, 99)
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
+      VALUES (
+        ${secondRemoteRef!.id}::uuid,
+        ${folder!.id}::uuid,
+        ${secondMatchingMessage!.id}::uuid,
+        ARRAY[]::text[],
+        ARRAY[]::text[]
+      )
+    `;
+    await sql`
+      INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
+      VALUES (${attachmentConversation!.id}::uuid, ${secondMatchingMessage!.id}::uuid, 1, 'headers')
+    `;
     const result = await searchMessages({
       context,
       mailboxId: mailbox.data.id,
@@ -1201,7 +1250,221 @@ suite("mail PostgreSQL foundation", () => {
       },
     });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.data.items.map((item) => item.id)).toContain(message!.id);
+    if (result.ok) {
+      const conversationHits = result.data.items.filter((item) => item.conversationId === attachmentConversation!.id);
+      expect(conversationHits).toHaveLength(1);
+      expect(conversationHits[0]).toMatchObject({
+        participantSummary: "Alice Fixture",
+        workStatus: "waiting",
+        assigneeUserId: context.actor.kind === "user" ? context.actor.user.id : null,
+        responseNeeded: true,
+        unread: true,
+        messageCount: 2,
+        sourceFolderId: folder!.id,
+        unreadFolderIds: [folder!.id],
+      });
+    }
+    const crossChunkWords = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "text", field: "body", query: "unique cobalt", match: "words" },
+        sort: "relevance",
+        limit: 10,
+      },
+    });
+    expect(crossChunkWords.ok && crossChunkWords.data.items.map((item) => item.conversationId)).toContain(attachmentConversation!.id);
+    const [secondaryFolder] = await sql<{ id: string }[]>`
+      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${resource!.id}::uuid, ${`secondary-${suffix}`}, 'Secondary', 'other', 'current')
+      RETURNING id
+    `;
+    const [secondaryRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+      VALUES (${secondaryFolder!.id}::uuid, ${secondMatchingMessage!.id}::uuid, 1, 1)
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (
+        remote_message_ref_id, folder_id, message_id, flags, keywords, updated_at
+      ) VALUES (
+        ${secondaryRef!.id}::uuid,
+        ${secondaryFolder!.id}::uuid,
+        ${secondMatchingMessage!.id}::uuid,
+        ARRAY[]::text[],
+        ARRAY[]::text[],
+        now() - interval '1 day'
+      )
+    `;
+    const folderScoped = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "folder_id", folderId: folder!.id },
+        sort: "newest",
+        limit: 10,
+      },
+    });
+    expect(folderScoped.ok).toBe(true);
+    if (folderScoped.ok) {
+      const hit = folderScoped.data.items.find((item) => item.conversationId === attachmentConversation!.id);
+      expect(hit?.unreadFolderIds).toEqual([folder!.id]);
+      expect(hit?.snippet).toBe("A second unique integration body phrase");
+      expect(hit?.sourceFolderId).toBe(folder!.id);
+    }
+    const ambiguousSource = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "text", field: "body", query: "second unique integration", match: "phrase" },
+        sort: "relevance",
+        limit: 10,
+      },
+    });
+    expect(ambiguousSource.ok).toBe(true);
+    if (ambiguousSource.ok) {
+      const hit = ambiguousSource.data.items.find((item) => item.conversationId === attachmentConversation!.id);
+      expect(hit?.sourceFolderId).toBeNull();
+      expect(hit?.snippet).toContain("second unique integration body phrase");
+      expect(hit?.snippet).not.toContain(",");
+    }
+    const assignedRelevancePage = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "assigned_to_me" },
+        sort: "relevance",
+        limit: 1,
+      },
+    });
+    expect(assignedRelevancePage.ok).toBe(true);
+    if (assignedRelevancePage.ok) {
+      expect(assignedRelevancePage.data.items).toHaveLength(1);
+      expect(assignedRelevancePage.data.items[0]?.conversationId).toBe(attachmentConversation!.id);
+      expect(assignedRelevancePage.data.nextCursor).toBeNull();
+    }
+    const oneConversationPage = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "text", field: "from", query: "alice@example.com", match: "exact" },
+        sort: "newest",
+        limit: 1,
+      },
+    });
+    expect(oneConversationPage.ok).toBe(true);
+    if (oneConversationPage.ok) {
+      expect(oneConversationPage.data.items).toHaveLength(1);
+      expect(oneConversationPage.data.nextCursor).toBeNull();
+    }
+
+    const [uidValidityDraft] = await sql<{ id: string; revision: number }[]>`
+      INSERT INTO mail.drafts (
+        mailbox_id, intent, sender_identity_id,
+        author_kind, author_id, last_editor_kind, last_editor_id,
+        to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format
+      ) VALUES (
+        ${mailbox.data.id}::uuid,
+        'new',
+        ${identity!.id}::uuid,
+        'user',
+        ${ids.userIds[0]}::uuid,
+        'user',
+        ${ids.userIds[0]}::uuid,
+        ${[{ name: "Recipient", address: "recipient@example.com" }]}::jsonb,
+        '[]'::jsonb,
+        '[]'::jsonb,
+        'UIDVALIDITY projection',
+        'Provider namespace reset fixture',
+        'plain'
+      )
+      RETURNING id, revision
+    `;
+    const projectedMessageId = `<uidvalidity-${suffix}@example.com>`;
+    const [projection] = await sql<{ id: string }[]>`
+      INSERT INTO mail.draft_provider_snapshots (
+        mailbox_id, draft_id, cloud_revision, direction, state,
+        stable_message_id, content_fingerprint, remote_resource_id, binding_id,
+        folder_id, uid_validity, uid, modseq, completed_at
+      ) VALUES (
+        ${mailbox.data.id}::uuid,
+        ${uidValidityDraft!.id}::uuid,
+        ${uidValidityDraft!.revision},
+        'export',
+        'active',
+        ${projectedMessageId},
+        ${"e".repeat(64)},
+        ${resource!.id}::uuid,
+        ${binding!.id}::uuid,
+        ${folder!.id}::uuid,
+        10,
+        41,
+        1,
+        now()
+      )
+      RETURNING id
+    `;
+    const projectedEnvelope: ConnectorEnvelope = {
+      remoteRef: { folderStableKey: folder!.id, uidValidity: "11", uid: "7", modseq: "2" },
+      providerMessageId: null,
+      providerThreadId: null,
+      messageId: projectedMessageId,
+      inReplyTo: null,
+      references: [],
+      subject: "UIDVALIDITY projection",
+      sentAt: null,
+      internalDate: new Date(),
+      sizeBytes: 512,
+      flags: ["\\Draft"],
+      labels: [],
+      addresses: { from: [], replyTo: [], to: [], cc: [], bcc: [] },
+      mimeStructure: {},
+    };
+    const remappedProjection = await sql.begin((tx) =>
+      recordDraftFolderSyncInTransaction({
+        db: tx,
+        mailboxId: mailbox.data.id,
+        remoteResourceId: resource!.id,
+        bindingId: binding!.id,
+        folderId: folder!.id,
+        uidValidity: "11",
+        uidValidityChanged: true,
+        envelopes: [projectedEnvelope],
+        reconcileWindow: null,
+      }),
+    );
+    expect(remappedProjection.exportSnapshotIds).toEqual([]);
+    const [activeRemap] = await sql<{ state: string; uid_validity: string; uid: string; last_error_code: string | null }[]>`
+      SELECT state, uid_validity::text, uid::text, last_error_code
+      FROM mail.draft_provider_snapshots
+      WHERE id = ${projection!.id}::uuid
+    `;
+    expect(activeRemap).toEqual({ state: "active", uid_validity: "11", uid: "7", last_error_code: null });
+    await sql`
+      UPDATE mail.drafts
+      SET revision = revision + 1, updated_at = now()
+      WHERE id = ${uidValidityDraft!.id}::uuid
+    `;
+    const retiringProjection = await sql.begin((tx) =>
+      recordDraftFolderSyncInTransaction({
+        db: tx,
+        mailboxId: mailbox.data.id,
+        remoteResourceId: resource!.id,
+        bindingId: binding!.id,
+        folderId: folder!.id,
+        uidValidity: "12",
+        uidValidityChanged: true,
+        envelopes: [{ ...projectedEnvelope, remoteRef: { ...projectedEnvelope.remoteRef, uidValidity: "12", uid: "9", modseq: "3" } }],
+        reconcileWindow: null,
+      }),
+    );
+    expect(retiringProjection.exportSnapshotIds).toEqual([projection!.id]);
+    const [retiringRemap] = await sql<{ state: string; uid_validity: string; uid: string; last_error_code: string | null }[]>`
+      SELECT state, uid_validity::text, uid::text, last_error_code
+      FROM mail.draft_provider_snapshots
+      WHERE id = ${projection!.id}::uuid
+    `;
+    expect(retiringRemap).toEqual({ state: "retiring", uid_validity: "12", uid: "9", last_error_code: null });
 
     const attachmentBytes = Buffer.alloc(2 * 1024 * 1024 + 513_123);
     for (let index = 0; index < attachmentBytes.length; index += 1) {
@@ -1420,6 +1683,23 @@ suite("mail PostgreSQL foundation", () => {
     expect(firstSearchPage.ok).toBe(true);
     const searchCursor = firstSearchPage.ok ? firstSearchPage.data.nextCursor : null;
     expect(searchCursor).not.toBeNull();
+    const secondSearchPage = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "text", field: "any", query: "body", match: "words" },
+        sort: "newest",
+        limit: 1,
+        cursor: searchCursor ?? undefined,
+      },
+    });
+    expect(secondSearchPage.ok).toBe(true);
+    if (firstSearchPage.ok && secondSearchPage.ok) {
+      expect(secondSearchPage.data.items).toHaveLength(1);
+      expect(secondSearchPage.data.items[0]?.conversationId ?? secondSearchPage.data.items[0]?.id).not.toBe(
+        firstSearchPage.data.items[0]?.conversationId ?? firstSearchPage.data.items[0]?.id,
+      );
+    }
     const reusedSearchCursor = await searchMessages({
       context,
       mailboxId: mailbox.data.id,
@@ -1610,7 +1890,7 @@ suite("mail PostgreSQL foundation", () => {
         idempotencyKey: `revoked-send-${suffix}`,
       },
     });
-    expect(collaboratorCommand.ok).toBe(true);
+    expect(collaboratorCommand.ok, collaboratorCommand.ok ? undefined : JSON.stringify(collaboratorCommand.error)).toBe(true);
     if (!collaboratorCommand.ok) return;
     const collaboratorScheduled = await listScheduledSends({
       context: collaboratorContext,
@@ -1821,6 +2101,11 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(retryCommand.ok).toBe(true);
     if (!retryCommand.ok) return;
+    await sql`
+      UPDATE mail.provider_connections
+      SET encrypted_secret = 'invalid-encrypted-fixture'
+      WHERE id = ${connection!.id}::uuid
+    `;
     const [retryOutbox] = await sql<{ id: string }[]>`
       UPDATE mail.outbox_submissions
       SET state = 'sent_sync_pending', scheduled_at = now(), undo_until = NULL
@@ -1874,6 +2159,11 @@ suite("mail PostgreSQL foundation", () => {
       command_attempt: 1,
       worker_heartbeat_at: null,
     });
+    await sql`
+      UPDATE mail.provider_connections
+      SET encrypted_secret = ${encryptedSecret}
+      WHERE id = ${connection!.id}::uuid
+    `;
 
     const [exhaustedMutation] = await sql<{ id: string }[]>`
       INSERT INTO mail.commands (

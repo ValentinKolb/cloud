@@ -1,7 +1,7 @@
 import { audit, logger } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { CreateConversationReferenceScheme, EnsureConversationReference, UpdateConversationReferenceScheme } from "../contracts";
+import type { EnsureConversationReference, PutConversationReferenceConfiguration } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
@@ -19,14 +19,12 @@ type ReferenceToken = { type: "literal"; value: string } | { type: "year" } | { 
 type ReferenceActor = { kind: "user" | "service_account" | "workflow"; id: string };
 const log = logger("mail:conversation-references");
 
-type ReferenceSchemeRow = {
-  id: string;
+type ReferenceConfigurationRow = {
   mailbox_id: string;
-  name: string;
   pattern: string;
   next_sequence: string | number;
   enabled: boolean;
-  is_default: boolean;
+  include_in_reply_subjects: boolean;
   revision: string | number;
   created_at: Date | string;
   updated_at: Date | string;
@@ -36,8 +34,8 @@ type ConversationReferenceRow = {
   id: string;
   mailbox_id: string;
   conversation_id: string;
-  scheme_id: string;
-  scheme_name: string;
+  configuration_revision: string | number;
+  pattern_snapshot: string;
   value: string;
   sequence: string | number;
   role: "primary" | "alias";
@@ -46,14 +44,12 @@ type ConversationReferenceRow = {
   allocated_at: Date | string;
 };
 
-export type ConversationReferenceScheme = {
-  id: string;
+export type ConversationReferenceConfiguration = {
   mailboxId: string;
-  name: string;
   pattern: string;
   nextSequence: string;
   enabled: boolean;
-  isDefault: boolean;
+  includeInReplySubjects: boolean;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -63,8 +59,8 @@ export type ConversationReference = {
   id: string;
   mailboxId: string;
   conversationId: string;
-  schemeId: string;
-  schemeName: string;
+  configurationRevision: number;
+  patternSnapshot: string;
   value: string;
   sequence: string;
   role: "primary" | "alias";
@@ -78,26 +74,24 @@ export type EnsureConversationReferenceResult = {
   created: boolean;
 };
 
-const schemeColumns = sql`
-  scheme.id, scheme.mailbox_id, scheme.name, scheme.pattern, scheme.next_sequence,
-  scheme.enabled, scheme.is_default, scheme.revision, scheme.created_at, scheme.updated_at
+const configurationColumns = sql`
+  configuration.mailbox_id, configuration.pattern, configuration.next_sequence,
+  configuration.enabled, configuration.include_in_reply_subjects, configuration.revision,
+  configuration.created_at, configuration.updated_at
 `;
 const referenceColumns = sql`
-  reference.id, reference.mailbox_id, reference.conversation_id, reference.scheme_id,
-  scheme.name AS scheme_name, reference.value, reference.sequence, reference.role,
+  reference.id, reference.mailbox_id, reference.conversation_id,
+  reference.configuration_revision, reference.pattern_snapshot, reference.value, reference.sequence, reference.role,
   reference.allocated_by_actor_kind, reference.allocated_by_actor_id, reference.allocated_at
 `;
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
-const normalizeName = (value: string): string => value.trim().replace(/\s+/gu, " ");
 
-const mapScheme = (row: ReferenceSchemeRow): ConversationReferenceScheme => ({
-  id: row.id,
+const mapConfiguration = (row: ReferenceConfigurationRow): ConversationReferenceConfiguration => ({
   mailboxId: row.mailbox_id,
-  name: row.name,
   pattern: row.pattern,
   nextSequence: String(row.next_sequence),
   enabled: row.enabled,
-  isDefault: row.is_default,
+  includeInReplySubjects: row.include_in_reply_subjects,
   revision: Number(row.revision),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
@@ -107,8 +101,8 @@ const mapReference = (row: ConversationReferenceRow): ConversationReference => (
   id: row.id,
   mailboxId: row.mailbox_id,
   conversationId: row.conversation_id,
-  schemeId: row.scheme_id,
-  schemeName: row.scheme_name,
+  configurationRevision: Number(row.configuration_revision),
+  patternSnapshot: row.pattern_snapshot,
   value: row.value,
   sequence: String(row.sequence),
   role: row.role,
@@ -187,6 +181,40 @@ export const formatConversationReference = (params: { pattern: string; sequence:
   return ok(rendered);
 };
 
+export const addConversationReferenceToReplySubject = (subject: string, reference: string, maxLength = 998): string => {
+  const normalizedReference = reference.trim();
+  const normalizedSubject = subject.trim();
+  if (!normalizedReference || !normalizedSubject || normalizedSubject.toLowerCase().includes(normalizedReference.toLowerCase())) {
+    return normalizedSubject.slice(0, maxLength);
+  }
+  const reply = /^re\s*:/iu.exec(normalizedSubject);
+  const body = reply ? normalizedSubject.slice(reply[0].length).trimStart() : normalizedSubject;
+  const prefix = `Re: [${normalizedReference}]`;
+  if (!body) return prefix.slice(0, maxLength);
+  const available = Math.max(0, maxLength - prefix.length - 1);
+  return `${prefix} ${body.slice(0, available)}`;
+};
+
+export const applyConversationReferenceToReplySubjectInTransaction = async (params: {
+  db: SqlClient;
+  mailboxId: string;
+  conversationId: string;
+  subject: string;
+}): Promise<string> => {
+  const [row] = await params.db<{ value: string }[]>`
+    SELECT reference.value
+    FROM mail.conversation_references reference
+    JOIN mail.reference_number_configurations configuration ON configuration.mailbox_id = reference.mailbox_id
+    WHERE reference.mailbox_id = ${params.mailboxId}::uuid
+      AND reference.conversation_id = ${params.conversationId}::uuid
+      AND reference.role = 'primary'
+      AND configuration.include_in_reply_subjects
+    ORDER BY reference.allocated_at, reference.id
+    LIMIT 1
+  `;
+  return row ? addConversationReferenceToReplySubject(params.subject, row.value) : params.subject;
+};
+
 const databaseCode = (error: unknown): string | null => {
   const candidate = error as { code?: unknown; errno?: unknown } | null;
   return typeof candidate?.code === "string" ? candidate.code : typeof candidate?.errno === "string" ? candidate.errno : null;
@@ -236,7 +264,7 @@ const insertActivity = async (params: {
       ${params.actor.id}::uuid,
       ${params.action},
       'confirmed',
-      ${params.conversationId ? "conversation_reference" : "reference_scheme"},
+      ${params.conversationId ? "conversation_reference" : "reference_configuration"},
       ${params.targetId}::uuid,
       ${params.metadata}::jsonb
     )
@@ -246,251 +274,118 @@ const insertActivity = async (params: {
   return String(activity.id);
 };
 
-const demoteDefaultSchemes = async (params: {
-  db: SqlClient;
-  context: MailRequestContext;
-  mailboxId: string;
-  actor: ReferenceActor;
-  exceptSchemeId?: string;
-}): Promise<Array<{ targetId: string; activityId: string }>> => {
-  const rows = await params.db<ReferenceSchemeRow[]>`
-    UPDATE mail.reference_schemes scheme
-    SET is_default = false, revision = revision + 1
-    WHERE scheme.mailbox_id = ${params.mailboxId}::uuid
-      AND scheme.is_default
-      AND (${params.exceptSchemeId ?? null}::uuid IS NULL OR scheme.id <> ${params.exceptSchemeId ?? null}::uuid)
-    RETURNING scheme.id, scheme.mailbox_id, scheme.name, scheme.pattern, scheme.next_sequence,
-      scheme.enabled, scheme.is_default, scheme.revision, scheme.created_at, scheme.updated_at
-  `;
-  const activityEvents: Array<{ targetId: string; activityId: string }> = [];
-  for (const row of rows) {
-    const scheme = mapScheme(row);
-    const activityId = await insertActivity({
-      db: params.db,
-      mailboxId: params.mailboxId,
-      conversationId: null,
-      actor: params.actor,
-      action: "reference_scheme.updated",
-      targetId: scheme.id,
-      metadata: { name: scheme.name, enabled: scheme.enabled, isDefault: false, revision: scheme.revision, reason: "default_replaced" },
-    });
-    activityEvents.push({ targetId: scheme.id, activityId });
-    await audit.record(
-      {
-        action: "mail.reference_scheme.update",
-        outcome: "allowed",
-        actor: auditActorFromRequest(params.context),
-        target: { type: "reference_scheme", id: scheme.id, label: scheme.name },
-        requestId: params.context.requestId,
-        metadata: {
-          mailboxId: params.mailboxId,
-          enabled: scheme.enabled,
-          isDefault: false,
-          revision: scheme.revision,
-          reason: "default_replaced",
-        },
-      },
-      params.db,
-    );
-  }
-  return activityEvents;
-};
-
-export const listConversationReferenceSchemes = async (
+export const getConversationReferenceConfiguration = async (
   context: MailRequestContext,
   mailboxId: string,
-): Promise<Result<ConversationReferenceScheme[]>> => {
+): Promise<Result<ConversationReferenceConfiguration | null>> => {
   const allowed = await requireMailboxPermission(context, mailboxId, "read");
   if (!allowed.ok) return allowed;
-  const rows = await sql<ReferenceSchemeRow[]>`
-    SELECT ${schemeColumns}
-    FROM mail.reference_schemes scheme
-    WHERE scheme.mailbox_id = ${mailboxId}::uuid
-    ORDER BY scheme.is_default DESC, scheme.enabled DESC, scheme.normalized_name, scheme.id
+  const [row] = await sql<ReferenceConfigurationRow[]>`
+    SELECT ${configurationColumns}
+    FROM mail.reference_number_configurations configuration
+    WHERE configuration.mailbox_id = ${mailboxId}::uuid
   `;
-  return ok(rows.map(mapScheme));
+  return ok(row ? mapConfiguration(row) : null);
 };
 
-export const createConversationReferenceScheme = async (params: {
+export const putConversationReferenceConfiguration = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  input: CreateConversationReferenceScheme;
-}): Promise<Result<ConversationReferenceScheme>> => {
+  input: PutConversationReferenceConfiguration;
+}): Promise<Result<ConversationReferenceConfiguration>> => {
   const pattern = params.input.pattern.trim();
   const validPattern = validateConversationReferencePattern(pattern);
   if (!validPattern.ok) return validPattern;
-  const name = normalizeName(params.input.name);
   const actor = requestActor(params.context);
   try {
     const result = await sql.begin(
-      async (
-        tx,
-      ): Promise<Result<{ scheme: ConversationReferenceScheme; activityEvents: Array<{ targetId: string; activityId: string }> }>> => {
+      async (tx): Promise<Result<{ configuration: ConversationReferenceConfiguration; activityId: string }>> => {
         const allowed = await lockMailbox(params.context, params.mailboxId, "admin", tx);
         if (!allowed.ok) return allowed;
-        const [count] = await tx<{ count: number }[]>`
-        SELECT COUNT(*)::int AS count FROM mail.reference_schemes WHERE mailbox_id = ${params.mailboxId}::uuid
-      `;
-        const makeDefault = params.input.makeDefault || count?.count === 0;
-        const activityEvents = makeDefault
-          ? await demoteDefaultSchemes({ db: tx, context: params.context, mailboxId: params.mailboxId, actor })
-          : [];
-        const [row] = await tx<ReferenceSchemeRow[]>`
-        INSERT INTO mail.reference_schemes (
-          mailbox_id, name, normalized_name, pattern, is_default, created_by_actor_kind, created_by_actor_id
-        ) VALUES (
-          ${params.mailboxId}::uuid,
-          ${name},
-          lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
-          ${pattern},
-          ${makeDefault},
-          ${actor.kind},
-          ${actor.id}::uuid
-        )
-        RETURNING id, mailbox_id, name, pattern, next_sequence, enabled, is_default, revision, created_at, updated_at
-      `;
-        if (!row) throw new Error("Reference scheme insert returned no row");
-        const scheme = mapScheme(row);
-        const activityId = await insertActivity({
-          db: tx,
-          mailboxId: params.mailboxId,
-          conversationId: null,
-          actor,
-          action: "reference_scheme.created",
-          targetId: scheme.id,
-          metadata: { name: scheme.name, pattern: scheme.pattern, isDefault: scheme.isDefault, revision: scheme.revision },
-        });
-        await audit.record(
-          {
-            action: "mail.reference_scheme.create",
-            outcome: "allowed",
-            actor: auditActorFromRequest(params.context),
-            target: { type: "reference_scheme", id: scheme.id, label: scheme.name },
-            requestId: params.context.requestId,
-            metadata: { mailboxId: params.mailboxId, isDefault: scheme.isDefault, revision: scheme.revision },
-          },
-          tx,
-        );
-        return ok({ scheme, activityEvents: [...activityEvents, { targetId: scheme.id, activityId }] });
-      },
-    );
-    if (!result.ok) return result;
-    for (const event of result.data.activityEvents) {
-      await publishMailMailboxEvent({
-        mailboxId: params.mailboxId,
-        conversationId: null,
-        reason: "reference_scheme",
-        targetId: event.targetId,
-        activityId: event.activityId,
-      });
-    }
-    return ok(result.data.scheme);
-  } catch (error) {
-    return failure(error, "Failed to create conversation reference scheme");
-  }
-};
-
-export const updateConversationReferenceScheme = async (params: {
-  context: MailRequestContext;
-  mailboxId: string;
-  schemeId: string;
-  input: UpdateConversationReferenceScheme;
-}): Promise<Result<ConversationReferenceScheme>> => {
-  const pattern = params.input.pattern?.trim();
-  if (pattern !== undefined) {
-    const validPattern = validateConversationReferencePattern(pattern);
-    if (!validPattern.ok) return validPattern;
-  }
-  try {
-    const result = await sql.begin(
-      async (
-        tx,
-      ): Promise<Result<{ scheme: ConversationReferenceScheme; activityEvents: Array<{ targetId: string; activityId: string }> }>> => {
-        const allowed = await lockMailbox(params.context, params.mailboxId, "admin", tx);
-        if (!allowed.ok) return allowed;
-        const [current] = await tx<ReferenceSchemeRow[]>`
-        SELECT ${schemeColumns}
-        FROM mail.reference_schemes scheme
-        WHERE scheme.id = ${params.schemeId}::uuid AND scheme.mailbox_id = ${params.mailboxId}::uuid
+        const [current] = await tx<ReferenceConfigurationRow[]>`
+        SELECT ${configurationColumns}
+        FROM mail.reference_number_configurations configuration
+        WHERE configuration.mailbox_id = ${params.mailboxId}::uuid
         FOR UPDATE
       `;
-        if (!current) return fail(err.notFound("Conversation reference scheme"));
-        if (Number(current.revision) !== params.input.expectedRevision) return fail(err.conflict("Reference scheme was changed"));
-        const name = params.input.name === undefined ? current.name : normalizeName(params.input.name);
-        const nextPattern = pattern ?? current.pattern;
-        const enabled = params.input.enabled ?? current.enabled;
-        const makeDefault = params.input.makeDefault ?? current.is_default;
-        if (makeDefault && !enabled) return fail(err.badInput("A disabled reference scheme cannot be the default"));
-        const actor = requestActor(params.context);
-        const activityEvents = makeDefault
-          ? await demoteDefaultSchemes({
-              db: tx,
-              context: params.context,
-              mailboxId: params.mailboxId,
-              actor,
-              exceptSchemeId: params.schemeId,
-            })
-          : [];
+        if (current && params.input.expectedRevision !== Number(current.revision)) {
+          return fail(err.conflict("Reference number settings were changed"));
+        }
+        if (!current && params.input.expectedRevision !== null) {
+          return fail(err.conflict("Reference number settings do not exist yet"));
+        }
         const changed =
-          name !== current.name || nextPattern !== current.pattern || enabled !== current.enabled || makeDefault !== current.is_default;
-        if (!changed) return ok({ scheme: mapScheme(current), activityEvents });
-        const [updated] = await tx<ReferenceSchemeRow[]>`
-        UPDATE mail.reference_schemes scheme
+          !current ||
+          current.pattern !== pattern ||
+          current.enabled !== params.input.enabled ||
+          current.include_in_reply_subjects !== params.input.includeInReplySubjects;
+        if (!changed && current) {
+          return ok({ configuration: mapConfiguration(current), activityId: "" });
+        }
+        const [row] = await tx<ReferenceConfigurationRow[]>`
+        INSERT INTO mail.reference_number_configurations (
+          mailbox_id, pattern, enabled, include_in_reply_subjects, created_by_actor_kind, created_by_actor_id
+        ) VALUES (
+          ${params.mailboxId}::uuid, ${pattern}, ${params.input.enabled}, ${params.input.includeInReplySubjects},
+          ${actor.kind}, ${actor.id}::uuid
+        )
+        ON CONFLICT (mailbox_id) DO UPDATE
         SET
-          name = ${name},
-          normalized_name = lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
-          pattern = ${nextPattern},
-          enabled = ${enabled},
-          is_default = ${makeDefault},
-          revision = revision + 1
-        WHERE scheme.id = ${params.schemeId}::uuid
-        RETURNING scheme.id, scheme.mailbox_id, scheme.name, scheme.pattern, scheme.next_sequence,
-          scheme.enabled, scheme.is_default, scheme.revision, scheme.created_at, scheme.updated_at
+          pattern = EXCLUDED.pattern,
+          enabled = EXCLUDED.enabled,
+          include_in_reply_subjects = EXCLUDED.include_in_reply_subjects,
+          revision = mail.reference_number_configurations.revision + 1
+        RETURNING mailbox_id, pattern, next_sequence, enabled, include_in_reply_subjects, revision, created_at, updated_at
       `;
-        if (!updated) throw new Error("Reference scheme update returned no row");
-        const scheme = mapScheme(updated);
+        if (!row) throw new Error("Reference number configuration upsert returned no row");
+        const configuration = mapConfiguration(row);
         const activityId = await insertActivity({
           db: tx,
           mailboxId: params.mailboxId,
           conversationId: null,
           actor,
-          action: "reference_scheme.updated",
-          targetId: scheme.id,
+          action: current ? "reference_configuration.updated" : "reference_configuration.created",
+          targetId: params.mailboxId,
           metadata: {
-            name: scheme.name,
-            pattern: scheme.pattern,
-            enabled: scheme.enabled,
-            isDefault: scheme.isDefault,
-            revision: scheme.revision,
+            pattern: configuration.pattern,
+            enabled: configuration.enabled,
+            includeInReplySubjects: configuration.includeInReplySubjects,
+            revision: configuration.revision,
           },
         });
         await audit.record(
           {
-            action: "mail.reference_scheme.update",
+            action: current ? "mail.reference_configuration.update" : "mail.reference_configuration.create",
             outcome: "allowed",
             actor: auditActorFromRequest(params.context),
-            target: { type: "reference_scheme", id: scheme.id, label: scheme.name },
+            target: { type: "reference_configuration", id: params.mailboxId },
             requestId: params.context.requestId,
-            metadata: { mailboxId: params.mailboxId, enabled: scheme.enabled, isDefault: scheme.isDefault, revision: scheme.revision },
+            metadata: {
+              mailboxId: params.mailboxId,
+              pattern: configuration.pattern,
+              enabled: configuration.enabled,
+              includeInReplySubjects: configuration.includeInReplySubjects,
+              revision: configuration.revision,
+            },
           },
           tx,
         );
-        return ok({ scheme, activityEvents: [...activityEvents, { targetId: scheme.id, activityId }] });
+        return ok({ configuration, activityId });
       },
     );
     if (!result.ok) return result;
-    for (const event of result.data.activityEvents) {
+    if (result.data.activityId) {
       await publishMailMailboxEvent({
         mailboxId: params.mailboxId,
         conversationId: null,
-        reason: "reference_scheme",
-        targetId: event.targetId,
-        activityId: event.activityId,
+        reason: "reference_configuration",
+        targetId: params.mailboxId,
+        activityId: result.data.activityId,
       });
     }
-    return ok(result.data.scheme);
+    return ok(result.data.configuration);
   } catch (error) {
-    return failure(error, "Failed to update conversation reference scheme");
+    return failure(error, "Failed to save reference number settings");
   }
 };
 
@@ -504,7 +399,6 @@ export const listConversationReferences = async (params: {
   const rows = await sql<ConversationReferenceRow[]>`
     SELECT ${referenceColumns}
     FROM mail.conversation_references reference
-    JOIN mail.reference_schemes scheme ON scheme.id = reference.scheme_id
     WHERE reference.mailbox_id = ${params.mailboxId}::uuid
       AND reference.conversation_id = ${params.conversationId}::uuid
     ORDER BY reference.role = 'primary' DESC, reference.allocated_at, reference.id
@@ -529,7 +423,6 @@ export const findConversationByReference = async (params: {
   const [row] = await sql<ConversationReferenceRow[]>`
     SELECT ${referenceColumns}
     FROM mail.conversation_references reference
-    JOIN mail.reference_schemes scheme ON scheme.id = reference.scheme_id
     WHERE reference.mailbox_id = ${params.mailboxId}::uuid
       AND reference.normalized_value = lower(btrim(${params.value}))
   `;
@@ -540,7 +433,6 @@ export const ensureConversationReferenceInTransaction = async (params: {
   db: SqlClient;
   mailboxId: string;
   conversationId: string;
-  schemeId?: string;
   idempotencyKey: string;
   actor: ReferenceActor;
 }): Promise<Result<{ result: EnsureConversationReferenceResult; activityId: string | null }>> => {
@@ -552,27 +444,21 @@ export const ensureConversationReferenceInTransaction = async (params: {
   const [replayed] = await params.db<
     (ConversationReferenceRow & {
       origin_conversation_id: string;
-      requested_scheme_id: string;
       conversation_revision: string | number;
     })[]
   >`
     SELECT
       ${referenceColumns},
       request.origin_conversation_id,
-      request.scheme_id AS requested_scheme_id,
       current_conversation.revision AS conversation_revision
     FROM mail.conversation_reference_requests request
     JOIN mail.conversation_references reference ON reference.id = request.reference_id
-    JOIN mail.reference_schemes scheme ON scheme.id = reference.scheme_id
     JOIN mail.conversations current_conversation ON current_conversation.id = reference.conversation_id
     WHERE request.mailbox_id = ${params.mailboxId}::uuid
       AND request.idempotency_key = ${params.idempotencyKey}
   `;
   if (replayed) {
-    if (
-      replayed.origin_conversation_id !== params.conversationId ||
-      (params.schemeId !== undefined && replayed.requested_scheme_id !== params.schemeId)
-    ) {
+    if (replayed.origin_conversation_id !== params.conversationId) {
       return fail(err.conflict("Conversation reference idempotency key was already used for another request"));
     }
     return ok({
@@ -587,35 +473,29 @@ export const ensureConversationReferenceInTransaction = async (params: {
     FOR UPDATE
   `;
   if (!conversation) return fail(err.notFound("Conversation"));
-  const [scheme] = await params.db<ReferenceSchemeRow[]>`
-    SELECT ${schemeColumns}
-    FROM mail.reference_schemes scheme
-    WHERE scheme.mailbox_id = ${params.mailboxId}::uuid
-      AND scheme.enabled
-      AND (${params.schemeId ?? null}::uuid IS NULL OR scheme.id = ${params.schemeId ?? null}::uuid)
-      AND (${params.schemeId ?? null}::uuid IS NOT NULL OR scheme.is_default)
-    ORDER BY scheme.is_default DESC, scheme.id
-    LIMIT 1
+  const [configuration] = await params.db<ReferenceConfigurationRow[]>`
+    SELECT ${configurationColumns}
+    FROM mail.reference_number_configurations configuration
+    WHERE configuration.mailbox_id = ${params.mailboxId}::uuid
+      AND configuration.enabled
     FOR UPDATE
   `;
-  if (!scheme) return fail(err.badInput(params.schemeId ? "Reference scheme is unavailable" : "No default reference scheme is configured"));
+  if (!configuration) return fail(err.badInput("Reference numbers are not configured or are disabled"));
   const [existing] = await params.db<ConversationReferenceRow[]>`
     SELECT ${referenceColumns}
     FROM mail.conversation_references reference
-    JOIN mail.reference_schemes scheme ON scheme.id = reference.scheme_id
-    WHERE reference.conversation_id = ${params.conversationId}::uuid AND reference.scheme_id = ${scheme.id}::uuid
+    WHERE reference.conversation_id = ${params.conversationId}::uuid
     ORDER BY reference.role = 'primary' DESC, reference.allocated_at, reference.id
     LIMIT 1
   `;
   if (existing) {
     await params.db`
       INSERT INTO mail.conversation_reference_requests (
-        mailbox_id, idempotency_key, origin_conversation_id, scheme_id, reference_id
+        mailbox_id, idempotency_key, origin_conversation_id, reference_id
       ) VALUES (
         ${params.mailboxId}::uuid,
         ${params.idempotencyKey},
         ${params.conversationId}::uuid,
-        ${scheme.id}::uuid,
         ${existing.id}::uuid
       )
     `;
@@ -636,22 +516,22 @@ export const ensureConversationReferenceInTransaction = async (params: {
     FOR SHARE
   `;
   const role: ConversationReference["role"] = primary ? "alias" : "primary";
-  let sequence = BigInt(scheme.next_sequence);
+  let sequence = BigInt(configuration.next_sequence);
   let created: ConversationReferenceRow | undefined;
   for (let attempt = 0; attempt < 1_000 && !created; attempt += 1) {
-    const rendered = formatConversationReference({ pattern: scheme.pattern, sequence, allocatedAt });
+    const rendered = formatConversationReference({ pattern: configuration.pattern, sequence, allocatedAt });
     if (!rendered.ok) return rendered;
     [created] = await params.db<ConversationReferenceRow[]>`
       INSERT INTO mail.conversation_references (
-        mailbox_id, conversation_id, origin_conversation_id, scheme_id, scheme_revision,
+        mailbox_id, conversation_id, origin_conversation_id, configuration_revision, pattern_snapshot,
         value, normalized_value, sequence, role, allocated_by_actor_kind, allocated_by_actor_id,
         idempotency_key, allocated_at
       ) VALUES (
         ${params.mailboxId}::uuid,
         ${params.conversationId}::uuid,
         ${params.conversationId}::uuid,
-        ${scheme.id}::uuid,
-        ${scheme.revision},
+        ${configuration.revision},
+        ${configuration.pattern},
         ${rendered.data},
         lower(${rendered.data}),
         ${sequence.toString()},
@@ -662,27 +542,26 @@ export const ensureConversationReferenceInTransaction = async (params: {
         ${allocatedAt}
       )
       ON CONFLICT (mailbox_id, normalized_value) DO NOTHING
-      RETURNING id, mailbox_id, conversation_id, scheme_id, ${scheme.name} AS scheme_name,
+      RETURNING id, mailbox_id, conversation_id, configuration_revision, pattern_snapshot,
         value, sequence, role, allocated_by_actor_kind, allocated_by_actor_id, allocated_at
     `;
     sequence += 1n;
   }
-  if (!created) return fail(err.conflict("Reference scheme overlaps too many existing values; change its pattern"));
+  if (!created) return fail(err.conflict("Reference number pattern overlaps too many existing values; change its pattern"));
   await params.db`
     INSERT INTO mail.conversation_reference_requests (
-      mailbox_id, idempotency_key, origin_conversation_id, scheme_id, reference_id
+      mailbox_id, idempotency_key, origin_conversation_id, reference_id
     ) VALUES (
       ${params.mailboxId}::uuid,
       ${params.idempotencyKey},
       ${params.conversationId}::uuid,
-      ${scheme.id}::uuid,
       ${created.id}::uuid
     )
   `;
   await params.db`
-    UPDATE mail.reference_schemes
+    UPDATE mail.reference_number_configurations
     SET next_sequence = ${sequence.toString()}
-    WHERE id = ${scheme.id}::uuid
+    WHERE mailbox_id = ${params.mailboxId}::uuid
   `;
   const [updatedConversation] = await params.db<{ revision: string | number }[]>`
     UPDATE mail.conversations
@@ -699,7 +578,7 @@ export const ensureConversationReferenceInTransaction = async (params: {
     actor: params.actor,
     action: "conversation.reference_allocated",
     targetId: reference.id,
-    metadata: { value: reference.value, schemeId: reference.schemeId, role: reference.role, sequence: reference.sequence },
+    metadata: { value: reference.value, role: reference.role, sequence: reference.sequence },
   });
   return ok({
     result: { reference, conversationRevision: Number(updatedConversation.revision), created: true },
@@ -722,7 +601,6 @@ export const ensureConversationReference = async (params: {
           db: tx,
           mailboxId: params.mailboxId,
           conversationId: params.conversationId,
-          schemeId: params.input.schemeId,
           idempotencyKey: params.input.idempotencyKey,
           actor: requestActor(params.context),
         });

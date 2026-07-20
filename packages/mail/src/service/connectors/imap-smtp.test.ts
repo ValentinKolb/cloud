@@ -1,10 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { parseEnvelopeHeaders, parseReferences, selectUidBatch } from "./imap-smtp";
+import type { ListResponse } from "imapflow";
+import { parseEnvelopeHeaders, parseReferences, renameImapFolder, selectUidBatch } from "./imap-smtp";
 
 const sparseSearch = (uids: number[], probes: Array<[number, number]>) => async (lowUid: number, highUid: number) => {
   probes.push([lowUid, highUid]);
   return uids.filter((uid) => uid >= lowUid && uid <= highUid);
 };
+
+const listedFolder = (path: string, subscribed: boolean): ListResponse => ({
+  path,
+  pathAsListed: path,
+  name: path,
+  delimiter: "/",
+  flags: new Set(),
+  listed: true,
+  subscribed,
+  parent: [],
+  parentPath: "",
+});
 
 describe("IMAP envelope UID batching", () => {
   test("finds existing messages without scanning every sparse UID window", async () => {
@@ -78,5 +91,60 @@ describe("IMAP References parsing", () => {
       contentType: "multipart/report; report-type=delivery-status",
       deliveryStatus: true,
     });
+  });
+});
+
+describe("IMAP folder rename", () => {
+  test("restores a subscription that the provider drops during rename", async () => {
+    const calls: string[] = [];
+    await renameImapFolder(
+      {
+        list: async () => [listedFolder("Cloud Source", true)],
+        mailboxRename: async (path, newPath) => {
+          calls.push(`rename:${String(path)}:${String(newPath)}`);
+          return { path: String(newPath), newPath: String(newPath) };
+        },
+        mailboxSubscribe: async (path) => {
+          calls.push(`subscribe:${String(path)}`);
+          return true;
+        },
+      },
+      "Cloud Source",
+      "Cloud Renamed",
+    );
+
+    expect(calls).toEqual(["rename:Cloud Source:Cloud Renamed", "subscribe:Cloud Renamed"]);
+  });
+
+  test("does not add a subscription to an unsubscribed folder", async () => {
+    let subscribed = false;
+    await renameImapFolder(
+      {
+        list: async () => [listedFolder("Cloud Source", false)],
+        mailboxRename: async () => ({ path: "Cloud Renamed", newPath: "Cloud Renamed" }),
+        mailboxSubscribe: async () => {
+          subscribed = true;
+          return true;
+        },
+      },
+      "Cloud Source",
+      "Cloud Renamed",
+    );
+
+    expect(subscribed).toBe(false);
+  });
+
+  test("reports a partial failure when the rename succeeded but resubscribe did not", async () => {
+    await expect(
+      renameImapFolder(
+        {
+          list: async () => [listedFolder("Cloud Source", true)],
+          mailboxRename: async () => ({ path: "Cloud Renamed", newPath: "Cloud Renamed" }),
+          mailboxSubscribe: async () => false,
+        },
+        "Cloud Source",
+        "Cloud Renamed",
+      ),
+    ).rejects.toMatchObject({ code: "REMOTE_RENAME_SUBSCRIBE_PARTIAL" });
   });
 });

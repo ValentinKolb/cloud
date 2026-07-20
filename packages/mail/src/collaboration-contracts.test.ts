@@ -18,17 +18,25 @@ describe("Mail collaboration contracts", () => {
   test("keeps saved view filters bounded and strict", () => {
     expect(
       savedConversationViewFilterSchema.safeParse({
-        workStatuses: ["open", "waiting"],
-        assignee: { kind: "me" },
-        responseNeeded: true,
+        expression: {
+          type: "and",
+          expressions: [{ type: "work_status", value: "open" }, { type: "assigned_to_me" }, { type: "response_needed", value: true }],
+        },
+        sort: "newest",
       }).success,
     ).toBe(true);
-    expect(savedConversationViewFilterSchema.safeParse({ workStatuses: ["open", "open"] }).success).toBe(false);
+    expect(savedConversationViewFilterSchema.safeParse({ expression: { type: "all" }, sort: "oldest" }).success).toBe(false);
     expect(savedConversationViewFilterSchema.safeParse({ arbitrarySql: "true" }).success).toBe(false);
   });
 
   test("does not allow changing saved view scope during update", () => {
-    expect(createSavedConversationViewSchema.safeParse({ scope: "private", name: "Mine", filter: {} }).success).toBe(true);
+    expect(
+      createSavedConversationViewSchema.safeParse({
+        scope: "private",
+        name: "Mine",
+        filter: { expression: { type: "all" }, sort: "newest" },
+      }).success,
+    ).toBe(true);
     expect(updateSavedConversationViewSchema.safeParse({ expectedRevision: 1, scope: "mailbox" }).success).toBe(false);
     expect(updateSavedConversationViewSchema.safeParse({ expectedRevision: 1 }).success).toBe(false);
   });

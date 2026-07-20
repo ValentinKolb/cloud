@@ -45,8 +45,6 @@ import {
   mailSearchExpressionSchema,
   type ProviderBinding,
   type ProviderConnection,
-  type ResponseScheduleDefinitionInput,
-  responseScheduleDefinitionSchema,
   type SavedConversationViewFilter,
   type ScheduledSendPage,
   type SenderIdentity,
@@ -60,7 +58,7 @@ import type { AutomaticReplyConfiguration } from "./service/automatic-reply-conf
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
 import type {
   ConversationReference,
-  ConversationReferenceScheme,
+  ConversationReferenceConfiguration,
   EnsureConversationReferenceResult,
 } from "./service/conversation-reference";
 import type { MergeConversationsResult, SplitConversationResult } from "./service/conversations";
@@ -68,7 +66,6 @@ import type { ConversationLocalTags, LocalTag } from "./service/local-tags";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { DiscoveredMailConfiguration } from "./service/onboarding-discovery";
 import type { ConversationReminder } from "./service/reminders";
-import type { ResponseSchedule } from "./service/response-schedule";
 import type { SavedConversationView } from "./service/saved-views";
 import type { MessageSearchHit, MessageSearchPage } from "./service/search";
 
@@ -269,17 +266,6 @@ const savedViewFilterInput = flag.input({
   stdinName: "filter-stdin",
   description: "Saved view filter as JSON or YAML",
 });
-const responseScheduleDefinitionInput = flag.input({
-  required: true,
-  fileName: "definition-file",
-  stdinName: "definition-stdin",
-  description: "Response schedule definition as JSON or YAML",
-});
-const optionalResponseScheduleDefinitionInput = flag.input({
-  fileName: "definition-file",
-  stdinName: "definition-stdin",
-  description: "Replacement response schedule definition as JSON or YAML",
-});
 const automaticReplyConfigurationInput = flag.input({
   required: true,
   fileName: "configuration-file",
@@ -332,25 +318,6 @@ const readSavedViewFilter = async (
   if (raw.trim().length === 0) throw new Error("Saved view filter cannot be empty.");
   const parsed = savedConversationViewFilterSchema.safeParse(parseStructuredDocument(raw, "Saved view filter"));
   if (!parsed.success) throw new Error(`Invalid saved view filter: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
-  return parsed.data;
-};
-
-const readResponseScheduleDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<ResponseScheduleDefinitionInput> => {
-  const raw = await readCliInput(input, { label: "response schedule definition", required: true });
-  if (!raw?.trim()) throw new Error("Response schedule definition cannot be empty.");
-  const parsed = responseScheduleDefinitionSchema.safeParse(parseStructuredDocument(raw, "Response schedule definition"));
-  if (!parsed.success) throw new Error(`Invalid response schedule definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
-  return parsed.data;
-};
-
-const readOptionalResponseScheduleDefinition = async (
-  input: Parameters<typeof readCliInput>[0],
-): Promise<ResponseScheduleDefinitionInput | undefined> => {
-  const raw = await readCliInput(input, { label: "response schedule definition", required: false });
-  if (raw === undefined) return undefined;
-  if (!raw.trim()) throw new Error("Response schedule definition cannot be empty.");
-  const parsed = responseScheduleDefinitionSchema.safeParse(parseStructuredDocument(raw, "Response schedule definition"));
-  if (!parsed.success) throw new Error(`Invalid response schedule definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
 };
 
@@ -1086,6 +1053,10 @@ export default defineCliCommands({
           name: "search-backend",
           description: "Search ranking backend preference",
         }),
+        automaticReplies: flag.enum(["writers", "admins"] as const, {
+          name: "automatic-replies",
+          description: "Who may create and change automatic replies",
+        }),
         sync: flag.enum(["enabled", "disabled"] as const, { description: "Enable or pause provider synchronization" }),
       },
       run: async ({ ctx, flags }) => {
@@ -1094,9 +1065,14 @@ export default defineCliCommands({
           ...(flags.name !== undefined ? { name: flags.name } : {}),
           ...(flags.description !== undefined ? { description: flags.description || null } : {}),
           ...(flags.searchBackend !== undefined ? { searchBackend: flags.searchBackend } : {}),
+          ...(flags.automaticReplies !== undefined
+            ? { automaticReplyManagementPermission: flags.automaticReplies === "writers" ? ("write" as const) : ("admin" as const) }
+            : {}),
           ...(flags.sync !== undefined ? { syncEnabled: flags.sync === "enabled" } : {}),
         };
-        if (Object.keys(update).length === 0) throw new Error("Pass --name, --description, --search-backend, or --sync.");
+        if (Object.keys(update).length === 0) {
+          throw new Error("Pass --name, --description, --search-backend, --automatic-replies, or --sync.");
+        }
         const updated = await readApi<Mailbox>(ctx, `/mailboxes/${mailbox.id}`, jsonRequest("PATCH", update));
         if (ctx.options.output === "json") ctx.json(updated);
         else ctx.print(`Updated ${updated.name} (${updated.id}).`);
@@ -3257,89 +3233,62 @@ export default defineCliCommands({
         ctx.print(result.disposition === "draft" ? `Restored draft ${result.draftId}.` : `Discarded message ${result.draftId}.`);
       },
     }),
-    command("reference scheme list", {
-      summary: "List conversation reference schemes",
+    command("reference config show", {
+      summary: "Show mailbox reference number settings",
       flags: mailboxFlag,
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const schemes = await readApi<ConversationReferenceScheme[]>(ctx, `/mailboxes/${mailbox.id}/reference-schemes`);
-        printTable(
+        const configuration = await readApi<ConversationReferenceConfiguration | null>(
           ctx,
-          schemes,
-          schemes.map((scheme) => ({
-            name: scheme.name,
-            pattern: scheme.pattern,
-            next: scheme.nextSequence,
-            default: scheme.isDefault ? "yes" : "",
-            enabled: scheme.enabled ? "yes" : "no",
-            revision: scheme.revision,
-            id: scheme.id,
-          })),
-          [
-            { key: "name", label: "NAME" },
-            { key: "pattern", label: "PATTERN" },
-            { key: "next", label: "NEXT" },
-            { key: "default", label: "DEFAULT" },
-            { key: "enabled", label: "ENABLED" },
-            { key: "revision", label: "REV" },
-            { key: "id", label: "SCHEME ID" },
-          ],
+          `/mailboxes/${mailbox.id}/reference-number-configuration`,
         );
+        if (printStructured(ctx, configuration)) return;
+        if (!configuration) {
+          ctx.print("Reference numbers are not configured.");
+          return;
+        }
+        ctx.print(`Pattern: ${configuration.pattern}`);
+        ctx.print(`Next sequence: ${configuration.nextSequence}`);
+        ctx.print(`Enabled: ${configuration.enabled ? "yes" : "no"}`);
+        ctx.print(`Reply subjects: ${configuration.includeInReplySubjects ? "include reference" : "unchanged"}`);
+        ctx.print(`Revision: ${configuration.revision}`);
       },
     }),
-    command("reference scheme create", {
-      summary: "Create a conversation reference scheme",
-      args: { name: arg.required({ description: "User-visible scheme name" }) },
+    command("reference config set", {
+      summary: "Create or update mailbox reference number settings",
       flags: {
         ...mailboxFlag,
-        pattern: flag.string({ required: true, description: "Pattern with one {sequence} token and optional {year}" }),
-        default: flag.boolean({ description: "Make this the mailbox default" }),
+        pattern: flag.string({ description: "Pattern with one {sequence} token and optional {year}" }),
+        enable: flag.boolean({ description: "Allow new reference allocations" }),
+        disable: flag.boolean({ description: "Stop new reference allocations" }),
+        includeInReplySubjects: flag.boolean({ name: "include-in-reply-subjects", description: "Add references to new reply subjects" }),
+        excludeFromReplySubjects: flag.boolean({ name: "exclude-from-reply-subjects", description: "Leave new reply subjects unchanged" }),
       },
-      run: async ({ ctx, args, flags }) => {
-        if (!flags.pattern) throw new Error("Missing reference pattern.");
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const scheme = await readApi<ConversationReferenceScheme>(
-          ctx,
-          `/mailboxes/${mailbox.id}/reference-schemes`,
-          jsonRequest("POST", { name: args.name, pattern: flags.pattern, makeDefault: flags.default }),
-        );
-        if (printStructured(ctx, scheme)) return;
-        ctx.print(`Created reference scheme ${scheme.name} (${scheme.id}).`);
-      },
-    }),
-    command("reference scheme update", {
-      summary: "Update a conversation reference scheme at an expected revision",
-      args: { schemeId: arg.required({ description: "Reference scheme id" }) },
-      flags: {
-        ...mailboxFlag,
-        revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
-        name: flag.string({ description: "Replacement user-visible name" }),
-        pattern: flag.string({ description: "Replacement allocation pattern" }),
-        enable: flag.boolean({ description: "Enable this scheme" }),
-        disable: flag.boolean({ description: "Disable this scheme" }),
-        default: flag.boolean({ description: "Make this the mailbox default" }),
-        noDefault: flag.boolean({ name: "no-default", description: "Clear this scheme as the mailbox default" }),
-      },
-      run: async ({ ctx, args, flags }) => {
-        if (flags.revision === undefined) throw new Error("Missing expected reference scheme revision.");
+      run: async ({ ctx, flags }) => {
         if (flags.enable && flags.disable) throw new Error("Use either --enable or --disable.");
-        if (flags.default && flags.noDefault) throw new Error("Use either --default or --no-default.");
-        const input = {
-          expectedRevision: flags.revision,
-          ...(flags.name !== undefined ? { name: flags.name } : {}),
-          ...(flags.pattern !== undefined ? { pattern: flags.pattern } : {}),
-          ...(flags.enable || flags.disable ? { enabled: flags.enable } : {}),
-          ...(flags.default || flags.noDefault ? { makeDefault: flags.default } : {}),
-        };
-        if (Object.keys(input).length === 1) throw new Error("Pass at least one reference scheme change.");
+        if (flags.includeInReplySubjects && flags.excludeFromReplySubjects) {
+          throw new Error("Use either --include-in-reply-subjects or --exclude-from-reply-subjects.");
+        }
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const scheme = await readApi<ConversationReferenceScheme>(
+        const current = await readApi<ConversationReferenceConfiguration | null>(
           ctx,
-          `/mailboxes/${mailbox.id}/reference-schemes/${args.schemeId}`,
-          jsonRequest("PATCH", input),
+          `/mailboxes/${mailbox.id}/reference-number-configuration`,
         );
-        if (printStructured(ctx, scheme)) return;
-        ctx.print(`Updated reference scheme ${scheme.name} to revision ${scheme.revision}.`);
+        const configuration = await readApi<ConversationReferenceConfiguration>(
+          ctx,
+          `/mailboxes/${mailbox.id}/reference-number-configuration`,
+          jsonRequest("PUT", {
+            expectedRevision: current?.revision ?? null,
+            pattern: flags.pattern ?? current?.pattern ?? "REF-{year}-{sequence:6}",
+            enabled: flags.enable || flags.disable ? flags.enable : (current?.enabled ?? true),
+            includeInReplySubjects:
+              flags.includeInReplySubjects || flags.excludeFromReplySubjects
+                ? flags.includeInReplySubjects
+                : (current?.includeInReplySubjects ?? true),
+          }),
+        );
+        if (printStructured(ctx, configuration)) return;
+        ctx.print(`Saved reference number settings at revision ${configuration.revision}.`);
       },
     }),
     command("reference list", {
@@ -3358,14 +3307,12 @@ export default defineCliCommands({
           references.map((reference) => ({
             value: reference.value,
             role: reference.role,
-            scheme: reference.schemeName,
             allocated: reference.allocatedAt,
             id: reference.id,
           })),
           [
             { key: "value", label: "REFERENCE" },
             { key: "role", label: "ROLE" },
-            { key: "scheme", label: "SCHEME" },
             { key: "allocated", label: "ALLOCATED" },
             { key: "id", label: "ID" },
           ],
@@ -3377,7 +3324,6 @@ export default defineCliCommands({
       args: { conversationId: arg.required({ description: "Conversation id" }) },
       flags: {
         ...mailboxFlag,
-        scheme: flag.string({ description: "Reference scheme id; defaults to the mailbox default" }),
         idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable retry key" }),
       },
       run: async ({ ctx, args, flags }) => {
@@ -3385,7 +3331,7 @@ export default defineCliCommands({
         const result = await readApi<EnsureConversationReferenceResult>(
           ctx,
           `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/references`,
-          jsonRequest("POST", { schemeId: flags.scheme, idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID() }),
+          jsonRequest("POST", { idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID() }),
         );
         if (printStructured(ctx, result)) return;
         ctx.print(`${result.created ? "Allocated" : "Found"} ${result.reference.value} (${result.reference.role}).`);
@@ -3404,83 +3350,6 @@ export default defineCliCommands({
         );
         if (printStructured(ctx, result)) return;
         ctx.print(`${result.reference.value}: ${result.conversationId}`);
-      },
-    }),
-    command("response schedule list", {
-      summary: "List named automatic-response schedules",
-      flags: mailboxFlag,
-      run: async ({ ctx, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const schedules = await readApi<ResponseSchedule[]>(ctx, `/mailboxes/${mailbox.id}/response-schedules`);
-        printTable(
-          ctx,
-          schedules,
-          schedules.map((schedule) => ({
-            name: schedule.name,
-            timezone: schedule.definition.timeZone,
-            enabled: schedule.enabled ? "yes" : "no",
-            revision: schedule.revision,
-            id: schedule.id,
-          })),
-          [
-            { key: "name", label: "NAME" },
-            { key: "timezone", label: "TIMEZONE" },
-            { key: "enabled", label: "ENABLED" },
-            { key: "revision", label: "REV" },
-            { key: "id", label: "SCHEDULE ID" },
-          ],
-        );
-      },
-    }),
-    command("response schedule create", {
-      summary: "Create a named automatic-response schedule",
-      args: { name: arg.required({ description: "User-visible schedule name" }) },
-      flags: { ...mailboxFlag, definition: responseScheduleDefinitionInput, disabled: flag.boolean({ description: "Create disabled" }) },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const schedule = await readApi<ResponseSchedule>(
-          ctx,
-          `/mailboxes/${mailbox.id}/response-schedules`,
-          jsonRequest("POST", {
-            name: args.name,
-            definition: await readResponseScheduleDefinition(flags.definition),
-            enabled: !flags.disabled,
-          }),
-        );
-        if (printStructured(ctx, schedule)) return;
-        ctx.print(`Created response schedule ${schedule.name} (${schedule.id}).`);
-      },
-    }),
-    command("response schedule update", {
-      summary: "Update a response schedule at an expected revision",
-      args: { scheduleId: arg.required({ description: "Response schedule id" }) },
-      flags: {
-        ...mailboxFlag,
-        revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
-        name: flag.string({ description: "Replacement user-visible name" }),
-        definition: optionalResponseScheduleDefinitionInput,
-        enable: flag.boolean({ description: "Enable this schedule" }),
-        disable: flag.boolean({ description: "Disable this schedule" }),
-      },
-      run: async ({ ctx, args, flags }) => {
-        if (flags.revision === undefined) throw new Error("Missing expected response schedule revision.");
-        if (flags.enable && flags.disable) throw new Error("Use either --enable or --disable.");
-        const definition = await readOptionalResponseScheduleDefinition(flags.definition);
-        const input = {
-          expectedRevision: flags.revision,
-          ...(flags.name !== undefined ? { name: flags.name } : {}),
-          ...(definition !== undefined ? { definition } : {}),
-          ...(flags.enable || flags.disable ? { enabled: flags.enable } : {}),
-        };
-        if (Object.keys(input).length === 1) throw new Error("Pass at least one response schedule change.");
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const schedule = await readApi<ResponseSchedule>(
-          ctx,
-          `/mailboxes/${mailbox.id}/response-schedules/${args.scheduleId}`,
-          jsonRequest("PATCH", input),
-        );
-        if (printStructured(ctx, schedule)) return;
-        ctx.print(`Updated response schedule ${schedule.name} to revision ${schedule.revision}.`);
       },
     }),
     command("automatic-reply list", {

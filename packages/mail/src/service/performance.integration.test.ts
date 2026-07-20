@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
@@ -62,6 +63,7 @@ suite("mail large-mailbox performance", () => {
         ${mailbox.data.id}::uuid, '{}'::jsonb, '{}'::jsonb, ${"f".repeat(64)}, 'active'
       ) RETURNING id
     `;
+    const encryptedSecret = await encryptSecret({ kind: "password", password: "performance-fixture-secret" });
     const [connection] = await sql<{ id: string }[]>`
       INSERT INTO mail.provider_connections (
         owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
@@ -70,7 +72,7 @@ suite("mail large-mailbox performance", () => {
       ) VALUES (
         ${mailbox.data.id}::uuid, 'Performance fixture', 'performance@example.com', 'performance@example.com',
         'imap.example.com', 993, 'implicit', 'smtp.example.com', 587, 'starttls',
-        'password', 'fixture-ciphertext', 'performance@example.com', '{}'::jsonb, '{}'::jsonb, now()
+        'password', ${encryptedSecret}, 'performance@example.com', '{}'::jsonb, '{}'::jsonb, now()
       )
       RETURNING id
     `;
@@ -261,6 +263,81 @@ suite("mail large-mailbox performance", () => {
     const warmDurations = durations.slice(1);
     const worstWarmMs = Math.max(...warmDurations);
     console.info(`Mail ${MESSAGE_COUNT} structured search: ${warmDurations.map((value) => value.toFixed(1)).join(", ")} ms`);
+    expect(worstWarmMs).toBeLessThan(500);
+  }, 30_000);
+
+  test(`keeps conversation-only saved-view search bounded at ${MESSAGE_COUNT.toLocaleString("en-US")} conversations`, async () => {
+    if (!ids.mailboxId) throw new Error("Performance mailbox is unavailable");
+    const durations: number[] = [];
+    for (let iteration = 0; iteration < 5; iteration += 1) {
+      const startedAt = performance.now();
+      const result = await searchMessages({
+        context,
+        mailboxId: ids.mailboxId,
+        request: {
+          expression: { type: "work_status", value: "open" },
+          sort: "newest",
+          limit: 50,
+        },
+      });
+      durations.push(performance.now() - startedAt);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.items).toHaveLength(50);
+    }
+    const warmDurations = durations.slice(1);
+    const worstWarmMs = Math.max(...warmDurations);
+    console.info(`Mail ${MESSAGE_COUNT} conversation-only search: ${warmDurations.map((value) => value.toFixed(1)).join(", ")} ms`);
+    expect(worstWarmMs).toBeLessThan(500);
+  }, 30_000);
+
+  test(`keeps unfiltered newest search bounded at ${MESSAGE_COUNT.toLocaleString("en-US")} conversations`, async () => {
+    if (!ids.mailboxId) throw new Error("Performance mailbox is unavailable");
+    const durations: number[] = [];
+    for (let iteration = 0; iteration < 5; iteration += 1) {
+      const startedAt = performance.now();
+      const result = await searchMessages({
+        context,
+        mailboxId: ids.mailboxId,
+        request: {
+          expression: { type: "all" },
+          sort: "newest",
+          limit: 50,
+        },
+      });
+      durations.push(performance.now() - startedAt);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.items).toHaveLength(50);
+    }
+    const warmDurations = durations.slice(1);
+    const worstWarmMs = Math.max(...warmDurations);
+    console.info(`Mail ${MESSAGE_COUNT} unfiltered search: ${warmDurations.map((value) => value.toFixed(1)).join(", ")} ms`);
+    expect(worstWarmMs).toBeLessThan(500);
+  }, 30_000);
+
+  test(`keeps ordinary quick search bounded at ${MESSAGE_COUNT.toLocaleString("en-US")} messages`, async () => {
+    if (!ids.mailboxId) throw new Error("Performance mailbox is unavailable");
+    const durations: number[] = [];
+    for (let iteration = 0; iteration < 5; iteration += 1) {
+      const startedAt = performance.now();
+      const result = await searchMessages({
+        context,
+        mailboxId: ids.mailboxId,
+        request: {
+          expression: { type: "text", field: "any", query: "quarterly cobalt", match: "words" },
+          sort: "relevance",
+          limit: 20,
+        },
+      });
+      durations.push(performance.now() - startedAt);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.items).toHaveLength(1);
+        expect(result.data.items[0]?.messageId).toBe("<bulk-15000@example.com>");
+      }
+    }
+    const warmDurations = durations.slice(1);
+    const worstWarmMs = Math.max(...warmDurations);
+    console.info(`Mail ${MESSAGE_COUNT} quick search: ${warmDurations.map((value) => value.toFixed(1)).join(", ")} ms`);
     expect(worstWarmMs).toBeLessThan(500);
   }, 30_000);
 

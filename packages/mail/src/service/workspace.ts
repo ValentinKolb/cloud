@@ -8,6 +8,7 @@ import {
   type ScheduledSendPage,
   type SenderIdentity,
 } from "../contracts";
+import { resolveMailSearchRoute } from "../search-state";
 import type { MailRequestContext } from "./auth";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./collaboration";
 import * as collaboration from "./collaboration";
@@ -70,31 +71,6 @@ const VIEW_LABELS: Record<ConversationView, string> = {
 const optionalUuidSearchParam = (url: URL, name: string): string | null => {
   const parsed = z.string().uuid().safeParse(url.searchParams.get(name));
   return parsed.success ? parsed.data : null;
-};
-
-const searchExpressionFromUrl = (url: URL, query: string): MailSearchExpression | null => {
-  const terms: MailSearchExpression[] = [];
-  if (query) terms.push({ type: "text", field: "any", query, match: "words" });
-  for (const [parameter, fields] of [
-    ["from", ["from"]],
-    ["to", ["to", "cc"]],
-    ["subject", ["subject"]],
-    ["body", ["body"]],
-    ["attachment", ["attachment_name"]],
-    ["comment", ["comment"]],
-    ["reference", ["reference"]],
-    ["folderName", ["folder"]],
-    ["tag", ["tag"]],
-    ["keyword", ["keyword"]],
-  ] as const) {
-    const value = url.searchParams.get(parameter)?.trim();
-    if (!value) continue;
-    const fieldTerms = fields.map((field) => ({ type: "text" as const, field, query: value, match: "words" as const }));
-    terms.push(fieldTerms.length === 1 ? fieldTerms[0]! : { type: "or", expressions: fieldTerms });
-  }
-  if (terms.length === 0) return null;
-  if (terms.length === 1) return terms[0]!;
-  return url.searchParams.get("combine") === "all" ? { type: "and", expressions: terms } : { type: "or", expressions: terms };
 };
 
 export type MailboxPageData = {
@@ -256,13 +232,14 @@ const loadListItems = async (params: {
   savedViewId: string | null;
   query: string;
   searchExpression: MailSearchExpression | null;
+  searchSort: "relevance" | "newest";
   cursor?: string;
 }): Promise<{ items: MailListItem[]; nextCursor: string | null; error: string | null }> => {
   if (params.searchExpression) {
     const result = await search.searchMessages({
       context: params.context,
       mailboxId: params.mailboxId,
-      request: { expression: params.searchExpression, sort: "relevance", cursor: params.cursor, limit: 50 },
+      request: { expression: params.searchExpression, sort: params.searchSort, cursor: params.cursor, limit: 50 },
     });
     if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
     return {
@@ -271,20 +248,20 @@ const loadListItems = async (params: {
       items: result.data.items.map((item) => ({
         id: item.id,
         conversationId: item.conversationId,
-        primaryReference: null,
+        primaryReference: item.primaryReference,
         subject: item.subject,
-        participantSummary: item.from.map((address) => address.name || address.address).join(", "),
-        latestMessageAt: item.internalDate,
+        participantSummary: item.participantSummary,
+        latestMessageAt: item.latestMessageAt,
         preview: item.snippet,
-        unread: !item.flags.includes("\\Seen"),
+        unread: item.unread,
         hasAttachments: item.hasAttachments,
-        messageCount: 1,
-        workStatus: null,
-        assigneeUserId: null,
-        responseNeeded: false,
-        snoozedUntil: null,
-        sourceFolderId: null,
-        unreadFolderIds: [],
+        messageCount: item.messageCount,
+        workStatus: item.workStatus,
+        assigneeUserId: item.assigneeUserId,
+        responseNeeded: item.responseNeeded,
+        snoozedUntil: item.snoozedUntil,
+        sourceFolderId: item.sourceFolderId,
+        unreadFolderIds: item.unreadFolderIds,
       })),
     };
   }
@@ -356,8 +333,8 @@ export const loadMailboxPageData = async (params: {
   const activeView = parsedView.success ? parsedView.data : null;
   const savedViewId = activeView ? null : optionalUuidSearchParam(params.requestUrl, "savedView");
   const folderId = activeView || savedViewId ? null : optionalUuidSearchParam(params.requestUrl, "folder");
-  const query = params.requestUrl.searchParams.get("q")?.trim() ?? "";
-  const searchExpression = searchExpressionFromUrl(params.requestUrl, query);
+  const resolvedSearch = resolveMailSearchRoute(params.requestUrl);
+  const { query, expression: searchExpression, sort: searchSort } = resolvedSearch;
   const listCursor = params.requestUrl.searchParams.get("cursor");
   const selectedConversationId = optionalUuidSearchParam(params.requestUrl, "conversation");
   const selectedMessageId = selectedConversationId ? null : optionalUuidSearchParam(params.requestUrl, "message");
@@ -365,16 +342,19 @@ export const loadMailboxPageData = async (params: {
   const [list, selection, scheduledPageResult] = await Promise.all([
     scheduledMode
       ? Promise.resolve({ items: [], nextCursor: null, error: null })
-      : loadListItems({
-          context: params.context,
-          mailboxId: params.mailboxId,
-          folderId,
-          activeView,
-          savedViewId,
-          query,
-          searchExpression,
-          cursor: listCursor ?? undefined,
-        }),
+      : resolvedSearch.error
+        ? Promise.resolve({ items: [], nextCursor: null, error: resolvedSearch.error })
+        : loadListItems({
+            context: params.context,
+            mailboxId: params.mailboxId,
+            folderId,
+            activeView,
+            savedViewId,
+            query,
+            searchExpression,
+            searchSort,
+            cursor: listCursor ?? undefined,
+          }),
     scheduledMode
       ? Promise.resolve(EMPTY_SELECTION_DETAIL)
       : loadSelectionDetail({
@@ -425,13 +405,15 @@ export const loadMailboxPageData = async (params: {
     listError: list.error,
     listTitle: scheduledMode
       ? "Scheduled"
-      : searchExpression
-        ? query
-          ? `Results for “${query}”`
-          : "Filtered search"
-        : activeView
-          ? VIEW_LABELS[activeView]
-          : (activeSavedView?.name ?? activeFolder?.name ?? "All mail"),
+      : resolvedSearch.error
+        ? "Search"
+        : searchExpression
+          ? query
+            ? `Results for “${query}”`
+            : "Filtered search"
+          : activeView
+            ? VIEW_LABELS[activeView]
+            : (activeSavedView?.name ?? activeFolder?.name ?? "All mail"),
     ...selection,
     selectedSubject,
   };

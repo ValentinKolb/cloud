@@ -85,7 +85,7 @@ describe("streaming IMAP APPEND", () => {
         source: Readable.from([Buffer.from("short")]),
         byteLength: 10,
       }),
-    ).rejects.toMatchObject({ code: "APPEND_SIZE_MISMATCH" });
+    ).rejects.toMatchObject({ code: "APPEND_SIZE_MISMATCH", effectPossible: true });
     expect(mock.closed).toBe(true);
     expect(mock.nextCalled).toBe(false);
   });
@@ -99,7 +99,7 @@ describe("streaming IMAP APPEND", () => {
         source: Readable.from([]),
         byteLength: 0,
       }),
-    ).rejects.toMatchObject({ code: "INVALID_APPEND_FLOW" });
+    ).rejects.toMatchObject({ code: "INVALID_APPEND_FLOW", effectPossible: false });
     expect(mock.closed).toBe(true);
   });
 });

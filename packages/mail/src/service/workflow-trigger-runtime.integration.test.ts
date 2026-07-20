@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import type { ResponseScheduleDefinitionInput } from "../contracts";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
-import { cancelPendingAutomaticRepliesInTransaction, prepareAutomaticReplyInTransaction } from "./automatic-reply";
 import type { MailRequestContext } from "./auth";
+import { cancelPendingAutomaticRepliesInTransaction, prepareAutomaticReplyInTransaction } from "./automatic-reply";
 import { createActorCommand } from "./commands";
 import type { ConnectorEnvelope } from "./connectors";
 import { mergeConversations } from "./conversations";
@@ -178,6 +178,7 @@ suite("mail workflow trigger event runtime", () => {
   };
 
   beforeAll(async () => {
+    await workflowRuntime.stop();
     await migrate();
     await migrate();
 
@@ -209,6 +210,7 @@ suite("mail workflow trigger event runtime", () => {
       VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${"a".repeat(64)}, 'active')
       RETURNING id
     `;
+    const encryptedSecret = await encryptSecret({ kind: "password", password: "workflow-trigger-fixture-secret" });
     const [connection] = await sql<{ id: string }[]>`
       INSERT INTO mail.provider_connections (
         owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
@@ -217,7 +219,7 @@ suite("mail workflow trigger event runtime", () => {
       ) VALUES (
         ${mailboxId}::uuid, 'Trigger fixture', 'support@example.com', 'support@example.com',
         'imap.example.com', 993, 'implicit', 'smtp.example.com', 587, 'starttls',
-        'password', 'fixture-ciphertext', 'support@example.com', '{}'::jsonb, '{}'::jsonb, now()
+        'password', ${encryptedSecret}, 'support@example.com', '{}'::jsonb, '{}'::jsonb, now()
       )
       RETURNING id
     `;
@@ -704,7 +706,7 @@ suite("mail workflow trigger event runtime", () => {
     expect(cleaned).toEqual({ effect_state: "cancelled", draft_state: "discarded" });
   });
 
-  test("serializes concurrent reply guards and rejects stale schedule snapshots", async () => {
+  test("serializes concurrent automatic reply guards", async () => {
     const targets = await sql<
       {
         id: string;
@@ -754,43 +756,15 @@ suite("mail workflow trigger event runtime", () => {
       "already_replied",
       "recipient_rate_limited",
     ]);
-
-    const [schedule] = await sql<{ id: string; definition: ResponseScheduleDefinitionInput }[]>`
-      INSERT INTO mail.response_schedules (
-        mailbox_id, name, normalized_name, definition, revision, created_by_actor_kind, created_by_actor_id
-      ) VALUES (
-        ${mailboxId}::uuid,
-        'Stale schedule',
-        'stale schedule',
-        ${{
-          timeZone: "Europe/Berlin",
-          activeRanges: [{ from: "2026-01-01", to: null }],
-          weeklyWindows: [{ weekday: 1, start: "09:00", end: "17:00" }],
-          exceptions: [],
-        }}::jsonb,
-        2,
-        'user',
-        ${ownerContext.actor.kind === "user" ? ownerContext.actor.user.id : null}::uuid
-      )
-      RETURNING id, definition
-    `;
-    if (!schedule) throw new Error("Automatic reply response schedule fixture is unavailable");
-    const staleSource = parseJson(targets[1]!.frozen_source);
-    const stale = await sql.begin((tx) =>
-      prepareAutomaticReplyInTransaction({
-        ...base,
+    const cleanup = await sql.begin((tx) =>
+      cancelPendingAutomaticRepliesInTransaction({
         db: tx,
-        workflowVersionId: targets[1]!.workflow_version_id,
-        workflowTargetId: targets[1]!.id,
-        stepKey: "automatic-reply:stale-schedule",
-        messageId: staleSource.message.id,
-        conversationId: staleSource.conversation.id,
-        protocolFacts: { ...staleSource.message.protocolFacts, returnPath: "<schedule@example.com>" },
-        schedule: { id: schedule.id, name: "Stale schedule", revision: 1, definition: schedule.definition },
+        mailboxId,
+        code: "TEST_CLEANUP",
+        message: "Clean up concurrent automatic reply fixtures",
       }),
     );
-    expect(stale.ok).toBe(false);
-    if (!stale.ok) expect(stale.error.code).toBe("CONFLICT");
+    expect(cleanup.cancelled).toBeGreaterThanOrEqual(1);
   });
 
   test("materializes an automatic reply through the durable outbox", async () => {

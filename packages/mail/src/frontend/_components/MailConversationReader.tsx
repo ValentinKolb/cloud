@@ -8,16 +8,12 @@ import type { ConversationDraftSummary, DraftIntent, MailCommand, MailDraft, Sen
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
 import MailComposer from "./MailComposer";
+import MailMessageAttachments from "./MailMessageAttachments";
+import MailMessageBody from "./MailMessageBody";
 import { buildMailListHref } from "./mail-navigation";
 
 const formatAddress = (address: { name: string | null; address: string }): string =>
   address.name ? `${address.name} <${address.address}>` : address.address;
-
-const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
 
 const replySubject = (subject: string): string => (/^re:/i.test(subject) ? subject : `Re: ${subject}`);
 const forwardSubject = (subject: string): string => (/^fwd:/i.test(subject) ? subject : `Fwd: ${subject}`);
@@ -87,6 +83,7 @@ export default function MailConversationReader(props: {
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
   const [expandedMessages, setExpandedMessages] = createSignal(new Set(props.messages.slice(-1).map((message) => message.id)));
+  const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
   const [compose, setCompose] = createSignal<ActiveComposer | null>(null);
   const [openingDraft, setOpeningDraft] = createSignal(false);
   const lastMessage = () => props.messages.at(-1);
@@ -389,6 +386,7 @@ export default function MailConversationReader(props: {
     conversationDrafts.abort();
     draftLoadController?.abort();
     setExpandedMessages(new Set(props.messages.slice(-1).map((message) => message.id)));
+    setMessageSelections({});
     if (compose()) closeComposer();
   });
 
@@ -402,10 +400,13 @@ export default function MailConversationReader(props: {
     draftLoadController?.abort();
   });
 
-  const startQuoteReply = (message: MessageDetail, article: HTMLElement) => {
+  const startQuoteReply = (message: MessageDetail, body: HTMLElement) => {
     const selection = window.getSelection();
-    const text = selection?.toString().trim() ?? "";
-    if (!text || !selection?.anchorNode || !article.contains(selection.anchorNode)) {
+    const selectedInFrame = messageSelections()[message.id]?.trim() ?? "";
+    const hostSelection = selection?.toString().trim() ?? "";
+    const selectedInBody = selection?.anchorNode && body.contains(selection.anchorNode) ? hostSelection : "";
+    const text = hostSelection ? selectedInBody : selectedInFrame;
+    if (!text) {
       return prompts.error("Select text in this message first.", { title: "Quote in reply" });
     }
     const sender = message.from[0]?.name || message.from[0]?.address || "Sender";
@@ -585,10 +586,10 @@ export default function MailConversationReader(props: {
           <div class="mx-auto flex w-full max-w-5xl flex-col gap-2">
             <For each={props.messages}>
               {(message, index) => {
-                let article!: HTMLElement;
+                let messageBody!: HTMLDivElement;
                 const expanded = () => expandedMessages().has(message.id);
                 return (
-                  <article ref={article} class="paper overflow-hidden" style={`view-transition-name: mail-message-${message.id}`}>
+                  <article class="paper overflow-hidden" style={`view-transition-name: mail-message-${message.id}`}>
                     <button
                       type="button"
                       class="flex w-full items-start gap-3 p-3 text-left"
@@ -615,35 +616,30 @@ export default function MailConversationReader(props: {
                     </button>
                     <Show when={expanded()}>
                       <div class="px-4 pb-4 pl-15">
-                        <div class="mail-message-body min-w-0 overflow-x-auto text-sm text-primary">
-                          {message.sanitizedHtml ? (
-                            <div class="markdown max-w-none" innerHTML={message.sanitizedHtml} />
-                          ) : message.plainText ? (
-                            <pre class="whitespace-pre-wrap break-words font-sans">{message.plainText}</pre>
+                        <div ref={messageBody} class="mail-message-body min-w-0 overflow-x-auto text-sm text-primary">
+                          {message.sanitizedHtml || message.plainText ? (
+                            <MailMessageBody
+                              mailboxId={props.mailboxId}
+                              messageId={message.id}
+                              html={message.sanitizedHtml}
+                              plainText={message.plainText}
+                              attachments={message.attachments}
+                              onSelectionChange={(value) =>
+                                setMessageSelections((current) => {
+                                  if (current[message.id] === value) return current;
+                                  const next = { ...current };
+                                  if (value) next[message.id] = value;
+                                  else delete next[message.id];
+                                  return next;
+                                })
+                              }
+                            />
                           ) : (
                             <Placeholder state="loading" title="Body is still synchronizing" />
                           )}
                         </div>
                         <Show when={message.attachments.length > 0}>
-                          <div class="mt-4">
-                            <p class="mb-2 text-xs font-medium uppercase text-dimmed">Received with this message</p>
-                            <div class="flex flex-wrap gap-2">
-                              <For each={message.attachments}>
-                                {(attachment) => (
-                                  <a
-                                    href={`/api/mail/mailboxes/${props.mailboxId}/messages/${message.id}/attachments/${attachment.id}?inline=true`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class="btn-secondary btn-sm max-w-full"
-                                  >
-                                    <i class="ti ti-paperclip" aria-hidden="true" />
-                                    <span class="max-w-48 truncate">{attachment.filename ?? attachment.contentType}</span>
-                                    <span class="text-xs text-dimmed">{formatBytes(attachment.sizeBytes)}</span>
-                                  </a>
-                                )}
-                              </For>
-                            </div>
-                          </div>
+                          <MailMessageAttachments mailboxId={props.mailboxId} messageId={message.id} attachments={message.attachments} />
                         </Show>
                         <Show when={props.canWrite && props.selectedConversationId}>
                           <div class="mt-4 flex flex-wrap items-center gap-2">
@@ -675,7 +671,7 @@ export default function MailConversationReader(props: {
                               type="button"
                               class="btn-simple btn-sm"
                               disabled={composerBusy()}
-                              onClick={() => startQuoteReply(message, article)}
+                              onClick={() => startQuoteReply(message, messageBody)}
                             >
                               <i class="ti ti-blockquote" aria-hidden="true" /> Quote selection
                             </button>

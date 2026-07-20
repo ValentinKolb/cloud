@@ -25,7 +25,6 @@ const SAVED_VIEW_ID = "00000000-0000-4000-8000-000000000018";
 const UPLOAD_ID = "00000000-0000-4000-8000-000000000019";
 const BINDING_ID = "00000000-0000-4000-8000-000000000020";
 const TAG_ID = "00000000-0000-4000-8000-000000000021";
-const REFERENCE_SCHEME_ID = "00000000-0000-4000-8000-000000000022";
 const COMPOSE_TEMPLATE_ID = "00000000-0000-4000-8000-000000000023";
 const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
 const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
@@ -94,6 +93,32 @@ const withMailbox = (handler: (request: Request) => Response | Promise<Response>
       return handler(request);
     },
   });
+
+test("mailbox configure maps automatic reply access to the mailbox policy", async () => {
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (request.method === "PATCH" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}`) {
+      requestBody = await request.json();
+      return api({ ...mailbox, automaticReplyManagementPermission: "write" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "configure",
+    "--mailbox",
+    MAILBOX_ID,
+    "--automatic-replies",
+    "writers",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(requestBody).toEqual({ automaticReplyManagementPermission: "write" });
+});
 
 test("search forwards nested expressions and cursors", async () => {
   let requestBody: unknown;
@@ -271,25 +296,27 @@ test("local tag CLI creates catalog entries and fences conversation assignments"
   ]);
 });
 
-test("reference scheme update can explicitly clear the mailbox default", async () => {
+test("reference config set preserves unspecified settings", async () => {
   let requestBody: unknown;
-  const scheme = {
-    id: REFERENCE_SCHEME_ID,
+  const current = {
     mailboxId: MAILBOX_ID,
-    name: "Support tickets",
     pattern: "SUP-{year}-{sequence}",
-    nextSequence: 42,
+    nextSequence: "42",
     enabled: true,
-    isDefault: false,
-    revision: 4,
+    includeInReplySubjects: true,
+    revision: 3,
     createdAt: "2026-07-12T00:00:00.000Z",
     updatedAt: "2026-07-12T00:00:01.000Z",
   };
+  const updated = { ...current, includeInReplySubjects: false, revision: 4 };
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
-    if (request.method === "PATCH" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/reference-schemes/${REFERENCE_SCHEME_ID}`) {
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/reference-number-configuration` && request.method === "GET") {
+      return api(current);
+    }
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/reference-number-configuration` && request.method === "PUT") {
       requestBody = await request.json();
-      return api(scheme);
+      return api(updated);
     }
     return api({ message: "unexpected" }, { status: 500 });
   });
@@ -299,20 +326,22 @@ test("reference scheme update can explicitly clear the mailbox default", async (
     "--json",
     "mail",
     "reference",
-    "scheme",
-    "update",
-    REFERENCE_SCHEME_ID,
+    "config",
+    "set",
     "--mailbox",
     MAILBOX_ID,
-    "--revision",
-    "3",
-    "--no-default",
+    "--exclude-from-reply-subjects",
   ]);
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(requestBody).toEqual({ expectedRevision: 3, makeDefault: false });
-  expect(JSON.parse(result.stdout)).toEqual(scheme);
+  expect(requestBody).toEqual({
+    expectedRevision: 3,
+    pattern: "SUP-{year}-{sequence}",
+    enabled: true,
+    includeInReplySubjects: false,
+  });
+  expect(JSON.parse(result.stdout)).toEqual(updated);
 });
 
 test("deleted mailbox CLI lists and restores retained mailboxes", async () => {
@@ -583,7 +612,13 @@ test("saved view commands cover structured filters and revisioned lifecycle", as
     scope: "private",
     ownerUserId: USER_ID,
     name: "My queue",
-    filter: { workStatuses: ["open"], assignee: { kind: "me" } },
+    filter: {
+      expression: {
+        type: "and",
+        expressions: [{ type: "work_status", value: "open" }, { type: "assigned_to_me" }],
+      },
+      sort: "newest",
+    },
     revision: 1,
     createdAt: "2026-07-13T00:00:00.000Z",
     updatedAt: "2026-07-13T00:00:00.000Z",
@@ -636,7 +671,16 @@ test("saved view commands cover structured filters and revisioned lifecycle", as
     "--mailbox",
     MAILBOX_ID,
   ]);
-  const updatedFilter = { workStatuses: ["waiting"], responseNeeded: true };
+  const updatedFilter = {
+    expression: {
+      type: "and",
+      expressions: [
+        { type: "work_status", value: "waiting" },
+        { type: "response_needed", value: true },
+      ],
+    },
+    sort: "relevance",
+  };
   const updated = await runCli(
     `http://127.0.0.1:${server.port}`,
     ["--json", "mail", "saved-view", "update", SAVED_VIEW_ID, "--mailbox", MAILBOX_ID, "--revision", "1", "--filter-stdin"],
@@ -2401,6 +2445,7 @@ test("automatic reply commands cover list, create, and revision-checked update",
     subject: "Re: your message",
     body: "I am away.",
     format: "plain",
+    ensureReference: false,
     minimumIntervalHours: 24,
     inactiveBehavior: "skip",
     schedule: {
@@ -2414,7 +2459,6 @@ test("automatic reply commands cover list, create, and revision-checked update",
     id: AUTOMATIC_REPLY_ID,
     mailboxId: MAILBOX_ID,
     workflowId: WORKFLOW_ID,
-    responseScheduleId: REFERENCE_SCHEME_ID,
     ...input,
     revision: 1,
     createdAt: "2026-07-19T00:00:00.000Z",

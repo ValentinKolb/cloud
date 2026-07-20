@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { app } from "../config";
 import { migrate } from "../migrate";
@@ -468,7 +469,11 @@ suite("mail collaboration operations", () => {
     const privateView = await createSavedConversationView({
       context: readerContext,
       mailboxId,
-      input: { scope: "private", name: "My open mail", filter: { workStatuses: ["open"] } },
+      input: {
+        scope: "private",
+        name: "My open mail",
+        filter: { expression: { type: "work_status", value: "open" }, sort: "newest" },
+      },
     });
     expect(privateView.ok).toBe(true);
     if (!privateView.ok) return;
@@ -481,19 +486,33 @@ suite("mail collaboration operations", () => {
     const deniedMailboxView = await createSavedConversationView({
       context: readerContext,
       mailboxId,
-      input: { scope: "mailbox", name: "Reader team view", filter: {} },
+      input: { scope: "mailbox", name: "Reader team view", filter: { expression: { type: "all" }, sort: "newest" } },
     });
     expect(deniedMailboxView.ok).toBe(false);
     const invalidAssigneeView = await createSavedConversationView({
       context: writerContext,
       mailboxId,
-      input: { scope: "mailbox", name: "Invalid assignee", filter: { assignee: { kind: "user", userId: reader.id } } },
+      input: {
+        scope: "mailbox",
+        name: "Invalid assignee",
+        filter: { expression: { type: "assignee", userId: reader.id }, sort: "newest" },
+      },
     });
     expect(invalidAssigneeView.ok).toBe(false);
     const mailboxView = await createSavedConversationView({
       context: writerContext,
       mailboxId,
-      input: { scope: "mailbox", name: "Assigned to me", filter: { assignee: { kind: "me" }, workStatuses: ["open"] } },
+      input: {
+        scope: "mailbox",
+        name: "Assigned to me",
+        filter: {
+          expression: {
+            type: "and",
+            expressions: [{ type: "assigned_to_me" }, { type: "work_status", value: "open" }],
+          },
+          sort: "newest",
+        },
+      },
     });
     expect(mailboxView.ok).toBe(true);
     if (!mailboxView.ok) return;
@@ -623,6 +642,7 @@ suite("mail collaboration operations", () => {
     expect(restoredWriterAccess.ok).toBe(true);
     if (!restoredWriterAccess.ok) return;
     accessIds.push(restoredWriterAccess.data.id);
+    const encryptedSecret = await encryptSecret({ kind: "password", password: "collaboration-fixture-secret" });
     const [connection] = await sql<{ id: string }[]>`
       INSERT INTO mail.provider_connections (
         owner_mailbox_id, name, email, username,
@@ -636,7 +656,7 @@ suite("mail collaboration operations", () => {
         'mailbox@example.com',
         'imap.example.com', 993, 'implicit',
         'smtp.example.com', 465, 'implicit',
-        'password', 'encrypted-test-secret', 'active'
+        'password', ${encryptedSecret}, 'active'
       )
       RETURNING id
     `;

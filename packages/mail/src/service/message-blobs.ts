@@ -206,6 +206,12 @@ export const deleteOrphanedBlobs = async (olderThanMinutes = 60): Promise<number
       AND NOT EXISTS (
         SELECT 1 FROM mail.draft_attachments draft_attachment WHERE draft_attachment.blob_id = blob.id
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM mail.draft_recovery_attachments recovery_attachment WHERE recovery_attachment.blob_id = blob.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM mail.draft_provider_snapshots snapshot WHERE snapshot.mime_blob_id = blob.id
+      )
   `;
   return result.count;
 };

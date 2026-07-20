@@ -400,8 +400,10 @@ suite("mail canonical workflow runtime", () => {
     `;
     const providerBindingId = binding!.id;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, 'workflow-inbox', 'Inbox', 'inbox', 'current')
+      INSERT INTO mail.folders (
+        remote_resource_id, stable_key, name, role, sync_status, selected_for_sync
+      )
+      VALUES (${resource!.id}::uuid, 'workflow-inbox', 'Inbox', 'inbox', 'current', false)
       RETURNING id
     `;
     await sql`

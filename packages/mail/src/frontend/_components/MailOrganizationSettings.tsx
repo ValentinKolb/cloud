@@ -2,21 +2,14 @@ import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { SavedConversationAssigneeFilter, SavedConversationViewFilter, SavedConversationViewScope } from "../../contracts";
 import type { LocalTag } from "../../service/local-tags";
 import type { SavedConversationView } from "../../service/saved-views";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
+import { openMailSearchBuilder } from "./MailSearchBuilder";
+import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
 type OrganizationContext = MailboxSettingsContext["organization"];
-
-const booleanFilter = (value: string): boolean | undefined => (value === "yes" ? true : value === "no" ? false : undefined);
-const booleanValue = (value: boolean | undefined): string => (value === true ? "yes" : value === false ? "no" : "any");
-const BOOLEAN_OPTIONS = [
-  { id: "any", label: "Any" },
-  { id: "yes", label: "Yes" },
-  { id: "no", label: "No" },
-];
 
 export default function MailOrganizationSettings(props: {
   mailboxId: string;
@@ -29,113 +22,18 @@ export default function MailOrganizationSettings(props: {
   const canWrite = () => props.permission === "write" || props.permission === "admin";
 
   const editView = async (existing?: SavedConversationView) => {
-    const initialAssignee =
-      existing?.filter.assignee?.kind === "user" ? existing.filter.assignee.userId : (existing?.filter.assignee?.kind ?? "any");
-    const values = await prompts.form({
-      title: existing ? "Edit saved view" : "New saved view",
-      fields: {
-        name: { type: "text", label: "Name", default: existing?.name ?? "", required: true },
-        scope: {
-          type: "select",
-          label: existing ? "Visibility (fixed after creation)" : "Visibility",
-          default: existing?.scope ?? "private",
-          options: existing
-            ? [{ id: existing.scope, label: existing.scope === "mailbox" ? "Everyone with mailbox access" : "Only me" }]
-            : [{ id: "private", label: "Only me" }, ...(canWrite() ? [{ id: "mailbox", label: "Everyone with mailbox access" }] : [])],
-        },
-        folderId: {
-          type: "select",
-          label: "Folder",
-          default: existing?.filter.folderId ?? "any",
-          options: [{ id: "any", label: "Any folder" }, ...props.initial.folders.map((folder) => ({ id: folder.id, label: folder.name }))],
-        },
-        assignee: {
-          type: "select",
-          label: "Assignee",
-          default: initialAssignee,
-          options: [
-            { id: "any", label: "Anyone" },
-            { id: "me", label: "Assigned to me" },
-            { id: "unassigned", label: "Unassigned" },
-            ...props.initial.assignableUsers.map((user) => ({ id: user.id, label: user.displayName })),
-          ],
-        },
-        includeOpen: {
-          type: "boolean",
-          label: "Include open conversations",
-          default: existing?.filter.workStatuses?.includes("open") ?? false,
-        },
-        includeWaiting: {
-          type: "boolean",
-          label: "Include waiting conversations",
-          default: existing?.filter.workStatuses?.includes("waiting") ?? false,
-        },
-        includeDone: {
-          type: "boolean",
-          label: "Include done conversations",
-          default: existing?.filter.workStatuses?.includes("done") ?? false,
-        },
-        responseNeeded: {
-          type: "select",
-          label: "Reply needed",
-          default: booleanValue(existing?.filter.responseNeeded),
-          options: BOOLEAN_OPTIONS,
-        },
-        snoozed: {
-          type: "select",
-          label: "Snoozed",
-          default: booleanValue(existing?.filter.snoozed),
-          options: BOOLEAN_OPTIONS,
-        },
-        watchedByMe: {
-          type: "select",
-          label: "Followed by me",
-          default: booleanValue(existing?.filter.watchedByMe),
-          options: BOOLEAN_OPTIONS,
-        },
-      },
-      confirmText: existing ? "Save view" : "Create view",
+    const result = await openMailSearchBuilder({
+      mailboxId: props.mailboxId,
+      initialState: existing?.filter ?? null,
+      initialQuery: "",
+      mode: "saved_view",
+      initialSavedView: existing ?? null,
+      canWrite: canWrite(),
     });
-    if (!values) return;
-    const name = values.name?.trim();
-    if (!name) return prompts.error("Enter a name for the saved view.");
-    const assigneeValue = values.assignee ?? "any";
-    const assignee: SavedConversationAssigneeFilter =
-      assigneeValue === "me" || assigneeValue === "unassigned"
-        ? { kind: assigneeValue }
-        : assigneeValue === "any"
-          ? { kind: "any" }
-          : { kind: "user", userId: assigneeValue };
-    const workStatuses = [
-      ...(values.includeOpen ? (["open"] as const) : []),
-      ...(values.includeWaiting ? (["waiting"] as const) : []),
-      ...(values.includeDone ? (["done"] as const) : []),
-    ];
-    const filter: SavedConversationViewFilter = {
-      ...(values.folderId === "any" ? {} : { folderId: values.folderId }),
-      assignee,
-      ...(workStatuses.length > 0 ? { workStatuses } : {}),
-      ...(booleanFilter(values.responseNeeded ?? "any") === undefined
-        ? {}
-        : { responseNeeded: booleanFilter(values.responseNeeded ?? "any") }),
-      ...(booleanFilter(values.snoozed ?? "any") === undefined ? {} : { snoozed: booleanFilter(values.snoozed ?? "any") }),
-      ...(booleanFilter(values.watchedByMe ?? "any") === undefined ? {} : { watchedByMe: booleanFilter(values.watchedByMe ?? "any") }),
-    };
-    const scope = values.scope as SavedConversationViewScope;
-    const response = existing
-      ? await apiClient.mailboxes[":mailboxId"]["saved-views"][":viewId"].$patch({
-          param: { mailboxId: props.mailboxId, viewId: existing.id },
-          json: { expectedRevision: existing.revision, name, filter },
-        })
-      : await apiClient.mailboxes[":mailboxId"]["saved-views"].$post({
-          param: { mailboxId: props.mailboxId },
-          json: { name, scope, filter },
-        });
-    if (!response.ok) return prompts.error(await readApiError(response, "Failed to save view"));
-    const saved = await response.json();
+    if (result?.action !== "saved") return;
+    const saved = result.view;
     setViews((current) => (existing ? current.map((view) => (view.id === saved.id ? saved : view)) : [...current, saved]));
     props.onWorkspaceChange();
-    toast.success(existing ? "Saved view updated" : "Saved view created");
   };
 
   const removeView = async (view: SavedConversationView) => {
@@ -211,7 +109,7 @@ export default function MailOrganizationSettings(props: {
             <h3 class="text-sm font-semibold text-primary">Saved views</h3>
             <p class="text-xs text-dimmed">Reusable folder and collaboration filters shown in the mailbox navigation.</p>
           </div>
-          <button type="button" class="btn-primary btn-sm" onClick={() => void editView()}>
+          <button type="button" class="btn-primary btn-sm shrink-0 whitespace-nowrap" onClick={() => void editView()}>
             <i class="ti ti-plus" aria-hidden="true" /> New view
           </button>
         </div>
@@ -228,6 +126,9 @@ export default function MailOrganizationSettings(props: {
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm font-medium text-primary">{view.name}</span>
                   <span class="block text-xs text-dimmed">{view.scope === "private" ? "Only me" : "Shared with mailbox"}</span>
+                  <span class="block truncate text-xs text-dimmed" title={summarizeMailSearchExpression(view.filter.expression)}>
+                    {summarizeMailSearchExpression(view.filter.expression)}
+                  </span>
                 </span>
                 <Show when={view.scope === "private" || canWrite()}>
                   <button type="button" class="btn-simple btn-sm" onClick={() => void editView(view)}>

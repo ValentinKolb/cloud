@@ -5,7 +5,7 @@ import { sql } from "bun";
 import { type AttachmentStream, type Headers, MailParser, type MessageText } from "mailparser";
 import sanitizeHtml from "sanitize-html";
 import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
-import { assertMailboxTransportFence, type MailboxTransportFence } from "./mailbox-lifecycle";
+import { assertMailboxTransportFence, type MailboxTransportFence } from "./mailbox-transport-fence";
 import { type StoredBlob, storeReadableBlob } from "./message-blobs";
 import { splitSearchText } from "./search-chunks";
 
@@ -92,11 +92,17 @@ export const sanitizeIncomingMailHtml = (html: string): string =>
     allowedTags: [...incomingAllowedTags],
     allowedAttributes: {
       a: ["href", "title", "target", "rel"],
+      blockquote: ["class", "type"],
+      div: ["class"],
       img: ["src", "alt", "title", "width", "height"],
       table: ["cellpadding", "cellspacing", "width", "align", "border"],
       td: ["width", "align", "valign", "colspan", "rowspan"],
       th: ["width", "align", "valign", "colspan", "rowspan"],
       tr: ["align", "valign"],
+    },
+    allowedClasses: {
+      blockquote: ["gmail_quote", "yahoo_quoted"],
+      div: ["gmail_quote", "yahoo_quoted", "moz-cite-prefix"],
     },
     allowedSchemes: ["http", "https", "mailto"],
     allowedSchemesByTag: { img: ["cid"] },

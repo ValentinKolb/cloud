@@ -1,7 +1,7 @@
 import { AppWorkspace, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type LinkNavigateEvent, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationView } from "../../contracts";
 import type { ConversationViewCounts, MailFolderView } from "../../service/messages";
@@ -14,7 +14,7 @@ const VIEW_ITEMS: Array<{ id: ConversationView; label: string; icon: string }> =
   { id: "unassigned", label: "Unassigned", icon: "ti ti-user-question" },
   { id: "waiting", label: "Waiting", icon: "ti ti-clock-pause" },
   { id: "snoozed", label: "Snoozed", icon: "ti ti-clock" },
-  { id: "done", label: "Done", icon: "ti ti-circle-check" },
+  { id: "done", label: "Done", icon: "ti ti-checkbox" },
   { id: "recently_active", label: "Recent activity", icon: "ti ti-activity" },
 ];
 
@@ -115,18 +115,89 @@ export default function MailSidebar(props: {
           </AppWorkspace.SidebarItem>
         )}
       </For>
-      <AppWorkspace.SidebarItem
-        href={`/app/mail/${props.mailboxId}?scheduled=1`}
-        icon="ti ti-calendar-time"
-        active={props.scheduledMode}
-        meta={<span class="tabular-nums">{props.scheduledCount}</span>}
-        viewTransitionName={`mail-scheduled-${suffix}`}
-        onNavigate={props.onNavigate}
-        scroll="preserve"
-      >
-        Scheduled
-      </AppWorkspace.SidebarItem>
     </>
+  );
+
+  const scheduledItem = (suffix: string) => (
+    <AppWorkspace.SidebarItem
+      href={`/app/mail/${props.mailboxId}?scheduled=1`}
+      icon="ti ti-calendar-time"
+      active={props.scheduledMode}
+      meta={<span class="tabular-nums">{props.scheduledCount}</span>}
+      viewTransitionName={`mail-scheduled-${suffix}`}
+      onNavigate={props.onNavigate}
+      scroll="preserve"
+    >
+      Scheduled
+    </AppWorkspace.SidebarItem>
+  );
+
+  const automationsItem = (suffix: string) => (
+    <AppWorkspace.SidebarItem
+      href={`/app/mail/${props.mailboxId}/automations`}
+      icon="ti ti-route"
+      navigation="document"
+      viewTransitionName={`mail-automations-${suffix}`}
+    >
+      Automations
+    </AppWorkspace.SidebarItem>
+  );
+
+  const folderItems = (suffix: string) => (
+    <>
+      <For each={props.folders}>
+        {(folder) => (
+          <>
+            <div
+              class="rounded-md"
+              role="group"
+              aria-label={`Folder ${folder.name}; drop a conversation here to move it`}
+              classList={{ "bg-[var(--ui-selected)]": dropFolderId() === folder.id }}
+              onDragEnter={(event) => {
+                if (!props.canWrite || !folder.selectable) return;
+                event.preventDefault();
+                setDropFolderId(folder.id);
+              }}
+              onDragOver={(event) => {
+                if (!props.canWrite || !folder.selectable) return;
+                event.preventDefault();
+                if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropFolderId(null);
+              }}
+              onDrop={(event) => props.canWrite && folder.selectable && dropConversation(event, folder.id)}
+            >
+              <AppWorkspace.SidebarItem
+                href={`/app/mail/${props.mailboxId}?folder=${folder.id}`}
+                icon={folderIcon(folder.role)}
+                active={props.activeFolderId === folder.id}
+                meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
+                title={folder.name}
+                viewTransitionName={`mail-folder-${folder.id}-${suffix}`}
+                onNavigate={props.onNavigate}
+                scroll="preserve"
+              >
+                {folder.name}
+              </AppWorkspace.SidebarItem>
+            </div>
+            <Show when={folder.role === "drafts"}>{scheduledItem(suffix)}</Show>
+          </>
+        )}
+      </For>
+    </>
+  );
+
+  const allMail = () => (
+    <AppWorkspace.SidebarItem
+      href={`/app/mail/${props.mailboxId}`}
+      icon="ti ti-mail"
+      active={!props.scheduledMode && !props.activeFolderId && !props.activeView && !props.activeSavedViewId}
+      onNavigate={props.onNavigate}
+      scroll="preserve"
+    >
+      All mail
+    </AppWorkspace.SidebarItem>
   );
 
   const savedViewItems = (suffix: string) => (
@@ -144,58 +215,6 @@ export default function MailSidebar(props: {
         </AppWorkspace.SidebarItem>
       )}
     </For>
-  );
-
-  const folderItems = (suffix: string) => (
-    <For each={props.folders}>
-      {(folder) => (
-        <div
-          class="rounded-md"
-          role="group"
-          aria-label={`Folder ${folder.name}; drop a conversation here to move it`}
-          classList={{ "bg-[var(--ui-selected)]": dropFolderId() === folder.id }}
-          onDragEnter={(event) => {
-            if (!props.canWrite || !folder.selectable) return;
-            event.preventDefault();
-            setDropFolderId(folder.id);
-          }}
-          onDragOver={(event) => {
-            if (!props.canWrite || !folder.selectable) return;
-            event.preventDefault();
-            if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropFolderId(null);
-          }}
-          onDrop={(event) => props.canWrite && folder.selectable && dropConversation(event, folder.id)}
-        >
-          <AppWorkspace.SidebarItem
-            href={`/app/mail/${props.mailboxId}?folder=${folder.id}`}
-            icon={folderIcon(folder.role)}
-            active={props.activeFolderId === folder.id}
-            meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
-            title={folder.name}
-            viewTransitionName={`mail-folder-${folder.id}-${suffix}`}
-            onNavigate={props.onNavigate}
-            scroll="preserve"
-          >
-            {folder.name}
-          </AppWorkspace.SidebarItem>
-        </div>
-      )}
-    </For>
-  );
-
-  const allMail = () => (
-    <AppWorkspace.SidebarItem
-      href={`/app/mail/${props.mailboxId}`}
-      icon="ti ti-mail"
-      active={!props.scheduledMode && !props.activeFolderId && !props.activeView && !props.activeSavedViewId}
-      onNavigate={props.onNavigate}
-      scroll="preserve"
-    >
-      All mail
-    </AppWorkspace.SidebarItem>
   );
 
   return (
@@ -218,6 +237,7 @@ export default function MailSidebar(props: {
               <i class="ti ti-pencil" aria-hidden="true" /> Compose
             </a>
           )}
+          {automationsItem("mobile-action")}
           <button type="button" class="sidebar-item-mobile" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
             <i class="ti ti-settings" aria-hidden="true" /> Settings
           </button>
@@ -229,6 +249,7 @@ export default function MailSidebar(props: {
           )}
           <AppWorkspace.SidebarSection title="Folders">
             {allMail()}
+            <Show when={!props.folders.some((folder) => folder.role === "drafts")}>{scheduledItem("mobile")}</Show>
             {folderItems("mobile")}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarMobileBody>
@@ -247,6 +268,7 @@ export default function MailSidebar(props: {
           )}
           <AppWorkspace.SidebarSection title="Folders">
             {allMail()}
+            <Show when={!props.folders.some((folder) => folder.role === "drafts")}>{scheduledItem("desktop")}</Show>
             {folderItems("desktop")}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarBody>
@@ -263,6 +285,7 @@ export default function MailSidebar(props: {
               <span>{props.syncEnabled ? "Sync mailbox" : "Mailbox paused"}</span>
             </button>
           )}
+          {automationsItem("desktop-footer")}
           <button type="button" class="sidebar-item w-full" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
             <i class={`ti ${props.settingsOpening ? "ti-loader-2 animate-spin" : "ti-settings"}`} aria-hidden="true" />
             <span>Settings</span>

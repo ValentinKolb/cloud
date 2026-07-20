@@ -1,3 +1,4 @@
+import { logger } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import {
@@ -17,11 +18,27 @@ import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveDefaultSignatureSource } from "./compose-templates";
+import { applyConversationReferenceToReplySubjectInTransaction } from "./conversation-reference";
 import { withOwnedDraftLease } from "./draft-leases";
+import { enqueueDraftProjection, enqueueDraftProjectionSnapshot, queueDraftProjectionInTransaction } from "./draft-provider-projection";
 import type { AttachmentDownload } from "./messages";
 
-type DraftActor = Extract<ActorRef, { kind: "user" | "service_account" | "workflow" }>;
+type DraftActor = Extract<ActorRef, { kind: "user" | "service_account" | "workflow" | "system" }>;
 type MutableActor = Extract<DraftActor, { kind: "user" | "service_account" }>;
+const log = logger("mail:drafts");
+
+const wakeDraftProjection = async <T extends { id: string }>(result: Result<T>): Promise<Result<T>> => {
+  if (!result.ok) return result;
+  try {
+    await enqueueDraftProjection(result.data.id);
+  } catch (error) {
+    log.warn("Immediate draft projection enqueue failed; the reconciliation sweep will retry it", {
+      draftId: result.data.id,
+      error,
+    });
+  }
+  return result;
+};
 
 type DbDraft = {
   id: string;
@@ -31,9 +48,9 @@ type DbDraft = {
   source_message_id: string | null;
   sender_identity_id: string;
   author_kind: DraftActor["kind"];
-  author_id: string;
+  author_id: string | null;
   last_editor_kind: DraftActor["kind"];
-  last_editor_id: string;
+  last_editor_id: string | null;
   to_addresses: MailDraft["to"] | string;
   cc_addresses: MailDraft["cc"] | string;
   bcc_addresses: MailDraft["bcc"] | string;
@@ -53,8 +70,9 @@ type DbRecoveryCopy = {
   draft_id: string;
   base_revision: string | number;
   content: DraftEditableContentInput | string;
-  creator_kind: MutableActor["kind"];
-  creator_id: string;
+  creator_kind: DraftActor["kind"];
+  creator_id: string | null;
+  has_attachment_snapshot: boolean;
   created_at: Date | string;
   restored_at: Date | string | null;
   resulting_revision: string | number | null;
@@ -125,6 +143,7 @@ const recoveryColumns = sql`
   recovery.content,
   recovery.creator_kind,
   recovery.creator_id,
+  recovery.has_attachment_snapshot,
   recovery.created_at,
   recovery.restored_at,
   recovery.resulting_revision
@@ -142,12 +161,14 @@ const mutableActor = (context: MailRequestContext): MutableActor | null => {
 
 const actorId = (actor: MutableActor): string => (actor.kind === "user" ? actor.userId : actor.serviceAccountId);
 
-const actorFromColumns = (kind: DraftActor["kind"], id: string): DraftActor =>
+const actorFromColumns = (kind: DraftActor["kind"], id: string | null): DraftActor =>
   kind === "user"
-    ? { kind, userId: id }
+    ? { kind, userId: id! }
     : kind === "service_account"
-      ? { kind, serviceAccountId: id, delegatedUserId: null }
-      : { kind, workflowVersionId: id };
+      ? { kind, serviceAccountId: id!, delegatedUserId: null }
+      : kind === "workflow"
+        ? { kind, workflowVersionId: id! }
+        : { kind: "system" };
 
 const conflict = (message: string): Result<never> => fail({ code: "CONFLICT", message, status: 409 });
 
@@ -323,7 +344,7 @@ export const createDraft = async (params: {
   const actor = mutableActor(params.context);
   if (!actor) return fail(err.forbidden("Draft author is invalid"));
   try {
-    return await sql.begin(async (tx) => {
+    const result = await sql.begin(async (tx) => {
       const [mailbox] = await tx<{ id: string }[]>`
         SELECT id FROM mail.mailboxes
         WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
@@ -348,8 +369,17 @@ export const createDraft = async (params: {
               senderIdentityId: parsed.data.senderIdentityId,
             })
           : null;
+      const initialSubject =
+        draftContext.data.intent === "reply" || draftContext.data.intent === "reply_all"
+          ? await applyConversationReferenceToReplySubjectInTransaction({
+              db: tx,
+              mailboxId: params.mailboxId,
+              conversationId: draftContext.data.conversationId!,
+              subject: parsed.data.subject,
+            })
+          : parsed.data.subject;
       const initialBody = defaultSignature ? [parsed.data.body.trimEnd(), defaultSignature].filter(Boolean).join("\n\n") : parsed.data.body;
-      const initialContent = draftContentInputSchema.safeParse({ ...parsed.data, body: initialBody });
+      const initialContent = draftContentInputSchema.safeParse({ ...parsed.data, subject: initialSubject, body: initialBody });
       if (!initialContent.success) {
         return fail(err.badInput(initialContent.error.issues[0]?.message ?? "Default signature makes the draft too large"));
       }
@@ -371,7 +401,7 @@ export const createDraft = async (params: {
           ${parsed.data.to}::jsonb,
           ${parsed.data.cc}::jsonb,
           ${parsed.data.bcc}::jsonb,
-          ${parsed.data.subject},
+          ${initialContent.data.subject},
           ${initialContent.data.body},
           ${parsed.data.format}
         )
@@ -409,11 +439,13 @@ export const createDraft = async (params: {
           attachmentCount,
         },
       });
+      await queueDraftProjectionInTransaction({ db: tx, draftId: row.id });
       return ok({
         ...mapDraft(created),
         initialSignatureSource: defaultSignature,
       });
     });
+    return wakeDraftProjection(result);
   } catch {
     return fail(err.internal("Failed to create draft"));
   }
@@ -466,6 +498,12 @@ export const createWorkflowReplyDraftInTransaction = async (params: {
     FOR SHARE
   `;
   if (!identity) return fail(err.forbidden("Sender identity no longer permits mailbox automation"));
+  const subject = await applyConversationReferenceToReplySubjectInTransaction({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    conversationId: params.conversationId,
+    subject: content.data.subject,
+  });
   const [draft] = await params.db<{ id: string; revision: string | number }[]>`
     INSERT INTO mail.drafts (
       id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
@@ -474,7 +512,7 @@ export const createWorkflowReplyDraftInTransaction = async (params: {
     ) VALUES (
       ${params.draftId}::uuid, ${params.mailboxId}::uuid, ${params.conversationId}::uuid, 'reply', ${params.sourceMessageId}::uuid,
       ${params.senderIdentityId}::uuid, 'workflow', ${params.workflowVersionId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
-      'workflow', ${content.data.to}::jsonb, '[]'::jsonb, '[]'::jsonb, ${content.data.subject}, ${content.data.body}, ${content.data.format}
+      'workflow', ${content.data.to}::jsonb, '[]'::jsonb, '[]'::jsonb, ${subject}, ${content.data.body}, ${content.data.format}
     )
     ON CONFLICT (id) DO NOTHING
     RETURNING id, revision
@@ -506,7 +544,7 @@ export const updateDraft = async (params: {
   const actor = mutableActor(params.context);
   if (!actor) return fail(err.forbidden("Draft author is invalid"));
   try {
-    return await sql.begin(async (tx) => {
+    const result = await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
       const [current] = await tx<{ state: string; revision: string | number }[]>`
@@ -545,8 +583,10 @@ export const updateDraft = async (params: {
         WHERE d.id = ${params.draftId}::uuid AND d.origin = 'user'
         RETURNING ${draftColumns}
       `;
+      if (row) await queueDraftProjectionInTransaction({ db: tx, draftId: row.id });
       return row ? ok(mapDraft(row)) : fail(err.internal("Draft update returned no row"));
     });
+    return wakeDraftProjection(result);
   } catch {
     return fail(err.internal("Failed to update draft"));
   }
@@ -585,6 +625,7 @@ export const listConversationDrafts = async (params: {
         author_service.name,
         CASE d.author_kind
           WHEN 'workflow' THEN 'Workflow'
+          WHEN 'system' THEN 'Mail provider'
           WHEN 'user' THEN 'Former user'
           ELSE 'Former service account'
         END
@@ -655,7 +696,7 @@ export const restoreDraftRecoveryCopy = async (params: {
   const actor = mutableActor(params.context);
   if (!actor) return fail(err.forbidden("Draft editor is invalid"));
   try {
-    return await withOwnedDraftLease({
+    const result = await withOwnedDraftLease({
       context: params.context,
       mailboxId: params.mailboxId,
       draftId: params.draftId,
@@ -687,6 +728,41 @@ export const restoreDraftRecoveryCopy = async (params: {
           if (!content.success) return fail(err.internal("Draft recovery copy is invalid"));
           const identity = await validateIdentity({ mailboxId: params.mailboxId, senderIdentityId: content.data.senderIdentityId, db: tx });
           if (!identity.ok) return identity;
+          const recoveryAttachments = copy.has_attachment_snapshot
+            ? await tx<
+                {
+                  blob_id: string;
+                  filename: string;
+                  content_type: string;
+                  byte_length: string | number;
+                  content_hash: string;
+                  position: number;
+                }[]
+              >`
+                SELECT blob_id, filename, content_type, byte_length, content_hash, position
+                FROM mail.draft_recovery_attachments
+                WHERE recovery_copy_id = ${copy.id}::uuid
+                ORDER BY position
+              `
+            : null;
+          if (recoveryAttachments) {
+            await tx`DELETE FROM mail.draft_attachments WHERE draft_id = ${params.draftId}::uuid`;
+            for (const attachment of recoveryAttachments) {
+              await tx`
+                INSERT INTO mail.draft_attachments (
+                  draft_id, blob_id, filename, content_type, byte_length, content_hash, position
+                ) VALUES (
+                  ${params.draftId}::uuid,
+                  ${attachment.blob_id}::uuid,
+                  ${attachment.filename},
+                  ${attachment.content_type},
+                  ${Number(attachment.byte_length)},
+                  ${attachment.content_hash},
+                  ${attachment.position}
+                )
+              `;
+            }
+          }
           const [updated] = await tx<DbDraft[]>`
         UPDATE mail.drafts d
         SET
@@ -723,6 +799,7 @@ export const restoreDraftRecoveryCopy = async (params: {
             targetId: params.draftId,
             metadata: { recoveryCopyId: copy.id, revision: Number(updated.revision) },
           });
+          await queueDraftProjectionInTransaction({ db: tx, draftId: updated.id });
           const [refreshed] = await tx<DbDraft[]>`
         SELECT ${draftColumns}
         FROM mail.drafts d
@@ -731,6 +808,7 @@ export const restoreDraftRecoveryCopy = async (params: {
           return refreshed ? ok(mapDraft(refreshed)) : fail(err.internal("Restored draft could not be reloaded"));
         }),
     });
+    return wakeDraftProjection(result);
   } catch {
     return fail(err.internal("Failed to restore draft recovery copy"));
   }
@@ -758,7 +836,7 @@ export const removeDraftAttachment = async (params: {
   const actor = mutableActor(params.context);
   if (!actor) return fail(err.forbidden("Draft author is invalid"));
   try {
-    return await sql.begin(async (tx) => {
+    const result = await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
       const [draft] = await tx<{ revision: string | number; state: string }[]>`
@@ -796,8 +874,10 @@ export const removeDraftAttachment = async (params: {
         targetId: removed.id,
         metadata: { draftId: params.draftId, revision: Number(updated.revision) },
       });
+      await queueDraftProjectionInTransaction({ db: tx, draftId: updated.id });
       return ok(mapDraft(updated));
     });
+    return wakeDraftProjection(result);
   } catch {
     return fail(err.internal("Failed to remove draft attachment"));
   }
@@ -865,7 +945,8 @@ export const discardDraft = async (params: {
   const actor = mutableActor(params.context);
   if (!actor) return fail(err.forbidden("Draft author is invalid"));
   try {
-    return await sql.begin(async (tx) => {
+    let retirementSnapshotId: string | null = null;
+    const result = await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
       const [updated] = await tx<DbDraft[]>`
@@ -901,8 +982,11 @@ export const discardDraft = async (params: {
         targetId: params.draftId,
         metadata: { revision: Number(updated.revision) },
       });
+      retirementSnapshotId = await queueDraftProjectionInTransaction({ db: tx, draftId: updated.id });
       return ok(mapDraft(updated));
     });
+    if (result.ok && retirementSnapshotId) await enqueueDraftProjectionSnapshot(retirementSnapshotId);
+    return result;
   } catch {
     return fail(err.internal("Failed to discard draft"));
   }

@@ -25,4 +25,12 @@ describe("incoming mail HTML", () => {
     expect(sanitized).toContain('target="_blank"');
     expect(sanitized).toContain('rel="noopener noreferrer nofollow"');
   });
+
+  test("preserves only known quote markers for isolated reader presentation", () => {
+    expect(
+      sanitizeIncomingMailHtml(
+        '<div class="gmail_quote unknown">history</div><blockquote type="cite" class="yahoo_quoted other">quoted</blockquote>',
+      ),
+    ).toBe('<div class="gmail_quote">history</div><blockquote type="cite" class="yahoo_quoted">quoted</blockquote>');
+  });
 });

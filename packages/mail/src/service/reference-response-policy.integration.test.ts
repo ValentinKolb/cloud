@@ -9,16 +9,16 @@ import {
   updateAutomaticReplyConfiguration,
 } from "./automatic-reply-configuration";
 import {
-  createConversationReferenceScheme,
   ensureConversationReference,
   findConversationByReference,
+  getConversationReferenceConfiguration,
   listConversationReferences,
+  putConversationReferenceConfiguration,
 } from "./conversation-reference";
 import { mergeConversations, splitConversation } from "./conversations";
+import { createDraft } from "./drafts";
 import { createMailbox } from "./mailboxes";
-import { createResponseSchedule, evaluateNamedResponseSchedule, listResponseSchedules, updateResponseSchedule } from "./response-schedule";
 import { searchMessages } from "./search";
-import { loadMailWorkflowCatalog } from "./workflow-catalog-service";
 import { createWorkflowVersion, getWorkflow, listWorkflows } from "./workflow-definition-service";
 
 const suite = process.env.MAIL_INTEGRATION_TESTS === "1" ? describe : describe.skip;
@@ -44,7 +44,7 @@ const contextFor = (user: { id: string; uid: string }): MailRequestContext => ({
   requestId: `mail-reference-policy-${user.uid}`,
 });
 
-suite("conversation references and response schedules", () => {
+suite("conversation references and automatic reply policies", () => {
   const suffix = crypto.randomUUID().slice(0, 8);
   const userIds: string[] = [];
   const accessIds: string[] = [];
@@ -54,6 +54,11 @@ suite("conversation references and response schedules", () => {
   let writerContext: MailRequestContext;
   let readerContext: MailRequestContext;
   let nextUid = 1;
+  const getReferenceConfiguration = async () => {
+    const result = await getConversationReferenceConfiguration(ownerContext, mailboxId);
+    if (!result.ok || !result.data) throw new Error(result.ok ? "Reference configuration is missing" : result.error.message);
+    return result.data;
+  };
 
   const createConversation = async (messageCount = 1) => {
     const [conversation] = await sql<{ id: string; revision: string | number }[]>`
@@ -159,20 +164,20 @@ suite("conversation references and response schedules", () => {
   test("allocates immutable references idempotently and searches exact aliases", async () => {
     expect(
       (
-        await createConversationReferenceScheme({
+        await putConversationReferenceConfiguration({
           context: writerContext,
           mailboxId,
-          input: { name: "Denied", pattern: "NO-{sequence}", makeDefault: false },
+          input: { expectedRevision: null, pattern: "NO-{sequence}", enabled: true, includeInReplySubjects: true },
         })
       ).ok,
     ).toBe(false);
-    const scheme = await createConversationReferenceScheme({
+    const configuration = await putConversationReferenceConfiguration({
       context: ownerContext,
       mailboxId,
-      input: { name: "Support", pattern: "SUP-{year}-{sequence:6}", makeDefault: true },
+      input: { expectedRevision: null, pattern: "SUP-{year}-{sequence:6}", enabled: true, includeInReplySubjects: true },
     });
-    expect(scheme.ok).toBe(true);
-    if (!scheme.ok) return;
+    expect(configuration.ok).toBe(true);
+    if (!configuration.ok) return;
     const firstConversation = await createConversation();
     const attempts = await Promise.all(
       Array.from({ length: 6 }, (_, index) =>
@@ -180,7 +185,7 @@ suite("conversation references and response schedules", () => {
           context: writerContext,
           mailboxId,
           conversationId: firstConversation.id,
-          input: { schemeId: scheme.data.id, idempotencyKey: `parallel-${suffix}-${index}` },
+          input: { idempotencyKey: `parallel-${suffix}-${index}` },
         }),
       ),
     );
@@ -206,7 +211,7 @@ suite("conversation references and response schedules", () => {
       context: writerContext,
       mailboxId,
       conversationId: firstConversation.id,
-      input: { schemeId: scheme.data.id, idempotencyKey: replayKey },
+      input: { idempotencyKey: replayKey },
     });
     expect(replay.ok && replay.data.created).toBe(false);
     const conflictingConversation = await createConversation();
@@ -214,7 +219,7 @@ suite("conversation references and response schedules", () => {
       context: writerContext,
       mailboxId,
       conversationId: conflictingConversation.id,
-      input: { schemeId: scheme.data.id, idempotencyKey: replayKey },
+      input: { idempotencyKey: replayKey },
     });
     expect(conflictingReplay.ok).toBe(false);
     if (!conflictingReplay.ok) expect(conflictingReplay.error.code).toBe("CONFLICT");
@@ -224,7 +229,7 @@ suite("conversation references and response schedules", () => {
           context: readerContext,
           mailboxId,
           conversationId: firstConversation.id,
-          input: { schemeId: scheme.data.id, idempotencyKey: `reader-${suffix}` },
+          input: { idempotencyKey: `reader-${suffix}` },
         })
       ).ok,
     ).toBe(false);
@@ -236,12 +241,18 @@ suite("conversation references and response schedules", () => {
       request: { expression: { type: "text", field: "reference", query: first.value, match: "exact" }, sort: "newest", limit: 10 },
     });
     expect(searched.ok && searched.data.items.map((item) => item.id)).toEqual(firstConversation.messageIds);
+    const quickSearched = await searchMessages({
+      context: readerContext,
+      mailboxId,
+      request: { expression: { type: "text", field: "any", query: first.value, match: "words" }, sort: "relevance", limit: 10 },
+    });
+    expect(quickSearched.ok && quickSearched.data.items.map((item) => item.id)).toEqual(firstConversation.messageIds);
 
     const [evidence] = await sql<{ references: number; activities: number; next_sequence: string }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM mail.conversation_references WHERE conversation_id = ${firstConversation.id}::uuid) AS references,
         (SELECT COUNT(*)::int FROM mail.activity_events WHERE conversation_id = ${firstConversation.id}::uuid AND action = 'conversation.reference_allocated') AS activities,
-        (SELECT next_sequence::text FROM mail.reference_schemes WHERE id = ${scheme.data.id}::uuid) AS next_sequence
+        (SELECT next_sequence::text FROM mail.reference_number_configurations WHERE mailbox_id = ${mailboxId}::uuid) AS next_sequence
     `;
     expect(evidence).toEqual({ references: 1, activities: 1, next_sequence: "2" });
     let immutableError: unknown;
@@ -252,18 +263,23 @@ suite("conversation references and response schedules", () => {
     }
     expect(String(immutableError)).toContain("Conversation reference allocation fields are immutable");
 
-    const unicodeScheme = await createConversationReferenceScheme({
+    const unicodeConfiguration = await putConversationReferenceConfiguration({
       context: ownerContext,
       mailboxId,
-      input: { name: `Unicode ${suffix}`, pattern: `İ-${suffix}-{sequence}`, makeDefault: false },
+      input: {
+        expectedRevision: configuration.data.revision,
+        pattern: `İ-${suffix}-{sequence}`,
+        enabled: true,
+        includeInReplySubjects: true,
+      },
     });
-    if (!unicodeScheme.ok) throw new Error(unicodeScheme.error.message);
+    if (!unicodeConfiguration.ok) throw new Error(unicodeConfiguration.error.message);
     const unicodeConversation = await createConversation();
     const unicodeReference = await ensureConversationReference({
       context: writerContext,
       mailboxId,
       conversationId: unicodeConversation.id,
-      input: { schemeId: unicodeScheme.data.id, idempotencyKey: `unicode-${suffix}` },
+      input: { idempotencyKey: `unicode-${suffix}` },
     });
     if (!unicodeReference.ok) throw new Error(unicodeReference.error.message);
     const unicodeSearch = await searchMessages({
@@ -278,54 +294,162 @@ suite("conversation references and response schedules", () => {
     expect(unicodeSearch.ok && unicodeSearch.data.items.map((item) => item.id)).toEqual(unicodeConversation.messageIds);
   });
 
-  test("audits and projects mailbox default replacement", async () => {
-    const first = await createConversationReferenceScheme({
+  test("updates one mailbox configuration with optimistic concurrency", async () => {
+    const before = await getReferenceConfiguration();
+    const current = await putConversationReferenceConfiguration({
       context: ownerContext,
       mailboxId,
-      input: { name: `Default A ${suffix}`, pattern: `A-${suffix}-{sequence}`, makeDefault: true },
+      input: {
+        expectedRevision: before.revision,
+        pattern: `A-${suffix}-{sequence}`,
+        enabled: true,
+        includeInReplySubjects: true,
+      },
     });
-    if (!first.ok) throw new Error(first.error.message);
-    const second = await createConversationReferenceScheme({
+    if (!current.ok) throw new Error(current.error.message);
+    const updated = await putConversationReferenceConfiguration({
       context: ownerContext,
       mailboxId,
-      input: { name: `Default B ${suffix}`, pattern: `B-${suffix}-{sequence}`, makeDefault: true },
+      input: {
+        expectedRevision: current.data.revision,
+        pattern: `B-${suffix}-{sequence}`,
+        enabled: true,
+        includeInReplySubjects: false,
+      },
     });
-    if (!second.ok) throw new Error(second.error.message);
-    const [demoted] = await sql<{ is_default: boolean; revision: string | number; activities: number }[]>`
+    if (!updated.ok) throw new Error(updated.error.message);
+    const [stored] = await sql<{ pattern: string; revision: string | number; include_in_reply_subjects: boolean }[]>`
       SELECT
-        scheme.is_default,
-        scheme.revision,
-        (SELECT COUNT(*)::int FROM mail.activity_events activity
-         WHERE activity.target_id = scheme.id
-           AND activity.action = 'reference_scheme.updated'
-           AND activity.metadata->>'reason' = 'default_replaced') AS activities
-      FROM mail.reference_schemes scheme
-      WHERE scheme.id = ${first.data.id}::uuid
+        pattern, revision, include_in_reply_subjects
+      FROM mail.reference_number_configurations
+      WHERE mailbox_id = ${mailboxId}::uuid
     `;
-    expect(demoted).toMatchObject({ is_default: false, revision: "2", activities: 1 });
+    expect(stored).toEqual({
+      pattern: `B-${suffix}-{sequence}`,
+      revision: String(updated.data.revision),
+      include_in_reply_subjects: false,
+    });
+  });
+
+  test("adds an existing reference to new reply drafts when configured", async () => {
+    const before = await getReferenceConfiguration();
+    const enabled = await putConversationReferenceConfiguration({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        expectedRevision: before.revision,
+        pattern: `DRAFT-${suffix}-{sequence}`,
+        enabled: true,
+        includeInReplySubjects: true,
+      },
+    });
+    if (!enabled.ok) throw new Error(enabled.error.message);
+    const [identity] = await sql<{ id: string }[]>`
+      INSERT INTO mail.sender_identities (
+        mailbox_id, display_name, from_address, automation_policy, is_default, status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        'Reply drafts',
+        ${`drafts-${suffix}@example.com`},
+        'disabled',
+        false,
+        'verified'
+      )
+      RETURNING id
+    `;
+    if (!identity) throw new Error("Failed to create reply draft sender fixture");
+    const conversation = await createConversation();
+    const allocated = await ensureConversationReference({
+      context: writerContext,
+      mailboxId,
+      conversationId: conversation.id,
+      input: { idempotencyKey: `reply-draft-${suffix}` },
+    });
+    if (!allocated.ok) throw new Error(allocated.error.message);
+    const draft = await createDraft({
+      context: writerContext,
+      mailboxId,
+      input: {
+        conversationId: conversation.id,
+        intent: "reply",
+        sourceMessageId: conversation.messageIds[0]!,
+        senderIdentityId: identity.id,
+        to: [{ name: "Customer", address: "customer@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Re: Original request",
+        body: "Reply",
+        format: "plain",
+      },
+    });
+    if (!draft.ok) throw new Error(draft.error.message);
+    expect(draft.data.subject).toBe(`Re: [${allocated.data.reference.value}] Original request`);
+
+    const disabled = await putConversationReferenceConfiguration({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        expectedRevision: enabled.data.revision,
+        pattern: enabled.data.pattern,
+        enabled: true,
+        includeInReplySubjects: false,
+      },
+    });
+    if (!disabled.ok) throw new Error(disabled.error.message);
+    const secondConversation = await createConversation();
+    const secondReference = await ensureConversationReference({
+      context: writerContext,
+      mailboxId,
+      conversationId: secondConversation.id,
+      input: { idempotencyKey: `reply-draft-disabled-${suffix}` },
+    });
+    if (!secondReference.ok) throw new Error(secondReference.error.message);
+    const unchangedDraft = await createDraft({
+      context: writerContext,
+      mailboxId,
+      input: {
+        conversationId: secondConversation.id,
+        intent: "reply_all",
+        sourceMessageId: secondConversation.messageIds[0]!,
+        senderIdentityId: identity.id,
+        to: [{ name: "Customer", address: "customer@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Re: Another request",
+        body: "Reply all",
+        format: "plain",
+      },
+    });
+    if (!unchangedDraft.ok) throw new Error(unchangedDraft.error.message);
+    expect(unchangedDraft.data.subject).toBe("Re: Another request");
   });
 
   test("merge preserves references as primary and aliases while split copies none", async () => {
-    const scheme = await createConversationReferenceScheme({
+    const before = await getReferenceConfiguration();
+    const configuration = await putConversationReferenceConfiguration({
       context: ownerContext,
       mailboxId,
-      input: { name: "Escalations", pattern: "ESC-{year}-{sequence:6}", makeDefault: false },
+      input: {
+        expectedRevision: before.revision,
+        pattern: "ESC-{year}-{sequence:6}",
+        enabled: true,
+        includeInReplySubjects: true,
+      },
     });
-    if (!scheme.ok) throw new Error(scheme.error.message);
-    const schemeId = scheme.data.id;
+    if (!configuration.ok) throw new Error(configuration.error.message);
     const target = await createConversation();
     const source = await createConversation();
     const targetReference = await ensureConversationReference({
       context: writerContext,
       mailboxId,
       conversationId: target.id,
-      input: { schemeId, idempotencyKey: `merge-target-${suffix}` },
+      input: { idempotencyKey: `merge-target-${suffix}` },
     });
     const sourceReference = await ensureConversationReference({
       context: writerContext,
       mailboxId,
       conversationId: source.id,
-      input: { schemeId, idempotencyKey: `merge-source-${suffix}` },
+      input: { idempotencyKey: `merge-source-${suffix}` },
     });
     if (!targetReference.ok || !sourceReference.ok) throw new Error("Failed to allocate merge references");
     const merged = await mergeConversations({
@@ -350,7 +474,7 @@ suite("conversation references and response schedules", () => {
       context: writerContext,
       mailboxId,
       conversationId: source.id,
-      input: { schemeId, idempotencyKey: `merge-source-${suffix}` },
+      input: { idempotencyKey: `merge-source-${suffix}` },
     });
     expect(replayedAfterMerge.ok && replayedAfterMerge.data.created).toBe(false);
     expect(replayedAfterMerge.ok && replayedAfterMerge.data.reference.conversationId).toBe(target.id);
@@ -370,7 +494,7 @@ suite("conversation references and response schedules", () => {
       context: writerContext,
       mailboxId,
       conversationId: splitSource.id,
-      input: { schemeId, idempotencyKey: `split-${suffix}` },
+      input: { idempotencyKey: `split-${suffix}` },
     });
     if (!splitReference.ok) throw new Error(splitReference.error.message);
     const split = await splitConversation({
@@ -389,57 +513,6 @@ suite("conversation references and response schedules", () => {
     });
     expect(sourceReferences.ok && sourceReferences.data).toHaveLength(1);
     expect(createdReferences.ok && createdReferences.data).toEqual([]);
-  });
-
-  test("response schedules are admin-versioned and evaluate deterministically", async () => {
-    const definition = {
-      timeZone: "Europe/Berlin",
-      activeRanges: [{ from: "2026-01-01", to: null }],
-      weeklyWindows: [{ weekday: 5 as const, start: "09:00", end: "17:00" }],
-      exceptions: [{ date: "2026-07-17", closed: true, windows: [] }],
-    };
-    expect(
-      (await createResponseSchedule({ context: writerContext, mailboxId, input: { name: "Denied", definition, enabled: true } })).ok,
-    ).toBe(false);
-    const created = await createResponseSchedule({
-      context: ownerContext,
-      mailboxId,
-      input: { name: "Office hours", definition, enabled: true },
-    });
-    expect(created.ok).toBe(true);
-    if (!created.ok) return;
-    const evaluated = await evaluateNamedResponseSchedule({
-      mailboxId,
-      scheduleId: created.data.id,
-      instant: new Date("2026-07-17T09:00:00.000Z"),
-    });
-    expect(evaluated.ok && evaluated.data.evaluation).toMatchObject({ active: false, reason: "holiday" });
-    const updates = await Promise.all([
-      updateResponseSchedule({
-        context: ownerContext,
-        mailboxId,
-        scheduleId: created.data.id,
-        input: { expectedRevision: 1, enabled: false },
-      }),
-      updateResponseSchedule({
-        context: ownerContext,
-        mailboxId,
-        scheduleId: created.data.id,
-        input: { expectedRevision: 1, name: "Changed concurrently" },
-      }),
-    ]);
-    expect(updates.filter((result) => result.ok)).toHaveLength(1);
-    expect(updates.filter((result) => !result.ok)).toHaveLength(1);
-    await sql`UPDATE mail.response_schedules SET definition = '{}'::jsonb, enabled = true WHERE id = ${created.data.id}::uuid`;
-    const corrupted = await listResponseSchedules(ownerContext, mailboxId);
-    expect(corrupted.ok).toBe(false);
-    if (!corrupted.ok) expect(corrupted.error.code).toBe("INTERNAL");
-    const catalogError = await loadMailWorkflowCatalog({ context: ownerContext, mailboxId }).then(
-      () => null,
-      (error: unknown) => error,
-    );
-    expect(catalogError).toMatchObject({ code: "INTERNAL" });
-    await sql`DELETE FROM mail.response_schedules WHERE id = ${created.data.id}::uuid`;
   });
 
   test("creates and updates managed automatic replies atomically", async () => {
@@ -464,6 +537,7 @@ suite("conversation references and response schedules", () => {
       subject: "Re: ${{ inputs.message.subject }}",
       body: "I am currently away.",
       format: "markdown" as const,
+      ensureReference: false,
       minimumIntervalHours: 168,
       inactiveBehavior: "skip" as const,
       schedule: {
@@ -481,9 +555,15 @@ suite("conversation references and response schedules", () => {
         exceptions: [],
       },
     };
-    expect((await listAutomaticReplyConfigurations(writerContext, mailboxId)).ok).toBe(false);
+    const writerList = await listAutomaticReplyConfigurations(writerContext, mailboxId);
+    expect(writerList.ok).toBe(true);
     expect((await createAutomaticReplyConfiguration({ context: writerContext, mailboxId, input })).ok).toBe(false);
-    const created = await createAutomaticReplyConfiguration({ context: ownerContext, mailboxId, input });
+    await sql`
+      UPDATE mail.mailboxes
+      SET automatic_reply_management_permission = 'write'
+      WHERE id = ${mailboxId}::uuid
+    `;
+    const created = await createAutomaticReplyConfiguration({ context: writerContext, mailboxId, input });
     if (!created.ok) throw new Error(`${created.error.code}: ${created.error.message}`);
     expect(created.data).toMatchObject({
       name: input.name,
@@ -497,7 +577,7 @@ suite("conversation references and response schedules", () => {
         current_version_id: string;
         active_version_id: string | null;
         activation_count: number;
-        schedule_revision: string | number;
+        schedule_definition: unknown;
       }[]
     >`
       SELECT
@@ -505,38 +585,26 @@ suite("conversation references and response schedules", () => {
         workflow.active_version_id,
         (SELECT COUNT(*)::int FROM mail.workflow_activations activation
          WHERE activation.workflow_id = workflow.id AND activation.enabled) AS activation_count,
-        schedule.revision AS schedule_revision
+        configuration.schedule_definition
       FROM mail.automatic_reply_configurations configuration
       JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
-      JOIN mail.response_schedules schedule ON schedule.id = configuration.response_schedule_id
       WHERE configuration.id = ${created.data.id}::uuid
     `;
     expect(stored).toMatchObject({
       current_version_id: expect.any(String),
       active_version_id: expect.any(String),
       activation_count: 1,
-      schedule_revision: "1",
+      schedule_definition: input.schedule,
     });
-    const visibleSchedules = await listResponseSchedules(ownerContext, mailboxId);
-    expect(visibleSchedules.ok && visibleSchedules.data.some((schedule) => schedule.id === created.data.responseScheduleId)).toBe(false);
-    const managedScheduleUpdate = await updateResponseSchedule({
-      context: ownerContext,
-      mailboxId,
-      scheduleId: created.data.responseScheduleId,
-      input: { expectedRevision: 1, enabled: false },
-    });
-    expect(managedScheduleUpdate.ok).toBe(false);
-    if (!managedScheduleUpdate.ok) expect(managedScheduleUpdate.error.code).toBe("CONFLICT");
     const visibleWorkflows = await listWorkflows(readerContext, mailboxId);
     expect(visibleWorkflows.ok && visibleWorkflows.data.some((workflow) => workflow.id === created.data.workflowId)).toBe(false);
     const managedWorkflowRead = await getWorkflow(readerContext, mailboxId, created.data.workflowId);
     expect(managedWorkflowRead.ok).toBe(false);
     if (!managedWorkflowRead.ok) expect(managedWorkflowRead.error.code).toBe("NOT_FOUND");
-    const [beforeConflict] = await sql<{ configurations: number; workflows: number; schedules: number }[]>`
+    const [beforeConflict] = await sql<{ configurations: number; workflows: number }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM mail.automatic_reply_configurations WHERE mailbox_id = ${mailboxId}::uuid) AS configurations,
-        (SELECT COUNT(*)::int FROM mail.workflows WHERE mailbox_id = ${mailboxId}::uuid) AS workflows,
-        (SELECT COUNT(*)::int FROM mail.response_schedules WHERE mailbox_id = ${mailboxId}::uuid) AS schedules
+        (SELECT COUNT(*)::int FROM mail.workflows WHERE mailbox_id = ${mailboxId}::uuid) AS workflows
     `;
     const duplicate = await createAutomaticReplyConfiguration({
       context: ownerContext,
@@ -545,11 +613,10 @@ suite("conversation references and response schedules", () => {
     });
     expect(duplicate.ok).toBe(false);
     if (!duplicate.ok) expect(duplicate.error.code).toBe("CONFLICT");
-    const [afterConflict] = await sql<{ configurations: number; workflows: number; schedules: number }[]>`
+    const [afterConflict] = await sql<{ configurations: number; workflows: number }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM mail.automatic_reply_configurations WHERE mailbox_id = ${mailboxId}::uuid) AS configurations,
-        (SELECT COUNT(*)::int FROM mail.workflows WHERE mailbox_id = ${mailboxId}::uuid) AS workflows,
-        (SELECT COUNT(*)::int FROM mail.response_schedules WHERE mailbox_id = ${mailboxId}::uuid) AS schedules
+        (SELECT COUNT(*)::int FROM mail.workflows WHERE mailbox_id = ${mailboxId}::uuid) AS workflows
     `;
     expect(afterConflict).toEqual(beforeConflict);
     const secondActive = await createAutomaticReplyConfiguration({
@@ -605,6 +672,7 @@ suite("conversation references and response schedules", () => {
           subject: current.subject,
           body: current.body,
           format: current.format,
+          ensureReference: current.ensureReference,
           minimumIntervalHours: current.minimumIntervalHours,
           inactiveBehavior: current.inactiveBehavior,
           schedule: current.schedule,
@@ -613,6 +681,36 @@ suite("conversation references and response schedules", () => {
       if (!disabledResult.ok) throw new Error(`${disabledResult.error.code}: ${disabledResult.error.message}`);
       current = disabledResult.data;
     }
+    const referenceUpdate = await updateAutomaticReplyConfiguration({
+      context: ownerContext,
+      mailboxId,
+      configurationId: current.id,
+      input: {
+        expectedRevision: current.revision,
+        name: current.name,
+        enabled: false,
+        senderIdentityId: current.senderIdentityId,
+        subject: current.subject,
+        body: "Your reference is ${{ reference.value }}.",
+        format: current.format,
+        ensureReference: true,
+        minimumIntervalHours: current.minimumIntervalHours,
+        inactiveBehavior: current.inactiveBehavior,
+        schedule: current.schedule,
+      },
+    });
+    if (!referenceUpdate.ok) throw new Error(`${referenceUpdate.error.code}: ${referenceUpdate.error.message}`);
+    current = referenceUpdate.data;
+    const [referenceWorkflow] = await sql<{ source: string }[]>`
+      SELECT version.source
+      FROM mail.automatic_reply_configurations configuration
+      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      JOIN mail.workflow_versions version ON version.id = workflow.current_version_id
+      WHERE configuration.id = ${created.data.id}::uuid
+    `;
+    expect(referenceWorkflow?.source).toContain("ensureConversationReference:");
+    expect(referenceWorkflow?.source).toContain("result: reference");
+    expect(referenceWorkflow?.source).toContain("${{ reference.value }}");
     const [disabled] = await sql<{ active_version_id: string | null; activation_count: number }[]>`
       SELECT
         workflow.active_version_id,
@@ -629,6 +727,18 @@ suite("conversation references and response schedules", () => {
       JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
       WHERE configuration.id = ${created.data.id}::uuid
     `;
+    const referenceConfiguration = await getReferenceConfiguration();
+    const stoppedReferenceAllocation = await putConversationReferenceConfiguration({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        expectedRevision: referenceConfiguration.revision,
+        pattern: referenceConfiguration.pattern,
+        enabled: false,
+        includeInReplySubjects: referenceConfiguration.includeInReplySubjects,
+      },
+    });
+    if (!stoppedReferenceAllocation.ok) throw new Error(stoppedReferenceAllocation.error.message);
     await sql`UPDATE mail.sender_identities SET status = 'disabled' WHERE id = ${identity.id}::uuid`;
     const disabledUpdate = await updateAutomaticReplyConfiguration({
       context: ownerContext,
@@ -640,6 +750,7 @@ suite("conversation references and response schedules", () => {
         subject: current.subject,
         body: current.body,
         format: current.format,
+        ensureReference: current.ensureReference,
         minimumIntervalHours: current.minimumIntervalHours,
         inactiveBehavior: current.inactiveBehavior,
         schedule: current.schedule,

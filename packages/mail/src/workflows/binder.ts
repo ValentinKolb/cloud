@@ -16,12 +16,13 @@ import {
   type WorkflowValuePathDescriptor,
   workflowMessageExpressions,
 } from "@valentinkolb/cloud/workflows/language";
+import { responseScheduleDefinitionSchema } from "../contracts";
+import { validateResponseScheduleDefinition } from "../response-schedule-validation";
 import {
   getMailWorkflowCatalogRef,
   type MailWorkflowCatalog,
   type MailWorkflowCatalogEntry,
   type MailWorkflowCatalogIndex,
-  type MailWorkflowResponseScheduleCatalogEntry,
   snapshotMailWorkflowCatalog,
 } from "./catalog";
 import { mailWorkflowManifest } from "./manifest";
@@ -43,6 +44,17 @@ const inputTypes = new Map(mailWorkflowManifest.inputs.map((input) => [input.kin
 const textValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.text" };
 const booleanValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.boolean" };
 const dateTimeValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.dateTime" };
+const referenceResult: WorkflowValuePathDescriptor = {
+  kind: "object",
+  type: "mail.reference",
+  properties: {
+    id: textValue,
+    value: textValue,
+    created: booleanValue,
+    conversationId: textValue,
+    conversationRevision: { kind: "scalar", type: "core.number" },
+  },
+};
 const mailAddress: WorkflowValuePathDescriptor = {
   kind: "object",
   type: "mail.address",
@@ -294,33 +306,6 @@ const bindCatalogValue = <T extends MailWorkflowCatalogEntry>(
   }
 };
 
-const bindCatalogSnapshotValue = (
-  value: WorkflowJsonValue | undefined,
-  index: MailWorkflowCatalogIndex<MailWorkflowResponseScheduleCatalogEntry>,
-  label: string,
-  path: Array<string | number>,
-  context: BindingContext,
-): void => {
-  if (typeof value !== "string") {
-    addDiagnostic(context, "binding.type", `${label} must be a name or ID`, path);
-    return;
-  }
-  const source = expressionReference(value);
-  if (!source || source.kind !== "literal") {
-    addDiagnostic(context, "binding.dynamic", `${label} must be a literal accessible name or ID`, path);
-    return;
-  }
-  const entry = resolveCatalogRef(context, index, source.value, label, path);
-  if (entry) {
-    context.bindings[workflowPathKey(path)] = {
-      id: entry.id,
-      name: entry.name,
-      revision: entry.revision,
-      definition: entry.definition,
-    };
-  }
-};
-
 const bindMessage = (
   value: WorkflowJsonValue | undefined,
   path: Array<string | number>,
@@ -421,17 +406,10 @@ const bindAction = (
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
   } else if (step.action === "ensureConversationReference") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
-    if (config.scheme !== undefined) {
-      bindCatalogValue(config.scheme, context.catalog.referenceSchemes, "reference scheme", [...path, "scheme"], scope, context);
-    }
+    defineValue(config.result, referenceResult, [...path, "result"], scope, context);
   } else if (step.action === "automaticReply") {
     if (context.ir.triggers.some((trigger) => trigger.kind !== "messageReceived")) {
-      addDiagnostic(
-        context,
-        "automaticReply.trigger",
-        "automaticReply requires every workflow trigger to be messageReceived",
-        path,
-      );
+      addDiagnostic(context, "automaticReply.trigger", "automaticReply requires every workflow trigger to be messageReceived", path);
     }
     expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
@@ -439,7 +417,15 @@ const bindAction = (
     bindMessage(config.subject, [...path, "subject"], scope, context);
     bindMessage(config.body, [...path, "body"], scope, context);
     if (config.schedule !== undefined) {
-      bindCatalogSnapshotValue(config.schedule, context.catalog.responseSchedules, "response schedule", [...path, "schedule"], context);
+      const schedulePath = [...path, "schedule"];
+      const parsed = responseScheduleDefinitionSchema.safeParse(config.schedule);
+      if (!parsed.success) {
+        addDiagnostic(context, "automaticReply.schedule", parsed.error.issues[0]?.message ?? "Invalid response schedule", schedulePath);
+      } else {
+        for (const message of validateResponseScheduleDefinition(parsed.data)) {
+          addDiagnostic(context, "automaticReply.schedule", message, schedulePath);
+        }
+      }
     }
   } else if (step.action === "setVariable") {
     const value = bindValue(config.value!, [...path, "value"], scope, context);

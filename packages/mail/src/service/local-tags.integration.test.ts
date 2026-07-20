@@ -205,7 +205,7 @@ suite("mail local tags and structured search", () => {
     ]);
     expect(updates.filter((result) => result.ok)).toHaveLength(1);
     expect(updates.filter((result) => !result.ok)).toHaveLength(1);
-    const current = (await listLocalTags(writerContext, mailboxId));
+    const current = await listLocalTags(writerContext, mailboxId);
     if (!current.ok) throw new Error(current.error.message);
     const tag = current.data[0]!;
 
@@ -291,6 +291,18 @@ suite("mail local tags and structured search", () => {
         request: { expression, sort: "newest", limit: 10 },
       });
       expect(fieldResult.ok && fieldResult.data.items.map((item) => item.id), JSON.stringify(expression)).toContain(messageId);
+    }
+    for (const query of ["support@example.com", "invoice", "internal context", "Priority Queue", tags.data[0].name, "RemoteImportant"]) {
+      const quickResult = await searchMessages({
+        context: readerContext,
+        mailboxId,
+        request: {
+          expression: { type: "text", field: "any", query, match: "words" },
+          sort: "relevance",
+          limit: 10,
+        },
+      });
+      expect(quickResult.ok && quickResult.data.items.map((item) => item.id), query).toContain(messageId);
     }
     const result = await searchMessages({
       context: readerContext,

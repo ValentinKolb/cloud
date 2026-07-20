@@ -8,14 +8,16 @@ import type {
   WorkflowExecuteActionPort,
 } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
-import type { ActorCommandInput, MailCommand, RemoteMessagePrecondition, UpdateConversationCollaboration } from "../contracts";
+import type {
+  ActorCommandInput,
+  MailCommand,
+  RemoteMessagePrecondition,
+  ResponseScheduleDefinitionInput,
+  UpdateConversationCollaboration,
+} from "../contracts";
 import { responseScheduleDefinitionSchema } from "../contracts";
 import { parseConnectorProtocolFacts } from "./auto-reply-policy";
-import {
-  type AutomaticReplyScheduleSnapshot,
-  linkAutomaticReplyCommandInTransaction,
-  prepareAutomaticReplyInTransaction,
-} from "./automatic-reply";
+import { linkAutomaticReplyCommandInTransaction, prepareAutomaticReplyInTransaction } from "./automatic-reply";
 import { sha256Text } from "./canonical";
 import { updateConversationCollaborationInTransaction, updateWorkflowConversationCollaborationInTransaction } from "./collaboration";
 import { createWorkflowCommand } from "./commands";
@@ -214,19 +216,11 @@ const remoteState = (preconditions: WorkflowJsonValue): RemoteMessagePreconditio
   return isJsonObject(value) ? (value as RemoteMessagePrecondition) : undefined;
 };
 
-const automaticReplySchedule = (value: WorkflowJsonValue | undefined): AutomaticReplyScheduleSnapshot | null => {
+const automaticReplySchedule = (value: WorkflowJsonValue | undefined): ResponseScheduleDefinitionInput | null => {
   if (value === undefined) return null;
-  const schedule = objectValue(value, "response schedule");
-  const definition = responseScheduleDefinitionSchema.safeParse(schedule.definition);
-  if (
-    typeof schedule.id !== "string" ||
-    typeof schedule.name !== "string" ||
-    typeof schedule.revision !== "number" ||
-    !definition.success
-  ) {
-    throw new Error("response schedule binding is invalid");
-  }
-  return { id: schedule.id, name: schedule.name, revision: schedule.revision, definition: definition.data };
+  const schedule = responseScheduleDefinitionSchema.safeParse(value);
+  if (!schedule.success) throw new Error("automatic reply schedule is invalid");
+  return schedule.data;
 };
 
 const commandInput = async (
@@ -286,12 +280,24 @@ const plannedEffect = async (
     };
   }
   const subject = await referenceOrValue(context, step.config.conversation);
+  if (step.action === "ensureConversationReference") {
+    const conversation = objectValue(subject, "conversation");
+    const result = {
+      id: "dry-run-reference",
+      value: "REFERENCE-PREVIEW",
+      created: true,
+      conversationId: textValue(conversation.id, "conversation.id"),
+      conversationRevision: Number(conversation.revision ?? 1),
+    };
+    if (typeof step.config.result === "string") context.variables.set(step.config.result, result);
+    return { state: "planned", effects: [{ kind: "mail.ensureConversationReference", subject: subject ?? null, value: result }] };
+  }
   const value =
     step.action === "assignConversation"
       ? (actionBinding(context, step, "user") ?? (await referenceOrValue(context, step.config.user)) ?? null)
       : step.action === "setConversationStatus"
         ? await referenceOrValue(context, step.config.status)
-        : (actionBinding(context, step, "scheme") ?? null);
+        : null;
   return { state: "planned", effects: [{ kind: `mail.${step.action}`, subject: subject ?? null, value: value ?? null }] };
 };
 
@@ -359,10 +365,18 @@ export const createMailWorkflowActionPorts = (
       }
 
       if (step.action === "ensureConversationReference") {
+        if ("scheme" in step.config) {
+          return {
+            state: "failed",
+            error: {
+              code: "MAIL_WORKFLOW_VERSION_OBSOLETE",
+              message: "This workflow version selects an obsolete reference-number scheme",
+              retryable: false,
+            },
+          };
+        }
         const conversation = objectValue(await referenceOrValue(context, step.config.conversation), "conversation");
         const conversationId = textValue(conversation.id, "conversation.id");
-        const scheme = actionBinding(context, step, "scheme");
-        if (scheme !== undefined && typeof scheme !== "string") throw new Error("reference scheme binding must resolve to text");
         const completed = await sql.begin(async (tx) => {
           await lockCollaborationActionFence(tx, context);
           if (!(await activeWorkflowAuthority(options, tx))) {
@@ -372,7 +386,6 @@ export const createMailWorkflowActionPorts = (
             db: tx,
             mailboxId: options.mailboxId,
             conversationId,
-            ...(scheme ? { schemeId: scheme } : {}),
             idempotencyKey: `workflow:${options.targetId}:${sha256Text(context.step.key).slice(0, 40)}`,
             actor: { kind: "workflow", id: options.workflowVersionId },
           });
@@ -382,10 +395,11 @@ export const createMailWorkflowActionPorts = (
             output: {
               action: step.action,
               applied: ensured.data.result.created,
+              id: ensured.data.result.reference.id,
+              value: ensured.data.result.reference.value,
+              created: ensured.data.result.created,
               conversationId: ensured.data.result.reference.conversationId,
               conversationRevision: ensured.data.result.conversationRevision,
-              referenceId: ensured.data.result.reference.id,
-              reference: ensured.data.result.reference.value,
             },
           };
           await ledgerCompletedCollaborationAction(tx, context, outcome);
@@ -393,6 +407,15 @@ export const createMailWorkflowActionPorts = (
         });
         if (!completed.ensured.ok) return { state: "failed", error: executionError(completed.ensured.error) };
         if (!completed.outcome) throw new Error("Completed conversation reference outcome is unavailable");
+        if (typeof step.config.result === "string" && isJsonObject(completed.outcome.output)) {
+          context.variables.set(step.config.result, {
+            id: completed.outcome.output.id ?? null,
+            value: completed.outcome.output.value ?? null,
+            created: completed.outcome.output.created ?? false,
+            conversationId: completed.outcome.output.conversationId ?? null,
+            conversationRevision: completed.outcome.output.conversationRevision ?? null,
+          });
+        }
         conversation.revision = completed.ensured.data.result.conversationRevision;
         conversationRevisions.set(conversationId, completed.ensured.data.result.conversationRevision);
         if (completed.ensured.data.activityId) {
@@ -439,7 +462,7 @@ export const createMailWorkflowActionPorts = (
         if (inactiveBehavior !== "skip" && inactiveBehavior !== "defer") {
           throw new Error("automatic reply inactive behavior is invalid");
         }
-        const schedule = automaticReplySchedule(actionBinding(context, step, "schedule"));
+        const schedule = automaticReplySchedule(step.config.schedule);
         const prepared = await sql.begin(async (tx) => {
           await lockCollaborationActionFence(tx, context);
           if (!(await activeWorkflowAuthority(options, tx))) {
@@ -603,13 +626,17 @@ export const createMailWorkflowActionPorts = (
     step: WorkflowActionStep,
     outcome: { output?: WorkflowJsonValue },
   ) => {
-    if (!isJsonObject(outcome.output) || outcome.output.applied !== true) return;
-    if (step.action === "addKeyword" || step.action === "removeKeyword" || step.action === "moveMessage") {
-      const transition = await messageTransition(context, step);
-      applyMailMessageTransition(transition.message, transition.action, transition.value);
-      return;
-    }
+    if (!isJsonObject(outcome.output)) return;
     if (step.action === "ensureConversationReference") {
+      if (typeof step.config.result === "string") {
+        context.variables.set(step.config.result, {
+          id: outcome.output.id ?? null,
+          value: outcome.output.value ?? null,
+          created: outcome.output.created ?? false,
+          conversationId: outcome.output.conversationId ?? null,
+          conversationRevision: outcome.output.conversationRevision ?? null,
+        });
+      }
       const conversation = objectValue(await referenceOrValue(context, step.config.conversation), "conversation");
       const conversationId = outcome.output.conversationId;
       const revision = outcome.output.conversationRevision;
@@ -617,6 +644,12 @@ export const createMailWorkflowActionPorts = (
         conversation.revision = revision;
         conversationRevisions.set(conversationId, revision);
       }
+      return;
+    }
+    if (outcome.output.applied !== true) return;
+    if (step.action === "addKeyword" || step.action === "removeKeyword" || step.action === "moveMessage") {
+      const transition = await messageTransition(context, step);
+      applyMailMessageTransition(transition.message, transition.action, transition.value);
       return;
     }
     const transition = await conversationTransition(context, step);

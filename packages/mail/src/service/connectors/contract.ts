@@ -118,6 +118,39 @@ export type RemoteAppendResult = {
   uid: number | null;
 };
 
+export type ConnectorChangeHint =
+  | {
+      type: "folder_changed";
+      cause: "exists" | "flags" | "vanished" | "uidvalidity_changed";
+      folderPath: string;
+      uid: number | null;
+      modseq: string | null;
+    }
+  | {
+      type: "overflow";
+      folderPath: string;
+    }
+  | {
+      type: "disconnected";
+      folderPath: string;
+      reason: "closed" | "error";
+    };
+
+export type ConnectorChangeListenerMode = "qresync" | "idle" | "poll";
+
+export type ConnectorChangeListenerRequest = {
+  folderPath: string;
+  uidValidity: string;
+  highestModseq: string | null;
+  maxPendingHints: number;
+};
+
+export type ConnectorChangeListener = {
+  mode: ConnectorChangeListenerMode;
+  hints: AsyncIterable<ConnectorChangeHint>;
+  close(): Promise<void>;
+};
+
 export type RemoteMessageState = {
   exists: boolean;
   flags: string[];
@@ -184,4 +217,5 @@ export interface MailConnector {
   renameFolder(config: ProviderConnectionInput, path: string, newPath: string): Promise<void>;
   deleteFolder(config: ProviderConnectionInput, path: string): Promise<void>;
   setFolderSubscription(config: ProviderConnectionInput, path: string, subscribed: boolean): Promise<void>;
+  listenForChanges?(config: ProviderConnectionInput, request: ConnectorChangeListenerRequest): Promise<ConnectorChangeListener>;
 }

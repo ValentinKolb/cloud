@@ -389,6 +389,8 @@ export default function MailWorkspace(props: {
                     nextCursor={data().nextListCursor}
                     dateConfig={props.dateConfig}
                     canWrite={canWrite()}
+                    savedViews={data().savedViews}
+                    activeSavedViewId={data().savedViewId}
                     loading={routeLoading()}
                     onCollapse={() => setCollapsed(true)}
                     onNavigate={navigateWorkspace}

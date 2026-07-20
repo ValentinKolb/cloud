@@ -20,6 +20,12 @@ suite("mail migrations", () => {
         scheduled_send_guard_present: boolean;
         automatic_reply_invariants_present: boolean;
         sender_automation_default: boolean;
+        inline_response_timing_present: boolean;
+        imap_push_health_present: boolean;
+        canonical_saved_view_search_present: boolean;
+        canonical_saved_view_search_strict: boolean;
+        draft_remote_observations_supported: boolean;
+        draft_recovery_attachments_present: boolean;
       }[]
     >`
       SELECT
@@ -73,7 +79,66 @@ suite("mail migrations", () => {
           WHERE table_schema = 'mail'
             AND table_name = 'sender_identities'
             AND column_name = 'automation_policy'
-        ) AS sender_automation_default
+        ) AS sender_automation_default,
+        to_regclass('mail.response_schedules') IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'mail'
+              AND table_name = 'automatic_reply_configurations'
+              AND column_name = 'schedule_definition'
+              AND is_nullable = 'NO'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'mail'
+              AND (
+                (table_name = 'automatic_reply_configurations' AND column_name = 'response_schedule_id')
+                OR (table_name = 'automatic_reply_effects' AND column_name IN ('response_schedule_id', 'response_schedule_revision'))
+              )
+          ) AS inline_response_timing_present,
+        to_regclass('mail.imap_push_listener_health') IS NOT NULL
+          AND to_regclass('mail.imap_push_listener_health_state_idx') IS NOT NULL AS imap_push_health_present,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'mail.saved_conversation_views'::regclass
+            AND conname = 'saved_conversation_views_canonical_search_check'
+            AND convalidated
+        )
+        AND (
+          SELECT column_default IS NULL
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'saved_conversation_views'
+            AND column_name = 'filter'
+        ) AS canonical_saved_view_search_present,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'mail.saved_conversation_views'::regclass
+            AND conname = 'saved_conversation_views_canonical_search_check'
+            AND pg_get_constraintdef(oid) LIKE '%filter ? ''expression''%'
+            AND pg_get_constraintdef(oid) LIKE '%filter ? ''sort''%'
+            AND pg_get_constraintdef(oid) LIKE '%IS TRUE%'
+        ) AS canonical_saved_view_search_strict,
+        EXISTS (
+          SELECT 1
+          FROM pg_index
+          WHERE indexrelid = 'mail.draft_provider_snapshots_remote_identity_idx'::regclass
+            AND indisunique = false
+        ) AS draft_remote_observations_supported,
+        to_regclass('mail.draft_recovery_attachments') IS NOT NULL
+          AND to_regclass('mail.draft_recovery_attachments_blob_idx') IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'mail'
+              AND table_name = 'draft_recovery_copies'
+              AND column_name = 'has_attachment_snapshot'
+              AND is_nullable = 'NO'
+          ) AS draft_recovery_attachments_present
     `;
     expect(shape).toEqual({
       templates_present: true,
@@ -86,24 +151,62 @@ suite("mail migrations", () => {
       scheduled_send_guard_present: true,
       automatic_reply_invariants_present: true,
       sender_automation_default: true,
+      inline_response_timing_present: true,
+      imap_push_health_present: true,
+      canonical_saved_view_search_present: true,
+      canonical_saved_view_search_strict: true,
+      draft_remote_observations_supported: true,
+      draft_recovery_attachments_present: true,
     });
+  });
+
+  test("repairs an accidentally unique remote draft observation index in place", async () => {
+    await migrate();
+    await sql`DELETE FROM mail.schema_migrations WHERE version = 61`;
+    await sql`DROP INDEX mail.draft_provider_snapshots_remote_identity_idx`;
+    await sql`
+      CREATE UNIQUE INDEX draft_provider_snapshots_remote_identity_idx
+      ON mail.draft_provider_snapshots (id)
+    `;
+
+    await migrate();
+
+    const [index] = await sql<{ unique: boolean; definition: string }[]>`
+      SELECT index_state.indisunique AS unique, pg_get_indexdef(index_state.indexrelid) AS definition
+      FROM pg_index index_state
+      WHERE index_state.indexrelid = 'mail.draft_provider_snapshots_remote_identity_idx'::regclass
+    `;
+    expect(index?.unique).toBe(false);
+    expect(index?.definition).toContain("(folder_id, uid_validity, uid, created_at DESC)");
+    expect(index?.definition).toContain("WHERE ((folder_id IS NOT NULL)");
   });
 
   test("adds mailbox-consistent local tags and a safe reference-search bridge", async () => {
     await migrate();
     const [shape] = await sql<
-      { tags_present: boolean; assignments_present: boolean; reference_request_ledger_present: boolean; reference_without_table: boolean }[]
+      {
+        tags_present: boolean;
+        assignments_present: boolean;
+        reference_request_ledger_present: boolean;
+        reference_configuration_present: boolean;
+        legacy_reference_schemes_absent: boolean;
+        reference_without_table: boolean;
+      }[]
     >`
       SELECT
         to_regclass('mail.local_tags') IS NOT NULL AS tags_present,
         to_regclass('mail.conversation_local_tags') IS NOT NULL AS assignments_present,
         to_regclass('mail.conversation_reference_requests') IS NOT NULL AS reference_request_ledger_present,
+        to_regclass('mail.reference_number_configurations') IS NOT NULL AS reference_configuration_present,
+        to_regclass('mail.reference_schemes') IS NULL AS legacy_reference_schemes_absent,
         mail.search_reference_matches(gen_random_uuid(), 'SUP-42', 'exact') = false AS reference_without_table
     `;
     expect(shape).toEqual({
       tags_present: true,
       assignments_present: true,
       reference_request_ledger_present: true,
+      reference_configuration_present: true,
+      legacy_reference_schemes_absent: true,
       reference_without_table: true,
     });
   });

@@ -31,6 +31,7 @@ type DbMailbox = {
   health_reason: string | null;
   sync_enabled: boolean;
   search_backend: Mailbox["searchBackend"];
+  automatic_reply_management_permission: Mailbox["automaticReplyManagementPermission"];
   deleted_at: Date | string | null;
   deleted_cursor_us: string | null;
   created_at: Date | string;
@@ -47,6 +48,7 @@ const mapMailbox = (row: DbMailbox): Mailbox => ({
   healthReason: row.health_reason,
   syncEnabled: row.sync_enabled,
   searchBackend: row.search_backend,
+  automaticReplyManagementPermission: row.automatic_reply_management_permission,
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
@@ -58,7 +60,7 @@ const mapDeletedMailbox = (row: DbMailbox): DeletedMailbox => {
 
 const mailboxColumns = sql`
   m.id, m.name, m.description, m.health, m.health_reason,
-  m.sync_enabled, m.search_backend, m.deleted_at,
+  m.sync_enabled, m.search_backend, m.automatic_reply_management_permission, m.deleted_at,
   CASE
     WHEN m.deleted_at IS NULL THEN NULL
     ELSE (extract(epoch FROM m.deleted_at) * 1000000)::bigint::text
@@ -157,7 +159,8 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
             ${owner.id}::uuid,
             ${context.actor.kind === "service_account" ? context.actor.serviceAccount.id : null}::uuid
           )
-          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, deleted_at, created_at, updated_at
+          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend,
+            automatic_reply_management_permission, deleted_at, created_at, updated_at
         `;
         if (!row) throw new Error("Mailbox insert returned no row");
 
@@ -370,6 +373,7 @@ export const updateMailbox = async (params: {
   description?: string | null;
   syncEnabled?: boolean;
   searchBackend?: Mailbox["searchBackend"];
+  automaticReplyManagementPermission?: Mailbox["automaticReplyManagementPermission"];
 }): Promise<Result<Mailbox>> => {
   const name = params.name?.trim();
   if (name !== undefined && (name.length < 1 || name.length > 160)) return fail(err.badInput("Mailbox name is invalid"));
@@ -391,6 +395,10 @@ export const updateMailbox = async (params: {
             description = CASE WHEN ${params.description !== undefined} THEN ${description} ELSE description END,
             sync_enabled = COALESCE(${params.syncEnabled ?? null}, sync_enabled),
             search_backend = COALESCE(${params.searchBackend ?? null}, search_backend),
+            automatic_reply_management_permission = COALESCE(
+              ${params.automaticReplyManagementPermission ?? null},
+              automatic_reply_management_permission
+            ),
             health = CASE
               WHEN ${params.syncEnabled === false} THEN 'paused'
               WHEN ${params.syncEnabled === true} AND health = 'paused' THEN 'bootstrapping'
@@ -402,7 +410,8 @@ export const updateMailbox = async (params: {
               ELSE health_reason
             END
           WHERE id = ${params.mailboxId}::uuid
-          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, deleted_at, created_at, updated_at
+          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend,
+            automatic_reply_management_permission, deleted_at, created_at, updated_at
         `;
         if (!row) throw new Error("Mailbox update returned no row");
         await audit.record(
@@ -537,7 +546,8 @@ export const restoreMailbox = async (context: MailRequestContext, mailboxId: str
             health_reason = 'Mailbox restored; provider diagnostics are required before synchronization can resume',
             updated_at = now()
           WHERE id = ${mailboxId}::uuid AND deleted_at IS NOT NULL
-          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend, deleted_at, created_at, updated_at
+          RETURNING id, name, description, health, health_reason, sync_enabled, search_backend,
+            automatic_reply_management_permission, deleted_at, created_at, updated_at
         `;
         if (!restored) throw new Error("Mailbox restore returned no row");
         transitioned = true;

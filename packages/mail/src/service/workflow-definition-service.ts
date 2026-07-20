@@ -16,6 +16,7 @@ import type {
   WorkflowValidation,
 } from "../contracts";
 import { bindMailWorkflow, mailWorkflowManifest } from "../workflows";
+import { retiredMailWorkflowConfiguration, retiredMailWorkflowConfigurationMessage } from "../workflows/version-compatibility";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { loadMailWorkflowCatalog } from "./workflow-catalog-service";
@@ -348,7 +349,7 @@ const rejectManagedWorkflowMutation = async (mailboxId: string, workflowId: stri
       WHERE mailbox_id = ${mailboxId}::uuid AND workflow_id = ${workflowId}::uuid
     ) AS exists
   `;
-  return managed?.exists ? fail(err.conflict("Managed automatic replies must be changed from Response policy settings")) : ok();
+  return managed?.exists ? fail(err.conflict("Managed automatic replies must be changed from Automations")) : ok();
 };
 
 const rejectManagedWorkflowRead = async (mailboxId: string, workflowId: string, db: SqlClient = sql): Promise<Result<void>> => {
@@ -379,8 +380,6 @@ export const replaceManagedWorkflowInTransaction = async (params: {
   effectBudget: WorkflowEffectBudget;
   enabled: boolean;
 }): Promise<Result<MailWorkflowDetail>> => {
-  const currentPermission = await requireMailboxPermission(params.context, params.mailboxId, "admin", params.db);
-  if (!currentPermission.ok) return currentPermission;
   const workflowId = params.workflowId ?? crypto.randomUUID();
   const versionId = crypto.randomUUID();
   const actor = creator(params.context);
@@ -456,8 +455,6 @@ export const setManagedWorkflowEnabledInTransaction = async (params: {
   workflowId: string;
   enabled: boolean;
 }): Promise<Result<MailWorkflowDetail>> => {
-  const currentPermission = await requireMailboxPermission(params.context, params.mailboxId, "admin", params.db);
-  if (!currentPermission.ok) return currentPermission;
   const [workflow] = await params.db<DbWorkflow[]>`
     SELECT ${workflowColumns}
     FROM mail.workflows workflow
@@ -724,6 +721,8 @@ export const activateWorkflow = async (params: {
       });
       if (!version) return fail(err.notFound("Workflow version"));
       const plan = parseJson(version.bound_plan);
+      const retiredConfiguration = retiredMailWorkflowConfiguration(plan);
+      if (retiredConfiguration) return fail(err.conflict(retiredMailWorkflowConfigurationMessage(retiredConfiguration)));
       const registrations = workflowTriggerRegistrations(plan);
       await tx`DELETE FROM mail.workflow_activations WHERE workflow_id = ${params.workflowId}::uuid`;
       for (const trigger of registrations) {

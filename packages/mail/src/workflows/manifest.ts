@@ -7,6 +7,13 @@ const text = (description: string, optional = false, maxLength = 1_000): Workflo
   optional,
   description,
 });
+const identifier = (description: string): WorkflowFieldSchema => ({
+  kind: "string",
+  format: "identifier",
+  maxLength: 120,
+  optional: true,
+  description,
+});
 
 const object = (properties: Record<string, WorkflowFieldSchema>): WorkflowFieldSchema & { kind: "object" } => ({
   kind: "object",
@@ -18,6 +25,38 @@ const referenceInput = () =>
 
 const messageReference = text("Message value reference.", false, 500);
 const conversationReference = text("Conversation value reference.", false, 500);
+const scheduleWindow = object({
+  start: text("Inclusive local start time in HH:mm format.", false, 5),
+  end: text("Exclusive local end time in HH:mm format; 24:00 is allowed.", false, 5),
+});
+const responseSchedule = object({
+  timeZone: text("IANA timezone used to evaluate dates and local hours.", false, 80),
+  activeRanges: {
+    kind: "array",
+    maxItems: 32,
+    items: object({
+      from: text("Inclusive start date in YYYY-MM-DD format.", false, 10),
+      to: { kind: "value", description: "Inclusive end date in YYYY-MM-DD format, or null for no end." },
+    }),
+  },
+  weeklyWindows: {
+    kind: "array",
+    maxItems: 64,
+    items: object({
+      weekday: { kind: "number", integer: true, minimum: 1, maximum: 7, description: "ISO weekday from 1 (Monday) to 7 (Sunday)." },
+      ...scheduleWindow.properties,
+    }),
+  },
+  exceptions: {
+    kind: "array",
+    maxItems: 366,
+    items: object({
+      date: text("Exception date in YYYY-MM-DD format.", false, 10),
+      closed: { kind: "boolean", description: "Whether the schedule is inactive for the whole date." },
+      windows: { kind: "array", maxItems: 32, items: scheduleWindow },
+    }),
+  },
+});
 
 export const mailWorkflowManifest: WorkflowLanguageManifest = {
   id: "mail",
@@ -120,12 +159,13 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
     {
       kind: "ensureConversationReference",
       label: "Ensure conversation reference",
-      description: "Allocates one immutable mailbox-scoped reference when the conversation does not already have one for the scheme.",
+      description: "Allocates the immutable mailbox-scoped reference when the conversation does not already have one.",
       effect: "transactional",
       dryRun: "full",
+      outputType: "mail.reference",
       config: object({
         conversation: conversationReference,
-        scheme: text("Enabled reference scheme name or ID. Uses the mailbox default when omitted.", true, 500),
+        result: identifier("Optional variable name for the allocated reference result."),
       }),
     },
     {
@@ -141,7 +181,7 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
         subject: text("Reply subject or text expression.", false, 998),
         body: text("Reply body or text expression.", false, 2 * 1024 * 1024),
         format: { kind: "string", enum: ["plain", "markdown"], optional: true, description: "Reply body format." },
-        schedule: text("Optional named response schedule.", true, 500),
+        schedule: { ...responseSchedule, optional: true, description: "Optional inline response window for this action." },
         inactiveBehavior: {
           kind: "string",
           enum: ["skip", "defer"],

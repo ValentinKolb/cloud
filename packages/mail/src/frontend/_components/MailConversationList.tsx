@@ -1,9 +1,13 @@
-import { Placeholder, prompts, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
+import { MAIL_SEARCH_PARAMETER, parseMailSearchState } from "../../search-state";
+import type { SavedConversationView } from "../../service/saved-views";
+import { openMailSearchBuilder } from "./MailSearchBuilder";
 import { buildMailListHref, buildMailSelectionHref, type MailListItem } from "./mail-navigation";
+import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
 const statusLabel = (item: MailListItem): string | null => {
   if (item.responseNeeded) return "Reply needed";
@@ -26,6 +30,8 @@ export default function MailConversationList(props: {
   nextCursor: string | null;
   dateConfig: DateContext;
   canWrite: boolean;
+  savedViews: SavedConversationView[];
+  activeSavedViewId: string | null;
   loading: boolean;
   onCollapse: () => void;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
@@ -36,10 +42,14 @@ export default function MailConversationList(props: {
   const requestUrl = () => new URL(props.requestUrl);
   const [searchValue, setSearchValue] = createSignal(props.query);
   const listHref = () => buildMailListHref(requestUrl());
-  const searchActive = () =>
-    ["q", "from", "to", "subject", "body", "attachment", "comment", "reference", "folderName", "tag", "keyword"].some((name) =>
-      Boolean(requestUrl().searchParams.get(name)?.trim()),
-    );
+  const parsedSearch = createMemo(() => parseMailSearchState(requestUrl()));
+  const activeSavedView = createMemo(() => props.savedViews.find((view) => view.id === props.activeSavedViewId) ?? null);
+  const currentSearchState = createMemo(() => parsedSearch().state ?? activeSavedView()?.filter ?? null);
+  const structuredSummary = createMemo(() => {
+    const state = currentSearchState();
+    return state ? summarizeMailSearchExpression(state.expression) : null;
+  });
+  const searchActive = () => Boolean(props.query.trim() || requestUrl().searchParams.has(MAIL_SEARCH_PARAMETER) || props.activeSavedViewId);
 
   createEffect(() => setSearchValue(props.query));
 
@@ -48,46 +58,41 @@ export default function MailConversationList(props: {
     const currentUrl = requestUrl();
     const next = new URL(buildMailListHref(currentUrl, true), currentUrl.origin);
     next.searchParams.delete("cursor");
-    if (searchValue().trim()) next.searchParams.set("q", searchValue().trim());
+    if (searchValue().trim()) {
+      next.searchParams.set("q", searchValue().trim());
+      next.searchParams.delete("savedView");
+      next.searchParams.delete("view");
+      next.searchParams.delete("folder");
+      next.searchParams.delete("scheduled");
+    }
     void props.onOpenHref(`${next.pathname}${next.search}`);
   };
 
   const openAdvancedSearch = async () => {
-    const values = await prompts.form({
-      title: "Search mailbox",
-      icon: "ti ti-adjustments-search",
-      fields: {
-        combine: {
-          type: "select",
-          label: "Match",
-          default: requestUrl().searchParams.get("combine") === "all" ? "all" : "any",
-          options: [
-            { id: "any", label: "Any condition" },
-            { id: "all", label: "All conditions" },
-          ],
-        },
-        from: { type: "text", label: "From", default: requestUrl().searchParams.get("from") ?? "" },
-        to: { type: "text", label: "To or Cc", default: requestUrl().searchParams.get("to") ?? "" },
-        subject: { type: "text", label: "Subject", default: requestUrl().searchParams.get("subject") ?? "" },
-        body: { type: "text", label: "Message body", default: requestUrl().searchParams.get("body") ?? "" },
-        attachment: { type: "text", label: "Attachment name", default: requestUrl().searchParams.get("attachment") ?? "" },
-        comment: { type: "text", label: "Internal comment", default: requestUrl().searchParams.get("comment") ?? "" },
-        reference: { type: "text", label: "Reference", default: requestUrl().searchParams.get("reference") ?? "" },
-        folderName: { type: "text", label: "Folder", default: requestUrl().searchParams.get("folderName") ?? "" },
-        tag: { type: "text", label: "Local tag", default: requestUrl().searchParams.get("tag") ?? "" },
-        keyword: { type: "text", label: "Provider keyword", default: requestUrl().searchParams.get("keyword") ?? "" },
-      },
-      confirmText: "Search",
+    const result = await openMailSearchBuilder({
+      mailboxId: props.mailboxId,
+      initialState: currentSearchState(),
+      initialQuery: props.query,
+      initialSavedView: activeSavedView(),
+      canWrite: props.canWrite,
     });
-    if (!values) return;
+    if (!result) return;
     const currentUrl = requestUrl();
     const next = new URL(buildMailListHref(currentUrl, true), currentUrl.origin);
-    for (const field of ["from", "to", "subject", "body", "attachment", "comment", "reference", "folderName", "tag", "keyword"] as const) {
-      const value = (values[field] ?? "").trim();
-      if (value) next.searchParams.set(field, value);
-      else next.searchParams.delete(field);
+    if (result.action === "apply") {
+      next.searchParams.set(MAIL_SEARCH_PARAMETER, result.serialized);
+      next.searchParams.delete("savedView");
+      next.searchParams.delete("view");
+      next.searchParams.delete("folder");
+      next.searchParams.delete("scheduled");
+    } else if (result.action === "saved") {
+      next.searchParams.set("savedView", result.view.id);
+      next.searchParams.delete("view");
+      next.searchParams.delete("folder");
+      next.searchParams.delete("scheduled");
+    } else {
+      next.searchParams.delete("savedView");
     }
-    next.searchParams.set("combine", values.combine === "all" ? "all" : "any");
     next.searchParams.delete("cursor");
     void props.onOpenHref(`${next.pathname}${next.search}`);
   };
@@ -115,7 +120,13 @@ export default function MailConversationList(props: {
             </p>
           </div>
           <Tooltip content="Search filters">
-            <button type="button" class="icon-btn" aria-label="Search filters" onClick={openAdvancedSearch}>
+            <button
+              type="button"
+              class={structuredSummary() ? "icon-btn text-[var(--app-accent)]" : "icon-btn"}
+              aria-label="Search filters"
+              aria-pressed={Boolean(structuredSummary())}
+              onClick={openAdvancedSearch}
+            >
               <i class="ti ti-adjustments-search" aria-hidden="true" />
             </button>
           </Tooltip>
@@ -137,8 +148,23 @@ export default function MailConversationList(props: {
             onInput={setSearchValue}
             clearable
             onClear={() => setSearchValue("")}
+            maxLength={500}
           />
         </form>
+        <Show when={structuredSummary()}>
+          {(summary) => (
+            <button
+              type="button"
+              class="flex min-w-0 items-center gap-1.5 text-left text-xs text-dimmed hover:text-primary"
+              title={summary()}
+              onClick={openAdvancedSearch}
+            >
+              <i class="ti ti-filter-check shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
+              <span class="truncate">{summary()}</span>
+              <span class="sr-only">Edit structured search</span>
+            </button>
+          )}
+        </Show>
         <Show when={props.mailbox.health !== "active"}>
           <div class="info-block-warning flex items-center gap-2 text-xs" role="status">
             <i class="ti ti-alert-triangle" aria-hidden="true" />

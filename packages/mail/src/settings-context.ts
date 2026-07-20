@@ -5,18 +5,13 @@ import type {
   Mailbox,
   MailboxComposeStyle,
   MailboxOperationalHealth,
-  MailWorkflow,
-  MailWorkflowRun,
   ProviderBinding,
   ProviderConnection,
   SenderIdentity,
 } from "./contracts";
-import type { AutomaticReplyConfiguration } from "./service/automatic-reply-configuration";
 import type { MailAssignableUser } from "./service/collaboration";
-import type { ConversationReferenceScheme } from "./service/conversation-reference";
 import type { LocalTag } from "./service/local-tags";
 import type { MailFolderView } from "./service/messages";
-import type { ResponseSchedule } from "./service/response-schedule";
 import type { SavedConversationView } from "./service/saved-views";
 
 export type MailboxAdminSettingsContext = {
@@ -26,11 +21,6 @@ export type MailboxAdminSettingsContext = {
   folders: MailFolderView[];
   health: MailboxOperationalHealth;
   identities: SenderIdentity[];
-  automaticReplies: AutomaticReplyConfiguration[];
-  referenceSchemes: ConversationReferenceScheme[];
-  responseSchedules: ResponseSchedule[];
-  workflows: MailWorkflow[];
-  workflowRuns: MailWorkflowRun[];
 };
 
 export type MailboxSettingsContext = {

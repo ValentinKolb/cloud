@@ -10,6 +10,7 @@ import { dryRunWorkflowPlan } from "@valentinkolb/cloud/workflows/runtime";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { MailWorkflowPreflight, PreflightWorkflowInput, WorkflowEffectBudget } from "../contracts";
+import { retiredMailWorkflowConfiguration, retiredMailWorkflowConfigurationMessage } from "../workflows/version-compatibility";
 import type { MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveMailExecution } from "./execution";
@@ -257,8 +258,7 @@ export const workflowEffectBudgetExceeded = (
 ): boolean => {
   const moves = counts.moveMessage ?? 0;
   const keywords = (counts.addKeyword ?? 0) + (counts.removeKeyword ?? 0);
-  const collaboration =
-    (counts.assignConversation ?? 0) + (counts.setConversationStatus ?? 0) + (counts.ensureConversationReference ?? 0);
+  const collaboration = (counts.assignConversation ?? 0) + (counts.setConversationStatus ?? 0) + (counts.ensureConversationReference ?? 0);
   const sends = counts.automaticReply ?? 0;
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
   return (
@@ -462,6 +462,8 @@ export const prepareWorkflowPreflight = async (params: {
   });
   if (!versionRow) return fail(err.notFound("Workflow version"));
   const version = mapWorkflowVersion(versionRow);
+  const retiredConfiguration = retiredMailWorkflowConfiguration(version.boundPlan);
+  if (retiredConfiguration) return fail(err.conflict(retiredMailWorkflowConfigurationMessage(retiredConfiguration)));
   const requirements = workflowPlanRequirements(version.boundPlan);
   const queryBodyGaps = await countWorkflowQueryBodyGaps({
     mailboxId: params.mailboxId,

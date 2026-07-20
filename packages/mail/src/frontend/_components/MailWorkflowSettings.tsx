@@ -224,6 +224,11 @@ export default function MailWorkflowSettings(props: {
   mailboxId: string;
   initialWorkflows: MailWorkflow[];
   initialRuns: MailWorkflowRun[];
+  showWorkflows?: boolean;
+  showRuns?: boolean;
+  showRunsHeader?: boolean;
+  onWorkflowsChange?: (workflows: MailWorkflow[]) => void;
+  onRunsChange?: (runs: MailWorkflowRun[]) => void;
 }) {
   const [workflows, setWorkflows] = createSignal(props.initialWorkflows);
   const [runs, setRuns] = createSignal(props.initialRuns);
@@ -237,12 +242,15 @@ export default function MailWorkflowSettings(props: {
       delete next[workflow.id];
       return next;
     });
-    setWorkflows((current) => {
+    const next = (() => {
+      const current = workflows();
       const summary = asSummary(workflow);
       return current.some((item) => item.id === workflow.id)
         ? current.map((item) => (item.id === workflow.id ? summary : item))
         : [...current, summary];
-    });
+    })();
+    setWorkflows(next);
+    props.onWorkflowsChange?.(next);
   };
 
   const openEditor = async (workflow?: MailWorkflow) => {
@@ -299,7 +307,9 @@ export default function MailWorkflowSettings(props: {
       query: { limit: "20" },
     });
     if (!response.ok) return prompts.error(await readApiError(response, "Failed to load workflow runs"));
-    setRuns(await response.json());
+    const next = await response.json();
+    setRuns(next);
+    props.onRunsChange?.(next);
   };
 
   const cancelRun = mutations.create<MailWorkflowRun, MailWorkflowRun>({
@@ -318,7 +328,9 @@ export default function MailWorkflowSettings(props: {
       return response.json();
     },
     onSuccess: (run) => {
-      setRuns((current) => current.map((item) => (item.id === run.id ? run : item)));
+      const next = runs().map((item) => (item.id === run.id ? run : item));
+      setRuns(next);
+      props.onRunsChange?.(next);
       if (run.state === "canceled") toast.success("Workflow run canceled");
     },
     onError: (error) => prompts.error(error.message),
@@ -341,132 +353,140 @@ export default function MailWorkflowSettings(props: {
 
   return (
     <div class="flex flex-col gap-2">
-      <div class="flex justify-end">
-        <button type="button" class="btn-primary btn-sm" onClick={() => void openEditor()}>
-          <i class="ti ti-plus" aria-hidden="true" /> New workflow
-        </button>
-      </div>
-      <Show
-        when={workflows().length > 0}
-        fallback={
-          <Placeholder title="No workflows" description="Create a deterministic workflow from canonical YAML." icon="ti ti-route-off" />
-        }
-      >
-        <For each={workflows()}>
-          {(workflow) => (
-            <div class="paper flex flex-col gap-2 p-3">
-              <div class="flex items-center gap-3">
-                <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center">
-                  <i class="ti ti-route" aria-hidden="true" />
-                </span>
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium text-primary">{workflow.name}</span>
-                  <span class="block truncate text-xs text-dimmed">{workflow.description || `Priority ${workflow.priority}`}</span>
-                </span>
-                <span class={`badge ${workflow.enabled ? "badge-success" : ""}`}>{workflow.enabled ? "Active" : "Inactive"}</span>
-                <Show when={workflow.enabled && workflow.activeVersionId !== workflow.currentVersionId}>
-                  <span class="badge badge-warning">Update available</span>
-                </Show>
-                <button type="button" class="btn-simple btn-sm" onClick={() => void toggleVersions(workflow)}>
-                  <i class="ti ti-history" aria-hidden="true" /> Versions
-                </button>
-                <button type="button" class="btn-simple btn-sm" onClick={() => void openEditor(workflow)}>
-                  <i class="ti ti-code" aria-hidden="true" /> Edit YAML
-                </button>
-                <Show
-                  when={workflow.enabled && workflow.activeVersionId === workflow.currentVersionId}
-                  fallback={
-                    <button
-                      type="button"
-                      class="btn-secondary btn-sm"
-                      disabled={activate.loading()}
-                      onClick={() => activate.mutate(workflow)}
-                    >
-                      {workflow.enabled ? "Activate current version" : "Activate"}
+      <Show when={props.showWorkflows !== false}>
+        <>
+          <div class="flex justify-end">
+            <button type="button" class="btn-primary btn-sm" onClick={() => void openEditor()}>
+              <i class="ti ti-plus" aria-hidden="true" /> New workflow
+            </button>
+          </div>
+          <Show
+            when={workflows().length > 0}
+            fallback={
+              <Placeholder title="No workflows" description="Create a deterministic workflow from canonical YAML." icon="ti ti-route-off" />
+            }
+          >
+            <For each={workflows()}>
+              {(workflow) => (
+                <div class="paper flex flex-col gap-2 p-3">
+                  <div class="flex items-center gap-3">
+                    <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center">
+                      <i class="ti ti-route" aria-hidden="true" />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-medium text-primary">{workflow.name}</span>
+                      <span class="block truncate text-xs text-dimmed">{workflow.description || `Priority ${workflow.priority}`}</span>
+                    </span>
+                    <span class={`badge ${workflow.enabled ? "badge-success" : ""}`}>{workflow.enabled ? "Active" : "Inactive"}</span>
+                    <Show when={workflow.enabled && workflow.activeVersionId !== workflow.currentVersionId}>
+                      <span class="badge badge-warning">Update available</span>
+                    </Show>
+                    <button type="button" class="btn-simple btn-sm" onClick={() => void toggleVersions(workflow)}>
+                      <i class="ti ti-history" aria-hidden="true" /> Versions
                     </button>
-                  }
-                >
-                  <button
-                    type="button"
-                    class="btn-secondary btn-sm"
-                    disabled={deactivate.loading()}
-                    onClick={() => deactivate.mutate(workflow)}
-                  >
-                    Deactivate
-                  </button>
-                </Show>
-              </div>
-              <Show when={expandedWorkflowId() === workflow.id}>
-                <div class="flex flex-col gap-1 pl-12">
-                  <For each={versions()[workflow.id] ?? []}>
-                    {(version) => (
-                      <div class="flex items-center gap-2 text-xs text-dimmed">
-                        <i
-                          class={`ti ${version.id === workflow.activeVersionId ? "ti-circle-check text-green-600" : "ti-git-commit"}`}
-                          aria-hidden="true"
-                        />
-                        <span class="min-w-0 flex-1 truncate font-mono">{version.identity}</span>
-                        <Show when={version.id === workflow.currentVersionId}>
-                          <span class="badge">Current</span>
-                        </Show>
-                        <Show when={version.id === workflow.activeVersionId}>
-                          <span class="badge badge-success">Active</span>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
+                    <button type="button" class="btn-simple btn-sm" onClick={() => void openEditor(workflow)}>
+                      <i class="ti ti-code" aria-hidden="true" /> Edit YAML
+                    </button>
+                    <Show
+                      when={workflow.enabled && workflow.activeVersionId === workflow.currentVersionId}
+                      fallback={
+                        <button
+                          type="button"
+                          class="btn-secondary btn-sm"
+                          disabled={activate.loading()}
+                          onClick={() => activate.mutate(workflow)}
+                        >
+                          {workflow.enabled ? "Activate current version" : "Activate"}
+                        </button>
+                      }
+                    >
+                      <button
+                        type="button"
+                        class="btn-secondary btn-sm"
+                        disabled={deactivate.loading()}
+                        onClick={() => deactivate.mutate(workflow)}
+                      >
+                        Deactivate
+                      </button>
+                    </Show>
+                  </div>
+                  <Show when={expandedWorkflowId() === workflow.id}>
+                    <div class="flex flex-col gap-1 pl-12">
+                      <For each={versions()[workflow.id] ?? []}>
+                        {(version) => (
+                          <div class="flex items-center gap-2 text-xs text-dimmed">
+                            <i
+                              class={`ti ${version.id === workflow.activeVersionId ? "ti-circle-check text-green-600" : "ti-git-commit"}`}
+                              aria-hidden="true"
+                            />
+                            <span class="min-w-0 flex-1 truncate font-mono">{version.identity}</span>
+                            <Show when={version.id === workflow.currentVersionId}>
+                              <span class="badge">Current</span>
+                            </Show>
+                            <Show when={version.id === workflow.activeVersionId}>
+                              <span class="badge badge-success">Active</span>
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                 </div>
-              </Show>
-            </div>
-          )}
-        </For>
+              )}
+            </For>
+          </Show>
+        </>
       </Show>
 
-      <section class="mt-2 flex flex-col gap-2">
-        <div class="flex items-start justify-between gap-2">
-          <div>
-            <h3 class="text-sm font-semibold text-primary">Recent runs</h3>
-            <p class="text-xs text-dimmed">Durable execution, progress, and failure history.</p>
-          </div>
-          <button type="button" class="btn-simple btn-sm" onClick={() => void reloadRuns()}>
-            <i class="ti ti-refresh" aria-hidden="true" /> Refresh
-          </button>
-        </div>
-        <Show
-          when={runs().length > 0}
-          fallback={
-            <Placeholder variant="panel" title="No workflow runs" description="Runs appear after a trigger or explicit execution." />
-          }
-        >
-          <For each={runs()}>
-            {(run) => (
-              <div class="paper flex items-center gap-3 p-3">
-                <i
-                  class={`ti ${run.state === "failed" ? "ti-alert-circle text-red-600" : "ti-player-play"} text-dimmed`}
-                  aria-hidden="true"
-                />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium text-primary">
-                    {workflows().find((workflow) => workflow.id === run.workflowId)?.name ?? "Workflow"} · {run.kind}
-                  </span>
-                  <span class="block truncate text-xs text-dimmed">
-                    {run.targetProgress.succeeded}/{run.targetProgress.total} targets
-                    {run.lastError ? ` · ${run.lastError.message}` : ""}
-                  </span>
-                </span>
-                <span class={`badge ${run.state === "succeeded" ? "badge-success" : run.state === "failed" ? "badge-danger" : ""}`}>
-                  {run.state.replaceAll("_", " ")}
-                </span>
-                <Show when={CANCELABLE_STATES.has(run.state)}>
-                  <button type="button" class="btn-secondary btn-sm" disabled={cancelRun.loading()} onClick={() => cancelRun.mutate(run)}>
-                    Cancel
-                  </button>
-                </Show>
+      <Show when={props.showRuns !== false}>
+        <section class="flex flex-col gap-2">
+          <div class="flex items-start justify-end gap-2">
+            <Show when={props.showRunsHeader !== false}>
+              <div class="mr-auto">
+                <h3 class="text-sm font-semibold text-primary">Recent runs</h3>
+                <p class="text-xs text-dimmed">Durable execution, progress, and failure history.</p>
               </div>
-            )}
-          </For>
-        </Show>
-      </section>
+            </Show>
+            <button type="button" class="btn-simple btn-sm" onClick={() => void reloadRuns()}>
+              <i class="ti ti-refresh" aria-hidden="true" /> Refresh
+            </button>
+          </div>
+          <Show
+            when={runs().length > 0}
+            fallback={
+              <Placeholder variant="panel" title="No workflow runs" description="Runs appear after a trigger or explicit execution." />
+            }
+          >
+            <For each={runs()}>
+              {(run) => (
+                <div class="paper flex items-center gap-3 p-3">
+                  <i
+                    class={`ti ${run.state === "failed" ? "ti-alert-circle text-red-600" : "ti-player-play"} text-dimmed`}
+                    aria-hidden="true"
+                  />
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-medium text-primary">
+                      {workflows().find((workflow) => workflow.id === run.workflowId)?.name ?? "Workflow"} · {run.kind}
+                    </span>
+                    <span class="block truncate text-xs text-dimmed">
+                      {run.targetProgress.succeeded}/{run.targetProgress.total} targets
+                      {run.lastError ? ` · ${run.lastError.message}` : ""}
+                    </span>
+                  </span>
+                  <span class={`badge ${run.state === "succeeded" ? "badge-success" : run.state === "failed" ? "badge-danger" : ""}`}>
+                    {run.state.replaceAll("_", " ")}
+                  </span>
+                  <Show when={CANCELABLE_STATES.has(run.state)}>
+                    <button type="button" class="btn-secondary btn-sm" disabled={cancelRun.loading()} onClick={() => cancelRun.mutate(run)}>
+                      Cancel
+                    </button>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </Show>
+        </section>
+      </Show>
     </div>
   );
 }

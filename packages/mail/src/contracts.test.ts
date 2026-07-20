@@ -116,6 +116,7 @@ describe("automatic reply configuration contracts", () => {
     subject: "Re: original subject",
     body: "I am away.",
     format: "markdown" as const,
+    ensureReference: false,
     minimumIntervalHours: 168,
     inactiveBehavior: "skip" as const,
     schedule: {
@@ -258,6 +259,10 @@ describe("mail workflow contracts", () => {
       { type: "response_needed", value: true },
       { type: "assignee", userId: null },
       { type: "snoozed", value: false },
+      { type: "folder_id", folderId: crypto.randomUUID() },
+      { type: "assigned_to_me" },
+      { type: "watched_by_me", value: true },
+      { type: "all" },
     ];
     for (const expression of expressions) expect(mailSearchExpressionSchema.safeParse(expression).success).toBe(true);
     expect(mailSearchExpressionSchema.safeParse({ field: "subject", query: "legacy" }).success).toBe(false);

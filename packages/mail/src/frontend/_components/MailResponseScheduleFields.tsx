@@ -1,4 +1,4 @@
-import { DatePicker, DateRangePicker, Select, Switch, TextInput } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, DatePicker, DateRangePicker, Select, Switch, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, For, Show } from "solid-js";
 import { validateResponseScheduleDefinition } from "../../response-schedule-validation";
 import type { ResponseScheduleDefinition } from "../../service/response-schedule";
@@ -32,8 +32,14 @@ const today = (): string => {
 };
 
 type Window = { start: string; end: string };
+type Weekday = (typeof WEEKDAYS)[number]["id"];
+const DEFAULT_WINDOW: Window = { start: "09:00", end: "17:00" };
+const FULL_DAY_WINDOW: Window = { start: "00:00", end: "24:00" };
 
-function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Window[]) => void; addLabel: string }) {
+const isFullDayWindow = (windows: readonly Window[]): boolean =>
+  windows.length === 1 && windows[0]?.start === FULL_DAY_WINDOW.start && windows[0]?.end === FULL_DAY_WINDOW.end;
+
+function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Window[]) => void; addLabel: string; compact?: boolean }) {
   const update = (index: number, field: keyof Window, value: string) =>
     props.onChange(props.windows().map((window, position) => (position === index ? { ...window, [field]: value } : window)));
   return (
@@ -42,7 +48,7 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
         {(window, index) => (
           <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] items-end gap-2">
             <TextInput
-              label={index() === 0 ? "From" : undefined}
+              label={!props.compact && index() === 0 ? "From" : undefined}
               ariaLabel={`Window ${index() + 1} start`}
               value={() => window.start}
               onInput={(value) => update(index(), "start", value)}
@@ -52,7 +58,7 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
               monospace
             />
             <TextInput
-              label={index() === 0 ? "Until" : undefined}
+              label={!props.compact && index() === 0 ? "Until" : undefined}
               ariaLabel={`Window ${index() + 1} end`}
               value={() => window.end}
               onInput={(value) => update(index(), "end", value)}
@@ -63,7 +69,7 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
             />
             <button
               type="button"
-              class="icon-btn mb-0.5"
+              class={`icon-btn ${props.compact ? "" : "mb-0.5"}`}
               aria-label={`Remove window ${index() + 1}`}
               onClick={() => props.onChange(props.windows().filter((_, position) => position !== index()))}
             >
@@ -75,7 +81,7 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
       <button
         type="button"
         class="btn-simple btn-sm self-start"
-        onClick={() => props.onChange([...props.windows(), { start: "09:00", end: "17:00" }])}
+        onClick={() => props.onChange([...props.windows(), { ...DEFAULT_WINDOW }])}
       >
         <i class="ti ti-plus" aria-hidden="true" /> {props.addLabel}
       </button>
@@ -88,6 +94,7 @@ export default function MailResponseScheduleFields(props: {
   onChange: (value: ResponseScheduleDefinition) => void;
   errors?: () => string[];
 }) {
+  const previousDayWindows = new Map<Weekday, Window[]>();
   const errors = createMemo(() => props.errors?.() ?? validateResponseScheduleDefinition(props.value()));
   const update = <K extends keyof ResponseScheduleDefinition>(key: K, value: ResponseScheduleDefinition[K]) =>
     props.onChange({ ...props.value(), [key]: value });
@@ -98,6 +105,32 @@ export default function MailResponseScheduleFields(props: {
       ...props.value().weeklyWindows.filter((window) => window.weekday !== weekday),
       ...windows.map((window) => ({ ...window, weekday })),
     ]);
+  const setDayEnabled = (weekday: Weekday, enabled: boolean) => {
+    const windows = windowsForDay(weekday).map(({ start, end }) => ({ start, end }));
+    if (!enabled) {
+      if (windows.length === 0) return;
+      previousDayWindows.set(weekday, windows);
+      setDayWindows(weekday, []);
+      return;
+    }
+    if (windows.length > 0) return;
+    setDayWindows(
+      weekday,
+      (previousDayWindows.get(weekday) ?? [{ ...DEFAULT_WINDOW }]).map((window) => ({ ...window })),
+    );
+  };
+  const setAllDay = (weekday: Weekday, allDay: boolean) => {
+    const windows = windowsForDay(weekday).map(({ start, end }) => ({ start, end }));
+    if (allDay) {
+      if (!isFullDayWindow(windows)) previousDayWindows.set(weekday, windows);
+      setDayWindows(weekday, [{ ...FULL_DAY_WINDOW }]);
+      return;
+    }
+    setDayWindows(
+      weekday,
+      (previousDayWindows.get(weekday) ?? [{ ...DEFAULT_WINDOW }]).map((window) => ({ ...window })),
+    );
+  };
 
   return (
     <div class="flex flex-col gap-2">
@@ -180,25 +213,50 @@ export default function MailResponseScheduleFields(props: {
       </div>
 
       <div>
-        <p class="text-sm font-medium text-primary">Weekly hours</p>
-        <p class="mb-2 text-xs text-dimmed">Add one or more windows for every day when replies may be sent.</p>
+        <div class="mb-2">
+          <div>
+            <p class="text-sm font-medium text-primary">Weekly hours</p>
+            <p class="text-xs text-dimmed">Set each day independently. Unchecked days are disabled.</p>
+          </div>
+        </div>
         <div class="flex flex-col gap-2">
           <For each={WEEKDAYS}>
             {(day) => {
-              const enabled = () => windowsForDay(day.id).length > 0;
+              const windows = () => windowsForDay(day.id);
+              const active = () => windows().length > 0;
+              const allDay = () => isFullDayWindow(windows());
+              const dayDescription = () => {
+                if (!active()) return "Disabled";
+                if (allDay()) return "All day";
+                return `${windows().length} ${windows().length === 1 ? "window" : "windows"}`;
+              };
               return (
-                <div class="grid gap-2 py-3 sm:grid-cols-[8rem_minmax(0,1fr)]">
-                  <Switch
+                <div class="grid gap-2 md:grid-cols-[12rem_7rem_minmax(0,1fr)] md:items-start">
+                  <CheckboxCard
                     label={day.label}
-                    value={enabled}
-                    onChange={(active) => setDayWindows(day.id, active ? [{ start: "09:00", end: "17:00" }] : [])}
+                    description={dayDescription()}
+                    icon={active() ? "ti ti-calendar-check" : "ti ti-calendar-off"}
+                    variant="input"
+                    value={active}
+                    onChange={(enabled) => setDayEnabled(day.id, enabled)}
                   />
-                  <Show when={enabled()}>
-                    <WindowEditor
-                      windows={() => windowsForDay(day.id)}
-                      onChange={(windows) => setDayWindows(day.id, windows)}
-                      addLabel="Add hours"
-                    />
+                  <Show when={active()}>
+                    <div class="flex min-h-12 items-center md:justify-center">
+                      <Switch label="All day" value={allDay} onChange={(value) => setAllDay(day.id, value)} />
+                    </div>
+                    <div class="min-w-0">
+                      <Show
+                        when={!allDay()}
+                        fallback={<div class="flex min-h-12 items-center font-mono text-xs text-dimmed">00:00–24:00</div>}
+                      >
+                        <WindowEditor
+                          windows={windows}
+                          onChange={(next) => setDayWindows(day.id, next)}
+                          addLabel="Add another window"
+                          compact
+                        />
+                      </Show>
+                    </div>
                   </Show>
                 </div>
               );
@@ -211,7 +269,7 @@ export default function MailResponseScheduleFields(props: {
         <div class="mb-2 flex items-start justify-between gap-3">
           <div>
             <p class="text-sm font-medium text-primary">Date exceptions</p>
-            <p class="text-xs text-dimmed">Close a specific day or replace its normal hours.</p>
+            <p class="text-xs text-dimmed">Disable replies on a specific date or replace its normal hours.</p>
           </div>
           <button
             type="button"
@@ -234,17 +292,19 @@ export default function MailResponseScheduleFields(props: {
                   <div class="flex flex-col gap-2 py-3">
                     <div class="grid grid-cols-[minmax(0,1fr)_auto_2rem] items-end gap-2">
                       <DatePicker label="Date" value={() => exception.date} onChange={(date) => date && replace({ ...exception, date })} />
-                      <Switch
-                        label="Closed"
-                        value={() => exception.closed}
-                        onChange={(closed) =>
-                          replace({
-                            ...exception,
-                            closed,
-                            windows: closed ? [] : exception.windows.length > 0 ? exception.windows : [{ start: "09:00", end: "17:00" }],
-                          })
-                        }
-                      />
+                      <div class="mb-0.5 flex h-10 items-center">
+                        <Switch
+                          label="Disabled"
+                          value={() => exception.closed}
+                          onChange={(closed) =>
+                            replace({
+                              ...exception,
+                              closed,
+                              windows: closed ? [] : exception.windows.length > 0 ? exception.windows : [{ start: "09:00", end: "17:00" }],
+                            })
+                          }
+                        />
+                      </div>
                       <button
                         type="button"
                         class="icon-btn mb-0.5"

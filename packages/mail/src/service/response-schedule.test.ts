@@ -22,7 +22,7 @@ const schedule: ResponseScheduleDefinition = {
   ],
 };
 
-describe("Mail response schedules", () => {
+describe("Mail inline response timing", () => {
   test("evaluates weekly office hours in the configured time zone", () => {
     expect(evaluateResponseSchedule(schedule, new Date("2026-07-16T08:00:00.000Z"))).toMatchObject({
       active: true,

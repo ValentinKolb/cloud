@@ -1,7 +1,9 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
+import { mailHelp } from "../../../help";
 import { type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../service";
+import MailLayoutHelp from "../../_components/help/MailLayoutHelp.island";
 import MailComposerPage from "../../_components/MailComposerPage.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -21,6 +23,7 @@ export default ssr<AuthContext>(async (c) => {
   const popout = c.req.query("window") === "1";
   return () => (
     <Layout c={c} fullPage focusMode flushCanvas={popout} title={[{ title: "Mail", href: returnHref }, { title: "New message" }]}>
+      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailComposerPage
         mailboxId={mailboxId}
         identities={identities.ok ? identities.data : []}

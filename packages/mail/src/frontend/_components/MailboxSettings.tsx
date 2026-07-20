@@ -10,9 +10,7 @@ import MailComposeSettings from "./MailComposeSettings";
 import MailOperationalSettings from "./MailOperationalSettings";
 import MailOrganizationSettings from "./MailOrganizationSettings";
 import { MailConnectionSettings, MailSenderSettings } from "./MailProviderSettings";
-import MailResponsePolicySettings from "./MailResponsePolicySettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
-import MailWorkflowSettings from "./MailWorkflowSettings";
 
 const FOLDER_ROLES: Array<{ id: ConfigurableFolderRole; label: string; icon: string }> = [
   { id: "sent", label: "Sent", icon: "ti ti-send" },
@@ -39,6 +37,9 @@ export default function MailboxSettings(props: {
   const [name, setName] = createSignal(props.context.mailbox.name);
   const [description, setDescription] = createSignal(props.context.mailbox.description ?? "");
   const [searchBackend, setSearchBackend] = createSignal<Mailbox["searchBackend"]>(props.context.mailbox.searchBackend);
+  const [automaticReplyManagementPermission, setAutomaticReplyManagementPermission] = createSignal<
+    Mailbox["automaticReplyManagementPermission"]
+  >(props.context.mailbox.automaticReplyManagementPermission);
   const initialPreferences = readMailUserPreferences(props.context.mailbox.id);
   const [composeFormat, setComposeFormat] = createSignal(initialPreferences.composeFormat);
   const [undoSeconds, setUndoSeconds] = createSignal(initialPreferences.undoSeconds);
@@ -99,6 +100,22 @@ export default function MailboxSettings(props: {
       }));
       toast.success("Folder role updated");
       props.onWorkspaceChange();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const saveAutomaticReplyAccess = mutation.create<Mailbox, void>({
+    mutation: async () => {
+      const response = await apiClient.mailboxes[":mailboxId"].$patch({
+        param: { mailboxId: props.context.mailbox.id },
+        json: { automaticReplyManagementPermission: automaticReplyManagementPermission() },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update automatic reply access"));
+      return response.json();
+    },
+    onSuccess: (mailbox) => {
+      props.onContextChange((context) => ({ ...context, mailbox }));
+      toast.success("Automatic reply access updated");
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -321,42 +338,46 @@ export default function MailboxSettings(props: {
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
-            id="automation"
-            title="Automation"
-            icon="ti ti-route"
-            description="Versioned YAML workflows with explicit activation."
-          >
-            <MailWorkflowSettings
-              mailboxId={props.context.mailbox.id}
-              initialWorkflows={admin().workflows.filter(
-                (workflow) => !admin().automaticReplies.some((configuration) => configuration.workflowId === workflow.id),
-              )}
-              initialRuns={admin().workflowRuns}
-            />
-          </SettingsModal.Tab>
-
-          <SettingsModal.Tab
-            id="response-policy"
-            title="Response policy"
-            icon="ti ti-message-cog"
-            description="Conversation references and time windows for automatic responses."
-          >
-            <MailResponsePolicySettings
-              mailboxId={props.context.mailbox.id}
-              identities={admin().identities}
-              initialAutomaticReplies={admin().automaticReplies}
-              initialReferenceSchemes={admin().referenceSchemes}
-              initialResponseSchedules={admin().responseSchedules}
-              onManageSenders={() => setActiveTab("senders")}
-            />
-          </SettingsModal.Tab>
-
-          <SettingsModal.Tab
             id="access"
             title="Access"
             icon="ti ti-shield"
             description="Read can view and comment; write can operate mail; admin configures the mailbox."
           >
+            <div class="mb-4 flex flex-col gap-2">
+              <Select
+                label="Who can manage automatic replies?"
+                description="Writers can already send and organize mail. Allow them to manage absences and acknowledgements without giving access to connections, senders, or advanced workflows."
+                icon="ti ti-message-cog"
+                value={automaticReplyManagementPermission}
+                onChange={(value) => setAutomaticReplyManagementPermission(value === "write" ? "write" : "admin")}
+                options={[
+                  {
+                    id: "write",
+                    label: "Mailbox writers and admins",
+                    description: "Best when team members manage their own out-of-office replies.",
+                    icon: "ti ti-pencil",
+                  },
+                  {
+                    id: "admin",
+                    label: "Mailbox admins only",
+                    description: "Keep every automatic reply under mailbox administration.",
+                    icon: "ti ti-shield",
+                  },
+                ]}
+              />
+              <button
+                type="button"
+                class="btn-secondary btn-sm self-end"
+                disabled={saveAutomaticReplyAccess.loading()}
+                onClick={() => saveAutomaticReplyAccess.mutate()}
+              >
+                <i
+                  class={`ti ${saveAutomaticReplyAccess.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`}
+                  aria-hidden="true"
+                />
+                Save automatic reply access
+              </button>
+            </div>
             <PermissionEditor
               initialEntries={admin().accessEntries}
               allowServiceAccounts

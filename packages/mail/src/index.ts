@@ -1,4 +1,4 @@
-import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
 import { stopRuntimeResources } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
@@ -6,11 +6,13 @@ import apiRoutes from "./api";
 import { mailCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes from "./frontend";
+import { mailHelp } from "./help";
 import { migrate } from "./migrate";
 import { createMailNotificationService } from "./notifications";
 import { commandRuntime, mailRuntime, workflowMaterializationRuntime, workflowRuntime } from "./service";
 
 const mailNotifications = createMailNotificationService(app.notifications);
+const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("user")).route("/", mailHelp.router);
 
 const stopMailRuntimes = (): Promise<void> =>
   stopRuntimeResources([
@@ -24,6 +26,7 @@ const stopMailRuntimes = (): Promise<void> =>
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route("/api/mail/help", helpRoutes)
   .route("/api/mail", apiRoutes)
   .route("/app/mail", pageRoutes);
 

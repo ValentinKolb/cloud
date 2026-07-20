@@ -9,9 +9,7 @@ const ids = {
   invoices: "22222222-2222-4222-8222-222222222222",
   alice: "33333333-3333-4333-8333-333333333333",
   bob: "44444444-4444-4444-8444-444444444444",
-  supportReference: "55555555-5555-4555-8555-555555555555",
   supportSender: "66666666-6666-4666-8666-666666666666",
-  officeHours: "77777777-7777-4777-8777-777777777777",
 } as const;
 
 const officeHours = {
@@ -30,13 +28,10 @@ const catalog = (reverse = false): MailWorkflowCatalog => {
     { id: ids.alice, name: "Alice Example" },
     { id: ids.bob, name: "Bob Example" },
   ];
-  const referenceSchemes = [{ id: ids.supportReference, name: "Support" }];
   return buildMailWorkflowCatalog({
     folders: reverse ? folders.reverse() : folders,
     assignableUsers: reverse ? assignableUsers.reverse() : assignableUsers,
-    referenceSchemes,
     senderIdentities: [{ id: ids.supportSender, name: "Support" }],
-    responseSchedules: [{ id: ids.officeHours, name: "Office hours", revision: 3, definition: officeHours }],
   });
 };
 
@@ -95,6 +90,21 @@ describe("Mail workflow catalog", () => {
 });
 
 describe("Mail workflow binder", () => {
+  test("exposes an ensured reference to later steps", async () => {
+    const source = `inputs:
+  conversation:
+    type: mailConversation
+steps:
+  - ensureConversationReference:
+      conversation: inputs.conversation
+      result: reference
+  - succeed:
+      message: "Allocated \${{ reference.value }}"
+`;
+    const result = await bindMailWorkflow(await compile(source), catalog());
+    expect(result.ok).toBe(true);
+  });
+
   test("binds literal catalog references and preserves expressions", async () => {
     const source = `inputs:
   message:
@@ -170,7 +180,7 @@ steps:
     expect(result.diagnostics).not.toContainEqual(expect.objectContaining({ code: "reference.unknown" }));
   });
 
-  test("pins automatic reply sender and response schedule snapshots", async () => {
+  test("pins the sender and keeps an inline automatic reply schedule", async () => {
     const ir = await compile(`inputs:
   message:
     type: mailMessage
@@ -188,7 +198,16 @@ steps:
       message: inputs.message
       conversation: inputs.conversation
       sender: Support
-      schedule: Office hours
+      schedule:
+        timeZone: Europe/Berlin
+        activeRanges:
+          - from: 2026-01-01
+            to: null
+        weeklyWindows:
+          - weekday: 1
+            start: "09:00"
+            end: "17:00"
+        exceptions: []
       subject: "Re: \${{ inputs.message.subject }}"
       body: We received your message.
 `);
@@ -197,13 +216,45 @@ steps:
     if (!result.ok) return;
     expect(result.plan.bindings).toEqual({
       "steps.0.automaticReply.sender": ids.supportSender,
-      "steps.0.automaticReply.schedule": {
-        id: ids.officeHours,
-        name: "Office hours",
-        revision: 3,
-        definition: officeHours,
-      },
     });
+    expect(result.plan.steps[0]).toMatchObject({ config: { schedule: officeHours } });
+  });
+
+  test("rejects invalid inline automatic reply windows", async () => {
+    const result = await bindMailWorkflow(
+      await compile(`inputs:
+  message:
+    type: mailMessage
+  conversation:
+    type: mailConversation
+triggers:
+  messageReceived:
+    with:
+      message: "\${{ trigger.message }}"
+      conversation: "\${{ trigger.conversation }}"
+steps:
+  - automaticReply:
+      message: inputs.message
+      conversation: inputs.conversation
+      sender: Support
+      subject: Receipt
+      body: Received
+      schedule:
+        timeZone: Europe/Berlin
+        activeRanges: []
+        weeklyWindows:
+          - weekday: 1
+            start: "17:00"
+            end: "09:00"
+        exceptions: []
+`),
+      catalog(),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "automaticReply.schedule", message: expect.stringContaining("ordered HH:mm") }),
+    );
   });
 
   test("rejects automatic replies in workflows with non-message triggers", async () => {
@@ -253,7 +304,6 @@ steps:
         { id: ids.alice, name: "Duplicate" },
         { id: ids.bob, name: "Duplicate" },
       ],
-      referenceSchemes: [],
     });
     const result = await bindMailWorkflow(await compile(source), duplicateCatalog);
     expect(result.ok).toBe(false);

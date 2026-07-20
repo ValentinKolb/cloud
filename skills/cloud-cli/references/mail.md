@@ -22,7 +22,7 @@ cld mail rediscover --mailbox <mailbox-id> --wait
 cld mail configure --mailbox <mailbox-id> --sync enabled
 ```
 
-Mailbox admins can delegate guided automatic-reply management to writers without granting access to providers, sender configuration, reusable schedules, or YAML workflows:
+Mailbox admins can delegate guided automatic-reply management to writers without granting access to providers, sender configuration, reference settings, or YAML workflows:
 
 ```bash
 cld mail configure --mailbox <mailbox-id> --automatic-replies writers
@@ -205,6 +205,31 @@ cld --json mail conversation merge <target-id> <source-id> --target-revision <re
 
 Live presence, reply-composer leases, and cursor-based WebSocket invalidation are browser transport concerns rather than durable CLI operations.
 
+## Configure conversation references
+
+A mailbox has one optional reference-number configuration. Set its permanent format before a workflow allocates references:
+
+```bash
+cld --json mail reference config set \
+  --pattern 'SUP-{year}-{sequence:6}' \
+  --enable \
+  --include-in-reply-subjects
+
+cld --json mail reference config show
+```
+
+`{sequence}` is required. An optional width such as `{sequence:6}` pads the number, and `{year}` uses the allocation year. Changing the pattern affects only future allocations. Existing references remain immutable and searchable.
+
+Allocation is idempotent for each conversation:
+
+```bash
+cld --json mail reference ensure <conversation-id> --idempotency-key support-import-42
+cld --json mail reference list <conversation-id>
+cld --json mail reference find SUP-2026-000042
+```
+
+Use `--disable` to stop new allocations without removing existing values. Use `--exclude-from-reply-subjects` when new human and automatic replies should keep their original subject. A workflow controls when allocation happens; the mailbox configuration controls only the sequence and reply-subject behavior.
+
 ## Automate mail with workflows
 
 Mail workflows use the shared Cloud workflow language: strict YAML with top-level `inputs`, optional automatic `triggers`, and `steps`. Workflow metadata is not part of the YAML. Mail lifecycle records store the name, description, ordering priority, activation state, immutable version IDs, and effect budget. The CLI and API both manage that lifecycle and its budgets.
@@ -297,12 +322,32 @@ The current Mail action vocabulary is:
 | `moveMessage` | `message`, literal accessible folder name or ID in `folder` | Durable provider command |
 | `assignConversation` | `conversation`, literal assignable user name, ID, or `null` in `user` | Transactional collaboration change |
 | `setConversationStatus` | `conversation`, `open`, `waiting`, or `done` in `status` | Transactional collaboration change |
+| `ensureConversationReference` | `conversation`; optional identifier in `result` | Transactional, idempotent reference allocation |
+| `automaticReply` | `message`, `conversation`, bound sender, subject, body; optional inline schedule | Guarded automatic response |
 | `setVariable` | Identifier in `name`, expression or literal in `value` | Store a pure scoped value for later steps |
 | `succeed` | Operator-facing `message` | Stop successfully |
 | `fail` | Operator-facing `message` | Stop with failure |
 
 Literal folder and user names are bound to accessible stable IDs when a version is created. Unknown, inaccessible, or ambiguous names fail validation.
 Reference a value stored by `setVariable` as `${{ <name> }}` in later steps in the same scope. Mail validation reserves `inputs` and `trigger` and rejects another value with the same name in that scope.
+
+Reference allocation can expose its result to later steps:
+
+```yaml
+steps:
+  - ensureConversationReference:
+      conversation: inputs.conversation
+      result: reference
+  - automaticReply:
+      message: inputs.message
+      conversation: inputs.conversation
+      sender: Support
+      subject: "Re: ${{ inputs.message.subject }}"
+      body: "Thank you. Your reference is ${{ reference.value }}."
+      format: markdown
+```
+
+The result contains `id`, `value`, `created`, `conversationId`, and `conversationRevision`. Configure the mailbox sequence first with `mail reference config set`. The guided **Reference acknowledgement** in the Mail app produces the same ordinary workflow shape.
 
 ### Validate, save, and activate
 

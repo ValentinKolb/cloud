@@ -4,8 +4,10 @@ import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/clo
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
+import { attachmentPreviewKind, attachmentPreviewSignatureMatches, baseAttachmentContentType } from "../attachment-preview-policy";
 import {
   archiveComposeTemplateInputSchema,
+  automaticReplyManagementPermissionSchema,
   cancelConversationReminderSchema,
   cancelScheduledSendInputSchema,
   composePreviewInputSchema,
@@ -98,6 +100,10 @@ const collaboratorQuerySchema = z.object({
 const activityQuerySchema = cursorQuerySchema.extend({ conversationId: z.string().uuid().optional() });
 const workspaceRouteQuerySchema = z.object({ href: z.string().trim().min(1).max(4_000) });
 const attachmentQuerySchema = z.object({
+  inline: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .optional(),
   offset: z.coerce.number().int().nonnegative().optional(),
   length: z.coerce
     .number()
@@ -112,6 +118,7 @@ const updateMailboxSchema = z
     description: z.string().trim().max(2_000).nullable().optional(),
     syncEnabled: z.boolean().optional(),
     searchBackend: searchBackendSchema.optional(),
+    automaticReplyManagementPermission: automaticReplyManagementPermissionSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 const attachBindingSchema = z.object({ connectionId: z.string().uuid() });
@@ -146,15 +153,17 @@ const parseWorkspaceRouteUrl = (mailboxId: string, href: string): URL | null => 
   }
 };
 
-const attachmentContentDisposition = (value: string | null): string => {
+const attachmentContentDisposition = (value: string | null, inline: boolean): string => {
   const filename = [...(value?.normalize("NFC") || "attachment")].slice(0, 255).join("");
   const fallback = filename.replace(/[^\x20-\x7e]|["\\]/g, "_") || "attachment";
   const encoded = encodeURIComponent(filename).replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+  return `${inline ? "inline" : "attachment"}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 };
 
 const safeAttachmentContentType = (value: string): string =>
-  /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(value) ? value : "application/octet-stream";
+  /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(baseAttachmentContentType(value))
+    ? baseAttachmentContentType(value)
+    : "application/octet-stream";
 
 const requestContext = (c: Context<AuthContext>): MailRequestContext => ({
   actor: c.get("actor"),
@@ -194,6 +203,7 @@ const attachmentDownloadResponse = async (
   c: Context<AuthContext>,
   result: Result<AttachmentDownload>,
   query: z.infer<typeof attachmentQuerySchema>,
+  assertCurrentAccess?: (blobId: string) => Promise<void>,
 ) => {
   if (!result.ok) return respond(c, result);
   const rangeHeader = c.req.header("range");
@@ -201,6 +211,18 @@ const attachmentDownloadResponse = async (
   if (rangeHeader && hasQueryRange)
     return respond(c, fail(err.badInput("Use either the Range header or offset and length query parameters")));
   const { blobId, total, chunkSize, chunkCount, contentHash, contentType, filename } = result.data;
+  const responseType = safeAttachmentContentType(contentType).toLowerCase();
+  const previewKind = attachmentPreviewKind(responseType, total);
+  if (query.inline === true && !previewKind) {
+    return respond(c, fail(err.badInput("This attachment type or size cannot be previewed safely")));
+  }
+  const inline = query.inline === true;
+  if (inline) {
+    const prefix = await messages.readAttachmentPrefix(blobId);
+    if (!attachmentPreviewSignatureMatches(responseType, prefix)) {
+      return respond(c, fail(err.badInput("The attachment content does not match its declared preview type")));
+    }
+  }
   const requestedRange =
     rangeHeader ?? (hasQueryRange ? `bytes=${query.offset ?? 0}-${(query.offset ?? 0) + (query.length ?? 1024 * 1024) - 1}` : null);
   const range = resolveByteRange(requestedRange, total);
@@ -215,12 +237,14 @@ const attachmentDownloadResponse = async (
   const headers = new Headers({
     "Accept-Ranges": "bytes",
     "Content-Length": String(selectedRange.endExclusive - selectedRange.start),
-    "Content-Type": safeAttachmentContentType(contentType),
-    "Content-Disposition": attachmentContentDisposition(filename),
+    "Content-Type": responseType,
+    "Content-Disposition": attachmentContentDisposition(filename, inline),
     ETag: `"${contentHash}"`,
     "Cache-Control": "private, no-store",
+    "Cross-Origin-Resource-Policy": "same-origin",
     "X-Content-Type-Options": "nosniff",
   });
+  if (inline) headers.set("Content-Security-Policy", "default-src 'none'; sandbox");
   if (partial) headers.set("Content-Range", `bytes ${selectedRange.start}-${selectedRange.endExclusive - 1}/${total}`);
   return new Response(
     messages.createAttachmentStream({
@@ -229,6 +253,7 @@ const attachmentDownloadResponse = async (
       chunkCount,
       start: selectedRange.start,
       endExclusive: selectedRange.endExclusive,
+      assertCurrentAccess: assertCurrentAccess ? () => assertCurrentAccess(blobId) : undefined,
     }),
     { status: partial ? 206 : 200, headers },
   );
@@ -718,12 +743,21 @@ const mailOperationsApi = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/messages/:messageId/attachments/:attachmentId",
     v("param", z.object({ mailboxId: z.string().uuid(), messageId: z.string().uuid(), attachmentId: z.string().uuid() })),
     v("query", attachmentQuerySchema),
-    async (c) =>
-      attachmentDownloadResponse(
+    async (c) => {
+      const context = requestContext(c);
+      const params = c.req.valid("param");
+      return attachmentDownloadResponse(
         c,
-        await messages.openAttachment({ context: requestContext(c), ...c.req.valid("param") }),
+        await messages.openAttachment({ context, ...params }),
         c.req.valid("query"),
-      ),
+        async (expectedBlobId) => {
+          const current = await messages.openAttachment({ context, ...params });
+          if (!current.ok || current.data.blobId !== expectedBlobId) {
+            throw Object.assign(new Error("Attachment access was revoked during transfer"), { code: "ACCESS_REVOKED" });
+          }
+        },
+      );
+    },
   )
   .post("/mailboxes/:mailboxId/search", v("param", uuidParamSchema), v("json", searchRequestSchema), async (c) =>
     respond(
@@ -1012,12 +1046,21 @@ const mailOperationsApi = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/drafts/:draftId/attachments/:attachmentId",
     v("param", z.object({ mailboxId: z.string().uuid(), draftId: z.string().uuid(), attachmentId: z.string().uuid() })),
     v("query", attachmentQuerySchema),
-    async (c) =>
-      attachmentDownloadResponse(
+    async (c) => {
+      const context = requestContext(c);
+      const params = c.req.valid("param");
+      return attachmentDownloadResponse(
         c,
-        await drafts.openDraftAttachment({ context: requestContext(c), ...c.req.valid("param") }),
+        await drafts.openDraftAttachment({ context, ...params }),
         c.req.valid("query"),
-      ),
+        async (expectedBlobId) => {
+          const current = await drafts.openDraftAttachment({ context, ...params });
+          if (!current.ok || current.data.blobId !== expectedBlobId) {
+            throw Object.assign(new Error("Draft attachment access was revoked during transfer"), { code: "ACCESS_REVOKED" });
+          }
+        },
+      );
+    },
   )
   .delete(
     "/mailboxes/:mailboxId/drafts/:draftId/attachments/:attachmentId",

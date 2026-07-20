@@ -1,5 +1,13 @@
+import type { WorkflowBoundPlan, WorkflowIr } from "@valentinkolb/cloud/workflows";
+import { compileWorkflow, hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
 import { sql } from "bun";
+import { mailSearchStateSchema, type ResponseScheduleDefinitionInput, responseScheduleDefinitionSchema } from "./contracts";
+import { legacySavedViewFilterSchema, migrateLegacySavedViewFilter } from "./saved-view-search-migration";
+import { cancelPendingAutomaticRepliesInTransaction } from "./service/automatic-reply";
 import { SEARCH_CHUNK_CHARACTERS, SEARCH_CHUNK_OVERLAP_CHARACTERS } from "./service/search-chunks";
+import { inlineWorkflowResponseSchedules } from "./workflows/inline-response-schedule-migration";
+import { mailWorkflowManifest } from "./workflows/manifest";
+import { removeWorkflowReferenceSchemeSelection } from "./workflows/single-reference-configuration-migration";
 
 type SqlClient = typeof sql;
 
@@ -3000,6 +3008,722 @@ const defaultSenderAutomationToMailbox = async (db: SqlClient): Promise<void> =>
   await db`ALTER TABLE mail.sender_identities ALTER COLUMN automation_policy SET DEFAULT 'mailbox'`;
 };
 
+const addAutomaticReplyManagementPermission = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.mailboxes
+    ADD COLUMN automatic_reply_management_permission TEXT NOT NULL DEFAULT 'admin'
+      CHECK (automatic_reply_management_permission IN ('write', 'admin'))
+  `;
+};
+
+type InlineScheduleMigrationVersionRow = {
+  id: string;
+  workflow_id: string;
+  mailbox_id: string;
+  source: string;
+  ir: WorkflowIr | string;
+  bound_plan: WorkflowBoundPlan | string;
+  diagnostics: unknown;
+  effect_budget: unknown;
+  catalog_hash: string;
+  compiler_name: string;
+  compiler_version: string;
+  created_by_kind: "user" | "service_account";
+  created_by_id: string;
+};
+
+const parseMigrationJson = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
+
+const inlineAutomaticReplySchedules = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.automatic_reply_configurations ADD COLUMN schedule_definition JSONB`;
+  await db`
+    UPDATE mail.automatic_reply_configurations configuration
+    SET schedule_definition = schedule.definition
+    FROM mail.response_schedules schedule
+    WHERE schedule.id = configuration.response_schedule_id
+      AND schedule.mailbox_id = configuration.mailbox_id
+  `;
+  const [missing] = await db<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM mail.automatic_reply_configurations
+    WHERE schedule_definition IS NULL
+  `;
+  if ((missing?.count ?? 0) > 0) throw new Error("Cannot migrate automatic replies without a valid response schedule");
+  await db`
+    ALTER TABLE mail.automatic_reply_configurations
+      ALTER COLUMN schedule_definition SET NOT NULL,
+      ADD CONSTRAINT automatic_reply_configurations_schedule_definition_check
+        CHECK (jsonb_typeof(schedule_definition) = 'object')
+  `;
+
+  const schedules = await db<{ id: string; mailbox_id: string; name: string; definition: unknown }[]>`
+    SELECT id, mailbox_id, name, definition
+    FROM mail.response_schedules
+    ORDER BY mailbox_id, id
+  `;
+  const schedulesByMailbox = new Map<string, Map<string, ResponseScheduleDefinitionInput>>();
+  for (const schedule of schedules) {
+    const definition = responseScheduleDefinitionSchema.parse(schedule.definition);
+    const index = schedulesByMailbox.get(schedule.mailbox_id) ?? new Map<string, ResponseScheduleDefinitionInput>();
+    index.set(schedule.id, definition);
+    index.set(schedule.name, definition);
+    schedulesByMailbox.set(schedule.mailbox_id, index);
+  }
+
+  const versions = await db<InlineScheduleMigrationVersionRow[]>`
+    SELECT DISTINCT
+      version.id, version.workflow_id, version.mailbox_id, version.source, version.ir,
+      version.bound_plan, version.diagnostics, version.effect_budget, version.catalog_hash,
+      version.compiler_name, version.compiler_version, version.created_by_kind, version.created_by_id
+    FROM mail.workflow_versions version
+    JOIN mail.workflows workflow
+      ON workflow.id = version.workflow_id
+      AND workflow.mailbox_id = version.mailbox_id
+      AND version.id IN (workflow.current_version_id, workflow.active_version_id)
+    ORDER BY version.mailbox_id, version.workflow_id, version.id
+  `;
+  const replacedVersionIds: string[] = [];
+  const affectedWorkflowIds = new Set<string>();
+
+  for (const version of versions) {
+    const scheduleIndex = schedulesByMailbox.get(version.mailbox_id) ?? new Map<string, ResponseScheduleDefinitionInput>();
+    const migrated = inlineWorkflowResponseSchedules({
+      source: version.source,
+      ir: parseMigrationJson(version.ir),
+      boundPlan: parseMigrationJson(version.bound_plan),
+      lookup: (reference) => scheduleIndex.get(reference) ?? null,
+    });
+    if (migrated.migratedActions === 0) continue;
+
+    const compiled = await compileWorkflow(migrated.source, mailWorkflowManifest);
+    if (!compiled.ok) {
+      throw new Error(
+        `Cannot compile migrated Mail workflow ${version.workflow_id}: ${compiled.diagnostics[0]?.message ?? "invalid source"}`,
+      );
+    }
+    const versionId = crypto.randomUUID();
+    const sourceHash = compiled.ir.sourceHash;
+    const manifestHash = compiled.ir.manifestHash;
+    const boundPlan: WorkflowBoundPlan = {
+      ...migrated.boundPlan,
+      sourceHash,
+      manifestHash,
+      inputs: compiled.ir.inputs,
+      triggers: compiled.ir.triggers,
+      steps: compiled.ir.steps,
+    };
+    const versionIdentity = await hashWorkflowJson({
+      versionId,
+      sourceHash,
+      ir: compiled.ir,
+      boundPlan,
+      effectBudget: parseMigrationJson(version.effect_budget),
+      compiler: { name: version.compiler_name, version: version.compiler_version },
+    });
+    await db`
+      INSERT INTO mail.workflow_versions (
+        id, version_identity, workflow_id, mailbox_id, source, source_hash, ir, bound_plan,
+        diagnostics, effect_budget, language_id, language_version, manifest_hash, catalog_hash,
+        compiler_name, compiler_version, created_by_kind, created_by_id
+      ) VALUES (
+        ${versionId}::uuid, ${versionIdentity}, ${version.workflow_id}::uuid, ${version.mailbox_id}::uuid,
+        ${migrated.source}, ${sourceHash}, ${compiled.ir}::jsonb, ${boundPlan}::jsonb,
+        ${parseMigrationJson(version.diagnostics)}::jsonb, ${parseMigrationJson(version.effect_budget)}::jsonb,
+        ${boundPlan.languageId}, ${boundPlan.languageVersion}, ${manifestHash}, ${version.catalog_hash},
+        ${version.compiler_name}, ${version.compiler_version}, ${version.created_by_kind}, ${version.created_by_id}::uuid
+      )
+    `;
+    await db`
+      UPDATE mail.workflows
+      SET
+        current_version_id = CASE WHEN current_version_id = ${version.id}::uuid THEN ${versionId}::uuid ELSE current_version_id END,
+        active_version_id = CASE WHEN active_version_id = ${version.id}::uuid THEN ${versionId}::uuid ELSE active_version_id END
+      WHERE id = ${version.workflow_id}::uuid AND mailbox_id = ${version.mailbox_id}::uuid
+    `;
+    await db`
+      UPDATE mail.workflow_activations
+      SET workflow_version_id = ${versionId}::uuid
+      WHERE workflow_version_id = ${version.id}::uuid
+        AND workflow_id = ${version.workflow_id}::uuid
+        AND mailbox_id = ${version.mailbox_id}::uuid
+    `;
+    replacedVersionIds.push(version.id);
+    affectedWorkflowIds.add(version.workflow_id);
+  }
+
+  if (replacedVersionIds.length > 0) {
+    const [inFlight] = await db<{ count: number }[]>`
+      SELECT COUNT(DISTINCT command.id)::int AS count
+      FROM mail.workflow_runs run
+      JOIN mail.workflow_run_targets target ON target.parent_run_id = run.id
+      JOIN mail.workflow_step_runs step ON step.target_id = target.id
+      JOIN mail.commands command ON command.id = step.command_id
+      WHERE run.workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
+        AND target.state IN ('running', 'waiting')
+        AND step.state IN ('running', 'waiting')
+        AND command.state = 'executing'
+        AND command.provider_effect_started_at IS NOT NULL
+    `;
+    if ((inFlight?.count ?? 0) > 0) {
+      throw new Error("Cannot migrate inline Mail schedules while workflow provider effects are in flight");
+    }
+    await db`
+      UPDATE mail.workflow_trigger_events
+      SET
+        state = 'failed',
+        execution_generation = execution_generation + 1,
+        lease_owner = NULL,
+        lease_token = NULL,
+        lease_expires_at = NULL,
+        last_error = ${{ code: "WORKFLOW_VERSION_MIGRATED", message: "Workflow schedule was migrated inline", retryable: false }}::jsonb,
+        finished_at = now()
+      WHERE workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
+        AND state IN ('queued', 'running')
+    `;
+    await db`
+      DELETE FROM mail.workflow_run_targets target
+      USING mail.workflow_runs run
+      WHERE target.parent_run_id = run.id
+        AND run.workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
+        AND run.state = 'materializing'
+    `;
+    await db`
+      UPDATE mail.workflow_runs
+      SET
+        state = 'canceled',
+        target_count = 0,
+        queued_targets = 0,
+        materialization_cursor_internal_date = NULL,
+        materialization_cursor_target_key = NULL,
+        materialization_digest = NULL,
+        materialization_expected_digest = NULL,
+        materialization_action_counts = NULL,
+        last_error = ${{ code: "WORKFLOW_VERSION_MIGRATED", message: "Workflow schedule was migrated inline", retryable: false }}::jsonb,
+        finished_at = now()
+      WHERE workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
+        AND state = 'materializing'
+    `;
+    await db`
+      UPDATE mail.commands command
+      SET
+        state = 'cancelled',
+        finished_at = now(),
+        worker_heartbeat_at = NULL,
+        last_error_code = 'WORKFLOW_VERSION_MIGRATED',
+        last_error_message = 'Workflow schedule was migrated inline',
+        updated_at = now()
+      FROM mail.workflow_step_runs step
+      JOIN mail.workflow_run_targets target ON target.id = step.target_id
+      JOIN mail.workflow_runs run ON run.id = target.parent_run_id
+      WHERE command.id = step.command_id
+        AND run.workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
+        AND command.state IN ('queued', 'ambiguous')
+        AND command.provider_effect_started_at IS NULL
+    `;
+    await db`
+      UPDATE mail.workflow_run_targets target
+      SET
+        state = CASE
+          WHEN target.state = 'queued'
+            AND NOT EXISTS (SELECT 1 FROM mail.workflow_step_runs step WHERE step.target_id = target.id)
+          THEN 'canceled'
+          ELSE 'needs_attention'
+        END,
+        execution_generation = execution_generation + 1,
+        lease_owner = NULL,
+        lease_token = NULL,
+        lease_expires_at = NULL,
+        cancel_requested_at = now(),
+        cancel_reason = 'Workflow schedule was migrated inline',
+        finished_at = now()
+      FROM mail.workflow_runs run
+      WHERE target.parent_run_id = run.id
+        AND run.workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
+        AND run.state IN ('queued', 'running', 'waiting')
+        AND target.state IN ('queued', 'running', 'waiting')
+    `;
+    await db`
+      UPDATE mail.workflow_step_runs step
+      SET
+        state = 'needs_attention',
+        outcome = ${{
+          state: "needs_attention",
+          error: {
+            code: "WORKFLOW_VERSION_MIGRATED",
+            message: "Workflow schedule was migrated inline",
+            retryable: false,
+          },
+        }}::jsonb,
+        dependency = NULL,
+        finished_at = now()
+      FROM mail.workflow_run_targets target, mail.workflow_runs run
+      WHERE step.target_id = target.id
+        AND target.parent_run_id = run.id
+        AND run.workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
+        AND target.state = 'needs_attention'
+        AND step.state IN ('queued', 'running', 'waiting')
+    `;
+    await db`
+      WITH progress AS (
+        SELECT
+          run.id,
+          COUNT(*) FILTER (WHERE target.state = 'queued')::int AS queued,
+          COUNT(*) FILTER (WHERE target.state = 'running')::int AS running,
+          COUNT(*) FILTER (WHERE target.state = 'waiting')::int AS waiting,
+          COUNT(*) FILTER (WHERE target.state = 'succeeded')::int AS succeeded,
+          COUNT(*) FILTER (WHERE target.state = 'failed')::int AS failed,
+          COUNT(*) FILTER (WHERE target.state = 'canceled')::int AS canceled,
+          COUNT(*) FILTER (WHERE target.state = 'needs_attention')::int AS needs_attention
+        FROM mail.workflow_runs run
+        LEFT JOIN mail.workflow_run_targets target ON target.parent_run_id = run.id
+        WHERE run.workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
+          AND run.state IN ('queued', 'running', 'waiting')
+        GROUP BY run.id
+      )
+      UPDATE mail.workflow_runs run
+      SET
+        queued_targets = progress.queued,
+        running_targets = progress.running,
+        waiting_targets = progress.waiting,
+        succeeded_targets = progress.succeeded,
+        failed_targets = progress.failed,
+        canceled_targets = progress.canceled,
+        needs_attention_targets = progress.needs_attention,
+        state = CASE WHEN progress.needs_attention > 0 THEN 'needs_attention' ELSE 'canceled' END,
+        last_error = ${{ code: "WORKFLOW_VERSION_MIGRATED", message: "Workflow schedule was migrated inline", retryable: false }}::jsonb,
+        finished_at = now()
+      FROM progress
+      WHERE run.id = progress.id
+    `;
+  }
+  for (const workflowId of affectedWorkflowIds) {
+    const [workflow] = await db<{ mailbox_id: string }[]>`
+      SELECT mailbox_id FROM mail.workflows WHERE id = ${workflowId}::uuid
+    `;
+    if (workflow) {
+      await cancelPendingAutomaticRepliesInTransaction({
+        db,
+        mailboxId: workflow.mailbox_id,
+        workflowId,
+        code: "WORKFLOW_VERSION_MIGRATED",
+        message: "Workflow schedule was migrated inline",
+      });
+    }
+  }
+
+  await db`ALTER TABLE mail.automatic_reply_effects DROP COLUMN response_schedule_revision`;
+  await db`ALTER TABLE mail.automatic_reply_effects DROP COLUMN response_schedule_id`;
+  await db`ALTER TABLE mail.automatic_reply_configurations DROP COLUMN response_schedule_id`;
+  await db`DROP TABLE mail.response_schedules`;
+};
+
+const simplifyConversationReferenceConfiguration = async (db: SqlClient): Promise<void> => {
+  const versions = await db<InlineScheduleMigrationVersionRow[]>`
+    SELECT DISTINCT
+      version.id, version.workflow_id, version.mailbox_id, version.source, version.ir,
+      version.bound_plan, version.diagnostics, version.effect_budget, version.catalog_hash,
+      version.compiler_name, version.compiler_version, version.created_by_kind, version.created_by_id
+    FROM mail.workflow_versions version
+    JOIN mail.workflows workflow
+      ON workflow.id = version.workflow_id
+      AND workflow.mailbox_id = version.mailbox_id
+      AND version.id IN (workflow.current_version_id, workflow.active_version_id)
+    ORDER BY version.mailbox_id, version.workflow_id, version.id
+  `;
+  for (const version of versions) {
+    const migrated = removeWorkflowReferenceSchemeSelection({
+      source: version.source,
+      ir: parseMigrationJson(version.ir),
+      boundPlan: parseMigrationJson(version.bound_plan),
+    });
+    if (migrated.migratedActions === 0) continue;
+
+    const compiled = await compileWorkflow(migrated.source, mailWorkflowManifest);
+    if (!compiled.ok) {
+      throw new Error(
+        `Cannot compile migrated Mail workflow ${version.workflow_id}: ${compiled.diagnostics[0]?.message ?? "invalid source"}`,
+      );
+    }
+    const versionId = crypto.randomUUID();
+    const sourceHash = compiled.ir.sourceHash;
+    const manifestHash = compiled.ir.manifestHash;
+    const boundPlan: WorkflowBoundPlan = {
+      ...migrated.boundPlan,
+      sourceHash,
+      manifestHash,
+      inputs: compiled.ir.inputs,
+      triggers: compiled.ir.triggers,
+      steps: compiled.ir.steps,
+    };
+    const versionIdentity = await hashWorkflowJson({
+      versionId,
+      sourceHash,
+      ir: compiled.ir,
+      boundPlan,
+      effectBudget: parseMigrationJson(version.effect_budget),
+      compiler: { name: version.compiler_name, version: version.compiler_version },
+    });
+    await db`
+      INSERT INTO mail.workflow_versions (
+        id, version_identity, workflow_id, mailbox_id, source, source_hash, ir, bound_plan,
+        diagnostics, effect_budget, language_id, language_version, manifest_hash, catalog_hash,
+        compiler_name, compiler_version, created_by_kind, created_by_id
+      ) VALUES (
+        ${versionId}::uuid, ${versionIdentity}, ${version.workflow_id}::uuid, ${version.mailbox_id}::uuid,
+        ${migrated.source}, ${sourceHash}, ${compiled.ir}::jsonb, ${boundPlan}::jsonb,
+        ${parseMigrationJson(version.diagnostics)}::jsonb, ${parseMigrationJson(version.effect_budget)}::jsonb,
+        ${boundPlan.languageId}, ${boundPlan.languageVersion}, ${manifestHash}, ${version.catalog_hash},
+        ${version.compiler_name}, ${version.compiler_version}, ${version.created_by_kind}, ${version.created_by_id}::uuid
+      )
+    `;
+    await db`
+      UPDATE mail.workflows
+      SET
+        current_version_id = CASE WHEN current_version_id = ${version.id}::uuid THEN ${versionId}::uuid ELSE current_version_id END,
+        active_version_id = CASE WHEN active_version_id = ${version.id}::uuid THEN ${versionId}::uuid ELSE active_version_id END
+      WHERE id = ${version.workflow_id}::uuid AND mailbox_id = ${version.mailbox_id}::uuid
+    `;
+    await db`
+      UPDATE mail.workflow_activations
+      SET workflow_version_id = ${versionId}::uuid
+      WHERE workflow_version_id = ${version.id}::uuid
+        AND workflow_id = ${version.workflow_id}::uuid
+        AND mailbox_id = ${version.mailbox_id}::uuid
+    `;
+  }
+
+  await db`
+    CREATE TABLE mail.reference_number_configurations (
+      mailbox_id UUID PRIMARY KEY REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      pattern TEXT NOT NULL CHECK (pattern = btrim(pattern) AND char_length(pattern) BETWEEN 1 AND 120),
+      next_sequence BIGINT NOT NULL DEFAULT 1 CHECK (next_sequence > 0),
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      include_in_reply_subjects BOOLEAN NOT NULL DEFAULT true,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await db`
+    INSERT INTO mail.reference_number_configurations (
+      mailbox_id, pattern, next_sequence, enabled, revision,
+      created_by_actor_kind, created_by_actor_id, created_at, updated_at
+    )
+    SELECT
+      chosen.mailbox_id,
+      chosen.pattern,
+      GREATEST(
+        chosen.next_sequence,
+        COALESCE((SELECT MAX(candidate.next_sequence) FROM mail.reference_schemes candidate WHERE candidate.mailbox_id = chosen.mailbox_id), 1),
+        COALESCE((SELECT MAX(reference.sequence) + 1 FROM mail.conversation_references reference WHERE reference.mailbox_id = chosen.mailbox_id), 1)
+      ),
+      chosen.enabled,
+      chosen.revision,
+      chosen.created_by_actor_kind,
+      chosen.created_by_actor_id,
+      chosen.created_at,
+      chosen.updated_at
+    FROM (
+      SELECT DISTINCT ON (scheme.mailbox_id) scheme.*
+      FROM mail.reference_schemes scheme
+      ORDER BY scheme.mailbox_id, scheme.is_default DESC, scheme.enabled DESC, scheme.created_at, scheme.id
+    ) chosen
+  `;
+  await db`
+    CREATE TRIGGER reference_number_configurations_touch_updated_at
+    BEFORE UPDATE ON mail.reference_number_configurations
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+
+  await db`DROP TRIGGER IF EXISTS conversation_references_protect_allocation ON mail.conversation_references`;
+  await db`ALTER TABLE mail.conversation_references ADD COLUMN configuration_revision BIGINT`;
+  await db`ALTER TABLE mail.conversation_references ADD COLUMN pattern_snapshot TEXT`;
+  await db`
+    UPDATE mail.conversation_references reference
+    SET configuration_revision = reference.scheme_revision, pattern_snapshot = scheme.pattern
+    FROM mail.reference_schemes scheme
+    WHERE scheme.id = reference.scheme_id
+  `;
+  await db`
+    ALTER TABLE mail.conversation_references
+      ALTER COLUMN configuration_revision SET NOT NULL,
+      ALTER COLUMN pattern_snapshot SET NOT NULL,
+      ADD CONSTRAINT conversation_references_configuration_revision_check CHECK (configuration_revision > 0),
+      ADD CONSTRAINT conversation_references_pattern_snapshot_check CHECK (
+        pattern_snapshot = btrim(pattern_snapshot) AND char_length(pattern_snapshot) BETWEEN 1 AND 120
+      )
+  `;
+  await db`ALTER TABLE mail.conversation_reference_requests DROP COLUMN scheme_id`;
+  await db`ALTER TABLE mail.conversation_references DROP COLUMN scheme_id`;
+  await db`ALTER TABLE mail.conversation_references DROP COLUMN scheme_revision`;
+  await db`
+    CREATE OR REPLACE FUNCTION mail.protect_conversation_reference_allocation()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NEW.mailbox_id <> OLD.mailbox_id
+        OR NEW.origin_conversation_id <> OLD.origin_conversation_id
+        OR NEW.configuration_revision <> OLD.configuration_revision
+        OR NEW.pattern_snapshot <> OLD.pattern_snapshot
+        OR NEW.value <> OLD.value
+        OR NEW.normalized_value <> OLD.normalized_value
+        OR NEW.sequence <> OLD.sequence
+        OR NEW.allocated_by_actor_kind <> OLD.allocated_by_actor_kind
+        OR NEW.allocated_by_actor_id <> OLD.allocated_by_actor_id
+        OR NEW.idempotency_key <> OLD.idempotency_key
+        OR NEW.allocated_at <> OLD.allocated_at
+      THEN
+        RAISE EXCEPTION 'Conversation reference allocation fields are immutable'
+          USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END
+    $$
+  `;
+  await db`
+    CREATE TRIGGER conversation_references_protect_allocation
+    BEFORE UPDATE ON mail.conversation_references
+    FOR EACH ROW EXECUTE FUNCTION mail.protect_conversation_reference_allocation()
+  `;
+  await db`DROP TABLE mail.reference_schemes`;
+  await db`ALTER TABLE mail.automatic_reply_configurations ADD COLUMN ensure_reference BOOLEAN NOT NULL DEFAULT false`;
+};
+
+const addGenericImapDraftProjection = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.drafts
+      ALTER COLUMN author_id DROP NOT NULL,
+      ALTER COLUMN last_editor_id DROP NOT NULL,
+      DROP CONSTRAINT drafts_author_kind_check,
+      DROP CONSTRAINT drafts_last_editor_kind_check,
+      DROP CONSTRAINT drafts_origin_check,
+      ADD CONSTRAINT drafts_author_kind_check CHECK (author_kind IN ('user', 'service_account', 'workflow', 'system')),
+      ADD CONSTRAINT drafts_last_editor_kind_check CHECK (last_editor_kind IN ('user', 'service_account', 'workflow', 'system')),
+      ADD CONSTRAINT drafts_actor_shape_check CHECK (
+        (author_kind = 'system' AND author_id IS NULL)
+        OR (author_kind <> 'system' AND author_id IS NOT NULL)
+      ),
+      ADD CONSTRAINT drafts_last_editor_shape_check CHECK (
+        (last_editor_kind = 'system' AND last_editor_id IS NULL)
+        OR (last_editor_kind <> 'system' AND last_editor_id IS NOT NULL)
+      ),
+      ADD CONSTRAINT drafts_origin_check CHECK (
+        (origin = 'user'
+          AND author_kind IN ('user', 'service_account', 'system')
+          AND last_editor_kind IN ('user', 'service_account', 'system'))
+        OR (origin = 'workflow' AND author_kind = 'workflow' AND last_editor_kind = 'workflow')
+      )
+  `;
+  await db`
+    ALTER TABLE mail.draft_recovery_copies
+      ALTER COLUMN creator_id DROP NOT NULL,
+      DROP CONSTRAINT draft_recovery_copies_creator_kind_check,
+      ADD CONSTRAINT draft_recovery_copies_creator_kind_check CHECK (creator_kind IN ('user', 'service_account', 'system')),
+      ADD CONSTRAINT draft_recovery_copies_creator_shape_check CHECK (
+        (creator_kind = 'system' AND creator_id IS NULL)
+        OR (creator_kind <> 'system' AND creator_id IS NOT NULL)
+      )
+  `;
+  await db`
+    CREATE TABLE mail.draft_provider_snapshots (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      draft_id UUID REFERENCES mail.drafts(id) ON DELETE CASCADE,
+      cloud_revision BIGINT CHECK (cloud_revision IS NULL OR cloud_revision > 0),
+      direction TEXT NOT NULL CHECK (direction IN ('export', 'import')),
+      state TEXT NOT NULL DEFAULT 'prepared' CHECK (
+        state IN (
+          'prepared', 'appending', 'active', 'retiring', 'retired',
+          'external', 'importing', 'conflict', 'ambiguous', 'needs_attention'
+        )
+      ),
+      stable_message_id TEXT NOT NULL CHECK (
+        stable_message_id = btrim(stable_message_id)
+        AND char_length(stable_message_id) BETWEEN 3 AND 998
+      ),
+      content_fingerprint TEXT CHECK (content_fingerprint IS NULL OR content_fingerprint ~ '^[a-f0-9]{64}$'),
+      content_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(content_snapshot) = 'object'),
+      mime_blob_id UUID REFERENCES mail.message_part_blobs(id) ON DELETE RESTRICT,
+      remote_resource_id UUID REFERENCES mail.remote_resources(id) ON DELETE SET NULL,
+      binding_id UUID REFERENCES mail.provider_bindings(id) ON DELETE SET NULL,
+      folder_id UUID REFERENCES mail.folders(id) ON DELETE SET NULL,
+      uid_validity NUMERIC(20, 0) CHECK (uid_validity IS NULL OR uid_validity >= 0),
+      uid NUMERIC(20, 0) CHECK (uid IS NULL OR uid > 0),
+      modseq NUMERIC(20, 0) CHECK (modseq IS NULL OR modseq >= 0),
+      transport_generation BIGINT CHECK (transport_generation IS NULL OR transport_generation > 0),
+      secret_revision INTEGER CHECK (secret_revision IS NULL OR secret_revision > 0),
+      attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+      last_error_code TEXT CHECK (last_error_code IS NULL OR char_length(last_error_code) <= 80),
+      last_error_message TEXT CHECK (last_error_message IS NULL OR char_length(last_error_message) <= 1000),
+      provider_effect_started_at TIMESTAMPTZ,
+      last_seen_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT draft_provider_snapshots_cloud_shape CHECK (
+        (direction = 'export' AND draft_id IS NOT NULL AND cloud_revision IS NOT NULL AND content_fingerprint IS NOT NULL)
+        OR direction = 'import'
+      ),
+      CONSTRAINT draft_provider_snapshots_remote_shape CHECK (
+        (uid_validity IS NULL AND uid IS NULL)
+        OR (folder_id IS NOT NULL AND uid_validity IS NOT NULL AND uid IS NOT NULL)
+      ),
+      CONSTRAINT draft_provider_snapshots_effect_shape CHECK (
+        provider_effect_started_at IS NULL OR attempt > 0
+      )
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX draft_provider_snapshots_export_revision_idx
+    ON mail.draft_provider_snapshots (draft_id, cloud_revision)
+    WHERE direction = 'export'
+  `;
+  await db`
+    CREATE INDEX draft_provider_snapshots_remote_identity_idx
+    ON mail.draft_provider_snapshots (folder_id, uid_validity, uid, created_at DESC)
+    WHERE folder_id IS NOT NULL AND uid_validity IS NOT NULL AND uid IS NOT NULL
+  `;
+  await db`
+    CREATE INDEX draft_provider_snapshots_pending_idx
+    ON mail.draft_provider_snapshots (state, updated_at, id)
+    WHERE state IN ('prepared', 'appending', 'external', 'importing', 'retiring')
+  `;
+  await db`
+    CREATE INDEX draft_provider_snapshots_draft_history_idx
+    ON mail.draft_provider_snapshots (draft_id, created_at DESC, id DESC)
+    WHERE draft_id IS NOT NULL
+  `;
+  await db`
+    CREATE INDEX draft_provider_snapshots_message_id_idx
+    ON mail.draft_provider_snapshots (mailbox_id, lower(stable_message_id), created_at DESC)
+  `;
+  await db`
+    CREATE UNIQUE INDEX draft_provider_snapshots_one_active_export_idx
+    ON mail.draft_provider_snapshots (draft_id)
+    WHERE direction = 'export' AND state = 'active'
+  `;
+  await db`
+    CREATE TRIGGER draft_provider_snapshots_touch_updated_at
+    BEFORE UPDATE ON mail.draft_provider_snapshots
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+};
+
+const addImapPushListenerHealth = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.imap_push_listener_health (
+      binding_id UUID PRIMARY KEY REFERENCES mail.provider_bindings(id) ON DELETE CASCADE,
+      generation BIGINT NOT NULL DEFAULT 0 CHECK (generation >= 0),
+      state TEXT NOT NULL DEFAULT 'stopped'
+        CHECK (state IN ('starting', 'listening', 'polling', 'reconnecting', 'stopped', 'degraded')),
+      mode TEXT NOT NULL DEFAULT 'none'
+        CHECK (mode IN ('none', 'idle', 'qresync', 'poll')),
+      folder_id UUID REFERENCES mail.folders(id) ON DELETE SET NULL,
+      capabilities JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(capabilities) = 'object'),
+      reconnect_attempt INTEGER NOT NULL DEFAULT 0 CHECK (reconnect_attempt >= 0),
+      last_connected_at TIMESTAMPTZ,
+      last_hint_at TIMESTAMPTZ,
+      last_heartbeat_at TIMESTAMPTZ,
+      last_error_code TEXT,
+      last_error_message TEXT CHECK (last_error_message IS NULL OR char_length(last_error_message) <= 1000),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await db`
+    CREATE INDEX imap_push_listener_health_state_idx
+    ON mail.imap_push_listener_health (state, last_heartbeat_at, binding_id)
+  `;
+};
+
+const canonicalizeSavedConversationViews = async (db: SqlClient): Promise<void> => {
+  const rows = await db<{ id: string; filter: unknown | string }[]>`
+    SELECT id, filter
+    FROM mail.saved_conversation_views
+    ORDER BY id
+    FOR UPDATE
+  `;
+  for (const row of rows) {
+    const value = typeof row.filter === "string" ? (JSON.parse(row.filter) as unknown) : row.filter;
+    const canonical = mailSearchStateSchema.safeParse(value);
+    if (canonical.success) continue;
+    const legacy = legacySavedViewFilterSchema.safeParse(value);
+    if (!legacy.success) {
+      throw new Error(`Saved conversation view ${row.id} contains an invalid legacy filter`);
+    }
+    const migrated = migrateLegacySavedViewFilter(legacy.data);
+    await db`
+      UPDATE mail.saved_conversation_views
+      SET filter = ${migrated}::jsonb
+      WHERE id = ${row.id}::uuid
+    `;
+  }
+  await db`ALTER TABLE mail.saved_conversation_views ALTER COLUMN filter DROP DEFAULT`;
+  await db`
+    ALTER TABLE mail.saved_conversation_views
+    ADD CONSTRAINT saved_conversation_views_canonical_search_check
+    CHECK ((
+      jsonb_typeof(filter) = 'object'
+      AND filter ? 'expression'
+      AND filter ? 'sort'
+      AND jsonb_typeof(filter->'expression') = 'object'
+      AND filter->>'sort' IN ('relevance', 'newest')
+    ) IS TRUE)
+  `;
+};
+
+const repairCanonicalSavedConversationViewConstraint = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.saved_conversation_views
+    DROP CONSTRAINT IF EXISTS saved_conversation_views_canonical_search_check
+  `;
+  await db`
+    ALTER TABLE mail.saved_conversation_views
+    ADD CONSTRAINT saved_conversation_views_canonical_search_check
+    CHECK ((
+      jsonb_typeof(filter) = 'object'
+      AND filter ? 'expression'
+      AND filter ? 'sort'
+      AND jsonb_typeof(filter->'expression') = 'object'
+      AND filter->>'sort' IN ('relevance', 'newest')
+    ) IS TRUE)
+  `;
+};
+
+const repairDraftProviderRemoteIdentityIndex = async (db: SqlClient): Promise<void> => {
+  await db`DROP INDEX IF EXISTS mail.draft_provider_snapshots_remote_identity_idx`;
+  await db`
+    CREATE INDEX draft_provider_snapshots_remote_identity_idx
+    ON mail.draft_provider_snapshots (folder_id, uid_validity, uid, created_at DESC)
+    WHERE folder_id IS NOT NULL AND uid_validity IS NOT NULL AND uid IS NOT NULL
+  `;
+};
+
+const addDraftRecoveryAttachments = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.draft_recovery_copies
+    ADD COLUMN has_attachment_snapshot BOOLEAN NOT NULL DEFAULT false
+  `;
+  await db`
+    CREATE TABLE mail.draft_recovery_attachments (
+      recovery_copy_id UUID NOT NULL REFERENCES mail.draft_recovery_copies(id) ON DELETE CASCADE,
+      blob_id UUID NOT NULL REFERENCES mail.message_part_blobs(id) ON DELETE RESTRICT,
+      filename TEXT NOT NULL CHECK (char_length(filename) BETWEEN 1 AND 255),
+      content_type TEXT NOT NULL CHECK (char_length(content_type) BETWEEN 1 AND 255),
+      byte_length BIGINT NOT NULL CHECK (byte_length BETWEEN 0 AND 104857600),
+      content_hash TEXT NOT NULL CHECK (content_hash ~ '^[a-f0-9]{64}$'),
+      position INTEGER NOT NULL CHECK (position >= 0),
+      PRIMARY KEY (recovery_copy_id, position)
+    )
+  `;
+  await db`
+    CREATE INDEX draft_recovery_attachments_blob_idx
+    ON mail.draft_recovery_attachments (blob_id)
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -3055,6 +3779,15 @@ const migrations = [
   { version: 52, name: "automatic_reply_delivery_timestamps", run: addAutomaticReplyDeliveryTimestamps },
   { version: 53, name: "automatic_reply_delivery_timestamp_guard", run: guardAutomaticReplyDeliveryTimestamps },
   { version: 54, name: "sender_automation_ready_by_default", run: defaultSenderAutomationToMailbox },
+  { version: 55, name: "automatic_reply_management_permission", run: addAutomaticReplyManagementPermission },
+  { version: 56, name: "inline_automatic_reply_schedules", run: inlineAutomaticReplySchedules },
+  { version: 57, name: "single_reference_number_configuration", run: simplifyConversationReferenceConfiguration },
+  { version: 58, name: "generic_imap_draft_projection", run: addGenericImapDraftProjection },
+  { version: 59, name: "imap_push_listener_health", run: addImapPushListenerHealth },
+  { version: 60, name: "canonical_saved_view_search", run: canonicalizeSavedConversationViews },
+  { version: 61, name: "draft_provider_remote_observations", run: repairDraftProviderRemoteIdentityIndex },
+  { version: 62, name: "draft_recovery_attachments", run: addDraftRecoveryAttachments },
+  { version: 63, name: "canonical_saved_view_search_guard", run: repairCanonicalSavedConversationViewConstraint },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

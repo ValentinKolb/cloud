@@ -2,14 +2,16 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type {
   CreateSavedConversationView,
+  MailSearchExpression,
   SavedConversationViewFilter,
   SavedConversationViewScope,
   UpdateSavedConversationView,
 } from "../contracts";
+import { savedConversationViewFilterSchema } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { lockMailboxForCollaboration } from "./collaboration";
 import { hasCurrentMailboxUserPermission } from "./collaborators";
-import { listConversations } from "./messages";
+import * as search from "./search";
 
 type SqlClient = typeof sql;
 
@@ -38,20 +40,30 @@ export type SavedConversationView = {
 };
 
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
-const parseFilter = (value: SavedConversationViewFilter | string): SavedConversationViewFilter =>
-  typeof value === "string" ? (JSON.parse(value) as SavedConversationViewFilter) : value;
+const parseFilter = (value: SavedConversationViewFilter | string): Result<SavedConversationViewFilter> => {
+  try {
+    const parsed = savedConversationViewFilterSchema.safeParse(typeof value === "string" ? JSON.parse(value) : value);
+    return parsed.success ? ok(parsed.data) : fail(err.internal("Saved conversation view contains invalid search state"));
+  } catch {
+    return fail(err.internal("Saved conversation view contains malformed search state"));
+  }
+};
 
-const mapView = (row: SavedViewRow): SavedConversationView => ({
-  id: row.id,
-  mailboxId: row.mailbox_id,
-  scope: row.scope,
-  ownerUserId: row.owner_user_id,
-  name: row.name,
-  filter: parseFilter(row.filter),
-  revision: Number(row.revision),
-  createdAt: toIso(row.created_at),
-  updatedAt: toIso(row.updated_at),
-});
+const mapView = (row: SavedViewRow): Result<SavedConversationView> => {
+  const filter = parseFilter(row.filter);
+  if (!filter.ok) return filter;
+  return ok({
+    id: row.id,
+    mailboxId: row.mailbox_id,
+    scope: row.scope,
+    ownerUserId: row.owner_user_id,
+    name: row.name,
+    filter: filter.data,
+    revision: Number(row.revision),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  });
+};
 
 const viewColumns = sql`
   id,
@@ -104,20 +116,30 @@ const validateFilterReferences = async (params: {
   mailboxId: string;
   filter: SavedConversationViewFilter;
 }): Promise<Result<void>> => {
-  if (params.filter.folderId) {
+  const nodes: MailSearchExpression[] = [params.filter.expression];
+  const folderIds = new Set<string>();
+  const userIds = new Set<string>();
+  while (nodes.length > 0) {
+    const node = nodes.pop()!;
+    if (node.type === "and" || node.type === "or") nodes.push(...node.expressions);
+    else if (node.type === "not") nodes.push(node.expression);
+    else if (node.type === "folder_id") folderIds.add(node.folderId);
+    else if (node.type === "assignee" && node.userId) userIds.add(node.userId);
+  }
+  for (const folderId of folderIds) {
     const [folder] = await params.db<{ id: string }[]>`
       SELECT folder.id
       FROM mail.folders folder
       JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
-      WHERE folder.id = ${params.filter.folderId}::uuid AND resource.mailbox_id = ${params.mailboxId}::uuid
+      WHERE folder.id = ${folderId}::uuid AND resource.mailbox_id = ${params.mailboxId}::uuid
     `;
     if (!folder) return fail(err.badInput("Saved view folder must belong to this mailbox"));
   }
-  if (params.filter.assignee?.kind === "user") {
+  for (const userId of userIds) {
     const allowed = await hasCurrentMailboxUserPermission({
       mailboxId: params.mailboxId,
       db: params.db,
-      userId: params.filter.assignee.userId,
+      userId,
       minimumPermission: "write",
     });
     if (!allowed) return fail(err.badInput("Saved view assignee must have current write access to this mailbox"));
@@ -166,7 +188,13 @@ export const listSavedConversationViews = async (params: {
       AND (scope = 'mailbox' OR owner_user_id = ${userId}::uuid)
     ORDER BY CASE scope WHEN 'private' THEN 0 ELSE 1 END, lower(name), id
   `;
-  return ok(rows.map(mapView));
+  const views: SavedConversationView[] = [];
+  for (const row of rows) {
+    const view = mapView(row);
+    if (!view.ok) return view;
+    views.push(view.data);
+  }
+  return ok(views);
 };
 
 export const getSavedConversationView = async (params: {
@@ -181,7 +209,7 @@ export const getSavedConversationView = async (params: {
     viewId: params.viewId,
     userId: userBackedActor(params.context)?.id ?? null,
   });
-  return row ? ok(mapView(row)) : fail(err.notFound("Saved conversation view"));
+  return row ? mapView(row) : fail(err.notFound("Saved conversation view"));
 };
 
 export const createSavedConversationView = async (params: {
@@ -230,7 +258,7 @@ export const createSavedConversationView = async (params: {
           metadata: { scope: row.scope, name: row.name },
         });
       }
-      return ok(mapView(row));
+      return mapView(row);
     });
   } catch (error) {
     return isUniqueViolation(error)
@@ -265,7 +293,9 @@ export const updateSavedConversationView = async (params: {
       if (Number(current.revision) !== params.input.expectedRevision) {
         return fail(err.conflict("Saved conversation view was changed by another request"));
       }
-      const filter = params.input.filter ?? parseFilter(current.filter);
+      const currentFilter = parseFilter(current.filter);
+      if (!currentFilter.ok) return currentFilter;
+      const filter = params.input.filter ?? currentFilter.data;
       const references = await validateFilterReferences({ db: tx, mailboxId: params.mailboxId, filter });
       if (!references.ok) return references;
       const revision = Number(current.revision) + 1;
@@ -286,7 +316,7 @@ export const updateSavedConversationView = async (params: {
           metadata: { scope: row.scope, name: row.name, revision },
         });
       }
-      return ok(mapView(row));
+      return mapView(row);
     });
   } catch (error) {
     return isUniqueViolation(error)
@@ -347,11 +377,36 @@ export const listSavedViewConversations = async (params: {
 }) => {
   const view = await getSavedConversationView(params);
   if (!view.ok) return view;
-  return listConversations({
+  const result = await search.searchMessages({
     context: params.context,
     mailboxId: params.mailboxId,
-    filter: view.data.filter,
-    cursor: params.cursor,
-    limit: params.limit,
+    request: {
+      ...view.data.filter,
+      cursor: params.cursor,
+      limit: params.limit ?? 50,
+    },
+  });
+  if (!result.ok) return result;
+  return ok({
+    nextCursor: result.data.nextCursor,
+    items: result.data.items.map((item) => ({
+      id: item.conversationId ?? item.id,
+      primaryReference: item.primaryReference,
+      subject: item.subject,
+      participantSummary: item.participantSummary,
+      latestMessageAt: item.latestMessageAt,
+      workStatus: item.workStatus ?? "open",
+      assigneeUserId: item.assigneeUserId,
+      responseNeeded: item.responseNeeded,
+      snoozedUntil: item.snoozedUntil,
+      revision: item.revision,
+      updatedAt: item.updatedAt,
+      unread: item.unread,
+      hasAttachments: item.hasAttachments,
+      messageCount: item.messageCount,
+      preview: item.snippet,
+      folderId: item.sourceFolderId,
+      unreadFolderIds: item.unreadFolderIds,
+    })),
   });
 };

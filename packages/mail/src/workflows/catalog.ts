@@ -1,5 +1,3 @@
-import type { ResponseScheduleDefinitionInput } from "../contracts";
-
 export type MailWorkflowFolderCatalogEntry = {
   id: string;
   name: string;
@@ -10,29 +8,15 @@ export type MailWorkflowAssignableUserCatalogEntry = {
   name: string;
 };
 
-export type MailWorkflowReferenceSchemeCatalogEntry = {
-  id: string;
-  name: string;
-};
-
 export type MailWorkflowSenderIdentityCatalogEntry = {
   id: string;
   name: string;
 };
 
-export type MailWorkflowResponseScheduleCatalogEntry = {
-  id: string;
-  name: string;
-  revision: number;
-  definition: ResponseScheduleDefinitionInput;
-};
-
 export type MailWorkflowCatalogEntry =
   | MailWorkflowFolderCatalogEntry
   | MailWorkflowAssignableUserCatalogEntry
-  | MailWorkflowReferenceSchemeCatalogEntry
-  | MailWorkflowSenderIdentityCatalogEntry
-  | MailWorkflowResponseScheduleCatalogEntry;
+  | MailWorkflowSenderIdentityCatalogEntry;
 
 export type MailWorkflowCatalogIndex<T extends MailWorkflowCatalogEntry> = {
   refs: Map<string, T>;
@@ -42,25 +26,19 @@ export type MailWorkflowCatalogIndex<T extends MailWorkflowCatalogEntry> = {
 export type MailWorkflowCatalog = {
   folders: MailWorkflowCatalogIndex<MailWorkflowFolderCatalogEntry>;
   assignableUsers: MailWorkflowCatalogIndex<MailWorkflowAssignableUserCatalogEntry>;
-  referenceSchemes: MailWorkflowCatalogIndex<MailWorkflowReferenceSchemeCatalogEntry>;
   senderIdentities: MailWorkflowCatalogIndex<MailWorkflowSenderIdentityCatalogEntry>;
-  responseSchedules: MailWorkflowCatalogIndex<MailWorkflowResponseScheduleCatalogEntry>;
 };
 
 export type MailWorkflowCatalogSnapshot = {
   folders: MailWorkflowFolderCatalogEntry[];
   assignableUsers: MailWorkflowAssignableUserCatalogEntry[];
-  referenceSchemes?: MailWorkflowReferenceSchemeCatalogEntry[];
   senderIdentities?: MailWorkflowSenderIdentityCatalogEntry[];
-  responseSchedules?: MailWorkflowResponseScheduleCatalogEntry[];
 };
 
 export type MailWorkflowCatalogInput = {
   folders: MailWorkflowFolderCatalogEntry[];
   assignableUsers: MailWorkflowAssignableUserCatalogEntry[];
-  referenceSchemes: MailWorkflowReferenceSchemeCatalogEntry[];
   senderIdentities?: MailWorkflowSenderIdentityCatalogEntry[];
-  responseSchedules?: MailWorkflowResponseScheduleCatalogEntry[];
 };
 
 const compareIds = (left: MailWorkflowCatalogEntry, right: MailWorkflowCatalogEntry): number =>
@@ -81,9 +59,7 @@ const buildIndex = <T extends MailWorkflowCatalogEntry>(entries: T[]): MailWorkf
 export const buildMailWorkflowCatalog = (input: MailWorkflowCatalogInput): MailWorkflowCatalog => ({
   folders: buildIndex(input.folders),
   assignableUsers: buildIndex(input.assignableUsers),
-  referenceSchemes: buildIndex(input.referenceSchemes),
   senderIdentities: buildIndex(input.senderIdentities ?? []),
-  responseSchedules: buildIndex(input.responseSchedules ?? []),
 });
 
 const uniqueEntries = <T extends MailWorkflowCatalogEntry>(index: MailWorkflowCatalogIndex<T>): T[] =>
@@ -92,17 +68,13 @@ const uniqueEntries = <T extends MailWorkflowCatalogEntry>(index: MailWorkflowCa
 export const snapshotMailWorkflowCatalog = (catalog: MailWorkflowCatalog): MailWorkflowCatalogSnapshot => ({
   folders: uniqueEntries(catalog.folders),
   assignableUsers: uniqueEntries(catalog.assignableUsers),
-  referenceSchemes: uniqueEntries(catalog.referenceSchemes),
   senderIdentities: uniqueEntries(catalog.senderIdentities),
-  responseSchedules: uniqueEntries(catalog.responseSchedules),
 });
 
 export const restoreMailWorkflowCatalog = (snapshot: MailWorkflowCatalogSnapshot): MailWorkflowCatalog =>
   buildMailWorkflowCatalog({
     ...snapshot,
-    referenceSchemes: snapshot.referenceSchemes ?? [],
     senderIdentities: snapshot.senderIdentities ?? [],
-    responseSchedules: snapshot.responseSchedules ?? [],
   });
 
 export const getMailWorkflowCatalogRef = <T extends MailWorkflowCatalogEntry>(

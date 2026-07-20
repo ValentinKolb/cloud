@@ -1,0 +1,200 @@
+import type { MailSearchExpression, MailSearchField } from "../../contracts";
+
+export type MailSearchNodePath = readonly number[];
+
+export type MailSearchFieldKey =
+  | `text:${MailSearchField}`
+  | "date:internal_date"
+  | "date:sent_at"
+  | "size:message"
+  | "size:attachment"
+  | "work_status"
+  | "response_needed"
+  | "assignee"
+  | "snoozed"
+  | "all"
+  | "folder_id"
+  | "assigned_to_me"
+  | "watched_by_me";
+
+export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: string; icon: string }> = [
+  { id: "text:any", label: "Anywhere", icon: "ti ti-search" },
+  { id: "text:subject", label: "Subject", icon: "ti ti-letter-case" },
+  { id: "text:body", label: "Message body", icon: "ti ti-align-left" },
+  { id: "text:from", label: "From", icon: "ti ti-user-up" },
+  { id: "text:to", label: "To", icon: "ti ti-user-down" },
+  { id: "text:cc", label: "Cc", icon: "ti ti-users" },
+  { id: "text:bcc", label: "Bcc", icon: "ti ti-users-minus" },
+  { id: "text:recipients", label: "Any recipient", icon: "ti ti-address-book" },
+  { id: "text:participants", label: "Any participant", icon: "ti ti-users-group" },
+  { id: "text:message_id", label: "Message ID", icon: "ti ti-id" },
+  { id: "text:attachment_name", label: "Attachment name", icon: "ti ti-paperclip" },
+  { id: "text:comment", label: "Internal comment", icon: "ti ti-message" },
+  { id: "text:reference", label: "Reference number", icon: "ti ti-hash" },
+  { id: "text:folder", label: "Folder name", icon: "ti ti-folder" },
+  { id: "text:tag", label: "Local tag", icon: "ti ti-tag" },
+  { id: "text:keyword", label: "Provider keyword", icon: "ti ti-key" },
+  { id: "date:internal_date", label: "Received date", icon: "ti ti-calendar-down" },
+  { id: "date:sent_at", label: "Sent date", icon: "ti ti-calendar-up" },
+  { id: "size:message", label: "Message size", icon: "ti ti-file" },
+  { id: "size:attachment", label: "Attachment size", icon: "ti ti-file-download" },
+  { id: "work_status", label: "Work status", icon: "ti ti-progress-check" },
+  { id: "response_needed", label: "Response needed", icon: "ti ti-message-exclamation" },
+  { id: "assignee", label: "Assignee", icon: "ti ti-user-check" },
+  { id: "snoozed", label: "Snoozed", icon: "ti ti-clock-pause" },
+  { id: "folder_id", label: "Specific folder", icon: "ti ti-folder-check" },
+  { id: "assigned_to_me", label: "Assigned to me", icon: "ti ti-user-pin" },
+  { id: "watched_by_me", label: "Followed by me", icon: "ti ti-eye-check" },
+  { id: "all", label: "All conversations", icon: "ti ti-mail" },
+];
+
+export const unwrapMailSearchNot = (
+  expression: MailSearchExpression,
+): { expression: Exclude<MailSearchExpression, { type: "not" }>; negated: boolean } => {
+  if (expression.type === "not") {
+    const nested = unwrapMailSearchNot(expression.expression);
+    return { expression: nested.expression, negated: !nested.negated };
+  }
+  return { expression, negated: false };
+};
+
+export const applyMailSearchNegation = (
+  expression: Exclude<MailSearchExpression, { type: "not" }>,
+  negated: boolean,
+): MailSearchExpression => (negated ? { type: "not", expression } : expression);
+
+export const ensureMailSearchRootGroup = (expression: MailSearchExpression): MailSearchExpression => {
+  const unwrapped = unwrapMailSearchNot(expression);
+  if (!unwrapped.negated && (unwrapped.expression.type === "and" || unwrapped.expression.type === "or")) return expression;
+  return { type: "and", expressions: [expression] };
+};
+
+export const mailSearchFieldKey = (expression: MailSearchExpression): MailSearchFieldKey | null => {
+  const node = unwrapMailSearchNot(expression).expression;
+  if (node.type === "text") return `text:${node.field}`;
+  if (node.type === "date") return `date:${node.field}`;
+  if (node.type === "size") return `size:${node.field}`;
+  if (node.type === "and" || node.type === "or") return null;
+  return node.type;
+};
+
+export const createMailSearchCondition = (
+  field: MailSearchFieldKey,
+): Exclude<MailSearchExpression, { type: "not" } | { type: "and" } | { type: "or" }> => {
+  if (field.startsWith("text:")) {
+    return { type: "text", field: field.slice(5) as MailSearchField, query: "", match: "words" };
+  }
+  if (field.startsWith("date:")) {
+    return {
+      type: "date",
+      field: field.slice(5) as "internal_date" | "sent_at",
+      operator: "on_or_after",
+      value: new Date().toISOString(),
+    };
+  }
+  if (field.startsWith("size:")) {
+    return { type: "size", field: field.slice(5) as "message" | "attachment", operator: "at_least", bytes: 1024 * 1024 };
+  }
+  if (field === "work_status") return { type: "work_status", value: "open" };
+  if (field === "response_needed") return { type: "response_needed", value: true };
+  if (field === "assignee") return { type: "assignee", userId: null };
+  if (field === "folder_id") return { type: "folder_id", folderId: "" };
+  if (field === "assigned_to_me") return { type: "assigned_to_me" };
+  if (field === "watched_by_me") return { type: "watched_by_me", value: true };
+  if (field === "all") return { type: "all" };
+  return { type: "snoozed", value: true };
+};
+
+const rebuildWrapped = (original: MailSearchExpression, expression: Exclude<MailSearchExpression, { type: "not" }>): MailSearchExpression =>
+  applyMailSearchNegation(expression, unwrapMailSearchNot(original).negated);
+
+export const updateMailSearchExpression = (
+  root: MailSearchExpression,
+  path: MailSearchNodePath,
+  update: (expression: MailSearchExpression) => MailSearchExpression,
+): MailSearchExpression => {
+  if (path.length === 0) return update(root);
+  const [index, ...rest] = path;
+  const unwrapped = unwrapMailSearchNot(root);
+  if ((unwrapped.expression.type !== "and" && unwrapped.expression.type !== "or") || index === undefined) return root;
+  const child = unwrapped.expression.expressions[index];
+  if (!child) return root;
+  const expressions = [...unwrapped.expression.expressions];
+  expressions[index] = updateMailSearchExpression(child, rest, update);
+  return rebuildWrapped(root, { ...unwrapped.expression, expressions });
+};
+
+export const removeMailSearchExpression = (root: MailSearchExpression, path: MailSearchNodePath): MailSearchExpression => {
+  if (path.length === 0) return root;
+  const parentPath = path.slice(0, -1);
+  const index = path.at(-1);
+  if (index === undefined) return root;
+  return updateMailSearchExpression(root, parentPath, (parent) => {
+    const unwrapped = unwrapMailSearchNot(parent);
+    if (unwrapped.expression.type !== "and" && unwrapped.expression.type !== "or") return parent;
+    const expressions = unwrapped.expression.expressions.filter((_, childIndex) => childIndex !== index);
+    if (expressions.length === 0) return parent;
+    return rebuildWrapped(parent, { ...unwrapped.expression, expressions });
+  });
+};
+
+export const appendMailSearchExpression = (
+  root: MailSearchExpression,
+  path: MailSearchNodePath,
+  child: MailSearchExpression,
+): MailSearchExpression =>
+  updateMailSearchExpression(root, path, (parent) => {
+    const unwrapped = unwrapMailSearchNot(parent);
+    if (unwrapped.expression.type !== "and" && unwrapped.expression.type !== "or") return parent;
+    return rebuildWrapped(parent, { ...unwrapped.expression, expressions: [...unwrapped.expression.expressions, child] });
+  });
+
+export const toggleMailSearchNegation = (root: MailSearchExpression, path: MailSearchNodePath): MailSearchExpression =>
+  updateMailSearchExpression(root, path, (expression) => (expression.type === "not" ? expression.expression : { type: "not", expression }));
+
+export const countMailSearchNodes = (expression: MailSearchExpression): number => {
+  if (expression.type === "not") return 1 + countMailSearchNodes(expression.expression);
+  if (expression.type === "and" || expression.type === "or") {
+    return 1 + expression.expressions.reduce((total, child) => total + countMailSearchNodes(child), 0);
+  }
+  return 1;
+};
+
+export const mailSearchExpressionDepth = (expression: MailSearchExpression): number => {
+  if (expression.type === "not") return 1 + mailSearchExpressionDepth(expression.expression);
+  if (expression.type === "and" || expression.type === "or") {
+    return 1 + Math.max(...expression.expressions.map(mailSearchExpressionDepth));
+  }
+  return 1;
+};
+
+const textFieldLabel = (field: MailSearchField): string =>
+  MAIL_SEARCH_FIELD_OPTIONS.find((option) => option.id === `text:${field}`)?.label ?? field;
+
+const sizeLabel = (bytes: number): string => {
+  const megabytes = bytes / (1024 * 1024);
+  return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(2)} MB`;
+};
+
+export const summarizeMailSearchExpression = (expression: MailSearchExpression): string => {
+  if (expression.type === "not") return `not (${summarizeMailSearchExpression(expression.expression)})`;
+  if (expression.type === "and" || expression.type === "or") {
+    const separator = expression.type === "and" ? " and " : " or ";
+    return expression.expressions.map((child) => `(${summarizeMailSearchExpression(child)})`).join(separator);
+  }
+  if (expression.type === "text") return `${textFieldLabel(expression.field)} ${expression.match} “${expression.query || "…"}”`;
+  if (expression.type === "date") {
+    return `${expression.field === "internal_date" ? "Received" : "Sent"} ${expression.operator.replaceAll("_", " ")} ${expression.value}`;
+  }
+  if (expression.type === "size") {
+    return `${expression.field === "message" ? "Message" : "Attachment"} size ${expression.operator.replaceAll("_", " ")} ${sizeLabel(expression.bytes)}`;
+  }
+  if (expression.type === "work_status") return `Work status is ${expression.value}`;
+  if (expression.type === "response_needed") return expression.value ? "Response is needed" : "No response is needed";
+  if (expression.type === "assignee") return expression.userId ? `Assigned to ${expression.userId}` : "Unassigned";
+  if (expression.type === "snoozed") return expression.value ? "Is snoozed" : "Is not snoozed";
+  if (expression.type === "folder_id") return `In folder ${expression.folderId}`;
+  if (expression.type === "assigned_to_me") return "Assigned to me";
+  if (expression.type === "watched_by_me") return expression.value ? "Followed by me" : "Not followed by me";
+  return "All conversations";
+};

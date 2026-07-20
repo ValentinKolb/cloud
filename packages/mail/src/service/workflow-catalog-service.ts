@@ -2,7 +2,6 @@ import { listUsersWithAccess } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { buildMailWorkflowCatalog, type MailWorkflowCatalog } from "../workflows";
 import type { MailRequestContext } from "./auth";
-import { decodeStoredResponseScheduleDefinition } from "./response-schedule";
 import type { SqlClient } from "./workflow-data";
 
 export const loadMailWorkflowCatalog = async (params: {
@@ -11,7 +10,7 @@ export const loadMailWorkflowCatalog = async (params: {
   db?: SqlClient;
 }): Promise<MailWorkflowCatalog> => {
   const db = params.db ?? sql;
-  const [folders, accessRows, referenceSchemes, senderIdentities, responseScheduleRows] = await Promise.all([
+  const [folders, accessRows, senderIdentities] = await Promise.all([
     db<{ id: string; name: string }[]>`
       SELECT DISTINCT folder.id, folder.name
       FROM mail.folders folder
@@ -43,23 +42,11 @@ export const loadMailWorkflowCatalog = async (params: {
       WHERE mailbox_id = ${params.mailboxId}::uuid
     `,
     db<{ id: string; name: string }[]>`
-      SELECT id, name
-      FROM mail.reference_schemes
-      WHERE mailbox_id = ${params.mailboxId}::uuid AND enabled
-      ORDER BY id
-    `,
-    db<{ id: string; name: string }[]>`
       SELECT id, display_name || ' <' || from_address || '>' AS name
       FROM mail.sender_identities
       WHERE mailbox_id = ${params.mailboxId}::uuid
         AND status = 'verified'
         AND automation_policy = 'mailbox'
-      ORDER BY id
-    `,
-    db<{ id: string; name: string; revision: string | number; definition: unknown }[]>`
-      SELECT id, name, revision, definition
-      FROM mail.response_schedules
-      WHERE mailbox_id = ${params.mailboxId}::uuid AND enabled
       ORDER BY id
     `,
   ]);
@@ -69,21 +56,9 @@ export const loadMailWorkflowCatalog = async (params: {
     limit: 10_000,
     db,
   });
-  const responseSchedules = responseScheduleRows.map((schedule) => {
-    const definition = decodeStoredResponseScheduleDefinition(schedule.definition);
-    if (!definition.ok) throw definition.error;
-    return {
-      id: schedule.id,
-      name: schedule.name,
-      revision: Number(schedule.revision),
-      definition: definition.data,
-    };
-  });
   return buildMailWorkflowCatalog({
     folders,
     assignableUsers: assignableUsers.map((user) => ({ id: user.id, name: user.displayName || user.uid })),
-    referenceSchemes,
     senderIdentities,
-    responseSchedules,
   });
 };

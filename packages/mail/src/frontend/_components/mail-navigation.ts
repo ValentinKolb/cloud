@@ -20,7 +20,9 @@ export const buildMailListHref = (requestUrl: URL, clearSearch = false): string 
       "tag",
       "keyword",
       "combine",
+      "search",
       "cursor",
+      "savedView",
     ]) {
       next.searchParams.delete(parameter);
     }

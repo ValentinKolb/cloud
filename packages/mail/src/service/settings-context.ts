@@ -2,20 +2,16 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import type { MailboxSettingsContext } from "../settings-context";
 import * as mailboxAccess from "./access";
 import type { MailRequestContext } from "./auth";
-import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
 import * as collaboration from "./collaboration";
 import * as composeTemplates from "./compose-templates";
-import * as conversationReferences from "./conversation-reference";
 import * as health from "./health";
 import * as localTags from "./local-tags";
 import * as mailboxes from "./mailboxes";
 import * as messages from "./messages";
 import * as providerConnections from "./provider-connections";
-import * as responseSchedules from "./response-schedule";
 import * as savedViews from "./saved-views";
 import * as senderIdentities from "./sender-identities";
-import * as workflows from "./workflows";
 
 export const loadMailboxSettingsContext = async (
   context: MailRequestContext,
@@ -65,40 +61,18 @@ export const loadMailboxSettingsContext = async (
 
   if (permission !== "admin") return ok({ mailbox: mailboxResult.data, permission, organization, compose, admin: null });
 
-  const [
-    accessResult,
-    connectionResult,
-    bindingResult,
-    healthResult,
-    identityResult,
-    referenceSchemeResult,
-    responseScheduleResult,
-    automaticReplyResult,
-    workflowResult,
-    workflowRunResult,
-  ] = await Promise.all([
+  const [accessResult, connectionResult, bindingResult, healthResult, identityResult] = await Promise.all([
     mailboxAccess.listMailboxAccess(context, mailboxId),
     providerConnections.listProviderConnections(context, mailboxId),
     bindings.listProviderBindings(context, mailboxId),
     health.getMailboxOperationalHealth(context, mailboxId),
     senderIdentities.listSenderIdentities(context, mailboxId),
-    conversationReferences.listConversationReferenceSchemes(context, mailboxId),
-    responseSchedules.listResponseSchedules(context, mailboxId),
-    automaticReplyConfigurations.listAutomaticReplyConfigurations(context, mailboxId),
-    workflows.listWorkflows(context, mailboxId),
-    workflows.listWorkflowRuns({ context, mailboxId, limit: 20 }),
   ]);
   if (!accessResult.ok) return fail(accessResult.error);
   if (!connectionResult.ok) return fail(connectionResult.error);
   if (!bindingResult.ok) return fail(bindingResult.error);
   if (!healthResult.ok) return fail(healthResult.error);
   if (!identityResult.ok) return fail(identityResult.error);
-  if (!referenceSchemeResult.ok) return fail(referenceSchemeResult.error);
-  if (!responseScheduleResult.ok) return fail(responseScheduleResult.error);
-  if (!automaticReplyResult.ok) return fail(automaticReplyResult.error);
-  if (!workflowResult.ok) return fail(workflowResult.error);
-  if (!workflowRunResult.ok) return fail(workflowRunResult.error);
-
   return ok({
     mailbox: mailboxResult.data,
     permission,
@@ -111,11 +85,6 @@ export const loadMailboxSettingsContext = async (
       folders: organizationFolderResult.data,
       health: healthResult.data,
       identities: identityResult.data,
-      automaticReplies: automaticReplyResult.data,
-      referenceSchemes: referenceSchemeResult.data,
-      responseSchedules: responseScheduleResult.data,
-      workflows: workflowResult.data,
-      workflowRuns: workflowRunResult.data,
     },
   });
 };

@@ -9,6 +9,9 @@ import { z } from "zod";
 export const searchBackendSchema = z.enum(["auto", "postgres", "pg_textsearch"]);
 export type SearchBackend = z.infer<typeof searchBackendSchema>;
 
+export const automaticReplyManagementPermissionSchema = z.enum(["write", "admin"]);
+export type AutomaticReplyManagementPermission = z.infer<typeof automaticReplyManagementPermissionSchema>;
+
 export const mailboxHealthSchema = z.enum([
   "disconnected",
   "verifying",
@@ -83,6 +86,7 @@ export const mailboxSchema = z.object({
   healthReason: z.string().nullable(),
   syncEnabled: z.boolean(),
   searchBackend: searchBackendSchema,
+  automaticReplyManagementPermission: automaticReplyManagementPermissionSchema,
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -230,6 +234,10 @@ export const mailSearchWorkStatusSchema = z.object({ type: z.literal("work_statu
 export const mailSearchResponseNeededSchema = z.object({ type: z.literal("response_needed"), value: z.boolean() }).strict();
 export const mailSearchAssigneeSchema = z.object({ type: z.literal("assignee"), userId: z.string().uuid().nullable() }).strict();
 export const mailSearchSnoozedSchema = z.object({ type: z.literal("snoozed"), value: z.boolean() }).strict();
+export const mailSearchAllSchema = z.object({ type: z.literal("all") }).strict();
+export const mailSearchFolderIdSchema = z.object({ type: z.literal("folder_id"), folderId: z.string().uuid() }).strict();
+export const mailSearchAssignedToMeSchema = z.object({ type: z.literal("assigned_to_me") }).strict();
+export const mailSearchWatchedByMeSchema = z.object({ type: z.literal("watched_by_me"), value: z.boolean() }).strict();
 
 const MAX_BOOLEAN_TREE_DEPTH = 8;
 const MAX_BOOLEAN_TREE_NODES = 100;
@@ -270,6 +278,10 @@ export type MailSearchExpression =
   | z.infer<typeof mailSearchResponseNeededSchema>
   | z.infer<typeof mailSearchAssigneeSchema>
   | z.infer<typeof mailSearchSnoozedSchema>
+  | z.infer<typeof mailSearchAllSchema>
+  | z.infer<typeof mailSearchFolderIdSchema>
+  | z.infer<typeof mailSearchAssignedToMeSchema>
+  | z.infer<typeof mailSearchWatchedByMeSchema>
   | { type: "and"; expressions: MailSearchExpression[] }
   | { type: "or"; expressions: MailSearchExpression[] }
   | { type: "not"; expression: MailSearchExpression };
@@ -283,6 +295,10 @@ const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> = z.l
     mailSearchResponseNeededSchema,
     mailSearchAssigneeSchema,
     mailSearchSnoozedSchema,
+    mailSearchAllSchema,
+    mailSearchFolderIdSchema,
+    mailSearchAssignedToMeSchema,
+    mailSearchWatchedByMeSchema,
     z.object({ type: z.literal("and"), expressions: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
     z.object({ type: z.literal("or"), expressions: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
     z.object({ type: z.literal("not"), expression: mailSearchExpressionRecursiveSchema }).strict(),
@@ -351,6 +367,30 @@ const mailSearchExpressionOpenApi = {
     },
     {
       type: "object",
+      properties: { type: { const: "all" } },
+      required: ["type"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { type: { const: "folder_id" }, folderId: { type: "string", format: "uuid" } },
+      required: ["type", "folderId"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { type: { const: "assigned_to_me" } },
+      required: ["type"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { type: { const: "watched_by_me" }, value: { type: "boolean" } },
+      required: ["type", "value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
       properties: {
         type: { const: "and" },
         expressions: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
@@ -394,9 +434,20 @@ export const mailSearchExpressionSchema = z
   })
   .meta(mailSearchExpressionOpenApi);
 
+export const mailSearchSortSchema = z.enum(["relevance", "newest"]);
+export type MailSearchSort = z.infer<typeof mailSearchSortSchema>;
+
+export const mailSearchStateSchema = z
+  .object({
+    expression: mailSearchExpressionSchema,
+    sort: mailSearchSortSchema.default("relevance"),
+  })
+  .strict();
+export type MailSearchState = z.infer<typeof mailSearchStateSchema>;
+
 export const searchRequestSchema = z.object({
   expression: mailSearchExpressionSchema,
-  sort: z.enum(["relevance", "newest"]).default("relevance"),
+  sort: mailSearchSortSchema.default("relevance"),
   cursor: z.string().max(2_000).optional(),
   limit: z.number().int().min(1).max(100).default(50),
 });
@@ -966,33 +1017,18 @@ export const setConversationLocalTagsSchema = z
 export type SetConversationLocalTags = z.infer<typeof setConversationLocalTagsSchema>;
 
 export const conversationReferencePatternSchema = z.string().trim().min(1).max(120);
-export const createConversationReferenceSchemeSchema = z
+export const putConversationReferenceConfigurationSchema = z
   .object({
-    name: z.string().trim().min(1).max(80),
+    expectedRevision: z.number().int().positive().nullable(),
     pattern: conversationReferencePatternSchema,
-    makeDefault: z.boolean().default(false),
+    enabled: z.boolean(),
+    includeInReplySubjects: z.boolean(),
   })
   .strict();
-export type CreateConversationReferenceScheme = z.infer<typeof createConversationReferenceSchemeSchema>;
-
-export const updateConversationReferenceSchemeSchema = z
-  .object({
-    expectedRevision: z.number().int().positive(),
-    name: z.string().trim().min(1).max(80).optional(),
-    pattern: conversationReferencePatternSchema.optional(),
-    enabled: z.boolean().optional(),
-    makeDefault: z.boolean().optional(),
-  })
-  .strict()
-  .refine(
-    (input) => input.name !== undefined || input.pattern !== undefined || input.enabled !== undefined || input.makeDefault !== undefined,
-    "At least one reference scheme change is required",
-  );
-export type UpdateConversationReferenceScheme = z.infer<typeof updateConversationReferenceSchemeSchema>;
+export type PutConversationReferenceConfiguration = z.infer<typeof putConversationReferenceConfigurationSchema>;
 
 export const ensureConversationReferenceSchema = z
   .object({
-    schemeId: z.string().uuid().optional(),
     idempotencyKey: z.string().trim().min(1).max(200),
   })
   .strict();
@@ -1025,28 +1061,6 @@ export const responseScheduleDefinitionSchema = z
   .strict();
 export type ResponseScheduleDefinitionInput = z.infer<typeof responseScheduleDefinitionSchema>;
 
-export const createResponseScheduleSchema = z
-  .object({
-    name: z.string().trim().min(1).max(80),
-    definition: responseScheduleDefinitionSchema,
-    enabled: z.boolean().default(true),
-  })
-  .strict();
-export type CreateResponseSchedule = z.infer<typeof createResponseScheduleSchema>;
-
-export const updateResponseScheduleSchema = z
-  .object({
-    expectedRevision: z.number().int().positive(),
-    name: z.string().trim().min(1).max(80).optional(),
-    definition: responseScheduleDefinitionSchema.optional(),
-    enabled: z.boolean().optional(),
-  })
-  .strict()
-  .refine((input) => input.name !== undefined || input.definition !== undefined || input.enabled !== undefined, {
-    message: "At least one response schedule change is required",
-  });
-export type UpdateResponseSchedule = z.infer<typeof updateResponseScheduleSchema>;
-
 export const automaticReplyInactiveBehaviorSchema = z.enum(["skip", "defer"]);
 export type AutomaticReplyInactiveBehavior = z.infer<typeof automaticReplyInactiveBehaviorSchema>;
 
@@ -1063,6 +1077,7 @@ const automaticReplyConfigurationFields = {
     .max(2 * 1024 * 1024)
     .refine((value) => value.trim().length > 0, "Message cannot be blank"),
   format: z.enum(["plain", "markdown"]),
+  ensureReference: z.boolean(),
   minimumIntervalHours: z.number().int().min(0).max(8_760),
   inactiveBehavior: automaticReplyInactiveBehaviorSchema,
   schedule: responseScheduleDefinitionSchema,
@@ -1073,6 +1088,7 @@ export const createAutomaticReplyConfigurationSchema = z
     ...automaticReplyConfigurationFields,
     enabled: z.boolean().default(true),
     format: z.enum(["plain", "markdown"]).default("markdown"),
+    ensureReference: z.boolean().default(false),
     minimumIntervalHours: z.number().int().min(0).max(8_760).default(24),
     inactiveBehavior: automaticReplyInactiveBehaviorSchema.default("skip"),
   })
@@ -1133,30 +1149,8 @@ export type CancelConversationReminder = z.infer<typeof cancelConversationRemind
 export const savedConversationViewScopeSchema = z.enum(["private", "mailbox"]);
 export type SavedConversationViewScope = z.infer<typeof savedConversationViewScopeSchema>;
 
-export const savedConversationAssigneeFilterSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("any") }).strict(),
-  z.object({ kind: z.literal("me") }).strict(),
-  z.object({ kind: z.literal("unassigned") }).strict(),
-  z.object({ kind: z.literal("user"), userId: z.string().uuid() }).strict(),
-]);
-export type SavedConversationAssigneeFilter = z.infer<typeof savedConversationAssigneeFilterSchema>;
-
-export const savedConversationViewFilterSchema = z
-  .object({
-    folderId: z.string().uuid().optional(),
-    workStatuses: z
-      .array(conversationWorkStatusSchema)
-      .min(1)
-      .max(3)
-      .refine((statuses) => new Set(statuses).size === statuses.length, "Work statuses must be unique")
-      .optional(),
-    assignee: savedConversationAssigneeFilterSchema.optional(),
-    responseNeeded: z.boolean().optional(),
-    snoozed: z.boolean().optional(),
-    watchedByMe: z.boolean().optional(),
-  })
-  .strict();
-export type SavedConversationViewFilter = z.infer<typeof savedConversationViewFilterSchema>;
+export const savedConversationViewFilterSchema = mailSearchStateSchema;
+export type SavedConversationViewFilter = MailSearchState;
 
 export const createSavedConversationViewSchema = z
   .object({

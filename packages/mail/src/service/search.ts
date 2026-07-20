@@ -1,17 +1,22 @@
+import { logger } from "@valentinkolb/cloud/services";
 import { escapeLikePattern } from "@valentinkolb/cloud/services/postgres";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type MailSearchExpression, mailSearchExpressionSchema, type SearchRequest } from "../contracts";
-import type { MailRequestContext } from "./auth";
+import { type MailRequestContext, userBackedActor } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveMailExecution } from "./execution";
 
 type SqlFragment = Bun.SQL.Query<unknown>;
+const log = logger("mail:search");
 
 export type MessageSearchHit = {
   id: string;
   conversationId: string | null;
+  primaryReference: string | null;
   subject: string;
+  participantSummary: string;
+  latestMessageAt: string;
   messageId: string | null;
   internalDate: string;
   sentAt: string | null;
@@ -20,6 +25,16 @@ export type MessageSearchHit = {
   flags: string[];
   hasAttachments: boolean;
   snippet: string | null;
+  unread: boolean;
+  messageCount: number;
+  workStatus: "open" | "waiting" | "done" | null;
+  assigneeUserId: string | null;
+  responseNeeded: boolean;
+  snoozedUntil: string | null;
+  revision: number;
+  updatedAt: string;
+  sourceFolderId: string | null;
+  unreadFolderIds: string[];
   rank: number;
 };
 
@@ -31,8 +46,13 @@ export type MessageSearchPage = {
 
 type DbSearchHit = {
   id: string;
+  result_id: string;
   conversation_id: string | null;
+  primary_reference: string | null;
   subject: string;
+  participant_summary: string;
+  latest_message_at: Date | string;
+  sort_date: Date | string;
   message_id: string | null;
   internal_date: Date | string;
   sent_at: Date | string | null;
@@ -41,11 +61,21 @@ type DbSearchHit = {
   flags: string[] | null;
   has_attachments: boolean;
   snippet: string | null;
+  unread: boolean;
+  message_count: number;
+  work_status: "open" | "waiting" | "done" | null;
+  assignee_user_id: string | null;
+  response_needed: boolean;
+  snoozed_until: Date | string | null;
+  revision: string | number;
+  updated_at: Date | string;
+  source_folder_id: string | null;
+  unread_folder_ids: unknown[] | string;
   rank: number | string;
 };
 
 type SearchCursor = {
-  version: 2;
+  version: 3;
   sort: "relevance" | "newest";
   backend: "native" | "pg_textsearch";
   queryHash: string;
@@ -61,7 +91,7 @@ const decodeCursor = (value: string | undefined, sort: SearchCursor["sort"], que
   try {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<SearchCursor>;
     if (
-      parsed.version !== 2 ||
+      parsed.version !== 3 ||
       parsed.sort !== sort ||
       (parsed.backend !== "native" && parsed.backend !== "pg_textsearch") ||
       parsed.queryHash !== queryHash ||
@@ -131,6 +161,13 @@ const textMatch = (value: SqlFragment, query: string, match: "words" | "phrase" 
   return parts.slice(1).reduce((combined, part) => sql`(${combined} AND ${part})`, parts[0]!);
 };
 
+const exactAddressMatch = (query: string): SqlFragment => {
+  const normalized = query.toLowerCase();
+  return query.includes("@")
+    ? sql`ma.normalized_email = ${normalized}`
+    : sql`(ma.normalized_email = ${normalized} OR lower(COALESCE(ma.display_name, '')) = ${normalized})`;
+};
+
 const addressMatch = (
   role: "from" | "to" | "cc" | "bcc" | null,
   query: string,
@@ -138,9 +175,7 @@ const addressMatch = (
 ): SqlFragment => {
   const roleClause = role ? sql`ma.role = ${role}` : sql`ma.role IN ('from', 'reply_to', 'to', 'cc', 'bcc')`;
   const valueClause =
-    match === "exact"
-      ? sql`(lower(ma.email) = ${query.toLowerCase()} OR lower(COALESCE(ma.display_name, '')) = ${query.toLowerCase()})`
-      : textMatch(sql`(ma.email || ' ' || COALESCE(ma.display_name, ''))`, query, match);
+    match === "exact" ? exactAddressMatch(query) : textMatch(sql`(ma.email || ' ' || COALESCE(ma.display_name, ''))`, query, match);
   return sql`EXISTS (
     SELECT 1 FROM mail.message_addresses ma
     WHERE ma.message_id = mc.id AND ${roleClause} AND ${valueClause}
@@ -152,10 +187,14 @@ const attachmentNameMatch = (query: string, match: Extract<MailSearchExpression,
   WHERE attachment.message_id = mc.id AND ${textMatch(sql`attachment.filename`, query, match)}
 )`;
 
-const commentMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+const commentMatch = (
+  query: string,
+  match: Extract<MailSearchExpression, { type: "text" }>["match"],
+  conversationId: SqlFragment,
+): SqlFragment => sql`EXISTS (
   SELECT 1
   FROM mail.conversation_comments comment
-  WHERE comment.conversation_id = cm.conversation_id
+  WHERE comment.conversation_id = ${conversationId}
     AND comment.deleted_at IS NULL
     AND ${textMatch(sql`comment.body_markdown`, query, match)}
 )`;
@@ -170,11 +209,15 @@ const folderMatch = (query: string, match: Extract<MailSearchExpression, { type:
     AND ${textMatch(sql`(folder.name || ' ' || folder.role || ' ' || COALESCE(folder_ref.remote_path, ''))`, query, match)}
 )`;
 
-const tagMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+const tagMatch = (
+  query: string,
+  match: Extract<MailSearchExpression, { type: "text" }>["match"],
+  conversationId: SqlFragment,
+): SqlFragment => sql`EXISTS (
   SELECT 1
   FROM mail.conversation_local_tags assignment
   JOIN mail.local_tags tag ON tag.id = assignment.tag_id AND tag.mailbox_id = assignment.mailbox_id
-  WHERE assignment.conversation_id = cm.conversation_id
+  WHERE assignment.conversation_id = ${conversationId}
     AND ${textMatch(sql`tag.name`, query, match)}
 )`;
 
@@ -187,17 +230,21 @@ const keywordMatch = (query: string, match: Extract<MailSearchExpression, { type
     AND ${textMatch(sql`keyword.value`, query, match)}
 )`;
 
-const referenceMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+const referenceMatch = (
+  query: string,
+  match: Extract<MailSearchExpression, { type: "text" }>["match"],
+  conversationId: SqlFragment,
+): SqlFragment => sql`EXISTS (
   SELECT 1
   FROM mail.conversation_references reference
-  WHERE reference.conversation_id = cm.conversation_id
+  WHERE reference.conversation_id = ${conversationId}
     AND ${match === "exact" ? sql`reference.normalized_value = lower(btrim(${query}))` : textMatch(sql`reference.value`, query, match)}
 )`;
 
 const combineOr = (parts: SqlFragment[]): SqlFragment =>
   parts.slice(1).reduce((combined, part) => sql`(${combined} OR ${part})`, parts[0]!);
 
-const compileTextTerm = (term: Extract<MailSearchExpression, { type: "text" }>): SqlFragment => {
+const compileTextTerm = (term: Extract<MailSearchExpression, { type: "text" }>, conversationId: SqlFragment): SqlFragment => {
   const query = term.query.trim();
   if (term.field === "subject") {
     return term.match === "words" || term.match === "phrase"
@@ -215,7 +262,7 @@ const compileTextTerm = (term: Extract<MailSearchExpression, { type: "text" }>):
   if (term.field === "recipients") {
     const recipient =
       term.match === "exact"
-        ? sql`(lower(ma.email) = ${query.toLowerCase()} OR lower(COALESCE(ma.display_name, '')) = ${query.toLowerCase()})`
+        ? exactAddressMatch(query)
         : textMatch(sql`(ma.email || ' ' || COALESCE(ma.display_name, ''))`, query, term.match);
     return sql`EXISTS (
       SELECT 1 FROM mail.message_addresses ma
@@ -226,10 +273,10 @@ const compileTextTerm = (term: Extract<MailSearchExpression, { type: "text" }>):
   if (term.field === "participants") return addressMatch(null, query, term.match);
   if (term.field === "message_id") return textMatch(sql`mc.message_id`, query, term.match);
   if (term.field === "attachment_name") return attachmentNameMatch(query, term.match);
-  if (term.field === "comment") return commentMatch(query, term.match);
-  if (term.field === "reference") return referenceMatch(query, term.match);
+  if (term.field === "comment") return commentMatch(query, term.match, conversationId);
+  if (term.field === "reference") return referenceMatch(query, term.match, conversationId);
   if (term.field === "folder") return folderMatch(query, term.match);
-  if (term.field === "tag") return tagMatch(query, term.match);
+  if (term.field === "tag") return tagMatch(query, term.match, conversationId);
   if (term.field === "keyword") return keywordMatch(query, term.match);
 
   const body =
@@ -246,25 +293,56 @@ const compileTextTerm = (term: Extract<MailSearchExpression, { type: "text" }>):
     addressMatch(null, query, term.match),
     textMatch(sql`mc.message_id`, query, term.match),
     attachmentNameMatch(query, term.match),
-    commentMatch(query, term.match),
-    referenceMatch(query, term.match),
+    commentMatch(query, term.match, conversationId),
+    referenceMatch(query, term.match, conversationId),
     folderMatch(query, term.match),
-    tagMatch(query, term.match),
+    tagMatch(query, term.match, conversationId),
     keywordMatch(query, term.match),
   ]);
 };
 
-export const compileSearchExpression = (expression: MailSearchExpression): SqlFragment => {
+export const compileSearchExpression = (
+  expression: MailSearchExpression,
+  currentUserId: string | null = null,
+  conversationId: SqlFragment = sql`cm.conversation_id`,
+): SqlFragment => {
   if (expression.type === "and") {
-    const parts = expression.expressions.map(compileSearchExpression);
+    const parts = expression.expressions.map((child) => compileSearchExpression(child, currentUserId, conversationId));
     return parts.slice(1).reduce((combined, part) => sql`(${combined} AND ${part})`, parts[0]!);
   }
   if (expression.type === "or") {
-    const parts = expression.expressions.map(compileSearchExpression);
+    const parts = expression.expressions.map((child) => compileSearchExpression(child, currentUserId, conversationId));
     return parts.slice(1).reduce((combined, part) => sql`(${combined} OR ${part})`, parts[0]!);
   }
-  if (expression.type === "not") return sql`NOT (${compileSearchExpression(expression.expression)})`;
-  if (expression.type === "text") return compileTextTerm(expression);
+  if (expression.type === "not") {
+    return sql`NOT (${compileSearchExpression(expression.expression, currentUserId, conversationId)})`;
+  }
+  if (expression.type === "all") return sql`true`;
+  if (expression.type === "folder_id") {
+    return sql`EXISTS (
+      SELECT 1
+      FROM mail.message_placements exact_folder
+      WHERE exact_folder.message_id = mc.id
+        AND exact_folder.folder_id = ${expression.folderId}::uuid
+        AND exact_folder.deleted_at IS NULL
+    )`;
+  }
+  if (expression.type === "assigned_to_me") {
+    return sql`${currentUserId}::uuid IS NOT NULL AND EXISTS (
+      SELECT 1
+      FROM mail.conversations state
+      WHERE state.id = ${conversationId} AND state.assignee_user_id = ${currentUserId}::uuid
+    )`;
+  }
+  if (expression.type === "watched_by_me") {
+    const watched = sql`${currentUserId}::uuid IS NOT NULL AND EXISTS (
+      SELECT 1
+      FROM mail.conversation_watchers watcher
+      WHERE watcher.conversation_id = ${conversationId} AND watcher.user_id = ${currentUserId}::uuid
+    )`;
+    return expression.value ? watched : sql`NOT (${watched})`;
+  }
+  if (expression.type === "text") return compileTextTerm(expression, conversationId);
   if (expression.type === "date") {
     const field = expression.field === "internal_date" ? sql`mc.internal_date` : sql`mc.sent_at`;
     if (expression.operator === "before") return sql`${field} < ${expression.value}::timestamptz`;
@@ -292,30 +370,30 @@ export const compileSearchExpression = (expression: MailSearchExpression): SqlFr
         )`;
   }
   if (expression.type === "work_status") {
-    return sql`EXISTS (SELECT 1 FROM mail.conversations state WHERE state.id = cm.conversation_id AND state.work_status = ${expression.value})`;
+    return sql`EXISTS (SELECT 1 FROM mail.conversations state WHERE state.id = ${conversationId} AND state.work_status = ${expression.value})`;
   }
   if (expression.type === "response_needed") {
     return sql`EXISTS (
       SELECT 1 FROM mail.conversations state
-      WHERE state.id = cm.conversation_id AND state.response_needed = ${expression.value}
+      WHERE state.id = ${conversationId} AND state.response_needed = ${expression.value}
     )`;
   }
   if (expression.type === "assignee") {
     return expression.userId
       ? sql`EXISTS (
           SELECT 1 FROM mail.conversations state
-          WHERE state.id = cm.conversation_id AND state.assignee_user_id = ${expression.userId}::uuid
+          WHERE state.id = ${conversationId} AND state.assignee_user_id = ${expression.userId}::uuid
         )`
-      : sql`EXISTS (SELECT 1 FROM mail.conversations state WHERE state.id = cm.conversation_id AND state.assignee_user_id IS NULL)`;
+      : sql`EXISTS (SELECT 1 FROM mail.conversations state WHERE state.id = ${conversationId} AND state.assignee_user_id IS NULL)`;
   }
   return expression.value
     ? sql`EXISTS (
         SELECT 1 FROM mail.conversations state
-        WHERE state.id = cm.conversation_id AND state.snoozed_until > now()
+        WHERE state.id = ${conversationId} AND state.snoozed_until > now()
       )`
     : sql`EXISTS (
         SELECT 1 FROM mail.conversations state
-        WHERE state.id = cm.conversation_id AND (state.snoozed_until IS NULL OR state.snoozed_until <= now())
+        WHERE state.id = ${conversationId} AND (state.snoozed_until IS NULL OR state.snoozed_until <= now())
       )`;
 };
 
@@ -326,6 +404,191 @@ const positiveQueries = (expression: MailSearchExpression, negated = false): str
   if (expression.type === "not") return positiveQueries(expression.expression, !negated);
   if (negated || expression.type !== "text" || !["any", "subject", "body"].includes(expression.field)) return [];
   return [expression.query];
+};
+
+type FullTextSeed =
+  | (Extract<MailSearchExpression, { type: "text" }> & { field: "subject"; match: "words" | "phrase" })
+  | (Extract<MailSearchExpression, { type: "text" }> & { field: "body"; match: "phrase" });
+
+type AnyWordsSeed = Extract<MailSearchExpression, { type: "text" }> & { field: "any"; match: "words" };
+type IndexedSeed = FullTextSeed | AnyWordsSeed;
+
+const findIndexedSeed = (expression: MailSearchExpression): IndexedSeed | null => {
+  if (expression.type === "and") {
+    const candidates = expression.expressions.flatMap((child) => {
+      const candidate = findIndexedSeed(child);
+      return candidate ? [candidate] : [];
+    });
+    return (
+      candidates.find((candidate) => candidate.field === "any") ??
+      candidates.find((candidate) => candidate.field === "body") ??
+      candidates[0] ??
+      null
+    );
+  }
+  if (
+    expression.type === "text" &&
+    ((expression.field === "any" && expression.match === "words") ||
+      (expression.field === "subject" && (expression.match === "words" || expression.match === "phrase")) ||
+      (expression.field === "body" && expression.match === "phrase"))
+  ) {
+    return expression as IndexedSeed;
+  }
+  return null;
+};
+
+const compileAnyWordsSeed = (seed: AnyWordsSeed, mailboxId: string): SqlFragment => {
+  const query = seed.query.trim();
+  const bodyTokenQueries = wordTokens(query).map(
+    (token) => sql`
+      SELECT seed_chunk.message_id
+      FROM mail.message_search_chunks seed_chunk
+      WHERE seed_chunk.search_document @@ plainto_tsquery('simple', ${token})
+    `,
+  );
+  const bodySeed = bodyTokenQueries.slice(1).reduce((combined, part) => sql`${combined} INTERSECT ${part}`, bodyTokenQueries[0]!);
+  return sql`
+    SELECT seed_message.id AS message_id
+    FROM mail.message_contents seed_message
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+      AND ${ftsMatch(sql`seed_message.subject_search_document`, query, "words")}
+
+    UNION
+
+    SELECT seed_body.message_id
+    FROM (${bodySeed}) seed_body
+    JOIN mail.message_contents seed_message ON seed_message.id = seed_body.message_id
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+
+    UNION
+
+    SELECT seed_address.message_id
+    FROM mail.message_addresses seed_address
+    JOIN mail.message_contents seed_message ON seed_message.id = seed_address.message_id
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+      AND seed_address.role IN ('from', 'reply_to', 'to', 'cc', 'bcc')
+      AND ${textMatch(sql`(seed_address.email || ' ' || COALESCE(seed_address.display_name, ''))`, query, "words")}
+
+    UNION
+
+    SELECT seed_message.id
+    FROM mail.message_contents seed_message
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+      AND ${textMatch(sql`seed_message.message_id`, query, "words")}
+
+    UNION
+
+    SELECT seed_attachment.message_id
+    FROM mail.attachments seed_attachment
+    JOIN mail.message_contents seed_message ON seed_message.id = seed_attachment.message_id
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+      AND ${textMatch(sql`seed_attachment.filename`, query, "words")}
+
+    UNION
+
+    SELECT seed_placement.message_id
+    FROM mail.message_placements seed_placement
+    JOIN mail.message_contents seed_message ON seed_message.id = seed_placement.message_id
+    JOIN mail.folders seed_folder ON seed_folder.id = seed_placement.folder_id
+    LEFT JOIN mail.binding_folder_refs seed_folder_ref ON seed_folder_ref.folder_id = seed_folder.id
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+      AND seed_placement.deleted_at IS NULL
+      AND ${textMatch(sql`(seed_folder.name || ' ' || seed_folder.role || ' ' || COALESCE(seed_folder_ref.remote_path, ''))`, query, "words")}
+
+    UNION
+
+    SELECT seed_placement.message_id
+    FROM mail.message_placements seed_placement
+    JOIN mail.message_contents seed_message ON seed_message.id = seed_placement.message_id
+    CROSS JOIN LATERAL unnest(seed_placement.keywords) seed_keyword(value)
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+      AND seed_placement.deleted_at IS NULL
+      AND ${textMatch(sql`seed_keyword.value`, query, "words")}
+
+    UNION
+
+    SELECT seed_link.message_id
+    FROM mail.conversation_messages seed_link
+    JOIN mail.conversations seed_conversation ON seed_conversation.id = seed_link.conversation_id
+    JOIN mail.conversation_comments seed_comment ON seed_comment.conversation_id = seed_conversation.id
+    WHERE seed_conversation.mailbox_id = ${mailboxId}::uuid
+      AND seed_comment.deleted_at IS NULL
+      AND ${textMatch(sql`seed_comment.body_markdown`, query, "words")}
+
+    UNION
+
+    SELECT seed_link.message_id
+    FROM mail.conversation_messages seed_link
+    JOIN mail.conversations seed_conversation ON seed_conversation.id = seed_link.conversation_id
+    JOIN mail.conversation_references seed_reference ON seed_reference.conversation_id = seed_conversation.id
+    WHERE seed_conversation.mailbox_id = ${mailboxId}::uuid
+      AND ${textMatch(sql`seed_reference.value`, query, "words")}
+
+    UNION
+
+    SELECT seed_link.message_id
+    FROM mail.conversation_messages seed_link
+    JOIN mail.conversations seed_conversation ON seed_conversation.id = seed_link.conversation_id
+    JOIN mail.conversation_local_tags seed_assignment ON seed_assignment.conversation_id = seed_conversation.id
+    JOIN mail.local_tags seed_tag
+      ON seed_tag.id = seed_assignment.tag_id
+     AND seed_tag.mailbox_id = seed_assignment.mailbox_id
+    WHERE seed_conversation.mailbox_id = ${mailboxId}::uuid
+      AND ${textMatch(sql`seed_tag.name`, query, "words")}
+  `;
+};
+
+const compileIndexedSeed = (seed: IndexedSeed, mailboxId: string): SqlFragment => {
+  if (seed.field === "any") return compileAnyWordsSeed(seed, mailboxId);
+  if (seed.field === "subject") {
+    return sql`
+      SELECT seed_message.id AS message_id
+      FROM mail.message_contents seed_message
+      WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+        AND ${ftsMatch(sql`seed_message.subject_search_document`, seed.query.trim(), seed.match)}
+    `;
+  }
+  return sql`
+    SELECT DISTINCT seed_chunk.message_id
+    FROM mail.message_search_chunks seed_chunk
+    JOIN mail.message_contents seed_message ON seed_message.id = seed_chunk.message_id
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+      AND seed_chunk.search_document @@ phraseto_tsquery('simple', ${seed.query.trim()})
+  `;
+};
+
+const isConversationOnlyExpression = (expression: MailSearchExpression): boolean => {
+  if (expression.type === "all") return true;
+  if (expression.type === "and" || expression.type === "or") {
+    return expression.expressions.every(isConversationOnlyExpression);
+  }
+  if (expression.type === "not") return isConversationOnlyExpression(expression.expression);
+  if (
+    expression.type === "work_status" ||
+    expression.type === "response_needed" ||
+    expression.type === "assignee" ||
+    expression.type === "snoozed" ||
+    expression.type === "assigned_to_me" ||
+    expression.type === "watched_by_me"
+  ) {
+    return true;
+  }
+  return expression.type === "text" && ["comment", "reference", "tag"].includes(expression.field);
+};
+
+const guaranteedFolderIds = (expression: MailSearchExpression): string[] | null => {
+  if (expression.type === "folder_id") return [expression.folderId];
+  if (expression.type === "not") return null;
+  if (expression.type === "and") {
+    const ids = expression.expressions.flatMap((child) => guaranteedFolderIds(child) ?? []);
+    return ids.length > 0 ? [...new Set(ids)] : null;
+  }
+  if (expression.type === "or") {
+    const scopes = expression.expressions.map(guaranteedFolderIds);
+    if (scopes.some((scope) => scope === null)) return null;
+    return [...new Set(scopes.flatMap((scope) => scope ?? []))];
+  }
+  return null;
 };
 
 const parseAddressRows = (value: unknown[] | string): Array<{ name: string | null; address: string }> => {
@@ -339,10 +602,18 @@ const parseAddressRows = (value: unknown[] | string): Array<{ name: string | nul
   });
 };
 
+const parseStringRows = (value: unknown[] | string): string[] => {
+  const rows = typeof value === "string" ? (JSON.parse(value) as unknown[]) : value;
+  return rows.filter((row): row is string => typeof row === "string");
+};
+
 const mapHit = (row: DbSearchHit): MessageSearchHit => ({
   id: row.id,
   conversationId: row.conversation_id,
+  primaryReference: row.primary_reference,
   subject: row.subject,
+  participantSummary: row.participant_summary,
+  latestMessageAt: (row.latest_message_at instanceof Date ? row.latest_message_at : new Date(row.latest_message_at)).toISOString(),
   messageId: row.message_id,
   internalDate: (row.internal_date instanceof Date ? row.internal_date : new Date(row.internal_date)).toISOString(),
   sentAt: row.sent_at ? (row.sent_at instanceof Date ? row.sent_at : new Date(row.sent_at)).toISOString() : null,
@@ -351,6 +622,18 @@ const mapHit = (row: DbSearchHit): MessageSearchHit => ({
   flags: row.flags ?? [],
   hasAttachments: row.has_attachments,
   snippet: row.snippet,
+  unread: row.unread,
+  messageCount: row.message_count,
+  workStatus: row.work_status,
+  assigneeUserId: row.assignee_user_id,
+  responseNeeded: row.response_needed,
+  snoozedUntil: row.snoozed_until
+    ? (row.snoozed_until instanceof Date ? row.snoozed_until : new Date(row.snoozed_until)).toISOString()
+    : null,
+  revision: Number(row.revision),
+  updatedAt: (row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)).toISOString(),
+  sourceFolderId: row.source_folder_id,
+  unreadFolderIds: parseStringRows(row.unread_folder_ids),
   rank: Number(row.rank),
 });
 
@@ -384,8 +667,77 @@ const runSearch = async (params: {
   cursor: SearchCursor | null;
   limit: number;
   backend: "native" | "pg_textsearch";
+  currentUserId: string | null;
 }): Promise<DbSearchHit[]> => {
-  const predicate = compileSearchExpression(params.expression);
+  const predicate = compileSearchExpression(params.expression, params.currentUserId);
+  const indexedSeed = findIndexedSeed(params.expression);
+  const indexedSeedCoversExpression = indexedSeed === params.expression;
+  const conversationOnly = !indexedSeed && isConversationOnlyExpression(params.expression);
+  const cursor = params.cursor;
+  const limit = params.limit + 1;
+  const indexedSeedCte = indexedSeed ? sql`indexed_seed AS MATERIALIZED (${compileIndexedSeed(indexedSeed, params.mailboxId)}),` : sql``;
+  const useConversationSeed = conversationOnly;
+  const conversationSeedCte = useConversationSeed
+    ? sql`
+        conversation_seed AS MATERIALIZED (
+          SELECT seed_conversation.id
+          FROM mail.conversations seed_conversation
+          WHERE seed_conversation.mailbox_id = ${params.mailboxId}::uuid
+            AND (${compileSearchExpression(params.expression, params.currentUserId, sql`seed_conversation.id`)})
+            AND (
+              ${cursor?.id ?? null}::uuid IS NULL
+              OR (
+                seed_conversation.latest_message_at,
+                seed_conversation.id
+              ) < (
+                ${cursor?.internalDate ?? null}::timestamptz,
+                ${cursor?.id ?? null}::uuid
+              )
+            )
+          ORDER BY seed_conversation.latest_message_at DESC, seed_conversation.id DESC
+          LIMIT ${limit}
+        ),
+      `
+    : sql``;
+  const messageSource = conversationOnly
+    ? sql`
+        ${useConversationSeed ? sql`conversation_seed selected_conversation JOIN` : sql``}
+        mail.conversations seed_conversation
+          ${useConversationSeed ? sql`ON seed_conversation.id = selected_conversation.id` : sql``}
+        CROSS JOIN LATERAL (
+          SELECT latest_message.*
+          FROM mail.conversation_messages latest_link
+          JOIN mail.message_contents latest_message ON latest_message.id = latest_link.message_id
+          WHERE latest_link.conversation_id = seed_conversation.id
+            AND EXISTS (
+              SELECT 1
+              FROM mail.message_placements latest_visible
+              WHERE latest_visible.message_id = latest_message.id
+                AND latest_visible.deleted_at IS NULL
+            )
+          ORDER BY latest_message.internal_date DESC, latest_message.id DESC
+          LIMIT 1
+        ) mc
+      `
+    : indexedSeed
+      ? sql`
+          indexed_seed seed
+          CROSS JOIN LATERAL (
+            SELECT seeded_message.*
+            FROM mail.message_contents seeded_message
+            WHERE seeded_message.id = seed.message_id
+            OFFSET 0
+          ) mc
+        `
+      : sql`mail.message_contents mc`;
+  const sourceMailboxPredicate = conversationOnly ? sql`seed_conversation.mailbox_id = ${params.mailboxId}::uuid` : sql`true`;
+  const folderIds = guaranteedFolderIds(params.expression);
+  const unreadFolderPredicate = folderIds
+    ? sql`unread_placement.folder_id IN (
+        SELECT value::uuid
+        FROM jsonb_array_elements_text(${folderIds}::jsonb)
+      )`
+    : sql`true`;
   const queryText = positiveQueries(params.expression).join(" OR ").slice(0, 4_000);
   const rank =
     params.sort === "newest" || !queryText
@@ -406,28 +758,50 @@ const runSearch = async (params: {
         'simple',
         COALESCE(mc.plain_text, ''),
         websearch_to_tsquery('simple', ${queryText}),
-        'StartSel=, StopSel=, MaxWords=36, MinWords=12, MaxFragments=2, FragmentDelimiter= … '
+        'StartSel="", StopSel="", MaxWords=36, MinWords=12, MaxFragments=2, FragmentDelimiter= … '
       ), 500)`
     : sql`NULL::text`;
-  const cursor = params.cursor;
-  const limit = params.limit + 1;
   return params.db<DbSearchHit[]>`
-    WITH matched AS (
+    WITH ${indexedSeedCte}
+    ${conversationSeedCte}
+    candidate_messages AS MATERIALIZED (
       SELECT
         mc.id,
+        COALESCE(cm.conversation_id, mc.id) AS result_id,
         cm.conversation_id,
         mc.subject,
         mc.message_id,
         mc.internal_date,
         mc.sent_at,
+        mc.plain_text,
+        mc.subject_search_document
+      FROM ${messageSource}
+      LEFT JOIN mail.conversation_messages cm ON cm.message_id = mc.id
+      WHERE ${sourceMailboxPredicate}
+        AND mc.mailbox_id = ${params.mailboxId}::uuid
+        AND EXISTS (
+          SELECT 1 FROM mail.message_placements visible
+          WHERE visible.message_id = mc.id AND visible.deleted_at IS NULL
+        )
+        AND (${useConversationSeed || indexedSeedCoversExpression ? sql`true` : predicate})
+    ),
+    matched_messages AS (
+      SELECT
+        mc.id,
+        mc.result_id,
+        mc.conversation_id,
+        mc.subject,
+        mc.message_id,
+        mc.internal_date,
+        mc.sent_at,
+        mc.plain_text,
         COALESCE(from_rows.addresses, '[]'::jsonb) AS from_addresses,
         COALESCE(to_rows.addresses, '[]'::jsonb) AS to_addresses,
         COALESCE(placement.flags, ARRAY[]::text[]) AS flags,
         EXISTS (SELECT 1 FROM mail.attachments attachment WHERE attachment.message_id = mc.id) AS has_attachments,
         ${snippet} AS snippet,
         ${rank} AS rank
-      FROM mail.message_contents mc
-      LEFT JOIN mail.conversation_messages cm ON cm.message_id = mc.id
+      FROM candidate_messages mc
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(jsonb_build_object('name', ma.display_name, 'address', ma.email) ORDER BY ma.position) AS addresses
         FROM mail.message_addresses ma
@@ -445,33 +819,188 @@ const runSearch = async (params: {
         ORDER BY mp.updated_at DESC
         LIMIT 1
       ) placement ON true
-      WHERE mc.mailbox_id = ${params.mailboxId}::uuid
-        AND EXISTS (
-          SELECT 1 FROM mail.message_placements visible
-          WHERE visible.message_id = mc.id AND visible.deleted_at IS NULL
-        )
-        AND (${predicate})
+    ),
+    ranked_matches AS (
+      SELECT
+        matched_messages.*,
+        row_number() OVER (
+          PARTITION BY result_id
+          ORDER BY
+            CASE WHEN ${params.sort} = 'relevance' THEN rank ELSE 0 END DESC,
+            internal_date DESC,
+            id DESC
+        ) AS match_position
+      FROM matched_messages
+    ),
+    deduplicated AS (
+      SELECT *
+      FROM ranked_matches
+      WHERE match_position = 1
+    ),
+    projected AS (
+      SELECT
+        deduplicated.id,
+        deduplicated.result_id,
+        deduplicated.conversation_id,
+        primary_reference.value AS primary_reference,
+        COALESCE(conversation.subject, deduplicated.subject) AS subject,
+        COALESCE(
+          NULLIF(conversation.participant_summary, ''),
+          deduplicated.from_addresses->0->>'name',
+          deduplicated.from_addresses->0->>'address',
+          'Unknown sender'
+        ) AS participant_summary,
+        COALESCE(conversation.latest_message_at, deduplicated.internal_date) AS latest_message_at,
+        COALESCE(conversation.latest_message_at, deduplicated.internal_date) AS sort_date,
+        deduplicated.message_id,
+        deduplicated.internal_date,
+        deduplicated.sent_at,
+        deduplicated.from_addresses,
+        deduplicated.to_addresses,
+        deduplicated.flags,
+        CASE
+          WHEN deduplicated.conversation_id IS NULL THEN deduplicated.has_attachments
+          ELSE EXISTS (
+            SELECT 1
+            FROM mail.conversation_messages attachment_cm
+            JOIN mail.attachments attachment ON attachment.message_id = attachment_cm.message_id
+            WHERE attachment_cm.conversation_id = deduplicated.conversation_id
+          )
+        END AS has_attachments,
+        COALESCE(
+          deduplicated.snippet,
+          NULLIF(LEFT(COALESCE(conversation_latest.plain_text, deduplicated.plain_text), 500), '')
+        ) AS snippet,
+        cardinality(
+          CASE
+            WHEN deduplicated.conversation_id IS NULL THEN message_unread_state.folder_ids
+            ELSE conversation_unread_state.folder_ids
+          END
+        ) > 0 AS unread,
+        CASE
+          WHEN deduplicated.conversation_id IS NULL THEN 1
+          ELSE (
+            SELECT COUNT(*)::int
+            FROM mail.conversation_messages count_cm
+            WHERE count_cm.conversation_id = deduplicated.conversation_id
+          )
+        END AS message_count,
+        conversation.work_status,
+        conversation.assignee_user_id,
+        COALESCE(conversation.response_needed, false) AS response_needed,
+        conversation.snoozed_until,
+        COALESCE(conversation.revision, 1) AS revision,
+        COALESCE(conversation.updated_at, deduplicated.internal_date) AS updated_at,
+        CASE
+          WHEN ${folderIds?.length === 1 ? folderIds[0] : null}::uuid IS NOT NULL
+            THEN ${folderIds?.length === 1 ? folderIds[0] : null}::uuid
+          WHEN deduplicated.conversation_id IS NULL THEN message_latest.source_folder_id
+          ELSE conversation_source.source_folder_id
+        END AS source_folder_id,
+        CASE
+          WHEN deduplicated.conversation_id IS NULL THEN message_unread_state.folder_ids
+          ELSE conversation_unread_state.folder_ids
+        END AS unread_folder_ids,
+        deduplicated.rank
+      FROM deduplicated
+      LEFT JOIN mail.conversations conversation ON conversation.id = deduplicated.conversation_id
+      LEFT JOIN LATERAL (
+        SELECT reference.value
+        FROM mail.conversation_references reference
+        WHERE reference.conversation_id = deduplicated.conversation_id
+          AND reference.role = 'primary'
+        ORDER BY reference.allocated_at, reference.id
+        LIMIT 1
+      ) primary_reference ON true
+      LEFT JOIN LATERAL (
+        SELECT ARRAY(
+          SELECT DISTINCT unread_placement.folder_id::text
+          FROM mail.message_placements unread_placement
+          WHERE unread_placement.deleted_at IS NULL
+            AND NOT ('\\Seen' = ANY(unread_placement.flags))
+            AND deduplicated.conversation_id IS NULL
+            AND unread_placement.message_id = deduplicated.id
+            AND ${unreadFolderPredicate}
+          ORDER BY unread_placement.folder_id::text
+        ) AS folder_ids
+      ) message_unread_state ON true
+      LEFT JOIN LATERAL (
+        SELECT ARRAY(
+          SELECT DISTINCT unread_placement.folder_id::text
+          FROM mail.conversation_messages unread_cm
+          JOIN mail.message_placements unread_placement
+            ON unread_placement.message_id = unread_cm.message_id
+           AND unread_placement.deleted_at IS NULL
+          WHERE deduplicated.conversation_id IS NOT NULL
+            AND unread_cm.conversation_id = deduplicated.conversation_id
+            AND NOT ('\\Seen' = ANY(unread_placement.flags))
+            AND ${unreadFolderPredicate}
+          ORDER BY unread_placement.folder_id::text
+        ) AS folder_ids
+      ) conversation_unread_state ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          CASE
+            WHEN COUNT(DISTINCT latest_placement.folder_id) = 1 THEN MIN(latest_placement.folder_id::text)::uuid
+            ELSE NULL
+          END AS source_folder_id
+        FROM mail.message_placements latest_placement
+        WHERE deduplicated.conversation_id IS NULL
+          AND latest_placement.message_id = deduplicated.id
+          AND latest_placement.deleted_at IS NULL
+      ) message_latest ON true
+      LEFT JOIN LATERAL (
+        SELECT latest_message.plain_text
+        FROM mail.conversation_messages latest_cm
+        JOIN mail.message_contents latest_message ON latest_message.id = latest_cm.message_id
+        WHERE deduplicated.conversation_id IS NOT NULL
+          AND latest_cm.conversation_id = deduplicated.conversation_id
+          AND EXISTS (
+            SELECT 1
+            FROM mail.message_placements latest_placement
+            WHERE latest_placement.message_id = latest_message.id
+              AND latest_placement.deleted_at IS NULL
+          )
+        ORDER BY latest_message.internal_date DESC, latest_message.id DESC
+        LIMIT 1
+      ) conversation_latest ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          CASE
+            WHEN COUNT(DISTINCT source_placement.folder_id) = 1 THEN MIN(source_placement.folder_id::text)::uuid
+            ELSE NULL
+          END AS source_folder_id
+        FROM mail.conversation_messages source_cm
+        JOIN mail.message_placements source_placement
+          ON source_placement.message_id = source_cm.message_id
+         AND source_placement.deleted_at IS NULL
+        WHERE deduplicated.conversation_id IS NOT NULL
+          AND source_cm.conversation_id = deduplicated.conversation_id
+      ) conversation_source ON true
     )
     SELECT *
-    FROM matched
+    FROM projected
     WHERE (
       ${cursor?.id ?? null}::uuid IS NULL
       OR (
         ${params.sort} = 'relevance'
         AND (
           rank < ${cursor?.rank ?? 0}
-          OR (rank = ${cursor?.rank ?? 0} AND (internal_date, id) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
+          OR (
+            rank = ${cursor?.rank ?? 0}
+            AND (sort_date, result_id) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
+          )
         )
       )
       OR (
         ${params.sort} = 'newest'
-        AND (internal_date, id) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
+        AND (sort_date, result_id) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
       )
     )
     ORDER BY
       CASE WHEN ${params.sort} = 'relevance' THEN rank ELSE 0 END DESC,
-      internal_date DESC,
-      id DESC
+      sort_date DESC,
+      result_id DESC
     LIMIT ${limit}
   `;
 };
@@ -479,6 +1008,8 @@ const runSearch = async (params: {
 const executeSearch = async (params: Omit<Parameters<typeof runSearch>[0], "db">): Promise<DbSearchHit[]> =>
   sql.begin(async (tx) => {
     await tx`SET LOCAL statement_timeout = '5s'`;
+    await tx`SET LOCAL plan_cache_mode = force_custom_plan`;
+    await tx`SET LOCAL jit = off`;
     return runSearch({ ...params, db: tx });
   });
 
@@ -487,10 +1018,14 @@ const searchErrorCode = (error: unknown): string | null => {
   return typeof code === "string" ? code : null;
 };
 
-const searchFailure = (error: unknown): Result<never> =>
-  searchErrorCode(error) === "57014"
-    ? fail(err.badInput("Search query exceeded the execution limit"))
-    : fail(err.internal("Mail search failed"));
+const searchFailure = (error: unknown): Result<never> => {
+  if (searchErrorCode(error) === "57014") return fail(err.badInput("Search query exceeded the execution limit"));
+  log.error("Mail search failed", {
+    code: searchErrorCode(error),
+    error: error instanceof Error ? error.message : String(error),
+  });
+  return fail(err.internal("Mail search failed"));
+};
 
 const executeSearchWithFallback = async (params: {
   mailboxId: string;
@@ -499,6 +1034,7 @@ const executeSearchWithFallback = async (params: {
   cursor: SearchCursor | null;
   limit: number;
   backend: SearchCursor["backend"];
+  currentUserId: string | null;
 }): Promise<Result<{ rows: DbSearchHit[]; backend: SearchCursor["backend"] }>> => {
   try {
     const rows = await executeSearch(params);
@@ -527,7 +1063,8 @@ export const searchMessages = async (params: {
   const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
   if (!access.ok) return access;
   const sort = params.request.sort ?? "relevance";
-  const queryHash = sha256Json(parsed.data);
+  const currentUserId = userBackedActor(params.context)?.id ?? null;
+  const queryHash = sha256Json({ mailboxId: params.mailboxId, expression: parsed.data, currentUserId });
   const cursor = decodeCursor(params.request.cursor, sort, queryHash);
   if (!cursor.ok) return cursor;
   const limit = Math.min(Math.max(Math.floor(params.request.limit ?? 50), 1), 100);
@@ -543,6 +1080,7 @@ export const searchMessages = async (params: {
     cursor: cursor.data,
     limit,
     backend,
+    currentUserId,
   });
   if (!execution.ok) return execution;
   const rows = execution.data.rows;
@@ -551,12 +1089,21 @@ export const searchMessages = async (params: {
   const pageRows = hasMore ? rows.slice(0, limit) : rows;
   const items = pageRows.map(mapHit);
   const last = items.at(-1);
+  const lastRow = pageRows.at(-1);
   return ok({
     items,
     backend,
     nextCursor:
-      hasMore && last
-        ? encodeCursor({ version: 2, sort, backend, queryHash, rank: last.rank, internalDate: last.internalDate, id: last.id })
+      hasMore && last && lastRow
+        ? encodeCursor({
+            version: 3,
+            sort,
+            backend,
+            queryHash,
+            rank: last.rank,
+            internalDate: (lastRow.sort_date instanceof Date ? lastRow.sort_date : new Date(lastRow.sort_date)).toISOString(),
+            id: lastRow.result_id,
+          })
         : null,
   });
 };
