@@ -134,11 +134,18 @@ type InitialRecordsArgs = {
   fields: Field[];
   recordsState: RecordsState;
   activeView: RuntimeView | null;
+  strictViewScope?: boolean;
   displayConfig: RecordDisplayConfig;
   trashMode: boolean;
   user: AuthUser;
   dateConfig?: DateContext;
 };
+
+const exactViewState = (state: RecordsState): RecordsState => ({
+  ...state,
+  query: {},
+  search: { q: "", fieldIds: [], override: false },
+});
 
 const resolveInitialQuery = (recordsState: RecordsState, activeView: RuntimeView | null) => {
   const effective = resolveEffectiveQuery(recordsState, activeView);
@@ -271,7 +278,8 @@ const loadListedInitialRecords = async (
 };
 
 export const loadInitialRecords = async (args: InitialRecordsArgs) => {
-  const query = resolveInitialQuery(args.recordsState, args.activeView);
+  const queryState = args.strictViewScope ? exactViewState(args.recordsState) : args.recordsState;
+  const query = resolveInitialQuery(queryState, args.activeView);
   query.effectiveFilter =
     calendarQueryFilter({
       baseFilter: query.effectiveFilter ?? undefined,

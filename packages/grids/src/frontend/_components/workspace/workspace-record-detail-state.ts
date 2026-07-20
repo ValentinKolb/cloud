@@ -15,13 +15,28 @@ export const loadRecordDetailData = async (params: {
   tableId: string;
   recordId: string;
   fields: Field[];
+  scope?: "full" | "history";
 }): Promise<WorkspaceRecordDetail> => {
   const fileFieldIds = params.fields.filter((field) => field.type === "file" && !field.deletedAt).map((field) => field.id);
-  const [filesByField, documentRuns, snapshots, auditEntries] = await Promise.all([
-    gridsService.file.listForRecord({ tableId: params.tableId, recordId: params.recordId, fieldIds: fileFieldIds }),
-    gridsService.document.listRunsForRecord(params.tableId, params.recordId, DETAIL_PAGE_SIZE),
-    gridsService.document.listSnapshotsForRecord(params.tableId, params.recordId, DETAIL_PAGE_SIZE),
-    gridsService.audit.listByRecord(params.tableId, params.recordId, 50),
+  const table = await gridsService.table.get(params.tableId);
+  const [filesByField, documentRuns, snapshots, auditEntries, combinedOrigin] = await Promise.all([
+    params.scope === "history"
+      ? {}
+      : gridsService.file.listForRecord({ tableId: params.tableId, recordId: params.recordId, fieldIds: fileFieldIds }),
+    params.scope === "history" ? [] : gridsService.document.listRunsForRecord(params.tableId, params.recordId, DETAIL_PAGE_SIZE),
+    params.scope === "history" ? [] : gridsService.document.listSnapshotsForRecord(params.tableId, params.recordId, DETAIL_PAGE_SIZE),
+    gridsService.audit.listByRecord(
+      params.tableId,
+      params.recordId,
+      50,
+      params.scope === "history" ? params.fields.map((field) => field.id) : undefined,
+    ),
+    table?.kind === "federated"
+      ? gridsService.audit.combined.describeRecord(params.tableId, params.recordId).then((result) => {
+          if (!result.ok) throw new Error(result.error.message);
+          return result.data;
+        })
+      : null,
   ]);
   return {
     recordId: params.recordId,
@@ -29,6 +44,7 @@ export const loadRecordDetailData = async (params: {
     documentRuns: documentRuns.map(gridsService.document.summarizeRun),
     snapshots,
     auditEntries,
+    combinedOrigin,
   };
 };
 
@@ -38,4 +54,5 @@ export const emptyRecordDetail = (recordId: string): WorkspaceRecordDetail => ({
   documentRuns: [],
   snapshots: [],
   auditEntries: [],
+  combinedOrigin: null,
 });

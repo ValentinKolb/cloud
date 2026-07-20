@@ -1,8 +1,10 @@
 import type { GridRecord, RecordSnapshotListResponse } from "../contracts";
+import type { CombinedAuditPage } from "../service";
 import { compactId } from "./runtime";
 import { displayValue } from "./views-gql-support";
 
 export type RecordAuditResponse = { items: unknown[] };
+export type CombinedAuditResponse = CombinedAuditPage;
 
 export type GridFile = {
   id: string;
@@ -45,6 +47,18 @@ export const recordRows = (items: GridRecord[]) =>
     version: record.version,
     updatedAt: record.updatedAt,
     ...Object.fromEntries(Object.entries(record.data).map(([key, value]) => [key, displayValue(value)])),
+  }));
+
+export const combinedAuditRows = (items: CombinedAuditPage["items"]) =>
+  items.map((entry) => ({
+    createdAt: entry.createdAt,
+    action: entry.action,
+    recordId: entry.recordId ?? "",
+    source: `${entry.source.baseName} / ${entry.source.tableName}`,
+    actor: entry.userDisplayName ?? (entry.userId ? "deleted user" : "public form"),
+    answers: entry.context?.answers.map((answer) => `${answer.label}: ${answer.optionLabel ?? answer.value}`).join("; ") ?? "",
+    changes: entry.diff ? Object.keys(entry.diff).length : 0,
+    deleted: entry.recordDeletedAt ? "yes" : "",
   }));
 
 export const normalizeRecordImportBody = (input: unknown): { items: Record<string, unknown>[] } => {

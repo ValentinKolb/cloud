@@ -408,7 +408,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(133);
+    expect(commands).toHaveLength(134);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -761,6 +761,18 @@ describe("grids CLI", () => {
     expect(lines).toEqual([`Created record ${recordId}.`]);
   });
 
+  test("loads a deleted record explicitly", async () => {
+    const { ctx, calls } = createContext(["records", "get", baseId, "Authors", recordId], { "deleted-only": true }, [
+      jsonResponse(base),
+      jsonResponse([table]),
+      jsonResponse({ ...record, deletedAt: "2026-07-20T10:00:00.000Z" }),
+    ]);
+
+    await gridsCli.run(ctx);
+
+    expect(calls.at(-1)?.path).toBe(`/api/grids/records/${tableId}/${recordId}?deletedOnly=true`);
+  });
+
   test("sends audit answers through update, trash, and restore contracts", async () => {
     const audit = { [auditQuestionId]: "Annual inventory review" };
     const update = createContext(
@@ -801,6 +813,89 @@ describe("grids CLI", () => {
     expect(restore.calls[2]?.path).toBe(`/api/grids/records/${tableId}/${recordId}/restore`);
     expect(restore.calls[2]?.init?.method).toBe("POST");
     expect(JSON.parse(String(restore.calls[2]?.init?.body))).toEqual({ audit: { answers: audit } });
+  });
+
+  test("browses Combined audit entries with server-side filters and cursors", async () => {
+    const payload = {
+      items: [
+        {
+          id: "45454545-4545-4545-8545-454545454545",
+          baseId,
+          tableId: combinedTableId,
+          recordId,
+          userId: null,
+          userDisplayName: null,
+          action: "deleted",
+          diff: null,
+          context: {
+            operation: "delete",
+            answers: [{ label: "Deletion reason", type: "longtext", required: true, value: "Retired" }],
+          },
+          ip: null,
+          userAgent: null,
+          createdAt: "2026-07-20T10:00:00.000Z",
+          source: { ref: "0", baseName: "Regional inventory", tableName: "Items" },
+          recordDeletedAt: "2026-07-20T10:00:00.000Z",
+        },
+      ],
+      sources: [{ ref: "0", baseName: "Regional inventory", tableName: "Items" }],
+      nextCursor: "next-page",
+    };
+    const { ctx, calls, jsonValues } = createContext(
+      ["records", "audit", "list", baseId, "All authors"],
+      { action: "deleted", source: "0", cursor: "current-page", limit: "25" },
+      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse(payload)],
+      { output: "json" },
+    );
+
+    await gridsCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases/${baseId}`,
+      `/api/grids/tables/by-base/${baseId}`,
+      `/api/grids/records/by-table/${combinedTableId}/audit?sourceRef=0&action=deleted&cursor=current-page&limit=25`,
+    ]);
+    expect(jsonValues).toEqual([payload]);
+  });
+
+  test("shows declared audit answers in the default Combined audit table", async () => {
+    const payload = {
+      items: [
+        {
+          id: "45454545-4545-4545-8545-454545454545",
+          baseId,
+          tableId: combinedTableId,
+          recordId,
+          userId: null,
+          userDisplayName: null,
+          action: "deleted",
+          diff: { [fieldId]: { old: "Camera", new: null } },
+          context: {
+            operation: "delete",
+            answers: [{ label: "Deletion reason", type: "longtext", required: true, value: "Retired" }],
+          },
+          ip: null,
+          userAgent: null,
+          createdAt: "2026-07-20T10:00:00.000Z",
+          source: { ref: "0", baseName: "Regional inventory", tableName: "Items" },
+          recordDeletedAt: "2026-07-20T10:00:00.000Z",
+        },
+      ],
+      sources: [],
+      nextCursor: null,
+    };
+    const { ctx, tables } = createContext(["records", "audit", "list", baseId, "All authors"], {}, [
+      jsonResponse(base),
+      jsonResponse([combinedTable]),
+      jsonResponse(payload),
+    ]);
+
+    await gridsCli.run(ctx);
+
+    expect(tables[0]?.[0]).toMatchObject({
+      answers: "Deletion reason: Retired",
+      changes: 1,
+    });
   });
 
   test("imports records atomically through the backend import endpoint", async () => {

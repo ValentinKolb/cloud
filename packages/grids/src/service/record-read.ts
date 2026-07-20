@@ -140,6 +140,7 @@ type RecordReadOptions = {
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
   fields?: Field[];
+  deleted?: "live" | "include" | "only";
 };
 
 export type RecordReader = {
@@ -149,7 +150,14 @@ export type RecordReader = {
 };
 
 const createFederatedReader = async (tableId: string, fields: Field[], opts: RecordReadOptions): Promise<RecordReader> => {
-  const recordSource = await buildDslSqlRecordSource(tableId, { [tableId]: fields });
+  const recordSource = await buildDslSqlRecordSource(
+    tableId,
+    { [tableId]: fields },
+    {
+      includeDeleted: opts.deleted === "include",
+      deletedOnly: opts.deleted === "only",
+    },
+  );
   if (!recordSource) throw new Error("Combined table source is not available");
   const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: opts.dateConfig });
   const projectionFragments = projectionFragmentsFor(formulaSql);
@@ -162,7 +170,6 @@ const createFederatedReader = async (tableId: string, fields: Field[], opts: Rec
       SELECT r.*${projectionFragments}
       FROM ${recordSource.relation} r
       WHERE r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
-        AND r.deleted_at IS NULL
     `;
     const records = rows.map(mapRecordRow);
     const recordsById = new Map(records.map((record) => [record.id, record]));
@@ -199,6 +206,8 @@ export const createReader = async (tableId: string, opts: RecordReadOptions = {}
 
   const getMany = async (recordIds: string[]): Promise<GridRecord[]> => {
     if (recordIds.length === 0) return [];
+    const deletedClause =
+      opts.deleted === "include" ? sql`TRUE` : opts.deleted === "only" ? sql`r.deleted_at IS NOT NULL` : sql`r.deleted_at IS NULL`;
     const rows = await sql<DbRow[]>`
       SELECT r.*${projectionFragments}
       FROM grids.records r
@@ -206,7 +215,7 @@ export const createReader = async (tableId: string, opts: RecordReadOptions = {}
       JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
       WHERE r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
         AND r.table_id = ${tableId}::uuid
-        AND r.deleted_at IS NULL
+        AND ${deletedClause}
     `;
     const records = rows.map(mapRecordRow);
     await hydrateRelationsFromLinks(records, fields);

@@ -538,6 +538,7 @@ const app = new Hono<AuthContext>()
       z.object({
         q: z.string().optional().default(""),
         limit: z.coerce.number().int().min(1).max(50).optional().default(10),
+        includeDeleted: z.enum(["true"]).optional(),
         excludeIds: z
           .string()
           .optional()
@@ -558,13 +559,14 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const { q, limit, excludeIds } = c.req.valid("query");
+      const { q, limit, excludeIds, includeDeleted } = c.req.valid("query");
 
       const result = await gridsService.relations.lookup({
         targetTableId: tableId,
         q,
         limit,
         excludeIds,
+        includeDeleted: includeDeleted === "true",
       });
       return c.json(result);
     },

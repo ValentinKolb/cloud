@@ -20,6 +20,7 @@ import type { Field, Form, GridRecord, Table, View } from "../../../service";
 import { defaultTableAggregations } from "../../../table-defaults";
 import QueryWorkspace from "../query/QueryWorkspace";
 import type { QueryWorkspaceCurrentSource } from "../query/query-workspace-model";
+import { openCombinedAuditDialog } from "../records/CombinedAuditDialog";
 import { openExportRecordsDialog } from "../records/ExportRecordsDialog";
 import RecordDetailPanel from "../records/RecordDetailPanel";
 import DatabaseTable from "../table/DatabaseTable";
@@ -91,6 +92,7 @@ type Props = {
   tables: Table[];
   viewsByTable: Record<string, View[]>;
   forms: Form[];
+  canReadTable: boolean;
   canWrite: boolean;
   canManageTable: boolean;
   canManageBase: boolean;
@@ -483,7 +485,14 @@ export default function RecordsView(props: Props) {
 
   const fetchSelectedRecordDetail = async (recordId: string, signal?: AbortSignal) => {
     const res = await apiClient.workspace["record-detail"].$get(
-      { query: { tableId: props.tableId, recordId } },
+      {
+        query: {
+          tableId: props.tableId,
+          recordId,
+          ...(props.activeView ? { viewId: props.activeView.id } : {}),
+          ...(detailMode() === "trash" ? { deletedOnly: "true" as const } : {}),
+        },
+      },
       signal ? { init: { signal } } : undefined,
     );
     if (res.status === 403 || res.status === 404) {
@@ -493,6 +502,7 @@ export default function RecordsView(props: Props) {
         documentRuns: [],
         snapshots: [],
         auditEntries: [],
+        combinedOrigin: null,
       } satisfies WorkspaceRecordDetail;
     }
     if (!res.ok) throw new Error(await errorMessage(res, "Could not load record details"));
@@ -534,7 +544,13 @@ export default function RecordsView(props: Props) {
     const requestedId = id;
     setSelectedRecordFailure(null);
     void apiClient.records[":tableId"][":recordId"]
-      .$get({ param: { tableId: props.tableId, recordId: id } }, { init: { signal: abort.signal } })
+      .$get(
+        {
+          param: { tableId: props.tableId, recordId: id },
+          query: detailMode() === "trash" ? { deletedOnly: "true" } : {},
+        },
+        { init: { signal: abort.signal } },
+      )
       .then(async (res) => {
         if (res.status === 403 || res.status === 404) {
           if (selectedRecordId() === requestedId) closeSelectedRecord();
@@ -555,7 +571,10 @@ export default function RecordsView(props: Props) {
   const verifySelectedRecordAfterRefresh = async (result: TableQueryResult) => {
     const id = selectedRecordId();
     if (!id || visibleIdsFromResult(result).includes(id)) return;
-    const res = await apiClient.records[":tableId"][":recordId"].$get({ param: { tableId: props.tableId, recordId: id } });
+    const res = await apiClient.records[":tableId"][":recordId"].$get({
+      param: { tableId: props.tableId, recordId: id },
+      query: detailMode() === "trash" ? { deletedOnly: "true" } : {},
+    });
     if (selectedRecordId() !== id) return;
     if (res.ok) {
       const record = await res.json();
@@ -622,6 +641,33 @@ export default function RecordsView(props: Props) {
     setSelectedRecordId(rec.id);
     syncUrl({ replace: false });
   };
+
+  const openRecordById = (recordId: string, deleted: boolean) => {
+    if (deleted && !props.trashMode) {
+      window.location.assign(
+        `/app/grids/${encodeURIComponent(props.baseShortId)}/table/${encodeURIComponent(props.tableShortId)}?trash=1&record=${encodeURIComponent(recordId)}`,
+      );
+      return;
+    }
+    const record = items().find((item) => item.id === recordId);
+    if (record) {
+      onSelectRecord(record);
+      return;
+    }
+    setSelectedGroup(null);
+    setFetchedSelected(null);
+    setSelectedRecordDetail(null);
+    setSelectedRecordId(recordId);
+    syncUrl({ replace: false });
+  };
+
+  const openCombinedAudit = () =>
+    openCombinedAuditDialog({
+      tableId: props.tableId,
+      tableName: tableName(),
+      fields: fields(),
+      onOpenRecord: openRecordById,
+    });
 
   const groupBucketKey = (bucket: GroupBucket | null): string | null => (bucket ? JSON.stringify(bucket.keys) : null);
 
@@ -902,6 +948,15 @@ export default function RecordsView(props: Props) {
                       label: "Open query",
                       href: queryWorkspaceHref(),
                     },
+                    ...(props.tableKind === "federated" && props.canReadTable
+                      ? [
+                          {
+                            icon: "ti ti-history",
+                            label: "Audit trail",
+                            action: openCombinedAudit,
+                          },
+                        ]
+                      : []),
                     {
                       icon: "ti ti-archive",
                       label: "Show deleted",

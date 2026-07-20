@@ -3,6 +3,8 @@ import { basename } from "node:path";
 import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
 import type { CreateRecordSnapshotResponse, GridRecord, RecordSnapshot, RecordSnapshotListResponse, TableQueryResult } from "../contracts";
 import {
+  type CombinedAuditResponse,
+  combinedAuditRows,
   type GridFile,
   type GridFileListResponse,
   gridFileRows,
@@ -165,12 +167,25 @@ export const recordCommands = [
   command("records get", {
     summary: "Show a record",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }) },
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      record: flag.string({ description: "Record UUID" }),
+      includeDeleted: flag.boolean({ name: "include-deleted", description: "Allow live or deleted records" }),
+      deletedOnly: flag.boolean({ name: "deleted-only", description: "Require a deleted record" }),
+    },
     async run({ ctx, args, flags }) {
+      if (flags.includeDeleted && flags.deletedOnly) throw new Error("Choose --include-deleted or --deleted-only, not both.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
-      const record = await readApi<GridRecord>(ctx, `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}`);
+      const record = await readApi<GridRecord>(
+        ctx,
+        `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}${queryString({
+          includeDeleted: flags.includeDeleted ? "true" : undefined,
+          deletedOnly: flags.deletedOnly ? "true" : undefined,
+        })}`,
+      );
       if (ctx.options.output === "json") ctx.json(record);
       else {
         ctx.print(`${record.id} v${record.version}`);
@@ -341,6 +356,57 @@ export const recordCommands = [
       );
       if (ctx.options.output === "json") ctx.json(payload);
       else ctx.table(payload.items as Record<string, unknown>[], []);
+    },
+  }),
+  command("records audit list", {
+    summary: "Browse a Combined table's published audit trail",
+    description:
+      "Lists lifecycle events from the active Combined publication. Only canonical fields, declared audit answers, and safe source labels are returned.",
+    args: tableArgs,
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      record: flag.string({ description: "Filter by record UUID" }),
+      source: flag.string({ description: "Filter by source reference from a previous page" }),
+      action: flag.enum(["created", "updated", "deleted", "restored", "imported"] as const, {
+        description: "Filter by lifecycle action",
+      }),
+      from: flag.string({ description: "Inclusive ISO timestamp" }),
+      to: flag.string({ description: "Exclusive ISO timestamp" }),
+      cursor: flag.string({ description: "Pagination cursor" }),
+      limit: flag.int({ min: 1, max: 200, description: "Events per page (default: 50)" }),
+    },
+    examples: [
+      'cld grids records audit list Reporting "All inventory"',
+      'cld grids records audit list Reporting "All inventory" --action deleted --json',
+      'cld grids records audit list --base Reporting --table "All inventory" --cursor <cursor>',
+    ],
+    async run({ ctx, args, flags }) {
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const payload = await readApi<CombinedAuditResponse>(
+        ctx,
+        `/records/by-table/${encodeURIComponent(table.id)}/audit${queryString({
+          recordId: flags.record,
+          sourceRef: flags.source,
+          action: flags.action,
+          from: flags.from,
+          to: flags.to,
+          cursor: flags.cursor,
+          limit: flags.limit,
+        })}`,
+      );
+      printJsonOrTable(ctx, payload, combinedAuditRows(payload.items), [
+        { key: "createdAt", label: "TIME" },
+        { key: "action", label: "ACTION" },
+        { key: "recordId", label: "RECORD" },
+        { key: "source", label: "SOURCE" },
+        { key: "actor", label: "ACTOR" },
+        { key: "answers", label: "AUDIT ANSWERS" },
+        { key: "changes", label: "CHANGES" },
+        { key: "deleted", label: "DELETED" },
+      ]);
+      if (ctx.options.output !== "json" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
     },
   }),
   command("records files list", {

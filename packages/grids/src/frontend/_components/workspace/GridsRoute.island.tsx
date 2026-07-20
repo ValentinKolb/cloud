@@ -101,6 +101,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
         tables={state.catalog.tables}
         viewsByTable={state.catalog.viewsByTable}
         forms={records.formsForTable}
+        canReadTable={records.canReadTable}
         canWrite={records.canWriteRecords}
         canManageTable={records.canManageActiveTable}
         canManageBase={state.canManageBase}

@@ -52,27 +52,55 @@ const selectedRecordMeta = (
 const loadSelectedRecordThroughView = async (params: {
   activeTable: Table;
   selectedRecordId: string;
-  initial: Awaited<ReturnType<typeof loadInitialRecords>>;
+  viewQuery: RecordQuery;
   user: AuthUser;
-  trashMode: boolean;
   dateConfig?: DateContext;
 }): Promise<GridRecord | null> => {
-  const recordMeta = selectedRecordMeta(params.initial.effectiveRecordMeta, params.selectedRecordId);
+  const recordMeta = selectedRecordMeta(params.viewQuery.recordMeta ?? null, params.selectedRecordId);
   if (!recordMeta) return null;
+  if (params.viewQuery.limit !== undefined) {
+    let cursor: string | null = null;
+    let remaining = params.viewQuery.limit;
+    while (remaining > 0) {
+      const pageSize = Math.min(remaining, 200);
+      const result = await gridsService.record.list({
+        tableId: params.activeTable.id,
+        limit: pageSize,
+        includeDeleted: params.viewQuery.includeDeleted,
+        deletedOnly: params.viewQuery.deletedOnly,
+        filter: params.viewQuery.filter ?? null,
+        search: params.viewQuery.search ?? null,
+        recordMeta: params.viewQuery.recordMeta ?? null,
+        sort: params.viewQuery.sort ?? [],
+        cursor,
+        includeRelations: true,
+        viewer: buildViewer(params.user),
+        dateConfig: params.dateConfig,
+        computedColumns: params.viewQuery.columns?.filter(isComputedColumn),
+      });
+      if (!result.ok) return null;
+      const record = result.data.items.find((item) => item.id === params.selectedRecordId);
+      if (record) return record;
+      remaining -= result.data.items.length;
+      cursor = result.data.nextCursor;
+      if (!cursor || result.data.items.length === 0) return null;
+    }
+    return null;
+  }
   const result = await gridsService.record.list({
     tableId: params.activeTable.id,
     limit: 1,
-    includeDeleted: params.initial.effectiveIncludeDeleted,
-    deletedOnly: params.trashMode,
-    filter: params.initial.effectiveFilter,
-    search: params.initial.searchSpec,
+    includeDeleted: params.viewQuery.includeDeleted,
+    deletedOnly: params.viewQuery.deletedOnly,
+    filter: params.viewQuery.filter ?? null,
+    search: params.viewQuery.search ?? null,
     recordMeta,
-    sort: [],
+    sort: params.viewQuery.sort ?? [],
     cursor: null,
     includeRelations: true,
     viewer: buildViewer(params.user),
     dateConfig: params.dateConfig,
-    computedColumns: params.initial.effective.columns?.filter(isComputedColumn),
+    computedColumns: params.viewQuery.columns?.filter(isComputedColumn),
   });
   if (!result.ok) return null;
   return result.data.items.find((record) => record.id === params.selectedRecordId) ?? null;
@@ -180,19 +208,21 @@ const loadSelectedRecord = async (params: {
 }): Promise<GridRecord | null> => {
   const selectedRecordId = params.recordsState.selectedRecordId;
   if (!selectedRecordId) return null;
-  const listedRecord = params.initial.records.items.find((record) => record.id === selectedRecordId);
-  if (listedRecord) return listedRecord;
   if (params.view.activeViewForQuery && !gridsService.permission.hasAtLeast(params.view.activeTableLevel, "read")) {
     return loadSelectedRecordThroughView({
       activeTable: params.activeTable,
       selectedRecordId,
-      initial: params.initial,
+      viewQuery: params.view.activeViewForQuery.query,
       user: params.common.params.user,
-      trashMode: params.common.chrome.trashMode,
       dateConfig: params.common.params.dateConfig,
     });
   }
-  return gridsService.record.get(params.activeTable.id, selectedRecordId, { dateConfig: params.common.params.dateConfig });
+  const listedRecord = params.initial.records.items.find((record) => record.id === selectedRecordId);
+  if (listedRecord) return listedRecord;
+  return gridsService.record.get(params.activeTable.id, selectedRecordId, {
+    dateConfig: params.common.params.dateConfig,
+    deleted: params.common.chrome.trashMode ? "only" : params.initial.effectiveIncludeDeleted ? "include" : "live",
+  });
 };
 
 const buildRecordsRoute = async (params: {
@@ -219,7 +249,14 @@ const buildRecordsRoute = async (params: {
   const initialSelectedRecordDetail = selectedRecord
     ? canReadTable
       ? await loadRecordDetailData({ tableId: activeTable.id, recordId: selectedRecord.id, fields: view.fields })
-      : emptyRecordDetail(selectedRecord.id)
+      : activeTable.kind === "federated" && view.activeViewForQuery
+        ? await loadRecordDetailData({
+            tableId: activeTable.id,
+            recordId: selectedRecord.id,
+            fields: view.fields,
+            scope: "history",
+          })
+        : emptyRecordDetail(selectedRecord.id)
     : null;
   return {
     kind: "records",
@@ -229,6 +266,7 @@ const buildRecordsRoute = async (params: {
     formsForTable: gridsService.permission.hasAtLeast(view.activeTableLevel, "read")
       ? (common.catalog.formsByTable[activeTable.id] ?? [])
       : [],
+    canReadTable,
     canWriteRecords: activeTable.kind === "stored" && gridsService.permission.hasAtLeast(view.activeTableLevel, "write"),
     canManageActiveTable: canManageTable,
     activeTableAccessEntries: gridsService.permission.hasAtLeast(view.activeTableLevel, "admin")
@@ -248,7 +286,7 @@ const buildRecordsRoute = async (params: {
         aggregations: initial.effectiveAggregations,
         columns: initial.effective.columns,
         includeDeleted: initial.effectiveIncludeDeleted,
-        deletedOnly: common.chrome.trashMode,
+        deletedOnly: initial.effective.deletedOnly,
       },
       cursor: recordsState.cursor,
       selectedRecordId: recordsState.selectedRecordId,
@@ -296,13 +334,15 @@ export const loadRecordsState = async (
   }
   const recordsState = parseRecordsState(common.chrome.url.searchParams);
   const displayConfig = activeDisplayConfig(activeTable.displayConfig, view.activeViewForQuery?.displayConfig);
+  const strictViewScope = !!view.activeViewForQuery && !gridsService.permission.hasAtLeast(view.activeTableLevel, "read");
   const initial = await loadInitialRecords({
     activeTable,
     fields: view.fields,
     recordsState,
     activeView: view.activeViewForQuery,
+    strictViewScope,
     displayConfig,
-    trashMode: common.chrome.trashMode,
+    trashMode: strictViewScope ? view.activeViewForQuery?.query.deletedOnly === true : common.chrome.trashMode,
     user: common.params.user,
     dateConfig: common.params.dateConfig,
   });

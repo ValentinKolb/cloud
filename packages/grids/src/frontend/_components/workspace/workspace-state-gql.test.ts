@@ -304,6 +304,32 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.canWriteRecords).toBe(false);
   });
 
+  test("does not let URL query state expand an explicitly readable view during SSR", async () => {
+    catalogTables = [];
+    catalogTableLevels = {};
+    catalogFieldsByTable = {};
+    lookupTable = table;
+    lookupView = savedView;
+    viewLevel = "read";
+
+    const hostileFilter = encodeURIComponent(JSON.stringify({ fieldId: statusField.id, op: "equals", value: "Closed" }));
+    const state = await loadGridsWorkspaceState({
+      user,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}` + `?filter=${hostileFilter}&q=Closed&trash=1`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: savedView.shortId,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok" || state.route.kind !== "records") return;
+    expect(lastRecordListParams?.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
+    expect(lastRecordListParams?.search).toBeNull();
+    expect(lastRecordListParams?.deletedOnly).toBe(false);
+    expect(state.route.initialState.query.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
+    expect(state.route.initialState.query.deletedOnly).toBeUndefined();
+  });
+
   test("loads an explicitly readable query-result view without parent table access", async () => {
     const aggregateView = {
       ...savedView,
@@ -401,6 +427,42 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.initialSelectedRecord?.id).toBe(selectedRecordId);
     expect(lastRecordListParams?.recordMeta).toEqual({ ids: [selectedRecordId] });
     expect(lastRecordListParams?.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
+  });
+
+  test("does not expose a selected record outside a view's explicit limit during SSR", async () => {
+    const limitedView = { ...savedView, source: `${savedView.source}\nlimit 1` };
+    catalogTables = [];
+    catalogTableLevels = {};
+    catalogFieldsByTable = {};
+    lookupTable = table;
+    lookupView = limitedView;
+    viewLevel = "read";
+    recordListRecordForId = {
+      id: selectedRecordId,
+      tableId: table.id,
+      data: { [statusField.id]: "Open" },
+      version: 1,
+      deletedAt: null,
+      createdBy: null,
+      updatedBy: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const state = await loadGridsWorkspaceState({
+      user,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${limitedView.shortId}?record=${selectedRecordId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: limitedView.shortId,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok" || state.route.kind !== "records") return;
+    expect(recordGetCalls).toBe(0);
+    expect(state.route.initialSelectedRecord).toBeNull();
+    expect(lastRecordListParams?.limit).toBe(1);
+    expect(lastRecordListParams?.recordMeta).toBeNull();
   });
 
   test("does not treat Cloud admin role as Grids base access", async () => {

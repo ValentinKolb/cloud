@@ -335,6 +335,7 @@ export const executeSavedViewSource = async (
     maxRows?: number;
     pageSize?: number;
     cursor?: string;
+    recordId?: string;
     operation?: GqlRuntimeOperation;
     surface?: NonNullable<DslQuerySurface>;
     tracer?: GqlRuntimeTracer;
@@ -380,10 +381,36 @@ export const executeSavedViewSource = async (
       await trace.end({ stage: "resolve", outcome: "diagnostic", response });
       return response;
     }
+    if (options.recordId) {
+      const scopedIds = resolved.plan.query.recordMeta?.ids;
+      if (scopedIds?.length && !scopedIds.includes(options.recordId)) {
+        const response = {
+          ok: true as const,
+          mode: "rows" as const,
+          columns: [],
+          rows: [],
+          limit: 1,
+          truncated: false,
+          page: { size: 1, start: 0, returned: 0, nextCursor: null },
+        };
+        await trace.end({ stage: "execute", outcome: "success", plan: resolved.plan, response });
+        return response;
+      }
+      resolved.plan = {
+        ...resolved.plan,
+        query: {
+          ...resolved.plan.query,
+          recordMeta: {
+            ...(resolved.plan.query.recordMeta ?? {}),
+            ids: [options.recordId],
+          },
+        },
+      };
+    }
     const cursorSigningKey = gqlCursorSigningKey();
     const cursorFingerprint = gqlResultFingerprint({
       baseId,
-      canonicalSource: view.source,
+      canonicalSource: options.recordId ? `${view.source}\n# record:${options.recordId}` : view.source,
       scope: await cursorScopeForPlan(`view:${view.id}`, resolved.plan, context.fieldsByTableId),
     });
     const decodedCursor = decodeRuntimeCursor(options.cursor, cursorFingerprint, cursorSigningKey);

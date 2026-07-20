@@ -17,7 +17,7 @@ The Combined table owns its name, canonical fields, views, and permissions. Sour
 
 :::reference
 - **Canonical schema:** Create the fields readers should see, then map each source field to the matching canonical field. Missing mappings return null for that source.
-- **Independent access:** Target readers receive only canonical data. They do not inherit source navigation, schema, history, or mutation rights.
+- **Independent access:** Target readers receive only canonical data. They do not inherit source navigation, physical schema, or mutation rights.
 - **Read-only result:** Use the table in GQL, saved views, dashboards, documents, workflows, and exports. Record creation, forms, imports, uploads, edits, and deletes are unavailable.
 - **Fail-closed publication:** A revoked, deleted, or incompatible source makes the complete published revision unavailable. Grids never returns a silently smaller partial result.
 :::
@@ -67,6 +67,21 @@ Draft diagnostics identify the affected source, canonical field, and physical fi
 - **Explicit limits:** One Combined table supports up to 50 source tables and 200 canonical fields.
 :::
 
+## Deleted records and history {icon="history"}
+
+Combined tables preserve the lifecycle of published records without granting access to their source bases. Choose **Show deleted** to inspect records that were deleted in a source table. Their detail panel is read-only and identifies the published source by base and table name. Restore or edit the physical record from its source base.
+
+The record detail shows its published history. Readers with access to the complete Combined table can also choose **Actions → Audit trail** to browse and filter history across all published records. A reader who can access only a saved view sees history only for records returned by that exact view.
+
+:::reference
+- **Current publication:** History is projected through the active canonical mappings. Fields removed from the publication no longer appear, including in older events.
+- **Lifecycle events:** Created, updated, imported, deleted, and restored events remain visible while their source is actively published.
+- **Required explanations:** Answers collected by an audit policy, such as a required deletion reason, remain attached to the event with their question labels.
+- **Private source details:** Physical field IDs, unpublished values, IP addresses, browser details, and source-base navigation are not exposed through the Combined table.
+- **Changed select options:** An old source option that no longer has an active canonical mapping is shown as unavailable instead of exposing its source identifier.
+- **Fail closed:** Revoked, degraded, or incompatible publications return no partial history. Repair and republish the Combined table before continuing.
+:::
+
 ## CLI lifecycle {icon="code"}
 
 The CLI accepts names, short IDs, or UUIDs. The mapping body is JSON rather than a separate configuration language. Use `cld grids tables combined candidates` to discover authorizable sources, then validate before saving or publishing.
@@ -86,6 +101,8 @@ cld grids tables combined publications "Warehouse East" Items --json
 cld grids tables combined revoke "Warehouse East" Items \
   --target-table <combined-table-uuid> \
   --yes
+
+cld grids records audit list Reporting "All inventory" --action deleted
 ```
 
 **Friendly mapping body**

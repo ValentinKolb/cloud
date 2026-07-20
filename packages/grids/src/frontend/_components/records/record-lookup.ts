@@ -9,6 +9,7 @@ export const fetchRecordLookup = async (params: {
   query: string;
   excludeIds?: string[];
   limit?: number;
+  includeDeleted?: boolean;
   signal: AbortSignal;
 }): Promise<RecordLookupItem[]> => {
   if (params.templateId) {
@@ -37,6 +38,7 @@ export const fetchRecordLookup = async (params: {
         q: params.query,
         excludeIds: (params.excludeIds ?? []).join(","),
         limit: String(params.limit ?? 10),
+        ...(params.includeDeleted ? { includeDeleted: "true" as const } : {}),
       },
     },
     { init: { signal: params.signal } },

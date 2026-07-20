@@ -10,7 +10,19 @@ import type {
   RecordQuery,
   RecordSnapshotSummary,
 } from "../../../contracts";
-import type { AuditEntry, Base, Dashboard, Field, Form, GridFile, GridRecord, Table, View, Workflow } from "../../../service";
+import type {
+  Base,
+  CombinedRecordOrigin,
+  Dashboard,
+  Field,
+  Form,
+  GridFile,
+  GridRecord,
+  RecordHistoryEntry,
+  Table,
+  View,
+  Workflow,
+} from "../../../service";
 import type { WidgetData } from "../../../service/dashboard-widget-data";
 import type {
   GridsWorkflowEmailDelivery,
@@ -61,6 +73,7 @@ export type WorkspaceRecordsRoute = {
   activeView: RuntimeView | null;
   fields: Field[];
   formsForTable: Form[];
+  canReadTable: boolean;
   canWriteRecords: boolean;
   canManageActiveTable: boolean;
   activeTableAccessEntries: AccessEntry[];
@@ -109,7 +122,8 @@ export type WorkspaceRecordDetail = {
   filesByField: Record<string, GridFile[]>;
   documentRuns: DocumentRunSummary[];
   snapshots: RecordSnapshotSummary[];
-  auditEntries: Array<AuditEntry & { userDisplayName: string | null }>;
+  auditEntries: RecordHistoryEntry[];
+  combinedOrigin: CombinedRecordOrigin | null;
 };
 
 export type WorkspaceDashboardRoute = {

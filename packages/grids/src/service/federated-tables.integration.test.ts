@@ -7,6 +7,7 @@ import type { DslTableSource } from "../query-dsl/resolver";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
 import { remove as removeBase, restore as restoreBase } from "./bases";
+import * as combinedAudit from "./combined-audit";
 import { exportRecords } from "./export";
 import {
   captureRevisionScope,
@@ -26,6 +27,8 @@ import {
 import { create as createField, update as updateField } from "./fields";
 import { getContent, listFirstImagePreviews, listForRecordField } from "./files";
 import { resolveFederatedTargetsForRecordEvent } from "./record-events";
+import { listByRecord as listRecordHistory } from "./record-history";
+import { createReader } from "./record-read";
 import { create as createRecord } from "./record-write";
 import { buildRelationLabelCache, lookupRecords } from "./relation-labels";
 import { remove as removeTable, restore as restoreTable, update as updateTable } from "./tables";
@@ -152,6 +155,7 @@ const createFixture = async (): Promise<Fixture> => {
 };
 
 const cleanupFixture = async (fixture: Fixture): Promise<void> => {
+  await sql`DELETE FROM grids.audit_log WHERE table_id IN (${fixture.sourceTableId}::uuid, ${fixture.targetTableId}::uuid)`;
   await sql`DELETE FROM grids.federated_table_revisions WHERE table_id = ${fixture.targetTableId}::uuid`;
   await sql`DELETE FROM grids.bases WHERE id IN (${fixture.sourceBaseId}::uuid, ${fixture.targetBaseId}::uuid)`;
 };
@@ -188,6 +192,135 @@ beforeAll(async () => {
 });
 
 describe("combined table integration", () => {
+  postgresTest("projects source audit and declared mutation answers through the active Combined schema", async () => {
+    const fixture = await createFixture();
+    const hiddenFieldId = uuid();
+    const questionId = uuid();
+    const olderAuditId = "00000000-0000-4000-8000-000000000001";
+    const newerAuditId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    try {
+      await sql`
+        UPDATE grids.records
+        SET deleted_at = now()
+        WHERE id = ${fixture.recordId}::uuid
+          AND table_id = ${fixture.sourceTableId}::uuid
+      `;
+      await sql`
+        INSERT INTO grids.audit_log (id, table_id, record_id, action, diff, context, ip, user_agent, created_at)
+        VALUES
+          (
+            ${olderAuditId}::uuid,
+            ${fixture.sourceTableId}::uuid,
+            ${fixture.recordId}::uuid,
+            'updated',
+            ${{ [fixture.sourceTextFieldId]: { old: "Initial", new: "Mapped value" } }}::jsonb,
+            NULL,
+            NULL,
+            NULL,
+            '2026-01-01T00:00:00Z'::timestamptz
+          ),
+          (
+            ${newerAuditId}::uuid,
+            ${fixture.sourceTableId}::uuid,
+            ${fixture.recordId}::uuid,
+            'deleted',
+            ${{
+              [fixture.sourceTextFieldId]: { old: "Mapped value", new: null },
+              [hiddenFieldId]: { old: "private", new: null },
+            }}::jsonb,
+            ${{
+              version: 1,
+              operation: "delete",
+              questions: [{ id: questionId, label: "Deletion reason", type: "longtext", required: true }],
+              answers: [
+                {
+                  questionId,
+                  label: "Deletion reason",
+                  type: "longtext",
+                  required: true,
+                  value: "Retired after annual inventory audit",
+                },
+              ],
+            }}::jsonb,
+            '192.0.2.1',
+            'private-agent',
+            '2026-01-01T00:00:00Z'::timestamptz
+          )
+      `;
+
+      const page = await combinedAudit.list({ tableId: fixture.targetTableId, recordId: fixture.recordId, limit: 1 });
+      expect(page.ok).toBe(true);
+      if (!page.ok) return;
+      expect(page.data.items).toHaveLength(1);
+      expect(page.data.nextCursor).not.toBeNull();
+      const entry = page.data.items[0]!;
+      expect(entry.diff).toEqual({
+        [fixture.targetTextFieldId]: { old: "Mapped value", new: null },
+      });
+      expect(entry.context?.answers[0]?.value).toBe("Retired after annual inventory audit");
+      expect(entry.ip).toBeNull();
+      expect(entry.userAgent).toBeNull();
+      expect(entry.recordDeletedAt).not.toBeNull();
+      expect(entry.source).toMatchObject({
+        baseName: "Combined source integration",
+        tableName: "Source",
+      });
+      const recordHistory = await listRecordHistory(fixture.targetTableId, fixture.recordId, 1);
+      expect(recordHistory[0]).toMatchObject({
+        tableId: fixture.targetTableId,
+        recordId: fixture.recordId,
+        action: "deleted",
+      });
+      const contextOnly = await combinedAudit.list({
+        tableId: fixture.targetTableId,
+        recordId: fixture.recordId,
+        fieldIds: [],
+        limit: 1,
+      });
+      expect(contextOnly.ok).toBe(true);
+      if (contextOnly.ok) {
+        expect(contextOnly.data.items[0]?.diff).toBeNull();
+        expect(contextOnly.data.items[0]?.context?.answers[0]?.value).toBe("Retired after annual inventory audit");
+      }
+      const older = await combinedAudit.list({
+        tableId: fixture.targetTableId,
+        recordId: fixture.recordId,
+        limit: 1,
+        cursor: page.data.nextCursor,
+      });
+      expect(older.ok).toBe(true);
+      if (older.ok) {
+        expect(older.data.items.map((item) => item.action)).toEqual(["updated"]);
+        expect(older.data.nextCursor).toBeNull();
+      }
+      const mismatchedCursor = await combinedAudit.list({
+        tableId: fixture.targetTableId,
+        recordId: fixture.recordId,
+        action: "updated",
+        limit: 1,
+        cursor: page.data.nextCursor,
+      });
+      expect(mismatchedCursor.ok).toBe(false);
+      if (!mismatchedCursor.ok) expect(mismatchedCursor.error.status).toBe(409);
+
+      const origin = await combinedAudit.describeRecord(fixture.targetTableId, fixture.recordId);
+      expect(origin.ok).toBe(true);
+      if (origin.ok) expect(origin.data.deletedAt).not.toBeNull();
+      expect(await (await createReader(fixture.targetTableId)).get(fixture.recordId)).toBeNull();
+      expect(await (await createReader(fixture.targetTableId, { deleted: "only" })).get(fixture.recordId)).toMatchObject({
+        id: fixture.recordId,
+        deletedAt: expect.any(String),
+      });
+
+      await sql`UPDATE grids.fields SET deleted_at = now() WHERE id = ${fixture.targetTextFieldId}::uuid`;
+      const drifted = await combinedAudit.list({ tableId: fixture.targetTableId, recordId: fixture.recordId });
+      expect(drifted.ok).toBe(false);
+      if (!drifted.ok) expect(drifted.error.status).toBe(409);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
   postgresTest("lists source candidates with server-side admin filtering and pagination", async () => {
     const fixture = await createFixture();
     const [user] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;

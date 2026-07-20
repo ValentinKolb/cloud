@@ -13,6 +13,7 @@ type Props = {
   disabled?: () => boolean;
   excludeIds?: () => string[];
   clearable?: boolean;
+  includeDeleted?: boolean;
 };
 
 export default function RecordPicker(props: Props) {
@@ -36,6 +37,7 @@ export default function RecordPicker(props: Props) {
           templateId: props.templateId,
           query,
           excludeIds: excludedIds(),
+          includeDeleted: props.includeDeleted,
           signal,
         });
         return items.map((item) => ({ id: item.id, label: item.label, icon: "ti ti-database" }));

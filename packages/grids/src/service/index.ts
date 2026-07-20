@@ -2,6 +2,7 @@ import * as access from "./access";
 import * as audit from "./audit";
 import * as baseCatalog from "./base-catalog";
 import * as bases from "./bases";
+import * as combinedAudit from "./combined-audit";
 import * as dashboards from "./dashboards";
 import * as documents from "./documents";
 import * as emailTemplates from "./email-templates";
@@ -22,6 +23,7 @@ import {
   resolveEffectivePermission,
 } from "./permission-resolver";
 import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
+import * as recordHistory from "./record-history";
 import * as records from "./records";
 import * as relationsModule from "./relations";
 import * as tables from "./tables";
@@ -121,7 +123,11 @@ export const gridsService = {
   audit: {
     log: audit.logAudit,
     list: audit.listAudit,
-    listByRecord: audit.listByRecord,
+    listByRecord: recordHistory.listByRecord,
+    combined: {
+      describeRecord: combinedAudit.describeRecord,
+      list: combinedAudit.list,
+    },
   },
   permission: {
     resolve: resolveEffectivePermission,
@@ -324,8 +330,10 @@ export type {
   WorkflowButtonWidget,
 } from "../contracts";
 export type { GridsWorkflow as Workflow, GridsWorkflowRun as WorkflowRun } from "../workflows/contracts";
+export type { CombinedAuditEntry, CombinedAuditPage, CombinedAuditSource, CombinedRecordOrigin } from "./combined-audit";
 export type { Form, FormFieldEntry } from "./forms";
 export type { Grant, ResolveTarget, ResourceType } from "./permission-resolver";
+export type { RecordHistoryEntry } from "./record-history";
 export type {
   AuditEntry,
   Base,

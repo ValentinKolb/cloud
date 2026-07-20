@@ -18,6 +18,16 @@ const RecordImportResponseSchema = z.object({
   items: z.array(GridRecordSchema),
 });
 
+const CombinedAuditQuerySchema = z.object({
+  recordId: z.string().uuid().optional(),
+  sourceRef: z.string().max(20).optional(),
+  action: z.enum(["created", "updated", "deleted", "restored", "imported"]).optional(),
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().max(2_000).optional(),
+});
+
 const GridFileSchema = z.object({
   id: z.string().uuid(),
   recordId: z.string().uuid(),
@@ -242,6 +252,15 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
+    v(
+      "query",
+      z
+        .object({
+          includeDeleted: z.enum(["true"]).optional(),
+          deletedOnly: z.enum(["true"]).optional(),
+        })
+        .refine((query) => !(query.includeDeleted && query.deletedOnly), "Choose includeDeleted or deletedOnly, not both"),
+    ),
     async (c) => {
       const tableId = c.req.param("tableId")!;
       const recordId = c.req.param("recordId")!;
@@ -249,7 +268,10 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const record = await gridsService.record.get(tableId, recordId, { dateConfig: await getDateConfig(c) });
+      const record = await gridsService.record.get(tableId, recordId, {
+        dateConfig: await getDateConfig(c),
+        deleted: c.req.valid("query").deletedOnly ? "only" : c.req.valid("query").includeDeleted ? "include" : "live",
+      });
       if (!record) return c.json({ message: "Record not found" }, 404);
       return c.json(record);
     },
@@ -358,6 +380,33 @@ const app = new Hono<AuthContext>()
 
   // Grouping and aggregate reads are served by the unified table query
   // endpoint, keeping all record-read semantics in one place.
+
+  .get(
+    "/by-table/:tableId/audit",
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Browse a Combined table's published record audit",
+      description:
+        "Returns a cursor-paginated audit feed projected through the active Combined publication. " +
+        "Only canonical fields, safe source labels, actors, lifecycle actions, and declared audit answers are returned.",
+      responses: {
+        200: { description: "Published Combined audit page" },
+        400: jsonResponse(ErrorResponseSchema, "Invalid filter"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        409: jsonResponse(ErrorResponseSchema, "Publication changed"),
+      },
+    }),
+    v("query", CombinedAuditQuerySchema),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table || table.kind !== "federated") return c.json({ message: "Combined table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.audit.combined.list({ tableId, ...c.req.valid("query") });
+      return respond(c, () => Promise.resolve(result));
+    },
+  )
 
   .post(
     "/:tableId/:recordId/restore",

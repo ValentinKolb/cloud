@@ -85,6 +85,7 @@ export const lookupRecords = async (params: {
   q?: string | null;
   limit?: number;
   excludeIds?: string[];
+  includeDeleted?: boolean;
 }): Promise<{ items: { id: string; label: string }[] }> => {
   const limit = Math.min(Math.max(params.limit ?? 10, 1), 50);
   const fields = await listFields(params.targetTableId);
@@ -92,8 +93,15 @@ export const lookupRecords = async (params: {
   const searchTargets = presentable.filter((field) => LABEL_TEXT_TYPES.has(field.type));
   const table = await getTable(params.targetTableId);
   const recordSource =
-    table?.kind === "federated" ? await buildDslSqlRecordSource(params.targetTableId, { [params.targetTableId]: fields }) : null;
-  const conditions: any[] = [sql`r.deleted_at IS NULL`];
+    table?.kind === "federated"
+      ? await buildDslSqlRecordSource(
+          params.targetTableId,
+          { [params.targetTableId]: fields },
+          params.includeDeleted ? { includeDeleted: true } : undefined,
+        )
+      : null;
+  const conditions: any[] = [sql`TRUE`];
+  if (!params.includeDeleted) conditions.push(sql`r.deleted_at IS NULL`);
   if (!recordSource) conditions.push(sql`r.table_id = ${params.targetTableId}::uuid`);
   const query = params.q?.trim();
   if (query && searchTargets.length > 0) {

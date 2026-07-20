@@ -1021,6 +1021,11 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
   await sql`ALTER TABLE grids.audit_log ADD COLUMN IF NOT EXISTS context JSONB`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_record ON grids.audit_log(record_id, created_at DESC) WHERE record_id IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_table ON grids.audit_log(table_id, created_at DESC) WHERE table_id IS NOT NULL`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_audit_table_records_page
+    ON grids.audit_log(table_id, created_at DESC, id DESC)
+    WHERE record_id IS NOT NULL
+  `.simple();
   console.log("  ✓ grids.audit_log");
 
   await sql`
