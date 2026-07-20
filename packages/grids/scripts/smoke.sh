@@ -8,8 +8,7 @@
 #     the parent-liveness JOINs)
 #   - relation field create → record write → relation hydration on
 #     read (Wave 1.3 transactional paths)
-#   - field delete with view-config cleanup (Wave 4.6 + final-review
-#     fix)
+#   - field delete with deterministic saved-view diagnostics
 #   - permission edge cases (Wave 2.1/2.2/2.3)
 #
 # Each step prints PASS / FAIL with a one-line context. Set DEBUG=1
@@ -532,33 +531,23 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────────────
-# Field-dependents + saved-view cleanup on delete (Critical #11)
+# Saved-view behavior after deleting a referenced field
 # ────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "━━━ field-dependents + view cleanup ━━━"
+echo "━━━ saved-view field lifecycle ━━━"
 
-# Save a view that touches the price field via filter, sort, groupBy,
-# groupSort, aggregations, AND search.fieldIds — deleting the field should strip all refs. The
-# search-fieldIds path was missed by the original cleanup (post-cleanup
-# #11 extension).
-VIEW_QUERY=$(cat <<JSON
-{
-  "name": "expensive",
-  "shared": true,
-  "query": {
-    "filter": {"op": "AND", "filters": [{"fieldId": "$PRICE_FIELD_ID", "op": ">", "value": 50}]},
-    "sort": [{"fieldId": "$PRICE_FIELD_ID", "direction": "desc"}],
-    "groupBy": [{"fieldId": "$PRICE_FIELD_ID"}],
-    "aggregations": [{"fieldId": "$PRICE_FIELD_ID", "agg": "sum"}],
-    "groupSort": [{"fieldId": "$PRICE_FIELD_ID", "agg": "sum", "direction": "desc"}],
-    "search": {"q": "x", "fieldIds": ["$PRICE_FIELD_ID", "$NAME_FIELD_ID"]}
-  }
-}
-JSON
-)
+# Saved views keep their canonical GQL source as authored. If a referenced
+# field is deleted later, execution must fail with an explicit diagnostic
+# rather than silently changing the query's meaning.
+VIEW_SOURCE=$(printf "from table {%s}\nwhere {%s} > 50\nsort {%s} desc\nsearch 'x' in {%s}, {%s}" \
+  "$ITEMS_TABLE_ID" "$PRICE_FIELD_ID" "$PRICE_FIELD_ID" "$PRICE_FIELD_ID" "$NAME_FIELD_ID")
+VIEW_QUERY=$(jq -n \
+  --arg name "expensive" \
+  --arg source "$VIEW_SOURCE" \
+  '{name: $name, shared: true, source: $source}')
 http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "$VIEW_QUERY"
-expect_status 201 "POST view with price refs across query parts → 201"
+expect_status 201 "POST canonical GQL view with price refs → 201"
 VIEW_ID=$(json '.id')
 VIEW_SHORT_ID=$(json '.shortId')
 
@@ -572,26 +561,24 @@ cleanup_delete /api/grids/fields/$ROLLUP_FIELD_ID
 http DELETE /api/grids/fields/$PRICE_FIELD_ID
 expect_status 204 "DELETE price field → 204"
 
-# View now exists and the price ref has been stripped from every query
-# part. The whole stored query is checked because stale refs would break
-# list/group/aggregate compilation with `unknown field "X"`.
+# The stored source remains stable for auditability and repair.
 http GET /api/grids/views/$VIEW_ID
 expect_status 200 "GET view after price delete → 200"
-QUERY_BLOB=$(json '.query | tostring')
-if [[ "$QUERY_BLOB" != *"$PRICE_FIELD_ID"* ]]; then
-  pass "view query no longer references deleted field"
+STORED_SOURCE=$(json '.source')
+if [[ "$STORED_SOURCE" == *"$PRICE_FIELD_ID"* && "$STORED_SOURCE" == *"$NAME_FIELD_ID"* ]]; then
+  pass "view keeps its canonical GQL source after field delete"
 else
-  fail "view cleanup" "query still mentions $PRICE_FIELD_ID: $QUERY_BLOB"
+  fail "saved-view source stability" "expected canonical field refs, got: $STORED_SOURCE"
 fi
-# search.fieldIds had two ids — only the deleted one should drop;
-# name should survive. Empty-array handling: if both ids had been
-# deleted, search.fieldIds should be removed entirely (so search
-# reverts to "all fields") instead of degenerating into [].
-SEARCH_FIELDS=$(json '.query.search.fieldIds // empty | tostring')
-if [[ "$SEARCH_FIELDS" == *"$NAME_FIELD_ID"* ]]; then
-  pass "search.fieldIds keeps surviving field id"
+
+http POST /api/grids/gql/by-base/$BASE_ID/views/$VIEW_ID/execute '{}'
+expect_status 200 "POST saved view after field delete → 200 diagnostic response"
+VIEW_EXECUTION_OK=$(json '.ok')
+VIEW_DIAGNOSTIC=$(json '[.diagnostics[]?.message] | join("; ")')
+if [[ "$VIEW_EXECUTION_OK" == "false" && "$VIEW_DIAGNOSTIC" == *"$PRICE_FIELD_ID"* ]]; then
+  pass "saved view reports the deleted field explicitly"
 else
-  fail "search.fieldIds cleanup" "expected to keep $NAME_FIELD_ID, got: $SEARCH_FIELDS"
+  fail "saved-view deleted-field diagnostic" "expected field-specific diagnostic, got: $RESPONSE_BODY"
 fi
 
 # ────────────────────────────────────────────────────────────────────
@@ -613,10 +600,14 @@ expect_status 404 "GET non-existent dashboard → 404"
 http POST /api/grids/tables/$ITEMS_TABLE_ID/query '{"query":{"sort":[{"fieldId":"00000000-0000-0000-0000-000000000000","direction":"asc"}]}}'
 expect_status 400 "POST query with unknown sort field → 400"
 
-http POST /api/grids/views/by-table/$ITEMS_TABLE_ID '{"name":"bad-group-sort","query":{"groupSort":[{"fieldId":"*","agg":"count","direction":"desc"}]}}'
-expect_status 400 "POST view with groupSort but no groupBy → 400"
+BAD_GQL_SOURCE=$(printf "from table {%s}\nwhere (" "$ITEMS_TABLE_ID")
+BAD_GQL_VIEW=$(jq -n --arg source "$BAD_GQL_SOURCE" '{name: "bad-gql", source: $source}')
+http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "$BAD_GQL_VIEW"
+expect_status 400 "POST view with invalid GQL → 400"
 
-http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "{\"name\":\"bad-search-scope\",\"query\":{\"search\":{\"q\":\"x\",\"fieldIds\":[\"$FILE_FIELD_ID\"]}}}"
+BAD_SEARCH_SOURCE=$(printf "from table {%s}\nsearch 'x' in {%s}" "$ITEMS_TABLE_ID" "$FILE_FIELD_ID")
+BAD_SEARCH_VIEW=$(jq -n --arg source "$BAD_SEARCH_SOURCE" '{name: "bad-search-scope", source: $source}')
+http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "$BAD_SEARCH_VIEW"
 expect_status 400 "POST view with unsearchable search field → 400"
 
 # Sort on a relation field — Wave 4.1 made this a clean 400 instead
