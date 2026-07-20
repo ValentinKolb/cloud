@@ -6,7 +6,8 @@ import { GRIDS_WORKFLOW_CHANNELS, GRIDS_WORKFLOW_LAUNCHER_KINDS, GridsWorkflowRu
 import { gridsWorkflowManifest } from "../../../workflows/manifest";
 
 const helpSource = await Bun.file(new URL("../../../help/documents/grids-workflows.help.md", import.meta.url)).text();
-const controlFlowHelp = helpSource.match(/### Control flow\n([\s\S]*?)\n### Values and references/)?.[1] ?? "";
+const controlFlowHelp =
+  helpSource.match(/^## Control flow(?: \{[^}\n]*\})?\n([\s\S]*?)\n## Values and references(?: \{[^}\n]*\})?$/m)?.[1] ?? "";
 
 const workflowSnippets = [...helpSource.matchAll(/\*\*([^*\n]+)\*\*\s*\n+```yaml\n([\s\S]*?)```/g)].map(([, title, source]) => ({
   title: title!,
