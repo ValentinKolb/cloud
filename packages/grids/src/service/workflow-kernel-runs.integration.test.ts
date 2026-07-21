@@ -14,7 +14,7 @@ import {
 } from "./workflow-kernel-runs";
 import { finishDryRun } from "./workflow-kernel-runtime";
 
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("workflow run materialization", () => {
   postgresTest("reuses an idempotent invocation after a workflow metadata revision", async () => {

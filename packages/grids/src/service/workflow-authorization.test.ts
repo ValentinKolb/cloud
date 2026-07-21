@@ -10,7 +10,7 @@ const BASE_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
 const SERVICE_ACCOUNT_ID = "33333333-3333-4333-8333-333333333333";
 const CREDENTIAL_ID = "44444444-4444-4444-8444-444444444444";
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 const user = (overrides: Partial<User> = {}): User =>
   ({

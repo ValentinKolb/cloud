@@ -6,7 +6,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { migrate } from "../migrate";
 import { createDocumentsApi } from "./documents";
 
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 const uuid = () => Bun.randomUUIDv7();
 const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
@@ -143,7 +143,7 @@ const jsonRequest = (body: unknown): RequestInit => ({
 });
 
 beforeAll(async () => {
-  if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
+  if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
 describe("document link API permissions", () => {

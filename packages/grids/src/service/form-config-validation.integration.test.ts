@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import { validateFormConfig } from "./form-config-validation";
 
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
 
 const createFixture = async () => {
@@ -39,7 +39,7 @@ const createFixture = async () => {
 };
 
 beforeAll(async () => {
-  if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
+  if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
 describe("form config validation", () => {

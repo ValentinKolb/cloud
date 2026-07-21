@@ -28,6 +28,7 @@ export type DeadRecordEventDeliveryFailure = {
 };
 
 export const recordRecordEventDeliveryFailure = async (input: RecordEventDeliveryFailureInput): Promise<RecordEventDeliveryFailure> => {
+  const maxAttempts = Math.max(1, input.maxAttempts);
   const [row] = await sql<Array<{ attempts: number | string; status: "retrying" | "dead" }>>`
     INSERT INTO grids.record_event_delivery_failures (
       base_id,
@@ -43,8 +44,8 @@ export const recordRecordEventDeliveryFailure = async (input: RecordEventDeliver
       ${input.eventId},
       ${input.payload},
       ${input.error},
-      'retrying',
-      NULL
+      ${maxAttempts === 1 ? "dead" : "retrying"},
+      ${maxAttempts === 1 ? sql`now()` : null}
     )
     ON CONFLICT (base_id, consumer_group, event_id) DO UPDATE SET
       payload = CASE
@@ -61,13 +62,13 @@ export const recordRecordEventDeliveryFailure = async (input: RecordEventDeliver
       END,
       status = CASE
         WHEN grids.record_event_delivery_failures.status = 'dead'
-          OR grids.record_event_delivery_failures.attempts + 1 >= ${input.maxAttempts} THEN 'dead'
+          OR grids.record_event_delivery_failures.attempts + 1 >= ${maxAttempts} THEN 'dead'
         ELSE 'retrying'
       END,
       last_seen_at = now(),
       dead_at = CASE
         WHEN grids.record_event_delivery_failures.status = 'dead'
-          OR grids.record_event_delivery_failures.attempts + 1 >= ${input.maxAttempts}
+          OR grids.record_event_delivery_failures.attempts + 1 >= ${maxAttempts}
           THEN COALESCE(grids.record_event_delivery_failures.dead_at, now())
         ELSE NULL
       END

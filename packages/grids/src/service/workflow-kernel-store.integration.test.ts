@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import { createWorkflow, updateWorkflow } from "./workflow-kernel-store";
 
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("workflow launcher revision lifecycle", () => {
   postgresTest("rejects an invalid stored schedule when activating a workflow", async () => {

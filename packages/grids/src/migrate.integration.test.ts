@@ -3,7 +3,7 @@ import { SQL, sql } from "bun";
 import { migrate } from "./migrate";
 import { WORKFLOW_KERNEL_SCHEMA_VERSION } from "./workflows/migrate";
 
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 const uuid = () => Bun.randomUUIDv7();
 const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);

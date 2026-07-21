@@ -13,7 +13,7 @@ import {
 } from "./sql-compiler.integration-fixtures";
 
 beforeAll(async () => {
-  if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
+  if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
 describe("Query DSL Postgres smoke — derived saved-view sources", () => {

@@ -11,7 +11,7 @@ import { get as getRecord } from "../service/records";
 import { get as getTable } from "../service/tables";
 import { instantiate } from "../service/templates";
 
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 type DashboardRow = { config: unknown };
 type ViewRow = { table_id: string; name: string; source: string };

@@ -8,7 +8,7 @@ import {
   notifyWorkflowRunEvent,
 } from "./workflow-run-events";
 
-const redisTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const redisTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("workflow run events", () => {
   test("uses explicit transition ids to distinguish repeated run states", async () => {

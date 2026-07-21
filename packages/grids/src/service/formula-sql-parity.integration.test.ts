@@ -9,7 +9,7 @@ import { normalizeRefKey } from "../ref-syntax";
 import { compileFormulaSourceToSql, type FormulaSqlType } from "./formula-sql-compiler";
 import type { Field } from "./types";
 
-const postgresTest = process.env.GRIDS_SQL_COMPILER_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 const normalize = (value: unknown, type: FormulaSqlType): unknown => {
   if (value === null || value === undefined) return null;
@@ -84,7 +84,7 @@ const expectParity = async (
 };
 
 beforeAll(async () => {
-  if (process.env.GRIDS_SQL_COMPILER_DB_TEST === "1") await migrate();
+  if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
 describe("formula evaluator and PostgreSQL parity", () => {

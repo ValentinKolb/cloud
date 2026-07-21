@@ -32,22 +32,17 @@ cd packages/grids && bun run typecheck
 cd packages/grids && bun test
 ```
 
-Latest local evidence from the review pass: `bun run typecheck` green and
-`bun test` green with 982 pass / 71 skip / 0 fail / 4734 expect() calls.
-DB-backed GQL tests are opt-in because they need Postgres:
+DB-backed tests are opt-in because they need Postgres. One canonical flag runs
+every Grids database suite, including GQL and formula-SQL integration tests:
 
 ```bash
 cd packages/grids
-GRIDS_QUERY_DSL_DB_TEST=1 bun test \
-  src/query-dsl/sql-compiler.integration.test.ts \
-  src/query-dsl/sql-compiler-joins.integration.test.ts \
-  src/query-dsl/sql-compiler-aggregates.integration.test.ts \
-  src/query-dsl/sql-compiler-derived.integration.test.ts
-GRIDS_SQL_COMPILER_DB_TEST=1 bun test src/service/formula-sql-compiler.test.ts
+bun run test:db
+bun run test:coverage
 ```
 
-The 2026-07-10 review ran these suites against the live Grids Postgres schema:
-37 GQL integration tests and 23 formula-SQL tests passed with no failures.
+`test:coverage` also rejects regressions below the package's critical-backend
+line and function coverage floors.
 
 ### Current GQL-specific release blockers
 
@@ -1256,10 +1251,9 @@ open work is listed in the 2026-07-09 status snapshot at the top of this file.
   responses, save/update canonicalization, implicit `currentSource` table/view
   contexts, derived relation search/label preview through the public route, and
   diagnostics at the transport boundary.
-- Keep DB tests opt-in (`GRIDS_QUERY_DSL_DB_TEST=1`) and always run them before
-  release with Postgres online. Final backend gate also runs the related
-  opt-in DB suites via `GRIDS_SQL_COMPILER_DB_TEST=1`,
-  `GRIDS_RECORD_SQL_FORMULA_DB_TEST=1`, and `GRIDS_NAMED_REFS_DB_TEST=1`.
+- Keep DB tests opt-in (`GRIDS_DB_TEST=1`, or `bun run test:db`) and always run
+  them before release with Postgres online. This single gate covers GQL,
+  formula-SQL, named-reference, persistence, and API integration suites.
 
 ---
 

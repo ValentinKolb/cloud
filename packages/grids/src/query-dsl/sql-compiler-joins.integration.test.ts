@@ -3,7 +3,7 @@ import { migrate } from "../migrate";
 import { cleanupFixture, insertDslDbFixture, postgresTest, preview } from "./sql-compiler.integration-fixtures";
 
 beforeAll(async () => {
-  if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
+  if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
 describe("Query DSL Postgres smoke — joins and grouped joins", () => {

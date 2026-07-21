@@ -9,7 +9,7 @@ import { createGqlApi } from "./gql";
 import { compileGqlViewWrite } from "./gql-runtime";
 import apiRoutes from "./index";
 
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 const uuid = () => Bun.randomUUIDv7();
 const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
@@ -291,7 +291,7 @@ const cleanupAutocompletePermissionFixture = async (baseId: string, accessIds: s
 };
 
 beforeAll(async () => {
-  if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") {
+  if (process.env.GRIDS_DB_TEST === "1") {
     process.env.APP_SECRET ??= "grids-gql-integration-cursor-secret";
     await migrate();
   }

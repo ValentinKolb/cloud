@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { TopicPayloadError } from "@valentinkolb/sync";
 import { type GridsRecordEvent, publishRecordEvent, recordEventReader } from "./record-events";
 
-const redisTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const redisTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("record event topic recovery", () => {
   redisTest("distributes one event to only one replica reader in the consumer group", async () => {

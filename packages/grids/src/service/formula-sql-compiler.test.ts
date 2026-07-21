@@ -269,7 +269,7 @@ describe("compileFormulaSourceToSql", () => {
   });
 });
 
-const postgresTest = process.env.GRIDS_SQL_COMPILER_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("compileFormulaSourceToSql postgres smoke", () => {
   postgresTest("runs decimal-safe arithmetic in Postgres numeric", async () => {

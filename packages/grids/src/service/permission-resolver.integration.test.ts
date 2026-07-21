@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import { loadGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
+const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("recursive Grids permission loading", () => {
   postgresTest("resolves nested membership from AccessSubject and observes revocation on the next query", async () => {

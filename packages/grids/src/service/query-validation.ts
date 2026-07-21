@@ -97,7 +97,7 @@ const validateGroupedQuery = (params: {
   return compiled.ok ? ok() : fail(err.badInput(compiled.error));
 };
 
-const validatePartsForFields = (tableId: string, parts: QueryParts, fields: Field[]): Result<void> => {
+export const validateRecordQueryForFields = (tableId: string, parts: QueryParts, fields: Field[]): Result<void> => {
   const filter = compileFilter(parts.filter ?? null, fields);
   if (!filter.ok) return fail(err.badInput(`filter: ${filter.error}`));
 
@@ -142,7 +142,7 @@ const validatePartsForFields = (tableId: string, parts: QueryParts, fields: Fiel
 
 export const validateRecordQueryForTable = async (tableId: string, query: RecordQuery): Promise<Result<void>> => {
   const fields = await listByTable(tableId);
-  return validatePartsForFields(tableId, query, fields);
+  return validateRecordQueryForFields(tableId, query, fields);
 };
 
 export const tableBelongsToBase = async (tableId: string, baseId: string): Promise<boolean> => {

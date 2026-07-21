@@ -1,12 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import type { ServerWebSocket } from "bun";
 import {
+  createWorkspaceWebSocketSession,
   isDashboardWorkflowLauncherKind,
   isWorkspaceAccessRefreshCurrent,
   resolveWorkspaceEventCursor,
   sendWorkspaceMessage,
   workspaceCloseCodeForError,
 } from "./ws";
+
+const baseId = "11111111-1111-4111-8111-111111111111";
+const workflowId = "22222222-2222-4222-8222-222222222222";
+
+const testSocket = (sendStatus = 1) => {
+  const messages: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const closes: Array<{ code: number; reason: string }> = [];
+  const socket = {
+    send: (raw: string) => {
+      messages.push(JSON.parse(raw));
+      return sendStatus;
+    },
+    close: (code: number, reason: string) => {
+      closes.push({ code, reason });
+    },
+  } as unknown as ServerWebSocket<unknown>;
+  return { socket, messages, closes };
+};
+
+const metadataSubscribe = (overrides: Record<string, unknown> = {}) =>
+  JSON.stringify({
+    type: "grids.metadata.subscribe",
+    payload: { baseId, sessionToken: "session", fromCursor: "1-0", ...overrides },
+  });
+
+const workflowSubscribe = () =>
+  JSON.stringify({
+    type: "grids.workflow-runs.subscribe",
+    payload: { workflowId, sessionToken: "session", fromCursor: "1-0" },
+  });
 
 const socket = (status: number) =>
   ({
@@ -81,5 +112,164 @@ describe("Grids dashboard workflow websocket access", () => {
     expect(isDashboardWorkflowLauncherKind("dashboard")).toBe(true);
     expect(isDashboardWorkflowLauncherKind("scanner")).toBe(true);
     expect(isDashboardWorkflowLauncherKind("bulk")).toBe(false);
+  });
+});
+
+describe("Grids websocket server sessions", () => {
+  test("closes malformed, non-text, oversized, and invalid subscription messages terminally", async () => {
+    const cases: unknown[] = [
+      "{",
+      new Uint8Array([1, 2, 3]),
+      "x".repeat(16_001),
+      JSON.stringify({ type: "grids.metadata.subscribe", payload: { baseId: "not-a-uuid" } }),
+    ];
+
+    for (const message of cases) {
+      const socket = testSocket();
+      const session = createWorkspaceWebSocketSession(null);
+      session.open(socket.socket);
+      session.message(message);
+      await session.drain();
+      expect(socket.closes).toHaveLength(1);
+      expect(socket.closes[0]?.code).toBe(1008);
+      expect(socket.messages[0]?.type).toBe("grids.records.error");
+    }
+  });
+
+  test("preserves metadata access errors and does not start a denied stream", async () => {
+    let streamCalls = 0;
+    const socket = testSocket();
+    const session = createWorkspaceWebSocketSession("session", {
+      evaluateBaseAccess: async () => ({ ok: false, code: "access_denied", message: "Access denied" }),
+      metadataEvents: (() => {
+        streamCalls++;
+        return (async function* () {})();
+      }) as never,
+    });
+    session.open(socket.socket);
+    session.message(metadataSubscribe());
+    await session.drain();
+
+    expect(streamCalls).toBe(0);
+    expect(socket.messages).toEqual([{ type: "grids.metadata.error", payload: { code: "access_denied", message: "Access denied" } }]);
+    expect(socket.closes).toEqual([{ code: 1008, reason: "access_denied" }]);
+  });
+
+  test("reports initial workflow access failures on the workflow channel", async () => {
+    const socket = testSocket();
+    const session = createWorkspaceWebSocketSession("session", {
+      evaluateWorkflowAccess: async () => ({ ok: false, code: "access_denied", message: "Access denied" }),
+    });
+    session.open(socket.socket);
+    session.message(workflowSubscribe());
+    await session.drain();
+
+    expect(socket.messages).toEqual([{ type: "grids.workflow-runs.error", payload: { code: "access_denied", message: "Access denied" } }]);
+    expect(socket.closes).toEqual([{ code: 1008, reason: "access_denied" }]);
+  });
+
+  test("delivers accepted events and terminates after periodic permission revocation", async () => {
+    const refresh: { current: (() => void) | null } = { current: null };
+    let readable = true;
+    let canceled = 0;
+    const socket = testSocket();
+    const session = createWorkspaceWebSocketSession("session", {
+      evaluateBaseAccess: async () => ({ ok: true, baseId }),
+      evaluateSubscriptionAccess: async () =>
+        readable ? { ok: true, baseId } : { ok: false, code: "access_denied", message: "Access denied" },
+      latestMetadataCursor: async () => "9-0",
+      metadataEvents: async function* ({ signal }: { signal?: AbortSignal }) {
+        yield {
+          cursor: "9-1",
+          data: {
+            v: 1,
+            type: "table.updated",
+            baseId,
+            resource: { kind: "table", id: "22222222-2222-4222-8222-222222222222" },
+            actorId: null,
+            occurredAt: "2026-01-01T00:00:00.000Z",
+          },
+        };
+        await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+      } as never,
+      schedule: ((callback: () => void) => {
+        refresh.current = callback;
+        return 1;
+      }) as never,
+      cancel: (() => {
+        canceled++;
+      }) as never,
+    });
+    session.open(socket.socket);
+    session.message(metadataSubscribe({ fromCursor: null }));
+    await session.drain();
+    await Bun.sleep(0);
+
+    expect(socket.messages.slice(0, 2).map((message) => message.type)).toEqual(["grids.metadata.ready", "grids.metadata.event"]);
+    expect(socket.messages[0]?.payload?.cursor).toBe("9-0");
+    expect(socket.messages[1]?.payload?.cursor).toBe("9-1");
+
+    readable = false;
+    if (!refresh.current) throw new Error("Expected access refresh callback");
+    refresh.current();
+    await Bun.sleep(0);
+    expect(socket.messages.at(-1)).toEqual({
+      type: "grids.metadata.revoked",
+      payload: { code: "access_denied", message: "Access was revoked", baseId },
+    });
+    expect(socket.closes).toEqual([{ code: 1008, reason: "access_denied" }]);
+    expect(canceled).toBe(1);
+  });
+
+  test("aborts replaced and closed streams without emitting a terminal stream error", async () => {
+    const signals: AbortSignal[] = [];
+    let canceled = 0;
+    const socket = testSocket();
+    const session = createWorkspaceWebSocketSession("session", {
+      evaluateBaseAccess: async () => ({ ok: true, baseId }),
+      latestMetadataCursor: async () => "1-0",
+      metadataEvents: (({ signal }: { signal?: AbortSignal }) => {
+        if (signal) signals.push(signal);
+        return (async function* () {
+          await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+        })();
+      }) as never,
+      schedule: (() => 1) as never,
+      cancel: (() => {
+        canceled++;
+      }) as never,
+    });
+    session.open(socket.socket);
+    session.message(metadataSubscribe());
+    await session.drain();
+    session.message(metadataSubscribe({ fromCursor: "2-0" }));
+    await session.drain();
+
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(socket.messages.filter((message) => message.type === "grids.metadata.ready")).toHaveLength(2);
+    await session.close();
+    expect(signals[1]?.aborted).toBe(true);
+    expect(canceled).toBe(2);
+    expect(socket.closes).toEqual([]);
+  });
+
+  test("bounds queued client work and closes with a retryable backpressure code", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const socket = testSocket();
+    const session = createWorkspaceWebSocketSession("session", {
+      evaluateBaseAccess: async () => {
+        await blocked;
+        return { ok: true, baseId };
+      },
+    });
+    session.open(socket.socket);
+    for (let index = 0; index < 9; index++) session.message(metadataSubscribe());
+    expect(socket.closes).toEqual([{ code: 1012, reason: "backpressure" }]);
+    release();
+    await session.drain();
   });
 });
