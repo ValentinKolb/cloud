@@ -1,15 +1,12 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect } from "bun:test";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { err, fail, ok } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { Hono } from "hono";
+import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { createAccessEntryRoutes } from "./access-entry-routes";
 import { createAccessResourceRoutes } from "./access-resource-routes";
-
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
-const uuid = () => Bun.randomUUIDv7();
-const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
 
 type Fixture = {
   userId: string;

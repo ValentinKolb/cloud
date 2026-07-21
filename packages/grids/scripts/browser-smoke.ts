@@ -7,7 +7,7 @@
  * regress during v1 polish. Avoid golden screenshots and fragile full-app
  * snapshots; assert visible user-facing behaviour.
  */
-import { type Browser, type BrowserContext, chromium, type Page, type Request } from "playwright";
+import { type Browser, type BrowserContext, type BrowserContextOptions, chromium, type Page, type Request } from "playwright";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "dev-admin";
@@ -406,19 +406,45 @@ const watchPage = (page: Page, errors: string[]) => {
   });
 };
 
-const expectVisibleText = async (page: Page, text: string, label = text) => {
-  await page.waitForFunction(
-    (needle) =>
-      !!document.body &&
-      Array.from(document.body.querySelectorAll("*")).some((el) => {
-        if (!el.textContent?.includes(needle)) return false;
+const createWatchedPages = async (browser: Browser, options: BrowserContextOptions & { sessionToken?: string; pageCount?: number }) => {
+  const { sessionToken, pageCount = 1, ...contextOptions } = options;
+  const context = await browser.newContext({ baseURL: BASE_URL, ...contextOptions });
+  if (sessionToken) await addSessionCookie(context, sessionToken);
+  const errors: string[] = [];
+  const pages = await Promise.all(Array.from({ length: pageCount }, () => context.newPage()));
+  for (const page of pages) {
+    page.setDefaultTimeout(TIMEOUT);
+    watchPage(page, errors);
+  }
+  return { context, pages, errors };
+};
+
+type VisibleTextExpectation = {
+  value: string;
+  pattern: boolean;
+  present: boolean;
+};
+
+const waitForVisibleText = (page: Page, expectation: VisibleTextExpectation) =>
+  page.waitForFunction(
+    ({ value, pattern, present }) => {
+      if (!document.body) return false;
+      const regex = pattern ? new RegExp(value) : null;
+      const found = Array.from(document.body.querySelectorAll("*")).some((el) => {
+        const text = el.textContent ?? "";
+        if (regex ? !regex.test(text) : !text.includes(value)) return false;
         const style = window.getComputedStyle(el);
         if (style.visibility === "hidden" || style.display === "none") return false;
         return el.getClientRects().length > 0;
-      }),
-    text,
+      });
+      return present ? found : !found;
+    },
+    expectation,
     { timeout: TIMEOUT },
   );
+
+const expectVisibleText = async (page: Page, text: string, label = text) => {
+  await waitForVisibleText(page, { value: text, pattern: false, present: true });
   ok(label);
 };
 
@@ -440,38 +466,12 @@ const expectFocusedLabel = async (page: Page, label: string) => {
 };
 
 const expectVisibleTextPattern = async (page: Page, pattern: RegExp, label: string) => {
-  await page.waitForFunction(
-    (source) => {
-      if (!document.body) return false;
-      const regex = new RegExp(source);
-      return Array.from(document.body.querySelectorAll("*")).some((el) => {
-        if (!regex.test(el.textContent ?? "")) return false;
-        const style = window.getComputedStyle(el);
-        if (style.visibility === "hidden" || style.display === "none") return false;
-        return el.getClientRects().length > 0;
-      });
-    },
-    pattern.source,
-    { timeout: TIMEOUT },
-  );
+  await waitForVisibleText(page, { value: pattern.source, pattern: true, present: true });
   ok(label);
 };
 
 const expectNoVisibleTextPattern = async (page: Page, pattern: RegExp, label: string) => {
-  await page.waitForFunction(
-    (source) => {
-      if (!document.body) return false;
-      const regex = new RegExp(source);
-      return !Array.from(document.body.querySelectorAll("*")).some((el) => {
-        if (!regex.test(el.textContent ?? "")) return false;
-        const style = window.getComputedStyle(el);
-        if (style.visibility === "hidden" || style.display === "none") return false;
-        return el.getClientRects().length > 0;
-      });
-    },
-    pattern.source,
-    { timeout: TIMEOUT },
-  );
+  await waitForVisibleText(page, { value: pattern.source, pattern: true, present: false });
   ok(label);
 };
 
@@ -494,32 +494,18 @@ const browserMutation = async <T>(page: Page, config: { method: string; path: st
 };
 
 const expectNoVisibleText = async (page: Page, text: string, label = text) => {
-  await page.waitForFunction(
-    (needle) =>
-      !!document.body &&
-      !Array.from(document.body.querySelectorAll("*")).some((el) => {
-        if (!el.textContent?.includes(needle)) return false;
-        const style = window.getComputedStyle(el);
-        if (style.visibility === "hidden" || style.display === "none") return false;
-        return el.getClientRects().length > 0;
-      }),
-    text,
-    { timeout: TIMEOUT },
-  );
+  await waitForVisibleText(page, { value: text, pattern: false, present: false });
   ok(label);
 };
 
 const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: BASE_URL });
-  await addSessionCookie(context, fixture.sessionToken);
-  const pageA = await context.newPage();
-  const pageB = await context.newPage();
-  pageA.setDefaultTimeout(TIMEOUT);
-  pageB.setDefaultTimeout(TIMEOUT);
-  const errors: string[] = [];
+  const { context, pages, errors } = await createWatchedPages(browser, {
+    viewport: { width: 1440, height: 900 },
+    sessionToken: fixture.sessionToken,
+    pageCount: 2,
+  });
+  const [pageA, pageB] = pages as [Page, Page];
   const requests: string[] = [];
-  watchPage(pageA, errors);
-  watchPage(pageB, errors);
   for (const page of [pageA, pageB]) {
     page.on("request", (request) => requests.push(request.url()));
   }
@@ -677,14 +663,7 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
   await context.close();
 };
 
-const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: BASE_URL });
-  await addSessionCookie(context, fixture.sessionToken);
-  const page = await context.newPage();
-  page.setDefaultTimeout(TIMEOUT);
-  const errors: string[] = [];
-  watchPage(page, errors);
-
+const smokeTableWorkbench = async (page: Page, fixture: Fixture) => {
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Tasks", "table route renders");
   await expectVisibleText(page, "Review invoices", "record row renders");
@@ -716,7 +695,9 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await expectVisibleText(page, "Functions", "formula reference functions section renders");
   await expectVisibleText(page, "Amount", "formula reference lists fields");
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { waitUntil: "domcontentloaded" });
+};
 
+const smokeEnhancedNavigation = async (page: Page, fixture: Fixture) => {
   const navigationCountBeforeEnhanced = await page.evaluate(() => performance.getEntriesByType("navigation").length);
   const sidebarScrollBeforeDashboard = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => {
     const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
@@ -770,7 +751,9 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await page.getByRole("link", { name: "Done editing" }).click();
   await page.waitForURL((url) => !url.searchParams.has("edit"), { timeout: TIMEOUT });
   ok("enhanced edit-mode navigation updates URL");
+};
 
+const smokeRecordAndViews = async (page: Page, fixture: Fixture) => {
   let initialRecordDetailRequests = 0;
   const countInitialRecordDetailRequest = (request: Request) => {
     if (new URL(request.url()).pathname === "/api/grids/workspace/record-detail") initialRecordDetailRequests += 1;
@@ -841,7 +824,9 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   });
   await expectVisibleText(page, "Total amount", "aggregate-only view route renders");
   await expectVisibleText(page, "249.99", "aggregate-only view result renders");
+};
 
+const smokeDashboards = async (page: Page, fixture: Fixture) => {
   await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Operations dashboard", "dashboard route renders");
   await expectVisibleText(page, "Dashboard notes", "markdown widget renders");
@@ -939,7 +924,9 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
     fail("dashboard keyboard moves were not persisted in request order");
   }
   ok("dashboard keyboard moves retain focus and persist in request order");
+};
 
+const smokeExport = async (page: Page, fixture: Fixture) => {
   const exportResult = await page.evaluate(
     async ({ tableId, titleFieldId }) => {
       const res = await fetch(`/api/grids/records/by-table/${tableId}/export`, {
@@ -960,17 +947,35 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
     fail(`export failed: ${JSON.stringify(exportResult).slice(0, 400)}`);
   }
   ok("authenticated export works in browser context");
+};
 
+const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
+  const {
+    context,
+    pages: [page],
+    errors,
+  } = await createWatchedPages(browser, {
+    viewport: { width: 1440, height: 900 },
+    sessionToken: fixture.sessionToken,
+  });
+  if (!page) throw new Error("Could not create browser page");
+
+  await smokeTableWorkbench(page, fixture);
+  await smokeEnhancedNavigation(page, fixture);
+  await smokeRecordAndViews(page, fixture);
+  await smokeDashboards(page, fixture);
+  await smokeExport(page, fixture);
   assertNoBrowserErrors(errors);
   await context.close();
 };
 
 const runPublicForm = async (browser: Browser, fixture: Fixture) => {
-  const context = await browser.newContext({ viewport: { width: 1200, height: 800 }, baseURL: BASE_URL });
-  const page = await context.newPage();
-  page.setDefaultTimeout(TIMEOUT);
-  const errors: string[] = [];
-  watchPage(page, errors);
+  const {
+    context,
+    pages: [page],
+    errors,
+  } = await createWatchedPages(browser, { viewport: { width: 1200, height: 800 } });
+  if (!page) throw new Error("Could not create browser page");
 
   await page.goto(`/share/grids/forms/${fixture.form.publicToken}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Task intake", "public form route renders");
@@ -1017,12 +1022,16 @@ const runPublicForm = async (browser: Browser, fixture: Fixture) => {
 };
 
 const runResponsive = async (browser: Browser, fixture: Fixture) => {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, baseURL: BASE_URL, isMobile: true });
-  await addSessionCookie(context, fixture.sessionToken);
-  const page = await context.newPage();
-  page.setDefaultTimeout(TIMEOUT);
-  const errors: string[] = [];
-  watchPage(page, errors);
+  const {
+    context,
+    pages: [page],
+    errors,
+  } = await createWatchedPages(browser, {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    sessionToken: fixture.sessionToken,
+  });
+  if (!page) throw new Error("Could not create browser page");
 
   await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Operations dashboard", "mobile dashboard route renders");
@@ -1089,12 +1098,15 @@ const runRecordAuditSmoke = async (browser: Browser, fixture: Fixture) => {
   }
   ok("record audit policy rejects missing answers");
 
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: BASE_URL });
-  await addSessionCookie(context, fixture.sessionToken);
-  const page = await context.newPage();
-  page.setDefaultTimeout(TIMEOUT);
-  const errors: string[] = [];
-  watchPage(page, errors);
+  const {
+    context,
+    pages: [page],
+    errors,
+  } = await createWatchedPages(browser, {
+    viewport: { width: 1440, height: 900 },
+    sessionToken: fixture.sessionToken,
+  });
+  if (!page) throw new Error("Could not create browser page");
 
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?edit=true`, {
     waitUntil: "domcontentloaded",

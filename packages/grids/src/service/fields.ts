@@ -86,154 +86,180 @@ const validateCombinedCanonicalField = async (tableKind: string, candidate: Fiel
   return compiled ? ok() : fail(err.badInput("Combined-table formulas must compile completely to SQL"));
 };
 
-export const create = async (input: CreateFieldInput, actorId: string | null): Promise<Result<Field>> => {
+type FieldCreateState = {
+  candidate: Field;
+  tableKind: string;
+  requestedPosition: number | null;
+  defaultValueJsonb: string | null;
+};
+
+type ValidatedFieldCreate = {
+  name: string;
+  config: Record<string, unknown>;
+  defaultValue: unknown;
+};
+
+const validateFieldCreateIdentity = async (input: CreateFieldInput): Promise<Result<string>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
   if (!isKnownFieldType(input.type)) return fail(err.badInput(`unknown field type "${input.type}"`));
   const uniqueName = await ensureUniqueFieldName(input.tableId, name);
   if (!uniqueName.ok) return uniqueName;
+  return ok(name);
+};
+
+const validateFieldCreateValues = async (input: CreateFieldInput, name: string): Promise<Result<ValidatedFieldCreate>> => {
+  const configResult = validateFieldConfig(input.type, input.config ?? {});
+  if (!configResult.ok) return configResult;
+  const config = configResult.data as Record<string, unknown>;
+  const linkResult = await validateLinkOrComputedConfig(input.type, config, input.tableId);
+  if (!linkResult.ok) return linkResult;
+  const defaultResult = validateDefaultValue(input.type, config, input.defaultValue);
+  if (!defaultResult.ok) return defaultResult;
+
+  return ok({ name, config, defaultValue: defaultResult.data });
+};
+
+const loadFieldCreateTableKind = async (input: CreateFieldInput): Promise<Result<string>> => {
   const [parentTable] = await sql<{ kind: string }[]>`
     SELECT kind FROM grids.tables WHERE id = ${input.tableId}::uuid AND deleted_at IS NULL
   `;
   if (!parentTable) return fail(err.notFound("Table"));
-  if (parentTable.kind === "federated" && (input.required || input.defaultValue !== undefined || input.indexed || input.uniqueConstraint)) {
+  const hasStoredConstraints = input.required || input.defaultValue !== undefined || input.indexed || input.uniqueConstraint;
+  if (parentTable.kind === "federated" && hasStoredConstraints) {
     return fail(err.badInput("Combined-table fields cannot define write constraints, defaults, or storage indexes"));
   }
+  return ok(parentTable.kind);
+};
 
-  const rawConfig = input.config ?? {};
-  const cfgValidation = validateFieldConfig(input.type, rawConfig);
-  if (!cfgValidation.ok) return cfgValidation;
-  const config = cfgValidation.data as Record<string, unknown>;
-  // Relation and computed configs reference persisted resources, so their
-  // cross-table invariants require database context after shape validation.
-  const linkValidation = await validateLinkOrComputedConfig(input.type, config, input.tableId);
-  if (!linkValidation.ok) return linkValidation;
-
-  // Validate the default value against the type, if provided.
-  const defaultValid = validateDefaultValue(input.type, config, input.defaultValue);
-  if (!defaultValid.ok) return defaultValid;
-  const defaultValue = defaultValid.data;
-
-  const description = input.description?.trim() || null;
-  const icon = input.icon?.trim() || null;
-  // bun.sql passes primitive JS values (boolean / number / string) as
-  // their native PG types — Postgres can't cast `true` directly to
-  // jsonb. JSON.stringify on the wrapper produces a valid JSONB literal
-  // for primitives (`true`, `42`, `"hello"`) and keeps objects working.
-  const defaultValueJsonb = defaultValue === undefined || defaultValue === null ? null : JSON.stringify(defaultValue);
-  const uniqueConstraint = parentTable.kind === "federated" ? false : input.type === "id" ? true : (input.uniqueConstraint ?? false);
-  const fieldId = Bun.randomUUIDv7();
+const buildFieldCreateCandidate = (input: CreateFieldInput, validated: ValidatedFieldCreate, tableKind: string): Field => {
   const now = new Date().toISOString();
-  const canonicalValidation = await validateCombinedCanonicalField(parentTable.kind, {
-    id: fieldId,
+  return {
+    id: Bun.randomUUIDv7(),
     shortId: "pending",
     tableId: input.tableId,
-    name,
-    description,
-    icon,
+    name: validated.name,
+    description: input.description?.trim() || null,
+    icon: input.icon?.trim() || null,
     type: input.type,
-    config,
+    config: validated.config,
     position: input.position ?? 0,
     required: input.required ?? false,
     presentable: input.presentable ?? false,
     hideInTable: input.hideInTable ?? false,
-    defaultValue: defaultValue ?? null,
+    defaultValue: validated.defaultValue ?? null,
     indexed: input.indexed ?? false,
-    uniqueConstraint,
+    uniqueConstraint: tableKind === "federated" ? false : input.type === "id" ? true : (input.uniqueConstraint ?? false),
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
+  };
+};
+
+const prepareFieldCreate = async (input: CreateFieldInput): Promise<Result<FieldCreateState>> => {
+  const name = await validateFieldCreateIdentity(input);
+  if (!name.ok) return name;
+  const tableKind = await loadFieldCreateTableKind(input);
+  if (!tableKind.ok) return tableKind;
+  const validated = await validateFieldCreateValues(input, name.data);
+  if (!validated.ok) return validated;
+  const candidate = buildFieldCreateCandidate(input, validated.data, tableKind.data);
+  const canonicalResult = await validateCombinedCanonicalField(tableKind.data, candidate);
+  if (!canonicalResult.ok) return canonicalResult;
+
+  return ok({
+    candidate,
+    tableKind: tableKind.data,
+    requestedPosition: input.position ?? null,
+    defaultValueJsonb:
+      validated.data.defaultValue === undefined || validated.data.defaultValue === null
+        ? null
+        : JSON.stringify(validated.data.defaultValue),
   });
-  if (!canonicalValidation.ok) return canonicalValidation;
+};
 
-  let uniqueIndexPrepared = false;
-  if (uniqueConstraint && isUniqueable(input.type)) {
-    try {
-      // Build correctness-critical enforcement before committing the field row.
-      await ensureFieldUniqueIndex(fieldId, input.type, input.tableId);
-    } catch (error) {
-      return fail(err.internal(`field unique-constraint index build failed: ${(error as Error).message}`));
-    }
-    uniqueIndexPrepared = true;
-  }
+const insertPreparedField = async (state: FieldCreateState, actorId: string | null): Promise<Result<Field>> =>
+  sql.begin(async (tx): Promise<Result<Field>> => {
+    const field = state.candidate;
+    if (state.tableKind === "federated") await degradeForTableSchemaChange(field.tableId, actorId, tx);
+    const created = await writeNamedResource(
+      () =>
+        insertWithShortId<DbRow>(
+          (shortId) =>
+            tx.savepoint(async (sp) => {
+              const [row] = await sp<DbRow[]>`
+                INSERT INTO grids.fields (
+                  id, short_id, table_id, name, description, icon, type, config, position, required,
+                  presentable, hide_in_table, default_value, indexed, unique_constraint
+                )
+                VALUES (
+                  ${field.id}::uuid, ${shortId}, ${field.tableId}::uuid, ${field.name}, ${field.description}::text,
+                  ${field.icon}::text, ${field.type}, ${field.config}::jsonb,
+                  COALESCE(${state.requestedPosition}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${field.tableId}::uuid AND deleted_at IS NULL)),
+                  ${field.required}, ${field.presentable}, ${field.hideInTable}, ${state.defaultValueJsonb}::jsonb,
+                  ${field.indexed}, ${field.uniqueConstraint}
+                )
+                RETURNING *
+              `;
+              if (!row) throw new Error("insert returned no row");
+              return row;
+            }),
+          "idx_grids_fields_short_id",
+        ),
+      "idx_grids_fields_live_name",
+      "field name must be unique within this table",
+    );
+    if (!created.ok) return created;
+    const inserted = mapFieldRow(created.data);
+    await logAudit(
+      {
+        tableId: inserted.tableId,
+        userId: actorId,
+        action: "created",
+        diff: { field: { old: null, new: { id: inserted.id, name: inserted.name, type: inserted.type } } },
+      },
+      tx,
+    );
+    return ok(inserted);
+  });
 
-  let inserted: Result<Field>;
+const prepareCreateUniqueIndex = async (field: Field): Promise<Result<boolean>> => {
+  if (!field.uniqueConstraint || !isUniqueable(field.type)) return ok(false);
   try {
-    inserted = await sql.begin(async (tx): Promise<Result<Field>> => {
-      if (parentTable.kind === "federated") await degradeForTableSchemaChange(input.tableId, actorId, tx);
-      const created = await writeNamedResource(
-        () =>
-          insertWithShortId<DbRow>(
-            (shortId) =>
-              tx.savepoint(async (sp) => {
-                const [r] = await sp<DbRow[]>`
-                  INSERT INTO grids.fields (
-                    id, short_id, table_id, name, description, icon, type, config, position, required,
-                    presentable, hide_in_table, default_value, indexed, unique_constraint
-                  )
-                  VALUES (
-                    ${fieldId}::uuid,
-                    ${shortId},
-                    ${input.tableId}::uuid,
-                    ${name},
-                    -- bun.sql can't infer the type of a literal NULL; cast keeps the
-                    -- INSERT working when the user creates a field without a description.
-                    ${description}::text,
-                    ${icon}::text,
-                    ${input.type},
-                    ${config}::jsonb,
-                    COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL)),
-                    ${input.required ?? false},
-                    ${input.presentable ?? false},
-                    ${input.hideInTable ?? false},
-                    ${defaultValueJsonb}::jsonb,
-                    ${input.indexed ?? false},
-                    ${uniqueConstraint}
-                  )
-                  RETURNING *
-                `;
-                if (!r) throw new Error("insert returned no row");
-                return r;
-              }),
-            "idx_grids_fields_short_id",
-          ),
-        "idx_grids_fields_live_name",
-        "field name must be unique within this table",
-      );
-      if (!created.ok) return created;
-      const field = mapFieldRow(created.data);
-
-      await logAudit(
-        {
-          tableId: input.tableId,
-          userId: actorId,
-          action: "created",
-          diff: { field: { old: null, new: { id: field.id, name: field.name, type: field.type } } },
-        },
-        tx,
-      );
-      return ok(field);
-    });
+    await ensureFieldUniqueIndex(field.id, field.type, field.tableId);
+    return ok(true);
   } catch (error) {
-    if (uniqueIndexPrepared) {
-      const cleanup = await cleanupPreparedUniqueIndex(fieldId);
-      if (!cleanup.ok) throw new AggregateError([error, cleanup.error], cleanup.error.message);
-    }
+    return fail(err.internal(`field unique-constraint index build failed: ${(error as Error).message}`));
+  }
+};
+
+const insertWithUniqueIndexCleanup = async (
+  state: FieldCreateState,
+  actorId: string | null,
+  uniqueIndexCreated: boolean,
+): Promise<Result<Field>> => {
+  try {
+    const inserted = await insertPreparedField(state, actorId);
+    if (inserted.ok || !uniqueIndexCreated) return inserted;
+    const cleanup = await cleanupPreparedUniqueIndex(state.candidate.id);
+    return cleanup.ok ? inserted : fail(cleanup.error);
+  } catch (error) {
+    if (!uniqueIndexCreated) throw error;
+    const cleanup = await cleanupPreparedUniqueIndex(state.candidate.id);
+    if (!cleanup.ok) throw new AggregateError([error, cleanup.error], cleanup.error.message);
     throw error;
   }
-  if (!inserted.ok) {
-    if (uniqueIndexPrepared) {
-      const cleanup = await cleanupPreparedUniqueIndex(fieldId);
-      if (!cleanup.ok) return fail(cleanup.error);
-    }
-    return inserted;
-  }
+};
+
+export const create = async (input: CreateFieldInput, actorId: string | null): Promise<Result<Field>> => {
+  const prepared = await prepareFieldCreate(input);
+  if (!prepared.ok) return prepared;
+  const uniqueIndex = await prepareCreateUniqueIndex(prepared.data.candidate);
+  if (!uniqueIndex.ok) return uniqueIndex;
+  const inserted = await insertWithUniqueIndexCleanup(prepared.data, actorId, uniqueIndex.data);
+  if (!inserted.ok) return inserted;
   const field = inserted.data;
 
-  // CONCURRENTLY-built filterable index fires after the row commits.
-  // Failures don't block create — they're logged so the user can
-  // re-toggle (filterable indexes are nice-to-have for performance,
-  // not correctness — fields work without them).
   if (field.indexed) {
     void ensureFieldIndex(field.id, field.type, field.tableId, field.config);
   }
@@ -243,7 +269,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     resource: { kind: "field", id: field.id, tableId: input.tableId },
     actorId,
   });
-  if (parentTable.kind === "federated") await refreshForTableSchemaChange(input.tableId, actorId);
+  if (prepared.data.tableKind === "federated") await refreshForTableSchemaChange(input.tableId, actorId);
   return ok(field);
 };
 

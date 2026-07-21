@@ -329,13 +329,12 @@ export type {
   WidgetFormat,
   WorkflowButtonWidget,
 } from "../contracts";
-export type { GridsWorkflow as Workflow, GridsWorkflowRun as WorkflowRun } from "../workflows/contracts";
+export type { GridsWorkflow as Workflow } from "../workflows/contracts";
 export type { CombinedAuditEntry, CombinedAuditPage, CombinedRecordOrigin } from "./combined-audit";
 export type { Form, FormFieldEntry } from "./forms";
 export type { Grant, ResolveTarget, ResourceType } from "./permission-resolver";
 export type { RecordHistoryEntry } from "./record-history";
 export type {
-  AuditEntry,
   Base,
   Field,
   GridFile,

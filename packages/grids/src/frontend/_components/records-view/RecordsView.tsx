@@ -1,9 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { AppWorkspace, Dropdown, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
-import { apiClient } from "../../../api/client";
+import { createMemo, createSignal, Show } from "solid-js";
 import type {
   AggregationSpec,
   ColumnSpec,
@@ -22,28 +20,23 @@ import QueryWorkspace from "../query/QueryWorkspace";
 import type { QueryWorkspaceCurrentSource } from "../query/query-workspace-model";
 import { openCombinedAuditDialog } from "../records/CombinedAuditDialog";
 import { openExportRecordsDialog } from "../records/ExportRecordsDialog";
-import RecordDetailPanel from "../records/RecordDetailPanel";
-import DatabaseTable from "../table/DatabaseTable";
-import GroupDetailPanel from "../table/GroupDetailPanel";
-import GroupedTable, { type GroupBucket } from "../table/GroupedTable";
-import { CardSizeDropdown } from "../toolbar/CardSizeDropdown";
+import type { GroupBucket } from "../table/GroupedTable";
 import GridToolbar from "../toolbar/GridToolbar";
 // Plain children share RecordsView's hydrated state; nested islands cannot
 // serialize the callback props used by these controls.
-import SearchBar from "../toolbar/SearchBar";
-import { errorMessage } from "../utils/api-helpers";
 import { workspaceMainClass } from "../workspace/workspace-layout";
 import type { WorkspaceBulkLauncher, WorkspaceRecordDetail } from "../workspace/workspace-state-model";
-import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
-import { visibleIdsFromResult } from "./live-refresh";
 import type { CardSize, RecordsState } from "./query-url";
-import { RecordCalendarView } from "./RecordCalendarView";
-import { RecordCardsView } from "./RecordCardsView";
 import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount } from "./RecordMetadataDialog";
 import { RecordsAdminToolbar } from "./RecordsAdminToolbar";
+import RecordsDetailSurface from "./RecordsDetailSurface";
+import RecordsPrimaryToolbar from "./RecordsPrimaryToolbar";
+import RecordsResultSurface from "./RecordsResultSurface";
 import { createRecordsAdminController } from "./records-admin-controller";
+import { createRecordsBulkController } from "./records-bulk-controller";
 import { createRecordsDataController } from "./records-data-controller";
+import { createRecordsSelectionController } from "./records-selection-controller";
 import { createRecordsUrlController } from "./records-url-controller";
 import { createRecordsViewColumnController, isFieldColumn } from "./records-view-columns";
 import { aggregationRowsFromQuery, applyToolbarQueryPatch, filterRowsFromQuery, type ToolbarQueryPatch } from "./toolbar-query";
@@ -130,12 +123,6 @@ type Props = {
   workspaceRouteKey: string;
 };
 
-type BulkWorkflowRunInput = {
-  launcher: WorkspaceBulkLauncher;
-  selectedRecordIds: string[];
-  query: RecordQuery;
-};
-
 export default function RecordsView(props: Props) {
   // ── Canonical state ────────────────────────────────────────────────
   const [tableName, setTableName] = createSignal(props.tableName);
@@ -165,7 +152,6 @@ export default function RecordsView(props: Props) {
   });
   const [cursor, setCursor] = createSignal<string | null>(props.initialState.cursor);
   const [selectedRecordId, setSelectedRecordId] = createSignal<string | null>(props.initialState.selectedRecordId);
-  const [bulkSelectedRecordIds, setBulkSelectedRecordIds] = createSignal<Set<string>>(new Set());
   const [selectedGroup, setSelectedGroup] = createSignal<GroupBucket | null>(null);
   const resolvedSearchState = (state: RecordsState["search"]): RecordsState["search"] => {
     if (state.override) return state;
@@ -194,6 +180,7 @@ export default function RecordsView(props: Props) {
     return count > 0 ? `Forms (${count})` : "Add form";
   };
   const renderMode = () => (isGrouped() || props.trashMode ? "table" : displayConfig().mode);
+  const detailMode = (): "live" | "trash" => (query().deletedOnly ? "trash" : "live");
 
   // ── Query source ──────────────────────────────────────────────────
   // Search is a peer of filter/sort/group/agg in the wire query. We fold
@@ -272,62 +259,7 @@ export default function RecordsView(props: Props) {
     );
   };
 
-  const bulkSelectionEnabled = () =>
-    props.bulkSelectionLaunchers.length > 0 && !props.trashMode && !isGrouped() && renderMode() === "table";
-  const selectedBulkCount = () => bulkSelectedRecordIds().size;
-  const clearBulkSelection = () => setBulkSelectedRecordIds(new Set<string>());
-  const toggleBulkRecordSelection = (recordId: string, selected: boolean) => {
-    setBulkSelectedRecordIds((prev) => {
-      const next = new Set(prev);
-      if (selected) next.add(recordId);
-      else next.delete(recordId);
-      return next;
-    });
-  };
-  const toggleVisibleBulkRecords = (selected: boolean) => {
-    const ids = (items() as GridRecord[]).map((record) => record.id);
-    setBulkSelectedRecordIds((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) {
-        if (selected) next.add(id);
-        else next.delete(id);
-      }
-      return next;
-    });
-  };
-
-  const runBulkWorkflow = mutations.create<{ runId: string; status: string }, BulkWorkflowRunInput>({
-    mutation: async ({ launcher, selectedRecordIds, query }, { abortSignal }) => {
-      const res = await apiClient.workflows.launchers[":launcherId"].invoke.bulk.$post(
-        {
-          param: { launcherId: launcher.id },
-          json: {
-            operationId: crypto.randomUUID(),
-            mode: "execute",
-            expectedRevision: launcher.workflowRevision,
-            inputs: {},
-            ...bulkSelectionRunPayload(selectedRecordIds, query),
-          },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not start workflow."));
-      return res.json();
-    },
-    onSuccess: (run) => {
-      clearBulkSelection();
-      toast.success(`Workflow queued: ${run.status}`);
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const queueBulkWorkflow = (launcher: WorkspaceBulkLauncher) =>
-    runBulkWorkflow.mutate({
-      launcher,
-      selectedRecordIds: [...bulkSelectedRecordIds()],
-      query: queryWithSearch(),
-    });
-
+  let selectionController: ReturnType<typeof createRecordsSelectionController> | undefined;
   const recordsData = createRecordsDataController({
     tableId: props.tableId,
     trashMode: props.trashMode,
@@ -346,9 +278,9 @@ export default function RecordsView(props: Props) {
     isGrouped,
     hasBlockingDialog: () => dialogCore.isOpen(),
     onOptimisticDelete: (recordId) => {
-      if (recordId === selectedRecordId()) closeSelectedRecord();
+      if (recordId === selectedRecordId()) selectionController?.close();
     },
-    onRefreshed: (result) => verifySelectedRecordAfterRefresh(result),
+    onRefreshed: (result) => selectionController?.verifyAfterRefresh(result),
     onRevoked: (error) => prompts.error(error.message || "Your access to this table changed. Reload the page to continue."),
     onFatal: (error) => prompts.error(error.message || "Live updates are unavailable. Reload the page to continue."),
   });
@@ -419,30 +351,53 @@ export default function RecordsView(props: Props) {
     },
   });
 
-  let bulkSelectionScopeKey = "";
-  createEffect(() => {
-    const key = JSON.stringify({
-      tableId: props.tableId,
-      viewId: props.activeView?.id ?? null,
-      trashMode: props.trashMode,
-      renderMode: renderMode(),
-      query: queryWithSearch(),
-    });
-    if (bulkSelectionScopeKey && key !== bulkSelectionScopeKey) clearBulkSelection();
-    bulkSelectionScopeKey = key;
+  selectionController = createRecordsSelectionController({
+    tableId: props.tableId,
+    activeViewId: props.activeView?.id,
+    mode: detailMode,
+    items: () => items() as GridRecord[],
+    selectedRecordId,
+    setSelectedRecordId,
+    initialRecord: props.initialSelectedRecord,
+    initialDetail: props.initialSelectedRecordDetail,
+    syncUrl,
   });
+  const {
+    record: selectedRecord,
+    detail: selectedRecordDetail,
+    failure: selectedRecordFailure,
+    close: closeSelectedRecord,
+    clearState: clearSelectedRecordState,
+    selectRecord: selectResolvedRecord,
+    openRecord: openUnresolvedRecord,
+    setFetchedRecord,
+    retry: retrySelectedRecord,
+    refreshDetail: refreshSelectedRecordDetail,
+  } = selectionController;
 
-  createEffect(() => {
-    if (!bulkSelectionEnabled()) {
-      if (selectedBulkCount() > 0) clearBulkSelection();
-      return;
-    }
-    const visibleIds = new Set((items() as GridRecord[]).map((record) => record.id));
-    setBulkSelectedRecordIds((prev) => {
-      const next = pruneBulkSelection(prev, visibleIds);
-      return sameBulkSelection(prev, next) ? prev : next;
-    });
+  const bulkSelectionEnabled = () =>
+    props.bulkSelectionLaunchers.length > 0 && !props.trashMode && !isGrouped() && renderMode() === "table";
+  const bulkSelection = createRecordsBulkController({
+    enabled: bulkSelectionEnabled,
+    items: () => items() as GridRecord[],
+    query: queryWithSearch,
+    scopeKey: () =>
+      JSON.stringify({
+        tableId: props.tableId,
+        viewId: props.activeView?.id ?? null,
+        trashMode: props.trashMode,
+        renderMode: renderMode(),
+        query: queryWithSearch(),
+      }),
   });
+  const {
+    selectedIds: bulkSelectedRecordIds,
+    selectedCount: selectedBulkCount,
+    clear: clearBulkSelection,
+    toggleRecord: toggleBulkRecordSelection,
+    toggleVisible: toggleVisibleBulkRecords,
+    queueWorkflow: queueBulkWorkflow,
+  } = bulkSelection;
 
   // Relation labels: SSR seeded a static prop, the API endpoint now
   // also emits `relationLabels` for group-mode bucket keys. Merge both
@@ -453,136 +408,6 @@ export default function RecordsView(props: Props) {
     ...props.relationLabels,
     ...liveRelationLabels(),
   });
-
-  // ── Selected record resolution ─────────────────────────────────────
-  // Prefer the row from the visible page (cheap, no network). Fall back
-  // to the SSR-provided initialSelectedRecord (deep-link case where the
-  // record isn't on this page). Final fallback: client-side fetch.
-  const [fetchedSelected, setFetchedSelected] = createSignal<GridRecord | null>(null);
-  const [selectedRecordDetail, setSelectedRecordDetail] = createSignal<WorkspaceRecordDetail | null>(props.initialSelectedRecordDetail);
-  const [selectedRecordFailure, setSelectedRecordFailure] = createSignal<Error | null>(null);
-  const [selectedRecordLoadAttempt, setSelectedRecordLoadAttempt] = createSignal(0);
-  const selectedRecord = createMemo<GridRecord | null>(() => {
-    const id = selectedRecordId();
-    if (!id) return null;
-    const fromPage = items().find((r) => r.id === id);
-    if (fromPage) return fromPage;
-    if (props.initialSelectedRecord && props.initialSelectedRecord.id === id) {
-      return props.initialSelectedRecord;
-    }
-    const fetched = fetchedSelected();
-    if (fetched && fetched.id === id) return fetched;
-    return null;
-  });
-
-  const closeSelectedRecord = () => {
-    setSelectedRecordId(null);
-    setFetchedSelected(null);
-    setSelectedRecordDetail(null);
-    setSelectedRecordFailure(null);
-    syncUrl({ replace: true });
-  };
-
-  const fetchSelectedRecordDetail = async (recordId: string, signal?: AbortSignal) => {
-    const res = await apiClient.workspace["record-detail"].$get(
-      {
-        query: {
-          tableId: props.tableId,
-          recordId,
-          ...(props.activeView ? { viewId: props.activeView.id } : {}),
-          ...(detailMode() === "trash" ? { deletedOnly: "true" as const } : {}),
-        },
-      },
-      signal ? { init: { signal } } : undefined,
-    );
-    if (res.status === 403 || res.status === 404) {
-      return {
-        recordId,
-        filesByField: {},
-        documentRuns: [],
-        snapshots: [],
-        auditEntries: [],
-        combinedOrigin: null,
-      } satisfies WorkspaceRecordDetail;
-    }
-    if (!res.ok) throw new Error(await errorMessage(res, "Could not load record details"));
-    return (await res.json()) as WorkspaceRecordDetail;
-  };
-
-  createEffect(() => {
-    const recordId = selectedRecordId();
-    if (!recordId) return;
-    if (selectedRecordDetail()?.recordId === recordId) return;
-    const abort = new AbortController();
-    onCleanup(() => abort.abort());
-    void fetchSelectedRecordDetail(recordId, abort.signal)
-      .then((detail) => {
-        if (selectedRecordId() === recordId) setSelectedRecordDetail(detail);
-      })
-      .catch((error: unknown) => {
-        if (!abort.signal.aborted) prompts.error(error instanceof Error ? error.message : "Could not load record details");
-      });
-  });
-
-  // When a selected id can't be found locally, fetch it once. This is
-  // the rare deep-link / paginated-out path; common case (row click)
-  // hands us the record directly via items().
-  createEffect(() => {
-    selectedRecordLoadAttempt();
-    const id = selectedRecordId();
-    if (!id) {
-      setFetchedSelected(null);
-      setSelectedRecordFailure(null);
-      return;
-    }
-    if (selectedRecord()) {
-      setSelectedRecordFailure(null);
-      return;
-    }
-    const abort = new AbortController();
-    onCleanup(() => abort.abort());
-    const requestedId = id;
-    setSelectedRecordFailure(null);
-    void apiClient.records[":tableId"][":recordId"]
-      .$get(
-        {
-          param: { tableId: props.tableId, recordId: id },
-          query: detailMode() === "trash" ? { deletedOnly: "true" } : {},
-        },
-        { init: { signal: abort.signal } },
-      )
-      .then(async (res) => {
-        if (res.status === 403 || res.status === 404) {
-          if (selectedRecordId() === requestedId) closeSelectedRecord();
-          return;
-        }
-        if (!res.ok) throw new Error(await errorMessage(res, "Could not load record"));
-        const rec = await res.json();
-        if (selectedRecordId() === requestedId) setFetchedSelected(() => rec);
-      })
-      .catch((error: unknown) => {
-        if (abort.signal.aborted || selectedRecordId() !== requestedId) return;
-        setSelectedRecordFailure(error instanceof Error ? error : new Error("Could not load record."));
-      });
-  });
-
-  const detailMode = (): "live" | "trash" => (query().deletedOnly ? "trash" : "live");
-
-  const verifySelectedRecordAfterRefresh = async (result: TableQueryResult) => {
-    const id = selectedRecordId();
-    if (!id || visibleIdsFromResult(result).includes(id)) return;
-    const res = await apiClient.records[":tableId"][":recordId"].$get({
-      param: { tableId: props.tableId, recordId: id },
-      query: detailMode() === "trash" ? { deletedOnly: "true" } : {},
-    });
-    if (selectedRecordId() !== id) return;
-    if (res.ok) {
-      const record = await res.json();
-      if (selectedRecordId() === id) setFetchedSelected(() => record);
-      return;
-    }
-    if (res.status === 403 || res.status === 404) closeSelectedRecord();
-  };
 
   // ── Commit handlers (called from children) ─────────────────────────
   /**
@@ -637,9 +462,7 @@ export default function RecordsView(props: Props) {
    *  model ("back undoes my last forward action"). */
   const onSelectRecord = (rec: GridRecord) => {
     setSelectedGroup(null);
-    if (selectedRecordDetail()?.recordId !== rec.id) setSelectedRecordDetail(null);
-    setSelectedRecordId(rec.id);
-    syncUrl({ replace: false });
+    selectResolvedRecord(rec);
   };
 
   const openRecordById = (recordId: string, deleted: boolean) => {
@@ -655,10 +478,7 @@ export default function RecordsView(props: Props) {
       return;
     }
     setSelectedGroup(null);
-    setFetchedSelected(null);
-    setSelectedRecordDetail(null);
-    setSelectedRecordId(recordId);
-    syncUrl({ replace: false });
+    openUnresolvedRecord(recordId);
   };
 
   const openCombinedAudit = () =>
@@ -670,12 +490,9 @@ export default function RecordsView(props: Props) {
       onOpenRecord: openRecordById,
     });
 
-  const groupBucketKey = (bucket: GroupBucket | null): string | null => (bucket ? JSON.stringify(bucket.keys) : null);
-
   const onSelectGroup = (bucket: GroupBucket) => {
     setSelectedRecordId(null);
-    setFetchedSelected(null);
-    setSelectedRecordDetail(null);
+    clearSelectedRecordState();
     setSelectedGroup(bucket);
     syncUrl({ replace: true });
   };
@@ -692,9 +509,7 @@ export default function RecordsView(props: Props) {
 
   const onOpenGroupedRecord = (record: GridRecord) => {
     setSelectedGroup(null);
-    setFetchedSelected(() => record);
-    setSelectedRecordId(record.id);
-    syncUrl({ replace: false });
+    selectResolvedRecord(record);
   };
 
   /** Toolbar's row-create flow finished — open the new record's detail
@@ -702,23 +517,16 @@ export default function RecordsView(props: Props) {
    *  the create-prompt can't render an input for). pushState so the
    *  back button collapses the picker first. */
   const onRecordCreated = (record: GridRecord) => {
-    setFetchedSelected(() => record);
-    setSelectedRecordDetail(null);
-    setSelectedRecordId(record.id);
-    syncUrl({ replace: false });
+    selectResolvedRecord(record);
     void refreshVisibleRecords({ recordIds: [record.id], force: true });
   };
 
   /** Keep the selected panel and visible page in sync after an in-place edit. */
   const onRecordUpdated = (record: GridRecord) => {
-    setFetchedSelected(() => record);
+    setFetchedRecord(() => record);
     replaceRecord(record);
     void refreshVisibleRecords({ recordIds: [record.id], force: true });
-    void fetchSelectedRecordDetail(record.id)
-      .then(setSelectedRecordDetail)
-      .catch((error: unknown) => {
-        prompts.error(error instanceof Error ? error.message : "Could not refresh record details");
-      });
+    void refreshSelectedRecordDetail(record.id);
   };
 
   /** After a delete or restore: close the panel + refetch. */
@@ -859,120 +667,34 @@ export default function RecordsView(props: Props) {
               (data.loading ? "opacity-60" : "")
             }
           >
-            {/* Row 1 — always visible. Search (left, flex-grow), record
-            count + Actions dropdown (right). Trash mode swaps the
-            Actions for a "Back to live records" link. */}
-            <div class="flex flex-wrap items-center gap-2 shrink-0">
-              <Show when={props.searchableFields.length > 0}>
-                <div class="flex-1 min-w-0">
-                  <SearchBar
-                    fields={props.searchableFields}
-                    initialQ={search().q}
-                    initialQFields={search().fieldIds}
-                    onSearchChange={onSearchChange}
-                  />
-                </div>
-              </Show>
-
-              <span class="text-xs text-dimmed whitespace-nowrap">
-                {props.trashMode && "Deleted: "}
-                {recordCountText()}
-              </span>
-              <Show when={livePending() || liveRefreshing()}>
-                <button
-                  type="button"
-                  class="btn-input btn-input-sm app-accent-text"
-                  disabled={liveRefreshing()}
-                  onClick={() => void applyLiveRefresh()}
-                  title="Refresh records"
-                >
-                  <i class={`ti ${liveRefreshing() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} />
-                  Updates available
-                </button>
-              </Show>
-              <Show when={renderMode() === "cards" && (props.viewMode || props.trashMode)}>
-                <CardSizeDropdown value={cardSize()} onChange={onCardSizeChange} />
-              </Show>
-
-              <Show
-                when={!props.trashMode}
-                fallback={
-                  <Show when={props.canReadTable}>
-                    <a href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`} class="btn-input btn-input-sm">
-                      <i class="ti ti-arrow-back" />
-                      Back to live records
-                    </a>
-                  </Show>
-                }
-              >
-                <Show when={activeRecordMetaCount() > 0}>
-                  <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={openRecordMetaDialog}>
-                    <i class="ti ti-user-search" />
-                    Record info · {activeRecordMetaCount()}
-                  </button>
-                </Show>
-                <Show when={bulkSelectionEnabled() && selectedBulkCount() > 0}>
-                  <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={clearBulkSelection}>
-                    <i class="ti ti-checklist" />
-                    {selectedBulkCount()} selected
-                    <i class="ti ti-x text-[10px] opacity-60" />
-                  </button>
-                </Show>
-                <Dropdown
-                  // bottom-LEFT = drop below, right-edge aligned with the
-                  // trigger. The trigger lives at the far right of row 1
-                  // so the default (bottom-right = expand-rightward) clips
-                  // off the viewport. This flips the menu inward.
-                  position="bottom-left"
-                  trigger={
-                    <span class="btn-input btn-input-sm">
-                      Actions
-                      <i class="ti ti-chevron-down text-[10px] opacity-60" />
-                    </span>
-                  }
-                  elements={[
-                    {
-                      icon: "ti ti-user-search",
-                      label: "Record metadata",
-                      action: openRecordMetaDialog,
-                    },
-                    {
-                      icon: "ti ti-download",
-                      label: "Export records",
-                      action: openExportDialog,
-                    },
-                    ...props.bulkSelectionLaunchers.map((launcher) => ({
-                      icon: "ti ti-route",
-                      label: bulkWorkflowActionLabel(launcher.name, selectedBulkCount()),
-                      action: () => queueBulkWorkflow(launcher),
-                    })),
-                    {
-                      icon: "ti ti-code",
-                      label: "Open query",
-                      href: queryWorkspaceHref(),
-                    },
-                    ...(props.tableKind === "federated" && props.canReadTable
-                      ? [
-                          {
-                            icon: "ti ti-history",
-                            label: "Audit trail",
-                            action: openCombinedAudit,
-                          },
-                        ]
-                      : []),
-                    ...(props.canReadTable
-                      ? [
-                          {
-                            icon: "ti ti-archive",
-                            label: "Show deleted",
-                            href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
-                          },
-                        ]
-                      : []),
-                  ]}
-                />
-              </Show>
-            </div>
+            <RecordsPrimaryToolbar
+              searchableFields={props.searchableFields}
+              search={search()}
+              trashMode={props.trashMode}
+              canReadTable={props.canReadTable}
+              tableKind={props.tableKind}
+              baseShortId={props.baseShortId}
+              tableShortId={props.tableShortId}
+              recordCountText={recordCountText()}
+              livePending={livePending()}
+              liveRefreshing={liveRefreshing()}
+              cardsMode={renderMode() === "cards"}
+              viewMode={props.viewMode}
+              cardSize={cardSize()}
+              recordMetaCount={activeRecordMetaCount()}
+              bulkSelectionEnabled={bulkSelectionEnabled()}
+              selectedBulkCount={selectedBulkCount()}
+              bulkLaunchers={props.bulkSelectionLaunchers}
+              queryHref={queryWorkspaceHref()}
+              onSearchChange={onSearchChange}
+              onRefresh={() => void applyLiveRefresh()}
+              onCardSizeChange={onCardSizeChange}
+              onOpenRecordMetadata={openRecordMetaDialog}
+              onClearBulkSelection={clearBulkSelection}
+              onQueueBulkWorkflow={queueBulkWorkflow}
+              onExport={openExportDialog}
+              onOpenCombinedAudit={openCombinedAudit}
+            />
 
             {/* Saved views use their settings dialog; trash mode only exposes recovery actions. */}
             <Show when={!props.viewMode && !props.trashMode}>
@@ -1043,196 +765,96 @@ export default function RecordsView(props: Props) {
               )}
             </Show>
 
-            {/* DatabaseTable owns the single scroll context required by its sticky header. */}
-            <div class="flex-1 min-h-0 flex flex-col gap-2">
-              <Show
-                when={isGrouped()}
-                fallback={
-                  <Show
-                    when={renderMode() === "cards"}
-                    fallback={
-                      <Show
-                        when={renderMode() === "calendar"}
-                        fallback={
-                          <DatabaseTable
-                            result={{
-                              items: items() as GridRecord[],
-                              fields: fields(),
-                              nextCursor: null,
-                            }}
-                            baseId={props.baseShortId}
-                            tableShortIds={props.tableShortIds}
-                            fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
-                            selectedId={selectedRecordId()}
-                            highlightedIds={highlightedRecordIds()}
-                            onRecordClick={onSelectRecord}
-                            viewColumns={effectiveViewColumns()}
-                            aggregates={props.trashMode ? {} : aggregates()}
-                            aggregationSpecs={tableAggregationSpecs()}
-                            hasMore={!props.trashMode && !!nextCursor()}
-                            loadingMore={data.loading && !!cursor()}
-                            onLoadMore={loadNextFlatPage}
-                            scrollPreserveKey={`grids-records-${props.tableId}-${props.viewShortId ?? "default"}`}
-                            adminMode={adminMode()}
-                            onFieldSettings={adminMode() && !isSavedView() && props.canManageTable ? openFieldSettings : undefined}
-                            onFieldMove={undefined}
-                            onViewColumnSettings={
-                              adminMode() && isSavedView() && props.canEditActiveView ? openViewColumnSettings : undefined
-                            }
-                            onViewColumnMove={
-                              adminMode() && (isSavedView() ? props.canEditActiveView : props.canManageTable)
-                                ? moveViewColumnInline
-                                : undefined
-                            }
-                            bulkSelection={
-                              bulkSelectionEnabled()
-                                ? {
-                                    selectedIds: bulkSelectedRecordIds(),
-                                    onToggleRecord: toggleBulkRecordSelection,
-                                    onToggleVisible: toggleVisibleBulkRecords,
-                                  }
-                                : undefined
-                            }
-                            dateConfig={props.dateConfig}
-                          />
-                        }
-                      >
-                        <RecordCalendarView
-                          items={items() as GridRecord[]}
-                          fields={fields()}
-                          displayConfig={displayConfig()}
-                          calendarState={calendarState()}
-                          onCalendarChange={onCalendarChange}
-                          selectedRecordId={selectedRecordId()}
-                          onRecordClick={onSelectRecord}
-                          dateConfig={props.dateConfig}
-                          fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
-                          hasMore={!props.trashMode && !!nextCursor()}
-                          loadingMore={data.loading && !!cursor()}
-                          onLoadMore={loadNextFlatPage}
-                        />
-                      </Show>
+            <RecordsResultSurface
+              grouped={isGrouped()}
+              mode={renderMode()}
+              trashMode={props.trashMode}
+              loading={data.loading}
+              cursor={cursor()}
+              nextCursor={nextCursor()}
+              tableId={props.tableId}
+              viewShortId={props.viewShortId}
+              baseShortId={props.baseShortId}
+              tableShortIds={props.tableShortIds}
+              fieldsByTable={props.fieldsByTable}
+              fields={fields()}
+              items={items() as GridRecord[]}
+              buckets={buckets()}
+              groupBy={groupBy()}
+              aggregations={aggregations()}
+              groupedExplode={props.groupedExplode}
+              relationLabels={mergedRelationLabels()}
+              selectedGroup={selectedGroup()}
+              selectedRecordId={selectedRecordId()}
+              highlightedRecordIds={highlightedRecordIds()}
+              filePreviews={filePreviews()}
+              displayConfig={displayConfig()}
+              calendarState={calendarState()}
+              cardSize={cardSize()}
+              viewColumns={effectiveViewColumns()}
+              aggregates={aggregates()}
+              aggregationSpecs={tableAggregationSpecs()}
+              groupedColumnOrder={visibleGroupedColumnOrder()}
+              hiddenGroupedColumnIds={query().hiddenGroupedColumns}
+              adminMode={adminMode()}
+              canManageTable={props.canManageTable}
+              savedView={isSavedView()}
+              canEditView={!!props.canEditActiveView}
+              bulkSelection={
+                bulkSelectionEnabled()
+                  ? {
+                      selectedIds: bulkSelectedRecordIds(),
+                      onToggleRecord: toggleBulkRecordSelection,
+                      onToggleVisible: toggleVisibleBulkRecords,
                     }
-                  >
-                    <RecordCardsView
-                      items={items() as GridRecord[]}
-                      fields={fields()}
-                      displayConfig={displayConfig()}
-                      filePreviews={filePreviews()}
-                      baseId={props.baseShortId}
-                      tableId={props.tableId}
-                      tableShortIds={props.tableShortIds}
-                      fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
-                      selectedId={selectedRecordId()}
-                      highlightedIds={highlightedRecordIds()}
-                      onRecordClick={onSelectRecord}
-                      cardSize={cardSize()}
-                      hasMore={!props.trashMode && !!nextCursor()}
-                      loadingMore={data.loading && !!cursor()}
-                      onLoadMore={loadNextFlatPage}
-                      dateConfig={props.dateConfig}
-                    />
-                  </Show>
-                }
-              >
-                <GroupedTable
-                  baseId={props.baseShortId}
-                  tableShortIds={props.tableShortIds}
-                  fields={fields()}
-                  groupBy={groupBy()}
-                  aggregations={aggregations()}
-                  buckets={buckets()}
-                  explode={props.groupedExplode}
-                  relationLabels={mergedRelationLabels()}
-                  selectedBucketKey={groupBucketKey(selectedGroup())}
-                  onBucketClick={onSelectGroup}
-                  adminMode={adminMode() && isSavedView() && !!props.canEditActiveView}
-                  columnOrder={visibleGroupedColumnOrder()}
-                  hiddenColumnIds={query().hiddenGroupedColumns}
-                  scrollPreserveKey={`grids-groups-${props.tableId}-${props.viewShortId ?? "default"}`}
-                  onColumnSettings={openGroupedViewColumnSettings}
-                  onColumnMove={moveGroupedViewColumnInline}
-                  dateConfig={props.dateConfig}
-                  hasMore={!props.trashMode && !!nextCursor()}
-                  loadingMore={data.loading && !!cursor()}
-                  onLoadMore={loadNextFlatPage}
-                />
-              </Show>
-            </div>
+                  : undefined
+              }
+              dateConfig={props.dateConfig}
+              onRecordClick={onSelectRecord}
+              onCalendarChange={onCalendarChange}
+              onGroupClick={onSelectGroup}
+              onLoadMore={loadNextFlatPage}
+              onFieldSettings={openFieldSettings}
+              onViewColumnSettings={openViewColumnSettings}
+              onViewColumnMove={moveViewColumnInline}
+              onGroupedColumnSettings={openGroupedViewColumnSettings}
+              onGroupedColumnMove={moveGroupedViewColumnInline}
+            />
           </div>
         </div>
       </AppWorkspace.Main>
 
       <AppWorkspace.Detail id="record" open={hasOpenDetail()} width="lg" viewTransitionName="grids-record-detail">
         <Show when={selectedRecordId() || selectedGroup()}>
-          <Show
-            when={selectedGroup()}
-            fallback={
-              <Show
-                when={!selectedRecordFailure()}
-                fallback={
-                  <Placeholder
-                    state="error"
-                    surface="paper"
-                    title="Could not load record"
-                    description={selectedRecordFailure()?.message}
-                    class="h-full"
-                    action={
-                      <div class="flex items-center gap-1">
-                        <button type="button" class="btn-input btn-input-sm" onClick={closeSelectedRecord}>
-                          Close
-                        </button>
-                        <button
-                          type="button"
-                          class="btn-input btn-input-sm"
-                          onClick={() => setSelectedRecordLoadAttempt((attempt) => attempt + 1)}
-                        >
-                          <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                        </button>
-                      </div>
-                    }
-                  />
-                }
-              >
-                <RecordDetailPanel
-                  baseId={props.baseId}
-                  baseShortId={props.baseShortId}
-                  tableId={props.tableId}
-                  tableName={tableName()}
-                  fields={fields()}
-                  auditPolicy={tableAuditPolicy()}
-                  record={selectedRecord}
-                  detail={selectedRecordDetail}
-                  documentTemplates={props.documentTemplates}
-                  mode={detailMode}
-                  canWrite={props.canWrite}
-                  relationLabels={mergedRelationLabels()}
-                  tableShortIds={props.tableShortIds}
-                  fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
-                  viewColumns={effectiveViewColumns()}
-                  onClose={onCloseDetail}
-                  onUpdated={onRecordUpdated}
-                  onRemoved={onRecordRemoved}
-                  dateConfig={props.dateConfig}
-                />
-              </Show>
-            }
-          >
-            {(bucket) => (
-              <GroupDetailPanel
-                tableId={props.tableId}
-                fields={fields()}
-                query={queryWithSearch()}
-                groupBy={groupBy()}
-                aggregations={aggregations()}
-                bucket={bucket()}
-                relationLabels={mergedRelationLabels()}
-                onClose={onCloseGroupDetail}
-                onOpenRecord={onOpenGroupedRecord}
-                dateConfig={props.dateConfig}
-              />
-            )}
-          </Show>
+          <RecordsDetailSurface
+            baseId={props.baseId}
+            baseShortId={props.baseShortId}
+            tableId={props.tableId}
+            tableName={tableName()}
+            fields={fields()}
+            auditPolicy={tableAuditPolicy()}
+            record={selectedRecord}
+            detail={selectedRecordDetail}
+            recordFailure={selectedRecordFailure()}
+            selectedGroup={selectedGroup()}
+            query={queryWithSearch()}
+            groupBy={groupBy()}
+            aggregations={aggregations()}
+            documentTemplates={props.documentTemplates}
+            mode={detailMode}
+            canWrite={props.canWrite}
+            relationLabels={mergedRelationLabels()}
+            tableShortIds={props.tableShortIds}
+            fieldsByTable={props.fieldsByTable}
+            viewColumns={effectiveViewColumns()}
+            dateConfig={props.dateConfig}
+            onCloseRecord={onCloseDetail}
+            onRetryRecord={retrySelectedRecord}
+            onRecordUpdated={onRecordUpdated}
+            onRecordRemoved={onRecordRemoved}
+            onCloseGroup={onCloseGroupDetail}
+            onOpenGroupedRecord={onOpenGroupedRecord}
+          />
         </Show>
       </AppWorkspace.Detail>
     </AppWorkspace.Content>

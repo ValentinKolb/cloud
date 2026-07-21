@@ -1,6 +1,7 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect } from "bun:test";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import type { SqlClient } from "./audit";
 import {
@@ -12,10 +13,6 @@ import {
   stopRecordEventOutbox,
 } from "./record-event-outbox";
 import type { GridsRecordEvent } from "./record-events";
-
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
-const uuid = () => Bun.randomUUIDv7();
-const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
 
 type Fixture = { actorId: string; baseId: string; tableId: string; fieldId: string };
 

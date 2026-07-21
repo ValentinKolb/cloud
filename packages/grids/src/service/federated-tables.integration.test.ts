@@ -1,5 +1,6 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
+import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
@@ -33,10 +34,6 @@ import { create as createRecord } from "./record-write";
 import { buildRelationLabelCache, lookupRecords } from "./relation-labels";
 import { remove as removeTable, restore as restoreTable, update as updateTable } from "./tables";
 import type { Field } from "./types";
-
-const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
-const uuid = () => Bun.randomUUIDv7();
-const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
 
 type Fixture = {
   sourceBaseId: string;

@@ -6,7 +6,7 @@ import { sql } from "bun";
 import { z } from "zod";
 import { RecordAuditContextSchema } from "../contracts";
 import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
-import { getActive, verifyRevisionScope } from "./federated-tables";
+import { getActive, type LoadedFederatedRevision, verifyRevisionScope } from "./federated-tables";
 import { listByTables } from "./field-read";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
@@ -74,6 +74,21 @@ type Projection = {
   revisionToken: string;
   fingerprint: string;
   sources: ProjectionSource[];
+};
+
+type SourceRow = { table_id: string; table_name: string; base_name: string };
+type AuditRow = DbRow & { cursor_created_at: string };
+
+type CombinedAuditListParams = {
+  tableId: string;
+  recordId?: string;
+  fieldIds?: readonly string[];
+  sourceRef?: string;
+  action?: CombinedRecordAuditAction;
+  from?: string;
+  to?: string;
+  limit?: number;
+  cursor?: string | null;
 };
 
 const AuditCursorSchema = z.object({
@@ -209,6 +224,86 @@ export const projectCombinedAuditDiff = (
   return Object.keys(projected).length > 0 ? projected : null;
 };
 
+const loadSourceRows = (sourceTableIds: readonly string[]) => sql<SourceRow[]>`
+  SELECT source_table.id::text AS table_id,
+         source_table.name AS table_name,
+         source_base.name AS base_name
+  FROM grids.tables source_table
+  JOIN grids.bases source_base
+    ON source_base.id = source_table.base_id
+   AND source_base.deleted_at IS NULL
+  WHERE source_table.id = ANY(${toPgUuidArray([...sourceTableIds])}::uuid[])
+    AND source_table.kind = 'stored'
+    AND source_table.deleted_at IS NULL
+`;
+
+type ProjectionSourceBuildContext = {
+  revision: LoadedFederatedRevision;
+  targetFieldsById: ReadonlyMap<string, Field>;
+  sourceFieldsByTable: ReadonlyMap<string, Field[]>;
+  sourceLabels: ReadonlyMap<string, SourceRow>;
+  allowedTargetFieldIds: ReadonlySet<string> | null;
+};
+
+const buildProjectionSource = (
+  source: LoadedFederatedRevision["sources"][number],
+  context: ProjectionSourceBuildContext,
+): Result<ProjectionSource> => {
+  const label = context.sourceLabels.get(source.sourceTableId);
+  if (!label) return fail(err.conflict("Combined table source is no longer available"));
+  const sourceFields = new Map((context.sourceFieldsByTable.get(source.sourceTableId) ?? []).map((field) => [field.id, field]));
+  const mappings: CombinedAuditProjectionMapping[] = [];
+
+  for (const mapping of context.revision.mappings) {
+    if (mapping.sourceTableId !== source.sourceTableId) continue;
+    const targetField = context.targetFieldsById.get(mapping.targetFieldId);
+    const sourceField = sourceFields.get(mapping.sourceFieldId);
+    if (!targetField || !sourceField || sourceField.deletedAt) {
+      return fail(err.conflict("Combined table mapping is no longer available"));
+    }
+    if (context.allowedTargetFieldIds?.has(mapping.targetFieldId) === false) continue;
+    mappings.push({
+      targetFieldId: mapping.targetFieldId,
+      targetField,
+      sourceFieldId: mapping.sourceFieldId,
+      sourceField,
+      config: mapping.config,
+    });
+  }
+
+  return ok({
+    tableId: source.sourceTableId,
+    descriptor: { ref: String(source.position), baseName: label.base_name, tableName: label.table_name },
+    mappings,
+  });
+};
+
+const buildProjectionSources = (params: {
+  revision: LoadedFederatedRevision;
+  targetFields: readonly Field[];
+  sourceFieldsByTable: ReadonlyMap<string, Field[]>;
+  sourceRows: readonly SourceRow[];
+  fieldIds?: readonly string[];
+}): Result<ProjectionSource[]> => {
+  if (params.sourceRows.length !== params.revision.sources.length) {
+    return fail(err.conflict("Combined table source is no longer available"));
+  }
+  const context: ProjectionSourceBuildContext = {
+    revision: params.revision,
+    targetFieldsById: new Map(params.targetFields.filter((field) => !field.deletedAt).map((field) => [field.id, field])),
+    sourceFieldsByTable: params.sourceFieldsByTable,
+    sourceLabels: new Map(params.sourceRows.map((row) => [row.table_id, row])),
+    allowedTargetFieldIds: params.fieldIds ? new Set(params.fieldIds) : null,
+  };
+  const sources: ProjectionSource[] = [];
+  for (const source of params.revision.sources) {
+    const built = buildProjectionSource(source, context);
+    if (!built.ok) return built;
+    sources.push(built.data);
+  }
+  return ok(sources);
+};
+
 const loadProjection = async (tableId: string, fieldIds?: readonly string[]): Promise<Result<Projection>> => {
   const [table, active, targetFields] = await Promise.all([getTable(tableId), getActive(tableId), listFields(tableId)]);
   if (!table || table.kind !== "federated") return fail(err.badInput("Audit projection requires a Combined table"));
@@ -216,59 +311,9 @@ const loadProjection = async (tableId: string, fieldIds?: readonly string[]): Pr
 
   const revision = active.data;
   const sourceTableIds = revision.sources.map((source) => source.sourceTableId);
-  const [sourceFieldsByTable, sourceRows] = await Promise.all([
-    listByTables(sourceTableIds),
-    sql<Array<{ table_id: string; table_name: string; base_name: string }>>`
-      SELECT source_table.id::text AS table_id,
-             source_table.name AS table_name,
-             source_base.name AS base_name
-      FROM grids.tables source_table
-      JOIN grids.bases source_base
-        ON source_base.id = source_table.base_id
-       AND source_base.deleted_at IS NULL
-      WHERE source_table.id = ANY(${toPgUuidArray(sourceTableIds)}::uuid[])
-        AND source_table.kind = 'stored'
-        AND source_table.deleted_at IS NULL
-    `,
-  ]);
-  if (sourceRows.length !== revision.sources.length) {
-    return fail(err.conflict("Combined table source is no longer available"));
-  }
-
-  const targetFieldsById = new Map(targetFields.filter((field) => !field.deletedAt).map((field) => [field.id, field]));
-  const allowedTargetFieldIds = fieldIds ? new Set(fieldIds) : null;
-  const sourceLabels = new Map(sourceRows.map((row) => [row.table_id, row]));
-  const sources: ProjectionSource[] = [];
-  for (const source of revision.sources) {
-    const label = sourceLabels.get(source.sourceTableId);
-    if (!label) return fail(err.conflict("Combined table source is no longer available"));
-    const sourceFields = new Map((sourceFieldsByTable.get(source.sourceTableId) ?? []).map((field) => [field.id, field]));
-    const mappings: CombinedAuditProjectionMapping[] = [];
-    for (const mapping of revision.mappings) {
-      if (mapping.sourceTableId !== source.sourceTableId) continue;
-      const targetField = targetFieldsById.get(mapping.targetFieldId);
-      if (!targetField) return fail(err.conflict("Combined table mapping is no longer available"));
-      const sourceField = sourceFields.get(mapping.sourceFieldId);
-      if (!sourceField || sourceField.deletedAt) return fail(err.conflict("Combined table mapping is no longer available"));
-      if (allowedTargetFieldIds && !allowedTargetFieldIds.has(mapping.targetFieldId)) continue;
-      mappings.push({
-        targetFieldId: mapping.targetFieldId,
-        targetField,
-        sourceFieldId: mapping.sourceFieldId,
-        sourceField,
-        config: mapping.config,
-      });
-    }
-    sources.push({
-      tableId: source.sourceTableId,
-      descriptor: {
-        ref: String(source.position),
-        baseName: label.base_name,
-        tableName: label.table_name,
-      },
-      mappings,
-    });
-  }
+  const [sourceFieldsByTable, sourceRows] = await Promise.all([listByTables(sourceTableIds), loadSourceRows(sourceTableIds)]);
+  const sources = buildProjectionSources({ revision, targetFields, sourceFieldsByTable, sourceRows, fieldIds });
+  if (!sources.ok) return sources;
 
   return ok({
     targetBaseId: table.baseId,
@@ -276,7 +321,7 @@ const loadProjection = async (tableId: string, fieldIds?: readonly string[]): Pr
     revisionId: revision.id,
     revisionToken: revision.revisionToken,
     fingerprint: `${revision.id}:${revision.revisionToken}`,
-    sources,
+    sources: sources.data,
   });
 };
 
@@ -325,50 +370,49 @@ const mapAuditRow = (row: DbRow, projection: Projection): CombinedAuditEntry | n
   };
 };
 
-export const describeRecord = async (tableId: string, recordId: string): Promise<Result<CombinedRecordOrigin>> => {
-  const projection = await loadProjection(tableId);
-  if (!projection.ok) return projection;
-  return resolveOrigin(projection.data, recordId);
-};
-
-export const list = async (params: {
-  tableId: string;
-  recordId?: string;
-  fieldIds?: readonly string[];
-  sourceRef?: string;
-  action?: CombinedRecordAuditAction;
-  from?: string;
-  to?: string;
-  limit?: number;
-  cursor?: string | null;
-}): Promise<Result<CombinedAuditPage>> => {
-  const projectionResult = await loadProjection(params.tableId, params.fieldIds);
-  if (!projectionResult.ok) return projectionResult;
-  const projection = projectionResult.data;
-
-  let scopedSources = projection.sources;
+const scopeProjectionSources = async (
+  projection: Projection,
+  params: Pick<CombinedAuditListParams, "recordId" | "sourceRef">,
+): Promise<Result<ProjectionSource[]>> => {
+  let sources = projection.sources;
   if (params.recordId) {
     const origin = await resolveOrigin(projection, params.recordId);
     if (!origin.ok) return origin;
-    scopedSources = projection.sources.filter((source) => source.descriptor.ref === origin.data.source.ref);
+    sources = sources.filter((source) => source.descriptor.ref === origin.data.source.ref);
   }
-  if (params.sourceRef !== undefined) {
-    scopedSources = scopedSources.filter((source) => source.descriptor.ref === params.sourceRef);
-    if (scopedSources.length === 0) return fail(err.badInput("Unknown Combined source filter"));
-  }
+  if (params.sourceRef === undefined) return ok(sources);
+  sources = sources.filter((source) => source.descriptor.ref === params.sourceRef);
+  return sources.length > 0 ? ok(sources) : fail(err.badInput("Unknown Combined source filter"));
+};
 
+const resolveListCursor = (
+  projection: Projection,
+  params: CombinedAuditListParams,
+): Result<{ cursor: AuditCursor | null; fingerprint: string }> => {
   const cursor = decodeCursor(params.cursor);
   if (params.cursor && !cursor) return fail(err.badInput("Invalid audit cursor"));
-  const cursorFingerprint = auditCursorFingerprint(projection.fingerprint, params);
-  if (cursor && cursor.fingerprint !== cursorFingerprint) {
+  const fingerprint = auditCursorFingerprint(projection.fingerprint, params);
+  if (cursor && cursor.fingerprint !== fingerprint) {
     return fail(err.conflict("Combined audit filters or publication changed; restart the audit search"));
   }
+  return ok({ cursor, fingerprint });
+};
 
-  const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
-  const tableIds = scopedSources.map((source) => source.tableId);
-  const publishedSourceFieldIds = scopedSources.flatMap((source) => source.mappings.map((mapping) => mapping.sourceFieldId));
+const loadAuditRows = (
+  params: CombinedAuditListParams,
+  sources: readonly ProjectionSource[],
+  cursor: AuditCursor | null,
+  limit: number,
+) => {
+  const tableIds = sources.map((source) => source.tableId);
+  const publishedSourceFieldIds = sources.flatMap((source) => source.mappings.map((mapping) => mapping.sourceFieldId));
   const actions = params.action ? [params.action] : [...RECORD_ACTIONS];
-  const rows = await sql<(DbRow & { cursor_created_at: string })[]>`
+  const recordId = params.recordId ?? null;
+  const from = params.from ?? null;
+  const to = params.to ?? null;
+  const cursorCreatedAt = cursor?.createdAt ?? null;
+  const cursorId = cursor?.id ?? null;
+  return sql<AuditRow[]>`
     SELECT audit.id::text, audit.table_id::text, audit.record_id::text, audit.user_id::text,
            audit.action, audit.diff, audit.context, audit.created_at,
            audit.created_at::text AS cursor_created_at,
@@ -386,16 +430,47 @@ export const list = async (params: {
         audit.action <> 'updated'
         OR COALESCE(audit.diff ?| ${toPgTextArray(publishedSourceFieldIds)}::text[], false)
       )
-      AND (${params.recordId ?? null}::uuid IS NULL OR audit.record_id = ${params.recordId ?? null}::uuid)
-      AND (${params.from ?? null}::timestamptz IS NULL OR audit.created_at >= ${params.from ?? null}::timestamptz)
-      AND (${params.to ?? null}::timestamptz IS NULL OR audit.created_at < ${params.to ?? null}::timestamptz)
+      AND (${recordId}::uuid IS NULL OR audit.record_id = ${recordId}::uuid)
+      AND (${from}::timestamptz IS NULL OR audit.created_at >= ${from}::timestamptz)
+      AND (${to}::timestamptz IS NULL OR audit.created_at < ${to}::timestamptz)
       AND (
-        ${cursor?.createdAt ?? null}::timestamptz IS NULL
-        OR (audit.created_at, audit.id) < (${cursor?.createdAt ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
+        ${cursorCreatedAt}::timestamptz IS NULL
+        OR (audit.created_at, audit.id) < (${cursorCreatedAt}::timestamptz, ${cursorId}::uuid)
       )
     ORDER BY audit.created_at DESC, audit.id DESC
     LIMIT ${limit + 1}
   `;
+};
+
+const mapAuditRows = (rows: readonly AuditRow[], projection: Projection): Result<CombinedAuditEntry[]> => {
+  try {
+    const entries: CombinedAuditEntry[] = [];
+    for (const row of rows) {
+      const entry = mapAuditRow(row, projection);
+      if (entry) entries.push(entry);
+    }
+    return ok(entries);
+  } catch {
+    return fail(err.conflict("Combined audit history contains invalid mutation context"));
+  }
+};
+
+export const describeRecord = async (tableId: string, recordId: string): Promise<Result<CombinedRecordOrigin>> => {
+  const projection = await loadProjection(tableId);
+  if (!projection.ok) return projection;
+  return resolveOrigin(projection.data, recordId);
+};
+
+export const list = async (params: CombinedAuditListParams): Promise<Result<CombinedAuditPage>> => {
+  const projectionResult = await loadProjection(params.tableId, params.fieldIds);
+  if (!projectionResult.ok) return projectionResult;
+  const projection = projectionResult.data;
+  const scopedSources = await scopeProjectionSources(projection, params);
+  if (!scopedSources.ok) return scopedSources;
+  const cursorResult = resolveListCursor(projection, params);
+  if (!cursorResult.ok) return cursorResult;
+  const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
+  const rows = await loadAuditRows(params, scopedSources.data, cursorResult.data.cursor, limit);
   const currentRevision = await verifyRevisionScope([
     {
       tableId: projection.targetTableId,
@@ -404,16 +479,9 @@ export const list = async (params: {
     },
   ]);
   if (!currentRevision.ok) return currentRevision;
-  let mapped: CombinedAuditEntry[];
-  try {
-    mapped = rows.flatMap((row) => {
-      const entry = mapAuditRow(row, projection);
-      return entry ? [entry] : [];
-    });
-  } catch {
-    return fail(err.conflict("Combined audit history contains invalid mutation context"));
-  }
-  const items = mapped.slice(0, limit);
+  const mapped = mapAuditRows(rows, projection);
+  if (!mapped.ok) return mapped;
+  const items = mapped.data.slice(0, limit);
   const lastRow = rows[items.length - 1];
   return ok({
     items,
@@ -421,7 +489,7 @@ export const list = async (params: {
     nextCursor:
       rows.length > limit && lastRow
         ? encodeCursor({
-            fingerprint: cursorFingerprint,
+            fingerprint: cursorResult.data.fingerprint,
             createdAt: lastRow.cursor_created_at,
             id: lastRow.id as string,
           })
