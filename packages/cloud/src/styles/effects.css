@@ -398,17 +398,16 @@
 
 .help-document .help-steps > ol > li {
   position: relative;
-  display: grid;
   min-height: 3rem;
-  grid-template-columns: 2.25rem minmax(0, 1fr);
-  gap: 1rem;
   margin: 0;
-  padding: 1rem 0;
+  padding: 1rem 0 1rem 3.25rem;
   counter-increment: help-step;
 }
 
 .help-document .help-steps > ol > li::before {
-  position: relative;
+  position: absolute;
+  top: 1rem;
+  left: 0;
   z-index: 1;
   display: grid;
   width: 2.25rem;

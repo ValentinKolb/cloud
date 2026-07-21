@@ -1,6 +1,6 @@
 import { hotkeys } from "@valentinkolb/stdlib/solid";
 import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
-import { LayoutHelpBrowserPage, openLayoutHelpDialog } from "./LayoutHelp";
+import { openLayoutHelpDialog } from "./LayoutHelp";
 
 type HotkeysHelpTriggerProps = {
   variant: "header" | "rail";
@@ -34,11 +34,8 @@ export default function HotkeysHelpRail(props: HotkeysHelpTriggerProps) {
       : `icon-btn inline ${props.class ?? ""}`;
 
   return (
-    <>
-      <button type="button" class={triggerClass} onClick={openHelp} aria-label="Open help" title="Help (Shift+/)">
-        <i class="ti ti-help-circle text-base" />
-      </button>
-      {props.registerHotkey && <LayoutHelpBrowserPage searchHelpApps={searchHelpApps} accent={props.accent} />}
-    </>
+    <button type="button" class={triggerClass} onClick={openHelp} aria-label="Open help" title="Help (Shift+/)">
+      <i class="ti ti-help-circle text-base" />
+    </button>
   );
 }

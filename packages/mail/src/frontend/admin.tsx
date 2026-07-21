@@ -13,11 +13,13 @@ import type {
   MailboxStorageUsage,
   PlatformMailboxOperationSummary,
 } from "../contracts";
+import { mailHelp } from "../help";
 import {
   type MailRequestContext,
   operations,
   storageObservability,
 } from "../service";
+import MailLayoutHelp from "./_components/help/MailLayoutHelp.island";
 import MailAdminStorageActions from "./_components/MailAdminStorageActions.island";
 
 const formatBytes = (value: number): string => {
@@ -141,6 +143,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Mail" stretch>
+      <MailLayoutHelp documents={mailHelp.manifest} />
       <div
         class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
         data-scroll-preserve="mail-admin-storage"

@@ -3,6 +3,7 @@ import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
 import { Hono } from "hono";
 import { apiDocsHelp } from "../help";
 import { buildApiDocsGuideSource, buildScalarSources } from "../sources";
+import helpPage from "./help/page";
 
 /**
  * Page router for the API Docs aggregator. Mounted at `/app/api-docs`.
@@ -14,19 +15,22 @@ import { buildApiDocsGuideSource, buildScalarSources } from "../sources";
  * out of the switcher on the next reload. No special cases: this file
  * maps registry entries into Scalar sources.
  */
-const pages = new Hono().get(
-  "/",
-  Scalar(async (c) => {
-    const runtime = getRuntimeContext(c);
-    const sources = [buildApiDocsGuideSource(apiDocsHelp.getMarkdown("api-docs-start") ?? ""), ...buildScalarSources(runtime.apps)];
+const pages = new Hono()
+  .get("/help", ...helpPage)
+  .get("/help/:topic", ...helpPage)
+  .get(
+    "/",
+    Scalar(async (c) => {
+      const runtime = getRuntimeContext(c);
+      const sources = [buildApiDocsGuideSource(apiDocsHelp.getMarkdown("api-docs-start") ?? ""), ...buildScalarSources(runtime.apps)];
 
-    return {
-      theme: "saturn",
-      pageTitle: "Cloud API Docs",
-      hideClientButton: true,
-      sources,
-    };
-  }),
-);
+      return {
+        theme: "saturn",
+        pageTitle: "Cloud API Docs",
+        hideClientButton: true,
+        sources,
+      };
+    }),
+  );
 
 export default pages;

@@ -36,10 +36,11 @@ Review method:
    - Help Markdown uses the safe profile: script fences remain inert code and internal links do not force a new tab.
    - The modal and reload-safe full-page browser view use the same manifest,
      article endpoint, search, navigation, and copy-as-Markdown behavior.
-   - The full-page action uses the current app route and a stable Help query
-     parameter so refresh, deep links, and browser navigation remain correct.
-   - Standalone Help/reference routes render `Layout.HelpPage` with the same
-     manifest and article endpoint instead of maintaining a parallel document.
+   - The app owns dedicated SSR routes for its Help hub and topic. They render
+     only `Layout.HelpPage`, use the same manifest and article endpoint, and do
+     not load the normal workspace behind Help.
+   - Topic URLs use a path parameter under the app's canonical Help base. No
+     `?help=` overlay or parallel full-page document remains.
    - Guided Help annotations follow `references/help.md`; raw markers and icon
      metadata never leak into rendered HTML.
 9. Verify commands where applicable:

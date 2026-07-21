@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { apiRoutes } from "./api";
 import { app } from "./config";
+import helpPage from "./frontend/help/page";
 import gatewayPage from "./frontend/page";
 import { gatewayOpsHelp } from "./help";
 import { gatewayOpsLifecycle } from "./lifecycle";
@@ -37,6 +38,8 @@ const router = new Hono<AuthContext>()
     }),
   )
   .get("/admin/gateway", (c) => c.redirect("/admin/gateway/apps"))
+  .get("/admin/gateway/help", auth.requireRole("admin", auth.redirectToLogin), ...helpPage)
+  .get("/admin/gateway/help/:topic", auth.requireRole("admin", auth.redirectToLogin), ...helpPage)
   .get("/admin/gateway/apps", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
   .get("/admin/gateway/routes", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
   .get("/admin/observability/logs", auth.requireRole("admin", auth.redirectToLogin), ...logsPage)

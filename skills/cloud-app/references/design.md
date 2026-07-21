@@ -336,6 +336,10 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
   `Layout.HelpDocuments`, select the requested article with `initialTopic`,
   and disable shortcuts when the page is a focused reference surface. Do not
   build a second full-page renderer for content already available in Help.
+- Full-page Help is an app-owned SSR route (`/help` plus `/help/:topic` under
+  the app mount), not an overlay on the normal workspace. It must render only
+  the shared Help surface so the app's data loaders and islands do not run in
+  the background. Register Help routes before dynamic or catch-all routes.
 - `Layout.HelpPage` owns only the shared hub, search, article loading, and
   reading layout. Keep genuinely dynamic, resource-specific inspectors as
   app UI and link to the matching Help article for stable concepts.

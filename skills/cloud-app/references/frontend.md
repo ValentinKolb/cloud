@@ -2857,8 +2857,16 @@ small manifest through a hydrated bridge:
 import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
 
-export default function AppLayoutHelp(props: { documents: readonly HelpDocumentManifest[] }) {
-  return <Layout.HelpDocuments documents={props.documents} />;
+export default function AppLayoutHelp(props: {
+  documents: readonly HelpDocumentManifest[];
+  initialTopic?: string;
+  mode?: "register" | "page";
+}) {
+  return props.mode === "page" ? (
+    <Layout.HelpPage documents={props.documents} initialTopic={props.initialTopic} pageBase="/app/example/help" />
+  ) : (
+    <Layout.HelpDocuments documents={props.documents} pageBase="/app/example/help" />
+  );
 }
 
 // page.tsx (server)
@@ -2870,6 +2878,13 @@ must therefore run inside a `.island.tsx` component. A plain SSR wrapper renders
 no visible output and never registers its documents. Pass the server-created
 manifest into the island; do not import the help collection itself into the
 client bundle.
+
+Every Help-enabled app also owns dedicated SSR routes for the hub and topic:
+`/help` and `/help/:topic` under its normal mount point. Register them before
+dynamic or catch-all app routes and render the same island with `mode="page"`.
+The topic route selects `initialTopic` from the manifest. Do not render the app
+workspace behind full-page Help, do not read a `?help=` query parameter, and do
+not export a second named component from an island file.
 
 Register the same collection on every user-facing route where the app shell can
 open Help. This includes the app's overview or list page before a notebook,

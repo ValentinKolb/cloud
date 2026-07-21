@@ -1,20 +1,23 @@
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
+import auditPage from "./audit/page";
+import deletedAccountsPage from "./deleted-accounts/page";
+import groupDetailPage from "./groups/detail/page";
+import groupsPage from "./groups/page";
+import helpPage from "./help/page";
+import notificationDetailPage from "./notifications/detail.page";
+import notificationsPage from "./notifications/page";
 import landingPage from "./page";
-import usersPage from "./users/page";
+import remindersPage from "./reminders/page";
+import requestsPage from "./requests/page";
+import serviceAccountsPage from "./service-accounts/page";
 import userDetailPage from "./users/detail/page";
 import usersNewPage from "./users/new/page";
-import groupsPage from "./groups/page";
-import groupDetailPage from "./groups/detail/page";
-import requestsPage from "./requests/page";
-import auditPage from "./audit/page";
-import serviceAccountsPage from "./service-accounts/page";
-import deletedAccountsPage from "./deleted-accounts/page";
-import remindersPage from "./reminders/page";
-import notificationsPage from "./notifications/page";
-import notificationDetailPage from "./notifications/detail.page";
+import usersPage from "./users/page";
 
 export default new Hono<AuthContext>()
+  .get("/help", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
+  .get("/help/:topic", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
   .get("/", auth.requireRole("user", auth.redirectToLogin), ...landingPage)
   .get("/users", auth.requireRole("admin", auth.redirectToLogin), ...usersPage)
   .get("/users/new", auth.requireRole("admin", auth.redirectToLogin), ...usersNewPage)

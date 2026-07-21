@@ -28,14 +28,27 @@ import { Layout } from "@valentinkolb/cloud/ssr/islands";
 
 export default function AppLayoutHelp(props: {
   documents: readonly HelpDocumentManifest[];
+  initialTopic?: string;
+  mode?: "register" | "page";
 }) {
-  return <Layout.HelpDocuments documents={props.documents} />;
+  return props.mode === "page" ? (
+    <Layout.HelpPage documents={props.documents} initialTopic={props.initialTopic} pageBase="/app/example/help" />
+  ) : (
+    <Layout.HelpDocuments documents={props.documents} pageBase="/app/example/help" />
+  );
 }
 ```
 
 Register that bridge on every user-facing route where the shell can open Help,
 including overview and list routes before a notebook, base, space, account, or
 other entity is selected. A plain SSR wrapper does not register documents.
+
+Add app-owned SSR routes for both the Help hub and an article, for example
+`/app/example/help` and `/app/example/help/:topic`. The handlers render only
+the shared Help page island with the same manifest and select `initialTopic`
+from the route parameter. Put these routes before dynamic or catch-all routes.
+Full-page Help must not load the normal app workspace in the background and
+must not use query-parameter overlays or a parallel renderer.
 
 The shared reader owns the modal, search, navigation, responsive article table
 of contents, copy-as-Markdown, keyboard and focus behavior, safe Markdown

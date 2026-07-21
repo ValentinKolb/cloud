@@ -6,7 +6,7 @@ import { appAccentStyle } from "./app-appearance";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 import { formatHelpBundleMarkdown, formatHelpDocumentMarkdown } from "./layout-help-markdown";
 import { adjacentHelpDocuments, focusHelpArticleHeading, resetHelpArticleScroll } from "./layout-help-navigation";
-import { HELP_PAGE_PARAM, layoutHelpPageHref } from "./layout-help-url";
+import { layoutHelpTopicHref } from "./layout-help-url";
 
 type HelpTopicBase = {
   id: string;
@@ -18,7 +18,11 @@ type HelpTopicBase = {
 
 export type LayoutHelpTab = HelpTopicBase & { children: JSX.Element };
 export type LayoutHelpProps = LayoutHelpTab;
-export type LayoutHelpDocumentsProps = { documents: readonly HelpDocumentManifest[] };
+export type LayoutHelpDocumentsProps = {
+  documents: readonly HelpDocumentManifest[];
+  /** Canonical standalone Help route owned by the current app. */
+  pageBase: string;
+};
 export type LayoutHelpPageProps = {
   documents: readonly HelpDocumentManifest[];
   initialTopic?: string;
@@ -26,8 +30,8 @@ export type LayoutHelpPageProps = {
   accent?: string;
   /** Render inside an app-owned pane instead of occupying a standalone page. */
   embedded?: boolean;
-  /** Build the reload-safe URL for a topic on an app-owned standalone Help route. */
-  topicHref?: (topicId: string | null) => string;
+  /** Canonical standalone Help route owned by the current app. */
+  pageBase?: string;
 };
 
 type HelpTopic = (HelpTopicBase & { kind: "content"; children: JSX.Element }) | (HelpDocumentManifest & { kind: "document" });
@@ -52,6 +56,7 @@ const LAST_TOPIC_KEY = "cloud.layoutHelp.activeTopic";
 declare global {
   interface Window {
     __cloudLayoutHelpTopics?: Map<string, HelpTopic>;
+    __cloudLayoutHelpPageBase?: string;
   }
 }
 
@@ -95,8 +100,12 @@ export function LayoutHelp(props: LayoutHelpProps) {
 /** Register an app's server-prepared Markdown manifest with the shared help UI. */
 export function LayoutHelpDocuments(props: LayoutHelpDocumentsProps) {
   onMount(() => {
+    window.__cloudLayoutHelpPageBase = props.pageBase;
     const disposers = props.documents.map((document) => registerTopic({ ...document, kind: "document" }));
-    onCleanup(() => disposers.forEach((dispose) => dispose()));
+    onCleanup(() => {
+      disposers.forEach((dispose) => dispose());
+      if (window.__cloudLayoutHelpPageBase === props.pageBase) delete window.__cloudLayoutHelpPageBase;
+    });
   });
   return null;
 }
@@ -139,7 +148,7 @@ const Shortcuts = (props: { openSearchHelp: () => void }) => {
 const HelpShell = (props: {
   session: HelpSession;
   close: () => void;
-  pageHref?: (topicId: string | null) => string;
+  pageBase?: string;
   searchHelpApps: GlobalSearchHelpApp[];
   documents?: readonly HelpDocumentManifest[];
   includeShortcuts?: boolean;
@@ -415,7 +424,7 @@ const HelpShell = (props: {
     setActiveId(id);
     setView("article");
     if (props.syncPageUrl) {
-      history.replaceState(history.state, "", props.pageHref?.(id) ?? layoutHelpPageHref(window.location.href, id));
+      if (props.pageBase) history.replaceState(history.state, "", layoutHelpTopicHref(props.pageBase, id));
     }
     try {
       localStorage.setItem(LAST_TOPIC_KEY, id);
@@ -426,7 +435,7 @@ const HelpShell = (props: {
   const goBack = () => {
     setView(query().trim() ? "search" : "hub");
     if (props.syncPageUrl) {
-      history.replaceState(history.state, "", props.pageHref?.(null) ?? layoutHelpPageHref(window.location.href, null));
+      if (props.pageBase) history.replaceState(history.state, "", layoutHelpTopicHref(props.pageBase, null));
     }
   };
   const showHub = () => {
@@ -541,12 +550,7 @@ const HelpShell = (props: {
             <i class={`${modalIcon()} text-lg`} />
           </span>
           <div class="min-w-0 flex-1">
-            <h2
-              ref={articleHeading}
-              id="layout-help-title"
-              tabindex="-1"
-              class="truncate rounded-sm font-semibold text-primary focus-ui"
-            >
+            <h2 ref={articleHeading} id="layout-help-title" tabindex="-1" class="truncate rounded-sm font-semibold text-primary focus-ui">
               {modalTitle()}
             </h2>
             <p id="layout-help-subtitle" class="truncate text-xs text-dimmed" title={modalDescription()}>
@@ -581,10 +585,10 @@ const HelpShell = (props: {
                 <i class={articleClipboard.wasCopied() ? "ti ti-check" : "ti ti-markdown"} />
               </button>
             </Show>
-            <Show when={props.pageHref}>
-              {(pageHref) => (
+            <Show when={props.pageBase}>
+              {(pageBase) => (
                 <a
-                  href={pageHref()(view() === "article" ? activeId() : null)}
+                  href={layoutHelpTopicHref(pageBase(), view() === "article" ? activeId() : null)}
                   target="_blank"
                   rel="noopener noreferrer"
                   class="icon-btn"
@@ -713,11 +717,7 @@ const HelpShell = (props: {
                     <i class={`${iconClass(topic().icon)} text-lg`} />
                   </span>
                   <div class="min-w-0 flex-1">
-                    <h3
-                      ref={articleHeading}
-                      tabindex="-1"
-                      class="rounded-sm text-2xl font-semibold tracking-tight text-primary focus-ui"
-                    >
+                    <h3 ref={articleHeading} tabindex="-1" class="rounded-sm text-2xl font-semibold tracking-tight text-primary focus-ui">
                       {topic().title}
                     </h3>
                     <Show when={topic().description}>
@@ -840,35 +840,9 @@ export function LayoutHelpPage(props: LayoutHelpPageProps) {
       includeShortcuts={props.includeShortcuts}
       accent={props.accent}
       surface={props.embedded ? "embedded" : "page"}
-      pageHref={props.topicHref}
-      syncPageUrl={!props.embedded && !!props.topicHref}
+      pageBase={props.pageBase}
+      syncPageUrl={!props.embedded && !!props.pageBase}
     />
-  );
-}
-
-/** Render a reload-safe full-page Help view when the current URL opts in. */
-export function LayoutHelpBrowserPage(props: { searchHelpApps?: GlobalSearchHelpApp[]; accent?: string }) {
-  const [topic, setTopic] = createSignal<string | null | undefined>(undefined);
-
-  onMount(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has(HELP_PAGE_PARAM)) setTopic(params.get(HELP_PAGE_PARAM));
-  });
-
-  return (
-    <Show when={topic() !== undefined}>
-      <div class="fixed inset-0 z-[100] overflow-y-auto bg-[var(--ui-surface-raised)]">
-        <HelpShell
-          session={createSession(topic() || undefined)}
-          close={() => {}}
-          searchHelpApps={props.searchHelpApps ?? []}
-          includeShortcuts={false}
-          accent={props.accent}
-          surface="page"
-          syncPageUrl
-        />
-      </div>
-    </Show>
   );
 }
 
@@ -882,7 +856,7 @@ export function openLayoutHelpDialog(searchHelpApps: GlobalSearchHelpApp[] = [],
         searchHelpApps={searchHelpApps}
         accent={accent}
         surface="modal"
-        pageHref={(topicId) => layoutHelpPageHref(window.location.href, topicId)}
+        pageBase={window.__cloudLayoutHelpPageBase}
       />
     ),
     { surface: "bare", header: false, size: "wide" },

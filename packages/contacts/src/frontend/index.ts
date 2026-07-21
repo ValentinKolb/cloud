@@ -5,9 +5,12 @@ import contactCreatePage from "./[bookId]/e/page";
 import bookPage from "./[bookId]/page";
 import bookSettingsPage from "./[bookId]/settings/page";
 import adminPage from "./admin";
+import helpPage from "./help/page";
 import page from "./page";
 
 export default new Hono<AuthContext>()
+  .get("/help", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
+  .get("/help/:topic", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
   .get("/", auth.requireRole("user", auth.redirectToLogin), ...page)
   .get("/:bookId/settings", auth.requireRole("user", auth.redirectToLogin), ...bookSettingsPage)
   .get("/:bookId/e/:contactId", auth.requireRole("user", auth.redirectToLogin), ...contactUpsertPage)

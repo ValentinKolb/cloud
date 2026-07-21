@@ -1,12 +1,15 @@
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
-import page from "./page";
 import basePage from "./[baseId]/page";
 import queryReferencePage from "./[baseId]/query-reference/page";
+import helpPage from "./help/page";
+import page from "./page";
 import publicPage from "./public-page";
 
 export default new Hono<AuthContext>()
   .get("/display/:token", ...publicPage)
+  .get("/help", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
+  .get("/help/:topic", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
   .get("/:baseId/dashboards/:dashboardId/edit", auth.requireRole("user", auth.redirectToLogin), ...basePage)
   .get("/:baseId/dashboards/:dashboardId", auth.requireRole("user", auth.redirectToLogin), ...basePage)
   .get("/:baseId/sources/:sourceId", auth.requireRole("user", auth.redirectToLogin), ...basePage)
