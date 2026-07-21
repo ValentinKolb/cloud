@@ -23,7 +23,11 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Grids:Field"],
       summary: "List fields of a table",
-      responses: { 200: jsonResponse(FieldListSchema, "Fields") },
+      responses: {
+        200: jsonResponse(FieldListSchema, "Fields"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
     }),
     async (c) => {
       const tableId = c.req.param("tableId")!;
@@ -44,7 +48,12 @@ const app = new Hono<AuthContext>()
       summary: "Reorder fields of a table",
       description:
         "Sets each field's `position` to its index in the supplied id list. " + "Ids that don't belong to the table are silently skipped.",
-      responses: { 204: { description: "Reordered" } },
+      responses: {
+        204: { description: "Reordered" },
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
     }),
     v("json", ReorderFieldsSchema),
     async (c) => {
@@ -69,6 +78,9 @@ const app = new Hono<AuthContext>()
       responses: {
         201: jsonResponse(FieldSchema, "Created"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     v("json", CreateFieldSchema),
@@ -89,7 +101,11 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Pre-flight: where is this field referenced?",
-      responses: { 200: jsonResponse(FieldDependentsResponseSchema, "Dependents") },
+      responses: {
+        200: jsonResponse(FieldDependentsResponseSchema, "Dependents"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
     }),
     async (c) => {
       const fieldId = c.req.param("fieldId")!;
@@ -110,7 +126,13 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Update field metadata",
-      responses: { 200: jsonResponse(FieldSchema, "Updated") },
+      responses: {
+        200: jsonResponse(FieldSchema, "Updated"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
+      },
     }),
     v("json", UpdateFieldSchema),
     async (c) => {
@@ -133,6 +155,8 @@ const app = new Hono<AuthContext>()
       summary: "Soft-delete a field (rejects if blocking dependents exist)",
       responses: {
         204: { description: "Deleted" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Blocking dependents exist"),
       },
     }),
@@ -169,7 +193,10 @@ const app = new Hono<AuthContext>()
       summary: "Restore a soft-deleted field",
       responses: {
         200: jsonResponse(FieldSchema, "Restored"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     async (c) => {

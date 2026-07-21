@@ -49,7 +49,11 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Grids:View"],
       summary: "List views visible on a table",
-      responses: { 200: jsonResponse(ViewListSchema, "Views") },
+      responses: {
+        200: jsonResponse(ViewListSchema, "Views"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
     }),
     async (c) => {
       const tableId = c.req.param("tableId")!;
@@ -73,7 +77,10 @@ const app = new Hono<AuthContext>()
       summary: "Create a view (shared or personal)",
       responses: {
         201: jsonResponse(ViewSchema, "Created"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     v("json", CreateViewSchema),
@@ -171,7 +178,10 @@ const app = new Hono<AuthContext>()
       summary: "Update a view",
       responses: {
         200: jsonResponse(ViewSchema, "Updated"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     v("json", UpdateViewSchema),
@@ -223,6 +233,7 @@ const app = new Hono<AuthContext>()
       responses: {
         204: { description: "Deleted" },
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
@@ -248,7 +259,9 @@ const app = new Hono<AuthContext>()
       summary: "Restore a soft-deleted view",
       responses: {
         200: jsonResponse(ViewSchema, "Restored"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     async (c) => {

@@ -67,8 +67,10 @@ const app = new Hono<AuthContext>()
       summary: "List files for a file field on a record",
       responses: {
         200: jsonResponse(z.object({ items: z.array(GridFileSchema) }), "Files"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid file field"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Publication changed"),
       },
     }),
     async (c) => {
@@ -98,6 +100,7 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(GridFileSchema, "Uploaded file metadata"),
         400: jsonResponse(ErrorResponseSchema, "Invalid upload"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
         413: jsonResponse(ErrorResponseSchema, "File too large"),
       },
     }),
@@ -143,8 +146,10 @@ const app = new Hono<AuthContext>()
       summary: "Download a file field blob",
       responses: {
         200: { description: "File content" },
+        400: jsonResponse(ErrorResponseSchema, "Invalid file field"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Publication changed"),
       },
     }),
     async (c) => {
@@ -210,6 +215,9 @@ const app = new Hono<AuthContext>()
       responses: {
         201: jsonResponse(GridRecordSchema, "Created"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     v("json", RecordPayloadSchema),
@@ -237,6 +245,9 @@ const app = new Hono<AuthContext>()
       responses: {
         201: jsonResponse(RecordImportResponseSchema, "Imported records"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     v("json", RecordImportBodySchema),
@@ -268,6 +279,8 @@ const app = new Hono<AuthContext>()
       summary: "Get a record",
       responses: {
         200: jsonResponse(GridRecordSchema, "Record"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid query"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
@@ -306,6 +319,8 @@ const app = new Hono<AuthContext>()
       responses: {
         200: jsonResponse(GridRecordSchema, "Updated"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input or missing audit answers"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Version conflict"),
       },
     }),
@@ -339,6 +354,8 @@ const app = new Hono<AuthContext>()
       responses: {
         204: { description: "Moved to trash" },
         400: jsonResponse(ErrorResponseSchema, "Invalid input or missing audit answers"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     v("json", RecordOperationBodySchema),
@@ -364,6 +381,9 @@ const app = new Hono<AuthContext>()
       responses: {
         200: { description: "Export body — Content-Type matches format" },
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Publication changed"),
       },
     }),
     v("json", ExportBodySchema),
@@ -418,6 +438,7 @@ const app = new Hono<AuthContext>()
         200: { description: "Published Combined audit page" },
         400: jsonResponse(ErrorResponseSchema, "Invalid filter"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Publication changed"),
       },
     }),
@@ -443,6 +464,9 @@ const app = new Hono<AuthContext>()
       responses: {
         204: { description: "Restored" },
         400: jsonResponse(ErrorResponseSchema, "Invalid input or missing audit answers"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     v("json", RecordOperationBodySchema),
@@ -469,7 +493,11 @@ const app = new Hono<AuthContext>()
       description:
         "Returns the most-recent 50 entries from grids.audit_log for the record, " +
         "with the actor's display name resolved. Newest first.",
-      responses: { 200: { description: "Audit entries" } },
+      responses: {
+        200: { description: "Audit entries" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
     }),
     async (c) => {
       const tableId = c.req.param("tableId")!;

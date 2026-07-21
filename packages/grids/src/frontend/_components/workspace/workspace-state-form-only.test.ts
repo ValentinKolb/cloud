@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:
 import { gridsService } from "../../../service";
 import { loadGridsWorkspaceState } from "./workspace-state";
 
+const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0]) =>
+  loadGridsWorkspaceState(params, {
+    latestMetadataEventCursor: async () => null,
+    latestRecordEventCursor: async () => null,
+  });
+
 const base = {
   id: "11111111-1111-4111-8111-111111111111",
   shortId: "BASE1",
@@ -69,6 +75,7 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     spyOn(gridsService.dashboard, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.dashboard, "get").mockImplementation(async () => null);
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForDashboard").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
@@ -78,7 +85,7 @@ describe("loadGridsWorkspaceState — form-only access", () => {
   afterEach(() => mock.restore());
 
   test("allows users with form-write but no base/table read into an empty workspace with sidebar forms", async () => {
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user: {
         id: "44444444-4444-4444-8444-444444444444",
         memberofGroupIds: [],
@@ -98,8 +105,62 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     expect(state.canUseQueryWorkspace).toBe(false);
   });
 
+  test("keeps metadata and record cursors on their matching SSR streams", async () => {
+    const loadedStreams: string[] = [];
+    const state = await loadGridsWorkspaceState(
+      {
+        user: {
+          id: "44444444-4444-4444-8444-444444444444",
+          memberofGroupIds: [],
+        },
+        baseShortId: base.shortId,
+        href: `/app/grids/${base.shortId}`,
+      },
+      {
+        latestMetadataEventCursor: async (baseId) => {
+          loadedStreams.push(`metadata:${baseId}`);
+          return "metadata-cursor";
+        },
+        latestRecordEventCursor: async (baseId) => {
+          loadedStreams.push(`records:${baseId}`);
+          return "record-cursor";
+        },
+      },
+    );
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok") return;
+    expect(state.metadataEventCursor).toBe("metadata-cursor");
+    expect(state.recordEventCursor).toBe("record-cursor");
+    expect(loadedStreams.sort()).toEqual([`metadata:${base.id}`, `records:${base.id}`]);
+  });
+
+  test("keeps the healthy SSR cursor when the other stream is unavailable", async () => {
+    const state = await loadGridsWorkspaceState(
+      {
+        user: {
+          id: "44444444-4444-4444-8444-444444444444",
+          memberofGroupIds: [],
+        },
+        baseShortId: base.shortId,
+        href: `/app/grids/${base.shortId}`,
+      },
+      {
+        latestMetadataEventCursor: async () => {
+          throw new Error("metadata stream unavailable");
+        },
+        latestRecordEventCursor: async () => "record-cursor",
+      },
+    );
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok") return;
+    expect(state.metadataEventCursor).toBeNull();
+    expect(state.recordEventCursor).toBe("record-cursor");
+  });
+
   test("does not expose the query workspace to form-only users", async () => {
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user: {
         id: "44444444-4444-4444-8444-444444444444",
         memberofGroupIds: [],

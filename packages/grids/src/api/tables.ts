@@ -348,6 +348,7 @@ const app = new Hono<AuthContext>()
       responses: {
         200: jsonResponse(TableListSchema, "Tables"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
@@ -373,7 +374,10 @@ const app = new Hono<AuthContext>()
       summary: "Create a table",
       responses: {
         201: jsonResponse(TableSchema, "Created"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     v("json", CreateTableSchema),
@@ -410,6 +414,7 @@ const app = new Hono<AuthContext>()
       summary: "Get table",
       responses: {
         200: jsonResponse(TableSchema, "Table"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
@@ -429,7 +434,13 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Update table",
-      responses: { 200: jsonResponse(TableSchema, "Updated") },
+      responses: {
+        200: jsonResponse(TableSchema, "Updated"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
+      },
     }),
     v("json", UpdateTableSchema),
     async (c) => {
@@ -448,7 +459,11 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Move a table to trash",
-      responses: { 204: { description: "Moved to trash" } },
+      responses: {
+        204: { description: "Moved to trash" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
     }),
     async (c) => {
       const tableId = c.req.param("tableId")!;
@@ -470,7 +485,9 @@ const app = new Hono<AuthContext>()
       summary: "Restore a soft-deleted table",
       responses: {
         200: jsonResponse(TableSchema, "Restored"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     async (c) => {

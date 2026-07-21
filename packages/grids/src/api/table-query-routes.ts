@@ -406,6 +406,9 @@ export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) 
       responses: {
         200: jsonResponse(TableQueryResponseSchema, "Query envelope"),
         400: jsonResponse(ErrorResponseSchema, "Invalid query"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Publication changed"),
       },
     }),
     v("json", TableQueryBodySchema),

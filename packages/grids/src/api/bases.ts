@@ -13,6 +13,7 @@ import {
   gateAt,
   gateCredentialScope,
 } from "./permissions";
+import { requireUuidParam } from "./route-params";
 
 const TrashResponseSchema = z.object({
   tables: z.array(TableSchema),
@@ -36,7 +37,11 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       describeRoute({
         tags: ["Grids:Base"],
         summary: "List bases the user can access",
-        responses: { 200: jsonResponse(BaseListSchema, "Bases") },
+        responses: {
+          200: jsonResponse(BaseListSchema, "Bases"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid query"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
       }),
       v(
         "query",
@@ -72,6 +77,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         responses: {
           201: jsonResponse(BaseSchema, "Created"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
       v("json", CreateBaseSchema),
@@ -89,6 +95,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
 
     .get(
       "/:baseId",
+      requireUuidParam("baseId", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "Get a base",
@@ -110,12 +117,15 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
 
     .patch(
       "/:baseId",
+      requireUuidParam("baseId", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "Update base metadata",
         responses: {
           200: jsonResponse(BaseSchema, "Updated"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid input"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
       v("json", UpdateBaseSchema),
@@ -130,12 +140,14 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
 
     .delete(
       "/:baseId",
+      requireUuidParam("baseId", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "Move a base to trash",
         responses: {
           204: { description: "Moved to trash" },
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
       async (c) => {
@@ -150,11 +162,13 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
 
     .post(
       "/:baseId/restore",
+      requireUuidParam("baseId", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "Restore a soft-deleted base",
         responses: {
           200: jsonResponse(BaseSchema, "Restored"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
@@ -168,6 +182,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
 
     .get(
       "/:baseId/trash",
+      requireUuidParam("baseId", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "List soft-deleted resources for a base (tables, fields, dashboards, forms)",
@@ -177,6 +192,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         responses: {
           200: jsonResponse(TrashResponseSchema, "Trashed resources"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
       async (c) => {

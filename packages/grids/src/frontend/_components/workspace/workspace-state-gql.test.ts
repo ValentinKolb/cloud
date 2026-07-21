@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:
 import { gridsService } from "../../../service";
 import { loadGridsWorkspaceState } from "./workspace-state";
 
+const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0]) =>
+  loadGridsWorkspaceState(params, {
+    latestMetadataEventCursor: async () => null,
+    latestRecordEventCursor: async () => null,
+  });
+
 const viewerId = "44444444-4444-4444-8444-444444444444";
 const selectedRecordId = "77777777-7777-4777-8777-777777777777";
 
@@ -135,6 +141,8 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForView").mockImplementation(async () => []);
+    spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
+    spyOn(gridsService.workflow, "listEnabledForBase").mockImplementation(async () => []);
     spyOn(gridsService.record, "list").mockImplementation(async (params) => {
       lastRecordListParams = params;
       const ids = (params.recordMeta as { ids?: unknown[] } | null | undefined)?.ids;
@@ -168,7 +176,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupTable = table;
     lookupView = savedView;
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}`,
@@ -197,7 +205,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupTable = table;
     lookupView = aggregateView;
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${aggregateView.shortId}?cursor=signed-cursor`,
@@ -222,7 +230,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupTable = table;
     lookupView = groupedView;
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${groupedView.shortId}`,
@@ -244,7 +252,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupTable = table;
     lookupView = groupedView;
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${groupedView.shortId}`,
@@ -267,7 +275,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupView = savedView;
     viewLevel = "read";
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}`,
@@ -295,7 +303,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     viewLevel = "read";
 
     const hostileFilter = encodeURIComponent(JSON.stringify({ fieldId: statusField.id, op: "equals", value: "Closed" }));
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}` + `?filter=${hostileFilter}&q=Closed&trash=1`,
@@ -327,7 +335,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupView = aggregateView;
     viewLevel = "read";
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${aggregateView.shortId}`,
@@ -359,7 +367,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupView = hiddenJoinView;
     viewLevel = "read";
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${hiddenJoinView.shortId}`,
@@ -393,7 +401,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}?record=${selectedRecordId}`,
@@ -431,7 +439,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${limitedView.shortId}?record=${selectedRecordId}`,
@@ -451,7 +459,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     baseLevel = "none";
     const adminUser = { ...user, roles: ["admin", "user", "local", "local/user"] };
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user: adminUser,
       baseShortId: base.shortId,
       href: `/app/grids/${base.shortId}`,

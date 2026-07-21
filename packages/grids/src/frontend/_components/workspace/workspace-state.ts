@@ -10,6 +10,16 @@ export type { GridsWorkspaceState } from "./workspace-state-model";
 
 const log = logger("grids:workspace-state");
 
+type WorkspaceStateDeps = {
+  latestMetadataEventCursor: (baseId: string) => Promise<string | null>;
+  latestRecordEventCursor: (baseId: string) => Promise<string | null>;
+};
+
+const defaultDeps: WorkspaceStateDeps = {
+  latestMetadataEventCursor,
+  latestRecordEventCursor,
+};
+
 const loadEventCursor = async (stream: "metadata" | "records", load: () => Promise<string | null>): Promise<string | null> => {
   try {
     return await load();
@@ -22,12 +32,15 @@ const loadEventCursor = async (stream: "metadata" | "records", load: () => Promi
   }
 };
 
-export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Promise<GridsWorkspaceState> => {
+export const loadGridsWorkspaceState = async (
+  params: LoadWorkspaceParams,
+  deps: WorkspaceStateDeps = defaultDeps,
+): Promise<GridsWorkspaceState> => {
   const base = await gridsService.base.getByIdOrShortId(params.baseShortId);
   if (!base) return { kind: "notFound", title: "Not found", message: "Base not found" };
   const [metadataCursor, recordCursor] = await Promise.all([
-    loadEventCursor("metadata", () => latestMetadataEventCursor(base.id)),
-    loadEventCursor("records", () => latestRecordEventCursor(base.id)),
+    loadEventCursor("metadata", () => deps.latestMetadataEventCursor(base.id)),
+    loadEventCursor("records", () => deps.latestRecordEventCursor(base.id)),
   ]);
   const request = await loadWorkspaceRequest(params, base, { metadata: metadataCursor, records: recordCursor });
   if ("kind" in request) return request;

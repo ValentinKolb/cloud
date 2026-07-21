@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:
 import { gridsService } from "../../../service";
 import { loadGridsWorkspaceState } from "./workspace-state";
 
+const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0]) =>
+  loadGridsWorkspaceState(params, {
+    latestMetadataEventCursor: async () => null,
+    latestRecordEventCursor: async () => null,
+  });
+
 const base = {
   id: "11111111-1111-4111-8111-111111111111",
   shortId: "BASE1",
@@ -131,6 +137,7 @@ describe("loadGridsWorkspaceState — document-template-only access", () => {
     spyOn(gridsService.document, "summarizeRun").mockImplementation((run) => run as never);
     spyOn(gridsService.document, "summarizeTemplate").mockImplementation(() => templateSummary as never);
     spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForDashboard").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
@@ -141,7 +148,7 @@ describe("loadGridsWorkspaceState — document-template-only access", () => {
   afterEach(() => mock.restore());
 
   test("opens a document template route without base or table read access", async () => {
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user: {
         id: "44444444-4444-4444-8444-444444444444",
         memberofGroupIds: [],
@@ -176,7 +183,7 @@ describe("loadGridsWorkspaceState — document-template-only access", () => {
   test("marks document template routes writable only with document write access", async () => {
     documentTemplateLevel = "write";
 
-    const state = await loadGridsWorkspaceState({
+    const state = await loadWorkspaceState({
       user: {
         id: "44444444-4444-4444-8444-444444444444",
         memberofGroupIds: [],
