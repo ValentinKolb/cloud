@@ -264,6 +264,24 @@
   box-shadow: var(--ui-shadow-float) !important;
 }
 
+.prompt-search-surface {
+  --prompt-search-focus-accent: var(--color-blue-500);
+  transition:
+    border-color 150ms ease-out,
+    box-shadow 150ms ease-out;
+}
+
+.prompt-search-surface:focus-within {
+  border-color: color-mix(in srgb, var(--prompt-search-focus-accent) 24%, var(--ui-dialog-border));
+  box-shadow:
+    var(--ui-shadow-float),
+    0 0 0 3px color-mix(in srgb, var(--prompt-search-focus-accent) 8%, transparent) !important;
+}
+
+.dark .prompt-search-surface {
+  --prompt-search-focus-accent: var(--color-blue-400);
+}
+
 .prompt-panel-danger {
   border-color: color-mix(in srgb, var(--color-red-500) 28%, var(--ui-dialog-border));
 }
@@ -278,7 +296,26 @@
 
 .prompt-search-surface > label:focus-within {
   background: var(--ui-field-focus);
-  box-shadow: var(--ui-focus);
+  box-shadow: none;
+}
+
+.prompt-search-surface > label > i {
+  transition: color 150ms ease-out;
+}
+
+.prompt-search-surface > label:focus-within > i {
+  color: var(--prompt-search-focus-accent);
+}
+
+.prompt-search-surface input {
+  caret-color: var(--prompt-search-focus-accent);
+}
+
+@media (forced-colors: active) {
+  .prompt-search-surface:focus-within {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
+  }
 }
 
 #ui-toast-container > div {
