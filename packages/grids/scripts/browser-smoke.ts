@@ -1124,8 +1124,14 @@ const runRecordAuditSmoke = async (browser: Browser, fixture: Fixture) => {
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?record=${fixture.records.first}`, {
     waitUntil: "domcontentloaded",
   });
-  await page.getByRole("button", { name: "Edit record" }).click();
   const editDialog = page.getByRole("dialog").filter({ hasText: "Edit record · Tasks" });
+  const editHydrationDeadline = Date.now() + TIMEOUT;
+  do {
+    await page.getByRole("button", { name: "Edit record" }).click();
+    await page.waitForTimeout(100);
+    if ((await editDialog.count()) > 0) break;
+  } while (Date.now() < editHydrationDeadline);
+  if ((await editDialog.count()) === 0) fail("record edit action did not hydrate");
   await editDialog.getByRole("textbox", { name: "Title", exact: true }).fill("Review audited invoices");
   await editDialog.getByRole("button", { name: "Save", exact: true }).click();
 

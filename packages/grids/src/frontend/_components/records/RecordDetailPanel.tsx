@@ -292,7 +292,7 @@ export default function RecordDetailPanel(props: Props) {
             initialRuns={props.detail()?.documentRuns ?? []}
             initialSnapshots={props.detail()?.snapshots ?? []}
           />
-          <RecordHistorySection entries={props.detail()?.auditEntries ?? []} fields={props.fields} />
+          <RecordHistorySection entries={props.detail()?.auditEntries ?? []} fields={props.fields} dateConfig={props.dateConfig} />
         </RecordReadView>
       )}
     </Show>

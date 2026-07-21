@@ -1,5 +1,7 @@
-import { DatePicker, dialogCore, PanelDialog, panelDialogOptions, prompts, Select } from "@valentinkolb/cloud/ui";
-import { createSignal, onMount, Show } from "solid-js";
+import { DatePicker, dialogCore, PanelDialog, Placeholder, panelDialogOptions, Select } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { CombinedAuditEntry, CombinedAuditPage, Field } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
@@ -20,18 +22,30 @@ const ACTION_OPTIONS = [
   { id: "imported", label: "Imported" },
 ];
 
-const dateStart = (value: string) => (value ? new Date(`${value}T00:00:00`).toISOString() : undefined);
-const dayAfter = (value: string) => {
-  if (!value) return undefined;
-  const date = new Date(`${value}T00:00:00`);
-  date.setDate(date.getDate() + 1);
-  return date.toISOString();
+export const combinedAuditDateStart = (value: string, dateConfig?: DateContext) =>
+  value ? dates.parseCalendarDate(value, dateConfig).toISOString() : undefined;
+
+export const combinedAuditDayAfter = (value: string, dateConfig?: DateContext) =>
+  value ? dates.addDays(dates.parseCalendarDate(value, dateConfig), 1, dateConfig).toISOString() : undefined;
+
+type AuditFilters = {
+  recordId: string;
+  sourceRef: string;
+  action: string;
+  from: string;
+  through: string;
+};
+
+type LoadVars = AuditFilters & {
+  append: boolean;
+  cursor: string | null;
 };
 
 type Props = {
   tableId: string;
   tableName: string;
   fields: Field[];
+  dateConfig?: DateContext;
   initialRecordId?: string;
   onOpenRecord: (recordId: string, deleted: boolean) => void;
   close: () => void;
@@ -41,56 +55,79 @@ function CombinedAuditDialog(props: Props) {
   const [items, setItems] = createSignal<CombinedAuditEntry[]>([]);
   const [sources, setSources] = createSignal<CombinedAuditPage["sources"]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
-  const [loading, setLoading] = createSignal(false);
+  const [loaded, setLoaded] = createSignal(false);
   const [recordId, setRecordId] = createSignal(props.initialRecordId ?? "");
   const [sourceRef, setSourceRef] = createSignal("");
   const [action, setAction] = createSignal("");
   const [from, setFrom] = createSignal("");
   const [through, setThrough] = createSignal("");
 
-  const load = async (append: boolean) => {
-    if (loading()) return;
-    setLoading(true);
-    try {
-      const response = await apiClient.records["by-table"][":tableId"].audit.$get({
-        param: { tableId: props.tableId },
-        query: {
-          ...(recordId() ? { recordId: recordId() } : {}),
-          ...(sourceRef() ? { sourceRef: sourceRef() } : {}),
-          ...(action() ? { action: action() as "created" | "updated" | "deleted" | "restored" | "imported" } : {}),
-          ...(dateStart(from()) ? { from: dateStart(from()) } : {}),
-          ...(dayAfter(through()) ? { to: dayAfter(through()) } : {}),
-          ...(append && cursor() ? { cursor: cursor()! } : {}),
-          limit: "50",
+  const loadMut = mutations.create<CombinedAuditPage, LoadVars, { append: boolean }>({
+    onBefore: (vars) => ({ append: vars.append }),
+    mutation: async (vars, { abortSignal }) => {
+      const fromBoundary = combinedAuditDateStart(vars.from, props.dateConfig);
+      const toBoundary = combinedAuditDayAfter(vars.through, props.dateConfig);
+      const response = await apiClient.records["by-table"][":tableId"].audit.$get(
+        {
+          param: { tableId: props.tableId },
+          query: {
+            ...(vars.recordId ? { recordId: vars.recordId } : {}),
+            ...(vars.sourceRef ? { sourceRef: vars.sourceRef } : {}),
+            ...(vars.action ? { action: vars.action as "created" | "updated" | "deleted" | "restored" | "imported" } : {}),
+            ...(fromBoundary ? { from: fromBoundary } : {}),
+            ...(toBoundary ? { to: toBoundary } : {}),
+            ...(vars.append && vars.cursor ? { cursor: vars.cursor } : {}),
+            limit: "50",
+          },
         },
-      });
+        {
+          init: { signal: abortSignal },
+        },
+      );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not load Combined audit"));
-      const page = (await response.json()) as CombinedAuditPage;
-      setItems((current) => (append ? [...current, ...page.items] : page.items));
+      return (await response.json()) as CombinedAuditPage;
+    },
+    onSuccess: (page, context) => {
+      setItems((current) => (context?.append ? [...current, ...page.items] : page.items));
       setSources(page.sources);
       setCursor(page.nextCursor);
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Could not load Combined audit");
-    } finally {
-      setLoading(false);
+      setLoaded(true);
+    },
+  });
+
+  const currentFilters = (): AuditFilters => ({
+    recordId: recordId(),
+    sourceRef: sourceRef(),
+    action: action(),
+    from: from(),
+    through: through(),
+  });
+
+  const load = (append: boolean, filters = currentFilters()) => {
+    if (!append) {
+      setLoaded(false);
+      setItems([]);
+      setCursor(null);
     }
+    void loadMut.mutate({ ...filters, append, cursor: append ? cursor() : null });
   };
 
-  const applyFilters = () => void load(false);
+  const applyFilters = () => load(false);
   const clearFilters = () => {
     setRecordId("");
     setSourceRef("");
     setAction("");
     setFrom("");
     setThrough("");
-    queueMicrotask(() => void load(false));
+    load(false, { recordId: "", sourceRef: "", action: "", from: "", through: "" });
   };
   const openRecord = (id: string, deleted: boolean) => {
     props.close();
     props.onOpenRecord(id, deleted);
   };
 
-  onMount(() => void load(false));
+  onMount(() => load(false));
+  onCleanup(() => loadMut.abort());
 
   return (
     <PanelDialog>
@@ -119,18 +156,32 @@ function CombinedAuditDialog(props: Props) {
             ]}
           />
           <Select label="Action" value={action} onChange={setAction} options={ACTION_OPTIONS} />
-          <DatePicker label="From" value={() => from() || null} onChange={(value) => setFrom(value ?? "")} clearable />
-          <DatePicker label="Through" value={() => through() || null} onChange={(value) => setThrough(value ?? "")} clearable />
+          <DatePicker
+            label="From"
+            dateConfig={props.dateConfig}
+            value={() => from() || null}
+            onChange={(value) => setFrom(value ?? "")}
+            clearable
+          />
+          <DatePicker
+            label="Through"
+            dateConfig={props.dateConfig}
+            value={() => through() || null}
+            onChange={(value) => setThrough(value ?? "")}
+            clearable
+          />
         </div>
         <div class="mt-2 flex items-center gap-2">
-          <button type="button" class="btn-primary btn-sm" onClick={applyFilters} disabled={loading()}>
-            <i class={`ti ${loading() ? "ti-loader-2 animate-spin" : "ti-filter"}`} aria-hidden="true" />
+          <button type="button" class="btn-primary btn-sm" onClick={applyFilters} disabled={loadMut.loading()}>
+            <i class={`ti ${loadMut.loading() ? "ti-loader-2 animate-spin" : "ti-filter"}`} aria-hidden="true" />
             Apply
           </button>
-          <button type="button" class="btn-simple btn-sm" onClick={clearFilters} disabled={loading()}>
+          <button type="button" class="btn-simple btn-sm" onClick={clearFilters} disabled={loadMut.loading()}>
             Clear
           </button>
-          <span class="ml-auto text-xs text-dimmed">{items().length} events loaded</span>
+          <span class="ml-auto text-xs text-dimmed" aria-live="polite">
+            {loadMut.loading() && !loaded() ? "Loading history..." : `${items().length} events loaded`}
+          </span>
         </div>
 
         <PanelDialog.Section
@@ -138,12 +189,55 @@ function CombinedAuditDialog(props: Props) {
           subtitle="Only fields and audit answers published by the active Combined mapping are shown."
           icon="ti ti-list-details"
         >
-          <RecordHistoryList entries={items()} fields={props.fields} onOpenRecord={openRecord} />
-          <Show when={cursor()}>
-            <button type="button" class="btn-input btn-sm mt-2 self-start" disabled={loading()} onClick={() => void load(true)}>
-              <i class={`ti ${loading() ? "ti-loader-2 animate-spin" : "ti-chevron-down"}`} aria-hidden="true" />
-              Load older events
-            </button>
+          <Show
+            when={loaded()}
+            fallback={
+              <Show
+                when={loadMut.error()}
+                fallback={<Placeholder state="loading" align="left" description="Loading published record history..." />}
+              >
+                {(error) => (
+                  <Placeholder
+                    state="error"
+                    surface="paper"
+                    align="left"
+                    title="Could not load audit trail"
+                    description={error().message}
+                    action={
+                      <button type="button" class="btn-input btn-input-sm" onClick={() => loadMut.retry()}>
+                        <i class="ti ti-refresh" aria-hidden="true" />
+                        Retry
+                      </button>
+                    }
+                  />
+                )}
+              </Show>
+            }
+          >
+            <Show when={loadMut.error()}>
+              {(error) => (
+                <Placeholder
+                  state="error"
+                  surface="paper"
+                  align="left"
+                  title="Could not load older events"
+                  description={error().message}
+                  action={
+                    <button type="button" class="btn-input btn-input-sm" onClick={() => loadMut.retry()}>
+                      <i class="ti ti-refresh" aria-hidden="true" />
+                      Retry
+                    </button>
+                  }
+                />
+              )}
+            </Show>
+            <RecordHistoryList entries={items()} fields={props.fields} dateConfig={props.dateConfig} onOpenRecord={openRecord} />
+            <Show when={cursor()}>
+              <button type="button" class="btn-input btn-sm mt-2 self-start" disabled={loadMut.loading()} onClick={() => load(true)}>
+                <i class={`ti ${loadMut.loading() ? "ti-loader-2 animate-spin" : "ti-chevron-down"}`} aria-hidden="true" />
+                Load older events
+              </button>
+            </Show>
           </Show>
         </PanelDialog.Section>
       </PanelDialog.Body>

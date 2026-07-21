@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
@@ -16,15 +16,15 @@ import type { AuditAction, AuditEntry, Field } from "./types";
 type DbRow = Record<string, unknown>;
 
 const RECORD_ACTIONS = ["created", "updated", "deleted", "restored", "imported"] as const satisfies readonly AuditAction[];
-export type CombinedRecordAuditAction = (typeof RECORD_ACTIONS)[number];
+type CombinedRecordAuditAction = (typeof RECORD_ACTIONS)[number];
 
-export type CombinedAuditSource = {
+type CombinedAuditSource = {
   ref: string;
   baseName: string;
   tableName: string;
 };
 
-export type CombinedAuditContext = {
+type CombinedAuditContext = {
   operation: "delete" | "restore" | "update";
   answers: Array<{
     label: string;
@@ -84,12 +84,31 @@ const AuditCursorSchema = z.object({
 
 type AuditCursor = z.infer<typeof AuditCursorSchema>;
 
-const encodeCursor = (cursor: AuditCursor): string => Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+const AUDIT_CURSOR_SIGNATURE_DOMAIN = "grids:combined-audit-cursor:v1\0";
+
+const auditCursorSigningKey = (): string => {
+  const key = process.env.APP_SECRET?.trim();
+  if (!key) throw new Error("APP_SECRET is required for Combined audit pagination");
+  return key;
+};
+
+const cursorSignature = (payload: string): string =>
+  createHmac("sha256", auditCursorSigningKey()).update(AUDIT_CURSOR_SIGNATURE_DOMAIN).update(payload).digest("base64url");
+
+const encodeCursor = (cursor: AuditCursor): string => {
+  const payload = Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+  return `${payload}.${cursorSignature(payload)}`;
+};
 
 const decodeCursor = (value: string | null | undefined): AuditCursor | null => {
   if (!value || value.length > 2_000) return null;
   try {
-    const parsed = AuditCursorSchema.safeParse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+    const [payload, signature, extra] = value.split(".");
+    if (!payload || !signature || extra !== undefined) return null;
+    const expected = Buffer.from(cursorSignature(payload), "utf8");
+    const received = Buffer.from(signature, "utf8");
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) return null;
+    const parsed = AuditCursorSchema.safeParse(JSON.parse(Buffer.from(payload, "base64url").toString("utf8")));
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
@@ -102,6 +121,7 @@ const auditCursorFingerprint = (
   projectionFingerprint: string,
   filters: {
     recordId?: string;
+    fieldIds?: readonly string[];
     sourceRef?: string;
     action?: CombinedRecordAuditAction;
     from?: string;
@@ -113,6 +133,7 @@ const auditCursorFingerprint = (
       JSON.stringify({
         publication: projectionFingerprint,
         recordId: filters.recordId ?? null,
+        fieldIds: filters.fieldIds ? [...filters.fieldIds].sort() : null,
         sourceRef: filters.sourceRef ?? null,
         action: filters.action ?? null,
         from: filters.from ?? null,
@@ -345,6 +366,7 @@ export const list = async (params: {
 
   const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
   const tableIds = scopedSources.map((source) => source.tableId);
+  const publishedSourceFieldIds = scopedSources.flatMap((source) => source.mappings.map((mapping) => mapping.sourceFieldId));
   const actions = params.action ? [params.action] : [...RECORD_ACTIONS];
   const rows = await sql<(DbRow & { cursor_created_at: string })[]>`
     SELECT audit.id::text, audit.table_id::text, audit.record_id::text, audit.user_id::text,
@@ -360,6 +382,10 @@ export const list = async (params: {
     WHERE audit.table_id = ANY(${toPgUuidArray(tableIds)}::uuid[])
       AND audit.record_id IS NOT NULL
       AND audit.action = ANY(${`{${actions.join(",")}}`}::text[])
+      AND (
+        audit.action <> 'updated'
+        OR COALESCE(audit.diff ?| ${toPgTextArray(publishedSourceFieldIds)}::text[], false)
+      )
       AND (${params.recordId ?? null}::uuid IS NULL OR audit.record_id = ${params.recordId ?? null}::uuid)
       AND (${params.from ?? null}::timestamptz IS NULL OR audit.created_at >= ${params.from ?? null}::timestamptz)
       AND (${params.to ?? null}::timestamptz IS NULL OR audit.created_at < ${params.to ?? null}::timestamptz)

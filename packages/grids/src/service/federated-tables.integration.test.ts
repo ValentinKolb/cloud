@@ -197,6 +197,7 @@ describe("combined table integration", () => {
     const hiddenFieldId = uuid();
     const questionId = uuid();
     const olderAuditId = "00000000-0000-4000-8000-000000000001";
+    const privateOnlyAuditId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
     const newerAuditId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
     try {
       await sql`
@@ -214,6 +215,17 @@ describe("combined table integration", () => {
             ${fixture.recordId}::uuid,
             'updated',
             ${{ [fixture.sourceTextFieldId]: { old: "Initial", new: "Mapped value" } }}::jsonb,
+            NULL,
+            NULL,
+            NULL,
+            '2026-01-01T00:00:00Z'::timestamptz
+          ),
+          (
+            ${privateOnlyAuditId}::uuid,
+            ${fixture.sourceTableId}::uuid,
+            ${fixture.recordId}::uuid,
+            'updated',
+            ${{ [hiddenFieldId]: { old: "private", new: "still private" } }}::jsonb,
             NULL,
             NULL,
             NULL,
@@ -252,6 +264,7 @@ describe("combined table integration", () => {
       expect(page.ok).toBe(true);
       if (!page.ok) return;
       expect(page.data.items).toHaveLength(1);
+      expect(page.data.items[0]?.id).toBe(newerAuditId);
       expect(page.data.nextCursor).not.toBeNull();
       const entry = page.data.items[0]!;
       expect(entry.diff).toEqual({
@@ -291,8 +304,27 @@ describe("combined table integration", () => {
       expect(older.ok).toBe(true);
       if (older.ok) {
         expect(older.data.items.map((item) => item.action)).toEqual(["updated"]);
+        expect(older.data.items[0]?.id).toBe(olderAuditId);
         expect(older.data.nextCursor).toBeNull();
       }
+      const tamperedCursor = `${page.data.nextCursor!.slice(0, -1)}${page.data.nextCursor!.endsWith("A") ? "B" : "A"}`;
+      const tampered = await combinedAudit.list({
+        tableId: fixture.targetTableId,
+        recordId: fixture.recordId,
+        limit: 1,
+        cursor: tamperedCursor,
+      });
+      expect(tampered.ok).toBe(false);
+      if (!tampered.ok) expect(tampered.error.status).toBe(400);
+      const mismatchedFieldScope = await combinedAudit.list({
+        tableId: fixture.targetTableId,
+        recordId: fixture.recordId,
+        fieldIds: [],
+        limit: 1,
+        cursor: page.data.nextCursor,
+      });
+      expect(mismatchedFieldScope.ok).toBe(false);
+      if (!mismatchedFieldScope.ok) expect(mismatchedFieldScope.error.status).toBe(409);
       const mismatchedCursor = await combinedAudit.list({
         tableId: fixture.targetTableId,
         recordId: fixture.recordId,

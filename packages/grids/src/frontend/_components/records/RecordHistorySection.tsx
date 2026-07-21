@@ -1,4 +1,5 @@
 import { Placeholder } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { Field, RecordHistoryEntry } from "../../../service";
 
@@ -18,7 +19,7 @@ const ACTION_COLORS: Record<string, string> = {
   imported: "text-zinc-600 dark:text-zinc-400",
 };
 
-export function formatRecordRelativeTime(iso: string): string {
+export function formatRecordRelativeTime(iso: string, dateConfig?: DateContext): string {
   const then = new Date(iso).getTime();
   const now = Date.now();
   const seconds = Math.floor((now - then) / 1000);
@@ -26,7 +27,7 @@ export function formatRecordRelativeTime(iso: string): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
   if (seconds < 86_400 * 30) return `${Math.floor(seconds / 86_400)}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return new Intl.DateTimeFormat(dateConfig?.locale, { timeZone: dateConfig?.timeZone }).format(new Date(iso));
 }
 
 const displayValue = (value: unknown): string => {
@@ -40,6 +41,7 @@ const displayValue = (value: unknown): string => {
 type HistoryProps = {
   entries: RecordHistoryEntry[];
   fields: Field[];
+  dateConfig?: DateContext;
   onOpenRecord?: (recordId: string, deleted: boolean) => void;
 };
 
@@ -66,87 +68,92 @@ export function RecordHistoryList(props: HistoryProps) {
                 ? changedLabels.join(", ")
                 : `${changedLabels.slice(0, 3).join(", ")} +${fieldsChanged.length - 3} more`;
           return (
-            <details class="text-xs">
-              <summary class="cursor-pointer select-none flex items-baseline gap-2">
-                <i class={`ti ${ACTION_ICONS[entry.action] ?? "ti-circle"} ${ACTION_COLORS[entry.action] ?? "text-dimmed"} text-xs`} />
-                <span class="capitalize text-secondary">{entry.action}</span>
-                <Show
-                  when={entry.userDisplayName}
-                  fallback={
-                    <Show when={entry.userId === null} fallback={<span class="text-dimmed italic">by deleted user</span>}>
-                      <span class="text-dimmed inline-flex items-center gap-1">
-                        <i class="ti ti-world text-[10px]" />
-                        via public form
-                      </span>
-                    </Show>
-                  }
+            <div class="relative">
+              <details class="text-xs">
+                <summary
+                  class={`cursor-pointer select-none flex items-baseline gap-2 ${props.onOpenRecord && entry.recordId ? "pr-8" : ""}`}
                 >
-                  {(name) => <span class="text-dimmed">by {name()}</span>}
-                </Show>
-                <span class="ml-auto text-[10px] text-dimmed shrink-0" title={entry.createdAt}>
-                  {formatRecordRelativeTime(entry.createdAt)}
-                </span>
-                <Show when={props.onOpenRecord && entry.recordId}>
-                  <button
-                    type="button"
-                    class="icon-btn -my-1"
-                    aria-label="Open record"
-                    title="Open record"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      props.onOpenRecord?.(entry.recordId!, "recordDeletedAt" in entry && entry.recordDeletedAt !== null);
-                    }}
+                  <i
+                    class={`ti ${ACTION_ICONS[entry.action] ?? "ti-circle"} ${ACTION_COLORS[entry.action] ?? "text-dimmed"} text-xs`}
+                    aria-hidden="true"
+                  />
+                  <span class="capitalize text-secondary">{entry.action}</span>
+                  <Show
+                    when={entry.userDisplayName}
+                    fallback={
+                      <Show when={entry.userId === null} fallback={<span class="text-dimmed italic">by deleted user</span>}>
+                        <span class="text-dimmed inline-flex items-center gap-1">
+                          <i class="ti ti-user-question text-[10px]" aria-hidden="true" />
+                          by system or anonymous actor
+                        </span>
+                      </Show>
+                    }
                   >
-                    <i class="ti ti-arrow-up-right" aria-hidden="true" />
-                  </button>
+                    {(name) => <span class="text-dimmed">by {name()}</span>}
+                  </Show>
+                  <span class="ml-auto text-[10px] text-dimmed shrink-0" title={entry.createdAt}>
+                    {formatRecordRelativeTime(entry.createdAt, props.dateConfig)}
+                  </span>
+                </summary>
+                <Show when={summary}>
+                  <p class="ml-5 text-[11px] text-dimmed">changed {summary}</p>
                 </Show>
-              </summary>
-              <Show when={summary}>
-                <p class="ml-5 text-[11px] text-dimmed">changed {summary}</p>
+                <Show when={"source" in entry ? entry.source : null}>
+                  {(source) => (
+                    <p class="ml-5 text-[11px] text-dimmed">
+                      Published from {source().baseName} · {source().tableName}
+                    </p>
+                  )}
+                </Show>
+                <Show when={(entry.context?.answers.length ?? 0) > 0}>
+                  <dl class="ml-5 mt-2 grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+                    <For each={entry.context?.answers ?? []}>
+                      {(answer) => (
+                        <>
+                          <dt class="text-dimmed">{answer.label}</dt>
+                          <dd class="whitespace-pre-wrap text-secondary">{answer.optionLabel ?? answer.value}</dd>
+                        </>
+                      )}
+                    </For>
+                  </dl>
+                </Show>
+                <Show when={entry.diff && fieldsChanged.length > 0}>
+                  <dl class="ml-5 mt-2 flex flex-col gap-2">
+                    <For each={fieldsChanged}>
+                      {(fieldId) => {
+                        const change = entry.diff?.[fieldId];
+                        return (
+                          <div class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2 text-[11px]">
+                            <dt class="font-medium text-secondary">
+                              {fieldNames().get(fieldId) ?? (combinedEntry ? "Unavailable field" : fieldId)}
+                            </dt>
+                            <dd class="mt-1 grid grid-cols-[3rem_minmax(0,1fr)] gap-x-2 gap-y-1">
+                              <span class="text-dimmed">Before</span>
+                              <span class="break-words text-secondary">{displayValue(change?.old)}</span>
+                              <span class="text-dimmed">After</span>
+                              <span class="break-words text-secondary">{displayValue(change?.new)}</span>
+                            </dd>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </dl>
+                </Show>
+              </details>
+              <Show when={props.onOpenRecord && entry.recordId}>
+                <button
+                  type="button"
+                  class="icon-btn -my-1 absolute right-0 top-0"
+                  aria-label="Open record"
+                  title="Open record"
+                  onClick={() => {
+                    props.onOpenRecord?.(entry.recordId!, "recordDeletedAt" in entry && entry.recordDeletedAt !== null);
+                  }}
+                >
+                  <i class="ti ti-arrow-up-right" aria-hidden="true" />
+                </button>
               </Show>
-              <Show when={"source" in entry ? entry.source : null}>
-                {(source) => (
-                  <p class="ml-5 text-[11px] text-dimmed">
-                    Published from {source().baseName} · {source().tableName}
-                  </p>
-                )}
-              </Show>
-              <Show when={(entry.context?.answers.length ?? 0) > 0}>
-                <dl class="ml-5 mt-2 grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
-                  <For each={entry.context?.answers ?? []}>
-                    {(answer) => (
-                      <>
-                        <dt class="text-dimmed">{answer.label}</dt>
-                        <dd class="whitespace-pre-wrap text-secondary">{answer.optionLabel ?? answer.value}</dd>
-                      </>
-                    )}
-                  </For>
-                </dl>
-              </Show>
-              <Show when={entry.diff && fieldsChanged.length > 0}>
-                <dl class="ml-5 mt-2 flex flex-col gap-2">
-                  <For each={fieldsChanged}>
-                    {(fieldId) => {
-                      const change = entry.diff?.[fieldId];
-                      return (
-                        <div class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2 text-[11px]">
-                          <dt class="font-medium text-secondary">
-                            {fieldNames().get(fieldId) ?? (combinedEntry ? "Unavailable field" : fieldId)}
-                          </dt>
-                          <dd class="mt-1 grid grid-cols-[3rem_minmax(0,1fr)] gap-x-2 gap-y-1">
-                            <span class="text-dimmed">Before</span>
-                            <span class="break-words text-secondary">{displayValue(change?.old)}</span>
-                            <span class="text-dimmed">After</span>
-                            <span class="break-words text-secondary">{displayValue(change?.new)}</span>
-                          </dd>
-                        </div>
-                      );
-                    }}
-                  </For>
-                </dl>
-              </Show>
-            </details>
+            </div>
           );
         }}
       </For>

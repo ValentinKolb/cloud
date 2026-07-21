@@ -666,6 +666,7 @@ export default function RecordsView(props: Props) {
       tableId: props.tableId,
       tableName: tableName(),
       fields: fields(),
+      dateConfig: props.dateConfig,
       onOpenRecord: openRecordById,
     });
 
@@ -896,10 +897,12 @@ export default function RecordsView(props: Props) {
               <Show
                 when={!props.trashMode}
                 fallback={
-                  <a href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`} class="btn-input btn-input-sm">
-                    <i class="ti ti-arrow-back" />
-                    Back to live records
-                  </a>
+                  <Show when={props.canReadTable}>
+                    <a href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`} class="btn-input btn-input-sm">
+                      <i class="ti ti-arrow-back" />
+                      Back to live records
+                    </a>
+                  </Show>
                 }
               >
                 <Show when={activeRecordMetaCount() > 0}>
@@ -957,11 +960,15 @@ export default function RecordsView(props: Props) {
                           },
                         ]
                       : []),
-                    {
-                      icon: "ti ti-archive",
-                      label: "Show deleted",
-                      href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
-                    },
+                    ...(props.canReadTable
+                      ? [
+                          {
+                            icon: "ti ti-archive",
+                            label: "Show deleted",
+                            href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
+                          },
+                        ]
+                      : []),
                   ]}
                 />
               </Show>
