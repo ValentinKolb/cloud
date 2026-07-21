@@ -475,20 +475,29 @@ export const previewDslQuery = async (
     // Lookup/rollup SQL (cross-table correlated subqueries) is built once and
     // handed to the compilers so those fields work in select / sort / filter /
     // formulas — same values as the records pipeline.
-    const computedFieldSql = await buildComputedFieldSqlMap(options.fieldsByTableId[plan.tableId] ?? []);
+    const computedFieldSql = await buildComputedFieldSqlMap(options.fieldsByTableId[plan.tableId] ?? [], {
+      readableTableIds: plan.readableTableIds,
+    });
     const computedFieldSqlByJoinAlias = new Map<string, Awaited<ReturnType<typeof buildComputedFieldSqlMap>>>();
     for (const [index, join] of (plan.joins ?? []).entries()) {
-      const map = await buildComputedFieldSqlMap(options.fieldsByTableId[join.tableId] ?? [], { recordAlias: dslJoinRecordAlias(index) });
+      const map = await buildComputedFieldSqlMap(options.fieldsByTableId[join.tableId] ?? [], {
+        recordAlias: dslJoinRecordAlias(index),
+        readableTableIds: plan.readableTableIds,
+      });
       if (map.size > 0) computedFieldSqlByJoinAlias.set(join.alias, map);
     }
     for (const [index, join] of (plan.derivedViewSource?.joins ?? []).entries()) {
       const map = await buildComputedFieldSqlMap(options.fieldsByTableId[join.tableId] ?? [], {
         recordAlias: dslDerivedJoinRecordAlias(index),
+        readableTableIds: plan.readableTableIds,
       });
       if (map.size > 0) computedFieldSqlByJoinAlias.set(join.alias, map);
     }
     for (const [index, join] of (plan.derivedViewSource?.relationJoins ?? []).entries()) {
-      const map = await buildComputedFieldSqlMap(options.fieldsByTableId[join.tableId] ?? [], { recordAlias: dslJoinRecordAlias(index) });
+      const map = await buildComputedFieldSqlMap(options.fieldsByTableId[join.tableId] ?? [], {
+        recordAlias: dslJoinRecordAlias(index),
+        readableTableIds: plan.readableTableIds,
+      });
       if (map.size > 0) computedFieldSqlByJoinAlias.set(join.alias, map);
     }
     const compileInputs = {

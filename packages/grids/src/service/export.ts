@@ -175,13 +175,13 @@ export const formatCellForExport = (value: unknown, field: Field, options: Expor
   return String(value);
 };
 
-/** RFC 4180 CSV quoting — wraps in double-quotes when the cell contains
- *  a delimiter, newline, or quote, and doubles internal quotes. Exported
- *  alongside `formatCellForExport` for unit testing. */
+/** Spreadsheet-safe RFC 4180 cell encoding. A leading apostrophe keeps
+ * formula-like user values inert in common spreadsheet applications. */
 export const csvQuote = (s: string, delimiter = ","): string => {
-  const mustQuote = s.includes(delimiter) || /[\r\n"]/.test(s);
-  if (mustQuote) return `"${s.replace(/"/g, '""')}"`;
-  return s;
+  const safe = /^[\t\r ]*[=+\-@]/.test(s) || /^[\t\r]/.test(s) ? `'${s}` : s;
+  const mustQuote = safe.includes(delimiter) || /[\r\n"]/.test(safe);
+  if (mustQuote) return `"${safe.replace(/"/g, '""')}"`;
+  return safe;
 };
 
 type ExportFormat = "csv" | "json";

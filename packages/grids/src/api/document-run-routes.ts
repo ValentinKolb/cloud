@@ -138,8 +138,16 @@ export const createDocumentRunRoutes = () =>
         if (!table) return c.json({ message: "Table not found" }, 404);
         const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const runs = await gridsService.document.listRunsForRecord(tableId, recordId);
+        const accessByTemplate = new Map<string | null, boolean>();
+        const sampleRunByTemplate = new Map(runs.map((run) => [run.templateId, run]));
+        await Promise.all(
+          [...sampleRunByTemplate].map(async ([templateId, run]) => {
+            accessByTemplate.set(templateId, (await gateRun(c, run, "read")).ok);
+          }),
+        );
         return c.json({
-          items: (await gridsService.document.listRunsForRecord(tableId, recordId)).map(gridsService.document.summarizeRun),
+          items: runs.filter((run) => accessByTemplate.get(run.templateId)).map(gridsService.document.summarizeRun),
         });
       },
     )

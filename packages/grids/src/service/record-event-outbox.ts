@@ -10,10 +10,12 @@ const RECONCILE_BATCH_SIZE = 500;
 const RECONCILE_CLAIM_MS = 30_000;
 const MAX_DELIVERY_ATTEMPTS = 20;
 const DELIVERED_RETENTION_DAYS = 30;
+const DEAD_RETENTION_DAYS = 90;
 const SHUTDOWN_DRAIN_MS = 30_000;
 
 type OutboxRow = {
   id: string;
+  base_id: string;
   payload: unknown;
   status: "pending" | "failed" | "delivered" | "dead";
   attempts: number;
@@ -94,7 +96,7 @@ export const dispatchRecordEventOutbox = async (
 ): Promise<"delivered" | "already-delivered" | "dead"> => {
   const result = await sql.begin(async (tx) => {
     const [row] = await tx<OutboxRow[]>`
-      SELECT id::text, payload, status, attempts
+      SELECT id::text, base_id::text, payload, status, attempts
       FROM grids.record_event_outbox
       WHERE id = ${id}::uuid
       FOR UPDATE
@@ -114,14 +116,39 @@ export const dispatchRecordEventOutbox = async (
       const attempts = row.attempts + 1;
       const delaySeconds = Math.min(300, 2 ** Math.min(attempts, 8));
       const status = error instanceof InvalidRecordEventPayloadError || attempts >= MAX_DELIVERY_ATTEMPTS ? "dead" : "failed";
+      const message = error instanceof Error ? error.message : String(error);
       await tx`
         UPDATE grids.record_event_outbox
         SET status = ${status},
             attempts = ${attempts},
             next_attempt_at = now() + (${delaySeconds} * interval '1 second'),
-            last_error = ${error instanceof Error ? error.message : String(error)}
+            last_error = ${message},
+            dead_at = ${status === "dead" ? sql`now()` : null}
         WHERE id = ${id}::uuid
       `;
+      if (status === "dead") {
+        await tx`
+          INSERT INTO grids.record_event_delivery_failures (
+            base_id, consumer_group, event_id, payload, error, attempts, status, dead_at
+          ) VALUES (
+            ${row.base_id}::uuid,
+            'record-event-outbox',
+            ${row.id},
+            ${JSON.stringify(row.payload)},
+            ${message},
+            ${attempts},
+            'dead',
+            now()
+          )
+          ON CONFLICT (base_id, consumer_group, event_id) DO UPDATE SET
+            payload = EXCLUDED.payload,
+            error = EXCLUDED.error,
+            attempts = EXCLUDED.attempts,
+            status = 'dead',
+            last_seen_at = now(),
+            dead_at = COALESCE(grids.record_event_delivery_failures.dead_at, now())
+        `;
+      }
       return { status, error };
     }
   });
@@ -196,7 +223,7 @@ export const claimRecordEventOutboxBatch = async (limit = RECONCILE_BATCH_SIZE):
           SELECT 1
           FROM grids.record_event_outbox predecessor
           WHERE predecessor.record_id = candidate.record_id
-            AND predecessor.status IN ('pending', 'failed')
+            AND predecessor.status IN ('pending', 'failed', 'dead')
             AND (predecessor.created_at, predecessor.id) < (candidate.created_at, candidate.id)
         )
       ORDER BY candidate.next_attempt_at, candidate.created_at, candidate.id
@@ -213,11 +240,63 @@ export const claimRecordEventOutboxBatch = async (limit = RECONCILE_BATCH_SIZE):
   return rows.map((row) => row.id);
 };
 
-const reconcileRecordEventOutbox = async (): Promise<number> => {
-  await sql`
-    DELETE FROM grids.record_event_outbox
-    WHERE status = 'delivered' AND delivered_at < now() - (${DELIVERED_RETENTION_DAYS} * interval '1 day')
+export const redriveRecordEventOutbox = async (id: string, replacementPayload?: unknown): Promise<boolean> => {
+  const redriven = await sql.begin(async (tx) => {
+    const [row] = await tx<OutboxRow[]>`
+      SELECT id::text, base_id::text, payload, status, attempts
+      FROM grids.record_event_outbox
+      WHERE id = ${id}::uuid
+      FOR UPDATE
+    `;
+    if (!row || row.status !== "dead") return false;
+    const payload = parsePayload(replacementPayload ?? row.payload);
+    await tx`
+      UPDATE grids.record_event_outbox
+      SET payload = ${payload}::jsonb,
+          status = 'pending',
+          attempts = 0,
+          next_attempt_at = now(),
+          last_error = NULL,
+          delivered_at = NULL,
+          dead_at = NULL
+      WHERE id = ${id}::uuid
+    `;
+    await tx`
+      DELETE FROM grids.record_event_delivery_failures
+      WHERE base_id = ${row.base_id}::uuid
+        AND consumer_group = 'record-event-outbox'
+        AND event_id = ${row.id}
+    `;
+    return true;
+  });
+  if (redriven) notifyRecordEventOutbox(id);
+  return redriven;
+};
+
+export const reapTerminalRecordEventOutbox = async (
+  deliveredRetentionDays = DELIVERED_RETENTION_DAYS,
+  deadRetentionDays = DEAD_RETENTION_DAYS,
+): Promise<number> => {
+  const rows = await sql<Array<{ id: string }>>`
+    WITH deleted AS (
+      DELETE FROM grids.record_event_outbox
+      WHERE (status = 'delivered' AND delivered_at < now() - (${Math.max(deliveredRetentionDays, 0)} * interval '1 day'))
+         OR (status = 'dead' AND dead_at < now() - (${Math.max(deadRetentionDays, 0)} * interval '1 day'))
+      RETURNING id, base_id
+    ), cleaned_failures AS (
+      DELETE FROM grids.record_event_delivery_failures failure
+      USING deleted
+      WHERE failure.base_id = deleted.base_id
+        AND failure.consumer_group = 'record-event-outbox'
+        AND failure.event_id = deleted.id::text
+    )
+    SELECT id::text AS id FROM deleted
   `;
+  return rows.length;
+};
+
+const reconcileRecordEventOutbox = async (): Promise<number> => {
+  await reapTerminalRecordEventOutbox();
   const ids = await claimRecordEventOutboxBatch();
   await Promise.all(ids.map(submitRecordEventOutbox));
   return ids.length;

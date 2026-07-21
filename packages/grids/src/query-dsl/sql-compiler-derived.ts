@@ -344,6 +344,7 @@ const compileDerivedGroupExpression = (
   index: number,
   options: DslSqlCompileOptions,
   joinAliases: Map<string, string>,
+  readableTableIds?: readonly string[],
 ): { ok: true; expr: unknown; joins?: unknown[] } | { ok: false; error: string } => {
   if (group.kind === "derived") return { ok: true, expr: derivedGroupExpression(group) };
   const recordAlias = joinAliases.get(group.joinAlias);
@@ -351,7 +352,7 @@ const compileDerivedGroupExpression = (
   const fields = aliveFields(options.fieldsByTableId[group.tableId] ?? []);
   const field = fieldById(fields, group.fieldId);
   if (!field) return { ok: false, error: `group field ${group.fieldId} is not available` };
-  return groupFieldProjection(group, field, recordAlias, options, index);
+  return groupFieldProjection(group, field, recordAlias, options, index, readableTableIds);
 };
 
 const derivedAggregateOutputColumn = (aggregation: DslDerivedViewAggregation): DslSqlGroupOutputColumn => ({
@@ -367,6 +368,7 @@ const derivedAggregateExpression = (
   aggregation: DslDerivedViewAggregation,
   options: DslSqlCompileOptions,
   joinAliases: Map<string, string>,
+  readableTableIds?: readonly string[],
 ): { ok: true; expr: unknown; type: FormulaSqlType } | { ok: false; error: string } => {
   if (aggregation.fieldId === "*") {
     if (aggregation.agg !== "count") return { ok: false, error: `agg "${aggregation.agg}" requires a derived column` };
@@ -377,7 +379,7 @@ const derivedAggregateExpression = (
     if (!recordAlias) return { ok: false, error: `aggregate uses unknown join alias "${aggregation.joinAlias}"` };
     const fields = aliveFields(options.fieldsByTableId[aggregation.tableId ?? ""] ?? []);
     const field = fieldById(fields, aggregation.fieldId);
-    const compiled = aggregateExprForField(aggregation, field ?? null, recordAlias, options);
+    const compiled = aggregateExprForField(aggregation, field ?? null, recordAlias, options, readableTableIds);
     return compiled.ok ? { ok: true, expr: compiled.expr, type: compiled.sqlType } : compiled;
   }
   const column = aggregation.column;
@@ -455,7 +457,7 @@ const compileDslDerivedGroupedViewSourcePlanToSql = (
   const groupColumns: DslSqlGroupOutputColumn[] = [];
   const groupKeysetColumns: DslKeysetColumn[] = [];
   for (const [index, group] of groupBy.entries()) {
-    const compiled = compileDerivedGroupExpression(group, index, options, joins.joinAliases);
+    const compiled = compileDerivedGroupExpression(group, index, options, joins.joinAliases, plan.readableTableIds);
     if (!compiled.ok) return failGroup(compiled.error);
     groupExprs.push(compiled.expr);
     selectParts.push(sql`${compiled.expr} AS ${quotedIdentifier(group.key)}`);
@@ -472,7 +474,7 @@ const compileDslDerivedGroupedViewSourcePlanToSql = (
   const aggregateColumns: DslSqlGroupOutputColumn[] = [];
   const aggregateExprsByKey = new Map<string, { expr: unknown; type: FormulaSqlType }>();
   for (const aggregation of aggregateRequests) {
-    const compiled = derivedAggregateExpression(aggregation, options, joins.joinAliases);
+    const compiled = derivedAggregateExpression(aggregation, options, joins.joinAliases, plan.readableTableIds);
     if (!compiled.ok) return failGroup(compiled.error);
     aggregateExprsByKey.set(aggregation.key, { expr: compiled.expr, type: compiled.type });
     selectParts.push(sql`${compiled.expr} AS ${quotedIdentifier(aggregation.key)}`);

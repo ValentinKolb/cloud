@@ -6,6 +6,7 @@ import { get as getField } from "./field-read";
 import { storageOf } from "./field-storage";
 import { compileFormulaSourceToSql, type FormulaSqlExpression, type FormulaSqlType } from "./formula-sql-compiler";
 import { liveRecordParentJoinSql } from "./parent-checks";
+import { type ExpansionViewer, filterReadableTableIdsByViewer } from "./relation-access";
 import { assertSqlIdentifier } from "./sql-ident";
 import type { Field } from "./types";
 
@@ -107,6 +108,31 @@ type RelationComputedConfig = {
   relationFieldId?: string;
   targetFieldId?: string;
   agg?: "count" | "sum" | "avg" | "min" | "max";
+};
+
+const computedTargetTableIds = (fields: Field[]): string[] => {
+  const fieldsById = new Map(fields.map((field) => [field.id, field]));
+  return fields.flatMap((field) => {
+    if (field.deletedAt || (field.type !== "lookup" && field.type !== "rollup")) return [];
+    const relationFieldId = (field.config as RelationComputedConfig).relationFieldId;
+    const relationField = relationFieldId ? fieldsById.get(relationFieldId) : null;
+    if (!relationField || relationField.type !== "relation" || relationField.deletedAt) return [];
+    const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
+    return targetTableId ? [targetTableId] : [];
+  });
+};
+
+export const readableComputedTargetTableIds = async (
+  fields: Field[],
+  viewer?: ExpansionViewer,
+  authorizeTable?: (tableId: string) => Promise<boolean>,
+): Promise<readonly string[] | undefined> => {
+  const targetTableIds = [...new Set(computedTargetTableIds(fields))];
+  if (authorizeTable) {
+    const verdicts = await Promise.all(targetTableIds.map(async (tableId) => ((await authorizeTable(tableId)) ? tableId : null)));
+    return verdicts.filter((tableId): tableId is string => tableId !== null);
+  }
+  return viewer ? [...(await filterReadableTableIdsByViewer(targetTableIds, viewer))] : undefined;
 };
 
 type TargetFieldResolver = (id: string) => Promise<Field | null>;
@@ -248,7 +274,10 @@ const buildRollupProjection = async (options: {
  * aggregates. Without this lookup, cross-table rollup columns were
  * silently skipped.
  */
-export const buildComputedProjections = async (fields: Field[], options: { recordAlias?: string } = {}): Promise<ComputedProjection[]> => {
+export const buildComputedProjections = async (
+  fields: Field[],
+  options: { recordAlias?: string; readableTableIds?: readonly string[] } = {},
+): Promise<ComputedProjection[]> => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const out: ComputedProjection[] = [];
   const recordAlias = assertSqlIdentifier(options.recordAlias ?? "r");
@@ -262,6 +291,8 @@ export const buildComputedProjections = async (fields: Field[], options: { recor
 
     const relationField = fieldsById.get(cfg.relationFieldId);
     if (!relationField || relationField.type !== "relation") continue;
+    const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
+    if (options.readableTableIds && (!targetTableId || !options.readableTableIds.includes(targetTableId))) continue;
     const projection =
       field.type === "lookup"
         ? await buildLookupProjection({ config: cfg, field, recordAlias, resolveTargetField })
@@ -280,7 +311,7 @@ export const buildComputedProjections = async (fields: Field[], options: { recor
  */
 export const buildComputedFieldSqlMap = async (
   fields: Field[],
-  options: { recordAlias?: string } = {},
+  options: { recordAlias?: string; readableTableIds?: readonly string[] } = {},
 ): Promise<Map<string, FormulaSqlExpression>> => {
   const projections = await buildComputedProjections(fields, options);
   return new Map(projections.map((p) => [p.fieldId, { sql: p.expr, type: computedOutputToFormulaType(p.outputType) }]));

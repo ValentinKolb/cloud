@@ -67,6 +67,12 @@ describe("compileFormulaSourceToSql", () => {
     if (result.ok) expect(result.expression.type).toBe("text");
   });
 
+  test("keeps text addition runtime-shaped", () => {
+    const result = compileFormulaSourceToSql("Name + ' suffix'", { fields });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.expression.type).toBe("text");
+  });
+
   test("compiles boolean comparisons and IF", () => {
     const result = compileFormulaSourceToSql("IF(Price > 10 && Paid, 'ok', 'hold')", { fields });
     expect(result.ok).toBe(true);

@@ -967,7 +967,7 @@ const executeIntent = async (
         await effectIntents.needsAttention(prepared, error.executionError);
         return { state: "needs_attention", error: error.executionError };
       }
-      if (effect === "durable-intent" && error.executionError.retryable) {
+      if (error.executionError.retryable) {
         await effectIntents.retry(prepared, error.executionError);
         return failedOutcome(error);
       }

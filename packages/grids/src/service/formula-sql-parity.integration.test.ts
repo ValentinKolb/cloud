@@ -174,4 +174,14 @@ describe("formula evaluator and PostgreSQL parity", () => {
       values: { [due.id]: "2026-05-02", [timestamp.id]: "2026-05-01T22:00:00Z" },
     });
   });
+
+  postgresTest("matches runtime text addition and null propagation", async () => {
+    await expectParity("'5.00' + '3.0'");
+    await expectParity("'hello ' + 'world'");
+    await expectParity("null + 'world'");
+    await expectParity("\"Numeric text\" + '1.10'", {
+      fields: [numericText],
+      values: { [numericText.id]: "24.50" },
+    });
+  });
 });

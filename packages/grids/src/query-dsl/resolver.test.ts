@@ -1712,9 +1712,17 @@ sort missing desc`),
   });
 
   test("query plan rejects relation field output when the target table is not readable", () => {
+    const lookupField = field({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa20",
+      shortId: "customer_name",
+      name: "Customer name",
+      type: "lookup",
+      position: 8,
+      config: { relationFieldId: customerLinkFieldId, targetFieldId: customerNameFieldId },
+    });
     const unreadableTarget = ctx({
       tables: [orders],
-      fieldsByTableId: { [orders.id]: fields },
+      fieldsByTableId: { [orders.id]: [...fields, lookupField] },
     });
 
     const selected = resolveDslQueryToQueryPlan(parseOk(`select customer_link`), unreadableTarget);
@@ -1728,12 +1736,26 @@ sort missing desc`),
     if (!grouped.ok) {
       expect(grouped.diagnostics.map((d) => d.message)).toEqual(['relation field "Customer link" target table is not available']);
     }
+
+    const selectedLookup = resolveDslQueryToQueryPlan(parseOk(`select customer_name`), unreadableTarget);
+    expect(selectedLookup.ok).toBe(false);
+    if (!selectedLookup.ok) {
+      expect(selectedLookup.diagnostics.map((d) => d.message)).toEqual(['lookup field "Customer name" target table is not available']);
+    }
   });
 
   test("query plan omits unreadable relation fields from implicit row output", () => {
+    const lookupField = field({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa20",
+      shortId: "customer_name",
+      name: "Customer name",
+      type: "lookup",
+      position: 8,
+      config: { relationFieldId: customerLinkFieldId, targetFieldId: customerNameFieldId },
+    });
     const unreadableTarget = ctx({
       tables: [orders],
-      fieldsByTableId: { [orders.id]: fields },
+      fieldsByTableId: { [orders.id]: [...fields, lookupField] },
     });
     const resolved = resolveDslQueryToQueryPlan(parseOk(`limit 10`), unreadableTarget);
 
@@ -2546,6 +2568,7 @@ sort missing desc`),
             shortId: "lookup_total",
             name: "Lookup total",
             type: "lookup",
+            config: { relationFieldId: customerRegionFieldId },
             position: 7,
           }),
           field({
@@ -2554,6 +2577,7 @@ sort missing desc`),
             shortId: "rollup_total",
             name: "Rollup total",
             type: "rollup",
+            config: { relationFieldId: customerRegionFieldId },
             position: 8,
           }),
         ],

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { normalizedSql } from "../sql-test-utils";
 import { compileSort, decodeCursor } from "./sort-compiler";
 import type { Field } from "./types";
 
@@ -78,6 +79,15 @@ describe("compileSort — validation", () => {
     );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.result.fieldIds).toEqual(["record:createdAt", "fld_a"]);
+  });
+
+  test("projects timestamp cursor values with PostgreSQL microsecond precision", () => {
+    const compiled = compileSort([{ source: "record", key: "createdAt", direction: "asc" }], fields, null);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect(normalizedSql(compiled.result.cursorSelect)).toContain(
+      "to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')",
+    );
   });
 
   test("succeeds with empty sort spec (no cursor)", () => {

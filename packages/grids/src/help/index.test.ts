@@ -87,6 +87,7 @@ describe("grids help", () => {
 
     const permissions = gridsHelp.getMarkdown("grids-permissions")!;
     expect(permissions).toContain("Cloud administrators are not automatic Grids superusers");
+    expect(permissions).toContain("Saved views and document templates are deliberate included-data boundaries");
     for (const resource of ["Base", "Stored table", "Combined table", "View", "Form", "Dashboard", "Document template", "Workflow"]) {
       expect(permissions, `missing permission resource ${resource}`).toContain(resource);
     }

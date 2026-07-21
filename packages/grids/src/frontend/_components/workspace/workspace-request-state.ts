@@ -54,6 +54,7 @@ export const loadWorkspaceRequest = async (
     : false;
   if (
     !hasBaseRead &&
+    catalog.tables.length === 0 &&
     catalog.sidebarForms.length === 0 &&
     !hasViewRouteAccess &&
     catalog.sidebarDocumentTemplates.length === 0 &&
@@ -82,6 +83,6 @@ export const loadWorkspaceRequest = async (
     requestedDocumentTable,
     requestedDocumentTemplate,
     requestedWorkflow,
-    requestedViewTable,
+    requestedViewTable: hasViewRouteAccess ? requestedViewTable : null,
   };
 };

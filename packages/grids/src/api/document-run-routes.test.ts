@@ -99,6 +99,7 @@ const forbiddenResponse = {
 
 let templateLevel: PermissionLevel = "read";
 let tableLevel: PermissionLevel = "read";
+let deniedTemplateIds = new Set<string>();
 let currentTemplate: typeof template | null = template;
 let currentTable: typeof table | null = table;
 let currentRun: RunFixture | null = run;
@@ -134,6 +135,7 @@ describe("document run routes", () => {
   beforeEach(() => {
     templateLevel = "read";
     tableLevel = "read";
+    deniedTemplateIds = new Set();
     currentTemplate = template;
     currentTable = table;
     currentRun = run;
@@ -181,9 +183,12 @@ describe("document run routes", () => {
     });
     spyOn(gridsService.document, "summarizeRun").mockImplementation(summarizeRun as never);
     spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
-    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) =>
-      "documentTemplateId" in target ? templateLevel : tableLevel,
-    );
+    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
+      if ("documentTemplateId" in target) {
+        return deniedTemplateIds.has(target.documentTemplateId) ? "none" : templateLevel;
+      }
+      return tableLevel;
+    });
   });
 
   afterEach(() => mock.restore());
@@ -382,6 +387,14 @@ describe("document run routes", () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ items: [summarizeRun(run), summarizeRun(otherTemplateRun)] });
+    });
+
+    test("omits runs from document templates the caller cannot read", async () => {
+      deniedTemplateIds.add(otherTemplateId);
+      const response = await app().request(path(`/runs/by-record/${tableId}/${recordId}`));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ items: [summarizeRun(run)] });
     });
   });
 

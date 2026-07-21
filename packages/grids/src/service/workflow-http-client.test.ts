@@ -351,6 +351,32 @@ describe("workflow HTTP client", () => {
     expect(result.ok ? "" : result.error.code).toBe("WORKFLOW_HTTP_OUTCOME_UNKNOWN");
   });
 
+  test("marks connection failures before request dispatch as retryable", async () => {
+    const requestFactory = (() => {
+      const request = new EventEmitter() as ClientRequest;
+      request.destroy = (() => request) as ClientRequest["destroy"];
+      request.end = (() => {
+        queueMicrotask(() => request.emit("error", Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" })));
+        return request;
+      }) as ClientRequest["end"];
+      return request;
+    }) as (options: RequestOptions, callback: (response: IncomingMessage) => void) => ClientRequest;
+    const result = await requestWorkflowHttp(
+      { url: "https://api.example.com/hooks", method: "POST", body: "{}" },
+      {
+        getSetting: settings(),
+        lookup: async () => [{ address: publicAddress, family: 4 }],
+        request: requestFactory,
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("WORKFLOW_HTTP_RETRYABLE");
+      expect(result.error.status).toBe(500);
+    }
+  });
+
   test("applies the request timeout while DNS is still resolving", async () => {
     const result = await requestWorkflowHttp(
       { url: "https://api.example.com/slow", method: "GET", timeoutMs: 5 },

@@ -1,4 +1,3 @@
-import { gridsService } from "../../../service";
 import { loadDashboardState, resolveActiveDashboard } from "./workspace-dashboard-state";
 import { loadDocumentTemplateState } from "./workspace-document-state";
 import { loadQueryState } from "./workspace-query-state";
@@ -21,7 +20,8 @@ export const loadWorkspaceRoute = async (request: WorkspaceRequestContext): Prom
     : null;
   const activeTableFromSlug =
     request.requestedViewTable ??
-    (common.params.activeTableSlug ? await gridsService.table.getByIdOrShortId(common.base.id, common.params.activeTableSlug) : null);
+    common.catalog.tables.find((table) => table.id === common.params.activeTableSlug || table.shortId === common.params.activeTableSlug) ??
+    null;
 
   if (queryWorkspaceRequested) return loadQueryState(common, activeTableFromSlug, common.params.activeViewSlug);
   if (workflowWorkspaceRequested) {
@@ -34,12 +34,7 @@ export const loadWorkspaceRoute = async (request: WorkspaceRequestContext): Prom
     return loadDocumentTemplateState(common, request.requestedDocumentTable, request.requestedDocumentTemplate);
   }
 
-  const activeTableId = activeTableFromSlug?.id ?? null;
-  const activeTable = activeTableId
-    ? (common.catalog.tables.find((table) => table.id === activeTableId) ?? (common.params.activeViewSlug ? activeTableFromSlug : null))
-    : activeDashboard
-      ? null
-      : (common.catalog.tables[0] ?? null);
+  const activeTable = activeTableFromSlug ? activeTableFromSlug : activeDashboard ? null : (common.catalog.tables[0] ?? null);
   if (renderDashboard) return loadDashboardState(common, renderDashboard);
   if (!activeTable) return okState(common, { kind: "empty" });
   return loadRecordsState(common, activeTable, common.params.activeViewSlug);

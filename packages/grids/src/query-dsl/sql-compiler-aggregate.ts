@@ -46,7 +46,7 @@ export const compileDslAggregateQueryPlanToSql = (
   const aggregateColumns: Array<{ key: string; expr: unknown }> = [];
   for (const aggregation of aggregations) {
     const field = aggregation.fieldId === "*" ? null : (fieldsById.get(aggregation.fieldId) ?? null);
-    const compiled = aggregateExprForField({ ...aggregation, tableId: plan.tableId }, field, "r", options);
+    const compiled = aggregateExprForField({ ...aggregation, tableId: plan.tableId }, field, "r", options, plan.readableTableIds);
     if (!compiled.ok) return failAggregate(`aggregate: ${compiled.error}`);
     aggregateColumns.push({ key: aggregateOutputKey(aggregation.fieldId, aggregation.agg), expr: compiled.expr });
   }

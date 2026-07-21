@@ -86,7 +86,10 @@ export const createWorkspaceApi = (
         const loadFields = () => (deps.listFields ?? gridsService.field.listByTable)(tableId);
         if (tableAccess.ok) {
           const getRecord = deps.getRecord ?? gridsService.record.get;
-          const record = await getRecord(tableId, recordId, { deleted: deletedOnly ? "only" : "live" });
+          const record = await getRecord(tableId, recordId, {
+            deleted: deletedOnly ? "only" : "live",
+            viewer: (deps.viewer ?? currentActorViewer)(c),
+          });
           if (!record) return c.json({ message: "Record not found" }, 404);
           detailFields = await loadFields();
         } else {

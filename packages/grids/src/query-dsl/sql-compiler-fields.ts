@@ -58,6 +58,13 @@ export const relationTargetIsReadable = (field: Field, readableTableIds?: readon
   return readableTableIds.includes(targetTableId);
 };
 
+const computedTargetIsReadable = (field: Field, fields: Field[], readableTableIds?: readonly string[]): boolean => {
+  if (!readableTableIds || (field.type !== "lookup" && field.type !== "rollup")) return true;
+  const relationFieldId = (field.config as { relationFieldId?: string }).relationFieldId;
+  const relationField = relationFieldId ? fields.find((candidate) => candidate.id === relationFieldId && !candidate.deletedAt) : null;
+  return Boolean(relationField && relationTargetIsReadable(relationField, readableTableIds));
+};
+
 export const computedFieldSqlForScope = (
   options: Pick<DslSqlCompileOptions, "computedFieldSql" | "computedFieldSqlByJoinAlias">,
   joinAlias?: string,
@@ -86,6 +93,9 @@ export const fieldProjection = (
     });
   }
   if (field.type === "lookup" || field.type === "rollup") {
+    if (!computedTargetIsReadable(field, options?.fields ?? [field], options?.readableTableIds)) {
+      return { ok: false, error: `${field.type} field "${field.name}" target table is not available` };
+    }
     const computed = options?.computedFieldSql?.get(field.id);
     if (computed) return { ok: true, projection: computed.sql, sqlType: computed.type };
     return { ok: false, error: `field "${field.name}" (type "${field.type}") is not available in this query` };

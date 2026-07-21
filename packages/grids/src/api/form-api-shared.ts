@@ -4,7 +4,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { FormConfigSchema, ShortIdSchema, UserInputFormFieldEntrySchema } from "../contracts";
 import { gridsService } from "../service";
-import type { FormSubmission } from "../service/form-submission";
+import { type FormSubmission, MAX_INLINE_CREATES_PER_FIELD, MAX_INLINE_CREATES_PER_SUBMISSION } from "../service/form-submission";
 import type { Form } from "../service/forms";
 
 export const FormSchema = z.object({
@@ -46,9 +46,18 @@ const InlineCreateDraftSchema = z.object({
   data: z.record(z.string(), z.unknown()),
 });
 
+const InlineCreatesSchema = z
+  .record(z.string(), z.array(InlineCreateDraftSchema).max(MAX_INLINE_CREATES_PER_FIELD))
+  .superRefine((groups, context) => {
+    const total = Object.values(groups).reduce((count, drafts) => count + drafts.length, 0);
+    if (total > MAX_INLINE_CREATES_PER_SUBMISSION) {
+      context.addIssue({ code: "custom", message: `At most ${MAX_INLINE_CREATES_PER_SUBMISSION} related records may be created` });
+    }
+  });
+
 const SubmitEnvelopeSchema = z.object({
   data: z.record(z.string(), z.unknown()).optional(),
-  inlineCreates: z.record(z.string(), z.array(InlineCreateDraftSchema)).optional(),
+  inlineCreates: InlineCreatesSchema.optional(),
 });
 
 const parseSubmission = (submitted: Record<string, unknown>): FormSubmission | null => {

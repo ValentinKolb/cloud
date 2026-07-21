@@ -55,6 +55,12 @@ describe("csvQuote", () => {
     // non-Latin characters don't trigger quoting.
     expect(csvQuote("Über naïve")).toBe("Über naïve");
   });
+
+  test("neutralizes spreadsheet formulas before quoting", () => {
+    expect(csvQuote("=1+1")).toBe("'=1+1");
+    expect(csvQuote(" @SUM(A1:A2)")).toBe("' @SUM(A1:A2)");
+    expect(csvQuote("\t=cmd|' /C calc'!A0")).toBe("'\t=cmd|' /C calc'!A0");
+  });
 });
 
 // =============================================================================

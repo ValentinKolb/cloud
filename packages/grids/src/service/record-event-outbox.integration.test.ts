@@ -5,14 +5,18 @@ import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integ
 import { migrate } from "../migrate";
 import type { SqlClient } from "./audit";
 import {
+  captureRecordEventSnapshot,
   claimRecordEventOutboxBatch,
   dispatchRecordEventOutbox,
   enqueueRecordEvent,
   notifyRecordEventOutbox,
+  reapTerminalRecordEventOutbox,
+  redriveRecordEventOutbox,
   startRecordEventOutbox,
   stopRecordEventOutbox,
 } from "./record-event-outbox";
 import type { GridsRecordEvent } from "./record-events";
+import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-kernel-record-events";
 
 type Fixture = { actorId: string; baseId: string; tableId: string; fieldId: string };
 
@@ -182,6 +186,52 @@ describe("record event outbox integration", () => {
       `;
       expect(row).toEqual({ status: "dead", attempts: 20, last_error: "invalid event" });
       expect(await dispatchRecordEventOutbox(created.outboxId, async () => undefined)).toBe("dead");
+      const [failure] = await sql<Array<{ id: string }>>`
+        SELECT id::text
+        FROM grids.record_event_delivery_failures
+        WHERE base_id = ${fixture.baseId}::uuid
+          AND consumer_group = 'record-event-outbox'
+          AND event_id = ${created.outboxId}
+          AND status = 'dead'
+      `;
+      expect(failure?.id).toBeString();
+
+      expect(await replayWorkflowRecordEventDeliveryFailure(fixture.baseId, failure!.id)).toBe(true);
+      expect(await redriveRecordEventOutbox(created.outboxId)).toBe(false);
+      expect(await dispatchRecordEventOutbox(created.outboxId, async () => undefined)).toBe("delivered");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("reaps expired dead events together with snapshots and producer dead letters", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const created = await sql.begin(async (tx) => {
+        const item = await insertRecordAndEvent(tx, fixture, "Expired dead event");
+        await captureRecordEventSnapshot(tx, {
+          snapshotId: item.outboxId,
+          tableId: fixture.tableId,
+          recordId: item.recordId,
+          eventType: "record.created",
+        });
+        return item;
+      });
+      await sql`UPDATE grids.record_event_outbox SET attempts = 19 WHERE id = ${created.outboxId}::uuid`;
+      await expect(dispatchRecordEventOutbox(created.outboxId, async () => Promise.reject(new Error("unavailable")))).rejects.toThrow(
+        "unavailable",
+      );
+      await sql`UPDATE grids.record_event_outbox SET dead_at = now() - interval '91 days' WHERE id = ${created.outboxId}::uuid`;
+
+      expect(await reapTerminalRecordEventOutbox(30, 90)).toBe(1);
+      const [counts] = await sql<Array<{ events: number; snapshots: number; failures: number }>>`
+        SELECT
+          (SELECT count(*)::int FROM grids.record_event_outbox WHERE id = ${created.outboxId}::uuid) AS events,
+          (SELECT count(*)::int FROM grids.record_event_snapshots WHERE id = ${created.outboxId}::uuid) AS snapshots,
+          (SELECT count(*)::int FROM grids.record_event_delivery_failures WHERE event_id = ${created.outboxId}) AS failures
+      `;
+      expect(counts).toEqual({ events: 0, snapshots: 0, failures: 0 });
     } finally {
       await cleanupFixture(fixture);
     }

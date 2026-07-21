@@ -45,6 +45,8 @@ In practice:
 
 **Included data** is rendered as part of the resource already opened, such as records in a view or numbers on a dashboard. It follows that resource's access.
 
+Saved views and document templates are deliberate included-data boundaries. Their administrator chooses the stored GQL, including joins. Granting access exposes that saved result or generated document without granting access to browse the source tables or replace the stored query.
+
 A **linked target** is a different resource opened separately. A dashboard link, a related record, or the original table checks its own access when opened. Do not assume that seeing a label grants navigation to its source.
 
 ## Documents and workflows {icon="route"}

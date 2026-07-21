@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MAX_FILTER_DEPTH, MAX_FILTER_GROUP_ITEMS } from "../contracts";
 import { type CompiledClause, compileFilter } from "./filter-compiler";
 import type { Field } from "./types";
 
@@ -90,6 +91,26 @@ describe("compileFilter — structural compilation", () => {
       expect(and.parts[0]?.kind).toBe("predicate");
       expect(and.parts[1]?.kind).toBe("or");
     }
+  });
+
+  test("rejects oversized and deeply nested trees at the compiler boundary", () => {
+    const leaf = { fieldId: "fld_name", op: "equals", value: "Alice" };
+    expect(compileFilter({ op: "AND", filters: Array.from({ length: MAX_FILTER_GROUP_ITEMS + 1 }, () => leaf) }, fields)).toEqual({
+      ok: false,
+      error: "filter group contains too many items",
+    });
+
+    let nested: typeof leaf | { op: "AND"; filters: unknown[] } = leaf;
+    for (let depth = 0; depth < MAX_FILTER_DEPTH; depth += 1) nested = { op: "AND", filters: [nested] };
+    const result = compileFilter(nested as never, fields);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("deeply nested");
+  });
+
+  test("rejects regex patterns above the execution cap", () => {
+    const result = compileFilter({ fieldId: "fld_name", op: "regex", value: "x".repeat(201) }, fields);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("at most 200 characters");
   });
 
   test("rejects unknown field id", () => {

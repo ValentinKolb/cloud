@@ -130,7 +130,10 @@ export const liveRenderData = async (
   const table = await gridsService.table.get(params.tableId);
   if (!table) return { ok: false as const, status: 404, phase: "data" as const, message: "Table not found" };
   const dateConfig = params.dateConfig ?? (await getDateConfig(c));
-  const record = await gridsService.record.get(params.tableId, params.recordId, { dateConfig });
+  const record = await gridsService.record.get(params.tableId, params.recordId, {
+    dateConfig,
+    viewer: { userId: null, userGroups: [], isAdmin: true },
+  });
   if (!record) return { ok: false as const, status: 404, phase: "data" as const, message: "Record not found" };
 
   const rendered = await gridsService.document.buildLiveRenderData({

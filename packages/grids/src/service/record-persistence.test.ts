@@ -62,7 +62,7 @@ describe("record persistence", () => {
     expect(Object.fromEntries(result.relations)).toEqual({ authors: ["a", "b"], owner: ["c"] });
   });
 
-  test("builds update JSONB from writable live non-relation fields", () => {
+  test("preserves soft-deleted writable values while stripping computed and relation data", () => {
     expect(
       buildPersistedUpdateData(
         { title: "Old", relation: ["a"], formula: 10, deleted: "stale", note: "keep" },
@@ -75,7 +75,7 @@ describe("record persistence", () => {
           field("deleted", "text", { deletedAt: "2026-01-02T00:00:00.000Z" }),
         ],
       ),
-    ).toEqual({ title: "New" });
+    ).toEqual({ title: "New", deleted: "stale" });
   });
 
   test("reports only semantically changed validated fields", () => {

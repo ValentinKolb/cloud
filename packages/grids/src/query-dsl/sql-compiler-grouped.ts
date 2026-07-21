@@ -76,7 +76,7 @@ const compileJoinedGroupedQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, optio
     if (!field) return failGroup(`group field ${group.fieldId} is not available`);
     const recordAlias = group.joinAlias ? joinAliases.get(group.joinAlias) : "r";
     if (!recordAlias) return failGroup(`group field uses unknown join alias "${group.joinAlias}"`);
-    const projected = groupFieldProjection(group, field, recordAlias, options, index);
+    const projected = groupFieldProjection(group, field, recordAlias, options, index, plan.readableTableIds);
     if (!projected.ok) return failGroup(projected.error);
     const key = sqlGroupKey(index);
     groupExprs.push(projected.expr);
@@ -100,7 +100,7 @@ const compileJoinedGroupedQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, optio
     const field = aggregation.fieldId === "*" ? null : fieldById(tableFields, aggregation.fieldId);
     const recordAlias = aggregation.joinAlias ? joinAliases.get(aggregation.joinAlias) : "r";
     if (!recordAlias) return failGroup(`aggregate uses unknown join alias "${aggregation.joinAlias}"`);
-    const compiled = aggregateExprForField(aggregation, field, recordAlias, options);
+    const compiled = aggregateExprForField(aggregation, field, recordAlias, options, plan.readableTableIds);
     if (!compiled.ok) return failGroup(compiled.error);
     const key = aggregateOutputKey(aggregation.fieldId, aggregation.agg);
     aggregateExprsByKey.set(key, { expr: compiled.expr, type: compiled.sqlType });

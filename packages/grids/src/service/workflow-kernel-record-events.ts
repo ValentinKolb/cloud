@@ -16,6 +16,7 @@ import {
   recordInvalidRecordEventDelivery,
   recordRecordEventDeliveryFailure,
 } from "./record-event-delivery-failures";
+import { redriveRecordEventOutbox } from "./record-event-outbox";
 import {
   type GridsRecordEvent,
   GridsRecordEventSchema,
@@ -172,6 +173,7 @@ export const processFailedWorkflowRecordEventDelivery = async (
 export const replayWorkflowRecordEventDeliveryFailure = async (baseId: string, id: string): Promise<boolean> => {
   const failure = await getDeadRecordEventDeliveryFailure(baseId, id);
   if (!failure?.payload) return false;
+  if (failure.consumerGroup === "record-event-outbox") return redriveRecordEventOutbox(failure.eventId);
   let payload: unknown;
   try {
     payload = JSON.parse(failure.payload);

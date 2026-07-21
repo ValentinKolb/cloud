@@ -325,8 +325,10 @@ export const executeGqlSource = async (
   }
 };
 
-/** Executes the exact stored source of one authorized saved view. The trusted
- * resolver is safe here because callers cannot substitute arbitrary GQL. */
+/** Executes the exact stored source of an authorized saved view. View read is
+ * deliberately a data-product boundary: it grants the stored result, including
+ * joins chosen by the view admin, without granting navigation to source tables.
+ * Callers cannot substitute arbitrary GQL on this trusted resolver path. */
 export const executeSavedViewSource = async (
   c: Context<AuthContext>,
   baseId: string,

@@ -1,4 +1,4 @@
-import type { FilterTree } from "../contracts";
+import { type FilterTree, MAX_FILTER_DEPTH, MAX_FILTER_GROUP_ITEMS, MAX_FILTER_NODES } from "../contracts";
 import { filterOperatorsForType, validateFilterValue } from "./filter-compiler-validation";
 import type { Field } from "./types";
 
@@ -29,12 +29,23 @@ const isGroup = (tree: FilterTree): tree is FilterGroup => {
   return (group.op === "AND" || group.op === "OR") && Array.isArray(group.filters);
 };
 
-const compileTree = (tree: FilterTree, fieldsById: Map<string, Field>, options: CompileOptions): CompileResult => {
+const compileTree = (
+  tree: FilterTree,
+  fieldsById: Map<string, Field>,
+  options: CompileOptions,
+  bounds: { nodes: number },
+  depth: number,
+): CompileResult => {
+  bounds.nodes += 1;
+  if (depth > MAX_FILTER_DEPTH || bounds.nodes > MAX_FILTER_NODES) {
+    return { ok: false, error: "filter is too large or deeply nested" };
+  }
   if (isGroup(tree)) {
+    if (tree.filters.length > MAX_FILTER_GROUP_ITEMS) return { ok: false, error: "filter group contains too many items" };
     if (tree.filters.length === 0) return { ok: true, clause: { kind: tree.op === "AND" ? "true" : "false" } };
     const parts: CompiledClause[] = [];
     for (const child of tree.filters) {
-      const compiled = compileTree(child, fieldsById, options);
+      const compiled = compileTree(child, fieldsById, options, bounds, depth + 1);
       if (!compiled.ok) return compiled;
       parts.push(compiled.clause);
     }
@@ -68,7 +79,7 @@ const compileTree = (tree: FilterTree, fieldsById: Map<string, Field>, options: 
 
 export const compileFilter = (tree: FilterTree | null | undefined, fields: Field[], options: CompileOptions = {}): CompileResult => {
   if (tree === null || tree === undefined) return { ok: true, clause: { kind: "true" } };
-  return compileTree(tree, new Map(fields.map((field) => [field.id, field])), options);
+  return compileTree(tree, new Map(fields.map((field) => [field.id, field])), options, { nodes: 0 }, 1);
 };
 
 export { renderClause } from "./filter-compiler-render";

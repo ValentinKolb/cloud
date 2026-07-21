@@ -248,8 +248,9 @@ const executeDocumentGqlSource = async (params: {
     fieldsByTableId,
     timeZone: params.dateConfig?.timeZone,
     maxRows: DOCUMENT_QUERY_MAX_ROWS,
-    // Document template read/write gates are checked before rendering. Once a
-    // template is allowed, its GQL source is the trusted document data boundary.
+    // A document template is a deliberate data-product boundary. Its admin
+    // chooses the stored GQL; readers can consume that output without source
+    // table access, but cannot substitute GQL on this trusted execution path.
     viewer: { userId: null, userGroups: [], isAdmin: true },
   });
   if (!preview.ok) return fail(err.badInput(preview.error.message));

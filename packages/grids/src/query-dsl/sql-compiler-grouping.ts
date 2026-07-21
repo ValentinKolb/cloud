@@ -198,6 +198,7 @@ export const groupFieldProjection = (
   recordAlias: string,
   options: DslSqlCompileOptions,
   index: number,
+  readableTableIds?: readonly string[],
 ): { ok: true; expr: unknown; sqlType: DslSqlOutputColumn["sqlType"]; joins?: unknown[] } | { ok: false; error: string } => {
   const descriptor = storageOf(field);
   if (descriptor.kind === "relationLink") {
@@ -255,7 +256,7 @@ export const groupFieldProjection = (
   const projection = fieldProjection(field, recordAlias, {
     fields: aliveFields(options.fieldsByTableId[group.tableId] ?? []),
     timeZone: options.timeZone,
-    readableTableIds: [],
+    readableTableIds,
     computedFieldSql: computedFieldSqlForScope(options, group.joinAlias),
   });
   if (!projection.ok) return projection;
@@ -267,6 +268,7 @@ export const aggregateExprForField = (
   field: Field | null,
   recordAlias: string,
   options: DslSqlCompileOptions,
+  readableTableIds?: readonly string[],
 ): { ok: true; expr: unknown; sqlType: FormulaSqlType } | { ok: false; error: string } => {
   if (aggregation.fieldId === "*") {
     if (aggregation.agg !== "count") return { ok: false, error: `agg "${aggregation.agg}" requires a field; only count works on "*"` };
@@ -279,7 +281,7 @@ export const aggregateExprForField = (
   const projection = fieldProjection(field, recordAlias, {
     fields: aliveFields(options.fieldsByTableId[aggregation.tableId ?? field.tableId] ?? []),
     timeZone: options.timeZone,
-    readableTableIds: [],
+    readableTableIds,
     computedFieldSql: computedFieldSqlForScope(options, aggregation.joinAlias),
   });
   if (!projection.ok) return projection;

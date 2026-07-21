@@ -110,7 +110,13 @@ export const compileDslKeyset = (
     sql`, `,
   );
   const select = joinSql(
-    columns.map((column, index) => sql`${column.expression} AS ${sql.unsafe(aliases[index]!)}`),
+    columns.map((column, index) => {
+      const cursorValue =
+        column.type === "datetime"
+          ? sql`to_char(${column.expression} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
+          : column.expression;
+      return sql`${cursorValue} AS ${sql.unsafe(aliases[index]!)}`;
+    }),
     sql`, `,
   );
   const where = values

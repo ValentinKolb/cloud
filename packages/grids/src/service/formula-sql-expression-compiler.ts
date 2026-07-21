@@ -14,7 +14,6 @@ import {
   formulaSqlAsDate,
   formulaSqlAsNullableText,
   formulaSqlAsNumeric,
-  formulaSqlAsText,
   formulaSqlAsTimestamp,
   formulaSqlError,
   formulaSqlFail,
@@ -178,7 +177,20 @@ const compileArithmetic = (op: ArithmeticOperator, left: FormulaSqlExpression, r
   const inheritedError = formulaSqlAnyError([left, right]);
   if (op === "+") {
     if (left.type === "text" && right.type === "text") {
-      return formulaSqlOk(sql`(${formulaSqlAsText(left)} || ${formulaSqlAsText(right)})`, "text", inheritedError);
+      const leftText = formulaSqlAsNullableText(left);
+      const rightText = formulaSqlAsNullableText(right);
+      const leftNumeric = formulaSqlAsNumeric(left);
+      const rightNumeric = formulaSqlAsNumeric(right);
+      return formulaSqlOk(
+        sql`CASE
+          WHEN ${leftText} IS NULL OR ${rightText} IS NULL THEN NULL::text
+          WHEN ${leftNumeric} IS NOT NULL AND ${rightNumeric} IS NOT NULL
+            THEN trim_scale(${leftNumeric} + ${rightNumeric})::text
+          ELSE ${leftText} || ${rightText}
+        END`,
+        "text",
+        inheritedError,
+      );
     }
     return formulaSqlOk(sql`(${formulaSqlAsNumeric(left)} + ${formulaSqlAsNumeric(right)})`, "numeric", inheritedError);
   }

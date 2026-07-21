@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { applyComputedProjections, buildComputedColumnSqlProjections, buildFormulaSqlProjections } from "./computed-projections";
+import {
+  applyComputedProjections,
+  buildComputedColumnSqlProjections,
+  buildComputedProjections,
+  buildFormulaSqlProjections,
+  readableComputedTargetTableIds,
+} from "./computed-projections";
 import type { Field } from "./types";
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name" | "type">): Field => ({
@@ -91,6 +97,54 @@ describe("buildComputedColumnSqlProjections", () => {
     applyComputedProjections([{ id: "record_1", [projections[0]!.alias]: "12" }], new Map([["record_1", record]]), projections);
 
     expect(record.data.computed_j3rz0Y3fwW).toBe("12");
+  });
+});
+
+describe("buildComputedProjections", () => {
+  test("omits lookup and rollup values whose relation target is not readable", async () => {
+    const relation = field({
+      id: "relation_id",
+      shortId: "relat",
+      name: "Relation",
+      type: "relation",
+      config: { targetTableId: "target_table" },
+    });
+    const count = field({
+      id: "count_id",
+      shortId: "count",
+      name: "Count",
+      type: "rollup",
+      config: { relationFieldId: relation.id, agg: "count" },
+    });
+
+    expect(await buildComputedProjections([relation, count], { readableTableIds: [] })).toEqual([]);
+    expect(await buildComputedProjections([relation, count], { readableTableIds: ["target_table"] })).toHaveLength(1);
+  });
+
+  test("uses a caller-provided table policy for credential-scoped reads", async () => {
+    const relation = field({
+      id: "relation_id",
+      shortId: "relat",
+      name: "Relation",
+      type: "relation",
+      config: { targetTableId: "target_table" },
+    });
+    const lookup = field({
+      id: "lookup_id",
+      shortId: "lookup",
+      name: "Lookup",
+      type: "lookup",
+      config: { relationFieldId: relation.id, targetFieldId: "target_field" },
+    });
+    const checked: string[] = [];
+
+    const readable = await readableComputedTargetTableIds([relation, lookup], undefined, async (tableId) => {
+      checked.push(tableId);
+      return false;
+    });
+
+    expect(checked).toEqual(["target_table"]);
+    expect(readable).toEqual([]);
   });
 });
 

@@ -511,15 +511,42 @@ const FilterLeafSchema = z.object({
 
 export type FilterTree = z.infer<typeof FilterLeafSchema> | { op: "AND" | "OR"; filters: FilterTree[] };
 
-const FilterTreeSchema: z.ZodType<FilterTree> = z.lazy(() =>
+export const MAX_FILTER_DEPTH = 20;
+export const MAX_FILTER_NODES = 200;
+export const MAX_FILTER_GROUP_ITEMS = 100;
+export const MAX_QUERY_SORTS = 16;
+export const MAX_QUERY_AGGREGATIONS = 32;
+export const MAX_QUERY_COLUMNS = 100;
+
+const filterTreeWithinBounds = (value: unknown): boolean => {
+  const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 1 }];
+  let nodes = 0;
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    nodes += 1;
+    if (nodes > MAX_FILTER_NODES || current.depth > MAX_FILTER_DEPTH) return false;
+    if (!current.value || typeof current.value !== "object" || Array.isArray(current.value)) continue;
+    const filters = (current.value as { filters?: unknown }).filters;
+    if (!Array.isArray(filters)) continue;
+    if (filters.length > MAX_FILTER_GROUP_ITEMS) return false;
+    for (const child of filters) stack.push({ value: child, depth: current.depth + 1 });
+  }
+  return true;
+};
+
+const RecursiveFilterTreeSchema: z.ZodType<FilterTree, FilterTree> = z.lazy(() =>
   z.union([
     FilterLeafSchema,
     z.object({
       op: z.enum(["AND", "OR"]),
-      filters: z.array(FilterTreeSchema),
+      filters: z.array(RecursiveFilterTreeSchema).max(MAX_FILTER_GROUP_ITEMS),
     }),
   ]),
 );
+
+const FilterTreeSchema = z
+  .custom<FilterTree>(filterTreeWithinBounds, "filter is too large or deeply nested")
+  .pipe(RecursiveFilterTreeSchema) as z.ZodType<FilterTree>;
 
 const RecordMetaSortKeySchema = z.enum(["createdAt", "updatedAt", "deletedAt"]);
 export type RecordMetaSortKey = z.infer<typeof RecordMetaSortKeySchema>;
@@ -721,14 +748,14 @@ export const RecordQuerySchema = z.object({
   /** Record/system metadata criteria. Kept separate from field filters
    *  because these predicates target `records.*` columns, not table data. */
   recordMeta: RecordMetaQuerySchema.optional(),
-  sort: z.array(SortSpecSchema).optional(),
+  sort: z.array(SortSpecSchema).max(MAX_QUERY_SORTS).optional(),
   groupBy: z.array(GroupBySpecSchema).max(3).optional(),
   /** Bucket ordering for grouped queries. When set, groups are ordered
    *  by aggregate value first, then by group keys for deterministic ties.
    *  Used for Top-N views such as "top customers by revenue". */
   groupSort: z.array(GroupSortSpecSchema).max(3).optional(),
-  aggregations: z.array(AggregationSpecSchema).optional(),
-  columns: z.array(ColumnSpecSchema).optional(),
+  aggregations: z.array(AggregationSpecSchema).max(MAX_QUERY_AGGREGATIONS).optional(),
+  columns: z.array(ColumnSpecSchema).max(MAX_QUERY_COLUMNS).optional(),
   /** Visual order for grouped view columns. Group and aggregate specs keep
    *  their semantic order; this only controls the rendered table order. */
   groupedColumnOrder: z.array(z.string().min(1)).optional(),

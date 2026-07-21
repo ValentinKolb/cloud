@@ -183,6 +183,7 @@ const sendPinnedRequest = (
   headers: Record<string, string>,
   signal: AbortSignal,
   deps: WorkflowHttpClientDeps,
+  onDispatched: () => void,
 ): Promise<WorkflowHttpResponse> =>
   new Promise((resolve, reject) => {
     let settled = false;
@@ -213,6 +214,7 @@ const sendPinnedRequest = (
       },
     } as RequestOptions & { servername: string };
     const request = factory(options, (response) => {
+      onDispatched();
       const declaredLength = Number(response.headers["content-length"] ?? 0);
       if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
         response.destroy();
@@ -242,6 +244,7 @@ const sendPinnedRequest = (
       response.once("error", (error) => finish(() => reject(error)));
     });
     const abort = () => request.destroy(Object.assign(new Error("request timed out"), { name: "AbortError" }));
+    request.once("finish", onDispatched);
     request.once("error", (error) => finish(() => reject(error)));
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) {
@@ -262,8 +265,9 @@ export const requestWorkflowHttp = async (
   try {
     const prepared = await prepareWorkflowHttpRequest(input, deps, controller.signal);
     if (!prepared.ok) return prepared;
-    dispatched = true;
-    return ok(await sendPinnedRequest(prepared.data.target, input, prepared.data.headers, controller.signal, deps));
+    return ok(
+      await sendPinnedRequest(prepared.data.target, input, prepared.data.headers, controller.signal, deps, () => (dispatched = true)),
+    );
   } catch (error) {
     if (dispatched) {
       return fail({
@@ -273,9 +277,13 @@ export const requestWorkflowHttp = async (
       });
     }
     if (error instanceof Error && error.name === "AbortError") {
-      return fail(err.badInput(dispatched ? "HTTP request timed out" : "HTTP request target resolution timed out"));
+      return fail({ code: "WORKFLOW_HTTP_RETRYABLE", message: "HTTP request timed out before it was sent", status: 500 });
     }
-    return fail(err.badInput("HTTP request target could not be resolved"));
+    return fail({
+      code: "WORKFLOW_HTTP_RETRYABLE",
+      message: "HTTP request could not connect to the remote service",
+      status: 500,
+    });
   } finally {
     clearTimeout(timer);
   }

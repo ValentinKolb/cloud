@@ -77,10 +77,18 @@ export const relationTargetTableId = (field: Field): string | null => {
   return (field.config as { targetTableId?: string }).targetTableId ?? null;
 };
 
-export const relationOutputDiagnostic = (field: Field, scope: Scope): DslResolverDiagnostic | null => {
-  const targetTableId = relationTargetTableId(field);
+const outputTargetTableId = (field: Field, fields: Field[]): string | null => {
+  if (field.type === "relation") return relationTargetTableId(field);
+  if (field.type !== "lookup" && field.type !== "rollup") return null;
+  const relationFieldId = (field.config as { relationFieldId?: string }).relationFieldId;
+  const relationField = relationFieldId ? fields.find((candidate) => candidate.id === relationFieldId && !candidate.deletedAt) : null;
+  return relationField ? relationTargetTableId(relationField) : null;
+};
+
+export const relationOutputDiagnostic = (field: Field, scope: Scope, fields: Field[] = scope.fields): DslResolverDiagnostic | null => {
+  const targetTableId = outputTargetTableId(field, fields);
   if (!targetTableId || scope.readableTableIds.has(targetTableId)) return null;
-  return diagnostic(`relation field "${field.name}" target table is not available`);
+  return diagnostic(`${field.type} field "${field.name}" target table is not available`);
 };
 
 export const isDefaultSelectableField = (field: Field, scope: Scope): boolean => {

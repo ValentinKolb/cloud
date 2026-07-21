@@ -175,6 +175,7 @@ describe("Grids websocket server sessions", () => {
     const socket = testSocket();
     const session = createWorkspaceWebSocketSession("session", {
       evaluateBaseAccess: async () => ({ ok: true, baseId }),
+      evaluateMetadataEventAccess: async () => true,
       evaluateSubscriptionAccess: async () =>
         readable ? { ok: true, baseId } : { ok: false, code: "access_denied", message: "Access denied" },
       latestMetadataCursor: async () => "9-0",
@@ -219,6 +220,58 @@ describe("Grids websocket server sessions", () => {
     });
     expect(socket.closes).toEqual([{ code: 1008, reason: "access_denied" }]);
     expect(canceled).toBe(1);
+  });
+
+  test("skips metadata events for resources the subscriber cannot read", async () => {
+    const tableIds = ["22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"];
+    const socket = testSocket();
+    const session = createWorkspaceWebSocketSession("session", {
+      evaluateBaseAccess: async () => ({ ok: true, baseId }),
+      evaluateSubscriptionAccess: async () => ({ ok: true, baseId }),
+      evaluateMetadataEventAccess: async (event) => event.resource.id === tableIds[1],
+      latestMetadataCursor: async () => "9-0",
+      metadataEvents: async function* ({ signal }: { signal?: AbortSignal }) {
+        for (let index = 0; index < tableIds.length; index++) {
+          yield {
+            cursor: `9-${index + 1}`,
+            data: {
+              v: 1,
+              type: "table.updated",
+              baseId,
+              resource: { kind: "table", id: tableIds[index], tableId: tableIds[index] },
+              actorId: null,
+              occurredAt: "2026-01-01T00:00:00.000Z",
+            },
+          };
+        }
+        await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+      } as never,
+      schedule: (() => 1) as never,
+      cancel: (() => undefined) as never,
+    });
+    session.open(socket.socket);
+    session.message(metadataSubscribe({ fromCursor: null }));
+    await session.drain();
+    await Bun.sleep(0);
+
+    expect(socket.messages.filter((message) => message.type === "grids.metadata.event")).toEqual([
+      {
+        type: "grids.metadata.event",
+        payload: {
+          baseId,
+          cursor: "9-2",
+          event: {
+            v: 1,
+            type: "table.updated",
+            baseId,
+            resource: { kind: "table", id: tableIds[1], tableId: tableIds[1] },
+            actorId: null,
+            occurredAt: "2026-01-01T00:00:00.000Z",
+          },
+        },
+      },
+    ]);
+    await session.close();
   });
 
   test("aborts replaced and closed streams without emitting a terminal stream error", async () => {

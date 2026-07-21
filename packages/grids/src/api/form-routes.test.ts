@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { err, fail, ok } from "@valentinkolb/stdlib";
+import { MAX_INLINE_CREATES_PER_FIELD } from "../service/form-submission";
 import { createAuthenticatedFormRoutes } from "./form-authenticated-routes";
 import { createPublicFormRoutes } from "./form-public-routes";
 import formsRoutes from "./forms";
@@ -56,6 +57,27 @@ describe("public form routes", () => {
         fields: [{ kind: "user_input", fieldId: "44444444-4444-4444-8444-444444444444" }],
       },
     });
+  });
+
+  test("rejects oversized inline-create batches before invoking the service", async () => {
+    let submitted = false;
+    const app = createPublicFormRoutes({
+      getByPublicToken: async () => form as never,
+      dateConfig: () => ({ locale: "en", timeZone: "UTC" }),
+      submit: async () => {
+        submitted = true;
+        return ok({ recordId: Bun.randomUUIDv7() });
+      },
+    });
+    const drafts = Array.from({ length: MAX_INLINE_CREATES_PER_FIELD + 1 }, (_, index) => ({ tempId: `tmp_${index}`, data: {} }));
+    const response = await app.request("/public/token/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: {}, inlineCreates: { [form.config.fields[0]!.fieldId]: drafts } }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(submitted).toBe(false);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canAdministerView, changesViewSharing } from "./views";
+import { canAdministerView, changesViewSharing, isViewOwner } from "./views";
 
 describe("view mutation policy", () => {
   test("treats an owner without an overriding view ACL as implicit admin", () => {
@@ -17,6 +17,12 @@ describe("view mutation policy", () => {
 
   test("does not preserve implicit owner admin after inherited access is revoked", () => {
     expect(canAdministerView({ level: "none", isOwner: true, hasDirectViewGrant: false })).toBe(false);
+  });
+
+  test("does not treat a service account as the owner of shared views", () => {
+    expect(isViewOwner(null, null)).toBe(false);
+    expect(isViewOwner("owner-id", null)).toBe(false);
+    expect(isViewOwner("owner-id", "owner-id")).toBe(true);
   });
 
   test("requires a separate gate only when shared visibility actually changes", () => {

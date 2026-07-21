@@ -221,6 +221,7 @@ const loadSelectedRecord = async (params: {
   if (listedRecord) return listedRecord;
   return gridsService.record.get(params.activeTable.id, selectedRecordId, {
     dateConfig: params.common.params.dateConfig,
+    viewer: buildViewer(params.common.params.user),
     deleted: params.common.chrome.trashMode ? "only" : params.initial.effectiveIncludeDeleted ? "include" : "live",
   });
 };
@@ -322,6 +323,9 @@ export const loadRecordsState = async (
 ): Promise<OkWorkspaceState | Extract<GridsWorkspaceState, { kind: "invalidQuery" }>> => {
   const view = await resolveRecordsView(common, activeTable, activeViewSlug);
   if ("kind" in view) return view;
+  if (!gridsService.permission.hasAtLeast(view.activeTableLevel, "read") && !view.activeView) {
+    return okState(common, { kind: "empty" });
+  }
   if (view.queryResultView) {
     return okState(common, await buildQueryResultViewRoute(common, activeTable, view), [
       ...common.chrome.titleBase,

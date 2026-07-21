@@ -255,12 +255,13 @@ export const createGridsWorkflowValueResolver = (
   options: Pick<WorkflowInputPreparationOptions, "authorizeTable"> = {},
 ): GridsWorkflowValueResolver => {
   const readers = new Map<string, ReturnType<typeof createReader>>();
+  const canReadTable = permissionChecker(baseId, principal, options.authorizeTable);
   return new GridsWorkflowValueResolver({
-    canReadTable: permissionChecker(baseId, principal, options.authorizeTable),
+    canReadTable,
     readRecord: async (tableId, recordId) => {
       let reader = readers.get(tableId);
       if (!reader) {
-        reader = createReader(tableId);
+        reader = createReader(tableId, { authorizeComputedTable: canReadTable });
         readers.set(tableId, reader);
       }
       return (await reader).get(recordId);

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { gridsService } from "../../../service";
+import { loadWorkspaceRequest } from "./workspace-request-state";
 import { loadGridsWorkspaceState } from "./workspace-state";
 
 const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0]) =>
@@ -75,6 +76,7 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     spyOn(gridsService.dashboard, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.dashboard, "get").mockImplementation(async () => null);
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForDashboard").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
@@ -174,5 +176,60 @@ describe("loadGridsWorkspaceState — form-only access", () => {
       title: "Access denied",
       message: "No access to this base",
     });
+  });
+
+  test("does not resolve a hidden table through an unreadable view slug", async () => {
+    spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => formTable as never);
+    const listRecords = spyOn(gridsService.record, "list");
+    const getRecord = spyOn(gridsService.record, "get");
+
+    const state = await loadWorkspaceState({
+      user: {
+        id: "44444444-4444-4444-8444-444444444444",
+        memberofGroupIds: [],
+      },
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${formTable.shortId}/view/missing?record=55555555-5555-4555-8555-555555555555`,
+      activeTableSlug: formTable.shortId,
+      activeViewSlug: "missing",
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok") return;
+    expect(state.route.kind).toBe("empty");
+    expect(listRecords).not.toHaveBeenCalled();
+    expect(getRecord).not.toHaveBeenCalled();
+  });
+
+  test("admits a user whose only base resource is a readable table", async () => {
+    spyOn(gridsService.base, "catalog").mockImplementation(
+      async () =>
+        ({
+          dashboards: [],
+          tables: [formTable],
+          tableLevels: { [formTable.id]: "read" },
+          fieldsByTable: { [formTable.id]: [] },
+          viewsByTable: {},
+          formsByTable: {},
+          formLevels: {},
+          formTables: [],
+          sidebarForms: [],
+        }) as never,
+    );
+
+    const request = await loadWorkspaceRequest(
+      {
+        user: {
+          id: "44444444-4444-4444-8444-444444444444",
+          memberofGroupIds: [],
+        },
+        baseShortId: base.shortId,
+        href: `/app/grids/${base.shortId}`,
+      },
+      base as never,
+      { metadata: null, records: null },
+    );
+
+    expect(request).not.toHaveProperty("kind", "accessDenied");
   });
 });

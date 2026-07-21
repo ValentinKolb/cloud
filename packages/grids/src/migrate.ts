@@ -1040,10 +1040,12 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
       next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       last_error TEXT,
       delivered_at TIMESTAMPTZ,
+      dead_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT record_event_outbox_status_check CHECK (status IN ('pending', 'failed', 'delivered', 'dead'))
     )
   `.simple();
+  await sql`ALTER TABLE grids.record_event_outbox ADD COLUMN IF NOT EXISTS dead_at TIMESTAMPTZ`.simple();
   await sql`
     DO $$
     BEGIN
@@ -1074,6 +1076,11 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_record_event_outbox_delivered
     ON grids.record_event_outbox(delivered_at)
     WHERE status = 'delivered'
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_event_outbox_dead
+    ON grids.record_event_outbox(dead_at)
+    WHERE status = 'dead'
   `.simple();
 
   await sql`

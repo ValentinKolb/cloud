@@ -493,6 +493,35 @@ describe("Grids workflow kernel action ports", () => {
     expect(intents.retry).not.toHaveBeenCalled();
   });
 
+  test("releases the intent for retry when HTTP fails before dispatch", async () => {
+    const intents = executingIntents();
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      services: {
+        ...commonServices(),
+        httpRequest: mock(async () => ({
+          ok: false as const,
+          error: {
+            code: "WORKFLOW_HTTP_RETRYABLE",
+            message: "The request was not sent.",
+            status: 503,
+            retryable: true,
+          },
+        })),
+      },
+      effectIntents: intents,
+    });
+    const step = actionStep("httpRequest", { url: "https://api.example.test/hook", method: "POST" });
+    const ctx = context("execute", step);
+
+    const outcome = await ports.execute.get("httpRequest")!.execute(ctx.value, step);
+
+    expect(outcome).toMatchObject({ state: "failed", error: { code: "WORKFLOW_HTTP_RETRYABLE", retryable: true } });
+    expect(intents.retry).toHaveBeenCalledTimes(1);
+    expect(intents.needsAttention).not.toHaveBeenCalled();
+    expect(intents.fail).not.toHaveBeenCalled();
+  });
+
   test("preflights HTTP safety during dry runs without executing the request", async () => {
     const preflight = mock(async () => ({ ok: true as const, data: { host: "api.example.test" } }));
     const request = mock(async () => ({ ok: true as const, data: { status: 200, ok: true, body: "ok", host: "api.example.test" } }));

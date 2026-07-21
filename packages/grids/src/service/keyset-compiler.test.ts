@@ -36,6 +36,15 @@ describe("compileDslKeyset", () => {
     if (last.ok) expect(normalizedSql(last.where)).toContain("FALSE");
   });
 
+  test("projects datetime cursor values without losing sub-millisecond precision", () => {
+    const compiled = compileDslKeyset([{ expression: sql`created_at`, type: "datetime", direction: "asc" }], null);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect(normalizedSql(compiled.select)).toContain(
+      "to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS __gql_cursor_0",
+    );
+  });
+
   test("rejects malformed, incomplete, and non-orderable cursor values", () => {
     expect(compileDslKeyset([{ expression: sql`id`, type: "uuid", direction: "asc" }], ["not-a-uuid"])).toEqual({
       ok: false,

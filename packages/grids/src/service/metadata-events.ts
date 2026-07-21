@@ -59,6 +59,10 @@ const metadataTopic = topic<GridsMetadataEvent>({
 });
 
 export const publishMetadataEvent = async (event: GridsMetadataEvent): Promise<void> => {
+  // Metadata events invalidate an SSR workspace; canonical state remains in
+  // PostgreSQL. Consumers reload after reconnect as a fallback for a failed
+  // best-effort publication, so this path must not turn a committed mutation
+  // into a misleading API failure.
   try {
     await metadataTopic.pub({
       tenantId: event.baseId,

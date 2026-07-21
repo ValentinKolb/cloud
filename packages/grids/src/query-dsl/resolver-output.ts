@@ -56,7 +56,7 @@ const resolveJoinedFieldItem = (item: Extract<DslSelectItem, { kind: "field" }>,
   if (isDiagnostic(join)) return join;
   const field = fieldByRefMap(join.byRef, item.field.ref, `${item.field.scope}."${item.field.ref}"`, item.field.span);
   if (isDiagnostic(field)) return field;
-  const relationDiagnostic = relationOutputDiagnostic(field, scope);
+  const relationDiagnostic = relationOutputDiagnostic(field, scope, join.fields);
   if (relationDiagnostic) return relationDiagnostic;
   return {
     joinAlias: join.alias,

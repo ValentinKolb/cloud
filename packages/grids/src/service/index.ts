@@ -113,6 +113,7 @@ export const gridsService = {
     create: records.create,
     createMany: records.createMany,
     eventOutboxStats: records.recordEventOutboxStats,
+    redriveEventOutbox: records.redriveRecordEventOutbox,
     update: records.update,
     softDelete: records.softDelete,
     restore: records.restore,

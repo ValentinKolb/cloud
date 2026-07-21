@@ -47,6 +47,7 @@ const INSTANT_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VALUELESS_OPS = new Set(["isEmpty", "isNotEmpty", "today", "thisWeek", "thisMonth"]);
 const NUMBER_TYPES = new Set(["number", "percent", "duration"]);
+const MAX_FILTER_REGEX_LENGTH = 200;
 
 const isValidIsoDate = (value: string): boolean => {
   if (!ISO_DATE_REGEX.test(value)) return false;
@@ -116,5 +117,8 @@ export const validateFilterValue = (fieldType: string, op: string, value: unknow
   if (NUMBER_TYPES.has(fieldType)) return validateNumberValue(op, value);
   if (fieldType === "select") return validateSelectValue(op, value);
   if (fieldType === "relation") return validateRelationValue(op, value);
+  if (op === "regex" && typeof value === "string" && value.length > MAX_FILTER_REGEX_LENGTH) {
+    return `regex patterns may contain at most ${MAX_FILTER_REGEX_LENGTH} characters`;
+  }
   return typeof value === "string" ? null : "expected string";
 };

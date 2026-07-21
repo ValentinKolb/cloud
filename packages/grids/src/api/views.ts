@@ -18,6 +18,9 @@ export const canAdministerView = (params: { level: PermissionLevel; isOwner: boo
 export const changesViewSharing = (shared: boolean | undefined, ownerUserId: string | null): boolean =>
   shared !== undefined && shared !== (ownerUserId === null);
 
+export const isViewOwner = (ownerUserId: string | null, actorUserId: string | null): boolean =>
+  ownerUserId !== null && ownerUserId === actorUserId;
+
 const canAdministerViewForRequest = async (
   c: Context<AuthContext>,
   view: { id: string; tableId: string; ownerUserId: string | null },
@@ -30,7 +33,7 @@ const canAdministerViewForRequest = async (
   });
   return canAdministerView({
     level,
-    isOwner: view.ownerUserId === currentActorViewer(c).userId,
+    isOwner: isViewOwner(view.ownerUserId, currentActorViewer(c).userId),
     hasDirectViewGrant: grants.some(
       (grant) =>
         grant.resourceType === "view" &&

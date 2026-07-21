@@ -85,6 +85,7 @@ let lookupTable: typeof table | null = null;
 let lookupView: typeof savedView | null = null;
 let lastRecordListParams: Record<string, unknown> | null = null;
 let lastRecordGroupParams: Record<string, unknown> | null = null;
+let lastRelationLabelViewer: { userId: string | null } | undefined;
 let recordGetCalls = 0;
 let recordListRecordForId: unknown | null = null;
 
@@ -106,6 +107,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupView = null;
     lastRecordListParams = null;
     lastRecordGroupParams = null;
+    lastRelationLabelViewer = undefined;
     recordGetCalls = 0;
     recordListRecordForId = null;
 
@@ -165,7 +167,10 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
       recordGetCalls += 1;
       return null;
     });
-    spyOn(gridsService.relations, "buildLabelCache").mockImplementation(async () => ({}));
+    spyOn(gridsService.relations, "buildLabelCache").mockImplementation(async (_records, _fields, viewer) => {
+      lastRelationLabelViewer = viewer;
+      return {};
+    });
     spyOn(gridsService.relations, "buildLabelCacheForGroupedKeys").mockImplementation(async () => ({}));
   });
 
@@ -191,6 +196,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.initialState.query.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
     expect(state.route.initialState.query.sort).toEqual([{ fieldId: statusField.id, direction: "asc" }]);
     expect(lastRecordListParams?.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
+    expect(lastRelationLabelViewer?.userId).toBe(user.id);
   });
 
   test("routes aggregate-only saved views to the query-result runtime without listing records", async () => {
@@ -457,6 +463,8 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
 
   test("does not treat Cloud admin role as Grids base access", async () => {
     baseLevel = "none";
+    catalogTables = [];
+    catalogTableLevels = {};
     const adminUser = { ...user, roles: ["admin", "user", "local", "local/user"] };
 
     const state = await loadWorkspaceState({

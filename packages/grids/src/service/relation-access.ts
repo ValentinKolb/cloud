@@ -1,5 +1,5 @@
+import { sql } from "bun";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
-import { get as getTable } from "./tables";
 
 export type ExpansionViewer = {
   userId: string | null;
@@ -8,25 +8,36 @@ export type ExpansionViewer = {
   isAdmin?: boolean;
 };
 
-export const filterRelationTargetsByViewer = async (
-  idsByTargetTable: Map<string, Set<string>>,
-  viewer: ExpansionViewer,
-): Promise<Map<string, Set<string>>> => {
-  if (viewer.isAdmin) return idsByTargetTable;
+export const filterReadableTableIdsByViewer = async (tableIds: Iterable<string>, viewer: ExpansionViewer): Promise<Set<string>> => {
+  const uniqueIds = [...new Set(tableIds)];
+  if (viewer.isAdmin) return new Set(uniqueIds);
+  if (uniqueIds.length === 0) return new Set();
+  const tables = await sql<Array<{ id: string; base_id: string }>>`
+    SELECT id::text, base_id::text
+    FROM grids.tables
+    WHERE id = ANY(${sql.array(uniqueIds, "UUID")}::uuid[])
+      AND deleted_at IS NULL
+  `;
   const verdicts = await Promise.all(
-    [...idsByTargetTable.entries()].map(async ([tableId, ids]) => {
-      const table = await getTable(tableId);
-      if (!table) return null;
+    tables.map(async (table) => {
       const grants = await loadGrantsForUser({
         userId: viewer.userId,
         userGroups: viewer.userGroups,
         serviceAccountId: viewer.serviceAccountId,
-        baseId: table.baseId,
-        tableId,
+        baseId: table.base_id,
+        tableId: table.id,
       });
-      const level = resolveEffectivePermission(grants, { baseId: table.baseId, tableId });
-      return hasAtLeast(level, "read") ? ([tableId, ids] as const) : null;
+      const level = resolveEffectivePermission(grants, { baseId: table.base_id, tableId: table.id });
+      return hasAtLeast(level, "read") ? table.id : null;
     }),
   );
-  return new Map(verdicts.filter((entry): entry is NonNullable<typeof entry> => entry !== null));
+  return new Set(verdicts.filter((tableId): tableId is string => tableId !== null));
+};
+
+export const filterRelationTargetsByViewer = async (
+  idsByTargetTable: Map<string, Set<string>>,
+  viewer: ExpansionViewer,
+): Promise<Map<string, Set<string>>> => {
+  const readable = await filterReadableTableIdsByViewer(idsByTargetTable.keys(), viewer);
+  return new Map([...idsByTargetTable].filter(([tableId]) => readable.has(tableId)));
 };

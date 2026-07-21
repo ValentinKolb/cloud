@@ -7,6 +7,7 @@ import {
   buildComputedProjections,
   buildFormulaSqlProjections,
   type ComputedProjection,
+  readableComputedTargetTableIds,
 } from "./computed-projections";
 import { listByTable as listFields } from "./fields";
 import { withLookupTargetMetadata } from "./lookup-display";
@@ -45,7 +46,13 @@ type FormulaLookupPlan = {
   targets: Map<string, FormulaLookupTargetPlan>;
 };
 
-const prepareFormulaLookupPlan = async (fields: Field[], dateConfig?: DateContext): Promise<FormulaLookupPlan> => {
+const prepareFormulaLookupPlan = async (
+  fields: Field[],
+  dateConfig?: DateContext,
+  viewer?: ExpansionViewer,
+  authorizeComputedTable?: (tableId: string) => Promise<boolean>,
+): Promise<FormulaLookupPlan> => {
+  const readableTargetTableIds = await readableComputedTargetTableIds(fields, viewer, authorizeComputedTable);
   const specs = fields
     .filter((field) => field.type === "lookup" && !field.deletedAt && lookupTargetMeta(field)?.type === "formula")
     .map((lookupField) => {
@@ -57,13 +64,18 @@ const prepareFormulaLookupPlan = async (fields: Field[], dateConfig?: DateContex
       const targetTableId = (relationField?.config as { targetTableId?: string } | undefined)?.targetTableId;
       return relationField && target && targetTableId ? { lookupField, relationField, target, targetTableId } : null;
     })
-    .filter((spec): spec is NonNullable<typeof spec> => Boolean(spec));
+    .filter(
+      (spec): spec is NonNullable<typeof spec> =>
+        Boolean(spec) && (readableTargetTableIds === undefined || readableTargetTableIds.includes(spec!.targetTableId)),
+    );
 
   const targets = new Map<string, FormulaLookupTargetPlan>();
   for (const { targetTableId } of specs) {
     if (targets.has(targetTableId)) continue;
     const targetFields = await listFields(targetTableId);
-    const targetComputed = await buildComputedProjections(targetFields);
+    const targetComputed = await buildComputedProjections(targetFields, {
+      readableTableIds: await readableComputedTargetTableIds(targetFields, viewer, authorizeComputedTable),
+    });
     const targetFormulaSql = buildFormulaSqlProjections(targetFields, { dateConfig });
     const targetProjections = [...targetComputed, ...targetFormulaSql];
     targets.set(targetTableId, {
@@ -128,16 +140,21 @@ const enrichFormulaLookupsWithPlan = async (
 export const enrichFormulaLookups = async (
   records: GridRecord[],
   fields: Field[],
-  options: { dateConfig?: DateContext } = {},
+  options: {
+    dateConfig?: DateContext;
+    viewer?: ExpansionViewer;
+    authorizeComputedTable?: (tableId: string) => Promise<boolean>;
+  } = {},
 ): Promise<void> => {
   if (records.length === 0) return;
-  const plan = await prepareFormulaLookupPlan(fields, options.dateConfig);
+  const plan = await prepareFormulaLookupPlan(fields, options.dateConfig, options.viewer, options.authorizeComputedTable);
   await enrichFormulaLookupsWithPlan(records, plan, options);
 };
 
 type RecordReadOptions = {
   includeRelations?: boolean;
   viewer?: ExpansionViewer;
+  authorizeComputedTable?: (tableId: string) => Promise<boolean>;
   dateConfig?: DateContext;
   fields?: Field[];
   deleted?: "live" | "include" | "only";
@@ -197,12 +214,13 @@ export const createReader = async (tableId: string, opts: RecordReadOptions = {}
   const table = await getTable(tableId);
   if (table?.kind === "federated") return createFederatedReader(tableId, fields, opts);
   const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
-  const computed = await buildComputedProjections(fields);
+  const readableTargetTableIds = await readableComputedTargetTableIds(fields, opts.viewer, opts.authorizeComputedTable);
+  const computed = await buildComputedProjections(fields, { readableTableIds: readableTargetTableIds });
   const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: opts.dateConfig });
   const projections = [...computed, ...formulaSql];
   const projectionFragments = projectionFragmentsFor(projections);
   const formulaFieldIds = new Set(formulaSql.map((projection) => projection.fieldId));
-  const formulaLookupPlan = await prepareFormulaLookupPlan(fieldsWithLookupMeta, opts.dateConfig);
+  const formulaLookupPlan = await prepareFormulaLookupPlan(fieldsWithLookupMeta, opts.dateConfig, opts.viewer, opts.authorizeComputedTable);
 
   const getMany = async (recordIds: string[]): Promise<GridRecord[]> => {
     if (recordIds.length === 0) return [];

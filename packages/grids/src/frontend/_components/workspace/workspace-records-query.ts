@@ -259,7 +259,7 @@ const loadListedInitialRecords = async (
     };
     data.aggregates = data.records.aggregates ?? {};
   }
-  data.relationLabels = await gridsService.relations.buildLabelCache(data.records.items, args.fields);
+  data.relationLabels = await gridsService.relations.buildLabelCache(data.records.items, args.fields, viewer);
   if (args.trashMode || args.fields.length === 0 || query.effectiveAggregations.length === 0) return data;
 
   const aggregateResult = await gridsService.record.aggregate({

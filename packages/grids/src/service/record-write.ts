@@ -9,7 +9,7 @@ import { requireStoredTableWritable } from "./parent-checks";
 import { buildRecordAuditContext, loadTableAuditPolicy } from "./record-audit";
 import { captureRecordEventSnapshot, notifyRecordEventOutbox } from "./record-event-outbox";
 import { buildPersistedUpdateData, buildRecordDiff, mapRecordRow, splitRelationsFromData } from "./record-persistence";
-import { get } from "./record-read";
+import { createReader, get } from "./record-read";
 import { recordUniqueConflict } from "./record-unique-conflicts";
 import { type ExpansionViewer, enrichRecordsWithFormulas, validateRelationTargets, writeRecordLinks } from "./relations";
 import type { Field, GridRecord } from "./types";
@@ -326,13 +326,10 @@ export const createMany = async (
     });
   if (!created.ok) return created;
 
-  const records: GridRecord[] = [];
-  for (const item of created.data) {
-    const record = await get(tableId, item.record.id, opts);
-    if (!record) return fail(err.notFound("Record"));
-    records.push(record);
-    notifyRecordEventOutbox(item.outboxId);
-  }
+  const reader = await createReader(tableId, opts);
+  const records = await reader.getMany(created.data.map((item) => item.record.id));
+  if (records.length !== created.data.length) return fail(err.notFound("Record"));
+  for (const item of created.data) notifyRecordEventOutbox(item.outboxId);
   return ok(records);
 };
 
@@ -362,6 +359,7 @@ export const updateInTransaction = async (
   if (!validated.ok) return validated;
 
   const fields = await listFields(tableId);
+  const fieldsIncludingDeleted = await listFields(tableId, true);
   const split = splitRelationsFromData(validated.data, fields);
 
   // Pre-flight relation-target existence check (same reasoning as create).
@@ -374,7 +372,7 @@ export const updateInTransaction = async (
   // Relations are managed exclusively via record_links — they MUST NOT
   // re-enter the JSONB blob (otherwise the hydration step on read
   // would have to special-case "JSONB takes precedence" semantics).
-  const merged = buildPersistedUpdateData(existing.data, split.data, fields);
+  const merged = buildPersistedUpdateData(existing.data, split.data, fieldsIncludingDeleted);
 
   // Build the diff up front so we can pass it into the transaction.
   const diff = buildRecordDiff(existing.data, validated.data);

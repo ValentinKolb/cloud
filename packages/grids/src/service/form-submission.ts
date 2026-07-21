@@ -1,4 +1,4 @@
-import { type DateContext, err, fail, isServiceError, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import type { Form } from "./forms";
@@ -15,12 +15,31 @@ export type FormSubmission = {
   inlineCreates: Record<string, InlineCreateDraft[]>;
 };
 
+export const MAX_INLINE_CREATES_PER_FIELD = 20;
+export const MAX_INLINE_CREATES_PER_SUBMISSION = 50;
+
+const validateInlineCreateBounds = (inlineCreates: FormSubmission["inlineCreates"]): Result<void> => {
+  let total = 0;
+  for (const drafts of Object.values(inlineCreates)) {
+    if (drafts.length > MAX_INLINE_CREATES_PER_FIELD) {
+      return fail(err.badInput(`A relation may create at most ${MAX_INLINE_CREATES_PER_FIELD} records per submission`));
+    }
+    total += drafts.length;
+    if (total > MAX_INLINE_CREATES_PER_SUBMISSION) {
+      return fail(err.badInput(`A form may create at most ${MAX_INLINE_CREATES_PER_SUBMISSION} related records per submission`));
+    }
+  }
+  return ok(undefined);
+};
+
 export const submitForm = async (params: {
   form: Form;
   submission: FormSubmission;
   actorId: string | null;
   dateConfig: DateContext;
 }): Promise<Result<{ recordId: string }>> => {
+  const inlineCreateBounds = validateInlineCreateBounds(params.submission.inlineCreates);
+  if (!inlineCreateBounds.ok) return inlineCreateBounds;
   const formFields = params.form.config.fields ?? [];
   const fields = await listFields(params.form.tableId);
   const fieldsById = new Map(fields.map((field) => [field.id, field]));

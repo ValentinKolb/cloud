@@ -9,6 +9,7 @@ import {
   buildComputedColumnSqlProjections,
   buildComputedProjections,
   buildFormulaSqlProjections,
+  readableComputedTargetTableIds,
 } from "./computed-projections";
 import { storageOf } from "./field-storage";
 import { listByTable as listFields } from "./fields";
@@ -33,6 +34,13 @@ import { compileSort, decodeCursor } from "./sort-compiler";
 import type { Field, RecordList } from "./types";
 
 type DbRow = Record<string, unknown>;
+const RECORD_QUERY_TIMEOUT_MS = 5_000;
+
+const runRecordQuery = async <T>(query: unknown): Promise<T[]> =>
+  sql.begin(async (tx) => {
+    await tx`SELECT set_config('statement_timeout', ${`${RECORD_QUERY_TIMEOUT_MS}ms`}, true)`;
+    return tx<T[]>`${query}`;
+  });
 
 const defaultListAggregates = (fields: Field[]): AggregateRequest[] =>
   defaultTableAggregations(fields).map((a) => ({ fieldId: a.fieldId, agg: a.agg }));
@@ -125,7 +133,9 @@ export const list = async (params: {
   // Lookup / rollup values are computed in the main query as correlated
   // subqueries over record_links. Single source of truth, single
   // round-trip.
-  const computed = await buildComputedProjections(fields);
+  const computed = await buildComputedProjections(fields, {
+    readableTableIds: await readableComputedTargetTableIds(fields, params.viewer),
+  });
   const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: params.dateConfig });
   // View computed columns evaluate in SQL when projectable (one semantics with
   // GQL preview + formula fields); the JS evaluator below only fills the rest.
@@ -138,14 +148,14 @@ export const list = async (params: {
   // predicate still pins r.table_id = ${tableId}, so the JOIN's table
   // row is uniquely identified — Postgres treats this as a cheap
   // semi-join.
-  const rows = await sql<DbRow[]>`
+  const rows = await runRecordQuery<DbRow>(sql`
     SELECT r.*${projectionFragments}${cursorSelect}
     FROM grids.records r
     JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE ${where}
     ORDER BY ${orderBy} LIMIT ${limit + 1}
-  `;
+  `);
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(mapRecordRow);
 
@@ -156,7 +166,7 @@ export const list = async (params: {
   await hydrateRelationsFromLinks(items, fields);
   const recordsById = new Map(items.map((r) => [r.id, r]));
   applyComputedProjections(rows.slice(0, limit) as Array<Record<string, unknown>>, recordsById, projections);
-  await enrichFormulaLookups(items, fieldsWithLookupMeta, { dateConfig: params.dateConfig });
+  await enrichFormulaLookups(items, fieldsWithLookupMeta, { dateConfig: params.dateConfig, viewer: params.viewer });
 
   let nextCursor: string | null = null;
   if (hasMore) {
@@ -419,5 +429,5 @@ export const aggregate = async (params: {
 export { get };
 export const listActors = listRecordActors;
 
-export { recordEventOutboxStats } from "./record-event-outbox";
+export { recordEventOutboxStats, redriveRecordEventOutbox } from "./record-event-outbox";
 export { create, createMany, restore, softDelete, update } from "./record-write";

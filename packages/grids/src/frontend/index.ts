@@ -1,4 +1,4 @@
-import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, rateLimit } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { pdfResponse } from "../api/download-response";
@@ -27,7 +27,7 @@ const auditRequestContext = (c: Context<AuthContext>) => ({
 /** Public pages mounted at `/share/grids` — anonymous-friendly. */
 export const publicRoutes = new Hono<AuthContext>()
   .get("/forms/:token", auth.requireRole("*"), ...publicFormPage)
-  .get("/documents/:token", auth.requireRole("*"), async (c) => {
+  .get("/documents/:token", rateLimit({ keyBy: "ip", limitPerSecond: 10, windowSecs: 60 }), auth.requireRole("*"), async (c) => {
     const requestAudit = auditRequestContext(c);
     const resolved = await gridsService.document.resolveDocumentLinkDownload(c.req.param("token") ?? "");
     if (!resolved.ok) return c.json({ message: "Document link not found" }, 404);

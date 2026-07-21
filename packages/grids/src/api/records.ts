@@ -229,7 +229,11 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,
-        async () => gridsService.record.create(tableId, c.req.valid("json"), currentActorUserId(c), { dateConfig: await getDateConfig(c) }),
+        async () =>
+          gridsService.record.create(tableId, c.req.valid("json"), currentActorUserId(c), {
+            dateConfig: await getDateConfig(c),
+            viewer: currentActorViewer(c),
+          }),
         201,
       );
     },
@@ -262,6 +266,7 @@ const app = new Hono<AuthContext>()
         async () => {
           const result = await gridsService.record.createMany(tableId, c.req.valid("json").items, currentActorUserId(c), {
             dateConfig: await getDateConfig(c),
+            viewer: currentActorViewer(c),
           });
           return result.ok ? ok({ items: result.data }) : result;
         },
@@ -302,6 +307,7 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const record = await gridsService.record.get(tableId, recordId, {
         dateConfig: await getDateConfig(c),
+        viewer: currentActorViewer(c),
         deleted: c.req.valid("query").deletedOnly ? "only" : c.req.valid("query").includeDeleted ? "include" : "live",
       });
       if (!record) return c.json({ message: "Record not found" }, 404);
@@ -338,6 +344,7 @@ const app = new Hono<AuthContext>()
       return respond(c, async () =>
         gridsService.record.update(tableId, recordId, body.values, currentActorUserId(c), ifMatchVersion, {
           dateConfig: await getDateConfig(c),
+          viewer: currentActorViewer(c),
           audit: body.audit,
         }),
       );

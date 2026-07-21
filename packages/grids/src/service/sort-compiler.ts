@@ -228,7 +228,13 @@ const buildCursorWhere = (
 const buildCursorSelect = (sorts: ResolvedSort[]): any => {
   if (sorts.length === 0) return sql``;
   return sorts
-    .map(({ projection }, index) => sql`, ${projection.sql} AS ${sql.unsafe(`__sort_${index}`)}`)
+    .map(({ projection }, index) => {
+      const cursorValue =
+        projection.cast === "timestamptz"
+          ? sql`to_char(${projection.sql} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
+          : projection.sql;
+      return sql`, ${cursorValue} AS ${sql.unsafe(`__sort_${index}`)}`;
+    })
     .reduce((acc, part) => sql`${acc}${part}`);
 };
 
