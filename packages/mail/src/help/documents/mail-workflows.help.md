@@ -374,4 +374,4 @@ Every action rechecks current mailbox authority. Removing the required access or
 
 The child run retains the immutable workflow version, frozen target data, and execution clock. It captures current authorization separately and receives new target and command idempotency identities.
 
-For setup tasks and operational consequences, see [Automate responses and mailbox work](/app/mail?help=mail-automation).
+For setup tasks and operational consequences, see [Automate responses and mailbox work](/app/mail/help/mail-automation).

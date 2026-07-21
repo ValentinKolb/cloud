@@ -23,6 +23,8 @@ export type MessageSearchHit = {
   from: Array<{ name: string | null; address: string }>;
   to: Array<{ name: string | null; address: string }>;
   flags: string[];
+  activeFolderIds: string[];
+  flagged: boolean;
   hasAttachments: boolean;
   snippet: string | null;
   unread: boolean;
@@ -59,6 +61,8 @@ type DbSearchHit = {
   from_addresses: unknown[] | string;
   to_addresses: unknown[] | string;
   flags: string[] | null;
+  active_folder_ids: unknown[] | string;
+  flagged: boolean;
   has_attachments: boolean;
   snippet: string | null;
   unread: boolean;
@@ -620,6 +624,8 @@ const mapHit = (row: DbSearchHit): MessageSearchHit => ({
   from: parseAddressRows(row.from_addresses),
   to: parseAddressRows(row.to_addresses),
   flags: row.flags ?? [],
+  activeFolderIds: parseStringRows(row.active_folder_ids),
+  flagged: row.flagged,
   hasAttachments: row.has_attachments,
   snippet: row.snippet,
   unread: row.unread,
@@ -859,6 +865,21 @@ const runSearch = async (params: {
         deduplicated.to_addresses,
         deduplicated.flags,
         CASE
+          WHEN deduplicated.conversation_id IS NULL THEN message_active_state.folder_ids
+          ELSE conversation_active_state.folder_ids
+        END AS active_folder_ids,
+        CASE
+          WHEN deduplicated.conversation_id IS NULL THEN '\\Flagged' = ANY(deduplicated.flags)
+          ELSE EXISTS (
+            SELECT 1
+            FROM mail.conversation_messages flagged_cm
+            JOIN mail.message_placements flagged_placement ON flagged_placement.message_id = flagged_cm.message_id
+            WHERE flagged_cm.conversation_id = deduplicated.conversation_id
+              AND flagged_placement.deleted_at IS NULL
+              AND '\\Flagged' = ANY(flagged_placement.flags)
+          )
+        END AS flagged,
+        CASE
           WHEN deduplicated.conversation_id IS NULL THEN deduplicated.has_attachments
           ELSE EXISTS (
             SELECT 1
@@ -894,8 +915,8 @@ const runSearch = async (params: {
         CASE
           WHEN ${folderIds?.length === 1 ? folderIds[0] : null}::uuid IS NOT NULL
             THEN ${folderIds?.length === 1 ? folderIds[0] : null}::uuid
-          WHEN deduplicated.conversation_id IS NULL THEN message_latest.source_folder_id
-          ELSE conversation_source.source_folder_id
+          WHEN deduplicated.conversation_id IS NULL THEN message_active_state.source_folder_id
+          ELSE conversation_active_state.source_folder_id
         END AS source_folder_id,
         CASE
           WHEN deduplicated.conversation_id IS NULL THEN message_unread_state.folder_ids
@@ -940,15 +961,44 @@ const runSearch = async (params: {
       ) conversation_unread_state ON true
       LEFT JOIN LATERAL (
         SELECT
+          ARRAY(
+            SELECT DISTINCT active_placement.folder_id::text
+            FROM mail.message_placements active_placement
+            WHERE active_placement.message_id = deduplicated.id
+              AND active_placement.deleted_at IS NULL
+            ORDER BY active_placement.folder_id::text
+          ) AS folder_ids,
           CASE
-            WHEN COUNT(DISTINCT latest_placement.folder_id) = 1 THEN MIN(latest_placement.folder_id::text)::uuid
+            WHEN COUNT(DISTINCT source_placement.folder_id) = 1 THEN MIN(source_placement.folder_id::text)::uuid
             ELSE NULL
           END AS source_folder_id
-        FROM mail.message_placements latest_placement
+        FROM mail.message_placements source_placement
         WHERE deduplicated.conversation_id IS NULL
-          AND latest_placement.message_id = deduplicated.id
-          AND latest_placement.deleted_at IS NULL
-      ) message_latest ON true
+          AND source_placement.message_id = deduplicated.id
+          AND source_placement.deleted_at IS NULL
+      ) message_active_state ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          ARRAY(
+            SELECT DISTINCT active_placement.folder_id::text
+            FROM mail.conversation_messages active_cm
+            JOIN mail.message_placements active_placement
+              ON active_placement.message_id = active_cm.message_id
+             AND active_placement.deleted_at IS NULL
+            WHERE active_cm.conversation_id = deduplicated.conversation_id
+            ORDER BY active_placement.folder_id::text
+          ) AS folder_ids,
+          CASE
+            WHEN COUNT(DISTINCT source_placement.folder_id) = 1 THEN MIN(source_placement.folder_id::text)::uuid
+            ELSE NULL
+          END AS source_folder_id
+        FROM mail.conversation_messages source_cm
+        JOIN mail.message_placements source_placement
+          ON source_placement.message_id = source_cm.message_id
+         AND source_placement.deleted_at IS NULL
+        WHERE deduplicated.conversation_id IS NOT NULL
+          AND source_cm.conversation_id = deduplicated.conversation_id
+      ) conversation_active_state ON true
       LEFT JOIN LATERAL (
         SELECT latest_message.plain_text
         FROM mail.conversation_messages latest_cm
@@ -964,19 +1014,6 @@ const runSearch = async (params: {
         ORDER BY latest_message.internal_date DESC, latest_message.id DESC
         LIMIT 1
       ) conversation_latest ON true
-      LEFT JOIN LATERAL (
-        SELECT
-          CASE
-            WHEN COUNT(DISTINCT source_placement.folder_id) = 1 THEN MIN(source_placement.folder_id::text)::uuid
-            ELSE NULL
-          END AS source_folder_id
-        FROM mail.conversation_messages source_cm
-        JOIN mail.message_placements source_placement
-          ON source_placement.message_id = source_cm.message_id
-         AND source_placement.deleted_at IS NULL
-        WHERE deduplicated.conversation_id IS NOT NULL
-          AND source_cm.conversation_id = deduplicated.conversation_id
-      ) conversation_source ON true
     )
     SELECT *
     FROM projected

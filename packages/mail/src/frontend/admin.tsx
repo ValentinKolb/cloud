@@ -275,7 +275,7 @@ export default ssr<AuthContext>(async (c) => {
               }}
             />
             {operationsResult.data.nextCursor ? (
-              <div class="flex justify-center border-t border-default p-2">
+              <div class="flex justify-center px-2 pb-2 pt-4">
                 <a
                   class="btn-secondary btn-sm"
                   href={`/admin/mail?${new URLSearchParams({

@@ -1,7 +1,7 @@
 import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { CreateLocalTag, DeleteLocalTag, SetConversationLocalTags, UpdateLocalTag } from "../contracts";
+import type { AddConversationLocalTags, CreateLocalTag, DeleteLocalTag, SetConversationLocalTags, UpdateLocalTag } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { insertActivity } from "./collaboration";
@@ -31,6 +31,11 @@ export type ConversationLocalTags = {
   conversationId: string;
   conversationRevision: number;
   tags: LocalTag[];
+};
+
+export type AddConversationLocalTagsResult = {
+  updatedConversationIds: string[];
+  unchangedConversationIds: string[];
 };
 
 export type WorkflowLocalTagMutation = {
@@ -353,6 +358,129 @@ export const getConversationLocalTags = async (params: {
   if (!allowed.ok) return allowed;
   const state = await loadConversationLocalTags(params.mailboxId, params.conversationId);
   return state ? ok(state) : fail(err.notFound("Conversation"));
+};
+
+export const addConversationLocalTags = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: AddConversationLocalTags;
+}): Promise<Result<AddConversationLocalTagsResult>> => {
+  const actor = mutationActor(params.context);
+  // Stable lock order prevents concurrent bulk assignments from deadlocking.
+  const conversationIds = [...params.input.conversationIds].sort();
+  const tagIds = [...params.input.tagIds].sort();
+  try {
+    const result = await sql.begin(
+      async (
+        tx,
+      ): Promise<Result<{ response: AddConversationLocalTagsResult; events: Array<{ conversationId: string; activityId: string }> }>> => {
+        const allowed = await lockMailboxForWrite(params.context, params.mailboxId, tx);
+        if (!allowed.ok) return allowed;
+
+        const conversations = await tx<{ id: string }[]>`
+          SELECT id
+          FROM mail.conversations
+          WHERE mailbox_id = ${params.mailboxId}::uuid
+            AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(${conversationIds}::jsonb))
+          ORDER BY id
+          FOR UPDATE
+        `;
+        if (conversations.length !== conversationIds.length) {
+          return fail(err.badInput("Every conversation must belong to this mailbox"));
+        }
+
+        const tags = await tx<{ id: string }[]>`
+          SELECT id
+          FROM mail.local_tags
+          WHERE mailbox_id = ${params.mailboxId}::uuid
+            AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(${tagIds}::jsonb))
+          ORDER BY id
+          FOR SHARE
+        `;
+        if (tags.length !== tagIds.length) return fail(err.badInput("Every tag must belong to this mailbox"));
+
+        const inserted = await tx<{ conversation_id: string; tag_id: string }[]>`
+          INSERT INTO mail.conversation_local_tags (
+            mailbox_id, conversation_id, tag_id, assigned_by_actor_kind, assigned_by_actor_id
+          )
+          SELECT
+            ${params.mailboxId}::uuid,
+            conversation.value::uuid,
+            tag.value::uuid,
+            ${actor.kind},
+            ${actor.id}::uuid
+          FROM jsonb_array_elements_text(${conversationIds}::jsonb) conversation
+          CROSS JOIN jsonb_array_elements_text(${tagIds}::jsonb) tag
+          ON CONFLICT (conversation_id, tag_id) DO NOTHING
+          RETURNING conversation_id, tag_id
+        `;
+
+        const insertedByConversation = new Map<string, string[]>();
+        for (const row of inserted) {
+          const current = insertedByConversation.get(row.conversation_id) ?? [];
+          current.push(row.tag_id);
+          insertedByConversation.set(row.conversation_id, current);
+        }
+        const updatedConversationIds = [...insertedByConversation.keys()].sort();
+        const unchangedConversationIds = conversationIds.filter((conversationId) => !insertedByConversation.has(conversationId));
+        if (updatedConversationIds.length === 0) {
+          return ok({ response: { updatedConversationIds, unchangedConversationIds }, events: [] });
+        }
+
+        const updated = await tx<{ id: string; revision: string | number }[]>`
+          UPDATE mail.conversations
+          SET revision = revision + 1, updated_at = now()
+          WHERE mailbox_id = ${params.mailboxId}::uuid
+            AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(${updatedConversationIds}::jsonb))
+          RETURNING id, revision
+        `;
+        if (updated.length !== updatedConversationIds.length) throw new Error("Tagged conversations could not be updated");
+        const revisions = new Map(updated.map((row) => [row.id, Number(row.revision)]));
+        const events: Array<{ conversationId: string; activityId: string }> = [];
+        for (const conversationId of updatedConversationIds) {
+          const addedTagIds = insertedByConversation.get(conversationId)!.sort();
+          const activityId = await insertActivity({
+            db: tx,
+            mailboxId: params.mailboxId,
+            conversationId,
+            context: params.context,
+            action: "conversation.local_tags_added",
+            targetType: "conversation",
+            targetId: conversationId,
+            metadata: { addedTagIds, revision: revisions.get(conversationId) },
+          });
+          await audit.record(
+            {
+              action: "mail.conversation.tags.add",
+              outcome: "allowed",
+              actor: auditActorFromRequest(params.context),
+              target: { type: "conversation", id: conversationId },
+              requestId: params.context.requestId,
+              metadata: { mailboxId: params.mailboxId, addedTagIds, revision: revisions.get(conversationId) },
+            },
+            tx,
+          );
+          events.push({ conversationId, activityId });
+        }
+        return ok({ response: { updatedConversationIds, unchangedConversationIds }, events });
+      },
+    );
+    if (!result.ok) return result;
+    await Promise.all(
+      result.data.events.map((event) =>
+        publishMailCollaborationEvent({
+          mailboxId: params.mailboxId,
+          conversationId: event.conversationId,
+          reason: "local_tag",
+          targetId: event.conversationId,
+          activityId: event.activityId,
+        }),
+      ),
+    );
+    return ok(result.data.response);
+  } catch (error) {
+    return mutationFailure(error, "Failed to add conversation tags");
+  }
 };
 
 export const updateWorkflowConversationLocalTagInTransaction = async (params: {

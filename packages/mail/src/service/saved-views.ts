@@ -402,6 +402,8 @@ export const listSavedViewConversations = async (params: {
       revision: item.revision,
       updatedAt: item.updatedAt,
       unread: item.unread,
+      activeFolderIds: item.activeFolderIds,
+      flagged: item.flagged,
       hasAttachments: item.hasAttachments,
       messageCount: item.messageCount,
       preview: item.snippet,

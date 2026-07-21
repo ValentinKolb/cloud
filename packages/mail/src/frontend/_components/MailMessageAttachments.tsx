@@ -131,7 +131,7 @@ export default function MailMessageAttachments(props: {
                 </div>
                 <Show when={previewId() === attachment.id && kind}>
                   {(activeKind) => (
-                    <div class="border-t border-default bg-[var(--ui-surface)] p-2">
+                    <div class="bg-[var(--ui-surface)] p-2">
                       <Show when={activeKind() === "image"}>
                         <img
                           src={inlineUrl}

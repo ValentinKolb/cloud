@@ -45,7 +45,7 @@ Open **Settings > Senders**. A sender determines the address and display name re
 
 The left navigation contains:
 
-- **Work** views for Inbox, assignment, waiting, snoozed, done, recent activity, and scheduled delivery.
+- **Work** views for Inbox, assignment, Awaiting reply, Done, and recent activity, plus a separate **Follow-up** view for Snoozed conversations and Scheduled delivery under Drafts.
 - **Automations** for out-of-office replies, acknowledgements, and advanced mailbox workflows with inline response windows.
 - **Saved views** created from reusable mailbox and collaboration filters.
 - **Folders** synchronized from the provider, plus **All mail**.
@@ -55,10 +55,10 @@ The center list shows one row per conversation. The reader groups the messages i
 
 ## Continue with a task {icon="point"}
 
-- [Read, search, and organize mail](/app/mail?help=mail-work)
-- [Write and send messages](/app/mail?help=mail-compose)
-- [Work together in a mailbox](/app/mail?help=mail-collaboration)
-- [Set up and manage a mailbox](/app/mail?help=mail-admin)
-- [Automate responses and mailbox work](/app/mail?help=mail-automation)
-- [Mail workflow YAML reference](/app/mail?help=mail-workflows)
-- [Troubleshoot Mail](/app/mail?help=mail-troubleshooting)
+- [Read, search, and organize mail](/app/mail/help/mail-work)
+- [Write and send messages](/app/mail/help/mail-compose)
+- [Work together in a mailbox](/app/mail/help/mail-collaboration)
+- [Set up and manage a mailbox](/app/mail/help/mail-admin)
+- [Automate responses and mailbox work](/app/mail/help/mail-automation)
+- [Mail workflow YAML reference](/app/mail/help/mail-workflows)
+- [Troubleshoot Mail](/app/mail/help/mail-troubleshooting)

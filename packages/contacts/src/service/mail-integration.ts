@@ -5,7 +5,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
 import type { ContactMailMatch, ResolveMailParticipantsInput, ResolveMailParticipantsResponse } from "../integration";
-import { SYSTEM_BOOK_ID } from "./system";
+import { SYSTEM_BOOK_ID, SYSTEM_BOOK_NAME } from "./system";
 
 const cursorSchema = z.object({ version: z.literal(1), source: z.enum(["manual", "system"]), id: z.uuid() }).strict();
 
@@ -14,6 +14,7 @@ type MatchCursor = z.infer<typeof cursorSchema>;
 type MatchRow = {
   contact_id: string;
   book_id: string;
+  book_name: string;
   source_kind: MatchCursor["source"];
   display_name: string;
   company_name: string | null;
@@ -60,11 +61,13 @@ export const resolveMailParticipants = async (params: {
   const contactIds = params.input.contactIds?.length ? toPgUuidArray(params.input.contactIds) : null;
   const limit = params.input.limit;
 
-  const rows = await sql<MatchRow[]>`
+  const [rows, matchedRows] = await Promise.all([
+    sql<MatchRow[]>`
     WITH manual_matches AS (
       SELECT
         c.id AS contact_id,
         c.book_id::text AS book_id,
+        book.name AS book_name,
         'manual'::text AS source_kind,
         COALESCE(
           NULLIF(BTRIM(c.label), ''),
@@ -100,18 +103,20 @@ export const resolveMailParticipants = async (params: {
       JOIN contacts.contact_emails match_email
         ON match_email.contact_id = c.id
        AND LOWER(BTRIM(match_email.email)) = ANY(${emails}::text[])
+      JOIN contacts.books book ON book.id = c.book_id
       JOIN contacts.book_access ba ON ba.book_id = c.book_id
       JOIN auth.access a ON a.id = ba.access_id
       WHERE a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
         AND ${principalMatch}
         AND ${boundBookMatch}
         AND (${contactIds}::uuid[] IS NULL OR c.id = ANY(${contactIds}::uuid[]))
-      GROUP BY c.id
+      GROUP BY c.id, book.name
     ),
     system_matches AS (
       SELECT
         u.id AS contact_id,
         ${SYSTEM_BOOK_ID}::text AS book_id,
+        ${SYSTEM_BOOK_NAME}::text AS book_name,
         'system'::text AS source_kind,
         COALESCE(NULLIF(BTRIM(u.display_name), ''), NULLIF(BTRIM(CONCAT_WS(' ', u.given_name, u.sn)), ''), u.uid) AS display_name,
         NULL::text AS company_name,
@@ -140,12 +145,41 @@ export const resolveMailParticipants = async (params: {
       UNION ALL
       SELECT * FROM system_matches
     )
-    SELECT contact_id, book_id, source_kind, display_name, company_name, job_title, matched_emails, emails, phones, updated_at
+    SELECT contact_id, book_id, book_name, source_kind, display_name, company_name, job_title, matched_emails, emails, phones, updated_at
     FROM combined
     WHERE (${cursor.data?.source ?? null}::text IS NULL OR (source_kind, contact_id) > (${cursor.data?.source ?? null}::text, ${cursor.data?.id ?? null}::uuid))
     ORDER BY source_kind, contact_id
     LIMIT ${limit + 1}
-  `;
+    `,
+    sql<Array<{ email: string }>>`
+      WITH manual_matches AS (
+        SELECT DISTINCT LOWER(BTRIM(match_email.email)) AS email
+        FROM contacts.contacts c
+        JOIN contacts.contact_emails match_email
+          ON match_email.contact_id = c.id
+         AND LOWER(BTRIM(match_email.email)) = ANY(${emails}::text[])
+        JOIN contacts.book_access ba ON ba.book_id = c.book_id
+        JOIN auth.access a ON a.id = ba.access_id
+        WHERE a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+          AND ${principalMatch}
+          AND ${boundBookMatch}
+          AND (${contactIds}::uuid[] IS NULL OR c.id = ANY(${contactIds}::uuid[]))
+      ),
+      system_matches AS (
+        SELECT DISTINCT LOWER(BTRIM(u.mail)) AS email
+        FROM auth.users u
+        WHERE ${params.includeSystem}
+          AND u.provider = 'ipa'
+          AND LOWER(BTRIM(u.mail)) = ANY(${emails}::text[])
+          AND (${contactIds}::uuid[] IS NULL OR u.id = ANY(${contactIds}::uuid[]))
+      )
+      SELECT email FROM manual_matches
+      UNION
+      SELECT email FROM system_matches
+      ORDER BY email
+      LIMIT 100
+    `,
+  ]);
 
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
@@ -154,6 +188,7 @@ export const resolveMailParticipants = async (params: {
     return {
       contactId: row.contact_id,
       bookId: row.book_id,
+      bookName: row.book_name,
       displayName: row.display_name,
       companyName: row.company_name,
       jobTitle: row.job_title,
@@ -167,5 +202,5 @@ export const resolveMailParticipants = async (params: {
   });
 
   const last = page.at(-1);
-  return ok({ items, nextCursor: hasMore && last ? encodeCursor(last) : null });
+  return ok({ items, matchedEmails: matchedRows.map((row) => row.email), nextCursor: hasMore && last ? encodeCursor(last) : null });
 };

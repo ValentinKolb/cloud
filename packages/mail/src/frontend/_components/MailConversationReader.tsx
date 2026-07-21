@@ -55,6 +55,7 @@ export default function MailConversationReader(props: {
   selectionKey: string | null;
   selectedConversationId: string | null;
   unread: boolean;
+  flagged: boolean;
   reference: string | null;
   subject: string;
   messages: MessageDetail[];
@@ -75,7 +76,6 @@ export default function MailConversationReader(props: {
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
   const [compose, setCompose] = createSignal<ActiveComposer | null>(null);
   const [openingDraft, setOpeningDraft] = createSignal(false);
-  const lastMessage = () => props.messages.at(-1);
   const closeHref = () => buildMailListHref(new URL(props.requestUrl));
   let draftLoadController: AbortController | null = null;
   let closeDraftDialog: ((value: ConversationDraftSummary | null | undefined) => void) | null = null;
@@ -344,6 +344,17 @@ export default function MailConversationReader(props: {
                 <h1 class="truncate text-lg font-semibold text-primary" data-mail-reader-heading tabIndex={-1}>
                   {props.subject || "(no subject)"}
                 </h1>
+                <Show when={props.flagged}>
+                  <Tooltip content="Flagged conversation">
+                    <span
+                      class="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--app-accent)]"
+                      role="img"
+                      aria-label="Flagged conversation"
+                    >
+                      <i class="ti ti-flag-filled" aria-hidden="true" />
+                    </span>
+                  </Tooltip>
+                </Show>
                 <Show when={props.reference}>
                   <button
                     type="button"
@@ -418,9 +429,9 @@ export default function MailConversationReader(props: {
                       action: () => props.onCommand(props.unread ? "mark_read" : "mark_unread"),
                     },
                     {
-                      label: getMailCommand(lastMessage()?.flags.includes("\\Flagged") ? "unflag" : "flag").label,
-                      icon: getMailCommand(lastMessage()?.flags.includes("\\Flagged") ? "unflag" : "flag").icon,
-                      action: () => props.onCommand(lastMessage()?.flags.includes("\\Flagged") ? "unflag" : "flag"),
+                      label: getMailCommand(props.flagged ? "unflag" : "flag").label,
+                      icon: getMailCommand(props.flagged ? "unflag" : "flag").icon,
+                      action: () => props.onCommand(props.flagged ? "unflag" : "flag"),
                     },
                     {
                       label: getMailCommand("move").label,

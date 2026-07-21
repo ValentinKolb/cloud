@@ -4,6 +4,7 @@ import {
   buildContactPayload,
   type ContactUpsertDraft,
   contactToUpsertDraft,
+  createContactUpsertDraft,
   initialAddressRows,
   initialBankAccountRows,
   initialEmailRows,
@@ -87,6 +88,15 @@ const baseDraft: ContactUpsertDraft = {
 };
 
 describe("ContactUpsertForm model", () => {
+  test("creates a minimal prefilled draft without guessing name structure", () => {
+    const draft = createContactUpsertDraft({ label: " Ada Example ", email: " ada@example.test " });
+
+    expect(draft.label).toBe("Ada Example");
+    expect(draft.firstName).toBe("");
+    expect(draft.lastName).toBe("");
+    expect(draft.emails).toEqual([{ label: "Email", email: "ada@example.test" }]);
+  });
+
   test("normalizes draft rows into a create/update payload", () => {
     expect(buildContactPayload(baseDraft)).toEqual({
       label: "Ada",

@@ -9,6 +9,7 @@ export const buildMailListHref = (requestUrl: URL, clearSearch = false): string 
   if (clearSearch) {
     for (const parameter of [
       "q",
+      "qFields",
       "from",
       "to",
       "subject",
@@ -36,3 +37,9 @@ export const buildMailSelectionHref = (requestUrl: URL, item: MailListItem): str
   else next.searchParams.set("message", item.id);
   return `${next.pathname}${next.search}`;
 };
+
+export const isMailListItemActive = (
+  item: Pick<MailListItem, "id" | "conversationId">,
+  selectedConversationId: string | null,
+  selectedMessageId: string | null,
+): boolean => (item.conversationId ? item.conversationId === selectedConversationId : item.id === selectedMessageId);

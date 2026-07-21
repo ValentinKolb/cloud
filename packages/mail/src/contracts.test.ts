@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   activateWorkflowInputSchema,
+  addConversationLocalTagsSchema,
   backfillWorkflowInputSchema,
   cancelScheduledSendInputSchema,
   conversationTriageInputSchema,
@@ -29,6 +30,19 @@ import {
   workflowRunStateSchema,
   workflowTargetStateSchema,
 } from "./contracts";
+
+describe("conversation tag contracts", () => {
+  test("bounds additive bulk assignments and rejects duplicate ids", () => {
+    const conversationId = "00000000-0000-4000-8000-000000000001";
+    const tagId = "00000000-0000-4000-8000-000000000002";
+    expect(addConversationLocalTagsSchema.safeParse({ conversationIds: [conversationId], tagIds: [tagId] }).success).toBe(true);
+    expect(addConversationLocalTagsSchema.safeParse({ conversationIds: [conversationId, conversationId], tagIds: [tagId] }).success).toBe(
+      false,
+    );
+    expect(addConversationLocalTagsSchema.safeParse({ conversationIds: [conversationId], tagIds: [tagId, tagId] }).success).toBe(false);
+    expect(addConversationLocalTagsSchema.safeParse({ conversationIds: [], tagIds: [tagId] }).success).toBe(false);
+  });
+});
 
 const draftEditableContent = {
   senderIdentityId: "00000000-0000-4000-8000-000000000001",

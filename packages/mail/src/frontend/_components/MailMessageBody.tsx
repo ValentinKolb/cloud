@@ -127,11 +127,9 @@ export default function MailMessageBody(props: {
       disposed = true;
       controller.abort();
       for (const url of objectUrls) URL.revokeObjectURL(url);
+      window.removeEventListener("message", receiveMessage);
+      props.onSelectionChange("");
     });
-  });
-  onCleanup(() => {
-    window.removeEventListener("message", receiveMessage);
-    props.onSelectionChange("");
   });
 
   return (

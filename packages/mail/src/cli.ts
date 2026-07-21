@@ -41,7 +41,6 @@ import {
   type MailConversationContext,
   type MailDraft,
   type MailSearchExpression,
-  type MailSpaceCandidatesPage,
   type MailStorageSummary,
   type MailWorkflow,
   type MailWorkflowDetail,
@@ -2665,7 +2664,7 @@ export default defineCliCommands({
       },
     }),
     command("conversation context", {
-      summary: "Show permission-scoped Contacts and linked Spaces",
+      summary: "Show permission-scoped Contacts for conversation participants",
       args: { conversationId: arg.required({ description: "Conversation id" }) },
       flags: {
         ...mailboxFlag,
@@ -2681,9 +2680,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/context?${query}`,
         );
         if (ctx.options.output === "json") return ctx.json(value);
-        ctx.print(`Conversation revision: ${value.conversationRevision}`);
+        ctx.print(`Participants: ${value.participants.length}`);
         ctx.print(`Contacts: ${value.contacts.status === "ready" ? value.contacts.items.length : "unavailable"}`);
-        ctx.print(`Spaces: ${value.spaces.status === "ready" ? value.spaces.links.length : "unavailable"}`);
         if (value.contacts.status === "ready" && value.contacts.nextCursor) ctx.print(`Next Contacts cursor: ${value.contacts.nextCursor}`);
       },
     }),
@@ -2723,81 +2721,6 @@ export default defineCliCommands({
             { key: "id", label: "CONVERSATION ID" },
           ],
         );
-      },
-    }),
-    command("conversation space candidates", {
-      summary: "List readable Spaces that can be linked",
-      args: { conversationId: arg.required({ description: "Conversation id" }) },
-      flags: {
-        ...mailboxFlag,
-        search: flag.string({ description: "Search Space names" }),
-        cursor: flag.string({ description: "Opaque Space cursor" }),
-        limit: flag.int({ min: 1, max: 50, default: 25 }),
-      },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const query = new URLSearchParams({ limit: String(flags.limit ?? 25) });
-        if (flags.search) query.set("q", flags.search);
-        if (flags.cursor) query.set("cursor", flags.cursor);
-        const page = await readApi<MailSpaceCandidatesPage>(
-          ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/spaces/candidates?${query}`,
-        );
-        printTable(
-          ctx,
-          page,
-          page.items.map((space) => ({ name: space.name, id: space.id })),
-          [
-            { key: "name", label: "NAME" },
-            { key: "id", label: "SPACE ID" },
-          ],
-        );
-      },
-    }),
-    command("conversation space link", {
-      summary: "Link a readable Space to a conversation",
-      args: {
-        conversationId: arg.required({ description: "Conversation id" }),
-        spaceId: arg.required({ description: "Space id" }),
-      },
-      flags: {
-        ...mailboxFlag,
-        revision: flag.int({ required: true, min: 1, description: "Expected conversation revision" }),
-      },
-      run: async ({ ctx, args, flags }) => {
-        if (!flags.revision) throw new Error("Missing expected conversation revision.");
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const value = await readApi<{ linkId: string; conversationRevision: number }>(
-          ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/spaces`,
-          jsonRequest("POST", { spaceId: args.spaceId, expectedRevision: flags.revision }),
-        );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Linked Space as ${value.linkId}; conversation revision ${value.conversationRevision}.`);
-      },
-    }),
-    command("conversation space unlink", {
-      summary: "Remove a Space link even after target access was revoked",
-      args: {
-        conversationId: arg.required({ description: "Conversation id" }),
-        linkId: arg.required({ description: "Conversation Space link id" }),
-      },
-      flags: {
-        ...mailboxFlag,
-        revision: flag.int({ required: true, min: 1, description: "Expected conversation revision" }),
-        yes: confirmFlag("Confirm Space unlink"),
-      },
-      run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to unlink the Space.");
-        if (!flags.revision) throw new Error("Missing expected conversation revision.");
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const value = await readApi<{ linkId: string; conversationRevision: number }>(
-          ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/spaces/${args.linkId}`,
-          jsonRequest("DELETE", { expectedRevision: flags.revision }),
-        );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Unlinked ${value.linkId}; conversation revision ${value.conversationRevision}.`);
       },
     }),
     command("conversation tag list", {

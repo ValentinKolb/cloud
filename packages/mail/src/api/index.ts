@@ -16,7 +16,6 @@ import {
   configurableFolderRoleSchema,
   conversationPresenceHeartbeatSchema,
   conversationPresenceLeaveSchema,
-  conversationSpaceMutationSchema,
   conversationTriageInputSchema,
   conversationViewSchema,
   createAttachmentLinkInputSchema,
@@ -32,12 +31,9 @@ import {
   draftContentInputSchema,
   draftEditableContentInputSchema,
   draftLeaseTokenSchema,
-  linkConversationSpaceInputSchema,
   mailCommandInputSchema,
   mailConversationContextQuerySchema,
   mailConversationContextSchema,
-  mailSpaceCandidatesQuerySchema,
-  mailSpaceCandidatesResponseSchema,
   maintenanceCommandInputSchema,
   mergeConversationsInputSchema,
   providerConnectionInputSchema,
@@ -49,7 +45,6 @@ import {
   setComposeSignatureDefaultInputSchema,
   setConversationReminderSchema,
   splitConversationInputSchema,
-  unlinkConversationSpaceInputSchema,
   updateComposeTemplateInputSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
@@ -370,9 +365,8 @@ const mailOperationsApi = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/conversations/:conversationId/context",
     describeRoute({
       tags: ["Mail:Context"],
-      summary: "Get permission-scoped Contacts and Spaces context",
-      description:
-        "Resolves current conversation participants and explicit Space links through their owning apps without storing foreign metadata.",
+      summary: "Get permission-scoped Contacts context",
+      description: "Resolves current conversation participants through Contacts without storing foreign contact metadata.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(mailConversationContextSchema, "Conversation context"),
@@ -426,84 +420,6 @@ const mailOperationsApi = new Hono<AuthContext>()
           request: integrationRequest(c),
           ...c.req.valid("param"),
           ...c.req.valid("query"),
-        }),
-      ),
-  )
-  .get(
-    "/mailboxes/:mailboxId/conversations/:conversationId/spaces/candidates",
-    describeRoute({
-      tags: ["Mail:Context"],
-      summary: "List readable Space link candidates",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(mailSpaceCandidatesResponseSchema, "Space candidates"),
-        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
-        403: jsonResponse(ErrorResponseSchema, "Access denied"),
-      },
-    }),
-    v("param", mailboxAndIdParamSchema("conversationId")),
-    v("query", mailSpaceCandidatesQuerySchema),
-    async (c) =>
-      respond(
-        c,
-        conversationContext.listCandidates({
-          context: requestContext(c),
-          request: integrationRequest(c),
-          ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
-          query: c.req.valid("query"),
-        }),
-      ),
-  )
-  .post(
-    "/mailboxes/:mailboxId/conversations/:conversationId/spaces",
-    describeRoute({
-      tags: ["Mail:Context"],
-      summary: "Link a readable Space to a conversation",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(conversationSpaceMutationSchema, "Created link"),
-        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
-        403: jsonResponse(ErrorResponseSchema, "Access denied"),
-        404: jsonResponse(ErrorResponseSchema, "Conversation or Space not found"),
-        409: jsonResponse(ErrorResponseSchema, "Revision or duplicate conflict"),
-      },
-    }),
-    v("param", mailboxAndIdParamSchema("conversationId")),
-    v("json", linkConversationSpaceInputSchema),
-    async (c) =>
-      respond(
-        c,
-        conversationContext.linkSpace({
-          context: requestContext(c),
-          request: integrationRequest(c),
-          ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
-          input: c.req.valid("json"),
-        }),
-      ),
-  )
-  .delete(
-    "/mailboxes/:mailboxId/conversations/:conversationId/spaces/:linkId",
-    describeRoute({
-      tags: ["Mail:Context"],
-      summary: "Unlink a Space even when target access was revoked",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(conversationSpaceMutationSchema, "Removed link"),
-        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
-        403: jsonResponse(ErrorResponseSchema, "Access denied"),
-        404: jsonResponse(ErrorResponseSchema, "Conversation or link not found"),
-        409: jsonResponse(ErrorResponseSchema, "Revision conflict"),
-      },
-    }),
-    v("param", z.object({ mailboxId: z.uuid(), conversationId: z.uuid(), linkId: z.uuid() })),
-    v("json", unlinkConversationSpaceInputSchema),
-    async (c) =>
-      respond(
-        c,
-        conversationContext.unlinkSpace({
-          context: requestContext(c),
-          ...c.req.valid("param"),
-          input: c.req.valid("json"),
         }),
       ),
   )

@@ -29,8 +29,6 @@ const COMPOSE_TEMPLATE_ID = "00000000-0000-4000-8000-000000000023";
 const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
 const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
 const ATTACHMENT_LINK_ID = "00000000-0000-4000-8000-000000000026";
-const SPACE_ID = "00000000-0000-4000-8000-000000000027";
-const SPACE_LINK_ID = "00000000-0000-4000-8000-000000000028";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -97,37 +95,19 @@ const withMailbox = (handler: (request: Request) => Response | Promise<Response>
     },
   });
 
-test("conversation context commands use the Mail integration API", async () => {
-  const mutations: Array<{ method: string; path: string; body: unknown }> = [];
+test("conversation context commands use the Contacts integration API", async () => {
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
     const base = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}`;
     if (request.method === "GET" && url.pathname === `${base}/context`) {
       return api({
         conversationId: CONVERSATION_ID,
-        conversationRevision: 4,
-        canWrite: true,
-        contacts: { status: "ready", items: [], nextCursor: null },
-        spaces: { status: "ready", links: [] },
+        participants: [{ email: "sender@example.com", displayName: "Sender" }],
+        contacts: { status: "ready", items: [], matchedEmails: [], nextCursor: null },
       });
     }
     if (request.method === "GET" && url.pathname === `${base}/contacts/system/${USER_ID}/history`) {
       return api({ items: [], nextCursor: null });
-    }
-    if (request.method === "GET" && url.pathname === `${base}/spaces/candidates`) {
-      return api({
-        items: [
-          { id: SPACE_ID, name: "Operations", color: "#4d7c0f", href: `/app/spaces/${SPACE_ID}`, updatedAt: "2026-07-21T10:00:00.000Z" },
-        ],
-        nextCursor: null,
-      });
-    }
-    if (
-      (request.method === "POST" && url.pathname === `${base}/spaces`) ||
-      (request.method === "DELETE" && url.pathname === `${base}/spaces/${SPACE_LINK_ID}`)
-    ) {
-      mutations.push({ method: request.method, path: url.pathname, body: await request.json() });
-      return api({ linkId: SPACE_LINK_ID, conversationRevision: request.method === "POST" ? 5 : 6 });
     }
     return api({ message: "unexpected" }, { status: 500 });
   });
@@ -137,39 +117,11 @@ test("conversation context commands use the Mail integration API", async () => {
   const commands = [
     ["--json", "mail", "conversation", "context", CONVERSATION_ID, "--mailbox", MAILBOX_ID],
     ["--json", "mail", "conversation", "contact-history", CONVERSATION_ID, "system", USER_ID, "--mailbox", MAILBOX_ID],
-    ["--json", "mail", "conversation", "space", "candidates", CONVERSATION_ID, "--mailbox", MAILBOX_ID],
-    ["--json", "mail", "conversation", "space", "link", CONVERSATION_ID, SPACE_ID, "--mailbox", MAILBOX_ID, "--revision", "4"],
-    [
-      "--json",
-      "mail",
-      "conversation",
-      "space",
-      "unlink",
-      CONVERSATION_ID,
-      SPACE_LINK_ID,
-      "--mailbox",
-      MAILBOX_ID,
-      "--revision",
-      "5",
-      "--yes",
-    ],
   ];
   const results = [];
   for (const command of commands) results.push(await runCli(origin, command));
 
   expect(results.every((result) => result.exitCode === 0 && result.stderr === "")).toBe(true);
-  expect(mutations).toEqual([
-    {
-      method: "POST",
-      path: `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/spaces`,
-      body: { spaceId: SPACE_ID, expectedRevision: 4 },
-    },
-    {
-      method: "DELETE",
-      path: `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/spaces/${SPACE_LINK_ID}`,
-      body: { expectedRevision: 5 },
-    },
-  ]);
 });
 
 test("mailbox configure maps automatic reply access to the mailbox policy", async () => {

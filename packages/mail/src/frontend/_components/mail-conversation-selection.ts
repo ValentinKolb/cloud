@@ -31,11 +31,6 @@ export const toggleMailConversationSelection = (params: {
   return { ids: next, anchorId: params.conversationId };
 };
 
-export const selectVisibleMailConversations = (orderedConversationIds: readonly string[]): MailConversationSelection => ({
-  ids: new Set(orderedConversationIds.slice(0, MAX_MAIL_CONVERSATION_SELECTION)),
-  anchorId: orderedConversationIds[0] ?? null,
-});
-
 export const pruneMailConversationSelection = (
   selection: MailConversationSelection,
   availableConversationIds: ReadonlySet<string>,

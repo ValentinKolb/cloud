@@ -11,9 +11,9 @@ Cloud collaboration stays attached to a conversation while the underlying email 
 ## Use ownership and status consistently {icon="route"}
 
 - **Assignee** names the person currently responsible for the conversation.
-- **Status** is **Open**, **Waiting**, or **Done**.
+- **Status** is **Open**, **Awaiting reply**, or **Done**. Awaiting reply means the team's next step depends on someone else; incoming mail returns the conversation to Open.
 - **Response needed** marks that an external reply is still required. It is unavailable after the conversation is Done.
-- **Snooze until** removes the conversation from active work until the selected time. It does not change provider folders.
+- **Snooze until** removes the conversation from active work until the selected time. Use it when the next step depends on time rather than another person. New mail ends the snooze early, and snoozing does not change provider folders.
 - **Follow** adds you as a follower so followed views and collaboration context can include the conversation.
 
 Incoming mail can reopen collaboration work when the configured behavior requires it. Treat **Done** as a team state, not as an email archive action.
@@ -44,13 +44,15 @@ Mailbox access is granted in **Settings > Access**.
 
 Access can be granted through the standard Cloud permission editor to the supported people, groups, or service accounts. Removing access takes effect for the mailbox, including open live views and future agent or service-account actions.
 
-## Use Contacts and Spaces context {icon="address-book"}
+## Use Contacts context {icon="address-book"}
 
 Open **Conversation details** to see Contacts whose email addresses exactly match visible conversation participants. Multiple Contacts can match the same address; Mail shows every currently readable match and does not choose or merge them. **Related Mail** stays inside the current mailbox and rechecks Contact access before every page.
 
-Writers can link a Space from the **Spaces** section. Mail stores only the opaque Space identifier and resolves its name, color, and link from Spaces when the details panel is open. If Space access is removed, target metadata disappears immediately; writers can still remove the redacted link. Contact and Space ownership, notes, bank details, access entries, calendar tokens, and other private fields are never copied into Mail.
+If an external participant has no matching Contact, select **Add as contact**. Contacts opens in a new tab with the displayed name and email prefilled. With one writable contact book it opens the contact form directly; with multiple writable books it asks where to store the Contact first. No button is shown for an address that already matches a readable Contact, including matches that are not on the first result page.
 
-The CLI exposes the same boundary through `cld mail conversation context`, `contact-history`, and `space candidates|link|unlink`.
+Mail stores no Contact ownership, notes, bank details, access entries, or other private fields. It requests a bounded participant projection from Contacts whenever the details panel is opened.
+
+The CLI exposes the same boundary through `cld mail conversation context` and `contact-history`.
 
 ## Know what is shared and what is private {icon="shield-lock"}
 
@@ -70,4 +72,4 @@ Private to one user:
 - personal reminders,
 - device preferences such as compose format, Undo Send window, and pane layout.
 
-For draft behavior and takeover consequences, see [Write and send messages](/app/mail?help=mail-compose).
+For draft behavior and takeover consequences, see [Write and send messages](/app/mail/help/mail-compose).

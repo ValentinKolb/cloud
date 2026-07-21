@@ -45,6 +45,11 @@ export type ContactUpsertDraft = {
   bankAccounts: EditableBankAccount[];
 };
 
+export type ContactUpsertInitialValues = {
+  label?: string;
+  email?: string;
+};
+
 /**
  * Builds the editable form shape without dropping values that are outside a
  * compact editor. This lets focused editors patch a few common fields while
@@ -171,6 +176,27 @@ export const initialBankAccountRows = (contact: Contact | null): EditableBankAcc
     note: account.note ?? "",
   }));
 };
+
+export const createContactUpsertDraft = (initialValues: ContactUpsertInitialValues = {}): ContactUpsertDraft => ({
+  label: initialValues.label?.trim() ?? "",
+  firstName: "",
+  lastName: "",
+  companyName: "",
+  department: "",
+  jobTitle: "",
+  vatId: "",
+  birthday: "",
+  salutation: "",
+  pronouns: "",
+  preferredLanguage: "",
+  parentRef: null,
+  tagIds: [],
+  emails: [{ ...EMPTY_EMAIL, email: initialValues.email?.trim() ?? "" }],
+  phones: [{ ...EMPTY_PHONE }],
+  addresses: [{ ...EMPTY_ADDRESS }],
+  websites: [{ ...EMPTY_WEBSITE }],
+  bankAccounts: [],
+});
 
 const cleanText = (value: string): string | null => value.trim() || null;
 const cleanUpperCompact = (value: string): string => value.replace(/\s+/g, "").toUpperCase();

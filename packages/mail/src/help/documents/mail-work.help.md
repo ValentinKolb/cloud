@@ -8,7 +8,11 @@ order: 20
 
 ## Find the conversation you need {icon="search"}
 
-Use **Search mailbox** for a broad search across the current mailbox. Select **Search filters** when you need field-specific conditions.
+Use **Search mailbox** for a quick search across the current mailbox. **Sender**, **Subject**, and **Body** are selected by default. Remove locations you do not want to search. When several locations are selected, a conversation is included when the text appears in any selected location.
+
+Select **Search filters** when you need additional conditions such as dates, recipients, attachments, folders, tags, or collaboration state.
+
+The filter dialog shows the current search as editable conditions. Select **Add filter** for another field. When several filters are active, choose whether all filters or any filter must match. **Advanced conditions** stays collapsed until you need alternative or nested groups.
 
 The filter dialog can search:
 
@@ -36,13 +40,15 @@ The built-in **Work** views organize Cloud collaboration state:
 | Inbox | Active inbox conversations |
 | Assigned to me | Conversations assigned to you |
 | Unassigned | Conversations without an assignee |
-| Waiting | Conversations with work status Waiting |
-| Snoozed | Conversations hidden until their snooze time |
+| Awaiting reply | Conversations where the team is waiting for someone else. New mail returns them to Inbox. |
+| Snoozed | Conversations hidden until their snooze time. New mail returns them sooner. |
 | Done | Conversations marked Done |
 | Recent activity | Recently changed conversations |
 | Scheduled | Messages waiting for future delivery |
 
 Provider folders are a different layer. Moving a conversation to Archive, Trash, Junk, or another provider folder changes remote mail placement and can be visible in other clients. Marking a conversation **Done** changes only Cloud work status; it does not archive or move the email.
+
+Use **Awaiting reply** when your team's next step depends on another person. Use **Snooze until** when the next step depends on a date or time. Awaiting conversations remain in the team queue; snoozed conversations stay out of active views until their selected time unless new mail arrives first.
 
 Use **Move to folder** from the conversation actions or Mail commands to choose a destination with the keyboard, pointer, or touch. On desktop you can also drag a conversation row onto a selectable folder in the left navigation. Mail queues the move and synchronization confirms the provider result.
 
@@ -77,7 +83,7 @@ Under an expanded message, choose:
 - **Forward** to start a forwarded message. You can decide whether to include the original attachments before the draft is created.
 - **Quote selection** after selecting text in the message body. Mail inserts the selected lines as a quoted reply so you can answer directly below them.
 
-For composing, drafts, attachments, signatures, and delivery options, see [Write and send messages](/app/mail?help=mail-compose).
+For composing, drafts, attachments, signatures, and delivery options, see [Write and send messages](/app/mail/help/mail-compose).
 
 ## Create reusable views and local tags {icon="layout-list"}
 

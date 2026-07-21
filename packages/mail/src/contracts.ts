@@ -4,34 +4,34 @@ import type {
   WorkflowIr,
   WorkflowJsonValue,
 } from "@valentinkolb/cloud/workflows";
-import { ContactMailMatchSchema } from "@valentinkolb/cloud-app-contacts/integration";
-import {
-  LinkedSpaceSummarySchema,
-  MailSpaceCandidatesResponseSchema,
-} from "@valentinkolb/cloud-app-spaces/integration";
+import { ContactMailMatchSchema, NormalizedParticipantEmailSchema } from "@valentinkolb/cloud-app-contacts/integration";
 import { z } from "zod";
 
 export const mailConversationContextQuerySchema = z
   .object({
-    section: z.enum(["all", "contacts", "spaces"]).default("all"),
     contactsCursor: z.string().min(1).max(2048).optional(),
     contactsLimit: z.coerce.number().int().min(1).max(50).default(25),
   })
   .strict();
-export type MailConversationContextQuery = z.infer<
-  typeof mailConversationContextQuerySchema
->;
+export type MailConversationContextQuery = z.infer<typeof mailConversationContextQuerySchema>;
+
+export const mailConversationParticipantSchema = z
+  .object({
+    email: NormalizedParticipantEmailSchema,
+    displayName: z.string().min(1).max(500).nullable(),
+  })
+  .strict();
 
 export const mailConversationContextSchema = z
   .object({
     conversationId: z.uuid(),
-    conversationRevision: z.number().int().positive(),
-    canWrite: z.boolean(),
+    participants: z.array(mailConversationParticipantSchema).max(100),
     contacts: z.discriminatedUnion("status", [
       z
         .object({
           status: z.literal("ready"),
           items: z.array(ContactMailMatchSchema),
+          matchedEmails: z.array(NormalizedParticipantEmailSchema).max(100),
           nextCursor: z.string().nullable(),
         })
         .strict(),
@@ -39,40 +39,14 @@ export const mailConversationContextSchema = z
         .object({
           status: z.literal("unavailable"),
           items: z.array(z.never()).length(0),
+          matchedEmails: z.array(z.never()).length(0),
           nextCursor: z.null(),
-        })
-        .strict(),
-    ]),
-    spaces: z.discriminatedUnion("status", [
-      z
-        .object({
-          status: z.literal("ready"),
-          links: z
-            .array(
-              z
-                .object({
-                  linkId: z.uuid(),
-                  space: LinkedSpaceSummarySchema.nullable(),
-                })
-                .strict()
-            )
-            .max(20),
-        })
-        .strict(),
-      z
-        .object({
-          status: z.literal("unavailable"),
-          links: z
-            .array(z.object({ linkId: z.uuid(), space: z.null() }).strict())
-            .max(20),
         })
         .strict(),
     ]),
   })
   .strict();
-export type MailConversationContext = z.infer<
-  typeof mailConversationContextSchema
->;
+export type MailConversationContext = z.infer<typeof mailConversationContextSchema>;
 
 export const relatedMailSummarySchema = z
   .object({
@@ -97,40 +71,6 @@ export const relatedMailQuerySchema = z
     limit: z.coerce.number().int().min(1).max(25).default(10),
   })
   .strict();
-export const mailSpaceCandidatesQuerySchema = z
-  .object({
-    q: z.string().trim().max(200).optional(),
-    cursor: z.string().min(1).max(2048).optional(),
-    limit: z.coerce.number().int().min(1).max(50).default(25),
-  })
-  .strict();
-export { MailSpaceCandidatesResponseSchema as mailSpaceCandidatesResponseSchema };
-export type MailSpaceCandidatesPage = z.infer<
-  typeof MailSpaceCandidatesResponseSchema
->;
-
-export const linkConversationSpaceInputSchema = z
-  .object({ spaceId: z.uuid(), expectedRevision: z.number().int().positive() })
-  .strict();
-export const unlinkConversationSpaceInputSchema = z
-  .object({ expectedRevision: z.number().int().positive() })
-  .strict();
-export const conversationSpaceMutationSchema = z
-  .object({
-    linkId: z.uuid(),
-    conversationRevision: z.number().int().positive(),
-  })
-  .strict();
-export type ConversationSpaceMutation = z.infer<
-  typeof conversationSpaceMutationSchema
->;
-export type LinkConversationSpaceInput = z.infer<
-  typeof linkConversationSpaceInputSchema
->;
-export type UnlinkConversationSpaceInput = z.infer<
-  typeof unlinkConversationSpaceInputSchema
->;
-
 export const searchBackendSchema = z.enum([
   "auto",
   "postgres",
@@ -1842,6 +1782,22 @@ export const setConversationLocalTagsSchema = z
 export type SetConversationLocalTags = z.infer<
   typeof setConversationLocalTagsSchema
 >;
+
+export const addConversationLocalTagsSchema = z
+  .object({
+    conversationIds: z.array(z.string().uuid()).min(1).max(50),
+    tagIds: z.array(z.string().uuid()).min(1).max(50),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (new Set(input.conversationIds).size !== input.conversationIds.length) {
+      context.addIssue({ code: "custom", message: "Conversation ids must be unique", path: ["conversationIds"] });
+    }
+    if (new Set(input.tagIds).size !== input.tagIds.length) {
+      context.addIssue({ code: "custom", message: "Tag ids must be unique", path: ["tagIds"] });
+    }
+  });
+export type AddConversationLocalTags = z.infer<typeof addConversationLocalTagsSchema>;
 
 export const conversationReferencePatternSchema = z
   .string()

@@ -11,6 +11,9 @@ import ContactTagsPicker from "./ContactTagsPicker";
 import { AddressFields, BankAccountFields, ReachFields } from "./ContactUpsertForm.fields";
 import {
   buildContactPayload,
+  type ContactUpsertInitialValues,
+  contactToUpsertDraft,
+  createContactUpsertDraft,
   type EditableAddress,
   type EditableBankAccount,
   type EditableEmail,
@@ -18,11 +21,6 @@ import {
   type EditableWebsite,
   EMPTY_ADDRESS,
   EMPTY_BANK_ACCOUNT,
-  initialAddressRows,
-  initialBankAccountRows,
-  initialEmailRows,
-  initialPhoneRows,
-  initialWebsiteRows,
 } from "./ContactUpsertForm.model";
 
 type ContactUpsertMode = "create" | "edit";
@@ -31,6 +29,7 @@ type Props = {
   mode: ContactUpsertMode;
   bookId: string;
   initialContact?: Contact | null;
+  initialValues?: ContactUpsertInitialValues;
   /**
    * Pre-fills the "Belongs to" field for create mode (e.g. the "Add member"
    * flow opens this form with the host contact already selected as parent).
@@ -341,33 +340,33 @@ const afterDelete = (config: { bookId: string; onDeleted?: () => void }, contact
   navigateTo(`/app/contacts/${config.bookId}`);
 };
 
-const contactText = (contact: Contact | null, select: (contact: Contact) => string | null): string =>
-  contact ? (select(contact) ?? "") : "";
 const contactParent = (contact: Contact | null, defaultParent: ContactRef | null | undefined): ContactRef | null =>
   contact?.parent ?? defaultParent ?? null;
-const contactTagIds = (contact: Contact | null): string[] => contact?.tags?.map((tag) => tag.id) ?? [];
-const createContactTextSignal = (contact: Contact | null, select: (contact: Contact) => string | null) =>
-  createSignal(contactText(contact, select));
 
-const createContactFormState = (initialContact: Contact | null, defaultParent: ContactRef | null | undefined) => {
-  const [label, setLabel] = createContactTextSignal(initialContact, (contact) => contact.label);
-  const [firstName, setFirstName] = createContactTextSignal(initialContact, (contact) => contact.firstName);
-  const [lastName, setLastName] = createContactTextSignal(initialContact, (contact) => contact.lastName);
-  const [companyName, setCompanyName] = createContactTextSignal(initialContact, (contact) => contact.companyName);
-  const [department, setDepartment] = createContactTextSignal(initialContact, (contact) => contact.department);
-  const [jobTitle, setJobTitle] = createContactTextSignal(initialContact, (contact) => contact.jobTitle);
-  const [vatId, setVatId] = createContactTextSignal(initialContact, (contact) => contact.vatId);
-  const [websites, setWebsites] = createSignal<EditableWebsite[]>(initialWebsiteRows(initialContact));
-  const [bankAccounts, setBankAccounts] = createSignal<EditableBankAccount[]>(initialBankAccountRows(initialContact));
-  const [birthday, setBirthday] = createContactTextSignal(initialContact, (contact) => contact.birthday);
-  const [salutation, setSalutation] = createContactTextSignal(initialContact, (contact) => contact.salutation);
-  const [pronouns, setPronouns] = createContactTextSignal(initialContact, (contact) => contact.pronouns);
-  const [preferredLanguage, setPreferredLanguage] = createContactTextSignal(initialContact, (contact) => contact.preferredLanguage);
+const createContactFormState = (
+  initialContact: Contact | null,
+  defaultParent: ContactRef | null | undefined,
+  initialValues: ContactUpsertInitialValues | undefined,
+) => {
+  const draft = initialContact ? contactToUpsertDraft(initialContact) : createContactUpsertDraft(initialValues);
+  const [label, setLabel] = createSignal(draft.label);
+  const [firstName, setFirstName] = createSignal(draft.firstName);
+  const [lastName, setLastName] = createSignal(draft.lastName);
+  const [companyName, setCompanyName] = createSignal(draft.companyName);
+  const [department, setDepartment] = createSignal(draft.department);
+  const [jobTitle, setJobTitle] = createSignal(draft.jobTitle);
+  const [vatId, setVatId] = createSignal(draft.vatId);
+  const [websites, setWebsites] = createSignal<EditableWebsite[]>(draft.websites);
+  const [bankAccounts, setBankAccounts] = createSignal<EditableBankAccount[]>(draft.bankAccounts);
+  const [birthday, setBirthday] = createSignal(draft.birthday);
+  const [salutation, setSalutation] = createSignal(draft.salutation);
+  const [pronouns, setPronouns] = createSignal(draft.pronouns);
+  const [preferredLanguage, setPreferredLanguage] = createSignal(draft.preferredLanguage);
   const [parentRef, setParentRef] = createSignal<ContactRef | null>(contactParent(initialContact, defaultParent));
-  const [tagIds, setTagIds] = createSignal<string[]>(contactTagIds(initialContact));
-  const [emails, setEmails] = createSignal<EditableEmail[]>(initialEmailRows(initialContact));
-  const [phones, setPhones] = createSignal<EditablePhone[]>(initialPhoneRows(initialContact));
-  const [addresses, setAddresses] = createSignal<EditableAddress[]>(initialAddressRows(initialContact));
+  const [tagIds, setTagIds] = createSignal<string[]>(draft.tagIds);
+  const [emails, setEmails] = createSignal<EditableEmail[]>(draft.emails);
+  const [phones, setPhones] = createSignal<EditablePhone[]>(draft.phones);
+  const [addresses, setAddresses] = createSignal<EditableAddress[]>(draft.addresses);
 
   return {
     label,
@@ -414,7 +413,7 @@ const createContactFormState = (initialContact: Contact | null, defaultParent: C
  */
 export default function ContactUpsertForm(props: Props) {
   const initialContact = props.mode === "edit" ? (props.initialContact ?? null) : null;
-  const form = createContactFormState(initialContact, props.defaultParent);
+  const form = createContactFormState(initialContact, props.defaultParent, props.initialValues);
   const {
     label,
     setLabel,

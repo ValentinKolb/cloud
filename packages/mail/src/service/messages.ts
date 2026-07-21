@@ -143,6 +143,8 @@ export type ConversationSummary = {
   revision: number;
   updatedAt: string;
   unread: boolean;
+  activeFolderIds: string[];
+  flagged: boolean;
   hasAttachments: boolean;
   messageCount: number;
   preview: string | null;
@@ -164,6 +166,8 @@ type DbConversation = {
   updated_at: Date | string;
   sort_date: Date | string;
   unread: boolean;
+  active_folder_ids: string[];
+  flagged: boolean;
   has_attachments: boolean;
   message_count: number;
   preview: string | null;
@@ -206,6 +210,16 @@ export const listConversations = async (params: {
       CASE WHEN ${view}::text = 'recently_active' THEN c.updated_at ELSE c.latest_message_at END AS sort_date,
       cardinality(unread_state.folder_ids) > 0 AS unread,
       unread_state.folder_ids AS unread_folder_ids,
+      active_state.folder_ids AS active_folder_ids,
+      EXISTS (
+        SELECT 1
+        FROM mail.conversation_messages flagged_cm
+        JOIN mail.message_placements flagged_mp ON flagged_mp.message_id = flagged_cm.message_id
+        WHERE flagged_cm.conversation_id = c.id
+          AND flagged_mp.deleted_at IS NULL
+          AND '\\Flagged' = ANY(flagged_mp.flags)
+          AND (${folderId}::uuid IS NULL OR flagged_mp.folder_id = ${folderId}::uuid)
+      ) AS flagged,
       EXISTS (
         SELECT 1
         FROM mail.conversation_messages attachment_cm
@@ -237,6 +251,17 @@ export const listConversations = async (params: {
         ORDER BY unread_mp.folder_id::text
       ) AS folder_ids
     ) unread_state ON true
+    LEFT JOIN LATERAL (
+      SELECT ARRAY(
+        SELECT DISTINCT active_mp.folder_id::text
+        FROM mail.conversation_messages active_cm
+        JOIN mail.message_placements active_mp ON active_mp.message_id = active_cm.message_id
+        WHERE active_cm.conversation_id = c.id
+          AND active_mp.deleted_at IS NULL
+          AND (${folderId}::uuid IS NULL OR active_mp.folder_id = ${folderId}::uuid)
+        ORDER BY active_mp.folder_id::text
+      ) AS folder_ids
+    ) active_state ON true
     LEFT JOIN LATERAL (
       SELECT
         LEFT(COALESCE(mc.plain_text, ''), 320) AS preview,
@@ -317,6 +342,8 @@ export const listConversations = async (params: {
     revision: Number(row.revision),
     updatedAt: toIso(row.updated_at),
     unread: row.unread,
+    activeFolderIds: row.active_folder_ids,
+    flagged: row.flagged,
     hasAttachments: row.has_attachments,
     messageCount: row.message_count,
     preview: row.preview || null,

@@ -48,6 +48,7 @@ type LayoutProps = {
   fullPage?: boolean /** Keep the shell viewport-bound and suppress its footer. */;
   fullWidth?: boolean /** Delegate scrolling and clipping to the page's work surface. */;
   focusMode?: boolean /** Render only the app canvas and content for dedicated editors or pop-out windows. */;
+  flushCanvas?: boolean /** Remove app-canvas spacing for edge-to-edge focus surfaces such as pop-out windows. */;
 }; // ==========================
 // Helpers
 function active(pathname: string, match: string): string {
@@ -136,7 +137,7 @@ function ExpiryWarnings({ user }: { user: User }) {
 // Sub-Components
 // ==========================
 // Main Layout
-export default function Layout({ children, c, title, fullPage, fullWidth, focusMode }: LayoutProps) {
+export default function Layout({ children, c, title, fullPage, fullWidth, focusMode, flushCanvas }: LayoutProps) {
   const runtime = getRuntimeContext(c);
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
   c.get("page").theme = readThemeFromCookieHeader(cookie);
@@ -198,7 +199,9 @@ export default function Layout({ children, c, title, fullPage, fullWidth, focusM
   const showRail = !!user;
   const mainLayoutClass = fullPage || fullWidth ? "flex flex-col" : "md:overflow-auto";
   const canvasStyle =
-    [appAppearanceStyle(currentApp?.appearance), appWorkspaceLayoutStyle(workspaceLayout)].filter(Boolean).join(";") || undefined;
+    [appAppearanceStyle(currentApp?.appearance), appWorkspaceLayoutStyle(workspaceLayout), focusMode && flushCanvas ? "padding:0" : ""]
+      .filter(Boolean)
+      .join(";") || undefined;
   if (focusMode) {
     return (
       <div

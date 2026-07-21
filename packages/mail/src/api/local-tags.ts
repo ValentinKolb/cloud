@@ -1,7 +1,13 @@
 import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { createLocalTagSchema, deleteLocalTagSchema, setConversationLocalTagsSchema, updateLocalTagSchema } from "../contracts";
+import {
+  addConversationLocalTagsSchema,
+  createLocalTagSchema,
+  deleteLocalTagSchema,
+  setConversationLocalTagsSchema,
+  updateLocalTagSchema,
+} from "../contracts";
 import { localTags, type MailRequestContext } from "../service";
 
 const mailboxParamSchema = z.object({ mailboxId: z.string().uuid() });
@@ -35,6 +41,20 @@ const localTagRoutes = new Hono<AuthContext>()
   )
   .get("/mailboxes/:mailboxId/conversations/:conversationId/local-tags", v("param", conversationParamSchema), async (c) =>
     respond(c, localTags.getConversationLocalTags({ context: requestContext(c), ...c.req.valid("param") })),
+  )
+  .post(
+    "/mailboxes/:mailboxId/conversations/local-tags",
+    v("param", mailboxParamSchema),
+    v("json", addConversationLocalTagsSchema),
+    async (c) =>
+      respond(
+        c,
+        localTags.addConversationLocalTags({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
   )
   .put(
     "/mailboxes/:mailboxId/conversations/:conversationId/local-tags",

@@ -4,7 +4,6 @@ import {
   findMailFocusAfterRemoval,
   MAX_MAIL_CONVERSATION_SELECTION,
   pruneMailConversationSelection,
-  selectVisibleMailConversations,
   toggleMailConversationSelection,
 } from "./mail-conversation-selection";
 
@@ -28,8 +27,7 @@ describe("Mail conversation selection", () => {
     expect(ranged.anchorId).toBe(ids[2]!);
   });
 
-  test("caps select-visible and shift ranges", () => {
-    expect(selectVisibleMailConversations(ids).ids.size).toBe(MAX_MAIL_CONVERSATION_SELECTION);
+  test("caps shift ranges", () => {
     const started = toggleMailConversationSelection({
       selection: emptyMailConversationSelection(),
       conversationId: ids[0]!,
@@ -48,7 +46,16 @@ describe("Mail conversation selection", () => {
   });
 
   test("prunes filtered conversations and restores focus to the nearest survivor", () => {
-    const selection = selectVisibleMailConversations(ids.slice(0, 4));
+    const selection = ids.slice(0, 4).reduce(
+      (current, conversationId) =>
+        toggleMailConversationSelection({
+          selection: current,
+          conversationId,
+          orderedConversationIds: ids,
+          range: false,
+        }),
+      emptyMailConversationSelection(),
+    );
     const pruned = pruneMailConversationSelection(selection, new Set([ids[1]!, ids[3]!]));
     expect([...pruned.ids]).toEqual([ids[1]!, ids[3]!]);
     expect(

@@ -30,7 +30,19 @@ type CollaborationPatch = {
   snoozedUntil?: string | null;
 };
 
-const activityLabel = (action: string): string => action.replaceAll("_", " ");
+const ACTIVITY_LABELS: Readonly<Record<string, string>> = {
+  "conversation.collaboration_updated": "updated the conversation",
+  "conversation.comment_created": "added an internal comment",
+  "conversation.comment_deleted": "deleted an internal comment",
+  "conversation.comment_updated": "updated an internal comment",
+  "conversation.local_tags_added": "added tags",
+  "conversation.local_tags_updated": "updated tags",
+  "conversation.merged": "merged conversations",
+  "conversation.reference_allocated": "assigned a reference number",
+  "conversation.split": "split the conversation",
+};
+
+const activityLabel = (action: string): string => ACTIVITY_LABELS[action] ?? action.split(".").at(-1)!.replaceAll("_", " ");
 
 export default function MailDetailsPanel(props: {
   mailboxId: string;
@@ -102,7 +114,7 @@ export default function MailDetailsPanel(props: {
         },
         json: { expectedRevision: state().revision, tagIds },
       });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update local tags"));
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update tags"));
       return await response.json();
     },
     onSuccess: (next) => {
@@ -120,7 +132,7 @@ export default function MailDetailsPanel(props: {
 
   const createTag = async () => {
     const values = await prompts.form({
-      title: "Create local tag",
+      title: "Create tag",
       icon: "ti ti-tag-plus",
       fields: { name: { type: "text", label: "Name", required: true } },
       confirmText: "Create tag",
@@ -130,7 +142,7 @@ export default function MailDetailsPanel(props: {
       param: { mailboxId: props.mailboxId },
       json: { name: String(values.name ?? "") },
     });
-    if (!response.ok) return prompts.error(await readApiError(response, "Failed to create local tag"));
+    if (!response.ok) return prompts.error(await readApiError(response, "Failed to create tag"));
     const created = await response.json();
     setAvailableTags((current) =>
       [...current.filter((tag) => tag.id !== created.id), created].sort((left, right) => left.name.localeCompare(right.name)),
@@ -392,23 +404,13 @@ export default function MailDetailsPanel(props: {
           conversationId={props.conversationId}
           active={props.active}
           revision={state().revision}
-          onRevision={(revision) => {
-            setState((current) => ({ ...current, revision }));
-            setTagState((current) => ({ ...current, conversationRevision: revision }));
-          }}
         />
 
         <section class="detail-section">
           <div class="mb-3 flex items-center justify-between gap-2">
-            <h3 class="detail-section-label mb-0">Local tags</h3>
-            <Tooltip content="Create local tag">
-              <button
-                type="button"
-                class="icon-btn"
-                aria-label="Create local tag"
-                disabled={!props.canWrite}
-                onClick={() => void createTag()}
-              >
+            <h3 class="detail-section-label mb-0">Tags</h3>
+            <Tooltip content="Create tag">
+              <button type="button" class="icon-btn" aria-label="Create tag" disabled={!props.canWrite} onClick={() => void createTag()}>
                 <i class="ti ti-tag-plus" aria-hidden="true" />
               </button>
             </Tooltip>
@@ -428,7 +430,7 @@ export default function MailDetailsPanel(props: {
                 icon: "ti ti-tag",
               }))
             }
-            placeholder="Select local tags"
+            placeholder="Select tags"
             clearable
             disabled={!props.canWrite || updateTags.loading() || update.loading()}
           />
@@ -472,7 +474,7 @@ export default function MailDetailsPanel(props: {
               }
               options={[
                 { id: "open", label: "Open", icon: "ti ti-circle" },
-                { id: "waiting", label: "Waiting", icon: "ti ti-clock-pause" },
+                { id: "waiting", label: "Awaiting reply", icon: "ti ti-message-question" },
                 { id: "done", label: "Done", icon: "ti ti-circle-check" },
               ]}
               disabled={!props.canWrite || update.loading()}

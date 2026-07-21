@@ -6,6 +6,7 @@ import { ssr } from "../config";
 import { contactsHelp } from "../help";
 import { contactsService } from "../service";
 import { captureContactEventCursor } from "../service/events";
+import ContactCreateLauncher from "./_components/ContactCreateLauncher.island";
 import ContactDetailPanel from "./_components/ContactDetailPanel.island";
 import ContactsLiveEvents from "./_components/ContactsLiveEvents.island";
 import ContactsSidebar from "./_components/ContactsSidebar";
@@ -78,6 +79,7 @@ export default ssr<AuthContext>(async (c) => {
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts" }]}>
       <ContactsLayoutHelp documents={contactsHelp.manifest} />
       <ContactsLiveEvents scope={{ kind: "all" }} initialCursor={initialLiveCursor} />
+      <ContactCreateLauncher writableBooks={writableBooks} />
       <AppWorkspace>
         <ContactsSidebar books={books} active={queryOptions.favorites ? "favorites" : "all"} adminBookIds={adminBookIds} />
 

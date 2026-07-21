@@ -9,6 +9,7 @@ import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessa
 import type { ConversationPresenceSnapshot } from "../service/presence";
 import type { MailboxPageData, MailConversationDetailData, MailListItem } from "../service/workspace";
 import { readApiError } from "./_components/api-response";
+import { chooseBulkTags } from "./_components/MailBulkTagDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
@@ -29,7 +30,6 @@ import {
   emptyMailConversationSelection,
   findMailFocusAfterRemoval,
   pruneMailConversationSelection,
-  selectVisibleMailConversations,
   toggleMailConversationSelection,
 } from "./_components/mail-conversation-selection";
 import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
@@ -40,6 +40,7 @@ import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
 const isMailHotkeyBlocked = (): boolean => {
+  if (document.querySelector("[role='dialog'], [role='alertdialog']")) return true;
   const target = document.activeElement;
   if (!(target instanceof Element)) return false;
   return Boolean(
@@ -77,6 +78,7 @@ export default function MailWorkspace(props: {
   });
   const [settingsOpening, setSettingsOpening] = createSignal(false);
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
+  const [selectionMode, setSelectionMode] = createSignal(false);
   const [commandPending, setCommandPending] = createSignal(false);
   const mailboxId = props.data.mailbox.id;
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -123,6 +125,7 @@ export default function MailWorkspace(props: {
                 new Set(next.listItems.flatMap((item) => (item.conversationId ? [item.conversationId] : []))),
               ),
         );
+        if (scopeChanged) setSelectionMode(false);
         if (!next.collaborationState) setDetailsOpen(false);
       });
       if (scopeChanged) detailCache.clear();
@@ -426,14 +429,30 @@ export default function MailWorkspace(props: {
   const selectedUnread = createMemo(
     () => selectedListItem()?.unread ?? data().detailMessages.some((message) => !message.flags.includes("\\Seen")),
   );
+  const selectedFlagged = createMemo(
+    () => selectedListItem()?.flagged ?? data().detailMessages.some((message) => message.flags.includes("\\Flagged")),
+  );
   const canShowDetails = createMemo(() =>
     Boolean(data().selectedConversationId && data().collaborationState && data().conversationLocalTags),
   );
+
+  createEffect(() => {
+    if (canWrite() || (!selectionMode() && conversationSelection().ids.size === 0)) return;
+    setConversationSelection(emptyMailConversationSelection());
+    setSelectionMode(false);
+  });
 
   const setConversationUnread = (conversationId: string, unread: boolean) => {
     setData((current) => ({
       ...current,
       listItems: current.listItems.map((item) => (item.conversationId === conversationId ? { ...item, unread } : item)),
+    }));
+  };
+
+  const setConversationFlagged = (conversationId: string, flagged: boolean) => {
+    setData((current) => ({
+      ...current,
+      listItems: current.listItems.map((item) => (item.conversationId === conversationId ? { ...item, flagged } : item)),
     }));
   };
 
@@ -565,11 +584,10 @@ export default function MailWorkspace(props: {
     }
   };
 
-  const navigateConversation = async (nav: LinkNavigateEvent, item: MailListItem, activation: "keyboard" | "pointer") => {
-    if (!item.conversationId) return await navigateWorkspace(nav);
-    const result = await applyConversationRoute(nav.href, item, activation);
-    if (result === "applied") nav.push(undefined, { scroll: "preserve" });
-    else if (result === "failed") nav.fallback();
+  const navigateConversation = async (href: string, item: MailListItem, activation: "keyboard" | "pointer") => {
+    const result = item.conversationId ? await applyConversationRoute(href, item, activation) : await replaceWorkspaceRoute(href);
+    if (result === "applied") navigate(href, { scroll: "preserve", viewTransition: false });
+    else if (result === "failed") documentNavigate(href);
   };
 
   const reconcileWorkspace = async () => {
@@ -580,7 +598,8 @@ export default function MailWorkspace(props: {
   const orderedConversationIds = () => data().listItems.flatMap((item) => (item.conversationId ? [item.conversationId] : []));
 
   const toggleConversationSelection = (item: MailListItem, range: boolean) => {
-    if (!item.conversationId) return;
+    if (!canWrite() || !item.conversationId) return;
+    setSelectionMode(true);
     setConversationSelection((selection) =>
       toggleMailConversationSelection({
         selection,
@@ -594,7 +613,14 @@ export default function MailWorkspace(props: {
   const clearConversationSelection = () => {
     const anchor = conversationSelection().anchorId;
     setConversationSelection(emptyMailConversationSelection());
+    setSelectionMode(false);
     if (anchor) focusConversation(anchor, "row");
+  };
+
+  const toggleConversationSelectionMode = () => {
+    if (!canWrite()) return;
+    if (selectionMode()) clearConversationSelection();
+    else setSelectionMode(true);
   };
 
   const commandTargets = (commandId: MailTriageCommandId): MailBulkTarget[] => {
@@ -606,7 +632,9 @@ export default function MailWorkspace(props: {
       const sourceFolderIds =
         commandId === "mark_read" && item.unreadFolderIds.length > 0
           ? item.unreadFolderIds
-          : [activeFolderId ?? item.sourceFolderId].filter((folderId): folderId is string => Boolean(folderId));
+          : ["mark_unread", "flag", "unflag"].includes(commandId)
+            ? item.activeFolderIds
+            : [activeFolderId ?? item.sourceFolderId].filter((folderId): folderId is string => Boolean(folderId));
       return [
         {
           conversationId: item.conversationId,
@@ -616,16 +644,15 @@ export default function MailWorkspace(props: {
       ];
     });
     if (targets.length > 0 || selectedIds.size > 0 || !data().selectedConversationId) return targets;
-    const detailFolderIds =
-      commandId === "mark_read"
-        ? [
-            ...new Set(
-              data()
-                .detailMessages.filter((message) => !message.flags.includes("\\Seen"))
-                .map((message) => message.folderId),
-            ),
-          ]
-        : [data().folderId ?? data().detailMessages.at(-1)?.folderId ?? null];
+    const detailFolderIds = ["mark_read", "mark_unread", "flag", "unflag"].includes(commandId)
+      ? [
+          ...new Set(
+            data()
+              .detailMessages.filter((message) => commandId !== "mark_read" || !message.flags.includes("\\Seen"))
+              .map((message) => message.folderId),
+          ),
+        ]
+      : [data().folderId ?? data().detailMessages.at(-1)?.folderId ?? null];
     return [
       {
         conversationId: data().selectedConversationId!,
@@ -668,7 +695,11 @@ export default function MailWorkspace(props: {
     if (!canWrite() || commandPending()) return;
     let targets = options.targets ?? commandTargets(commandId);
     if (targets.length === 0) {
-      if (!options.silent) await prompts.error("Select a conversation with an active provider placement.");
+      if (!options.silent) {
+        await prompts.error("Open the conversation from a mailbox folder, then try this action again.", {
+          title: "Choose a folder first",
+        });
+      }
       return;
     }
     const destinationFolderId = commandId === "move" ? (options.destinationFolderId ?? (await chooseDestinationFolder())) : undefined;
@@ -693,6 +724,10 @@ export default function MailWorkspace(props: {
       const unread = commandId === "mark_unread";
       for (const target of targets) setConversationUnread(target.conversationId, unread);
     }
+    if (commandId === "flag" || commandId === "unflag") {
+      const flagged = commandId === "flag";
+      for (const target of targets) setConversationFlagged(target.conversationId, flagged);
+    }
 
     try {
       const result = await executeMailBulkAction({
@@ -715,10 +750,13 @@ export default function MailWorkspace(props: {
       });
 
       const succeeded = new Set(result.succeededConversationIds);
-      setConversationSelection((current) => ({
-        ids: new Set([...current.ids].filter((id) => !succeeded.has(id))),
-        anchorId: current.anchorId && !succeeded.has(current.anchorId) ? current.anchorId : null,
-      }));
+      const currentSelection = conversationSelection();
+      const remainingIds = new Set([...currentSelection.ids].filter((id) => !succeeded.has(id)));
+      setConversationSelection({
+        ids: remainingIds,
+        anchorId: currentSelection.anchorId && !succeeded.has(currentSelection.anchorId) ? currentSelection.anchorId : null,
+      });
+      if (remainingIds.size === 0) setSelectionMode(false);
 
       const removesActiveConversation =
         (commandId === "archive" || commandId === "junk" || commandId === "trash" || commandId === "move") &&
@@ -740,7 +778,7 @@ export default function MailWorkspace(props: {
               : `${getMailCommand(commandId).label} queued for ${result.succeededConversationIds.length} conversations`,
           );
         }
-      } else if (commandId === "mark_read" || commandId === "mark_unread") {
+      } else if (["mark_read", "mark_unread", "flag", "unflag"].includes(commandId)) {
         await reconcileWorkspace();
       }
       if (result.failures.length > 0) {
@@ -755,6 +793,35 @@ export default function MailWorkspace(props: {
           title: `${result.failures.length} of ${targets.length} conversations failed`,
         });
       }
+    } finally {
+      setCommandPending(false);
+    }
+  };
+
+  const addTagsToSelection = async () => {
+    if (!canWrite() || commandPending()) return;
+    const conversationIds = [...selectedConversationIds()];
+    if (conversationIds.length === 0) return;
+    const tagIds = await chooseBulkTags(data().localTags);
+    if (!tagIds?.length) return;
+    setCommandPending(true);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations["local-tags"].$post({
+        param: { mailboxId },
+        json: { conversationIds, tagIds },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not add tags"));
+      const result = await response.json();
+      setConversationSelection(emptyMailConversationSelection());
+      setSelectionMode(false);
+      await reconcileWorkspace();
+      toast.success(
+        result.updatedConversationIds.length === 0
+          ? "Selected conversations already had these tags"
+          : `Tags added to ${result.updatedConversationIds.length} ${result.updatedConversationIds.length === 1 ? "conversation" : "conversations"}`,
+      );
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Could not add tags");
     } finally {
       setCommandPending(false);
     }
@@ -914,6 +981,7 @@ export default function MailWorkspace(props: {
                     selectedConversationId={data().selectedConversationId}
                     selectedMessageId={data().selectedMessageId}
                     selectedConversationIds={selectedConversationIds()}
+                    selectionMode={selectionMode()}
                     nextCursor={data().nextListCursor}
                     dateConfig={props.dateConfig}
                     canWrite={canWrite()}
@@ -923,9 +991,10 @@ export default function MailWorkspace(props: {
                     onCollapse={() => setCollapsed(true)}
                     onNavigate={navigateWorkspace}
                     onNavigateItem={navigateConversation}
+                    onToggleSelectionMode={toggleConversationSelectionMode}
                     onToggleSelection={toggleConversationSelection}
-                    onSelectAll={() => setConversationSelection(selectVisibleMailConversations(orderedConversationIds()))}
                     onClearSelection={clearConversationSelection}
+                    onAddTags={addTagsToSelection}
                     onBulkCommand={runTriageCommand}
                     onOpenCommands={openCommandPalette}
                     onPrefetch={prefetchConversation}
@@ -942,6 +1011,7 @@ export default function MailWorkspace(props: {
                   selectionKey={data().selectedConversationId ?? data().selectedMessageId}
                   selectedConversationId={data().selectedConversationId}
                   unread={selectedUnread()}
+                  flagged={selectedFlagged()}
                   reference={data().selectedReference}
                   subject={data().selectedSubject}
                   messages={data().detailMessages}

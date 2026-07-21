@@ -256,11 +256,11 @@ export default function MailOperationalSettings(props: {
               </div>
             </div>
             <Show when={status().folders.length > 0}>
-              <div class="flex flex-col border-t border-default pt-2">
+              <div class="mt-3 flex flex-col gap-2">
                 <p class="pb-1 text-xs font-semibold text-primary">Folder maintenance</p>
                 <For each={status().folders}>
                   {(folder) => (
-                    <div class="flex flex-wrap items-center gap-2 border-t border-default py-2 first:border-t-0">
+                    <div class="flex flex-wrap items-center gap-2 py-1">
                       <span class="min-w-0 flex-1 break-all text-xs text-secondary">
                         <span class="font-medium text-primary">{folder.id}</span> · {folder.discoveryState.replaceAll("_", " ")} ·{" "}
                         {folder.syncStatus.replaceAll("_", " ")}
@@ -284,7 +284,7 @@ export default function MailOperationalSettings(props: {
               </div>
             </Show>
             <Show when={status().attentionCommands.length > 0}>
-              <div class="flex flex-col divide-y divide-default border-t border-default">
+              <div class="mt-3 flex flex-col gap-2">
                 <For each={status().attentionCommands}>
                   {(item) => (
                     <div class="flex flex-wrap items-center gap-2 py-2">

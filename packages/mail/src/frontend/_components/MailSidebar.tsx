@@ -8,14 +8,34 @@ import type { ConversationViewCounts, MailFolderView } from "../../service/messa
 import type { SavedConversationView } from "../../service/saved-views";
 import { readApiError } from "./api-response";
 
-const VIEW_ITEMS: Array<{ id: ConversationView; label: string; icon: string }> = [
+type MailViewItem = {
+  id: ConversationView;
+  label: string;
+  icon: string;
+  description?: string;
+};
+
+const WORK_VIEW_ITEMS: MailViewItem[] = [
   { id: "inbox", label: "Inbox", icon: "ti ti-inbox" },
   { id: "mine", label: "Assigned to me", icon: "ti ti-user-check" },
   { id: "unassigned", label: "Unassigned", icon: "ti ti-user-question" },
-  { id: "waiting", label: "Waiting", icon: "ti ti-clock-pause" },
-  { id: "snoozed", label: "Snoozed", icon: "ti ti-clock" },
+  {
+    id: "waiting",
+    label: "Awaiting reply",
+    icon: "ti ti-message-question",
+    description: "Waiting for someone else. New mail returns the conversation to Inbox.",
+  },
   { id: "done", label: "Done", icon: "ti ti-checkbox" },
   { id: "recently_active", label: "Recent activity", icon: "ti ti-activity" },
+];
+
+const FOLLOW_UP_VIEW_ITEMS: MailViewItem[] = [
+  {
+    id: "snoozed",
+    label: "Snoozed",
+    icon: "ti ti-alarm-snooze",
+    description: "Hidden until its snooze time. New mail returns the conversation sooner.",
+  },
 ];
 
 const folderIcon = (role: string): string =>
@@ -87,15 +107,16 @@ export default function MailSidebar(props: {
     }
   };
 
-  const viewItems = (suffix: string) => (
+  const viewItems = (items: MailViewItem[], suffix: string) => (
     <>
-      <For each={VIEW_ITEMS}>
+      <For each={items}>
         {(view) => (
           <AppWorkspace.SidebarItem
             href={`/app/mail/${props.mailboxId}?view=${view.id}`}
             icon={view.icon}
             active={!props.scheduledMode && props.activeView === view.id}
             meta={<span class="tabular-nums">{props.viewCounts[view.id]}</span>}
+            title={view.description}
             viewTransitionName={`mail-view-${view.id}-${suffix}`}
             onNavigate={props.onNavigate}
             scroll="preserve"
@@ -234,7 +255,8 @@ export default function MailSidebar(props: {
           </button>
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey={`mail-sidebar-mobile-${props.mailboxId}`}>
-          <AppWorkspace.SidebarSection title="Work">{viewItems("mobile")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Work">{viewItems(WORK_VIEW_ITEMS, "mobile")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Follow-up">{viewItems(FOLLOW_UP_VIEW_ITEMS, "mobile")}</AppWorkspace.SidebarSection>
           {props.savedViews.length > 0 && (
             <AppWorkspace.SidebarSection title="Saved views">{savedViewItems("mobile")}</AppWorkspace.SidebarSection>
           )}
@@ -253,7 +275,8 @@ export default function MailSidebar(props: {
           </a>
         )}
         <AppWorkspace.SidebarBody scrollPreserveKey={`mail-sidebar-${props.mailboxId}`}>
-          <AppWorkspace.SidebarSection title="Work">{viewItems("desktop")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Work">{viewItems(WORK_VIEW_ITEMS, "desktop")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Follow-up">{viewItems(FOLLOW_UP_VIEW_ITEMS, "desktop")}</AppWorkspace.SidebarSection>
           {props.savedViews.length > 0 && (
             <AppWorkspace.SidebarSection title="Saved views">{savedViewItems("desktop")}</AppWorkspace.SidebarSection>
           )}

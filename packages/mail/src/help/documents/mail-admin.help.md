@@ -127,7 +127,7 @@ An automatic reply has an enabled state, verified automation sender, subject, bo
 
 Preview the exact response before enabling it. Pausing the mailbox stops automatic replies.
 
-For setup steps, schedule consequences, reference patterns, and repeat protection, see [Automate responses and mailbox work](/app/mail?help=mail-automation).
+For setup steps, schedule consequences, reference patterns, and repeat protection, see [Automate responses and mailbox work](/app/mail/help/mail-automation).
 
 ## Manage workflows {icon="route"}
 
@@ -135,7 +135,7 @@ Open **Automations > Workflows** for the YAML editor. Saving creates a new immut
 
 Use the dedicated automatic-reply UI for normal out-of-office or acknowledgement needs. Use workflows when the mailbox needs deterministic conditions and actions beyond that editor.
 
-See [Mail workflow YAML reference](/app/mail?help=mail-workflows) for all supported inputs, triggers, actions, conditions, expressions, defaults, and validated examples.
+See [Mail workflow YAML reference](/app/mail/help/mail-workflows) for all supported inputs, triggers, actions, conditions, expressions, defaults, and validated examples.
 
 ## Delete and restore a mailbox {icon="point"}
 

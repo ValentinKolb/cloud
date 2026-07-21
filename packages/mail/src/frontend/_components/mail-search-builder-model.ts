@@ -32,7 +32,7 @@ export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: s
   { id: "text:comment", label: "Internal comment", icon: "ti ti-message" },
   { id: "text:reference", label: "Reference number", icon: "ti ti-hash" },
   { id: "text:folder", label: "Folder name", icon: "ti ti-folder" },
-  { id: "text:tag", label: "Local tag", icon: "ti ti-tag" },
+  { id: "text:tag", label: "Tag", icon: "ti ti-tag" },
   { id: "text:keyword", label: "Provider keyword", icon: "ti ti-key" },
   { id: "date:internal_date", label: "Received date", icon: "ti ti-calendar-down" },
   { id: "date:sent_at", label: "Sent date", icon: "ti ti-calendar-up" },
@@ -41,7 +41,7 @@ export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: s
   { id: "work_status", label: "Work status", icon: "ti ti-progress-check" },
   { id: "response_needed", label: "Response needed", icon: "ti ti-message-exclamation" },
   { id: "assignee", label: "Assignee", icon: "ti ti-user-check" },
-  { id: "snoozed", label: "Snoozed", icon: "ti ti-clock-pause" },
+  { id: "snoozed", label: "Snoozed", icon: "ti ti-alarm-snooze" },
   { id: "folder_id", label: "Specific folder", icon: "ti ti-folder-check" },
   { id: "assigned_to_me", label: "Assigned to me", icon: "ti ti-user-pin" },
   { id: "watched_by_me", label: "Followed by me", icon: "ti ti-eye-check" },
@@ -68,6 +68,25 @@ export const ensureMailSearchRootGroup = (expression: MailSearchExpression): Mai
   if (!unwrapped.negated && (unwrapped.expression.type === "and" || unwrapped.expression.type === "or")) return expression;
   return { type: "and", expressions: [expression] };
 };
+
+const compactMailSearchExpression = (expression: MailSearchExpression): MailSearchExpression | null => {
+  if (expression.type === "text") return expression.query.trim() ? { ...expression, query: expression.query.trim() } : null;
+  if (expression.type === "not") {
+    const nested = compactMailSearchExpression(expression.expression);
+    return nested ? { type: "not", expression: nested } : null;
+  }
+  if (expression.type === "and" || expression.type === "or") {
+    const expressions = expression.expressions
+      .map(compactMailSearchExpression)
+      .filter((child): child is MailSearchExpression => child !== null);
+    return expressions.length > 0 ? { ...expression, expressions } : null;
+  }
+  return expression;
+};
+
+/** Removes incomplete text rows before a search is applied or saved. */
+export const normalizeMailSearchExpression = (expression: MailSearchExpression): MailSearchExpression =>
+  compactMailSearchExpression(expression) ?? { type: "all" };
 
 export const mailSearchFieldKey = (expression: MailSearchExpression): MailSearchFieldKey | null => {
   const node = unwrapMailSearchNot(expression).expression;
@@ -189,7 +208,9 @@ export const summarizeMailSearchExpression = (expression: MailSearchExpression):
   if (expression.type === "size") {
     return `${expression.field === "message" ? "Message" : "Attachment"} size ${expression.operator.replaceAll("_", " ")} ${sizeLabel(expression.bytes)}`;
   }
-  if (expression.type === "work_status") return `Work status is ${expression.value}`;
+  if (expression.type === "work_status") {
+    return `Work status is ${expression.value === "waiting" ? "awaiting reply" : expression.value}`;
+  }
   if (expression.type === "response_needed") return expression.value ? "Response is needed" : "No response is needed";
   if (expression.type === "assignee") return expression.userId ? `Assigned to ${expression.userId}` : "Unassigned";
   if (expression.type === "snoozed") return expression.value ? "Is snoozed" : "Is not snoozed";

@@ -3959,31 +3959,17 @@ const addOperatorMaintenanceCommands = async (db: SqlClient): Promise<void> => {
   `;
 };
 
-const addConversationSpaceLinks = async (db: SqlClient): Promise<void> => {
-  await db`
-    CREATE TABLE mail.conversation_space_links (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
-      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
-      space_id UUID NOT NULL,
-      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
-      created_by_actor_id UUID NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE (conversation_id, space_id)
-    )
-  `;
-  await db`
-    CREATE INDEX conversation_space_links_conversation_idx
-    ON mail.conversation_space_links (conversation_id, created_at, id)
-  `;
-};
-
 const addOperatorAttentionIndex = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE INDEX IF NOT EXISTS commands_mailbox_attention_idx
     ON mail.commands (mailbox_id, updated_at DESC, id DESC)
     WHERE state IN ('failed', 'ambiguous', 'needs_attention')
   `;
+};
+
+const removeConversationSpaceLinks = async (db: SqlClient): Promise<void> => {
+  await db`DROP TABLE IF EXISTS mail.conversation_space_links`;
+  await db`DELETE FROM mail.schema_migrations WHERE version = 68 AND name = 'conversation_space_links'`;
 };
 
 const migrations = [
@@ -4054,8 +4040,8 @@ const migrations = [
   { version: 65, name: "managed_provider_oauth", run: addManagedProviderOAuth },
   { version: 66, name: "draft_delivery_classes_workflow_run_controls", run: addDraftDeliveryClassesAndWorkflowRunControls },
   { version: 67, name: "operator_maintenance_commands", run: addOperatorMaintenanceCommands },
-  { version: 68, name: "conversation_space_links", run: addConversationSpaceLinks },
   { version: 69, name: "operator_attention_query_index", run: addOperatorAttentionIndex },
+  { version: 70, name: "remove_conversation_space_links", run: removeConversationSpaceLinks },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

@@ -4,10 +4,11 @@ import { emptyToNull, isUuid, toPgUuidArray } from "./shared";
 import type { Contact, ContactAddress, ContactBook, ContactEmail, ContactListFilter, ContactPhone, ContactWebsite } from "./types";
 
 export const SYSTEM_BOOK_ID = "system";
+export const SYSTEM_BOOK_NAME = "System (IPA)";
 
 const SYSTEM_BOOK: ContactBook = {
   id: SYSTEM_BOOK_ID,
-  name: "System (IPA)",
+  name: SYSTEM_BOOK_NAME,
   description: "Read-only contacts projected from synced FreeIPA users.",
   isSystem: true,
   createdAt: null,

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { ContactMailMatchSchema, ResolveMailParticipantsInputSchema } from "./integration";
+import {
+  buildContactCreateHref,
+  ContactMailMatchSchema,
+  parseContactCreateSeed,
+  ResolveMailParticipantsInputSchema,
+  ResolveMailParticipantsResponseSchema,
+} from "./integration";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 
@@ -17,6 +23,7 @@ describe("Contacts Mail integration contracts", () => {
     const value = {
       contactId: UUID,
       bookId: UUID,
+      bookName: "Customers",
       displayName: "Ada Example",
       companyName: "Example",
       jobTitle: null,
@@ -29,5 +36,25 @@ describe("Contacts Mail integration contracts", () => {
     };
     expect(ContactMailMatchSchema.safeParse(value).success).toBe(true);
     expect(ContactMailMatchSchema.safeParse({ ...value, bankAccounts: [{ iban: "DE00" }] }).success).toBe(false);
+  });
+
+  test("builds and parses bounded contact create links", () => {
+    const href = buildContactCreateHref({ email: " ADA@Example.COM ", name: " Ada Example " });
+    const url = new URL(href, "https://cloud.example");
+
+    expect(url.pathname).toBe("/app/contacts");
+    expect(parseContactCreateSeed(url.searchParams)).toEqual({ email: "ada@example.com", name: "Ada Example" });
+    expect(parseContactCreateSeed(new URLSearchParams("createContact=1&email=invalid"))).toBeNull();
+    expect(parseContactCreateSeed(new URLSearchParams("email=ada@example.com"))).toBeNull();
+  });
+
+  test("requires the complete match summary in integration responses", () => {
+    expect(
+      ResolveMailParticipantsResponseSchema.parse({
+        items: [],
+        matchedEmails: [" ADA@Example.COM ", "ada@example.com"],
+        nextCursor: null,
+      }),
+    ).toEqual({ items: [], matchedEmails: ["ada@example.com", "ada@example.com"], nextCursor: null });
   });
 });

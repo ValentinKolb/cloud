@@ -159,14 +159,11 @@ cld --json mail conversation watch <conversation-id> <user-id>
 cld --json mail conversation activity <conversation-id>
 ```
 
-Resolve permission-scoped Contacts and Spaces from server-derived conversation participants. Space mutations use the current conversation revision, and unlink remains available after Space access is revoked:
+Resolve permission-scoped Contacts from server-derived conversation participants:
 
 ```bash
 cld --json mail conversation context <conversation-id>
 cld --json mail conversation contact-history <conversation-id> <book-id-or-system> <contact-id>
-cld --json mail conversation space candidates <conversation-id> --search "Operations"
-cld --json mail conversation space link <conversation-id> <space-id> --revision <revision>
-cld --json mail conversation space unlink <conversation-id> <link-id> --revision <revision> --yes
 ```
 
 Create and manage Cloud-local tags independently from provider keywords. Conversation assignment is optimistic and uses the current conversation revision:

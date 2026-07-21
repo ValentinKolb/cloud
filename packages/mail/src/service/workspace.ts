@@ -38,6 +38,8 @@ export type MailListItem = {
   latestMessageAt: string;
   preview: string | null;
   unread: boolean;
+  activeFolderIds: string[];
+  flagged: boolean;
   hasAttachments: boolean;
   messageCount: number;
   workStatus: "open" | "waiting" | "done" | null;
@@ -62,7 +64,7 @@ const VIEW_LABELS: Record<ConversationView, string> = {
   inbox: "Inbox",
   mine: "Assigned to me",
   unassigned: "Unassigned",
-  waiting: "Waiting",
+  waiting: "Awaiting reply",
   done: "Done",
   snoozed: "Snoozed",
   recently_active: "Recent activity",
@@ -149,6 +151,8 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
   latestMessageAt: conversation.latestMessageAt,
   preview: conversation.preview,
   unread: conversation.unread,
+  activeFolderIds: conversation.activeFolderIds,
+  flagged: conversation.flagged,
   hasAttachments: conversation.hasAttachments,
   messageCount: conversation.messageCount,
   workStatus: conversation.workStatus,
@@ -293,6 +297,8 @@ const loadListItems = async (params: {
         latestMessageAt: item.latestMessageAt,
         preview: item.snippet,
         unread: item.unread,
+        activeFolderIds: item.activeFolderIds,
+        flagged: item.flagged,
         hasAttachments: item.hasAttachments,
         messageCount: item.messageCount,
         workStatus: item.workStatus,

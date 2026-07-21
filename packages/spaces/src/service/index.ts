@@ -7,7 +7,6 @@ import * as columns from "./columns";
 import * as comments from "./comments";
 import * as ical from "./ical";
 import * as items from "./items";
-import * as mailIntegration from "./mail-integration";
 import * as spaces from "./spaces";
 import * as tags from "./tags";
 import * as wormholes from "./wormholes";
@@ -35,9 +34,6 @@ const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => 
 };
 
 export const spacesService = {
-  integration: {
-    mail: mailIntegration,
-  },
   space: {
     list: async (config: {
       subject: AccessSubject;

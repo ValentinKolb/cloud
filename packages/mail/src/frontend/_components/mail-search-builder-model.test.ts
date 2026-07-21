@@ -5,6 +5,7 @@ import {
   countMailSearchNodes,
   ensureMailSearchRootGroup,
   mailSearchExpressionDepth,
+  normalizeMailSearchExpression,
   removeMailSearchExpression,
   summarizeMailSearchExpression,
   toggleMailSearchNegation,
@@ -118,12 +119,41 @@ describe("Mail search builder model", () => {
         },
       ],
     });
-    expect(summarizeMailSearchExpression(root)).toBe("(Subject words “invoice”) and ((Response is needed) or (Work status is waiting))");
+    expect(summarizeMailSearchExpression(root)).toBe(
+      "(Subject words “invoice”) and ((Response is needed) or (Work status is awaiting reply))",
+    );
   });
 
   test("measures NOT wrappers as search depth and nodes", () => {
     const nested = toggleMailSearchNegation(root, [1]);
     expect(mailSearchExpressionDepth(nested)).toBe(4);
     expect(countMailSearchNodes(nested)).toBe(6);
+  });
+
+  test("removes incomplete text rows before submission", () => {
+    expect(
+      normalizeMailSearchExpression({
+        type: "and",
+        expressions: [
+          { type: "text", field: "any", query: "   ", match: "words" },
+          {
+            type: "or",
+            expressions: [
+              { type: "text", field: "subject", query: " invoice ", match: "words" },
+              { type: "not", expression: { type: "text", field: "body", query: "", match: "contains" } },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      type: "and",
+      expressions: [
+        {
+          type: "or",
+          expressions: [{ type: "text", field: "subject", query: "invoice", match: "words" }],
+        },
+      ],
+    });
+    expect(normalizeMailSearchExpression({ type: "text", field: "any", query: "", match: "words" })).toEqual({ type: "all" });
   });
 });

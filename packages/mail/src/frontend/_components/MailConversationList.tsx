@@ -1,23 +1,42 @@
-import { Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
-import { MAIL_SEARCH_PARAMETER, parseMailSearchState } from "../../search-state";
+import {
+  MAIL_QUICK_SEARCH_FIELDS,
+  MAIL_QUICK_SEARCH_FIELDS_PARAMETER,
+  MAIL_SEARCH_PARAMETER,
+  type MailQuickSearchField,
+  parseMailQuickSearchFields,
+  parseMailSearchState,
+  resolveMailSearchRoute,
+} from "../../search-state";
 import type { SavedConversationView } from "../../service/saved-views";
 import MailBulkActionBar from "./MailBulkActionBar";
 import { openMailSearchBuilder } from "./MailSearchBuilder";
 import type { MailTriageCommandId } from "./mail-command-registry";
 import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";
-import { buildMailListHref, buildMailSelectionHref, type MailListItem } from "./mail-navigation";
+import { buildMailListHref, buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
 const statusLabel = (item: MailListItem): string | null => {
   if (item.responseNeeded) return "Reply needed";
-  if (item.workStatus === "waiting") return "Waiting";
+  if (item.workStatus === "waiting") return "Awaiting reply";
   if (item.workStatus === "done") return "Done";
   if (item.assigneeUserId) return "Assigned";
   return null;
+};
+
+const QUICK_SEARCH_FIELD_OPTIONS = [
+  { id: "from", label: "Sender", icon: "ti ti-user" },
+  { id: "subject", label: "Subject", icon: "ti ti-letter-case" },
+  { id: "body", label: "Body", icon: "ti ti-align-left" },
+] satisfies Array<{ id: MailQuickSearchField; label: string; icon: string }>;
+
+const selectedQuickSearchFields = (url: URL): MailQuickSearchField[] => {
+  const fields = parseMailQuickSearchFields(url);
+  return fields.length > 0 ? fields : [...MAIL_QUICK_SEARCH_FIELDS];
 };
 
 export default function MailConversationList(props: {
@@ -31,6 +50,7 @@ export default function MailConversationList(props: {
   selectedConversationId: string | null;
   selectedMessageId: string | null;
   selectedConversationIds: ReadonlySet<string>;
+  selectionMode: boolean;
   nextCursor: string | null;
   dateConfig: DateContext;
   canWrite: boolean;
@@ -39,10 +59,11 @@ export default function MailConversationList(props: {
   loading: boolean;
   onCollapse: () => void;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
-  onNavigateItem: (event: LinkNavigateEvent, item: MailListItem, activation: "keyboard" | "pointer") => void | Promise<void>;
+  onNavigateItem: (href: string, item: MailListItem, activation: "keyboard" | "pointer") => void | Promise<void>;
+  onToggleSelectionMode: () => void;
   onToggleSelection: (item: MailListItem, range: boolean) => void;
-  onSelectAll: () => void;
   onClearSelection: () => void;
+  onAddTags: () => void | Promise<void>;
   onBulkCommand: (commandId: MailTriageCommandId) => void | Promise<void>;
   onOpenCommands: () => void | Promise<void>;
   onPrefetch: (item: MailListItem) => void;
@@ -51,38 +72,53 @@ export default function MailConversationList(props: {
 }) {
   const requestUrl = () => new URL(props.requestUrl);
   const [searchValue, setSearchValue] = createSignal(props.query);
+  const [searchFields, setSearchFields] = createSignal<MailQuickSearchField[]>(selectedQuickSearchFields(requestUrl()));
   const listHref = () => buildMailListHref(requestUrl());
   const parsedSearch = createMemo(() => parseMailSearchState(requestUrl()));
   const activeSavedView = createMemo(() => props.savedViews.find((view) => view.id === props.activeSavedViewId) ?? null);
-  const currentSearchState = createMemo(() => parsedSearch().state ?? activeSavedView()?.filter ?? null);
+  const currentSearchState = createMemo(() => {
+    const parsed = parsedSearch().state;
+    if (parsed) return parsed;
+    const saved = activeSavedView()?.filter;
+    if (saved) return saved;
+    const resolved = resolveMailSearchRoute(requestUrl());
+    return resolved.expression ? { expression: resolved.expression, sort: resolved.sort } : null;
+  });
   const structuredSummary = createMemo(() => {
     const state = currentSearchState();
     return state ? summarizeMailSearchExpression(state.expression) : null;
   });
   const searchActive = () => Boolean(props.query.trim() || requestUrl().searchParams.has(MAIL_SEARCH_PARAMETER) || props.activeSavedViewId);
-  const selectableCount = createMemo(() => props.items.filter((item) => Boolean(item.conversationId)).length);
-  const allSelected = createMemo(() => {
-    const selectableIds = props.items
-      .flatMap((item) => (item.conversationId ? [item.conversationId] : []))
-      .slice(0, MAX_MAIL_CONVERSATION_SELECTION);
-    return selectableIds.length > 0 && selectableIds.every((id) => props.selectedConversationIds.has(id));
+  createEffect(() => {
+    setSearchValue(props.query);
+    setSearchFields(selectedQuickSearchFields(requestUrl()));
   });
 
-  createEffect(() => setSearchValue(props.query));
-
-  const submitSearch = (event: SubmitEvent) => {
-    event.preventDefault();
+  const applyQuickSearch = (query: string, fields: MailQuickSearchField[]) => {
     const currentUrl = requestUrl();
     const next = new URL(buildMailListHref(currentUrl, true), currentUrl.origin);
-    next.searchParams.delete("cursor");
-    if (searchValue().trim()) {
-      next.searchParams.set("q", searchValue().trim());
+    const normalizedQuery = query.trim();
+    if (normalizedQuery) {
+      next.searchParams.set("q", normalizedQuery);
+      next.searchParams.set(MAIL_QUICK_SEARCH_FIELDS_PARAMETER, fields.join(","));
       next.searchParams.delete("savedView");
       next.searchParams.delete("view");
       next.searchParams.delete("folder");
       next.searchParams.delete("scheduled");
     }
     void props.onOpenHref(`${next.pathname}${next.search}`);
+  };
+
+  const submitSearch = (event: SubmitEvent) => {
+    event.preventDefault();
+    applyQuickSearch(searchValue(), searchFields());
+  };
+
+  const updateSearchFields = (next: string[]) => {
+    const valid = next.filter((field): field is MailQuickSearchField => QUICK_SEARCH_FIELD_OPTIONS.some((option) => option.id === field));
+    const normalized = valid.length > 0 ? valid : [...MAIL_QUICK_SEARCH_FIELDS];
+    setSearchFields(normalized);
+    if (searchValue().trim()) applyQuickSearch(searchValue(), normalized);
   };
 
   const openAdvancedSearch = async () => {
@@ -126,7 +162,7 @@ export default function MailConversationList(props: {
     <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface-subtle)]">
       <header class="flex shrink-0 flex-col gap-2 p-3">
         <Show
-          when={props.selectedConversationIds.size > 0}
+          when={props.canWrite && props.selectionMode}
           fallback={
             <div class="flex min-w-0 items-center gap-2">
               <div class="min-w-0 flex-1">
@@ -144,6 +180,19 @@ export default function MailConversationList(props: {
                   <i class="ti ti-command" aria-hidden="true" />
                 </button>
               </Tooltip>
+              <Show when={props.canWrite}>
+                <Tooltip content="Select conversations">
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    aria-label="Select conversations"
+                    aria-pressed="false"
+                    onClick={props.onToggleSelectionMode}
+                  >
+                    <i class="ti ti-checkbox" aria-hidden="true" />
+                  </button>
+                </Tooltip>
+              </Show>
               <Tooltip content="Search filters">
                 <button
                   type="button"
@@ -165,29 +214,38 @@ export default function MailConversationList(props: {
         >
           <MailBulkActionBar
             selectedCount={props.selectedConversationIds.size}
-            selectableCount={selectableCount()}
-            allSelected={allSelected()}
             busy={props.loading}
-            onSelectAll={props.onSelectAll}
             onClear={props.onClearSelection}
+            onAddTags={props.onAddTags}
             onCommand={props.onBulkCommand}
             onOpenCommands={props.onOpenCommands}
           />
         </Show>
-        <form class="flex gap-1" role="search" onSubmit={submitSearch}>
-          <TextInput
-            type="search"
-            name="q"
-            ariaLabel={`Search ${props.mailbox.name}`}
-            placeholder="Search mailbox"
-            icon="ti ti-search"
-            activeIcon="ti ti-search"
-            value={searchValue}
-            onInput={setSearchValue}
-            clearable
-            onClear={() => setSearchValue("")}
-            maxLength={500}
-          />
+        <form class="flex min-w-0 items-center gap-2" role="search" onSubmit={submitSearch}>
+          <div class="min-w-0 flex-1">
+            <TextInput
+              type="search"
+              name="q"
+              ariaLabel={`Search ${props.mailbox.name}`}
+              placeholder="Search mailbox"
+              icon="ti ti-search"
+              activeIcon="ti ti-search"
+              value={searchValue}
+              onInput={setSearchValue}
+              clearable
+              onClear={() => setSearchValue("")}
+              maxLength={500}
+            />
+          </div>
+          <div class="w-40 shrink-0">
+            <MultiSelectInput
+              icon="ti ti-filter-search"
+              placeholder="Search in"
+              value={searchFields}
+              onChange={updateSearchFields}
+              options={QUICK_SEARCH_FIELD_OPTIONS}
+            />
+          </div>
         </form>
         <Show when={structuredSummary()}>
           {(summary) => (
@@ -247,46 +305,56 @@ export default function MailConversationList(props: {
           <div class="flex flex-col gap-0.5" role="list" aria-label={`${props.title} conversations`}>
             <For each={props.items}>
               {(item) => {
-                const selected = item.conversationId
-                  ? item.conversationId === props.selectedConversationId
-                  : item.id === props.selectedMessageId;
+                const selected = () => isMailListItemActive(item, props.selectedConversationId, props.selectedMessageId);
                 const state = statusLabel(item);
                 let activation: "keyboard" | "pointer" = "keyboard";
+                let selectRange = false;
                 const bulkSelected = () => Boolean(item.conversationId && props.selectedConversationIds.has(item.conversationId));
                 return (
                   <div
                     class="mail-list-entry"
-                    classList={{ "mail-list-entry-selected": bulkSelected() }}
+                    classList={{
+                      "mail-list-entry-active": selected(),
+                      "mail-list-entry-selected": bulkSelected(),
+                      "mail-list-entry-selection-mode": props.selectionMode,
+                    }}
                     role="listitem"
                     data-conversation-id={item.conversationId ?? undefined}
                   >
-                    <Show when={item.conversationId}>
+                    <Show when={props.canWrite && props.selectionMode && item.conversationId}>
                       <input
                         type="checkbox"
                         class="mail-list-checkbox h-4 w-4"
                         checked={bulkSelected()}
+                        disabled={!bulkSelected() && props.selectedConversationIds.size >= MAX_MAIL_CONVERSATION_SELECTION}
                         aria-label={`${bulkSelected() ? "Deselect" : "Select"} ${item.subject || "conversation"}`}
                         onClick={(event) => {
-                          event.preventDefault();
                           event.stopPropagation();
-                          props.onToggleSelection(item, event.shiftKey);
+                          selectRange = event.shiftKey;
+                        }}
+                        onChange={() => {
+                          props.onToggleSelection(item, selectRange);
+                          selectRange = false;
                         }}
                       />
                     </Show>
-                    <Link
+                    <a
                       href={buildMailSelectionHref(requestUrl(), item)}
-                      onNavigate={(event) => props.onNavigateItem(event, item, activation)}
-                      scroll="preserve"
-                      aria-current={selected ? "page" : undefined}
+                      aria-current={selected() ? "page" : undefined}
                       class="mail-list-row focus-ui"
                       classList={{ "mail-list-row-unread": item.unread }}
                       title={`${item.participantSummary || "Unknown sender"}: ${item.subject || "(no subject)"}`}
                       draggable={props.canWrite && Boolean(item.conversationId && item.sourceFolderId)}
                       onClick={(event) => {
                         activation = event.detail === 0 ? "keyboard" : "pointer";
-                        if (!item.conversationId || (!event.shiftKey && !event.metaKey && !event.ctrlKey)) return;
+                        if (event.defaultPrevented || event.button !== 0 || event.altKey) return;
+                        if (!props.canWrite && (event.shiftKey || event.metaKey || event.ctrlKey)) return;
+                        const select = Boolean(
+                          item.conversationId && props.canWrite && (props.selectionMode || event.shiftKey || event.metaKey || event.ctrlKey),
+                        );
                         event.preventDefault();
-                        props.onToggleSelection(item, event.shiftKey);
+                        if (select) props.onToggleSelection(item, event.shiftKey);
+                        else void props.onNavigateItem(event.currentTarget.href, item, activation);
                       }}
                       onFocus={() => props.onPrefetch(item)}
                       onPointerEnter={() => props.onPrefetch(item)}
@@ -330,6 +398,10 @@ export default function MailConversationList(props: {
                           <i class="ti ti-paperclip shrink-0" aria-hidden="true" />
                           <span class="sr-only">Has attachments. </span>
                         </Show>
+                        <Show when={item.flagged}>
+                          <i class="ti ti-flag-filled shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
+                          <span class="sr-only">Flagged conversation. </span>
+                        </Show>
                         <time
                           class="shrink-0 tabular-nums"
                           dateTime={item.latestMessageAt}
@@ -338,7 +410,7 @@ export default function MailConversationList(props: {
                           {dates.formatDateTimeRelative(item.latestMessageAt, props.dateConfig)}
                         </time>
                       </span>
-                    </Link>
+                    </a>
                   </div>
                 );
               }}

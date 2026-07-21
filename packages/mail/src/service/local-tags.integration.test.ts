@@ -5,6 +5,7 @@ import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import {
+  addConversationLocalTags,
   createLocalTag,
   deleteLocalTag,
   getConversationLocalTags,
@@ -13,6 +14,7 @@ import {
   updateLocalTag,
 } from "./local-tags";
 import { createMailbox } from "./mailboxes";
+import { listConversations } from "./messages";
 import { searchMessages } from "./search";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
@@ -54,6 +56,7 @@ suite("mail local tags and structured search", () => {
   let otherMailboxId = "";
   let conversationId = "";
   let messageId = "";
+  let folderId = "";
   let blobId = "";
 
   beforeAll(async () => {
@@ -107,6 +110,7 @@ suite("mail local tags and structured search", () => {
       VALUES (${resource!.id}::uuid, 'priority-queue', 'Priority Queue', 'inbox', 'current')
       RETURNING id
     `;
+    folderId = folder!.id;
     const internalDate = new Date(Date.now() - 60_000);
     const [message] = await sql<{ id: string }[]>`
       INSERT INTO mail.message_contents (
@@ -263,6 +267,49 @@ suite("mail local tags and structured search", () => {
     const stateAfterDelete = await getConversationLocalTags({ context: readerContext, mailboxId, conversationId });
     expect(stateAfterDelete.ok && stateAfterDelete.data.tags.map((item) => item.id)).toEqual([tag.id]);
     expect(stateAfterDelete.ok && stateAfterDelete.data.conversationRevision).toBe(4);
+
+    const [secondConversation] = await sql<{ id: string }[]>`
+      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${mailboxId}::uuid, 'Second tagged conversation', 'Customer', now())
+      RETURNING id
+    `;
+    const bulkTag = await createLocalTag({ context: writerContext, mailboxId, input: { name: "Bulk assigned" } });
+    if (!secondConversation || !bulkTag.ok) throw new Error("Bulk tag fixtures could not be created");
+    expect(
+      (
+        await addConversationLocalTags({
+          context: readerContext,
+          mailboxId,
+          input: { conversationIds: [conversationId], tagIds: [bulkTag.data.id] },
+        })
+      ).ok,
+    ).toBe(false);
+    expect(
+      (
+        await addConversationLocalTags({
+          context: writerContext,
+          mailboxId,
+          input: { conversationIds: [conversationId], tagIds: [otherTag.data.id] },
+        })
+      ).ok,
+    ).toBe(false);
+
+    const bulkAssigned = await addConversationLocalTags({
+      context: writerContext,
+      mailboxId,
+      input: { conversationIds: [secondConversation.id, conversationId], tagIds: [bulkTag.data.id] },
+    });
+    expect(bulkAssigned.ok && new Set(bulkAssigned.data.updatedConversationIds)).toEqual(new Set([conversationId, secondConversation.id]));
+    const firstBulkState = await getConversationLocalTags({ context: readerContext, mailboxId, conversationId });
+    expect(firstBulkState.ok && new Set(firstBulkState.data.tags.map((item) => item.id))).toEqual(new Set([tag.id, bulkTag.data.id]));
+    expect(firstBulkState.ok && firstBulkState.data.conversationRevision).toBe(5);
+    const repeated = await addConversationLocalTags({
+      context: writerContext,
+      mailboxId,
+      input: { conversationIds: [secondConversation.id, conversationId], tagIds: [bulkTag.data.id] },
+    });
+    expect(repeated.ok && repeated.data.updatedConversationIds).toEqual([]);
+    expect(repeated.ok && new Set(repeated.data.unchangedConversationIds)).toEqual(new Set([conversationId, secondConversation.id]));
   });
 
   test("matches every structured field class with parameterized SQL and keeps references safe before their table exists", async () => {
@@ -321,5 +368,33 @@ suite("mail local tags and structured search", () => {
       },
     });
     expect(reference.ok && reference.data.items).toEqual([]);
+  });
+
+  test("projects provider flags and an actionable source placement into conversation lists", async () => {
+    await sql`
+      UPDATE mail.message_placements
+      SET flags = ARRAY['\\Flagged']::text[], updated_at = now()
+      WHERE message_id = ${messageId}::uuid
+    `;
+    const conversations = await listConversations({ context: readerContext, mailboxId, limit: 20 });
+    expect(conversations.ok).toBe(true);
+    const conversation = conversations.ok ? conversations.data.items.find((item) => item.id === conversationId) : null;
+    expect(conversation?.flagged).toBe(true);
+    expect(conversation?.activeFolderIds).toContain(folderId);
+    expect(conversation?.folderId).not.toBeNull();
+
+    const searched = await searchMessages({
+      context: readerContext,
+      mailboxId,
+      request: {
+        expression: { type: "text", field: "subject", query: "Priority customer", match: "phrase" },
+        sort: "newest",
+        limit: 20,
+      },
+    });
+    expect(searched.ok).toBe(true);
+    const searchHit = searched.ok ? searched.data.items.find((item) => item.conversationId === conversationId) : null;
+    expect(searchHit?.flagged).toBe(true);
+    expect(searchHit?.activeFolderIds).toContain(folderId);
   });
 });

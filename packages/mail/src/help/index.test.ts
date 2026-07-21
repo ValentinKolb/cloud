@@ -22,7 +22,7 @@ describe("mailHelp", () => {
 
     const expectedContent = new Map([
       ["mail-start", "Mail organizes email around **mailboxes**"],
-      ["mail-work", "Use **Search mailbox** for a broad search"],
+      ["mail-work", "Use **Search mailbox** for a quick search"],
       ["mail-compose", "Only one editing session holds the draft lease"],
       ["mail-collaboration", "Internal comments are visible to people who can read the mailbox"],
       ["mail-admin", "Pause mailbox** stops incoming synchronization"],
@@ -39,11 +39,12 @@ describe("mailHelp", () => {
     }
   });
 
-  test("documents permission-scoped Contacts and Spaces context", () => {
+  test("documents permission-scoped Contacts context", () => {
     const collaboration = mailHelp.getMarkdown("mail-collaboration");
     expect(collaboration).toContain("Multiple Contacts can match the same address");
-    expect(collaboration).toContain("Mail stores only the opaque Space identifier");
-    expect(collaboration).toContain("writers can still remove the redacted link");
+    expect(collaboration).toContain("Add as contact");
+    expect(collaboration).toContain("multiple writable books");
+    expect(collaboration).toContain("Mail stores no Contact ownership");
     expect(collaboration).toContain("contact-history");
   });
 
@@ -52,7 +53,7 @@ describe("mailHelp", () => {
     for (const id of expectedIds) {
       const markdown = mailHelp.getMarkdown(id);
       expect(markdown).toBeDefined();
-      const links = markdown!.matchAll(/\/app\/mail\?help=([a-z0-9-]+)/g);
+      const links = markdown!.matchAll(/\/app\/mail\/help\/([a-z0-9-]+)/g);
       for (const link of links) expect(registered.has(link[1]!)).toBe(true);
     }
   });

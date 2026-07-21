@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MAIL_SEARCH_PARAMETER, serializeMailSearchState } from "../../search-state";
-import { buildMailListHref, buildMailSelectionHref, type MailListItem } from "./mail-navigation";
+import { buildMailListHref, buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
 
 const item: MailListItem = {
   id: "00000000-0000-4000-8000-000000000002",
@@ -11,6 +11,8 @@ const item: MailListItem = {
   latestMessageAt: "2026-07-20T00:00:00.000Z",
   preview: null,
   unread: false,
+  activeFolderIds: [],
+  flagged: false,
   hasAttachments: false,
   messageCount: 1,
   workStatus: "open",
@@ -54,5 +56,11 @@ describe("Mail search navigation", () => {
     expect(cleared.searchParams.has("combine")).toBe(false);
     expect(cleared.searchParams.has("cursor")).toBe(false);
     expect(cleared.searchParams.has("conversation")).toBe(false);
+  });
+
+  test("derives the active row from the current conversation or message selection", () => {
+    expect(isMailListItemActive(item, item.conversationId, null)).toBe(true);
+    expect(isMailListItemActive(item, "00000000-0000-4000-8000-000000000099", null)).toBe(false);
+    expect(isMailListItemActive({ ...item, conversationId: null }, null, item.id)).toBe(true);
   });
 });

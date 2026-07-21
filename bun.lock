@@ -289,6 +289,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
+        "@valentinkolb/cloud-app-contacts": "workspace:*",
         "@valentinkolb/ssr": "0.11.0",
         "@valentinkolb/stdlib": "0.14.1",
         "@valentinkolb/sync": "^5.5.2",

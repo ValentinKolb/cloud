@@ -57,7 +57,7 @@ An exception wins over normal weekly hours. Times cannot cross midnight; create 
 
 Choose a shorter interval only when repeated acknowledgements are useful to the recipient. The value is mailbox-wide for that automatic reply, not a delay before the first response.
 
-For a YAML workflow, define these rules directly under `automaticReply.schedule`. The schedule is part of the immutable workflow version, so reviewing and activating that version also reviews and activates its timing. See [Build Mail workflows](/app/mail?help=mail-workflows#send-a-guarded-automatic-reply) for the complete YAML shape.
+For a YAML workflow, define these rules directly under `automaticReply.schedule`. The schedule is part of the immutable workflow version, so reviewing and activating that version also reviews and activates its timing. See [Build Mail workflows](/app/mail/help/mail-workflows#send-a-guarded-automatic-reply) for the complete YAML shape.
 
 ## Create conversation references {icon="square-plus"}
 
@@ -105,4 +105,4 @@ Effect budgets are hard upper bounds for targets, moves, sends, keyword changes,
 
 Select **Cancel** for a pending run when no further effects should start. Cancellation does not reverse mail moves, sends, or collaboration changes that already completed. Pausing the mailbox stops transport-backed effects, including queued sends, but does not deactivate workflow definitions.
 
-For the complete YAML vocabulary and validated examples, see [Mail workflow YAML reference](/app/mail?help=mail-workflows).
+For the complete YAML vocabulary and validated examples, see [Mail workflow YAML reference](/app/mail/help/mail-workflows).
