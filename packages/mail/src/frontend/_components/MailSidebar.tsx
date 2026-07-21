@@ -49,6 +49,7 @@ export default function MailSidebar(props: {
   canAdmin: boolean;
   settingsOpening: boolean;
   onOpenSettings: () => void;
+  onMoveConversation: (input: { conversationId: string; sourceFolderId: string; destinationFolderId: string }) => void | Promise<void>;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
   const [dropFolderId, setDropFolderId] = createSignal<string | null>(null);
@@ -67,22 +68,6 @@ export default function MailSidebar(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const moveConversation = mutations.create<void, { conversationId: string; sourceFolderId: string; destinationFolderId: string }>({
-    mutation: async (input) => {
-      if (input.sourceFolderId === input.destinationFolderId) return;
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post({
-        param: { mailboxId: props.mailboxId, conversationId: input.conversationId },
-        json: { kind: "move_to_folder", ...input, idempotencyKey: crypto.randomUUID() },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to move conversation"));
-    },
-    onSuccess: () => {
-      toast.success("Conversation move queued");
-      refreshCurrentPath();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
   const dropConversation = (event: DragEvent, destinationFolderId: string) => {
     event.preventDefault();
     setDropFolderId(null);
@@ -92,7 +77,11 @@ export default function MailSidebar(props: {
         sourceFolderId?: unknown;
       };
       if (typeof value.conversationId !== "string" || typeof value.sourceFolderId !== "string") return;
-      moveConversation.mutate({ conversationId: value.conversationId, sourceFolderId: value.sourceFolderId, destinationFolderId });
+      void props.onMoveConversation({
+        conversationId: value.conversationId,
+        sourceFolderId: value.sourceFolderId,
+        destinationFolderId,
+      });
     } catch {
       // Ignore unrelated drags; only Mail conversation payloads are accepted.
     }
@@ -152,7 +141,9 @@ export default function MailSidebar(props: {
               class="rounded-md"
               role="group"
               aria-label={`Folder ${folder.name}; drop a conversation here to move it`}
-              classList={{ "bg-[var(--ui-selected)]": dropFolderId() === folder.id }}
+              classList={{
+                "bg-[var(--ui-selected)]": dropFolderId() === folder.id,
+              }}
               onDragEnter={(event) => {
                 if (!props.canWrite || !folder.selectable) return;
                 event.preventDefault();

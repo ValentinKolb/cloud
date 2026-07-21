@@ -1,0 +1,72 @@
+import type { MailTriageCommandId } from "./mail-command-registry";
+
+export const MAIL_BULK_CONCURRENCY = 4;
+
+export type MailBulkTarget = {
+  conversationId: string;
+  label: string;
+  sourceFolderIds: readonly string[];
+};
+
+export type MailBulkFailure = {
+  conversationId: string;
+  label: string;
+  message: string;
+  submittedPlacements: number;
+};
+
+export type MailBulkResult = {
+  succeededConversationIds: string[];
+  failures: MailBulkFailure[];
+};
+
+export const executeMailBulkAction = async (params: {
+  commandId: MailTriageCommandId;
+  targets: readonly MailBulkTarget[];
+  submit: (target: MailBulkTarget, sourceFolderId: string) => Promise<void>;
+  concurrency?: number;
+}): Promise<MailBulkResult> => {
+  const concurrency = Math.min(Math.max(Math.floor(params.concurrency ?? MAIL_BULK_CONCURRENCY), 1), MAIL_BULK_CONCURRENCY);
+  const results: Array<{
+    target: MailBulkTarget;
+    error: unknown;
+    submittedPlacements: number;
+  }> = new Array(params.targets.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex++;
+      const target = params.targets[index];
+      if (!target) return;
+      let submittedPlacements = 0;
+      try {
+        if (target.sourceFolderIds.length === 0) throw new Error("No active provider placement is available.");
+        for (const sourceFolderId of target.sourceFolderIds) {
+          await params.submit(target, sourceFolderId);
+          submittedPlacements += 1;
+        }
+        results[index] = { target, error: null, submittedPlacements };
+      } catch (error) {
+        results[index] = { target, error, submittedPlacements };
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, params.targets.length) }, () => worker()));
+  const succeededConversationIds: string[] = [];
+  const failures: MailBulkFailure[] = [];
+  for (const result of results) {
+    if (!result.error) {
+      succeededConversationIds.push(result.target.conversationId);
+      continue;
+    }
+    failures.push({
+      conversationId: result.target.conversationId,
+      label: result.target.label,
+      message: result.error instanceof Error ? result.error.message : "The command could not be queued.",
+      submittedPlacements: result.submittedPlacements,
+    });
+  }
+  return { succeededConversationIds, failures };
+};

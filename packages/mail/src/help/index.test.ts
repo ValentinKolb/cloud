@@ -39,6 +39,14 @@ describe("mailHelp", () => {
     }
   });
 
+  test("documents permission-scoped Contacts and Spaces context", () => {
+    const collaboration = mailHelp.getMarkdown("mail-collaboration");
+    expect(collaboration).toContain("Multiple Contacts can match the same address");
+    expect(collaboration).toContain("Mail stores only the opaque Space identifier");
+    expect(collaboration).toContain("writers can still remove the redacted link");
+    expect(collaboration).toContain("contact-history");
+  });
+
   test("keeps every internal help link on a registered Mail topic", () => {
     const registered = new Set(expectedIds);
     for (const id of expectedIds) {
@@ -71,6 +79,20 @@ describe("mailHelp", () => {
     expect(response.status).toBe(200);
     expect(payload.ids).toContain("mail-admin");
     expect(payload.ids).toContain("mail-troubleshooting");
+  });
+
+  test("documents public-link controls and queued storage snapshots", () => {
+    const admin = mailHelp.getMarkdown("mail-admin");
+    const work = mailHelp.getMarkdown("mail-work");
+
+    expect(admin).toContain("Mailbox **Admin** access is required to create, list, or revoke a public attachment link");
+    expect(admin).toContain("public URL is disclosed only once");
+    expect(admin).toContain("optional password, expiry time, and maximum number of download sessions");
+    expect(admin).toContain("including older active links");
+    expect(admin).toContain("Cloud **Admin** access");
+    expect(admin).toContain("Reconcile storage** queues a background reconciliation");
+    expect(admin).toContain("continue to show the last completed snapshot until that job finishes");
+    expect(work).toContain("Settings > Shared attachments");
   });
 
   test("keeps every documented workflow example valid for the Mail vocabulary", async () => {

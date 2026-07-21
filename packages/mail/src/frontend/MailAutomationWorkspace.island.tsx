@@ -40,6 +40,7 @@ export default function MailAutomationWorkspace(props: {
     ),
   );
   const [workflowRuns, setWorkflowRuns] = createSignal(props.data.advanced?.workflowRuns ?? []);
+  const [workflowRunsNextCursor, setWorkflowRunsNextCursor] = createSignal(props.data.advanced?.workflowRunsNextCursor ?? null);
   let automaticReplyPresetNonce = 0;
   const mailboxHref = `/app/mail/${props.data.mailbox.id}`;
   const activeReply = () => automaticReplies().find((configuration) => configuration.enabled) ?? null;
@@ -273,9 +274,11 @@ export default function MailAutomationWorkspace(props: {
                     mailboxId={props.data.mailbox.id}
                     initialWorkflows={workflows()}
                     initialRuns={workflowRuns()}
+                    initialRunsNextCursor={workflowRunsNextCursor()}
                     showRuns={false}
                     onWorkflowsChange={setWorkflows}
                     onRunsChange={setWorkflowRuns}
+                    onRunsCursorChange={setWorkflowRunsNextCursor}
                   />
                 </>
               </Show>
@@ -290,10 +293,12 @@ export default function MailAutomationWorkspace(props: {
                     mailboxId={props.data.mailbox.id}
                     initialWorkflows={workflows()}
                     initialRuns={workflowRuns()}
+                    initialRunsNextCursor={workflowRunsNextCursor()}
                     showWorkflows={false}
                     showRunsHeader={false}
                     onWorkflowsChange={setWorkflows}
                     onRunsChange={setWorkflowRuns}
+                    onRunsCursorChange={setWorkflowRunsNextCursor}
                   />
                 </>
               </Show>

@@ -24,9 +24,7 @@ export type AutoReplyFacts = {
   alreadyReplied?: boolean;
 };
 
-type AutoReplyPolicyDecision =
-  | { allowed: true; reasons: readonly [] }
-  | { allowed: false; reasons: readonly AutoReplySuppressionReason[] };
+type AutoReplyPolicyDecision = { allowed: true; reasons: readonly [] } | { allowed: false; reasons: readonly AutoReplySuppressionReason[] };
 
 const connectorProtocolFactsSchema = z.object({
   returnPath: z.string().nullable(),

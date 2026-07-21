@@ -4,13 +4,147 @@ import type {
   WorkflowIr,
   WorkflowJsonValue,
 } from "@valentinkolb/cloud/workflows";
+import { ContactMailMatchSchema } from "@valentinkolb/cloud-app-contacts/integration";
+import {
+  LinkedSpaceSummarySchema,
+  MailSpaceCandidatesResponseSchema,
+} from "@valentinkolb/cloud-app-spaces/integration";
 import { z } from "zod";
 
-export const searchBackendSchema = z.enum(["auto", "postgres", "pg_textsearch"]);
+export const mailConversationContextQuerySchema = z
+  .object({
+    section: z.enum(["all", "contacts", "spaces"]).default("all"),
+    contactsCursor: z.string().min(1).max(2048).optional(),
+    contactsLimit: z.coerce.number().int().min(1).max(50).default(25),
+  })
+  .strict();
+export type MailConversationContextQuery = z.infer<
+  typeof mailConversationContextQuerySchema
+>;
+
+export const mailConversationContextSchema = z
+  .object({
+    conversationId: z.uuid(),
+    conversationRevision: z.number().int().positive(),
+    canWrite: z.boolean(),
+    contacts: z.discriminatedUnion("status", [
+      z
+        .object({
+          status: z.literal("ready"),
+          items: z.array(ContactMailMatchSchema),
+          nextCursor: z.string().nullable(),
+        })
+        .strict(),
+      z
+        .object({
+          status: z.literal("unavailable"),
+          items: z.array(z.never()).length(0),
+          nextCursor: z.null(),
+        })
+        .strict(),
+    ]),
+    spaces: z.discriminatedUnion("status", [
+      z
+        .object({
+          status: z.literal("ready"),
+          links: z
+            .array(
+              z
+                .object({
+                  linkId: z.uuid(),
+                  space: LinkedSpaceSummarySchema.nullable(),
+                })
+                .strict()
+            )
+            .max(20),
+        })
+        .strict(),
+      z
+        .object({
+          status: z.literal("unavailable"),
+          links: z
+            .array(z.object({ linkId: z.uuid(), space: z.null() }).strict())
+            .max(20),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+export type MailConversationContext = z.infer<
+  typeof mailConversationContextSchema
+>;
+
+export const relatedMailSummarySchema = z
+  .object({
+    id: z.uuid(),
+    subject: z.string(),
+    participantSummary: z.string(),
+    latestMessageAt: z.string().datetime(),
+    preview: z.string().nullable(),
+  })
+  .strict();
+export const relatedMailPageSchema = z
+  .object({
+    items: z.array(relatedMailSummarySchema).max(25),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
+export type RelatedMailPage = z.infer<typeof relatedMailPageSchema>;
+
+export const relatedMailQuerySchema = z
+  .object({
+    cursor: z.string().min(1).max(2048).optional(),
+    limit: z.coerce.number().int().min(1).max(25).default(10),
+  })
+  .strict();
+export const mailSpaceCandidatesQuerySchema = z
+  .object({
+    q: z.string().trim().max(200).optional(),
+    cursor: z.string().min(1).max(2048).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(25),
+  })
+  .strict();
+export { MailSpaceCandidatesResponseSchema as mailSpaceCandidatesResponseSchema };
+export type MailSpaceCandidatesPage = z.infer<
+  typeof MailSpaceCandidatesResponseSchema
+>;
+
+export const linkConversationSpaceInputSchema = z
+  .object({ spaceId: z.uuid(), expectedRevision: z.number().int().positive() })
+  .strict();
+export const unlinkConversationSpaceInputSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
+export const conversationSpaceMutationSchema = z
+  .object({
+    linkId: z.uuid(),
+    conversationRevision: z.number().int().positive(),
+  })
+  .strict();
+export type ConversationSpaceMutation = z.infer<
+  typeof conversationSpaceMutationSchema
+>;
+export type LinkConversationSpaceInput = z.infer<
+  typeof linkConversationSpaceInputSchema
+>;
+export type UnlinkConversationSpaceInput = z.infer<
+  typeof unlinkConversationSpaceInputSchema
+>;
+
+export const searchBackendSchema = z.enum([
+  "auto",
+  "postgres",
+  "pg_textsearch",
+]);
 export type SearchBackend = z.infer<typeof searchBackendSchema>;
 
-export const automaticReplyManagementPermissionSchema = z.enum(["write", "admin"]);
-export type AutomaticReplyManagementPermission = z.infer<typeof automaticReplyManagementPermissionSchema>;
+export const automaticReplyManagementPermissionSchema = z.enum([
+  "write",
+  "admin",
+]);
+export type AutomaticReplyManagementPermission = z.infer<
+  typeof automaticReplyManagementPermissionSchema
+>;
 
 export const mailboxHealthSchema = z.enum([
   "disconnected",
@@ -39,7 +173,10 @@ export const endpointSchema = z.object({
 export type MailEndpoint = z.infer<typeof endpointSchema>;
 
 export const providerSecretSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("password"), password: z.string().min(1).max(16_384) }),
+  z.object({
+    kind: z.literal("password"),
+    password: z.string().min(1).max(16_384),
+  }),
   z.object({
     kind: z.literal("oauth2"),
     accessToken: z.string().min(1).max(65_536),
@@ -57,7 +194,77 @@ export const providerConnectionInputSchema = z.object({
   smtp: endpointSchema,
   secret: providerSecretSchema,
 });
-export type ProviderConnectionInput = z.infer<typeof providerConnectionInputSchema>;
+export type ProviderConnectionInput = z.infer<
+  typeof providerConnectionInputSchema
+>;
+
+export const providerConnectionDetailsSchema =
+  providerConnectionInputSchema.omit({ secret: true });
+export type ProviderConnectionDetails = z.infer<
+  typeof providerConnectionDetailsSchema
+>;
+
+export const mailOAuthProviderIdSchema = z.enum(["google", "microsoft"]);
+export type MailOAuthProviderId = z.infer<typeof mailOAuthProviderIdSchema>;
+
+export const mailOAuthProviderSchema = z.object({
+  id: mailOAuthProviderIdSchema,
+  name: z.string(),
+  domains: z.array(z.string()),
+});
+export type MailOAuthProvider = z.infer<typeof mailOAuthProviderSchema>;
+
+export const mailOAuthStartInputSchema = z.discriminatedUnion("operation", [
+  z.object({
+    operation: z.literal("create"),
+    providerId: mailOAuthProviderIdSchema,
+    connection: providerConnectionDetailsSchema,
+    createSender: z.boolean().default(true),
+  }),
+  z.object({
+    operation: z.literal("reconnect"),
+    providerId: mailOAuthProviderIdSchema,
+    connectionId: z.string().uuid(),
+    connection: providerConnectionDetailsSchema.optional(),
+  }),
+]);
+export type MailOAuthStartInput = z.infer<typeof mailOAuthStartInputSchema>;
+
+export const mailOAuthStartResultSchema = z.object({
+  authorizationUrl: z.string().url(),
+  expiresAt: z.string().datetime(),
+});
+export type MailOAuthStartResult = z.infer<typeof mailOAuthStartResultSchema>;
+
+export const providerTransportDiagnosticSchema = z.object({
+  status: z.enum(["verified", "failed"]),
+  category: z
+    .enum(["authentication", "tls", "endpoint", "unavailable", "unknown"])
+    .nullable(),
+  message: z.string(),
+});
+export type ProviderTransportDiagnostic = z.infer<
+  typeof providerTransportDiagnosticSchema
+>;
+
+export const providerTransportDiagnosticsSchema = z.object({
+  imap: providerTransportDiagnosticSchema,
+  smtp: providerTransportDiagnosticSchema,
+});
+export type ProviderTransportDiagnostics = z.infer<
+  typeof providerTransportDiagnosticsSchema
+>;
+
+export const mailOAuthFlowResultSchema = z.object({
+  id: z.string().uuid(),
+  mailboxId: z.string().uuid(),
+  status: z.enum(["pending", "exchanging", "completed", "failed"]),
+  resultCode: z.string().nullable(),
+  message: z.string().nullable(),
+  connectionId: z.string().uuid().nullable(),
+  diagnostics: providerTransportDiagnosticsSchema.nullable(),
+});
+export type MailOAuthFlowResult = z.infer<typeof mailOAuthFlowResultSchema>;
 
 export const providerConnectionSchema = z.object({
   id: z.string().uuid(),
@@ -68,7 +275,17 @@ export const providerConnectionSchema = z.object({
   connectorKind: connectorKindSchema,
   imap: endpointSchema,
   smtp: endpointSchema,
-  secret: z.object({ kind: z.enum(["password", "oauth2"]), isSet: z.boolean() }),
+  secret: z.object({
+    kind: z.enum(["password", "oauth2"]),
+    isSet: z.boolean(),
+  }),
+  oauth: z
+    .object({
+      providerId: mailOAuthProviderIdSchema,
+      expiresAt: z.string().datetime().nullable(),
+      state: z.enum(["active", "expiring", "reconnect_required"]),
+    })
+    .nullable(),
   status: z.enum(["active", "degraded", "revoked"]),
   authenticatedPrincipal: z.string().nullable(),
   lastVerifiedAt: z.string().datetime().nullable(),
@@ -92,11 +309,19 @@ export const mailboxSchema = z.object({
 });
 export type Mailbox = z.infer<typeof mailboxSchema>;
 
-export const deletedMailboxSchema = mailboxSchema.extend({ deletedAt: z.string().datetime() });
+export const deletedMailboxSchema = mailboxSchema.extend({
+  deletedAt: z.string().datetime(),
+});
 export type DeletedMailbox = z.infer<typeof deletedMailboxSchema>;
-export type DeletedMailboxPage = { items: Array<DeletedMailbox & { permission: "admin" }>; nextCursor: string | null };
+export type DeletedMailboxPage = {
+  items: Array<DeletedMailbox & { permission: "admin" }>;
+  nextCursor: string | null;
+};
 
-const lifecycleCountsSchema = z.record(z.string(), z.number().int().nonnegative());
+const lifecycleCountsSchema = z.record(
+  z.string(),
+  z.number().int().nonnegative()
+);
 
 export const mailboxOperationalHealthSchema = z.object({
   mailboxId: z.string().uuid(),
@@ -143,7 +368,75 @@ export const mailboxOperationalHealthSchema = z.object({
     bm25Ready: z.boolean(),
   }),
 });
-export type MailboxOperationalHealth = z.infer<typeof mailboxOperationalHealthSchema>;
+export type MailboxOperationalHealth = z.infer<
+  typeof mailboxOperationalHealthSchema
+>;
+
+export const attachmentLinkSchema = z.object({
+  id: z.string().uuid(),
+  mailboxId: z.string().uuid(),
+  sourceKind: z.enum(["message", "draft"]),
+  sourceId: z.string().uuid(),
+  filename: z.string().nullable(),
+  contentType: z.string(),
+  byteLength: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(100 * 1024 * 1024),
+  passwordProtected: z.boolean(),
+  expiresAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+  downloadCount: z.number().int().nonnegative(),
+  maxDownloads: z.number().int().positive().nullable(),
+  lastDownloadedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type AttachmentLink = z.infer<typeof attachmentLinkSchema>;
+
+export const attachmentLinkPageSchema = z.object({
+  items: z.array(attachmentLinkSchema),
+  nextCursor: z.string().nullable(),
+});
+export type AttachmentLinkPage = z.infer<typeof attachmentLinkPageSchema>;
+
+export const createAttachmentLinkInputSchema = z
+  .object({
+    password: z.string().min(8).max(256).nullable().optional(),
+    expiresAt: z.string().datetime().nullable().optional(),
+    maxDownloads: z.number().int().min(1).max(1_000_000).nullable().optional(),
+  })
+  .strict();
+export type CreateAttachmentLinkInput = z.infer<
+  typeof createAttachmentLinkInputSchema
+>;
+
+export const createdAttachmentLinkSchema = z.object({
+  link: attachmentLinkSchema,
+  url: z.string().url(),
+});
+export type CreatedAttachmentLink = z.infer<typeof createdAttachmentLinkSchema>;
+
+export const mailboxStorageUsageSchema = z.object({
+  mailboxId: z.string().uuid(),
+  mailboxName: z.string(),
+  messageCount: z.number().int().nonnegative(),
+  messageBytes: z.number().int().nonnegative(),
+  receivedAttachmentBytes: z.number().int().nonnegative(),
+  draftAttachmentBytes: z.number().int().nonnegative(),
+  externalLinkBytes: z.number().int().nonnegative(),
+  logicalTotalBytes: z.number().int().nonnegative(),
+  calculatedAt: z.string().datetime(),
+});
+export type MailboxStorageUsage = z.infer<typeof mailboxStorageUsageSchema>;
+
+export const mailStorageSummarySchema = z.object({
+  mailboxes: z.array(mailboxStorageUsageSchema),
+  physicalDatabaseBytes: z.number().int().nonnegative(),
+  physicalBlobBytes: z.number().int().nonnegative(),
+  calculatedAt: z.string().datetime().nullable(),
+});
+export type MailStorageSummary = z.infer<typeof mailStorageSummarySchema>;
 
 export const createMailboxInputSchema = z.object({
   name: z.string().trim().min(1).max(160),
@@ -151,7 +444,13 @@ export const createMailboxInputSchema = z.object({
 });
 export type CreateMailboxInput = z.infer<typeof createMailboxInputSchema>;
 
-export const bindingStateSchema = z.enum(["pending", "verifying", "active", "degraded", "revoked"]);
+export const bindingStateSchema = z.enum([
+  "pending",
+  "verifying",
+  "active",
+  "degraded",
+  "revoked",
+]);
 export type BindingState = z.infer<typeof bindingStateSchema>;
 
 export const providerBindingSchema = z.object({
@@ -168,19 +467,52 @@ export const providerBindingSchema = z.object({
 });
 export type ProviderBinding = z.infer<typeof providerBindingSchema>;
 
-export const folderRoleSchema = z.enum(["inbox", "sent", "drafts", "trash", "archive", "junk", "all", "other"]);
+export const folderRoleSchema = z.enum([
+  "inbox",
+  "sent",
+  "drafts",
+  "trash",
+  "archive",
+  "junk",
+  "all",
+  "other",
+]);
 export type FolderRole = z.infer<typeof folderRoleSchema>;
 
-export const folderRightsSourceSchema = z.enum(["acl", "select", "probe", "unknown"]);
+export const folderRightsSourceSchema = z.enum([
+  "acl",
+  "select",
+  "probe",
+  "unknown",
+]);
 export type FolderRightsSource = z.infer<typeof folderRightsSourceSchema>;
 
-export const configurableFolderRoleSchema = z.enum(["sent", "drafts", "trash", "archive", "junk"]);
-export type ConfigurableFolderRole = z.infer<typeof configurableFolderRoleSchema>;
+export const configurableFolderRoleSchema = z.enum([
+  "sent",
+  "drafts",
+  "trash",
+  "archive",
+  "junk",
+]);
+export type ConfigurableFolderRole = z.infer<
+  typeof configurableFolderRoleSchema
+>;
 
-export const standardMessageFlagSchema = z.enum(["seen", "answered", "flagged", "draft"]);
+export const standardMessageFlagSchema = z.enum([
+  "seen",
+  "answered",
+  "flagged",
+  "draft",
+]);
 export type StandardMessageFlag = z.infer<typeof standardMessageFlagSchema>;
 
-export const addressRoleSchema = z.enum(["from", "reply_to", "to", "cc", "bcc"]);
+export const addressRoleSchema = z.enum([
+  "from",
+  "reply_to",
+  "to",
+  "cc",
+  "bcc",
+]);
 export type AddressRole = z.infer<typeof addressRoleSchema>;
 
 export const mailSearchFieldSchema = z.enum([
@@ -225,46 +557,92 @@ export const mailSearchSizeSchema = z
   .object({
     type: z.literal("size"),
     field: z.enum(["message", "attachment"]),
-    operator: z.enum(["less_than", "at_most", "equal", "at_least", "greater_than"]),
+    operator: z.enum([
+      "less_than",
+      "at_most",
+      "equal",
+      "at_least",
+      "greater_than",
+    ]),
     bytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   })
   .strict();
 
-export const mailSearchWorkStatusSchema = z.object({ type: z.literal("work_status"), value: z.enum(["open", "waiting", "done"]) }).strict();
-export const mailSearchResponseNeededSchema = z.object({ type: z.literal("response_needed"), value: z.boolean() }).strict();
-export const mailSearchAssigneeSchema = z.object({ type: z.literal("assignee"), userId: z.string().uuid().nullable() }).strict();
-export const mailSearchSnoozedSchema = z.object({ type: z.literal("snoozed"), value: z.boolean() }).strict();
-export const mailSearchAllSchema = z.object({ type: z.literal("all") }).strict();
-export const mailSearchFolderIdSchema = z.object({ type: z.literal("folder_id"), folderId: z.string().uuid() }).strict();
-export const mailSearchAssignedToMeSchema = z.object({ type: z.literal("assigned_to_me") }).strict();
-export const mailSearchWatchedByMeSchema = z.object({ type: z.literal("watched_by_me"), value: z.boolean() }).strict();
+export const mailSearchWorkStatusSchema = z
+  .object({
+    type: z.literal("work_status"),
+    value: z.enum(["open", "waiting", "done"]),
+  })
+  .strict();
+export const mailSearchResponseNeededSchema = z
+  .object({ type: z.literal("response_needed"), value: z.boolean() })
+  .strict();
+export const mailSearchAssigneeSchema = z
+  .object({ type: z.literal("assignee"), userId: z.string().uuid().nullable() })
+  .strict();
+export const mailSearchSnoozedSchema = z
+  .object({ type: z.literal("snoozed"), value: z.boolean() })
+  .strict();
+export const mailSearchAllSchema = z
+  .object({ type: z.literal("all") })
+  .strict();
+export const mailSearchFolderIdSchema = z
+  .object({ type: z.literal("folder_id"), folderId: z.string().uuid() })
+  .strict();
+export const mailSearchAssignedToMeSchema = z
+  .object({ type: z.literal("assigned_to_me") })
+  .strict();
+export const mailSearchWatchedByMeSchema = z
+  .object({ type: z.literal("watched_by_me"), value: z.boolean() })
+  .strict();
 
 const MAX_BOOLEAN_TREE_DEPTH = 8;
 const MAX_BOOLEAN_TREE_NODES = 100;
 
-const boundedTreeInputSchema = (params: { label: string; children: (value: Record<string, unknown>) => unknown[] }): z.ZodType<unknown> =>
+const boundedTreeInputSchema = (params: {
+  label: string;
+  children: (value: Record<string, unknown>) => unknown[];
+}): z.ZodType<unknown> =>
   z.unknown().superRefine((value, context) => {
-    const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 1 }];
+    const stack: Array<{ value: unknown; depth: number }> = [
+      { value, depth: 1 },
+    ];
     const seen = new WeakSet<object>();
     let nodes = 0;
     while (stack.length > 0) {
       const current = stack.pop()!;
-      if (!current.value || typeof current.value !== "object" || Array.isArray(current.value)) continue;
+      if (
+        !current.value ||
+        typeof current.value !== "object" ||
+        Array.isArray(current.value)
+      )
+        continue;
       if (seen.has(current.value)) {
-        context.addIssue({ code: "custom", message: `${params.label} may not contain cyclic or repeated nodes` });
+        context.addIssue({
+          code: "custom",
+          message: `${params.label} may not contain cyclic or repeated nodes`,
+        });
         return;
       }
       seen.add(current.value);
       nodes += 1;
       if (current.depth > MAX_BOOLEAN_TREE_DEPTH) {
-        context.addIssue({ code: "custom", message: `${params.label} may be at most ${MAX_BOOLEAN_TREE_DEPTH} levels deep` });
+        context.addIssue({
+          code: "custom",
+          message: `${params.label} may be at most ${MAX_BOOLEAN_TREE_DEPTH} levels deep`,
+        });
         return;
       }
       if (nodes > MAX_BOOLEAN_TREE_NODES) {
-        context.addIssue({ code: "custom", message: `${params.label} may contain at most ${MAX_BOOLEAN_TREE_NODES} nodes` });
+        context.addIssue({
+          code: "custom",
+          message: `${params.label} may contain at most ${MAX_BOOLEAN_TREE_NODES} nodes`,
+        });
         return;
       }
-      for (const child of params.children(current.value as Record<string, unknown>)) {
+      for (const child of params.children(
+        current.value as Record<string, unknown>
+      )) {
         stack.push({ value: child, depth: current.depth + 1 });
       }
     }
@@ -286,24 +664,46 @@ export type MailSearchExpression =
   | { type: "or"; expressions: MailSearchExpression[] }
   | { type: "not"; expression: MailSearchExpression };
 
-const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> = z.lazy(() =>
-  z.discriminatedUnion("type", [
-    mailSearchTermSchema,
-    mailSearchDateSchema,
-    mailSearchSizeSchema,
-    mailSearchWorkStatusSchema,
-    mailSearchResponseNeededSchema,
-    mailSearchAssigneeSchema,
-    mailSearchSnoozedSchema,
-    mailSearchAllSchema,
-    mailSearchFolderIdSchema,
-    mailSearchAssignedToMeSchema,
-    mailSearchWatchedByMeSchema,
-    z.object({ type: z.literal("and"), expressions: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
-    z.object({ type: z.literal("or"), expressions: z.array(mailSearchExpressionRecursiveSchema).min(1).max(20) }).strict(),
-    z.object({ type: z.literal("not"), expression: mailSearchExpressionRecursiveSchema }).strict(),
-  ]),
-);
+const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> =
+  z.lazy(() =>
+    z.discriminatedUnion("type", [
+      mailSearchTermSchema,
+      mailSearchDateSchema,
+      mailSearchSizeSchema,
+      mailSearchWorkStatusSchema,
+      mailSearchResponseNeededSchema,
+      mailSearchAssigneeSchema,
+      mailSearchSnoozedSchema,
+      mailSearchAllSchema,
+      mailSearchFolderIdSchema,
+      mailSearchAssignedToMeSchema,
+      mailSearchWatchedByMeSchema,
+      z
+        .object({
+          type: z.literal("and"),
+          expressions: z
+            .array(mailSearchExpressionRecursiveSchema)
+            .min(1)
+            .max(20),
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal("or"),
+          expressions: z
+            .array(mailSearchExpressionRecursiveSchema)
+            .min(1)
+            .max(20),
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal("not"),
+          expression: mailSearchExpressionRecursiveSchema,
+        })
+        .strict(),
+    ])
+  );
 
 const mailSearchExpressionOpenApi = {
   $dynamicAnchor: "MailSearchExpression",
@@ -314,7 +714,11 @@ const mailSearchExpressionOpenApi = {
         type: { const: "text" },
         field: { type: "string", enum: mailSearchFieldSchema.options },
         query: { type: "string", minLength: 1, maxLength: 500 },
-        match: { type: "string", enum: ["words", "phrase", "contains", "exact"], default: "words" },
+        match: {
+          type: "string",
+          enum: ["words", "phrase", "contains", "exact"],
+          default: "words",
+        },
       },
       required: ["type", "field", "query"],
       additionalProperties: false,
@@ -324,7 +728,10 @@ const mailSearchExpressionOpenApi = {
       properties: {
         type: { const: "date" },
         field: { type: "string", enum: ["internal_date", "sent_at"] },
-        operator: { type: "string", enum: ["before", "on_or_before", "after", "on_or_after"] },
+        operator: {
+          type: "string",
+          enum: ["before", "on_or_before", "after", "on_or_after"],
+        },
         value: { type: "string", format: "date-time" },
       },
       required: ["type", "field", "operator", "value"],
@@ -335,27 +742,43 @@ const mailSearchExpressionOpenApi = {
       properties: {
         type: { const: "size" },
         field: { type: "string", enum: ["message", "attachment"] },
-        operator: { type: "string", enum: ["less_than", "at_most", "equal", "at_least", "greater_than"] },
-        bytes: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+        operator: {
+          type: "string",
+          enum: ["less_than", "at_most", "equal", "at_least", "greater_than"],
+        },
+        bytes: {
+          type: "integer",
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+        },
       },
       required: ["type", "field", "operator", "bytes"],
       additionalProperties: false,
     },
     {
       type: "object",
-      properties: { type: { const: "work_status" }, value: { type: "string", enum: ["open", "waiting", "done"] } },
+      properties: {
+        type: { const: "work_status" },
+        value: { type: "string", enum: ["open", "waiting", "done"] },
+      },
       required: ["type", "value"],
       additionalProperties: false,
     },
     {
       type: "object",
-      properties: { type: { const: "response_needed" }, value: { type: "boolean" } },
+      properties: {
+        type: { const: "response_needed" },
+        value: { type: "boolean" },
+      },
       required: ["type", "value"],
       additionalProperties: false,
     },
     {
       type: "object",
-      properties: { type: { const: "assignee" }, userId: { type: ["string", "null"], format: "uuid" } },
+      properties: {
+        type: { const: "assignee" },
+        userId: { type: ["string", "null"], format: "uuid" },
+      },
       required: ["type", "userId"],
       additionalProperties: false,
     },
@@ -373,7 +796,10 @@ const mailSearchExpressionOpenApi = {
     },
     {
       type: "object",
-      properties: { type: { const: "folder_id" }, folderId: { type: "string", format: "uuid" } },
+      properties: {
+        type: { const: "folder_id" },
+        folderId: { type: "string", format: "uuid" },
+      },
       required: ["type", "folderId"],
       additionalProperties: false,
     },
@@ -385,7 +811,10 @@ const mailSearchExpressionOpenApi = {
     },
     {
       type: "object",
-      properties: { type: { const: "watched_by_me" }, value: { type: "boolean" } },
+      properties: {
+        type: { const: "watched_by_me" },
+        value: { type: "boolean" },
+      },
       required: ["type", "value"],
       additionalProperties: false,
     },
@@ -393,7 +822,12 @@ const mailSearchExpressionOpenApi = {
       type: "object",
       properties: {
         type: { const: "and" },
-        expressions: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
+        expressions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 20,
+          items: { $dynamicRef: "#MailSearchExpression" },
+        },
       },
       required: ["type", "expressions"],
       additionalProperties: false,
@@ -402,14 +836,22 @@ const mailSearchExpressionOpenApi = {
       type: "object",
       properties: {
         type: { const: "or" },
-        expressions: { type: "array", minItems: 1, maxItems: 20, items: { $dynamicRef: "#MailSearchExpression" } },
+        expressions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 20,
+          items: { $dynamicRef: "#MailSearchExpression" },
+        },
       },
       required: ["type", "expressions"],
       additionalProperties: false,
     },
     {
       type: "object",
-      properties: { type: { const: "not" }, expression: { $dynamicRef: "#MailSearchExpression" } },
+      properties: {
+        type: { const: "not" },
+        expression: { $dynamicRef: "#MailSearchExpression" },
+      },
       required: ["type", "expression"],
       additionalProperties: false,
     },
@@ -453,8 +895,16 @@ export const searchRequestSchema = z.object({
 });
 export type SearchRequest = z.infer<typeof searchRequestSchema>;
 
-export const mailExecutionOperationSchema = z.enum(["backgroundSync", "actorRead", "actorMutation", "actorSend", "automation"]);
-export type MailExecutionOperation = z.infer<typeof mailExecutionOperationSchema>;
+export const mailExecutionOperationSchema = z.enum([
+  "backgroundSync",
+  "actorRead",
+  "actorMutation",
+  "actorSend",
+  "automation",
+]);
+export type MailExecutionOperation = z.infer<
+  typeof mailExecutionOperationSchema
+>;
 
 export const commandKindSchema = z.enum([
   "set_flags",
@@ -473,6 +923,11 @@ export const commandKindSchema = z.enum([
   "verify_binding",
   "rebuild_folder",
   "hydrate_missing",
+  "rebuild_search",
+  "rebuild_threads",
+  "reconcile_effect",
+  "retry_command",
+  "cancel_command",
 ]);
 export type CommandKind = z.infer<typeof commandKindSchema>;
 
@@ -498,8 +953,14 @@ export const mailKeywordSchema = z
   .trim()
   .min(1)
   .max(100)
-  .refine((value) => !value.startsWith("\\"), "Keywords cannot use the IMAP system-flag namespace")
-  .refine((value) => !/[\u0000-\u001f\u007f()\{\s]/.test(value), "Keyword contains unsupported IMAP characters");
+  .refine(
+    (value) => !value.startsWith("\\"),
+    "Keywords cannot use the IMAP system-flag namespace"
+  )
+  .refine(
+    (value) => !/[\u0000-\u001f\u007f()\{\s]/.test(value),
+    "Keyword contains unsupported IMAP characters"
+  );
 
 export const remoteMessagePreconditionSchema = z
   .object({
@@ -508,14 +969,19 @@ export const remoteMessagePreconditionSchema = z
     keywords: z.array(mailKeywordSchema).max(100).optional(),
   })
   .strict();
-export type RemoteMessagePrecondition = z.infer<typeof remoteMessagePreconditionSchema>;
+export type RemoteMessagePrecondition = z.infer<
+  typeof remoteMessagePreconditionSchema
+>;
 
 const folderLeafNameSchema = z
   .string()
   .trim()
   .min(1)
   .max(255)
-  .refine((value) => !/[\u0000\r\n]/.test(value), "Folder name contains unsupported characters");
+  .refine(
+    (value) => !/[\u0000\r\n]/.test(value),
+    "Folder name contains unsupported characters"
+  );
 
 export const messageStateChangeSchema = z
   .object({
@@ -531,14 +997,24 @@ export const messageStateChangeSchema = z
     ]);
     const removals = new Set([
       ...value.removeFlags.map((flag) => `flag:${flag}`),
-      ...value.removeKeywords.map((keyword) => `keyword:${keyword.toLowerCase()}`),
+      ...value.removeKeywords.map(
+        (keyword) => `keyword:${keyword.toLowerCase()}`
+      ),
     ]);
     if (additions.size + removals.size === 0) {
-      context.addIssue({ code: "custom", message: "At least one state change is required" });
+      context.addIssue({
+        code: "custom",
+        message: "At least one state change is required",
+      });
     }
     for (const item of additions) {
       if (removals.has(item)) {
-        context.addIssue({ code: "custom", message: `Cannot add and remove ${item.slice(item.indexOf(":") + 1)} in one command` });
+        context.addIssue({
+          code: "custom",
+          message: `Cannot add and remove ${item.slice(
+            item.indexOf(":") + 1
+          )} in one command`,
+        });
       }
     }
   });
@@ -567,7 +1043,9 @@ export const conversationTriageInputSchema = z.discriminatedUnion("kind", [
     correlationId: z.string().trim().max(200).optional(),
   }),
 ]);
-export type ConversationTriageInput = z.infer<typeof conversationTriageInputSchema>;
+export type ConversationTriageInput = z.infer<
+  typeof conversationTriageInputSchema
+>;
 
 export const actorCommandInputSchema = z.discriminatedUnion("kind", [
   actorCommandBaseSchema.extend({
@@ -637,15 +1115,46 @@ export type ActorCommandInput = z.infer<typeof actorCommandInputSchema>;
 
 export const maintenanceCommandInputSchema = z.discriminatedUnion("kind", [
   actorCommandBaseSchema.extend({ kind: z.literal("sync_mailbox") }),
-  actorCommandBaseSchema.extend({ kind: z.literal("sync_folder"), folderId: z.string().uuid() }),
-  actorCommandBaseSchema.extend({ kind: z.literal("discover_folders"), bindingId: z.string().uuid().optional() }),
-  actorCommandBaseSchema.extend({ kind: z.literal("verify_binding"), bindingId: z.string().uuid() }),
-  actorCommandBaseSchema.extend({ kind: z.literal("rebuild_folder"), folderId: z.string().uuid() }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("sync_folder"),
+    folderId: z.string().uuid(),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("discover_folders"),
+    bindingId: z.string().uuid().optional(),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("verify_binding"),
+    bindingId: z.string().uuid(),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("rebuild_folder"),
+    folderId: z.string().uuid(),
+  }),
   actorCommandBaseSchema.extend({ kind: z.literal("hydrate_missing") }),
+  actorCommandBaseSchema.extend({ kind: z.literal("rebuild_search") }),
+  actorCommandBaseSchema.extend({ kind: z.literal("rebuild_threads") }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("reconcile_effect"),
+    commandId: z.string().uuid(),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("retry_command"),
+    commandId: z.string().uuid(),
+  }),
+  actorCommandBaseSchema.extend({
+    kind: z.literal("cancel_command"),
+    commandId: z.string().uuid(),
+  }),
 ]);
-export type MaintenanceCommandInput = z.infer<typeof maintenanceCommandInputSchema>;
+export type MaintenanceCommandInput = z.infer<
+  typeof maintenanceCommandInputSchema
+>;
 
-export const mailCommandInputSchema = z.union([actorCommandInputSchema, maintenanceCommandInputSchema]);
+export const mailCommandInputSchema = z.union([
+  actorCommandInputSchema,
+  maintenanceCommandInputSchema,
+]);
 export type MailCommandInput = z.infer<typeof mailCommandInputSchema>;
 
 export const mailCommandSchema = z.object({
@@ -669,39 +1178,231 @@ export const mailCommandSchema = z.object({
 });
 export type MailCommand = z.infer<typeof mailCommandSchema>;
 
+export const operatorActionKindSchema = z.enum([
+  "sync_mailbox",
+  "sync_folder",
+  "discover_folders",
+  "verify_binding",
+  "rebuild_folder",
+  "hydrate_missing",
+  "rebuild_search",
+  "rebuild_threads",
+  "reconcile_effect",
+  "retry_command",
+  "cancel_command",
+]);
+export type OperatorActionKind = z.infer<typeof operatorActionKindSchema>;
+
+export const operatorActionSafetySchema = z.enum([
+  "remote_read",
+  "local_projection",
+  "reconcile_only",
+  "state_transition",
+]);
+export type OperatorActionSafety = z.infer<typeof operatorActionSafetySchema>;
+
+export const operatorActionEligibilitySchema = z
+  .object({
+    kind: operatorActionKindSchema,
+    target: z.record(z.string(), z.string().uuid()),
+    safety: operatorActionSafetySchema,
+    eligible: z.boolean(),
+    reason: z.string().nullable(),
+  })
+  .strict();
+export type OperatorActionEligibility = z.infer<
+  typeof operatorActionEligibilitySchema
+>;
+
+export const redactedOperatorCommandSchema = z
+  .object({
+    id: z.string().uuid(),
+    kind: commandKindSchema,
+    state: commandStateSchema,
+    attempt: z.number().int().nonnegative(),
+    errorCode: z.string().nullable(),
+    providerEffectStarted: z.boolean(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    actions: z.array(operatorActionEligibilitySchema),
+  })
+  .strict();
+export type RedactedOperatorCommand = z.infer<
+  typeof redactedOperatorCommandSchema
+>;
+
+const operatorStateCountsSchema = z.record(
+  z.string(),
+  z.number().int().nonnegative()
+);
+const operatorCoverageSchema = z.object({
+  total: z.number().int().nonnegative(),
+  covered: z.number().int().nonnegative(),
+});
+
+export const mailboxOperatorOperationsSchema = z
+  .object({
+    mailboxId: z.string().uuid(),
+    mailboxName: z.string(),
+    health: mailboxHealthSchema,
+    syncEnabled: z.boolean(),
+    sync: z.object({
+      lastAt: z.string().datetime().nullable(),
+      lagSeconds: z.number().int().nonnegative().nullable(),
+      states: operatorStateCountsSchema,
+    }),
+    coverage: z.object({
+      hydration: operatorCoverageSchema,
+      search: operatorCoverageSchema,
+      threads: operatorCoverageSchema,
+    }),
+    queues: z.object({
+      commands: operatorStateCountsSchema,
+      outbox: operatorStateCountsSchema,
+      workflows: operatorStateCountsSchema,
+      automaticReplies: operatorStateCountsSchema,
+      automaticReplySuppressions: operatorStateCountsSchema,
+    }),
+    connectors: z.object({
+      activeBindings: z.number().int().nonnegative(),
+      degradedBindings: z.number().int().nonnegative(),
+      capabilities: z.record(z.string(), z.number().int().nonnegative()),
+      pushModes: operatorStateCountsSchema,
+      pushStates: operatorStateCountsSchema,
+      draftProjectionStates: operatorStateCountsSchema,
+    }),
+    search: z.object({
+      configuredBackend: searchBackendSchema,
+      effectiveBackend: z.enum(["postgres", "pg_textsearch"]),
+      fallbackActive: z.boolean(),
+    }),
+    references: z.object({
+      configured: z.boolean(),
+      allocated: z.number().int().nonnegative(),
+    }),
+    folders: z.array(
+      z.object({
+        id: z.string().uuid(),
+        discoveryState: z.enum(["active", "missing", "ambiguous"]),
+        syncStatus: z.string(),
+        selectedForSync: z.boolean(),
+        actions: z.array(operatorActionEligibilitySchema),
+      })
+    ),
+    attentionCommands: z.array(redactedOperatorCommandSchema),
+    attentionCount: z.number().int().nonnegative(),
+    nextAttentionCursor: z.string().nullable(),
+    actions: z.array(operatorActionEligibilitySchema),
+    generatedAt: z.string().datetime(),
+  })
+  .strict();
+export type MailboxOperatorOperations = z.infer<
+  typeof mailboxOperatorOperationsSchema
+>;
+
+export const platformMailboxOperationSummarySchema = z
+  .object({
+    mailboxId: z.string().uuid(),
+    mailboxName: z.string(),
+    health: mailboxHealthSchema,
+    syncEnabled: z.boolean(),
+    sync: z.object({
+      lastAt: z.string().datetime().nullable(),
+      lagSeconds: z.number().int().nonnegative().nullable(),
+    }),
+    coverage: z.object({
+      hydration: operatorCoverageSchema,
+      search: operatorCoverageSchema,
+      threads: operatorCoverageSchema,
+    }),
+    attentionCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PlatformMailboxOperationSummary = z.infer<
+  typeof platformMailboxOperationSummarySchema
+>;
+
+export const platformMailOperationsSchema = z
+  .object({
+    mailboxes: z.array(platformMailboxOperationSummarySchema),
+    attentionCount: z.number().int().nonnegative(),
+    generatedAt: z.string().datetime(),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
+export type PlatformMailOperations = z.infer<
+  typeof platformMailOperationsSchema
+>;
+
 export const actorRefSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), userId: z.string().uuid() }),
-  z.object({ kind: z.literal("service_account"), serviceAccountId: z.string().uuid(), delegatedUserId: z.string().uuid().nullable() }),
-  z.object({ kind: z.literal("workflow"), workflowVersionId: z.string().uuid() }),
+  z.object({
+    kind: z.literal("service_account"),
+    serviceAccountId: z.string().uuid(),
+    delegatedUserId: z.string().uuid().nullable(),
+  }),
+  z.object({
+    kind: z.literal("workflow"),
+    workflowVersionId: z.string().uuid(),
+  }),
   z.object({ kind: z.literal("system") }),
 ]);
 export type ActorRef = z.infer<typeof actorRefSchema>;
 
 export const conversationWorkStatusSchema = z.enum(["open", "waiting", "done"]);
-export type ConversationWorkStatus = z.infer<typeof conversationWorkStatusSchema>;
+export type ConversationWorkStatus = z.infer<
+  typeof conversationWorkStatusSchema
+>;
 
 export const workflowEffectBudgetSchema = z
   .object({
     maxTargets: z.number().int().min(1).max(50_000).default(1_000),
     maxMoves: z.number().int().min(0).max(50_000).default(1_000),
+    maxCopies: z.number().int().min(0).max(50_000).default(1_000),
     maxSends: z.number().int().min(0).max(50_000).default(1_000),
+    maxDrafts: z.number().int().min(0).max(50_000).default(1_000),
+    maxFlagChanges: z.number().int().min(0).max(100_000).default(2_000),
+    maxNotifications: z.number().int().min(0).max(50_000).default(1_000),
     maxKeywordChanges: z.number().int().min(0).max(100_000).default(2_000),
-    maxCollaborationChanges: z.number().int().min(0).max(100_000).default(2_000),
+    maxCollaborationChanges: z
+      .number()
+      .int()
+      .min(0)
+      .max(100_000)
+      .default(2_000),
   })
   .strict()
   .default({
     maxTargets: 1_000,
     maxMoves: 1_000,
+    maxCopies: 1_000,
     maxSends: 1_000,
+    maxDrafts: 1_000,
+    maxFlagChanges: 2_000,
+    maxNotifications: 1_000,
     maxKeywordChanges: 2_000,
     maxCollaborationChanges: 2_000,
   });
 type ParsedWorkflowEffectBudget = z.infer<typeof workflowEffectBudgetSchema>;
-export type WorkflowEffectBudget = Omit<ParsedWorkflowEffectBudget, "maxSends"> & { maxSends?: number };
+export type WorkflowEffectBudget = Omit<
+  ParsedWorkflowEffectBudget,
+  "maxSends" | "maxCopies" | "maxDrafts" | "maxFlagChanges" | "maxNotifications"
+> & {
+  maxSends?: number;
+  maxCopies?: number;
+  maxDrafts?: number;
+  maxFlagChanges?: number;
+  maxNotifications?: number;
+};
 
 export const workflowTargetQuerySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("all") }).strict(),
-  z.object({ type: z.literal("search"), expression: mailSearchExpressionSchema }).strict(),
+  z
+    .object({
+      type: z.literal("search"),
+      expression: mailSearchExpressionSchema,
+    })
+    .strict(),
 ]);
 export type WorkflowTargetQuery = z.infer<typeof workflowTargetQuerySchema>;
 
@@ -714,24 +1415,40 @@ export const workflowRunTargetSelectionSchema = z.union([
       deliveryKey: z.string().min(1).max(500),
     })
     .strict(),
+  z
+    .object({
+      type: z.literal("retry"),
+      sourceRunId: z.string().uuid(),
+      targetIds: z.array(z.string().uuid()).min(1).max(500),
+    })
+    .strict(),
 ]);
-export type WorkflowRunTargetSelection = z.infer<typeof workflowRunTargetSelectionSchema>;
+export type WorkflowRunTargetSelection = z.infer<
+  typeof workflowRunTargetSelectionSchema
+>;
 
 const workflowSourceSchema = z
   .string()
   .min(1)
   .max(200_000)
-  .refine((source) => source.trim().length > 0, "Workflow source cannot be blank");
+  .refine(
+    (source) => source.trim().length > 0,
+    "Workflow source cannot be blank"
+  );
 const workflowVersionIdSchema = z.string().uuid();
 const workflowVersionIdentitySchema = z.string().min(1).max(200);
 const workflowHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const isWorkflowJsonValue = (value: unknown): value is WorkflowJsonValue => {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return true;
   if (typeof value === "number") return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isWorkflowJsonValue);
   if (typeof value !== "object") return false;
   const prototype = Object.getPrototypeOf(value);
-  return (prototype === Object.prototype || prototype === null) && Object.values(value).every(isWorkflowJsonValue);
+  return (
+    (prototype === Object.prototype || prototype === null) &&
+    Object.values(value).every(isWorkflowJsonValue)
+  );
 };
 export const workflowJsonValueSchema = z
   .unknown()
@@ -744,13 +1461,20 @@ export const workflowJsonValueSchema = z
       { type: "boolean" },
       { type: "null" },
       { type: "array", items: { $dynamicRef: "#WorkflowJsonValue" } },
-      { type: "object", additionalProperties: { $dynamicRef: "#WorkflowJsonValue" } },
+      {
+        type: "object",
+        additionalProperties: { $dynamicRef: "#WorkflowJsonValue" },
+      },
     ],
   }) as z.ZodType<WorkflowJsonValue>;
-const workflowInputsSchema = z.record(z.string(), workflowJsonValueSchema).default({});
+const workflowInputsSchema = z
+  .record(z.string(), workflowJsonValueSchema)
+  .default({});
 const workflowIdempotencyKeySchema = z.string().trim().min(1).max(200);
 
-export const validateWorkflowInputSchema = z.object({ source: workflowSourceSchema }).strict();
+export const validateWorkflowInputSchema = z
+  .object({ source: workflowSourceSchema })
+  .strict();
 export type ValidateWorkflowInput = z.infer<typeof validateWorkflowInputSchema>;
 
 export const createWorkflowInputSchema = z
@@ -765,15 +1489,26 @@ export const createWorkflowInputSchema = z
 export type CreateWorkflowInput = z.infer<typeof createWorkflowInputSchema>;
 
 export const createWorkflowVersionInputSchema = z
-  .object({ source: workflowSourceSchema, effectBudget: workflowEffectBudgetSchema })
+  .object({
+    source: workflowSourceSchema,
+    effectBudget: workflowEffectBudgetSchema,
+  })
   .strict();
-export type CreateWorkflowVersionInput = z.infer<typeof createWorkflowVersionInputSchema>;
+export type CreateWorkflowVersionInput = z.infer<
+  typeof createWorkflowVersionInputSchema
+>;
 
-export const activateWorkflowInputSchema = z.object({ expectedVersionId: workflowVersionIdSchema }).strict();
+export const activateWorkflowInputSchema = z
+  .object({ expectedVersionId: workflowVersionIdSchema })
+  .strict();
 export type ActivateWorkflowInput = z.infer<typeof activateWorkflowInputSchema>;
 
-export const deactivateWorkflowInputSchema = z.object({ expectedVersionId: workflowVersionIdSchema }).strict();
-export type DeactivateWorkflowInput = z.infer<typeof deactivateWorkflowInputSchema>;
+export const deactivateWorkflowInputSchema = z
+  .object({ expectedVersionId: workflowVersionIdSchema })
+  .strict();
+export type DeactivateWorkflowInput = z.infer<
+  typeof deactivateWorkflowInputSchema
+>;
 
 const workflowVersionRequestSchema = z.object({
   expectedVersionId: workflowVersionIdSchema,
@@ -781,11 +1516,16 @@ const workflowVersionRequestSchema = z.object({
   query: workflowTargetQuerySchema,
 });
 
-export const dryRunWorkflowInputSchema = workflowVersionRequestSchema.extend({ idempotencyKey: workflowIdempotencyKeySchema }).strict();
+export const dryRunWorkflowInputSchema = workflowVersionRequestSchema
+  .extend({ idempotencyKey: workflowIdempotencyKeySchema })
+  .strict();
 export type DryRunWorkflowInput = z.infer<typeof dryRunWorkflowInputSchema>;
 
-export const preflightWorkflowInputSchema = workflowVersionRequestSchema.strict();
-export type PreflightWorkflowInput = z.infer<typeof preflightWorkflowInputSchema>;
+export const preflightWorkflowInputSchema =
+  workflowVersionRequestSchema.strict();
+export type PreflightWorkflowInput = z.infer<
+  typeof preflightWorkflowInputSchema
+>;
 
 const effectfulWorkflowRunInputSchema = workflowVersionRequestSchema.extend({
   preflightHash: workflowHashSchema,
@@ -793,24 +1533,73 @@ const effectfulWorkflowRunInputSchema = workflowVersionRequestSchema.extend({
   idempotencyKey: workflowIdempotencyKeySchema,
 });
 
-export const invokeWorkflowInputSchema = effectfulWorkflowRunInputSchema.strict();
+export const invokeWorkflowInputSchema =
+  effectfulWorkflowRunInputSchema.strict();
 export type InvokeWorkflowInput = z.infer<typeof invokeWorkflowInputSchema>;
 
-export const backfillWorkflowInputSchema = effectfulWorkflowRunInputSchema.strict();
+export const backfillWorkflowInputSchema =
+  effectfulWorkflowRunInputSchema.strict();
 export type BackfillWorkflowInput = z.infer<typeof backfillWorkflowInputSchema>;
 
-export const oneShotWorkflowInputSchema = effectfulWorkflowRunInputSchema.strict();
+export const oneShotWorkflowInputSchema =
+  effectfulWorkflowRunInputSchema.strict();
 export type OneShotWorkflowInput = z.infer<typeof oneShotWorkflowInputSchema>;
 
-export const MAIL_WORKFLOW_CHANNELS = ["ui", "api", "bulk", "agent", "schedule", "event"] as const;
+export const workflowRunControlInputSchema = z
+  .object({ reason: z.string().trim().min(1).max(1_000).optional() })
+  .strict();
+export type WorkflowRunControlInput = z.infer<
+  typeof workflowRunControlInputSchema
+>;
+export const retryWorkflowRunInputSchema = z
+  .object({
+    targetIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(500)
+      .refine(
+        (ids) => new Set(ids).size === ids.length,
+        "Target IDs must be unique"
+      ),
+    idempotencyKey: workflowIdempotencyKeySchema,
+    reason: z.string().trim().min(1).max(1_000).optional(),
+  })
+  .strict();
+export type RetryWorkflowRunInput = z.infer<typeof retryWorkflowRunInputSchema>;
+
+export const MAIL_WORKFLOW_CHANNELS = [
+  "ui",
+  "api",
+  "bulk",
+  "agent",
+  "schedule",
+  "event",
+] as const;
 export const workflowRunModeSchema = z.enum(["execute", "dryRun"]);
 export type WorkflowRunMode = z.infer<typeof workflowRunModeSchema>;
 export const workflowRunChannelSchema = z.enum(MAIL_WORKFLOW_CHANNELS);
 export type WorkflowRunChannel = z.infer<typeof workflowRunChannelSchema>;
-export const workflowRunKindSchema = z.enum(["invoke", "backfill", "oneShot", "trigger"]);
+export const workflowRunKindSchema = z.enum([
+  "invoke",
+  "backfill",
+  "oneShot",
+  "trigger",
+  "retry",
+]);
 export type WorkflowRunKind = z.infer<typeof workflowRunKindSchema>;
 export const workflowRunStateSchema = z.enum([
   "materializing",
+  "queued",
+  "running",
+  "waiting",
+  "paused",
+  "succeeded",
+  "failed",
+  "canceled",
+  "needs_attention",
+]);
+export type WorkflowRunState = z.infer<typeof workflowRunStateSchema>;
+export const workflowTargetStateSchema = z.enum([
   "queued",
   "running",
   "waiting",
@@ -819,11 +1608,11 @@ export const workflowRunStateSchema = z.enum([
   "canceled",
   "needs_attention",
 ]);
-export type WorkflowRunState = z.infer<typeof workflowRunStateSchema>;
-export const workflowTargetStateSchema = z.enum(["queued", "running", "waiting", "succeeded", "failed", "canceled", "needs_attention"]);
 export type WorkflowTargetState = z.infer<typeof workflowTargetStateSchema>;
 
-export type WorkflowVersionIdentity = z.infer<typeof workflowVersionIdentitySchema>;
+export type WorkflowVersionIdentity = z.infer<
+  typeof workflowVersionIdentitySchema
+>;
 export type WorkflowDiagnostic = KernelWorkflowDiagnostic;
 
 export type WorkflowValidation = {
@@ -897,7 +1686,9 @@ export type MailWorkflowDetail = MailWorkflow & {
   activations: MailWorkflowActivation[];
 };
 
-export type MailWorkflowTargetProgress = Record<WorkflowTargetState, number> & { total: number };
+export type MailWorkflowTargetProgress = Record<WorkflowTargetState, number> & {
+  total: number;
+};
 
 export type MailWorkflowRun = {
   id: string;
@@ -913,6 +1704,9 @@ export type MailWorkflowRun = {
   inputs: Record<string, WorkflowJsonValue>;
   query: WorkflowRunTargetSelection;
   preflightHash: string | null;
+  retryOfRunId: string | null;
+  pausedAt: string | null;
+  pauseReason: string | null;
   targetProgress: MailWorkflowTargetProgress;
   result: WorkflowJsonValue | null;
   lastError: { code: string; message: string; retryable: boolean } | null;
@@ -920,6 +1714,11 @@ export type MailWorkflowRun = {
   startedAt: string | null;
   finishedAt: string | null;
   updatedAt: string;
+};
+
+export type MailWorkflowRunPage = {
+  items: MailWorkflowRun[];
+  nextCursor: string | null;
 };
 
 export type MailWorkflowRunTarget = {
@@ -935,13 +1734,23 @@ export type MailWorkflowRunTarget = {
   result: WorkflowJsonValue | null;
   lastError: { code: string; message: string; retryable: boolean } | null;
   cancelRequestedAt: string | null;
+  retryOfTargetId: string | null;
+  hasRetry: boolean;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
   updatedAt: string;
 };
 
-export const conversationViewSchema = z.enum(["inbox", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"]);
+export const conversationViewSchema = z.enum([
+  "inbox",
+  "mine",
+  "unassigned",
+  "waiting",
+  "done",
+  "snoozed",
+  "recently_active",
+]);
 export type ConversationView = z.infer<typeof conversationViewSchema>;
 
 export const mergeConversationsInputSchema = z
@@ -953,7 +1762,9 @@ export const mergeConversationsInputSchema = z
     confirm: z.literal(true),
   })
   .strict();
-export type MergeConversationsInput = z.infer<typeof mergeConversationsInputSchema>;
+export type MergeConversationsInput = z.infer<
+  typeof mergeConversationsInputSchema
+>;
 
 export const splitConversationInputSchema = z
   .object({
@@ -961,13 +1772,18 @@ export const splitConversationInputSchema = z
       .array(z.string().uuid())
       .min(1)
       .max(5_000)
-      .refine((ids) => new Set(ids).size === ids.length, "Message ids must be unique"),
+      .refine(
+        (ids) => new Set(ids).size === ids.length,
+        "Message ids must be unique"
+      ),
     expectedRevision: z.number().int().positive(),
     reason: z.string().trim().min(1).max(500).optional(),
     confirm: z.literal(true),
   })
   .strict();
-export type SplitConversationInput = z.infer<typeof splitConversationInputSchema>;
+export type SplitConversationInput = z.infer<
+  typeof splitConversationInputSchema
+>;
 
 export const updateConversationCollaborationSchema = z
   .object({
@@ -983,9 +1799,11 @@ export const updateConversationCollaborationSchema = z
       value.workStatus !== undefined ||
       value.responseNeeded !== undefined ||
       value.snoozedUntil !== undefined,
-    "At least one collaboration field is required",
+    "At least one collaboration field is required"
   );
-export type UpdateConversationCollaboration = z.infer<typeof updateConversationCollaborationSchema>;
+export type UpdateConversationCollaboration = z.infer<
+  typeof updateConversationCollaborationSchema
+>;
 
 export const localTagNameSchema = z
   .string()
@@ -993,7 +1811,9 @@ export const localTagNameSchema = z
   .min(1)
   .max(80)
   .transform((name) => name.replace(/\s+/gu, " "));
-export const createLocalTagSchema = z.object({ name: localTagNameSchema }).strict();
+export const createLocalTagSchema = z
+  .object({ name: localTagNameSchema })
+  .strict();
 export type CreateLocalTag = z.infer<typeof createLocalTagSchema>;
 
 export const updateLocalTagSchema = z
@@ -1004,7 +1824,9 @@ export const updateLocalTagSchema = z
   .strict();
 export type UpdateLocalTag = z.infer<typeof updateLocalTagSchema>;
 
-export const deleteLocalTagSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
+export const deleteLocalTagSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
 export type DeleteLocalTag = z.infer<typeof deleteLocalTagSchema>;
 
 export const setConversationLocalTagsSchema = z
@@ -1013,10 +1835,19 @@ export const setConversationLocalTagsSchema = z
     tagIds: z.array(z.string().uuid()).max(50),
   })
   .strict()
-  .refine((input) => new Set(input.tagIds).size === input.tagIds.length, { message: "Tag ids must be unique", path: ["tagIds"] });
-export type SetConversationLocalTags = z.infer<typeof setConversationLocalTagsSchema>;
+  .refine((input) => new Set(input.tagIds).size === input.tagIds.length, {
+    message: "Tag ids must be unique",
+    path: ["tagIds"],
+  });
+export type SetConversationLocalTags = z.infer<
+  typeof setConversationLocalTagsSchema
+>;
 
-export const conversationReferencePatternSchema = z.string().trim().min(1).max(120);
+export const conversationReferencePatternSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120);
 export const putConversationReferenceConfigurationSchema = z
   .object({
     expectedRevision: z.number().int().positive().nullable(),
@@ -1025,25 +1856,41 @@ export const putConversationReferenceConfigurationSchema = z
     includeInReplySubjects: z.boolean(),
   })
   .strict();
-export type PutConversationReferenceConfiguration = z.infer<typeof putConversationReferenceConfigurationSchema>;
+export type PutConversationReferenceConfiguration = z.infer<
+  typeof putConversationReferenceConfigurationSchema
+>;
 
 export const ensureConversationReferenceSchema = z
   .object({
     idempotencyKey: z.string().trim().min(1).max(200),
   })
   .strict();
-export type EnsureConversationReference = z.infer<typeof ensureConversationReferenceSchema>;
+export type EnsureConversationReference = z.infer<
+  typeof ensureConversationReferenceSchema
+>;
 
-const responseScheduleWindowSchema = z.object({ start: z.string(), end: z.string() }).strict();
+const responseScheduleWindowSchema = z
+  .object({ start: z.string(), end: z.string() })
+  .strict();
 export const responseScheduleDefinitionSchema = z
   .object({
     timeZone: z.string().trim().min(1).max(80),
-    activeRanges: z.array(z.object({ from: z.string(), to: z.string().nullable() }).strict()).max(32),
+    activeRanges: z
+      .array(z.object({ from: z.string(), to: z.string().nullable() }).strict())
+      .max(32),
     weeklyWindows: z
       .array(
         responseScheduleWindowSchema.extend({
-          weekday: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
-        }),
+          weekday: z.union([
+            z.literal(1),
+            z.literal(2),
+            z.literal(3),
+            z.literal(4),
+            z.literal(5),
+            z.literal(6),
+            z.literal(7),
+          ]),
+        })
       )
       .max(64),
     exceptions: z
@@ -1054,15 +1901,19 @@ export const responseScheduleDefinitionSchema = z
             closed: z.boolean(),
             windows: z.array(responseScheduleWindowSchema).max(32),
           })
-          .strict(),
+          .strict()
       )
       .max(366),
   })
   .strict();
-export type ResponseScheduleDefinitionInput = z.infer<typeof responseScheduleDefinitionSchema>;
+export type ResponseScheduleDefinitionInput = z.infer<
+  typeof responseScheduleDefinitionSchema
+>;
 
 export const automaticReplyInactiveBehaviorSchema = z.enum(["skip", "defer"]);
-export type AutomaticReplyInactiveBehavior = z.infer<typeof automaticReplyInactiveBehaviorSchema>;
+export type AutomaticReplyInactiveBehavior = z.infer<
+  typeof automaticReplyInactiveBehaviorSchema
+>;
 
 const automaticReplyConfigurationFields = {
   name: z.string().trim().min(1).max(80),
@@ -1093,7 +1944,9 @@ export const createAutomaticReplyConfigurationSchema = z
     inactiveBehavior: automaticReplyInactiveBehaviorSchema.default("skip"),
   })
   .strict();
-export type CreateAutomaticReplyConfiguration = z.infer<typeof createAutomaticReplyConfigurationSchema>;
+export type CreateAutomaticReplyConfiguration = z.infer<
+  typeof createAutomaticReplyConfigurationSchema
+>;
 
 export const updateAutomaticReplyConfigurationSchema = z
   .object({
@@ -1101,13 +1954,18 @@ export const updateAutomaticReplyConfigurationSchema = z
     ...automaticReplyConfigurationFields,
   })
   .strict();
-export type UpdateAutomaticReplyConfiguration = z.infer<typeof updateAutomaticReplyConfigurationSchema>;
+export type UpdateAutomaticReplyConfiguration = z.infer<
+  typeof updateAutomaticReplyConfigurationSchema
+>;
 
 const mentionUserIdsSchema = z
   .array(z.string().uuid())
   .max(50)
   .default([])
-  .refine((ids) => new Set(ids).size === ids.length, "Mentioned users must be unique");
+  .refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Mentioned users must be unique"
+  );
 
 const internalCommentBodySchema = z
   .string()
@@ -1121,19 +1979,25 @@ export const createConversationCommentSchema = z.object({
   referencedMessageId: z.string().uuid().nullable().optional(),
   mentionUserIds: mentionUserIdsSchema,
 });
-export type CreateConversationComment = z.infer<typeof createConversationCommentSchema>;
+export type CreateConversationComment = z.infer<
+  typeof createConversationCommentSchema
+>;
 
 export const updateConversationCommentSchema = z.object({
   expectedRevision: z.number().int().positive(),
   body: internalCommentBodySchema,
   mentionUserIds: mentionUserIdsSchema,
 });
-export type UpdateConversationComment = z.infer<typeof updateConversationCommentSchema>;
+export type UpdateConversationComment = z.infer<
+  typeof updateConversationCommentSchema
+>;
 
 export const deleteConversationCommentSchema = z.object({
   expectedRevision: z.number().int().positive(),
 });
-export type DeleteConversationComment = z.infer<typeof deleteConversationCommentSchema>;
+export type DeleteConversationComment = z.infer<
+  typeof deleteConversationCommentSchema
+>;
 
 export const setConversationReminderSchema = z
   .object({
@@ -1141,13 +2005,21 @@ export const setConversationReminderSchema = z
     expectedRevision: z.number().int().positive().nullable(),
   })
   .strict();
-export type SetConversationReminder = z.infer<typeof setConversationReminderSchema>;
+export type SetConversationReminder = z.infer<
+  typeof setConversationReminderSchema
+>;
 
-export const cancelConversationReminderSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
-export type CancelConversationReminder = z.infer<typeof cancelConversationReminderSchema>;
+export const cancelConversationReminderSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
+export type CancelConversationReminder = z.infer<
+  typeof cancelConversationReminderSchema
+>;
 
 export const savedConversationViewScopeSchema = z.enum(["private", "mailbox"]);
-export type SavedConversationViewScope = z.infer<typeof savedConversationViewScopeSchema>;
+export type SavedConversationViewScope = z.infer<
+  typeof savedConversationViewScopeSchema
+>;
 
 export const savedConversationViewFilterSchema = mailSearchStateSchema;
 export type SavedConversationViewFilter = MailSearchState;
@@ -1159,7 +2031,9 @@ export const createSavedConversationViewSchema = z
     filter: savedConversationViewFilterSchema,
   })
   .strict();
-export type CreateSavedConversationView = z.infer<typeof createSavedConversationViewSchema>;
+export type CreateSavedConversationView = z.infer<
+  typeof createSavedConversationViewSchema
+>;
 
 export const updateSavedConversationViewSchema = z
   .object({
@@ -1168,14 +2042,25 @@ export const updateSavedConversationViewSchema = z
     filter: savedConversationViewFilterSchema.optional(),
   })
   .strict()
-  .refine((value) => value.name !== undefined || value.filter !== undefined, "At least one saved view field is required");
-export type UpdateSavedConversationView = z.infer<typeof updateSavedConversationViewSchema>;
+  .refine(
+    (value) => value.name !== undefined || value.filter !== undefined,
+    "At least one saved view field is required"
+  );
+export type UpdateSavedConversationView = z.infer<
+  typeof updateSavedConversationViewSchema
+>;
 
-export const deleteSavedConversationViewSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
-export type DeleteSavedConversationView = z.infer<typeof deleteSavedConversationViewSchema>;
+export const deleteSavedConversationViewSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
+export type DeleteSavedConversationView = z.infer<
+  typeof deleteSavedConversationViewSchema
+>;
 
 export const conversationPresenceModeSchema = z.enum(["viewing", "composing"]);
-export type ConversationPresenceMode = z.infer<typeof conversationPresenceModeSchema>;
+export type ConversationPresenceMode = z.infer<
+  typeof conversationPresenceModeSchema
+>;
 
 export const conversationPresenceHeartbeatSchema = z
   .object({
@@ -1183,11 +2068,17 @@ export const conversationPresenceHeartbeatSchema = z
     mode: conversationPresenceModeSchema,
   })
   .strict();
-export type ConversationPresenceHeartbeat = z.infer<typeof conversationPresenceHeartbeatSchema>;
+export type ConversationPresenceHeartbeat = z.infer<
+  typeof conversationPresenceHeartbeatSchema
+>;
 
-export const conversationPresenceLeaveSchema = z.object({ peerId: z.string().uuid() }).strict();
+export const conversationPresenceLeaveSchema = z
+  .object({ peerId: z.string().uuid() })
+  .strict();
 
-export const draftLeaseTokenSchema = z.object({ token: z.string().uuid() }).strict();
+export const draftLeaseTokenSchema = z
+  .object({ token: z.string().uuid() })
+  .strict();
 
 export const composeTemplateKindSchema = z.enum(["signature", "snippet"]);
 export type ComposeTemplateKind = z.infer<typeof composeTemplateKindSchema>;
@@ -1200,7 +2091,10 @@ export const composeTemplateShortcutSchema = z
   .trim()
   .min(1)
   .max(40)
-  .regex(/^[a-z][a-z0-9_]*$/, "Shortcut must start with a letter and use lowercase letters, numbers, or underscores");
+  .regex(
+    /^[a-z][a-z0-9_]*$/,
+    "Shortcut must start with a letter and use lowercase letters, numbers, or underscores"
+  );
 
 export const composeTemplateSchema = z.object({
   id: z.string().uuid(),
@@ -1227,7 +2121,9 @@ export const createComposeTemplateInputSchema = z
     body: z.string().min(1).max(200_000),
   })
   .strict();
-export type CreateComposeTemplateInput = z.infer<typeof createComposeTemplateInputSchema>;
+export type CreateComposeTemplateInput = z.infer<
+  typeof createComposeTemplateInputSchema
+>;
 
 export const updateComposeTemplateInputSchema = z
   .object({
@@ -1238,13 +2134,22 @@ export const updateComposeTemplateInputSchema = z
   })
   .strict()
   .refine(
-    (value) => value.name !== undefined || value.shortcut !== undefined || value.body !== undefined,
-    "At least one template field is required",
+    (value) =>
+      value.name !== undefined ||
+      value.shortcut !== undefined ||
+      value.body !== undefined,
+    "At least one template field is required"
   );
-export type UpdateComposeTemplateInput = z.infer<typeof updateComposeTemplateInputSchema>;
+export type UpdateComposeTemplateInput = z.infer<
+  typeof updateComposeTemplateInputSchema
+>;
 
-export const archiveComposeTemplateInputSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
-export type ArchiveComposeTemplateInput = z.infer<typeof archiveComposeTemplateInputSchema>;
+export const archiveComposeTemplateInputSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
+export type ArchiveComposeTemplateInput = z.infer<
+  typeof archiveComposeTemplateInputSchema
+>;
 
 export const composeSignatureDefaultSchema = z.object({
   mailboxId: z.string().uuid(),
@@ -1254,7 +2159,9 @@ export const composeSignatureDefaultSchema = z.object({
   revision: z.number().int().positive(),
   updatedAt: z.string().datetime(),
 });
-export type ComposeSignatureDefault = z.infer<typeof composeSignatureDefaultSchema>;
+export type ComposeSignatureDefault = z.infer<
+  typeof composeSignatureDefaultSchema
+>;
 
 export const setComposeSignatureDefaultInputSchema = z
   .object({
@@ -1263,7 +2170,9 @@ export const setComposeSignatureDefaultInputSchema = z
     expectedRevision: z.number().int().positive().nullable().default(null),
   })
   .strict();
-export type SetComposeSignatureDefaultInput = z.infer<typeof setComposeSignatureDefaultInputSchema>;
+export type SetComposeSignatureDefaultInput = z.infer<
+  typeof setComposeSignatureDefaultInputSchema
+>;
 
 export const mailboxComposeStyleSchema = z.object({
   mailboxId: z.string().uuid(),
@@ -1279,7 +2188,9 @@ export const updateMailboxComposeStyleInputSchema = z
     customCss: z.string().max(32 * 1024),
   })
   .strict();
-export type UpdateMailboxComposeStyleInput = z.infer<typeof updateMailboxComposeStyleInputSchema>;
+export type UpdateMailboxComposeStyleInput = z.infer<
+  typeof updateMailboxComposeStyleInputSchema
+>;
 
 export const draftLeaseHolderSchema = z.object({
   kind: z.enum(["user", "service_account"]),
@@ -1296,13 +2207,17 @@ export const draftLeaseSchema = z.object({
 });
 export type DraftLease = z.infer<typeof draftLeaseSchema>;
 
-export const acquiredDraftLeaseSchema = draftLeaseSchema.extend({ token: z.string().uuid() });
+export const acquiredDraftLeaseSchema = draftLeaseSchema.extend({
+  token: z.string().uuid(),
+});
 export type AcquiredDraftLease = z.infer<typeof acquiredDraftLeaseSchema>;
 
 export const senderAuthenticationPolicySchema = z.object({
   automation: z.enum(["disabled", "mailbox"]),
 });
-export type SenderAuthenticationPolicy = z.infer<typeof senderAuthenticationPolicySchema>;
+export type SenderAuthenticationPolicy = z.infer<
+  typeof senderAuthenticationPolicySchema
+>;
 
 export const senderIdentitySchema = z.object({
   id: z.string().uuid(),
@@ -1326,12 +2241,16 @@ export const createSenderIdentityInputSchema = z.object({
   fromAddress: z.string().email().max(320),
   replyTo: z.string().email().max(320).nullable().optional(),
   envelopeSender: z.string().email().max(320).nullable().optional(),
-  authenticationPolicy: senderAuthenticationPolicySchema.default({ automation: "mailbox" }),
+  authenticationPolicy: senderAuthenticationPolicySchema.default({
+    automation: "mailbox",
+  }),
   sentFolderId: z.string().uuid().nullable().optional(),
   draftsFolderId: z.string().uuid().nullable().optional(),
   isDefault: z.boolean().optional(),
 });
-export type CreateSenderIdentityInput = z.infer<typeof createSenderIdentityInputSchema>;
+export type CreateSenderIdentityInput = z.infer<
+  typeof createSenderIdentityInputSchema
+>;
 
 export const updateSenderIdentityInputSchema = createSenderIdentityInputSchema
   .omit({ fromAddress: true })
@@ -1341,15 +2260,22 @@ export const updateSenderIdentityInputSchema = createSenderIdentityInputSchema
     authenticationPolicy: senderAuthenticationPolicySchema.optional(),
   })
   .partial()
-  .refine((value) => Object.keys(value).length > 0, "At least one sender identity field is required");
-export type UpdateSenderIdentityInput = z.infer<typeof updateSenderIdentityInputSchema>;
+  .refine(
+    (value) => Object.keys(value).length > 0,
+    "At least one sender identity field is required"
+  );
+export type UpdateSenderIdentityInput = z.infer<
+  typeof updateSenderIdentityInputSchema
+>;
 
 export const defaultSenderSetupInputSchema = z.object({
   bindingId: z.string().uuid(),
   displayName: z.string().trim().max(200).optional(),
   savesSentAutomatically: z.boolean().default(false),
 });
-export type DefaultSenderSetupInput = z.infer<typeof defaultSenderSetupInputSchema>;
+export type DefaultSenderSetupInput = z.infer<
+  typeof defaultSenderSetupInputSchema
+>;
 
 export const mailAddressSchema = z.object({
   name: z.string().trim().max(200).nullable().optional(),
@@ -1368,8 +2294,15 @@ export const draftAttachmentSchema = z.object({
 });
 export type DraftAttachment = z.infer<typeof draftAttachmentSchema>;
 
-export const draftIntentSchema = z.enum(["new", "reply", "reply_all", "forward"]);
+export const draftIntentSchema = z.enum([
+  "new",
+  "reply",
+  "reply_all",
+  "forward",
+]);
 export type DraftIntent = z.infer<typeof draftIntentSchema>;
+export const draftDeliveryClassSchema = z.enum(["normal", "automatic_reply"]);
+export type DraftDeliveryClass = z.infer<typeof draftDeliveryClassSchema>;
 
 const draftActorRefSchema = actorRefSchema;
 
@@ -1392,13 +2325,17 @@ export const draftSchema = z.object({
   recoveryCopyCount: z.number().int().nonnegative(),
   revision: z.number().int().positive(),
   state: z.enum(["draft", "scheduled", "sending", "sent", "discarded"]),
+  deliveryClass: draftDeliveryClassSchema,
   initialSignatureSource: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 export type MailDraft = z.infer<typeof draftSchema>;
 
-export type ConversationDraftSummary = Pick<MailDraft, "id" | "intent" | "subject" | "updatedAt"> & {
+export type ConversationDraftSummary = Pick<
+  MailDraft,
+  "id" | "intent" | "subject" | "updatedAt"
+> & {
   bodyPreview: string;
   createdByDisplayName: string;
 };
@@ -1438,8 +2375,12 @@ export const scheduledSendPageSchema = z
   .strict();
 export type ScheduledSendPage = z.infer<typeof scheduledSendPageSchema>;
 
-export const cancelScheduledSendInputSchema = z.object({ disposition: z.enum(["draft", "discard"]) }).strict();
-export type CancelScheduledSendInput = z.infer<typeof cancelScheduledSendInputSchema>;
+export const cancelScheduledSendInputSchema = z
+  .object({ disposition: z.enum(["draft", "discard"]) })
+  .strict();
+export type CancelScheduledSendInput = z.infer<
+  typeof cancelScheduledSendInputSchema
+>;
 
 export const cancelScheduledSendResultSchema = z
   .object({
@@ -1447,7 +2388,9 @@ export const cancelScheduledSendResultSchema = z
     draftId: z.string().uuid(),
   })
   .strict();
-export type CancelScheduledSendResult = z.infer<typeof cancelScheduledSendResultSchema>;
+export type CancelScheduledSendResult = z.infer<
+  typeof cancelScheduledSendResultSchema
+>;
 
 export const draftEditableContentInputSchema = z
   .object({
@@ -1463,7 +2406,9 @@ export const draftEditableContentInputSchema = z
     format: z.enum(["plain", "markdown"]).default("markdown"),
   })
   .strict();
-export type DraftEditableContentInput = z.infer<typeof draftEditableContentInputSchema>;
+export type DraftEditableContentInput = z.infer<
+  typeof draftEditableContentInputSchema
+>;
 
 export const draftContentInputSchema = draftEditableContentInputSchema.extend({
   conversationId: z.string().uuid().nullable().optional(),
@@ -1494,7 +2439,9 @@ export const renderComposeSnippetInputSchema = z
     conversationId: z.string().uuid().nullable().default(null),
   })
   .strict();
-export type RenderComposeSnippetInput = z.infer<typeof renderComposeSnippetInputSchema>;
+export type RenderComposeSnippetInput = z.infer<
+  typeof renderComposeSnippetInputSchema
+>;
 
 export const composeSuggestionsInputSchema = z
   .object({
@@ -1503,7 +2450,9 @@ export const composeSuggestionsInputSchema = z
     conversationId: z.string().uuid().nullable().default(null),
   })
   .strict();
-export type ComposeSuggestionsInput = z.infer<typeof composeSuggestionsInputSchema>;
+export type ComposeSuggestionsInput = z.infer<
+  typeof composeSuggestionsInputSchema
+>;
 
 export const composeSuggestionSchema = z.object({
   templateId: z.string().uuid(),
@@ -1531,11 +2480,18 @@ export const MAX_DRAFT_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const createDraftAttachmentUploadSchema = z
   .object({
     filename: z.string().trim().min(1).max(255),
-    contentType: z.string().trim().min(1).max(255).default("application/octet-stream"),
+    contentType: z
+      .string()
+      .trim()
+      .min(1)
+      .max(255)
+      .default("application/octet-stream"),
     byteLength: z.number().int().nonnegative().max(MAX_DRAFT_ATTACHMENT_BYTES),
   })
   .strict();
-export type CreateDraftAttachmentUpload = z.infer<typeof createDraftAttachmentUploadSchema>;
+export type CreateDraftAttachmentUpload = z.infer<
+  typeof createDraftAttachmentUploadSchema
+>;
 
 export const draftAttachmentUploadSchema = z.object({
   id: z.string().uuid(),

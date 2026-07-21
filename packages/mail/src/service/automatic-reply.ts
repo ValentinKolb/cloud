@@ -52,7 +52,11 @@ const existingResult = async (effect: AutomaticReplyEffectRow, db: SqlClient): P
   }
   if (!effect.draft_id || !effect.scheduled_at) return fail(err.internal("Automatic reply effect is incomplete"));
   const [draft] = await db<{ revision: string | number }[]>`
-    SELECT revision FROM mail.drafts WHERE id = ${effect.draft_id}::uuid AND origin = 'workflow'
+    SELECT revision
+    FROM mail.drafts
+    WHERE id = ${effect.draft_id}::uuid
+      AND origin = 'workflow'
+      AND delivery_class = 'automatic_reply'
   `;
   if (!draft) return fail(err.internal("Automatic reply draft is unavailable"));
   return ok({

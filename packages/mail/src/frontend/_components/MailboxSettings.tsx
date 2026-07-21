@@ -6,6 +6,7 @@ import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
+import MailAttachmentLinksSettings from "./MailAttachmentLinksSettings";
 import MailComposeSettings from "./MailComposeSettings";
 import MailOperationalSettings from "./MailOperationalSettings";
 import MailOrganizationSettings from "./MailOrganizationSettings";
@@ -302,6 +303,10 @@ export default function MailboxSettings(props: {
               onReload={props.onReload}
               onWorkspaceChange={props.onWorkspaceChange}
             />
+          </SettingsModal.Tab>
+
+          <SettingsModal.Tab id="sharing" title="Sharing" icon="ti ti-link" description="Public attachment links, limits, and revocation.">
+            <MailAttachmentLinksSettings mailboxId={props.context.mailbox.id} dateConfig={props.dateConfig} />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab id="folders" title="Folders" icon="ti ti-folders" description="Map provider folders to portable Mail actions.">

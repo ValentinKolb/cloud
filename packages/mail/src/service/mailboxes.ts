@@ -470,6 +470,17 @@ export const deleteMailbox = async (context: MailRequestContext, mailboxId: stri
               updated_at = now()
             WHERE id = ${mailboxId}::uuid
           `;
+          await tx`
+            UPDATE mail.attachment_links
+            SET revoked_at = COALESCE(revoked_at, now())
+            WHERE mailbox_id = ${mailboxId}::uuid
+          `;
+          await tx`
+            DELETE FROM mail.attachment_link_grants AS link_grant
+            USING mail.attachment_links link
+            WHERE link_grant.link_id = link.id
+              AND link.mailbox_id = ${mailboxId}::uuid
+          `;
           transitioned = true;
           const execution = await pauseDeletedMailboxExecution(mailboxId, tx);
           activityId = await recordMailboxLifecycleActivity({

@@ -71,11 +71,13 @@ describe("outbound MIME", () => {
       openAttachment: (requestedBlobId) => {
         expect(requestedBlobId).toBe(blobId);
         opened += 1;
-        return Readable.from((async function* () {
-          for (let offset = 0; offset < attachment.length; offset += 64 * 1024) {
-            yield attachment.subarray(offset, Math.min(offset + 64 * 1024, attachment.length));
-          }
-        })());
+        return Readable.from(
+          (async function* () {
+            for (let offset = 0; offset < attachment.length; offset += 64 * 1024) {
+              yield attachment.subarray(offset, Math.min(offset + 64 * 1024, attachment.length));
+            }
+          })(),
+        );
       },
     });
     const parsed = await simpleParser(source);

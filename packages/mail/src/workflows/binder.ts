@@ -55,6 +55,16 @@ const referenceResult: WorkflowValuePathDescriptor = {
     conversationRevision: { kind: "scalar", type: "core.number" },
   },
 };
+const draftResult: WorkflowValuePathDescriptor = {
+  kind: "object",
+  type: "mail.draft",
+  properties: {
+    id: textValue,
+    revision: { kind: "scalar", type: "core.number" },
+    senderIdentityId: textValue,
+    deliveryClass: textValue,
+  },
+};
 const mailAddress: WorkflowValuePathDescriptor = {
   kind: "object",
   type: "mail.address",
@@ -125,6 +135,7 @@ const mailValueDescriptors: Record<string, WorkflowValuePathDescriptor> = {
       occurredAt: dateTimeValue,
     },
   },
+  "mail.draft": draftResult,
 };
 
 const valueDescriptor = (type: string): WorkflowValuePathDescriptor => mailValueDescriptors[type] ?? { kind: "scalar", type };
@@ -381,24 +392,35 @@ const bindAction = (
 ): void => {
   const path = [...step.sourcePath, step.action];
   const config = step.config;
+  const bindProviderTarget = (field = "message"): ValueInfo | null => {
+    const message = expectReference(config[field], "mail.message", field, [...path, field], scope, context);
+    if (message?.providerTarget) {
+      if (providerTargets.has(message.providerTarget)) {
+        addDiagnostic(context, "action.sequence", "Multiple provider mutations of the same message are not supported", path);
+      }
+      providerTargets.add(message.providerTarget);
+    }
+    return message;
+  };
   if (step.action === "addKeyword" || step.action === "removeKeyword") {
-    const message = expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
-    if (message?.providerTarget) {
-      if (providerTargets.has(message.providerTarget)) {
-        addDiagnostic(context, "action.sequence", "Multiple provider mutations of the same message are not supported", path);
-      }
-      providerTargets.add(message.providerTarget);
-    }
+    bindProviderTarget();
     if (config.keyword !== undefined) bindValue(config.keyword, [...path, "keyword"], scope, context);
-  } else if (step.action === "moveMessage") {
-    const message = expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
-    if (message?.providerTarget) {
-      if (providerTargets.has(message.providerTarget)) {
-        addDiagnostic(context, "action.sequence", "Multiple provider mutations of the same message are not supported", path);
-      }
-      providerTargets.add(message.providerTarget);
-    }
+  } else if (step.action === "moveMessage" || step.action === "copyMessage") {
+    bindProviderTarget();
     bindCatalogValue(config.folder, context.catalog.folders, "folder", [...path, "folder"], scope, context);
+  } else if (step.action === "archiveMessage" || step.action === "trashMessage") {
+    bindProviderTarget();
+    const role = step.action === "archiveMessage" ? "archive" : "trash";
+    const matches = [...new Map([...context.catalog.folders.refs.values()].map((folder) => [folder.id, folder])).values()].filter(
+      (folder) => folder.role === role,
+    );
+    if (matches.length !== 1) {
+      addDiagnostic(context, "binding.role", `Mailbox must expose exactly one accessible ${role} folder`, path);
+    } else {
+      bindId(context, [...path, "folder"], matches[0]!.id);
+    }
+  } else if (step.action === "addFlag" || step.action === "removeFlag") {
+    bindProviderTarget();
   } else if (step.action === "assignConversation") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
     bindCatalogValue(config.user, context.catalog.assignableUsers, "assignable user", [...path, "user"], scope, context, true);
@@ -407,6 +429,27 @@ const bindAction = (
   } else if (step.action === "ensureConversationReference") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
     defineValue(config.result, referenceResult, [...path, "result"], scope, context);
+  } else if (step.action === "addLocalTag" || step.action === "removeLocalTag") {
+    expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
+    bindCatalogValue(config.tag, context.catalog.localTags, "local tag", [...path, "tag"], scope, context);
+  } else if (step.action === "addComment") {
+    expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
+    bindMessage(config.body, [...path, "body"], scope, context);
+  } else if (step.action === "createDraft") {
+    bindCatalogValue(config.sender, context.catalog.senderIdentities, "sender identity", [...path, "sender"], scope, context);
+    if (config.to !== undefined) bindValue(config.to, [...path, "to"], scope, context);
+    if (config.cc !== undefined) bindValue(config.cc, [...path, "cc"], scope, context);
+    if (config.bcc !== undefined) bindValue(config.bcc, [...path, "bcc"], scope, context);
+    bindMessage(config.subject, [...path, "subject"], scope, context);
+    bindMessage(config.body, [...path, "body"], scope, context);
+    defineValue(config.result, draftResult, [...path, "result"], scope, context);
+  } else if (step.action === "scheduleDraftSend") {
+    expectReference(config.draft, "mail.draft", "draft", [...path, "draft"], scope, context);
+    if (config.scheduledAt !== undefined) bindValue(config.scheduledAt, [...path, "scheduledAt"], scope, context);
+  } else if (step.action === "notifyUser") {
+    bindCatalogValue(config.user, context.catalog.notificationUsers, "notification user", [...path, "user"], scope, context);
+    bindMessage(config.title, [...path, "title"], scope, context);
+    bindMessage(config.body, [...path, "body"], scope, context);
   } else if (step.action === "automaticReply") {
     if (context.ir.triggers.some((trigger) => trigger.kind !== "messageReceived")) {
       addDiagnostic(context, "automaticReply.trigger", "automaticReply requires every workflow trigger to be messageReceived", path);

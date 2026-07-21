@@ -3724,6 +3724,268 @@ const addDraftRecoveryAttachments = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addPublicAttachmentLinksAndStorageSnapshots = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.attachment_links (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      blob_id UUID REFERENCES mail.message_part_blobs(id) ON DELETE SET NULL,
+      source_kind TEXT NOT NULL CHECK (source_kind IN ('message', 'draft')),
+      source_id UUID NOT NULL,
+      filename TEXT CHECK (filename IS NULL OR char_length(filename) BETWEEN 1 AND 255),
+      content_type TEXT NOT NULL CHECK (char_length(content_type) BETWEEN 1 AND 255),
+      byte_length BIGINT NOT NULL CHECK (byte_length BETWEEN 0 AND 104857600),
+      token_hash TEXT NOT NULL UNIQUE CHECK (token_hash ~ '^[a-f0-9]{64}$'),
+      password_hash TEXT,
+      expires_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ,
+      download_count BIGINT NOT NULL DEFAULT 0 CHECK (download_count >= 0),
+      max_downloads BIGINT CHECK (max_downloads BETWEEN 1 AND 1000000),
+      last_downloaded_at TIMESTAMPTZ,
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT attachment_links_expiry_check CHECK (expires_at IS NULL OR expires_at > created_at)
+    )
+  `;
+  await db`
+    CREATE INDEX attachment_links_mailbox_idx
+    ON mail.attachment_links (mailbox_id, created_at DESC, id DESC)
+  `;
+  await db`
+    CREATE INDEX attachment_links_cleanup_idx
+    ON mail.attachment_links (COALESCE(revoked_at, expires_at), id)
+    WHERE revoked_at IS NOT NULL OR expires_at IS NOT NULL
+  `;
+  await db`
+    CREATE TABLE mail.attachment_link_grants (
+      token_hash TEXT PRIMARY KEY CHECK (token_hash ~ '^[a-f0-9]{64}$'),
+      link_id UUID NOT NULL REFERENCES mail.attachment_links(id) ON DELETE CASCADE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      download_claimed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT attachment_link_grants_expiry_check CHECK (expires_at > created_at)
+    )
+  `;
+  await db`CREATE INDEX attachment_link_grants_expiry_idx ON mail.attachment_link_grants (expires_at)`;
+
+  await db`
+    CREATE TABLE mail.storage_usage_snapshots (
+      mailbox_id UUID PRIMARY KEY REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      message_count BIGINT NOT NULL DEFAULT 0 CHECK (message_count >= 0),
+      message_bytes BIGINT NOT NULL DEFAULT 0 CHECK (message_bytes >= 0),
+      received_attachment_bytes BIGINT NOT NULL DEFAULT 0 CHECK (received_attachment_bytes >= 0),
+      draft_attachment_bytes BIGINT NOT NULL DEFAULT 0 CHECK (draft_attachment_bytes >= 0),
+      external_link_bytes BIGINT NOT NULL DEFAULT 0 CHECK (external_link_bytes >= 0),
+      logical_total_bytes BIGINT NOT NULL DEFAULT 0 CHECK (logical_total_bytes >= 0),
+      calculated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await db`
+    CREATE TABLE mail.storage_system_snapshot (
+      singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
+      physical_database_bytes BIGINT NOT NULL DEFAULT 0 CHECK (physical_database_bytes >= 0),
+      physical_blob_bytes BIGINT NOT NULL DEFAULT 0 CHECK (physical_blob_bytes >= 0),
+      calculated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+};
+
+const addManagedProviderOAuth = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.provider_connections
+      ADD COLUMN IF NOT EXISTS oauth_provider_id TEXT CHECK (oauth_provider_id IN ('google', 'microsoft')),
+      ADD COLUMN IF NOT EXISTS oauth_token_revision BIGINT NOT NULL DEFAULT 0 CHECK (oauth_token_revision >= 0),
+      ADD COLUMN IF NOT EXISTS oauth_expires_at TIMESTAMPTZ
+  `;
+  await db`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'mail.provider_connections'::regclass
+          AND conname = 'provider_connections_managed_oauth_check'
+      ) THEN
+        ALTER TABLE mail.provider_connections
+          ADD CONSTRAINT provider_connections_managed_oauth_check CHECK (
+            oauth_provider_id IS NULL OR secret_kind = 'oauth2'
+          );
+      END IF;
+    END
+    $$
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS provider_connections_oauth_expiry_idx
+    ON mail.provider_connections (oauth_expires_at, id)
+    WHERE oauth_provider_id IS NOT NULL AND status <> 'revoked'
+  `;
+  await db`
+    CREATE TABLE IF NOT EXISTS mail.provider_oauth_flows (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      state_hash TEXT NOT NULL UNIQUE CHECK (state_hash ~ '^[a-f0-9]{64}$'),
+      browser_nonce_hash TEXT NOT NULL CHECK (browser_nonce_hash ~ '^[a-f0-9]{64}$'),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      provider_id TEXT NOT NULL CHECK (provider_id IN ('google', 'microsoft')),
+      operation TEXT NOT NULL,
+      connection_id UUID REFERENCES mail.provider_connections(id) ON DELETE CASCADE,
+      connection_input JSONB NOT NULL CHECK (jsonb_typeof(connection_input) = 'object'),
+      create_sender BOOLEAN NOT NULL DEFAULT false,
+      encrypted_code_verifier TEXT NOT NULL CHECK (char_length(encrypted_code_verifier) > 0),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'exchanging', 'completed', 'failed')),
+      result_connection_id UUID REFERENCES mail.provider_connections(id) ON DELETE SET NULL,
+      result_code TEXT CHECK (result_code IS NULL OR char_length(result_code) <= 100),
+      result_message TEXT CHECK (result_message IS NULL OR char_length(result_message) <= 500),
+      diagnostics JSONB CHECK (diagnostics IS NULL OR jsonb_typeof(diagnostics) = 'object'),
+      expires_at TIMESTAMPTZ NOT NULL,
+      consumed_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT provider_oauth_flows_operation_check CHECK (
+        (operation = 'create' AND connection_id IS NULL) OR
+        (operation = 'reconnect' AND connection_id IS NOT NULL)
+      ),
+      CONSTRAINT provider_oauth_flows_expiry_check CHECK (expires_at > created_at)
+    )
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS provider_oauth_flows_cleanup_idx
+    ON mail.provider_oauth_flows (expires_at, id)
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS provider_oauth_flows_user_idx
+    ON mail.provider_oauth_flows (user_id, created_at DESC)
+  `;
+};
+
+const addDraftDeliveryClassesAndWorkflowRunControls = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.drafts
+      ADD COLUMN delivery_class TEXT NOT NULL DEFAULT 'normal',
+      ADD CONSTRAINT drafts_delivery_class_check CHECK (delivery_class IN ('normal', 'automatic_reply')),
+      ADD CONSTRAINT drafts_automatic_reply_origin_check CHECK (
+        delivery_class <> 'automatic_reply' OR origin = 'workflow'
+      )
+  `;
+  await db`UPDATE mail.drafts SET delivery_class = 'automatic_reply' WHERE origin = 'workflow'`;
+  await db`
+    ALTER TABLE mail.conversation_local_tags
+      DROP CONSTRAINT conversation_local_tags_assigned_by_actor_kind_check,
+      ADD CONSTRAINT conversation_local_tags_assigned_by_actor_kind_check
+        CHECK (assigned_by_actor_kind IN ('user', 'service_account', 'workflow'))
+  `;
+  await db`
+    ALTER TABLE mail.conversation_comments
+      DROP CONSTRAINT conversation_comments_author_kind_check,
+      ADD CONSTRAINT conversation_comments_author_kind_check CHECK (author_kind IN ('user', 'service_account', 'workflow'))
+  `;
+  await db`
+    ALTER TABLE mail.conversation_comment_versions
+      DROP CONSTRAINT conversation_comment_versions_editor_kind_check,
+      ADD CONSTRAINT conversation_comment_versions_editor_kind_check CHECK (editor_kind IN ('user', 'service_account', 'workflow'))
+  `;
+  await db`
+    ALTER TABLE mail.workflow_runs
+      ADD COLUMN retry_of_run_id UUID REFERENCES mail.workflow_runs(id) ON DELETE RESTRICT,
+      ADD COLUMN paused_at TIMESTAMPTZ,
+      ADD COLUMN pause_reason TEXT CHECK (pause_reason IS NULL OR char_length(pause_reason) <= 1000),
+      ADD COLUMN paused_from_state TEXT CHECK (paused_from_state IN ('materializing', 'queued', 'running', 'waiting')),
+      DROP CONSTRAINT workflow_runs_state_check,
+      DROP CONSTRAINT workflow_runs_target_progress_check,
+      DROP CONSTRAINT workflow_runs_materialization_check,
+      ADD CONSTRAINT workflow_runs_state_check CHECK (state IN (
+        'materializing', 'queued', 'running', 'waiting', 'paused', 'succeeded', 'failed', 'canceled', 'needs_attention'
+      )),
+      ADD CONSTRAINT workflow_runs_target_progress_check CHECK (
+        ((state = 'materializing' OR (state = 'paused' AND paused_from_state = 'materializing'))
+          AND queued_targets <= target_count
+          AND running_targets = 0
+          AND waiting_targets = 0
+          AND succeeded_targets = 0
+          AND failed_targets = 0
+          AND canceled_targets = 0
+          AND needs_attention_targets = 0)
+        OR ((state <> 'materializing' AND NOT (state = 'paused' AND paused_from_state = 'materializing'))
+          AND target_count = queued_targets + running_targets + waiting_targets + succeeded_targets
+            + failed_targets + canceled_targets + needs_attention_targets)
+      ),
+      ADD CONSTRAINT workflow_runs_materialization_check CHECK (
+        ((state = 'materializing' OR (state = 'paused' AND paused_from_state = 'materializing'))
+          AND kind = 'backfill'
+          AND mode = 'execute'
+          AND target_count > 0
+          AND materialization_digest IS NOT NULL
+          AND materialization_digest ~ '^[a-f0-9]{64}$'
+          AND materialization_expected_digest IS NOT NULL
+          AND materialization_expected_digest ~ '^[a-f0-9]{64}$'
+          AND materialization_action_counts IS NOT NULL
+          AND jsonb_typeof(materialization_action_counts) = 'object')
+        OR ((state <> 'materializing' AND NOT (state = 'paused' AND paused_from_state = 'materializing'))
+          AND materialization_cursor_internal_date IS NULL
+          AND materialization_cursor_target_key IS NULL
+          AND materialization_digest IS NULL
+          AND materialization_expected_digest IS NULL
+          AND materialization_action_counts IS NULL)
+      ),
+      ADD CONSTRAINT workflow_runs_pause_check CHECK (
+        (state = 'paused' AND paused_at IS NOT NULL AND paused_from_state IS NOT NULL)
+        OR (state <> 'paused' AND paused_at IS NULL AND paused_from_state IS NULL AND pause_reason IS NULL)
+      )
+  `;
+  await db`ALTER TABLE mail.workflow_runs DROP CONSTRAINT workflow_runs_kind_check`;
+  await db`ALTER TABLE mail.workflow_runs ADD CONSTRAINT workflow_runs_kind_check CHECK (kind IN ('invoke', 'backfill', 'oneShot', 'trigger', 'retry'))`;
+  await db`
+    ALTER TABLE mail.workflow_run_targets
+      ADD COLUMN retry_of_target_id UUID REFERENCES mail.workflow_run_targets(id) ON DELETE RESTRICT
+  `;
+  await db`CREATE INDEX workflow_runs_retry_lineage_idx ON mail.workflow_runs (retry_of_run_id, created_at, id) WHERE retry_of_run_id IS NOT NULL`;
+  await db`CREATE INDEX workflow_run_targets_retry_lineage_idx ON mail.workflow_run_targets (retry_of_target_id) WHERE retry_of_target_id IS NOT NULL`;
+};
+
+const addOperatorMaintenanceCommands = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.commands
+    DROP CONSTRAINT commands_kind_check,
+    ADD CONSTRAINT commands_kind_check CHECK (
+      kind IN (
+        'set_flags', 'change_message_state', 'move', 'copy', 'delete',
+        'create_folder', 'rename_folder', 'delete_folder', 'set_folder_subscription', 'send',
+        'sync_mailbox', 'sync_folder', 'discover_folders', 'verify_binding', 'rebuild_folder', 'hydrate_missing',
+        'rebuild_search', 'rebuild_threads', 'reconcile_effect', 'retry_command', 'cancel_command'
+      )
+    )
+  `;
+};
+
+const addConversationSpaceLinks = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.conversation_space_links (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
+      space_id UUID NOT NULL,
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (conversation_id, space_id)
+    )
+  `;
+  await db`
+    CREATE INDEX conversation_space_links_conversation_idx
+    ON mail.conversation_space_links (conversation_id, created_at, id)
+  `;
+};
+
+const addOperatorAttentionIndex = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE INDEX IF NOT EXISTS commands_mailbox_attention_idx
+    ON mail.commands (mailbox_id, updated_at DESC, id DESC)
+    WHERE state IN ('failed', 'ambiguous', 'needs_attention')
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -3788,6 +4050,12 @@ const migrations = [
   { version: 61, name: "draft_provider_remote_observations", run: repairDraftProviderRemoteIdentityIndex },
   { version: 62, name: "draft_recovery_attachments", run: addDraftRecoveryAttachments },
   { version: 63, name: "canonical_saved_view_search_guard", run: repairCanonicalSavedConversationViewConstraint },
+  { version: 64, name: "public_attachment_links_storage_snapshots", run: addPublicAttachmentLinksAndStorageSnapshots },
+  { version: 65, name: "managed_provider_oauth", run: addManagedProviderOAuth },
+  { version: 66, name: "draft_delivery_classes_workflow_run_controls", run: addDraftDeliveryClassesAndWorkflowRunControls },
+  { version: 67, name: "operator_maintenance_commands", run: addOperatorMaintenanceCommands },
+  { version: 68, name: "conversation_space_links", run: addConversationSpaceLinks },
+  { version: 69, name: "operator_attention_query_index", run: addOperatorAttentionIndex },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

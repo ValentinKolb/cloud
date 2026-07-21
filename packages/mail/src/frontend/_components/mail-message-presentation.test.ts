@@ -19,7 +19,10 @@ describe("mail message presentation", () => {
 
   test("does not collapse ordinary attribution or indentation", () => {
     expect(splitPlainMessageSegments("On Monday, Alex wrote:\n  ordinary indented text")).toEqual([
-      { kind: "content", text: "On Monday, Alex wrote:\n  ordinary indented text" },
+      {
+        kind: "content",
+        text: "On Monday, Alex wrote:\n  ordinary indented text",
+      },
     ]);
   });
 

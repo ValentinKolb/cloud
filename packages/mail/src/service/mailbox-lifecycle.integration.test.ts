@@ -127,6 +127,25 @@ suite("reversible mailbox lifecycle", () => {
           ${`effect-${suffix}`}, ${requestHash}, '{}'::jsonb, '{}'::jsonb, 1, now(), now(), now(), 1)
       RETURNING id, idempotency_key
     `;
+    const ownerId = ownerContext.accessSubject.type === "user" ? ownerContext.accessSubject.userId : null;
+    if (!ownerId) throw new Error("Mailbox lifecycle owner must be user-backed");
+    const linkTokenHash = crypto.randomUUID().replaceAll("-", "").padEnd(64, "0");
+    const grantTokenHash = crypto.randomUUID().replaceAll("-", "").padEnd(64, "0");
+    const [attachmentLink] = await sql<{ id: string }[]>`
+      INSERT INTO mail.attachment_links (
+        mailbox_id, source_kind, source_id, filename, content_type, byte_length,
+        token_hash, created_by_actor_kind, created_by_actor_id
+      ) VALUES (
+        ${mailboxId}::uuid, 'message', ${crypto.randomUUID()}::uuid, 'deleted-mailbox.txt',
+        'text/plain', 1, ${linkTokenHash}, 'user', ${ownerId}::uuid
+      )
+      RETURNING id
+    `;
+    if (!attachmentLink) throw new Error("Failed to create lifecycle attachment link");
+    await sql`
+      INSERT INTO mail.attachment_link_grants (token_hash, link_id, expires_at)
+      VALUES (${grantTokenHash}, ${attachmentLink.id}::uuid, now() + interval '30 minutes')
+    `;
 
     const providerLock = await mailProviderOperationMutex.acquire(resource!.id, MAIL_PROVIDER_OPERATION_LEASE_MS);
     expect(providerLock).not.toBeNull();
@@ -147,6 +166,14 @@ suite("reversible mailbox lifecycle", () => {
     expect((await deleteMailbox(ownerContext, mailboxId)).ok).toBe(true);
     expect((await getMailbox(ownerContext, mailboxId)).ok).toBe(false);
     expect((await resolveMailExecution({ mailboxId, operation: "actorRead", context: ownerContext })).ok).toBe(false);
+    const [linkState] = await sql<{ revoked: boolean; grants: number }[]>`
+      SELECT
+        link.revoked_at IS NOT NULL AS revoked,
+        (SELECT COUNT(*)::int FROM mail.attachment_link_grants link_grant WHERE link_grant.link_id = link.id) AS grants
+      FROM mail.attachment_links link
+      WHERE link.id = ${attachmentLink.id}::uuid
+    `;
+    expect(linkState).toEqual({ revoked: true, grants: 0 });
     const activeMailboxes = await listMailboxes(ownerContext);
     expect(activeMailboxes.ok && activeMailboxes.data.some((mailbox) => mailbox.id === mailboxId)).toBe(false);
 

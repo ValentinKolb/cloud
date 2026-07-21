@@ -78,6 +78,10 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_contacts_contact_emails_contact
     ON contacts.contact_emails(contact_id)
   `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_contact_emails_normalized
+    ON contacts.contact_emails(LOWER(BTRIM(email)), contact_id)
+  `.simple();
   console.log("  ✓ contacts.contact_emails table");
 
   await sql`

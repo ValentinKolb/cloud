@@ -6,6 +6,7 @@ import {
   type ConversationDraftSummary,
   type DraftAttachment,
   type DraftContentInput,
+  type DraftDeliveryClass,
   type DraftEditableContentInput,
   type DraftIntent,
   type DraftRecoveryCopy,
@@ -57,6 +58,7 @@ type DbDraft = {
   subject: string;
   body_markdown: string;
   body_format: MailDraft["format"];
+  delivery_class: DraftDeliveryClass;
   revision: string | number;
   state: MailDraft["state"];
   attachments: DraftAttachment[] | string;
@@ -107,6 +109,7 @@ const draftColumns = sql`
   d.subject,
   d.body_markdown,
   d.body_format,
+  d.delivery_class,
   d.revision,
   d.state,
   COALESCE(
@@ -191,6 +194,7 @@ const mapDraft = (row: DbDraft): MailDraft => ({
   recoveryCopyCount: Number(row.recovery_copy_count),
   revision: Number(row.revision),
   state: row.state,
+  deliveryClass: row.delivery_class,
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
@@ -507,12 +511,12 @@ export const createWorkflowReplyDraftInTransaction = async (params: {
   const [draft] = await params.db<{ id: string; revision: string | number }[]>`
     INSERT INTO mail.drafts (
       id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
-      author_kind, author_id, last_editor_kind, last_editor_id, origin,
+      author_kind, author_id, last_editor_kind, last_editor_id, origin, delivery_class,
       to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format
     ) VALUES (
       ${params.draftId}::uuid, ${params.mailboxId}::uuid, ${params.conversationId}::uuid, 'reply', ${params.sourceMessageId}::uuid,
       ${params.senderIdentityId}::uuid, 'workflow', ${params.workflowVersionId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
-      'workflow', ${content.data.to}::jsonb, '[]'::jsonb, '[]'::jsonb, ${subject}, ${content.data.body}, ${content.data.format}
+      'workflow', 'automatic_reply', ${content.data.to}::jsonb, '[]'::jsonb, '[]'::jsonb, ${subject}, ${content.data.body}, ${content.data.format}
     )
     ON CONFLICT (id) DO NOTHING
     RETURNING id, revision
@@ -524,11 +528,79 @@ export const createWorkflowReplyDraftInTransaction = async (params: {
     WHERE id = ${params.draftId}::uuid
       AND mailbox_id = ${params.mailboxId}::uuid
       AND origin = 'workflow'
+      AND delivery_class = 'automatic_reply'
       AND author_kind = 'workflow'
       AND author_id = ${params.workflowVersionId}::uuid
     FOR UPDATE
   `;
   return existing ? ok({ id: existing.id, revision: Number(existing.revision) }) : fail(err.conflict("Automatic reply draft id is in use"));
+};
+
+export const createWorkflowDraftInTransaction = async (params: {
+  db: typeof sql;
+  mailboxId: string;
+  workflowVersionId: string;
+  draftId: string;
+  senderIdentityId: string;
+  to: Array<{ name?: string | null; address: string }>;
+  cc: Array<{ name?: string | null; address: string }>;
+  bcc: Array<{ name?: string | null; address: string }>;
+  subject: string;
+  body: string;
+  format: "plain" | "markdown";
+}): Promise<Result<{ id: string; revision: number; senderIdentityId: string; deliveryClass: "normal" }>> => {
+  const content = draftContentInputSchema.safeParse({
+    intent: "new",
+    senderIdentityId: params.senderIdentityId,
+    to: params.to,
+    cc: params.cc,
+    bcc: params.bcc,
+    subject: params.subject,
+    body: params.body,
+    format: params.format,
+  });
+  if (!content.success) return fail(err.badInput(content.error.issues[0]?.message ?? "Invalid workflow draft"));
+  const [identity] = await params.db<{ id: string }[]>`
+    SELECT id
+    FROM mail.sender_identities
+    WHERE id = ${params.senderIdentityId}::uuid
+      AND mailbox_id = ${params.mailboxId}::uuid
+      AND status = 'verified'
+      AND automation_policy = 'mailbox'
+    FOR SHARE
+  `;
+  if (!identity) return fail(err.forbidden("Sender identity no longer permits mailbox automation"));
+  const [draft] = await params.db<{ id: string; revision: string | number }[]>`
+    INSERT INTO mail.drafts (
+      id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
+      author_kind, author_id, last_editor_kind, last_editor_id, origin, delivery_class,
+      to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format
+    ) VALUES (
+      ${params.draftId}::uuid, ${params.mailboxId}::uuid, NULL, 'new', NULL, ${params.senderIdentityId}::uuid,
+      'workflow', ${params.workflowVersionId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
+      'workflow', 'normal', ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
+      ${content.data.subject}, ${content.data.body}, ${content.data.format}
+    )
+    ON CONFLICT (id) DO NOTHING
+    RETURNING id, revision
+  `;
+  if (draft) {
+    return ok({ id: draft.id, revision: Number(draft.revision), senderIdentityId: params.senderIdentityId, deliveryClass: "normal" });
+  }
+  const [existing] = await params.db<{ id: string; revision: string | number; sender_identity_id: string }[]>`
+    SELECT id, revision, sender_identity_id
+    FROM mail.drafts
+    WHERE id = ${params.draftId}::uuid
+      AND mailbox_id = ${params.mailboxId}::uuid
+      AND origin = 'workflow'
+      AND delivery_class = 'normal'
+      AND author_kind = 'workflow'
+      AND author_id = ${params.workflowVersionId}::uuid
+    FOR UPDATE
+  `;
+  return existing
+    ? ok({ id: existing.id, revision: Number(existing.revision), senderIdentityId: existing.sender_identity_id, deliveryClass: "normal" })
+    : fail(err.conflict("Workflow draft id is in use"));
 };
 
 export const updateDraft = async (params: {

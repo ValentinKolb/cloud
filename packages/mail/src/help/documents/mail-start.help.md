@@ -24,12 +24,12 @@ The email provider remains the source for portable mail state. Moving a message,
 2. Enter a **Name** that collaborators will recognize. The description is optional.
 3. In the settings dialog, open **Connections**.
 4. Enter the email address and select **Find settings**, or enter the IMAP and SMTP hosts, ports, and TLS modes yourself.
-5. Enter the username and password or OAuth2 access token.
+5. For a configured Google or Microsoft account, select the browser OAuth button and approve access. Otherwise enter the password, app password, or OAuth2 access token supplied by the provider.
 6. Leave **Create the default sender for this address** enabled for a normal mailbox.
 7. Select **Verify and connect**.
 :::
 
-Mail verifies IMAP and SMTP before storing the credential. The credential is encrypted and write-only: after it is accepted, no user or mailbox administrator can reveal it again. To change it, use **Replace** and enter the complete credential again.
+Mail verifies IMAP and SMTP separately before storing the credential. Credentials and OAuth refresh tokens are encrypted and write-only: after they are accepted, no user or mailbox administrator can reveal them again. Managed OAuth connections refresh automatically and show **Reconnect** when provider consent has expired or was revoked. Manual credentials remain available for every generic IMAP/SMTP provider.
 
 After setup, Mail discovers the provider's folders and begins synchronization. Initial history can appear progressively while the mailbox remains usable. Open **Settings > Status** to see transport health, folder discovery, synchronization, and search-index state.
 

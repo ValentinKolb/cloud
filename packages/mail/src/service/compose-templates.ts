@@ -245,10 +245,17 @@ export const createComposeTemplate = async (params: {
         RETURNING ${templateColumns}
       `;
       if (!row) return fail(err.internal("Template insert returned no row"));
-      await writeAudit(params.context, "mail.compose_template.create", params.mailboxId, row.id, {
-        kind: row.kind,
-        scope: row.scope,
-      }, tx);
+      await writeAudit(
+        params.context,
+        "mail.compose_template.create",
+        params.mailboxId,
+        row.id,
+        {
+          kind: row.kind,
+          scope: row.scope,
+        },
+        tx,
+      );
       return ok(mapTemplate(row));
     });
   } catch (error) {
@@ -309,17 +316,24 @@ export const updateComposeTemplate = async (params: {
         RETURNING ${templateColumns}
       `;
       if (!row) return fail(err.conflict("Compose template"));
-      await writeAudit(params.context, "mail.compose_template.update", params.mailboxId, row.id, {
-        changedFields: [
-          ...(parsed.data.name !== undefined ? ["name"] : []),
-          ...(parsed.data.shortcut !== undefined ? ["shortcut"] : []),
-          ...(parsed.data.body !== undefined ? ["body"] : []),
-        ],
-        previousRevision: Number(current.revision),
-        revision: Number(row.revision),
-        previousBodyHash: sha256Text(current.body_template),
-        bodyHash: sha256Text(row.body_template),
-      }, tx);
+      await writeAudit(
+        params.context,
+        "mail.compose_template.update",
+        params.mailboxId,
+        row.id,
+        {
+          changedFields: [
+            ...(parsed.data.name !== undefined ? ["name"] : []),
+            ...(parsed.data.shortcut !== undefined ? ["shortcut"] : []),
+            ...(parsed.data.body !== undefined ? ["body"] : []),
+          ],
+          previousRevision: Number(current.revision),
+          revision: Number(row.revision),
+          previousBodyHash: sha256Text(current.body_template),
+          bodyHash: sha256Text(row.body_template),
+        },
+        tx,
+      );
       return ok(mapTemplate(row));
     });
   } catch (error) {
@@ -359,12 +373,19 @@ export const archiveComposeTemplate = async (params: {
         RETURNING id
       `;
       if (!row) return fail(err.conflict("Compose template"));
-      await writeAudit(params.context, "mail.compose_template.archive", params.mailboxId, row.id, {
-        kind: current.kind,
-        scope: current.scope,
-        previousRevision: Number(current.revision),
-        removedDefaultCount: removedDefaults.length,
-      }, tx);
+      await writeAudit(
+        params.context,
+        "mail.compose_template.archive",
+        params.mailboxId,
+        row.id,
+        {
+          kind: current.kind,
+          scope: current.scope,
+          previousRevision: Number(current.revision),
+          removedDefaultCount: removedDefaults.length,
+        },
+        tx,
+      );
       return ok();
     });
   } catch {
@@ -449,12 +470,19 @@ export const setComposeSignatureDefault = async (params: {
               AND user_id IS NOT DISTINCT FROM ${userId}::uuid
           `;
         }
-        await writeAudit(params.context, "mail.compose_signature_default.clear", params.mailboxId, null, {
-          senderIdentityId: params.senderIdentityId,
-          scope: parsed.data.scope,
-          previousTemplateId: current?.template_id ?? null,
-          previousRevision: currentRevision,
-        }, tx);
+        await writeAudit(
+          params.context,
+          "mail.compose_signature_default.clear",
+          params.mailboxId,
+          null,
+          {
+            senderIdentityId: params.senderIdentityId,
+            scope: parsed.data.scope,
+            previousTemplateId: current?.template_id ?? null,
+            previousRevision: currentRevision,
+          },
+          tx,
+        );
         return ok(null);
       }
       if (!template) return fail(err.badInput("The selected signature is not available for this default"));
@@ -483,13 +511,20 @@ export const setComposeSignatureDefault = async (params: {
           RETURNING mailbox_id, sender_identity_id, user_id, template_id, revision, updated_at
         `;
       if (!row) return fail(err.internal("Signature default update returned no row"));
-      await writeAudit(params.context, "mail.compose_signature_default.set", params.mailboxId, template.id, {
-        senderIdentityId: params.senderIdentityId,
-        scope: parsed.data.scope,
-        previousTemplateId: current?.template_id ?? null,
-        previousRevision: currentRevision,
-        revision: Number(row.revision),
-      }, tx);
+      await writeAudit(
+        params.context,
+        "mail.compose_signature_default.set",
+        params.mailboxId,
+        template.id,
+        {
+          senderIdentityId: params.senderIdentityId,
+          scope: parsed.data.scope,
+          previousTemplateId: current?.template_id ?? null,
+          previousRevision: currentRevision,
+          revision: Number(row.revision),
+        },
+        tx,
+      );
       return ok(mapDefault(row));
     });
   } catch {
@@ -548,12 +583,19 @@ export const updateMailboxComposeStyle = async (params: {
         RETURNING mailbox_id, custom_css, revision, updated_at
       `;
       if (!row) return fail(err.conflict("Mailbox email style"));
-      await writeAudit(params.context, "mail.compose_style.update", params.mailboxId, null, {
-        previousRevision: Number(current.revision),
-        revision: Number(row.revision),
-        previousCssHash: sha256Text(current.custom_css),
-        cssHash: sha256Text(row.custom_css),
-      }, tx);
+      await writeAudit(
+        params.context,
+        "mail.compose_style.update",
+        params.mailboxId,
+        null,
+        {
+          previousRevision: Number(current.revision),
+          revision: Number(row.revision),
+          previousCssHash: sha256Text(current.custom_css),
+          cssHash: sha256Text(row.custom_css),
+        },
+        tx,
+      );
       return ok(mapStyle(row));
     });
   } catch {
@@ -568,13 +610,15 @@ const composeRenderContext = async (params: {
   draft: DraftEditableContentInput;
   actor: ActorRef;
 }): Promise<Result<ComposeRenderContext>> => {
-  const [base] = await params.db<{
-    mailbox_name: string;
-    mailbox_description: string | null;
-    sender_name: string;
-    sender_email: string;
-    sender_reply_to: string | null;
-  }[]>`
+  const [base] = await params.db<
+    {
+      mailbox_name: string;
+      mailbox_description: string | null;
+      sender_name: string;
+      sender_email: string;
+      sender_reply_to: string | null;
+    }[]
+  >`
     SELECT
       mailbox.name AS mailbox_name,
       mailbox.description AS mailbox_description,
@@ -592,11 +636,7 @@ const composeRenderContext = async (params: {
 
   let actor = { display_name: "Mailbox automation", email: "" };
   const actorUserId =
-    params.actor.kind === "user"
-      ? params.actor.userId
-      : params.actor.kind === "service_account"
-        ? params.actor.delegatedUserId
-        : null;
+    params.actor.kind === "user" ? params.actor.userId : params.actor.kind === "service_account" ? params.actor.delegatedUserId : null;
   if (actorUserId) {
     const [user] = await params.db<{ display_name: string; uid: string; mail: string | null }[]>`
       SELECT display_name, uid, mail FROM auth.users WHERE id = ${actorUserId}::uuid

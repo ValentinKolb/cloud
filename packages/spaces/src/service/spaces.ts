@@ -10,6 +10,7 @@ import {
   SPACE_RESOURCE_TYPE,
   SPACES_APP_ID,
 } from "./access";
+import { publishSpaceEvent } from "./events";
 import { rank } from "./rank";
 
 // ==========================
@@ -368,6 +369,7 @@ export const update = async (params: { id: string; data: UpdateSpace }): Promise
     return { ok: false, error: "Failed to update space", status: 500 };
   }
 
+  await publishSpaceEvent({ type: "space.updated", spaceId: id });
   return { ok: true, data: mapToSpace(row) };
 };
 
@@ -389,6 +391,8 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
     resourceType: SPACE_RESOURCE_TYPE,
     resourceId: params.id,
   });
+
+  await publishSpaceEvent({ type: "space.deleted", spaceId: params.id });
 
   return { ok: true, data: undefined };
 };

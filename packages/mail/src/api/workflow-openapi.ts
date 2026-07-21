@@ -275,6 +275,9 @@ export const mailWorkflowRunSchema = responseSchema<MailWorkflowRun>()(
     inputs: workflowJsonObjectSchema,
     query: workflowRunTargetSelectionSchema,
     preflightHash: workflowHashSchema.nullable(),
+    retryOfRunId: z.string().uuid().nullable(),
+    pausedAt: z.string().datetime().nullable(),
+    pauseReason: z.string().nullable(),
     targetProgress: workflowTargetProgressSchema,
     result: workflowJsonValueSchema.nullable(),
     lastError: workflowExecutionErrorSchema.nullable(),
@@ -284,6 +287,10 @@ export const mailWorkflowRunSchema = responseSchema<MailWorkflowRun>()(
     updatedAt: z.string().datetime(),
   }),
 );
+export const mailWorkflowRunPageSchema = z.object({
+  items: z.array(mailWorkflowRunSchema),
+  nextCursor: z.string().nullable(),
+});
 export const mailWorkflowRunTargetSchema = responseSchema<MailWorkflowRunTarget>()(
   z.object({
     id: z.string().uuid(),
@@ -298,6 +305,8 @@ export const mailWorkflowRunTargetSchema = responseSchema<MailWorkflowRunTarget>
     result: workflowJsonValueSchema.nullable(),
     lastError: workflowExecutionErrorSchema.nullable(),
     cancelRequestedAt: z.string().datetime().nullable(),
+    retryOfTargetId: z.string().uuid().nullable(),
+    hasRetry: z.boolean(),
     createdAt: z.string().datetime(),
     startedAt: z.string().datetime().nullable(),
     finishedAt: z.string().datetime().nullable(),

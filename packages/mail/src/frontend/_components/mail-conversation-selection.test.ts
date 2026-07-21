@@ -1,0 +1,62 @@
+import { describe, expect, test } from "bun:test";
+import {
+  emptyMailConversationSelection,
+  findMailFocusAfterRemoval,
+  MAX_MAIL_CONVERSATION_SELECTION,
+  pruneMailConversationSelection,
+  selectVisibleMailConversations,
+  toggleMailConversationSelection,
+} from "./mail-conversation-selection";
+
+describe("Mail conversation selection", () => {
+  const ids = Array.from({ length: 100 }, (_, index) => `conversation-${index}`);
+
+  test("keeps single selection and range selection independent from the active reader", () => {
+    const first = toggleMailConversationSelection({
+      selection: emptyMailConversationSelection(),
+      conversationId: ids[2]!,
+      orderedConversationIds: ids,
+      range: false,
+    });
+    const ranged = toggleMailConversationSelection({
+      selection: first,
+      conversationId: ids[5]!,
+      orderedConversationIds: ids,
+      range: true,
+    });
+    expect([...ranged.ids]).toEqual(ids.slice(2, 6));
+    expect(ranged.anchorId).toBe(ids[2]!);
+  });
+
+  test("caps select-visible and shift ranges", () => {
+    expect(selectVisibleMailConversations(ids).ids.size).toBe(MAX_MAIL_CONVERSATION_SELECTION);
+    const started = toggleMailConversationSelection({
+      selection: emptyMailConversationSelection(),
+      conversationId: ids[0]!,
+      orderedConversationIds: ids,
+      range: false,
+    });
+    const before = performance.now();
+    const ranged = toggleMailConversationSelection({
+      selection: started,
+      conversationId: ids.at(-1)!,
+      orderedConversationIds: ids,
+      range: true,
+    });
+    expect(ranged.ids.size).toBe(MAX_MAIL_CONVERSATION_SELECTION);
+    expect(performance.now() - before).toBeLessThan(100);
+  });
+
+  test("prunes filtered conversations and restores focus to the nearest survivor", () => {
+    const selection = selectVisibleMailConversations(ids.slice(0, 4));
+    const pruned = pruneMailConversationSelection(selection, new Set([ids[1]!, ids[3]!]));
+    expect([...pruned.ids]).toEqual([ids[1]!, ids[3]!]);
+    expect(
+      findMailFocusAfterRemoval({
+        orderedConversationIds: ids.slice(0, 5),
+        activeConversationId: ids[2]!,
+        removedConversationIds: new Set([ids[2]!, ids[3]!]),
+      }),
+    ).toBe(ids[4]!);
+  });
+});

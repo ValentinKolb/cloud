@@ -21,6 +21,7 @@ export type MailAutomationWorkspaceData = {
   advanced: {
     workflows: MailWorkflow[];
     workflowRuns: MailWorkflowRun[];
+    workflowRunsNextCursor: string | null;
   } | null;
 };
 
@@ -71,7 +72,8 @@ export const loadMailAutomationWorkspace = async (
     referenceConfiguration: referenceConfigurationResult.data,
     advanced: {
       workflows: workflowResult.data,
-      workflowRuns: workflowRunResult.data,
+      workflowRuns: workflowRunResult.data.items,
+      workflowRunsNextCursor: workflowRunResult.data.nextCursor,
     },
   });
 };

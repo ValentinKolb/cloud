@@ -1,9 +1,15 @@
 import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { Mailbox, MailboxOperationalHealth, ProviderBinding } from "../../contracts";
+import type {
+  Mailbox,
+  MailboxOperationalHealth,
+  MailboxOperatorOperations,
+  OperatorActionEligibility,
+  ProviderBinding,
+} from "../../contracts";
 import { readApiError } from "./api-response";
 
 const healthTone = (health: Mailbox["health"]): string =>
@@ -13,6 +19,21 @@ const countLabel = (values: Record<string, number>): string => {
   const entries = Object.entries(values).filter(([, count]) => count > 0);
   return entries.length > 0 ? entries.map(([state, count]) => `${count} ${state.replaceAll("_", " ")}`).join(", ") : "None";
 };
+
+const actionLabel = (kind: OperatorActionEligibility["kind"]): string =>
+  ({
+    sync_mailbox: "Sync mailbox",
+    sync_folder: "Sync folder",
+    discover_folders: "Rediscover folders",
+    verify_binding: "Verify binding",
+    rebuild_folder: "Rebuild folder",
+    hydrate_missing: "Hydrate missing bodies",
+    rebuild_search: "Rebuild search",
+    rebuild_threads: "Repair thread projection",
+    reconcile_effect: "Reconcile effect",
+    retry_command: "Retry work",
+    cancel_command: "Cancel work",
+  })[kind];
 
 export default function MailOperationalSettings(props: {
   mailbox: Mailbox;
@@ -28,6 +49,36 @@ export default function MailOperationalSettings(props: {
     | { kind: "discover_folders"; bindingId?: string }
     | { kind: "verify_binding"; bindingId: string };
   const [lastCommand, setLastCommand] = createSignal<OperationalCommand["kind"]>("sync_mailbox");
+  const actionKeys = new Map<string, string>();
+  const [operatorStatus, operatorStatusActions] = createResource(
+    () => props.mailbox.id,
+    async (mailboxId): Promise<MailboxOperatorOperations> => {
+      const response = await apiClient.mailboxes[":mailboxId"].operations.$get({ param: { mailboxId }, query: {} });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to load mailbox operator status"));
+      return response.json();
+    },
+  );
+  const loadMoreAttention = mutations.create<MailboxOperatorOperations, string>({
+    mutation: async (attentionCursor) => {
+      const response = await apiClient.mailboxes[":mailboxId"].operations.$get({
+        param: { mailboxId: props.mailbox.id },
+        query: { attentionCursor, attentionLimit: "100" },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to load more operator attention items"));
+      return response.json();
+    },
+    onSuccess: (page) => {
+      const current = operatorStatus();
+      if (!current) return;
+      const existing = new Set(current.attentionCommands.map((item) => item.id));
+      operatorStatusActions.mutate({
+        ...current,
+        attentionCommands: [...current.attentionCommands, ...page.attentionCommands.filter((item) => !existing.has(item.id))],
+        nextAttentionCursor: page.nextAttentionCursor,
+      });
+    },
+    onError: (error) => prompts.error(error.message),
+  });
   const updateSync = mutations.create<Mailbox, boolean>({
     mutation: async (syncEnabled) => {
       const response = await apiClient.mailboxes[":mailboxId"].$patch({
@@ -67,6 +118,25 @@ export default function MailOperationalSettings(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  const operatorCommand = mutations.create<void, OperatorActionEligibility>({
+    mutation: async (action) => {
+      const key = `${action.kind}:${JSON.stringify(action.target)}`;
+      const idempotencyKey = actionKeys.get(key) ?? crypto.randomUUID();
+      actionKeys.set(key, idempotencyKey);
+      const response = await apiClient.mailboxes[":mailboxId"]["operator-actions"].$post({
+        param: { mailboxId: props.mailbox.id },
+        json: { kind: action.kind, ...action.target, idempotencyKey } as never,
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to queue Mail operator action"));
+      actionKeys.delete(key);
+    },
+    onSuccess: async () => {
+      toast.success("Mail operator action queued");
+      await operatorStatusActions.refetch();
+      props.onWorkspaceChange();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
   const pause = async () => {
     const confirmed = await prompts.confirm(
@@ -76,7 +146,7 @@ export default function MailOperationalSettings(props: {
     if (confirmed) updateSync.mutate(false);
   };
 
-  const busy = () => props.reloading || updateSync.loading() || command.loading();
+  const busy = () => props.reloading || updateSync.loading() || command.loading() || operatorCommand.loading();
 
   return (
     <div class="flex flex-col gap-2">
@@ -154,6 +224,108 @@ export default function MailOperationalSettings(props: {
           <p class="mt-1 text-xs text-dimmed">{props.health.search.bm25Ready ? "BM25 ranking ready" : "PostgreSQL search available"}</p>
         </div>
       </div>
+
+      <Show when={operatorStatus()}>
+        {(status) => (
+          <section class="paper flex flex-col gap-3 p-3">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p class="text-xs font-semibold text-primary">Repair and projection coverage</p>
+                <p class="mt-1 text-xs text-dimmed">
+                  Hydration {status().coverage.hydration.covered}/{status().coverage.hydration.total}; search{" "}
+                  {status().coverage.search.covered}/{status().coverage.search.total}; threads {status().coverage.threads.covered}/
+                  {status().coverage.threads.total}
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <For
+                  each={status().actions.filter((action) => ["hydrate_missing", "rebuild_search", "rebuild_threads"].includes(action.kind))}
+                >
+                  {(action) => (
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      disabled={busy() || !action.eligible}
+                      title={action.reason ?? actionLabel(action.kind)}
+                      onClick={() => operatorCommand.mutate(action)}
+                    >
+                      <i class="ti ti-tool" aria-hidden="true" /> {actionLabel(action.kind)}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+            <Show when={status().folders.length > 0}>
+              <div class="flex flex-col border-t border-default pt-2">
+                <p class="pb-1 text-xs font-semibold text-primary">Folder maintenance</p>
+                <For each={status().folders}>
+                  {(folder) => (
+                    <div class="flex flex-wrap items-center gap-2 border-t border-default py-2 first:border-t-0">
+                      <span class="min-w-0 flex-1 break-all text-xs text-secondary">
+                        <span class="font-medium text-primary">{folder.id}</span> · {folder.discoveryState.replaceAll("_", " ")} ·{" "}
+                        {folder.syncStatus.replaceAll("_", " ")}
+                      </span>
+                      <For each={folder.actions}>
+                        {(action) => (
+                          <button
+                            type="button"
+                            class="btn-secondary btn-sm"
+                            disabled={busy() || !action.eligible}
+                            title={action.reason ?? actionLabel(action.kind)}
+                            onClick={() => operatorCommand.mutate(action)}
+                          >
+                            <i class="ti ti-tool" aria-hidden="true" /> {actionLabel(action.kind)}
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <Show when={status().attentionCommands.length > 0}>
+              <div class="flex flex-col divide-y divide-default border-t border-default">
+                <For each={status().attentionCommands}>
+                  {(item) => (
+                    <div class="flex flex-wrap items-center gap-2 py-2">
+                      <span class="min-w-0 flex-1 text-xs text-secondary">
+                        <span class="font-medium text-primary">{item.kind.replaceAll("_", " ")}</span> {item.state.replaceAll("_", " ")} ·{" "}
+                        {item.id}
+                        {item.errorCode ? ` · ${item.errorCode}` : ""}
+                      </span>
+                      <For each={item.actions.filter((action) => action.eligible)}>
+                        {(action) => (
+                          <button
+                            type="button"
+                            class="btn-secondary btn-sm"
+                            disabled={busy()}
+                            onClick={() => operatorCommand.mutate(action)}
+                          >
+                            {actionLabel(action.kind)}
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  )}
+                </For>
+                <Show when={status().nextAttentionCursor}>
+                  {(cursor) => (
+                    <button
+                      type="button"
+                      class="btn-simple btn-sm self-center"
+                      disabled={loadMoreAttention.loading()}
+                      onClick={() => loadMoreAttention.mutate(cursor())}
+                    >
+                      <i class={loadMoreAttention.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"} aria-hidden="true" />
+                      Load more attention items
+                    </button>
+                  )}
+                </Show>
+              </div>
+            </Show>
+          </section>
+        )}
+      </Show>
 
       <Show
         when={props.bindings.some((binding) => binding.state !== "revoked")}

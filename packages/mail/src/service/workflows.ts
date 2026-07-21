@@ -16,6 +16,10 @@ import {
   invokeWorkflow as materializeInvokeWorkflow,
   oneShotWorkflow as materializeOneShotWorkflow,
 } from "./workflow-materialization-service";
+import {
+  resumeWorkflowRun as resumeStoredWorkflowRun,
+  retryWorkflowRunTargets as retryStoredWorkflowRunTargets,
+} from "./workflow-run-service";
 import { enqueueWorkflowRun } from "./workflow-runtime";
 
 type WithoutWake<T extends { wake?: unknown }> = Omit<T, "wake">;
@@ -29,4 +33,8 @@ export const backfillWorkflow = (params: WithoutWake<Parameters<typeof materiali
 export const oneShotWorkflow = (params: WithoutWake<Parameters<typeof materializeOneShotWorkflow>[0]>) =>
   materializeOneShotWorkflow({ ...params, wake: enqueueWorkflowRun });
 export { preflightWorkflow } from "./workflow-preflight-service";
-export { cancelWorkflowRun, getWorkflowRun, listWorkflowRuns, listWorkflowRunTargets } from "./workflow-run-service";
+export { cancelWorkflowRun, getWorkflowRun, listWorkflowRuns, listWorkflowRunTargets, pauseWorkflowRun } from "./workflow-run-service";
+export const resumeWorkflowRun = (params: Omit<Parameters<typeof resumeStoredWorkflowRun>[0], "wake">) =>
+  resumeStoredWorkflowRun({ ...params, wake: enqueueWorkflowRun });
+export const retryWorkflowRunTargets = (params: Omit<Parameters<typeof retryStoredWorkflowRunTargets>[0], "wake">) =>
+  retryStoredWorkflowRunTargets({ ...params, wake: enqueueWorkflowRun });

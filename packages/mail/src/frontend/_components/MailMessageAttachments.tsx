@@ -1,7 +1,10 @@
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
+import { apiClient } from "../../api/client";
+import type { CreateAttachmentLinkInput, CreatedAttachmentLink } from "../../contracts";
 import { readApiError } from "./api-response";
+import { promptAttachmentLinkOptions } from "./attachment-link-ui";
 import { attachmentPreviewKind } from "./mail-message-presentation";
 
 const TEXT_PREVIEW_BYTES = 256 * 1024;
@@ -19,7 +22,12 @@ type Attachment = {
   sizeBytes: number;
 };
 
-export default function MailMessageAttachments(props: { mailboxId: string; messageId: string; attachments: Attachment[] }) {
+export default function MailMessageAttachments(props: {
+  mailboxId: string;
+  messageId: string;
+  attachments: Attachment[];
+  canShare?: boolean;
+}) {
   const [previewId, setPreviewId] = createSignal<string | null>(null);
   const [textPreview, setTextPreview] = createSignal("");
   const baseUrl = (attachment: Attachment) =>
@@ -53,6 +61,31 @@ export default function MailMessageAttachments(props: { mailboxId: string; messa
     }
   };
 
+  const createLink = mutations.create<CreatedAttachmentLink, { attachment: Attachment; input: CreateAttachmentLinkInput }>({
+    mutation: async ({ attachment, input }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"].attachments[":attachmentId"].links.$post({
+        param: { mailboxId: props.mailboxId, messageId: props.messageId, attachmentId: attachment.id },
+        json: input,
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not create attachment link"));
+      return response.json();
+    },
+    onSuccess: async ({ url }) => {
+      try {
+        await navigator.clipboard.writeText(url);
+        toast.success("Public link copied");
+      } catch {
+        await prompts.alert(url, { title: "Public attachment link" });
+      }
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const shareAttachment = async (attachment: Attachment) => {
+    const input = await promptAttachmentLinkOptions();
+    if (input) createLink.mutate({ attachment, input });
+  };
+
   return (
     <div class="mt-4">
       <p class="mb-2 text-xs font-medium uppercase text-dimmed">Received with this message</p>
@@ -78,6 +111,17 @@ export default function MailMessageAttachments(props: { mailboxId: string; messa
                     >
                       <i class={`ti ${previewId() === attachment.id ? "ti-eye-off" : "ti-eye"}`} aria-hidden="true" />
                       {previewId() === attachment.id ? "Hide" : "Preview"}
+                    </button>
+                  </Show>
+                  <Show when={props.canShare}>
+                    <button
+                      type="button"
+                      class="icon-btn icon-btn-sm"
+                      aria-label={`Share ${attachment.filename ?? "attachment"}`}
+                      disabled={createLink.loading()}
+                      onClick={() => void shareAttachment(attachment)}
+                    >
+                      <i class={`ti ${createLink.loading() ? "ti-loader-2 animate-spin" : "ti-link"}`} aria-hidden="true" />
                     </button>
                   </Show>
                   <a class="icon-btn icon-btn-sm" href={baseUrl(attachment)} aria-label={`Download ${attachment.filename ?? "attachment"}`}>

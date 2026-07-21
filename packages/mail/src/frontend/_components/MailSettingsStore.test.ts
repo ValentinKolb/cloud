@@ -135,8 +135,18 @@ describe("Mail composer pane preferences", () => {
         direction: "horizontal" as const,
         sizes: [1, 1],
         children: [
-          { type: "leaf" as const, id: "editor", elementIds: ["editor"], presentation: "single" as const },
-          { type: "leaf" as const, id: "preview", elementIds: ["preview"], presentation: "single" as const },
+          {
+            type: "leaf" as const,
+            id: "editor",
+            elementIds: ["editor"],
+            presentation: "single" as const,
+          },
+          {
+            type: "leaf" as const,
+            id: "preview",
+            elementIds: ["preview"],
+            presentation: "single" as const,
+          },
         ],
       },
     };

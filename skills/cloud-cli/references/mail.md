@@ -55,6 +55,8 @@ cld --json mail provider add \
   --secret-stdin
 ```
 
+Browser OAuth for configured Google and Microsoft providers starts in **Mail > Settings > Connections** because the callback is bound to an authenticated browser session and an HttpOnly nonce cookie. The CLI keeps manual credentials as the generic fallback. Use `cld mail provider discover <email>` to see whether browser OAuth is available and `cld mail provider list` to inspect the provider, OAuth state, and token expiry without exposing tokens.
+
 Attach the returned mailbox-owned connection and inspect the discovered binding:
 
 ```bash
@@ -155,6 +157,16 @@ cld --json mail conversation collaboration <conversation-id>
 cld --json mail conversation update <conversation-id> --revision <revision> --assignee <user-id> --status waiting
 cld --json mail conversation watch <conversation-id> <user-id>
 cld --json mail conversation activity <conversation-id>
+```
+
+Resolve permission-scoped Contacts and Spaces from server-derived conversation participants. Space mutations use the current conversation revision, and unlink remains available after Space access is revoked:
+
+```bash
+cld --json mail conversation context <conversation-id>
+cld --json mail conversation contact-history <conversation-id> <book-id-or-system> <contact-id>
+cld --json mail conversation space candidates <conversation-id> --search "Operations"
+cld --json mail conversation space link <conversation-id> <space-id> --revision <revision>
+cld --json mail conversation space unlink <conversation-id> <link-id> --revision <revision> --yes
 ```
 
 Create and manage Cloud-local tags independently from provider keywords. Conversation assignment is optimistic and uses the current conversation revision:
@@ -684,6 +696,7 @@ cld --json mail conversation star <conversation-id> --source <folder-id> --wait
 cld --json mail conversation archive <conversation-id> --source <folder-id> --wait
 cld --json mail conversation trash <conversation-id> --source <folder-id> --wait
 cld --json mail conversation junk <conversation-id> --source <folder-id> --wait
+cld --json mail conversation move <conversation-id> <destination-folder-id> --source <folder-id> --wait
 ```
 
 Remote deletion requires `--yes`:

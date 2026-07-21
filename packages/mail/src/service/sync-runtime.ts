@@ -9,6 +9,7 @@ import {
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { type JobCtx, job, ratelimit, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
+import { cleanupPublicAttachmentLinks } from "./attachment-links";
 import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
@@ -30,7 +31,9 @@ import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs
 import { hydrateMessageFromSource } from "./message-hydration";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
+import { cleanupProviderOAuthFlows } from "./provider-oauth-cleanup";
 import { mailProviderOperationMutex, withProviderOperationBarrier } from "./provider-operation-lock";
+import { reconcileMailStorageUsage } from "./storage-observability";
 import { getWorkflowSnapshot } from "./workflow-data";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 import { enqueueMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
@@ -103,15 +106,18 @@ const extendSyncLease = async (lock: SyncLock, phase: string): Promise<void> => 
   throw Object.assign(new Error(`Mail sync lease was lost ${phase}`), { code: "SYNC_LEASE_LOST" });
 };
 
-const loadResolvedRuntime = async (connectionId: string, secretRevision: number | null) => {
+const loadResolvedRuntimeSnapshot = async (connectionId: string, secretRevision: number | null) => {
   if (secretRevision == null)
     throw Object.assign(new Error("Resolved provider credential revision is missing"), { code: "CREDENTIAL_REVISION_MISSING" });
   const snapshot = await loadProviderConnectionRuntimeSnapshot(connectionId);
   if (snapshot.secretRevision !== secretRevision) {
     throw Object.assign(new Error("Provider credentials changed after binding selection"), { code: "CREDENTIAL_REVISION_CHANGED" });
   }
-  return snapshot.runtime;
+  return snapshot;
 };
+
+const loadResolvedRuntime = async (connectionId: string, secretRevision: number | null) =>
+  (await loadResolvedRuntimeSnapshot(connectionId, secretRevision)).runtime;
 
 const parseCursor = (value: EnvelopeCursor | string): EnvelopeCursor | null => {
   const parsed = typeof value === "string" ? (JSON.parse(value) as Partial<EnvelopeCursor>) : value;
@@ -681,6 +687,7 @@ const recordSyncFailure = async (params: {
   folderId: string;
   bindingId: string | null;
   secretRevision: number | null;
+  oauthTokenRevision: number | null;
   fence: FenceClaim | null;
   error: unknown;
 }): Promise<void> => {
@@ -706,16 +713,25 @@ const recordSyncFailure = async (params: {
       if (!folder) return;
       if (params.bindingId) {
         await tx`
-        UPDATE mail.provider_bindings
+        UPDATE mail.provider_bindings pb
         SET
           state = CASE WHEN ${authFailure} THEN 'degraded' ELSE state END,
           last_error_code = ${code},
           last_error_message = ${message}
-        WHERE id = ${params.bindingId}::uuid
-          AND state <> 'revoked'
+        FROM mail.provider_connections pc
+        WHERE pb.id = ${params.bindingId}::uuid
+          AND pc.id = pb.connection_id
+          AND pb.state <> 'revoked'
           AND (
             ${params.secretRevision}::integer IS NULL
-            OR verified_secret_revision = ${params.secretRevision}::integer
+            OR (
+              pc.secret_revision = ${params.secretRevision}::integer
+              AND pb.verified_secret_revision = ${params.secretRevision}::integer
+              AND (
+                ${params.oauthTokenRevision}::bigint IS NULL
+                OR pc.oauth_token_revision = ${params.oauthTokenRevision}::bigint
+              )
+            )
           )
       `;
         if (authFailure) {
@@ -731,6 +747,10 @@ const recordSyncFailure = async (params: {
               OR (
                 pc.secret_revision = ${params.secretRevision}::integer
                 AND pb.verified_secret_revision = ${params.secretRevision}::integer
+                AND (
+                  ${params.oauthTokenRevision}::bigint IS NULL
+                  OR pc.oauth_token_revision = ${params.oauthTokenRevision}::bigint
+                )
               )
             )
         `;
@@ -754,6 +774,10 @@ const recordSyncFailure = async (params: {
             OR pb.id <> ${params.bindingId}::uuid
             OR ${params.secretRevision}::integer IS NULL
             OR pc.secret_revision <> ${params.secretRevision}::integer
+            OR (
+              ${params.oauthTokenRevision}::bigint IS NOT NULL
+              AND pc.oauth_token_revision <> ${params.oauthTokenRevision}::bigint
+            )
           )
       ) AS exists
     `;
@@ -1146,6 +1170,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
   let runId: string | null = null;
   let selectedBindingId: string | null = null;
   let selectedSecretRevision: number | null = null;
+  let selectedOAuthTokenRevision: number | null = null;
   let activeFence: FenceClaim | null = null;
   try {
     return await withLeaseHeartbeat({
@@ -1185,7 +1210,9 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         const fence = await claimFence(folder.remote_resource_id, execution.data.bindingId, "incremental");
         activeFence = fence;
         runId = fence.runId;
-        const runtime = await loadResolvedRuntime(execution.data.connectionId, secretRevision);
+        const runtimeSnapshot = await loadResolvedRuntimeSnapshot(execution.data.connectionId, secretRevision);
+        selectedOAuthTokenRevision = runtimeSnapshot.oauthTokenRevision;
+        const runtime = runtimeSnapshot.runtime;
         const status = await imapSmtpConnector.getFolderStatus(runtime, folderExecution.path);
         await extendSyncLease(lock, "after status refresh");
         const currentHighUid = Math.max(0, status.uidNext - 1);
@@ -1262,6 +1289,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         folderId,
         bindingId: selectedBindingId,
         secretRevision: selectedSecretRevision,
+        oauthTokenRevision: selectedOAuthTokenRevision,
         fence: activeFence,
         error,
       });
@@ -1739,8 +1767,8 @@ export const enqueueFolderReconciliation = async (folderId: string, fromUid: num
   await submitSyncFolderJob(folderId);
 };
 
-export const enqueueBindingRediscovery = async (bindingId: string): Promise<void> => {
-  await submitRediscoveryJob(bindingId, false);
+export const enqueueBindingRediscovery = async (bindingId: string, allowCredentialRevision = false): Promise<void> => {
+  await submitRediscoveryJob(bindingId, allowCredentialRevision);
 };
 
 const mailRuntimeLifecycle = createRuntimeLifecycle({
@@ -1768,9 +1796,22 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
         draftUploads: await deleteAbandonedDraftAttachmentUploads(),
         abandoned: await deleteAbandonedBlobUploads(),
         orphaned: await deleteOrphanedBlobs(),
+        attachmentLinks: await cleanupPublicAttachmentLinks(),
+        oauthFlows: await cleanupProviderOAuthFlows(),
       }),
     });
+    await mailScheduler.create({
+      id: "mail:storage-usage",
+      cron: "23 * * * *",
+      meta: { appId: "mail", family: "mail:storage", label: "Mail storage usage reconciliation" },
+      process: reconcileMailStorageUsage,
+    });
     mailScheduler.start();
+    void mailScheduler.runNow({ id: "mail:storage-usage" }).catch((error) => {
+      log.warn("Could not queue initial Mail storage reconciliation", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     await submitDueWork();
   },
   stop: async () => {

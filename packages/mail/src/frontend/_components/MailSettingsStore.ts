@@ -32,12 +32,7 @@ const DEFAULT_MAIL_USER_PREFERENCES: MailUserPreferences = {
 
 const DEFAULT_SETTINGS: StoredMailSettings = { mailboxes: {} };
 
-const isComposerPanesNode = (
-  value: unknown,
-  seenNodeIds: Set<string>,
-  seenElementIds: Set<string>,
-  depth = 0,
-): value is PanesNode => {
+const isComposerPanesNode = (value: unknown, seenNodeIds: Set<string>, seenElementIds: Set<string>, depth = 0): value is PanesNode => {
   if (!value || typeof value !== "object" || depth > 4) return false;
   const node = value as Record<string, unknown>;
   if (typeof node.id !== "string" || node.id.length === 0 || node.id.length > 100 || seenNodeIds.has(node.id)) return false;
@@ -47,10 +42,7 @@ const isComposerPanesNode = (
       !Array.isArray(node.elementIds) ||
       node.elementIds.length === 0 ||
       node.elementIds.some(
-        (id) =>
-          typeof id !== "string" ||
-          !COMPOSER_PANE_IDS.includes(id as (typeof COMPOSER_PANE_IDS)[number]) ||
-          seenElementIds.has(id),
+        (id) => typeof id !== "string" || !COMPOSER_PANE_IDS.includes(id as (typeof COMPOSER_PANE_IDS)[number]) || seenElementIds.has(id),
       )
     ) {
       return false;

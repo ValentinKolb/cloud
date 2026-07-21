@@ -71,7 +71,11 @@ steps:
 const effectBudget = {
   maxTargets: 10,
   maxMoves: 0,
+  maxCopies: 0,
   maxSends: 0,
+  maxDrafts: 0,
+  maxFlagChanges: 0,
+  maxNotifications: 0,
   maxKeywordChanges: 0,
   maxCollaborationChanges: 0,
 };

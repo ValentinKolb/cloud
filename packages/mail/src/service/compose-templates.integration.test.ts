@@ -401,7 +401,7 @@ suite("mail compose templates", () => {
       FROM mail.compose_signature_defaults
       WHERE mailbox_id = ${mailboxId}::uuid
         AND sender_identity_id = ${senderIdentityId}::uuid
-        AND user_id = ${(owner.actor.kind === "user" ? owner.actor.user.id : "")}::uuid
+        AND user_id = ${owner.actor.kind === "user" ? owner.actor.user.id : ""}::uuid
     `;
     if (!current) throw new Error("Current signature default is missing");
 

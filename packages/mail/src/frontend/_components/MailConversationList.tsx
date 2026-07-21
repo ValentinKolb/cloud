@@ -5,7 +5,10 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import { MAIL_SEARCH_PARAMETER, parseMailSearchState } from "../../search-state";
 import type { SavedConversationView } from "../../service/saved-views";
+import MailBulkActionBar from "./MailBulkActionBar";
 import { openMailSearchBuilder } from "./MailSearchBuilder";
+import type { MailTriageCommandId } from "./mail-command-registry";
+import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";
 import { buildMailListHref, buildMailSelectionHref, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
@@ -27,6 +30,7 @@ export default function MailConversationList(props: {
   error: string | null;
   selectedConversationId: string | null;
   selectedMessageId: string | null;
+  selectedConversationIds: ReadonlySet<string>;
   nextCursor: string | null;
   dateConfig: DateContext;
   canWrite: boolean;
@@ -35,7 +39,13 @@ export default function MailConversationList(props: {
   loading: boolean;
   onCollapse: () => void;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
-  onNavigateItem: (event: LinkNavigateEvent, item: MailListItem) => void | Promise<void>;
+  onNavigateItem: (event: LinkNavigateEvent, item: MailListItem, activation: "keyboard" | "pointer") => void | Promise<void>;
+  onToggleSelection: (item: MailListItem, range: boolean) => void;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
+  onBulkCommand: (commandId: MailTriageCommandId) => void | Promise<void>;
+  onOpenCommands: () => void | Promise<void>;
+  onPrefetch: (item: MailListItem) => void;
   onOpenHref: (href: string, replace?: boolean) => void | Promise<void>;
   onLoadMore: (href: string) => void | Promise<void>;
 }) {
@@ -50,6 +60,13 @@ export default function MailConversationList(props: {
     return state ? summarizeMailSearchExpression(state.expression) : null;
   });
   const searchActive = () => Boolean(props.query.trim() || requestUrl().searchParams.has(MAIL_SEARCH_PARAMETER) || props.activeSavedViewId);
+  const selectableCount = createMemo(() => props.items.filter((item) => Boolean(item.conversationId)).length);
+  const allSelected = createMemo(() => {
+    const selectableIds = props.items
+      .flatMap((item) => (item.conversationId ? [item.conversationId] : []))
+      .slice(0, MAX_MAIL_CONVERSATION_SELECTION);
+    return selectableIds.length > 0 && selectableIds.every((id) => props.selectedConversationIds.has(id));
+  });
 
   createEffect(() => setSearchValue(props.query));
 
@@ -108,34 +125,55 @@ export default function MailConversationList(props: {
   return (
     <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface-subtle)]">
       <header class="flex shrink-0 flex-col gap-2 p-3">
-        <div class="flex min-w-0 items-center gap-2">
-          <div class="min-w-0 flex-1">
-            <h1 class="truncate text-base font-semibold text-primary">{props.title}</h1>
-            <p class="flex items-center gap-1 text-xs text-dimmed">
-              {props.items.length} shown
-              <Show when={props.loading}>
-                <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
-                <span class="sr-only">Loading view</span>
-              </Show>
-            </p>
-          </div>
-          <Tooltip content="Search filters">
-            <button
-              type="button"
-              class={structuredSummary() ? "icon-btn text-[var(--app-accent)]" : "icon-btn"}
-              aria-label="Search filters"
-              aria-pressed={Boolean(structuredSummary())}
-              onClick={openAdvancedSearch}
-            >
-              <i class="ti ti-adjustments-search" aria-hidden="true" />
-            </button>
-          </Tooltip>
-          <Tooltip content="Hide conversation list">
-            <button type="button" class="icon-btn hidden lg:inline-flex" aria-label="Hide conversation list" onClick={props.onCollapse}>
-              <i class="ti ti-layout-sidebar-left-collapse" aria-hidden="true" />
-            </button>
-          </Tooltip>
-        </div>
+        <Show
+          when={props.selectedConversationIds.size > 0}
+          fallback={
+            <div class="flex min-w-0 items-center gap-2">
+              <div class="min-w-0 flex-1">
+                <h1 class="truncate text-base font-semibold text-primary">{props.title}</h1>
+                <p class="flex items-center gap-1 text-xs text-dimmed">
+                  {props.items.length} shown
+                  <Show when={props.loading}>
+                    <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+                    <span class="sr-only">Loading view</span>
+                  </Show>
+                </p>
+              </div>
+              <Tooltip content="Mail commands">
+                <button type="button" class="icon-btn" aria-label="Search Mail commands" onClick={() => void props.onOpenCommands()}>
+                  <i class="ti ti-command" aria-hidden="true" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Search filters">
+                <button
+                  type="button"
+                  class={structuredSummary() ? "icon-btn text-[var(--app-accent)]" : "icon-btn"}
+                  aria-label="Search filters"
+                  aria-pressed={Boolean(structuredSummary())}
+                  onClick={openAdvancedSearch}
+                >
+                  <i class="ti ti-adjustments-search" aria-hidden="true" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Hide conversation list">
+                <button type="button" class="icon-btn hidden lg:inline-flex" aria-label="Hide conversation list" onClick={props.onCollapse}>
+                  <i class="ti ti-layout-sidebar-left-collapse" aria-hidden="true" />
+                </button>
+              </Tooltip>
+            </div>
+          }
+        >
+          <MailBulkActionBar
+            selectedCount={props.selectedConversationIds.size}
+            selectableCount={selectableCount()}
+            allSelected={allSelected()}
+            busy={props.loading}
+            onSelectAll={props.onSelectAll}
+            onClear={props.onClearSelection}
+            onCommand={props.onBulkCommand}
+            onOpenCommands={props.onOpenCommands}
+          />
+        </Show>
         <form class="flex gap-1" role="search" onSubmit={submitSearch}>
           <TextInput
             type="search"
@@ -206,65 +244,102 @@ export default function MailConversationList(props: {
             }
           />
         ) : (
-          <div class="flex flex-col gap-0.5">
+          <div class="flex flex-col gap-0.5" role="list" aria-label={`${props.title} conversations`}>
             <For each={props.items}>
               {(item) => {
                 const selected = item.conversationId
                   ? item.conversationId === props.selectedConversationId
                   : item.id === props.selectedMessageId;
                 const state = statusLabel(item);
+                let activation: "keyboard" | "pointer" = "keyboard";
+                const bulkSelected = () => Boolean(item.conversationId && props.selectedConversationIds.has(item.conversationId));
                 return (
-                  <Link
-                    href={buildMailSelectionHref(requestUrl(), item)}
-                    onNavigate={(event) => props.onNavigateItem(event, item)}
-                    scroll="preserve"
-                    aria-current={selected ? "page" : undefined}
-                    class="mail-list-row focus-ui"
-                    classList={{ "mail-list-row-unread": item.unread }}
-                    title={`${item.participantSummary || "Unknown sender"}: ${item.subject || "(no subject)"}`}
-                    draggable={props.canWrite && Boolean(item.conversationId && item.sourceFolderId)}
-                    onDragStart={(event) => {
-                      const transfer = event.dataTransfer;
-                      if (!item.conversationId || !item.sourceFolderId || !transfer) return event.preventDefault();
-                      transfer.effectAllowed = "move";
-                      transfer.setData(
-                        "application/x-cloud-mail-conversation",
-                        JSON.stringify({ conversationId: item.conversationId, sourceFolderId: item.sourceFolderId }),
-                      );
-                    }}
+                  <div
+                    class="mail-list-entry"
+                    classList={{ "mail-list-entry-selected": bulkSelected() }}
+                    role="listitem"
+                    data-conversation-id={item.conversationId ?? undefined}
                   >
-                    <span
-                      class={`h-2 w-2 rounded-full ${item.unread ? "bg-[var(--app-accent)]" : "ring-1 ring-[var(--ui-border-strong)]"}`}
-                      aria-hidden="true"
-                    />
-                    <span class="truncate text-sm text-primary">{item.participantSummary || "Unknown sender"}</span>
-                    <span class="min-w-0 truncate text-xs text-dimmed">
-                      <Show when={item.primaryReference}>
-                        <span class="mr-1 font-mono text-[0.6875rem] text-dimmed">{item.primaryReference}</span>
-                      </Show>
-                      <span class="font-medium text-primary">{item.subject || "(no subject)"}</span>
-                      <Show when={item.preview}>
-                        <span aria-hidden="true"> · </span>
-                        <span>{item.preview}</span>
-                      </Show>
-                    </span>
-                    <span class="flex min-w-0 items-center justify-end gap-1.5 text-xs text-dimmed">
-                      <Show when={state}>
-                        <span class="hidden max-w-20 truncate xl:inline">{state}</span>
-                      </Show>
-                      <Show when={item.hasAttachments}>
-                        <i class="ti ti-paperclip shrink-0" aria-hidden="true" />
-                        <span class="sr-only">Has attachments</span>
-                      </Show>
-                      <time
-                        class="shrink-0 tabular-nums"
-                        dateTime={item.latestMessageAt}
-                        title={dates.formatDateTime(item.latestMessageAt, props.dateConfig)}
-                      >
-                        {dates.formatDateTimeRelative(item.latestMessageAt, props.dateConfig)}
-                      </time>
-                    </span>
-                  </Link>
+                    <Show when={item.conversationId}>
+                      <input
+                        type="checkbox"
+                        class="mail-list-checkbox h-4 w-4"
+                        checked={bulkSelected()}
+                        aria-label={`${bulkSelected() ? "Deselect" : "Select"} ${item.subject || "conversation"}`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          props.onToggleSelection(item, event.shiftKey);
+                        }}
+                      />
+                    </Show>
+                    <Link
+                      href={buildMailSelectionHref(requestUrl(), item)}
+                      onNavigate={(event) => props.onNavigateItem(event, item, activation)}
+                      scroll="preserve"
+                      aria-current={selected ? "page" : undefined}
+                      class="mail-list-row focus-ui"
+                      classList={{ "mail-list-row-unread": item.unread }}
+                      title={`${item.participantSummary || "Unknown sender"}: ${item.subject || "(no subject)"}`}
+                      draggable={props.canWrite && Boolean(item.conversationId && item.sourceFolderId)}
+                      onClick={(event) => {
+                        activation = event.detail === 0 ? "keyboard" : "pointer";
+                        if (!item.conversationId || (!event.shiftKey && !event.metaKey && !event.ctrlKey)) return;
+                        event.preventDefault();
+                        props.onToggleSelection(item, event.shiftKey);
+                      }}
+                      onFocus={() => props.onPrefetch(item)}
+                      onPointerEnter={() => props.onPrefetch(item)}
+                      onDragStart={(event) => {
+                        const transfer = event.dataTransfer;
+                        if (!item.conversationId || !item.sourceFolderId || !transfer) return event.preventDefault();
+                        transfer.effectAllowed = "move";
+                        transfer.setData(
+                          "application/x-cloud-mail-conversation",
+                          JSON.stringify({
+                            conversationId: item.conversationId,
+                            sourceFolderId: item.sourceFolderId,
+                          }),
+                        );
+                      }}
+                    >
+                      <span
+                        class={`h-2 w-2 rounded-full ${item.unread ? "bg-[var(--app-accent)]" : "ring-1 ring-[var(--ui-border-strong)]"}`}
+                        aria-hidden="true"
+                      />
+                      <span class="sr-only">{item.unread ? "Unread conversation. " : "Read conversation. "}</span>
+                      <span class="truncate text-sm text-primary">{item.participantSummary || "Unknown sender"}</span>
+                      <span class="min-w-0 truncate text-xs text-dimmed">
+                        <Show when={item.primaryReference}>
+                          <span class="mr-1 font-mono text-[0.6875rem] text-dimmed">{item.primaryReference}</span>
+                        </Show>
+                        <span class="font-medium text-primary">{item.subject || "(no subject)"}</span>
+                        <Show when={item.preview}>
+                          <span aria-hidden="true"> · </span>
+                          <span>{item.preview}</span>
+                        </Show>
+                      </span>
+                      <span class="flex min-w-0 items-center justify-end gap-1.5 text-xs text-dimmed">
+                        <Show when={state}>
+                          <span class="hidden max-w-20 truncate xl:inline" aria-hidden="true">
+                            {state}
+                          </span>
+                          <span class="sr-only">Status: {state}. </span>
+                        </Show>
+                        <Show when={item.hasAttachments}>
+                          <i class="ti ti-paperclip shrink-0" aria-hidden="true" />
+                          <span class="sr-only">Has attachments. </span>
+                        </Show>
+                        <time
+                          class="shrink-0 tabular-nums"
+                          dateTime={item.latestMessageAt}
+                          title={dates.formatDateTime(item.latestMessageAt, props.dateConfig)}
+                        >
+                          {dates.formatDateTimeRelative(item.latestMessageAt, props.dateConfig)}
+                        </time>
+                      </span>
+                    </Link>
+                  </div>
                 );
               }}
             </For>

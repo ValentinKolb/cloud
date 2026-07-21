@@ -13,9 +13,7 @@ const collaborationTopic = topic<MailCollaborationEvent>({
   limits: { payloadBytes: 8_000 },
 });
 
-export const publishMailCollaborationEvent = async (
-  event: Omit<MailConversationChangedEvent, "type" | "at">,
-): Promise<void> => {
+export const publishMailCollaborationEvent = async (event: Omit<MailConversationChangedEvent, "type" | "at">): Promise<void> => {
   const payload: MailConversationChangedEvent = {
     type: "conversation.changed",
     ...event,
@@ -38,9 +36,7 @@ export const publishMailCollaborationEvent = async (
   }
 };
 
-export const publishMailMailboxEvent = async (
-  event: Omit<MailMailboxChangedEvent, "type" | "at">,
-): Promise<void> => {
+export const publishMailMailboxEvent = async (event: Omit<MailMailboxChangedEvent, "type" | "at">): Promise<void> => {
   const payload: MailMailboxChangedEvent = {
     type: "mailbox.changed",
     ...event,

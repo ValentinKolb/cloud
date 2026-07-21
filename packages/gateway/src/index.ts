@@ -51,7 +51,10 @@ export default {
   port: gatewayRouter.port,
   async fetch(
     req: Request,
-    server: { upgrade: (req: Request, options?: { data?: unknown; headers?: Record<string, string> }) => boolean },
+    server: {
+      upgrade: (req: Request, options?: { data?: unknown; headers?: Record<string, string> }) => boolean;
+      requestIP: (req: Request) => { address: string } | null;
+    },
   ): Promise<Response | undefined> {
     const url = new URL(req.url);
 
@@ -61,9 +64,15 @@ export default {
 
     if (url.pathname === "/health") return health();
 
-    return proxyRequest(req, getRouteTable(), stats, (msg, meta) => {
-      log.info(msg, meta);
-    });
+    return proxyRequest(
+      req,
+      getRouteTable(),
+      stats,
+      (msg, meta) => {
+        log.info(msg, meta);
+      },
+      server.requestIP(req)?.address ?? null,
+    );
   },
   websocket: websocketHandlers,
 };

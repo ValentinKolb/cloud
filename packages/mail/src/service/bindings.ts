@@ -619,6 +619,7 @@ const markRediscoveryFailure = async (
   bindingId: string,
   connectionId: string,
   expectedSecretRevision: number,
+  expectedOAuthTokenRevision: number | null,
   error: unknown,
 ): Promise<void> => {
   const code = providerErrorCode(error, "PROVIDER_REDISCOVERY_FAILED");
@@ -631,6 +632,10 @@ const markRediscoveryFailure = async (
           SET status = 'degraded', last_error_code = ${code}, last_error_message = ${message}
           WHERE id = ${connectionId}::uuid
             AND secret_revision = ${expectedSecretRevision}
+            AND (
+              ${expectedOAuthTokenRevision}::bigint IS NULL
+              OR oauth_token_revision = ${expectedOAuthTokenRevision}::bigint
+            )
             AND status IN ('active', 'degraded')
           RETURNING id
         `;
@@ -649,10 +654,17 @@ const markRediscoveryFailure = async (
     : await sql<{ mailbox_id: string }[]>`
         UPDATE mail.provider_bindings binding
         SET state = 'degraded', last_error_code = ${code}, last_error_message = ${message}
-        FROM mail.remote_resources resource
+        FROM mail.remote_resources resource, mail.provider_connections connection
         WHERE binding.id = ${bindingId}::uuid
           AND binding.state IN ('active', 'degraded')
           AND resource.id = binding.remote_resource_id
+          AND connection.id = binding.connection_id
+          AND connection.secret_revision = ${expectedSecretRevision}
+          AND binding.verified_secret_revision = ${expectedSecretRevision}
+          AND (
+            ${expectedOAuthTokenRevision}::bigint IS NULL
+            OR connection.oauth_token_revision = ${expectedOAuthTokenRevision}::bigint
+          )
         RETURNING resource.mailbox_id
       `;
   for (const mailboxId of new Set(affected.map((row) => row.mailbox_id))) {
@@ -719,8 +731,10 @@ export const rediscoverProviderBinding = async (params: {
       code: "CREDENTIAL_REVERIFY_REQUIRED",
     });
   }
+  let expectedOAuthTokenRevision: number | null = null;
   try {
     const snapshot = await loadProviderConnectionRuntimeSnapshot(current.connection_id);
+    expectedOAuthTokenRevision = snapshot.oauthTokenRevision;
     if (snapshot.secretRevision !== current.secret_revision) {
       throw Object.assign(new Error("Provider credentials changed during rediscovery"), { code: "CREDENTIAL_REVISION_CHANGED" });
     }
@@ -869,7 +883,7 @@ export const rediscoverProviderBinding = async (params: {
     return result;
   } catch (error) {
     if (!REDISCOVERY_SUPERSEDED_CODES.has(providerErrorCode(error, "PROVIDER_REDISCOVERY_FAILED"))) {
-      await markRediscoveryFailure(params.bindingId, current.connection_id, current.secret_revision, error);
+      await markRediscoveryFailure(params.bindingId, current.connection_id, current.secret_revision, expectedOAuthTokenRevision, error);
     }
     throw error;
   }

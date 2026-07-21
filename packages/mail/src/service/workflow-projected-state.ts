@@ -22,23 +22,25 @@ export const createMailWorkflowProjectedState = (
 
 export const applyMailMessageTransition = (
   message: MailWorkflowProjectedObject,
-  action: "addKeyword" | "removeKeyword" | "moveMessage",
+  action: "addKeyword" | "removeKeyword" | "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage" | "addFlag" | "removeFlag",
   value: WorkflowJsonValue,
 ): boolean => {
-  if (action === "moveMessage") {
+  if (action === "copyMessage") return true;
+  if (action === "moveMessage" || action === "archiveMessage" || action === "trashMessage") {
     if (typeof value !== "string" || message.folderId === value) return false;
     message.folderId = value;
     return true;
   }
   if (typeof value !== "string") return false;
-  const current = Array.isArray(message.keywords) ? message.keywords.filter((item): item is string => typeof item === "string") : [];
+  const field = action === "addFlag" || action === "removeFlag" ? "flags" : "keywords";
+  const current = Array.isArray(message[field]) ? message[field].filter((item): item is string => typeof item === "string") : [];
   const index = current.findIndex((item) => item.toLocaleLowerCase("und") === value.toLocaleLowerCase("und"));
-  if (action === "addKeyword" && index < 0) {
-    message.keywords = [...current, value].sort((left, right) => left.localeCompare(right, "und"));
+  if ((action === "addKeyword" || action === "addFlag") && index < 0) {
+    message[field] = [...current, value].sort((left, right) => left.localeCompare(right, "und"));
     return true;
   }
-  if (action === "removeKeyword" && index >= 0) {
-    message.keywords = current.filter((_, itemIndex) => itemIndex !== index);
+  if ((action === "removeKeyword" || action === "removeFlag") && index >= 0) {
+    message[field] = current.filter((_, itemIndex) => itemIndex !== index);
     return true;
   }
   return false;
@@ -64,7 +66,7 @@ export const applyMailConversationTransition = (
 
 export const mailMessageTransitionChanges = (
   message: MailWorkflowProjectedObject,
-  action: "addKeyword" | "removeKeyword" | "moveMessage",
+  action: "addKeyword" | "removeKeyword" | "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage" | "addFlag" | "removeFlag",
   value: WorkflowJsonValue,
 ): boolean => applyMailMessageTransition(structuredClone(message), action, value);
 

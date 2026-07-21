@@ -1,6 +1,7 @@
 export type MailWorkflowFolderCatalogEntry = {
   id: string;
   name: string;
+  role?: string;
 };
 
 export type MailWorkflowAssignableUserCatalogEntry = {
@@ -13,10 +14,15 @@ export type MailWorkflowSenderIdentityCatalogEntry = {
   name: string;
 };
 
+export type MailWorkflowLocalTagCatalogEntry = { id: string; name: string };
+export type MailWorkflowNotificationUserCatalogEntry = { id: string; name: string };
+
 export type MailWorkflowCatalogEntry =
   | MailWorkflowFolderCatalogEntry
   | MailWorkflowAssignableUserCatalogEntry
-  | MailWorkflowSenderIdentityCatalogEntry;
+  | MailWorkflowSenderIdentityCatalogEntry
+  | MailWorkflowLocalTagCatalogEntry
+  | MailWorkflowNotificationUserCatalogEntry;
 
 export type MailWorkflowCatalogIndex<T extends MailWorkflowCatalogEntry> = {
   refs: Map<string, T>;
@@ -27,18 +33,24 @@ export type MailWorkflowCatalog = {
   folders: MailWorkflowCatalogIndex<MailWorkflowFolderCatalogEntry>;
   assignableUsers: MailWorkflowCatalogIndex<MailWorkflowAssignableUserCatalogEntry>;
   senderIdentities: MailWorkflowCatalogIndex<MailWorkflowSenderIdentityCatalogEntry>;
+  localTags: MailWorkflowCatalogIndex<MailWorkflowLocalTagCatalogEntry>;
+  notificationUsers: MailWorkflowCatalogIndex<MailWorkflowNotificationUserCatalogEntry>;
 };
 
 export type MailWorkflowCatalogSnapshot = {
   folders: MailWorkflowFolderCatalogEntry[];
   assignableUsers: MailWorkflowAssignableUserCatalogEntry[];
   senderIdentities?: MailWorkflowSenderIdentityCatalogEntry[];
+  localTags?: MailWorkflowLocalTagCatalogEntry[];
+  notificationUsers?: MailWorkflowNotificationUserCatalogEntry[];
 };
 
 export type MailWorkflowCatalogInput = {
   folders: MailWorkflowFolderCatalogEntry[];
   assignableUsers: MailWorkflowAssignableUserCatalogEntry[];
   senderIdentities?: MailWorkflowSenderIdentityCatalogEntry[];
+  localTags?: MailWorkflowLocalTagCatalogEntry[];
+  notificationUsers?: MailWorkflowNotificationUserCatalogEntry[];
 };
 
 const compareIds = (left: MailWorkflowCatalogEntry, right: MailWorkflowCatalogEntry): number =>
@@ -60,6 +72,8 @@ export const buildMailWorkflowCatalog = (input: MailWorkflowCatalogInput): MailW
   folders: buildIndex(input.folders),
   assignableUsers: buildIndex(input.assignableUsers),
   senderIdentities: buildIndex(input.senderIdentities ?? []),
+  localTags: buildIndex(input.localTags ?? []),
+  notificationUsers: buildIndex(input.notificationUsers ?? []),
 });
 
 const uniqueEntries = <T extends MailWorkflowCatalogEntry>(index: MailWorkflowCatalogIndex<T>): T[] =>
@@ -69,12 +83,16 @@ export const snapshotMailWorkflowCatalog = (catalog: MailWorkflowCatalog): MailW
   folders: uniqueEntries(catalog.folders),
   assignableUsers: uniqueEntries(catalog.assignableUsers),
   senderIdentities: uniqueEntries(catalog.senderIdentities),
+  localTags: uniqueEntries(catalog.localTags),
+  notificationUsers: uniqueEntries(catalog.notificationUsers),
 });
 
 export const restoreMailWorkflowCatalog = (snapshot: MailWorkflowCatalogSnapshot): MailWorkflowCatalog =>
   buildMailWorkflowCatalog({
     ...snapshot,
     senderIdentities: snapshot.senderIdentities ?? [],
+    localTags: snapshot.localTags ?? [],
+    notificationUsers: snapshot.notificationUsers ?? [],
   });
 
 export const getMailWorkflowCatalogRef = <T extends MailWorkflowCatalogEntry>(

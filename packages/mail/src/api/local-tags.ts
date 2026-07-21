@@ -1,12 +1,7 @@
 import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import {
-  createLocalTagSchema,
-  deleteLocalTagSchema,
-  setConversationLocalTagsSchema,
-  updateLocalTagSchema,
-} from "../contracts";
+import { createLocalTagSchema, deleteLocalTagSchema, setConversationLocalTagsSchema, updateLocalTagSchema } from "../contracts";
 import { localTags, type MailRequestContext } from "../service";
 
 const mailboxParamSchema = z.object({ mailboxId: z.string().uuid() });

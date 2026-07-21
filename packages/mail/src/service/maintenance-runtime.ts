@@ -3,9 +3,10 @@ import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { z } from "zod";
-import type { CommandState, MaintenanceCommandInput } from "../contracts";
+import { type CommandState, type MaintenanceCommandInput, maintenanceCommandInputSchema } from "../contracts";
 import { commandStillAuthorized, type StoredCommandAuthorization } from "./command-authorization";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
+import { executeOperatorAction, OPERATOR_MAINTENANCE_KINDS } from "./operator-actions";
 import { enqueueFolderSync, enqueueMailboxSync, enqueueMessageHydration, executeBindingRediscovery } from "./sync-runtime";
 
 const MAINTENANCE_JOB_LEASE_MS = 6 * 60_000;
@@ -23,14 +24,7 @@ type DbMaintenanceCommand = StoredCommandAuthorization & {
   attempt: number;
 };
 
-const MAINTENANCE_KINDS: MaintenanceKind[] = [
-  "sync_mailbox",
-  "sync_folder",
-  "discover_folders",
-  "verify_binding",
-  "rebuild_folder",
-  "hydrate_missing",
-];
+const MAINTENANCE_KINDS: MaintenanceKind[] = [...OPERATOR_MAINTENANCE_KINDS];
 
 const parseRecord = (value: JsonRecord | string): JsonRecord => (typeof value === "string" ? (JSON.parse(value) as JsonRecord) : value);
 
@@ -237,6 +231,13 @@ const executeMaintenanceWork = async (
     return executeFolderRebuild(command, folderId, enqueueWork);
   }
   if (command.kind === "hydrate_missing") return executeHydrationRetry(command.mailbox_id, enqueueWork);
+  if (["rebuild_search", "rebuild_threads", "reconcile_effect", "retry_command", "cancel_command"].includes(command.kind)) {
+    return executeOperatorAction({
+      commandId: command.id,
+      mailboxId: command.mailbox_id,
+      input: maintenanceCommandInputSchema.parse({ kind: command.kind, ...target, idempotencyKey: `execute:${command.id}` }),
+    });
+  }
 
   const { bindingId } = bindingTargetSchema.parse(target);
   const bindingIds = bindingId

@@ -1,14 +1,26 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { encryptSecret } from "@valentinkolb/cloud/services";
-import type { WorkflowInvocation, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { executeWorkflowPlan, type WorkflowRuntimeRepositoryPort } from "@valentinkolb/cloud/workflows/runtime";
+import type {
+  WorkflowInvocation,
+  WorkflowJsonValue,
+} from "@valentinkolb/cloud/workflows";
+import {
+  executeWorkflowPlan,
+  type WorkflowRuntimeRepositoryPort,
+} from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
-import type { MailWorkflowDetail, MailWorkflowPreflight, MailWorkflowRun, WorkflowTargetQuery } from "../contracts";
+import type {
+  MailWorkflowDetail,
+  MailWorkflowPreflight,
+  MailWorkflowRun,
+  WorkflowTargetQuery,
+} from "../contracts";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
 import { prepareWorkflowPreflight } from "./workflow-preflight-service";
+import { retryWorkflowRunTargets } from "./workflow-run-service";
 import { processMailWorkflowTarget } from "./workflow-runtime";
 import { createMailWorkflowActionPorts } from "./workflow-runtime-actions";
 import {
@@ -26,6 +38,7 @@ import {
   createWorkflowVersion,
   dryRunWorkflow,
   getWorkflowRun,
+  listWorkflowRuns,
   listWorkflowRunTargets,
   listWorkflowVersions,
   oneShotWorkflow,
@@ -34,11 +47,14 @@ import {
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
-type ResultLike<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
+type ResultLike<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: string; message: string } };
 type TestUser = { id: string; uid: string; displayName: string };
 
 const unwrap = <T>(result: ResultLike<T>): T => {
-  if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
+  if (!result.ok)
+    throw new Error(`${result.error.code}: ${result.error.message}`);
   expect(result.ok).toBe(true);
   return result.data;
 };
@@ -67,12 +83,19 @@ const contextFor = (user: TestUser): MailRequestContext => ({
 const budget = {
   maxTargets: 100,
   maxMoves: 100,
+  maxCopies: 100,
   maxSends: 100,
+  maxDrafts: 100,
+  maxFlagChanges: 100,
+  maxNotifications: 100,
   maxKeywordChanges: 100,
   maxCollaborationChanges: 200,
 };
 
-const collaborationSource = (params: { userId: string | null; status: "open" | "waiting" | "done" }) => `inputs:
+const collaborationSource = (params: {
+  userId: string | null;
+  status: "open" | "waiting" | "done";
+}) => `inputs:
   message:
     type: mailMessage
     required: true
@@ -185,7 +208,10 @@ suite("mail canonical workflow runtime", () => {
     return { id: row.id, uid, displayName };
   };
 
-  const createWorkflowFixture = async (source: string, name = `Workflow ${crypto.randomUUID().slice(0, 8)}`) =>
+  const createWorkflowFixture = async (
+    source: string,
+    name = `Workflow ${crypto.randomUUID().slice(0, 8)}`
+  ) =>
     unwrap(
       await createWorkflow({
         context: ownerContext,
@@ -197,13 +223,13 @@ suite("mail canonical workflow runtime", () => {
           source,
           effectBudget: budget,
         },
-      }),
+      })
     );
 
   const preflight = async (
     workflow: MailWorkflowDetail,
     context = writerContext,
-    query: WorkflowTargetQuery = { type: "all" },
+    query: WorkflowTargetQuery = { type: "all" }
   ): Promise<MailWorkflowPreflight> =>
     unwrap(
       await sql.begin(async (tx) => {
@@ -211,15 +237,25 @@ suite("mail canonical workflow runtime", () => {
           context,
           mailboxId,
           workflowId: workflow.id,
-          input: { expectedVersionId: workflow.currentVersionId, inputs: {}, query },
+          input: {
+            expectedVersionId: workflow.currentVersionId,
+            inputs: {},
+            query,
+          },
           occurredAt: new Date().toISOString(),
           db: tx,
         });
-        return prepared.ok ? { ok: true as const, data: prepared.data.preflight } : prepared;
-      }),
+        return prepared.ok
+          ? { ok: true as const, data: prepared.data.preflight }
+          : prepared;
+      })
     );
 
-  const backfill = async (workflow: MailWorkflowDetail, key: string, context = writerContext): Promise<MailWorkflowRun> => {
+  const backfill = async (
+    workflow: MailWorkflowDetail,
+    key: string,
+    context = writerContext
+  ): Promise<MailWorkflowRun> => {
     const prepared = await preflight(workflow, context);
     return unwrap(
       await backfillWorkflow({
@@ -236,11 +272,15 @@ suite("mail canonical workflow runtime", () => {
           idempotencyKey: key,
         },
         enqueue: false,
-      }),
+      })
     );
   };
 
-  const oneShot = async (workflow: MailWorkflowDetail, key: string, context = writerContext): Promise<MailWorkflowRun> => {
+  const oneShot = async (
+    workflow: MailWorkflowDetail,
+    key: string,
+    context = writerContext
+  ): Promise<MailWorkflowRun> => {
     const prepared = await preflight(workflow, context);
     return unwrap(
       await oneShotWorkflow({
@@ -257,7 +297,7 @@ suite("mail canonical workflow runtime", () => {
           idempotencyKey: key,
         },
         enqueue: false,
-      }),
+      })
     );
   };
 
@@ -270,7 +310,10 @@ suite("mail canonical workflow runtime", () => {
     `;
 
   const processTarget = (targetId: string, worker: string) =>
-    processMailWorkflowTarget({ targetId, workerId: `${worker}-${crypto.randomUUID().slice(0, 8)}` });
+    processMailWorkflowTarget({
+      targetId,
+      workerId: `${worker}-${crypto.randomUUID().slice(0, 8)}`,
+    });
 
   const resetConversation = async (): Promise<number> => {
     const [conversation] = await sql<{ revision: number }[]>`
@@ -284,21 +327,34 @@ suite("mail canonical workflow runtime", () => {
       WHERE id = ${conversationId}::uuid
       RETURNING revision::int
     `;
-    if (!conversation) throw new Error("Workflow collaboration fixture is unavailable");
+    if (!conversation)
+      throw new Error("Workflow collaboration fixture is unavailable");
     return conversation.revision;
   };
 
-  const executeClaim = (claim: ClaimedMailWorkflowTarget, repository: WorkflowRuntimeRepositoryPort) => {
-    if (claim.mode !== "execute") throw new Error("Expected an executable workflow claim");
+  const executeClaim = (
+    claim: ClaimedMailWorkflowTarget,
+    repository: WorkflowRuntimeRepositoryPort
+  ) => {
+    if (claim.mode !== "execute")
+      throw new Error("Expected an executable workflow claim");
     const sourceContext =
-      claim.source !== null && typeof claim.source === "object" && !Array.isArray(claim.source)
+      claim.source !== null &&
+      typeof claim.source === "object" &&
+      !Array.isArray(claim.source)
         ? (claim.source as Record<string, WorkflowJsonValue>)
         : {};
-    const actorSnapshot = claim.authorization.authority === "actor" ? claim.authorization.actor : null;
+    const actorSnapshot =
+      claim.authorization.authority === "actor"
+        ? claim.authorization.actor
+        : null;
     const actor = {
       userId: actorSnapshot?.kind === "user" ? actorSnapshot.userId : null,
       groupIds: [],
-      serviceAccountId: actorSnapshot?.kind === "service_account" ? actorSnapshot.serviceAccountId : null,
+      serviceAccountId:
+        actorSnapshot?.kind === "service_account"
+          ? actorSnapshot.serviceAccountId
+          : null,
     };
     const invocation: WorkflowInvocation & { mode: "execute" } = {
       workflowId: claim.workflowId,
@@ -355,7 +411,7 @@ suite("mail canonical workflow runtime", () => {
       await createMailbox(ownerContext, {
         name: `Workflow ${suffix}`,
         description: "Disposable workflow fixture",
-      }),
+      })
     );
     mailboxId = mailbox.id;
 
@@ -365,17 +421,22 @@ suite("mail canonical workflow runtime", () => {
         mailboxId,
         principal: { type: "user", userId: writer.id },
         permission: "write",
-      }),
+      })
     );
     writerAccessId = writerAccess.id;
     accessIds.push(writerAccessId);
 
     const [resource] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_resources (mailbox_id, remote_locator, server_identity, scope_fingerprint, status)
-      VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${"a".repeat(64)}, 'active')
+      VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${"a".repeat(
+      64
+    )}, 'active')
       RETURNING id
     `;
-    const encryptedSecret = await encryptSecret({ kind: "password", password: "workflow-fixture-secret" });
+    const encryptedSecret = await encryptSecret({
+      kind: "password",
+      password: "workflow-fixture-secret",
+    });
     const [connection] = await sql<{ id: string }[]>`
       INSERT INTO mail.provider_connections (
         owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
@@ -393,7 +454,9 @@ suite("mail canonical workflow runtime", () => {
         remote_resource_id, connection_id, state, remote_locator, capabilities, rights,
         verification_evidence, verified_scope_fingerprint, verified_secret_revision, last_verified_at
       ) VALUES (
-        ${resource!.id}::uuid, ${connection!.id}::uuid, 'active', '{}'::jsonb, '{}'::jsonb,
+        ${resource!.id}::uuid, ${
+      connection!.id
+    }::uuid, 'active', '{}'::jsonb, '{}'::jsonb,
         '{}'::jsonb, '{}'::jsonb, ${"a".repeat(64)}, 1, now()
       )
       RETURNING id
@@ -403,7 +466,9 @@ suite("mail canonical workflow runtime", () => {
       INSERT INTO mail.folders (
         remote_resource_id, stable_key, name, role, sync_status, selected_for_sync
       )
-      VALUES (${resource!.id}::uuid, 'workflow-inbox', 'Inbox', 'inbox', 'current', false)
+      VALUES (${
+        resource!.id
+      }::uuid, 'workflow-inbox', 'Inbox', 'inbox', 'current', false)
       RETURNING id
     `;
     await sql`
@@ -422,7 +487,9 @@ suite("mail canonical workflow runtime", () => {
         content_hash, hydration_status, plain_text
       ) VALUES (
         ${mailboxId}::uuid, ${`<workflow-${suffix}@example.com>`}, 'Support request', 'support request',
-        ${internalDate}, 128, ${"b".repeat(64)}, 'complete', 'Please help with this request.'
+        ${internalDate}, 128, ${"b".repeat(
+      64
+    )}, 'complete', 'Please help with this request.'
       )
       RETURNING id
     `;
@@ -432,17 +499,27 @@ suite("mail canonical workflow runtime", () => {
         content_hash, hydration_status, plain_text
       ) VALUES (
         ${mailboxId}::uuid, ${`<workflow-reply-${suffix}@example.com>`}, 'Re: Support request', 'support request',
-        ${new Date(internalDate.getTime() + 60_000)}, 96, ${"c".repeat(64)}, 'complete', 'Following up on this request.'
+        ${new Date(internalDate.getTime() + 60_000)}, 96, ${"c".repeat(
+      64
+    )}, 'complete', 'Following up on this request.'
       )
       RETURNING id
     `;
     await sql`
       INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
       VALUES
-        (${message!.id}::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com'),
-        (${message!.id}::uuid, 'to', 0, 'Support', 'support@example.com', 'support@example.com'),
-        (${reply!.id}::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com'),
-        (${reply!.id}::uuid, 'to', 0, 'Support', 'support@example.com', 'support@example.com')
+        (${
+          message!.id
+        }::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com'),
+        (${
+          message!.id
+        }::uuid, 'to', 0, 'Support', 'support@example.com', 'support@example.com'),
+        (${
+          reply!.id
+        }::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com'),
+        (${
+          reply!.id
+        }::uuid, 'to', 0, 'Support', 'support@example.com', 'support@example.com')
     `;
     const [remoteRef] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid, modseq)
@@ -457,8 +534,12 @@ suite("mail canonical workflow runtime", () => {
     await sql`
       INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
       VALUES
-        (${remoteRef!.id}::uuid, ${folder!.id}::uuid, ${message!.id}::uuid, ARRAY[]::text[], ARRAY[]::text[]),
-        (${replyRemoteRef!.id}::uuid, ${folder!.id}::uuid, ${reply!.id}::uuid, ARRAY[]::text[], ARRAY[]::text[])
+        (${remoteRef!.id}::uuid, ${folder!.id}::uuid, ${
+      message!.id
+    }::uuid, ARRAY[]::text[], ARRAY[]::text[]),
+        (${replyRemoteRef!.id}::uuid, ${folder!.id}::uuid, ${
+      reply!.id
+    }::uuid, ARRAY[]::text[], ARRAY[]::text[])
     `;
     const [conversation] = await sql<{ id: string }[]>`
       INSERT INTO mail.conversations (
@@ -493,7 +574,10 @@ suite("mail canonical workflow runtime", () => {
   });
 
   test("creates immutable canonical YAML versions", async () => {
-    const first = await createWorkflowFixture(collaborationSource({ userId: writer.id, status: "waiting" }), "Immutable versions");
+    const first = await createWorkflowFixture(
+      collaborationSource({ userId: writer.id, status: "waiting" }),
+      "Immutable versions"
+    );
     const second = unwrap(
       await createWorkflowVersion({
         context: ownerContext,
@@ -503,15 +587,26 @@ suite("mail canonical workflow runtime", () => {
           source: collaborationSource({ userId: writer.id, status: "done" }),
           effectBudget: budget,
         },
-      }),
+      })
     );
     expect(second.currentVersionId).not.toBe(first.currentVersionId);
     expect(second.currentVersion.source).toContain("setConversationStatus");
     expect(second.currentVersion.boundPlan.languageId).toBe("mail");
-    expect(second.currentVersion.identity).not.toBe(first.currentVersion.identity);
+    expect(second.currentVersion.identity).not.toBe(
+      first.currentVersion.identity
+    );
 
-    const versions = unwrap(await listWorkflowVersions({ context: ownerContext, mailboxId, workflowId: first.id }));
-    expect(versions.map((version) => version.id)).toEqual([second.currentVersionId, first.currentVersionId]);
+    const versions = unwrap(
+      await listWorkflowVersions({
+        context: ownerContext,
+        mailboxId,
+        workflowId: first.id,
+      })
+    );
+    expect(versions.map((version) => version.id)).toEqual([
+      second.currentVersionId,
+      first.currentVersionId,
+    ]);
 
     let immutableUpdateCode: string | null = null;
     try {
@@ -521,15 +616,24 @@ suite("mail canonical workflow runtime", () => {
         WHERE id = ${first.currentVersionId}::uuid
       `;
     } catch (error) {
-      immutableUpdateCode = (error as { code?: string; errno?: string }).errno ?? (error as { code?: string }).code ?? null;
+      immutableUpdateCode =
+        (error as { code?: string; errno?: string }).errno ??
+        (error as { code?: string }).code ??
+        null;
     }
     expect(immutableUpdateCode).toBe("55000");
   });
 
   test("materializes runs idempotently from preflight snapshots", async () => {
-    const workflow = await createWorkflowFixture(collaborationSource({ userId: writer.id, status: "waiting" }), "Idempotent run");
+    const workflow = await createWorkflowFixture(
+      collaborationSource({ userId: writer.id, status: "waiting" }),
+      "Idempotent run"
+    );
     const prepared = await preflight(workflow);
-    expect(prepared).toMatchObject({ workflowVersionId: workflow.currentVersionId, targetCount: 2 });
+    expect(prepared).toMatchObject({
+      workflowVersionId: workflow.currentVersionId,
+      targetCount: 2,
+    });
 
     const input = {
       expectedVersionId: workflow.currentVersionId,
@@ -540,17 +644,38 @@ suite("mail canonical workflow runtime", () => {
       idempotencyKey: `idempotent-${suffix}`,
     };
     const first = unwrap(
-      await backfillWorkflow({ context: writerContext, mailboxId, workflowId: workflow.id, channel: "api", input, enqueue: false }),
+      await backfillWorkflow({
+        context: writerContext,
+        mailboxId,
+        workflowId: workflow.id,
+        channel: "api",
+        input,
+        enqueue: false,
+      })
     );
     const second = unwrap(
-      await backfillWorkflow({ context: writerContext, mailboxId, workflowId: workflow.id, channel: "api", input, enqueue: false }),
+      await backfillWorkflow({
+        context: writerContext,
+        mailboxId,
+        workflowId: workflow.id,
+        channel: "api",
+        input,
+        enqueue: false,
+      })
     );
     expect(second.id).toBe(first.id);
     expect(first.channel).toBe("api");
     expect(second.channel).toBe("api");
     expect(first.targetProgress).toMatchObject({ total: 2, queued: 2 });
 
-    const [materialized] = await sql<{ targets: number; steps: number; distinct_targets: number; clocks: number }[]>`
+    const [materialized] = await sql<
+      {
+        targets: number;
+        steps: number;
+        distinct_targets: number;
+        clocks: number;
+      }[]
+    >`
       SELECT
         (SELECT COUNT(*)::int FROM mail.workflow_run_targets WHERE parent_run_id = ${first.id}::uuid) AS targets,
         (SELECT COUNT(*)::int FROM mail.workflow_step_runs step
@@ -561,12 +686,23 @@ suite("mail canonical workflow runtime", () => {
           WHERE parent_run_id = ${first.id}::uuid
             AND execution_clock_at = ${prepared.occurredAt}::timestamptz) AS clocks
     `;
-    expect(materialized).toEqual({ targets: 2, steps: 0, distinct_targets: 2, clocks: 2 });
+    expect(materialized).toEqual({
+      targets: 2,
+      steps: 0,
+      distinct_targets: 2,
+      clocks: 2,
+    });
   });
 
   test("scopes idempotency keys to a workflow", async () => {
-    const firstWorkflow = await createWorkflowFixture(keywordSource("First"), "First idempotency scope");
-    const secondWorkflow = await createWorkflowFixture(keywordSource("Second"), "Second idempotency scope");
+    const firstWorkflow = await createWorkflowFixture(
+      keywordSource("First"),
+      "First idempotency scope"
+    );
+    const secondWorkflow = await createWorkflowFixture(
+      keywordSource("Second"),
+      "Second idempotency scope"
+    );
     const key = `shared-workflow-key-${suffix}`;
     const first = await backfill(firstWorkflow, key);
     const second = await backfill(secondWorkflow, key);
@@ -580,11 +716,14 @@ suite("mail canonical workflow runtime", () => {
     const baselineRevision = await resetConversation();
     const workflow = await createWorkflowFixture(
       collaborationSource({ userId: writer.id, status: "waiting" }),
-      "Collaboration crash recovery",
+      "Collaboration crash recovery"
     );
     const run = await oneShot(workflow, `collaboration-crash-${suffix}`);
     const target = (await targetRows(run.id))[0]!;
-    const claim = await claimMailWorkflowTarget({ targetId: target.id, workerId: `crash-${suffix}` });
+    const claim = await claimMailWorkflowTarget({
+      targetId: target.id,
+      workerId: `crash-${suffix}`,
+    });
     expect(claim).not.toBeNull();
     if (!claim) return;
 
@@ -595,7 +734,12 @@ suite("mail canonical workflow runtime", () => {
       restoreStepOutcome: (step) => repository.restoreStepOutcome(step),
       startStep: (step) => repository.startStep(step),
       finishStep: async (step, result) => {
-        if (!simulatedCrash && step.action === "assignConversation" && result.mode === "execute" && result.outcome.state === "completed") {
+        if (
+          !simulatedCrash &&
+          step.action === "assignConversation" &&
+          result.mode === "execute" &&
+          result.outcome.state === "completed"
+        ) {
           simulatedCrash = true;
           throw new Error("Simulated crash after collaboration commit");
         }
@@ -603,15 +747,29 @@ suite("mail canonical workflow runtime", () => {
       },
       parkStep: (step, dependency) => repository.parkStep(step, dependency),
     };
-    await expect(executeClaim(claim, crashRepository)).rejects.toThrow("Simulated crash after collaboration commit");
+    await expect(executeClaim(claim, crashRepository)).rejects.toThrow(
+      "Simulated crash after collaboration commit"
+    );
 
-    const [afterCrash] = await sql<{ assignee_user_id: string | null; work_status: string; revision: number }[]>`
+    const [afterCrash] = await sql<
+      {
+        assignee_user_id: string | null;
+        work_status: string;
+        revision: number;
+      }[]
+    >`
       SELECT assignee_user_id, work_status, revision::int
       FROM mail.conversations
       WHERE id = ${conversationId}::uuid
     `;
-    expect(afterCrash).toEqual({ assignee_user_id: writer.id, work_status: "open", revision: baselineRevision + 1 });
-    const [ledger] = await sql<{ state: string; outcome: Record<string, unknown> | string }[]>`
+    expect(afterCrash).toEqual({
+      assignee_user_id: writer.id,
+      work_status: "open",
+      revision: baselineRevision + 1,
+    });
+    const [ledger] = await sql<
+      { state: string; outcome: Record<string, unknown> | string }[]
+    >`
       SELECT state, outcome
       FROM mail.workflow_step_runs
       WHERE target_id = ${target.id}::uuid
@@ -623,14 +781,26 @@ suite("mail canonical workflow runtime", () => {
       SET lease_expires_at = now() - interval '1 second'
       WHERE id = ${target.id}::uuid
     `;
-    expect(await processTarget(target.id, "crash-takeover")).toMatchObject({ state: "succeeded" });
+    expect(await processTarget(target.id, "crash-takeover")).toMatchObject({
+      state: "succeeded",
+    });
 
-    const [recovered] = await sql<{ assignee_user_id: string | null; work_status: string; revision: number }[]>`
+    const [recovered] = await sql<
+      {
+        assignee_user_id: string | null;
+        work_status: string;
+        revision: number;
+      }[]
+    >`
       SELECT assignee_user_id, work_status, revision::int
       FROM mail.conversations
       WHERE id = ${conversationId}::uuid
     `;
-    expect(recovered).toEqual({ assignee_user_id: writer.id, work_status: "waiting", revision: baselineRevision + 2 });
+    expect(recovered).toEqual({
+      assignee_user_id: writer.id,
+      work_status: "waiting",
+      revision: baselineRevision + 2,
+    });
     const [activity] = await sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM mail.activity_events
@@ -643,11 +813,14 @@ suite("mail canonical workflow runtime", () => {
     const baselineRevision = await resetConversation();
     const workflow = await createWorkflowFixture(
       collaborationSource({ userId: writer.id, status: "waiting" }),
-      "Collaboration lease fence",
+      "Collaboration lease fence"
     );
     const run = await oneShot(workflow, `collaboration-lease-${suffix}`);
     const target = (await targetRows(run.id))[0]!;
-    const staleClaim = await claimMailWorkflowTarget({ targetId: target.id, workerId: `stale-${suffix}` });
+    const staleClaim = await claimMailWorkflowTarget({
+      targetId: target.id,
+      workerId: `stale-${suffix}`,
+    });
     expect(staleClaim).not.toBeNull();
     if (!staleClaim) return;
 
@@ -663,8 +836,12 @@ suite("mail canonical workflow runtime", () => {
           SET lease_expires_at = now() - interval '1 second'
           WHERE id = ${target.id}::uuid
         `;
-        takeoverClaim = await claimMailWorkflowTarget({ targetId: target.id, workerId: `takeover-${suffix}` });
-        if (!takeoverClaim) throw new Error("Lease takeover did not claim the workflow target");
+        takeoverClaim = await claimMailWorkflowTarget({
+          targetId: target.id,
+          workerId: `takeover-${suffix}`,
+        });
+        if (!takeoverClaim)
+          throw new Error("Lease takeover did not claim the workflow target");
       },
       finishStep: async () => undefined,
       parkStep: async () => undefined,
@@ -676,12 +853,22 @@ suite("mail canonical workflow runtime", () => {
       error: { code: "MAIL_WORKFLOW_LEASE_LOST" },
     });
 
-    const [conversation] = await sql<{ assignee_user_id: string | null; work_status: string; revision: number }[]>`
+    const [conversation] = await sql<
+      {
+        assignee_user_id: string | null;
+        work_status: string;
+        revision: number;
+      }[]
+    >`
       SELECT assignee_user_id, work_status, revision::int
       FROM mail.conversations
       WHERE id = ${conversationId}::uuid
     `;
-    expect(conversation).toEqual({ assignee_user_id: null, work_status: "open", revision: baselineRevision });
+    expect(conversation).toEqual({
+      assignee_user_id: null,
+      work_status: "open",
+      revision: baselineRevision,
+    });
     const [activity] = await sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM mail.activity_events
@@ -692,10 +879,16 @@ suite("mail canonical workflow runtime", () => {
 
   test("restores completed collaboration descendants after a control-step crash", async () => {
     const baselineRevision = await resetConversation();
-    const workflow = await createWorkflowFixture(nestedCollaborationSource(writer.id), "Nested collaboration recovery");
+    const workflow = await createWorkflowFixture(
+      nestedCollaborationSource(writer.id),
+      "Nested collaboration recovery"
+    );
     const run = await oneShot(workflow, `nested-collaboration-${suffix}`);
     const target = (await targetRows(run.id))[0]!;
-    const claim = await claimMailWorkflowTarget({ targetId: target.id, workerId: `nested-crash-${suffix}` });
+    const claim = await claimMailWorkflowTarget({
+      targetId: target.id,
+      workerId: `nested-crash-${suffix}`,
+    });
     expect(claim).not.toBeNull();
     if (!claim) return;
 
@@ -707,44 +900,79 @@ suite("mail canonical workflow runtime", () => {
       startStep: (step) => repository.startStep(step),
       finishStep: async (step, result) => {
         await repository.finishStep(step, result);
-        if (!simulatedCrash && step.kind === "if" && result.mode === "execute" && result.outcome.state === "completed") {
+        if (
+          !simulatedCrash &&
+          step.kind === "if" &&
+          result.mode === "execute" &&
+          result.outcome.state === "completed"
+        ) {
           simulatedCrash = true;
           throw new Error("Simulated crash after control-step commit");
         }
       },
       parkStep: (step, dependency) => repository.parkStep(step, dependency),
     };
-    await expect(executeClaim(claim, crashRepository)).rejects.toThrow("Simulated crash after control-step commit");
+    await expect(executeClaim(claim, crashRepository)).rejects.toThrow(
+      "Simulated crash after control-step commit"
+    );
 
-    const [afterCrash] = await sql<{ assignee_user_id: string | null; work_status: string; revision: number }[]>`
+    const [afterCrash] = await sql<
+      {
+        assignee_user_id: string | null;
+        work_status: string;
+        revision: number;
+      }[]
+    >`
       SELECT assignee_user_id, work_status, revision::int
       FROM mail.conversations
       WHERE id = ${conversationId}::uuid
     `;
-    expect(afterCrash).toEqual({ assignee_user_id: writer.id, work_status: "open", revision: baselineRevision + 1 });
+    expect(afterCrash).toEqual({
+      assignee_user_id: writer.id,
+      work_status: "open",
+      revision: baselineRevision + 1,
+    });
 
     await sql`
       UPDATE mail.workflow_run_targets
       SET lease_expires_at = now() - interval '1 second'
       WHERE id = ${target.id}::uuid
     `;
-    expect(await processTarget(target.id, "nested-takeover")).toMatchObject({ state: "succeeded" });
+    expect(await processTarget(target.id, "nested-takeover")).toMatchObject({
+      state: "succeeded",
+    });
 
-    const [recovered] = await sql<{ assignee_user_id: string | null; work_status: string; revision: number }[]>`
+    const [recovered] = await sql<
+      {
+        assignee_user_id: string | null;
+        work_status: string;
+        revision: number;
+      }[]
+    >`
       SELECT assignee_user_id, work_status, revision::int
       FROM mail.conversations
       WHERE id = ${conversationId}::uuid
     `;
-    expect(recovered).toEqual({ assignee_user_id: writer.id, work_status: "waiting", revision: baselineRevision + 2 });
+    expect(recovered).toEqual({
+      assignee_user_id: writer.id,
+      work_status: "waiting",
+      revision: baselineRevision + 2,
+    });
   }, 20_000);
 
   test("claims one target once and resumes provider commands through the shared executor", async () => {
-    const workflow = await createWorkflowFixture(nestedKeywordSource("Priority"), "Provider command flow");
+    const workflow = await createWorkflowFixture(
+      nestedKeywordSource("Priority"),
+      "Provider command flow"
+    );
     const run = await oneShot(workflow, `provider-${suffix}`);
     const targets = await targetRows(run.id);
     expect(targets).toHaveLength(2);
 
-    const [first, second] = await Promise.all([processTarget(targets[0]!.id, "claim-a"), processTarget(targets[0]!.id, "claim-b")]);
+    const [first, second] = await Promise.all([
+      processTarget(targets[0]!.id, "claim-a"),
+      processTarget(targets[0]!.id, "claim-b"),
+    ]);
     expect([first.state, second.state].sort()).toEqual(["idle", "waiting"]);
 
     const [parked] = await sql<
@@ -770,10 +998,23 @@ suite("mail canonical workflow runtime", () => {
       initiator_actor_kind: "user",
       initiator_actor_id: writer.id,
     });
-    const dependency = typeof parked!.dependency === "string" ? JSON.parse(parked!.dependency) : parked!.dependency;
-    const commandTarget = typeof parked!.target === "string" ? JSON.parse(parked!.target) : parked!.target;
-    expect(dependency).toEqual({ kind: "mail.command", key: parked!.command_id });
-    expect(commandTarget.expectedRemoteState).toEqual({ modseq: "1", flags: [], keywords: [] });
+    const dependency =
+      typeof parked!.dependency === "string"
+        ? JSON.parse(parked!.dependency)
+        : parked!.dependency;
+    const commandTarget =
+      typeof parked!.target === "string"
+        ? JSON.parse(parked!.target)
+        : parked!.target;
+    expect(dependency).toEqual({
+      kind: "mail.command",
+      key: parked!.command_id,
+    });
+    expect(commandTarget.expectedRemoteState).toEqual({
+      modseq: "1",
+      flags: [],
+      keywords: [],
+    });
     const parkedSteps = await sql<{ step_key: string; state: string }[]>`
       SELECT step_key, state
       FROM mail.workflow_step_runs
@@ -790,10 +1031,19 @@ suite("mail canonical workflow runtime", () => {
       SET state = 'confirmed', finished_at = now()
       WHERE id = ${parked!.command_id}::uuid
     `;
-    expect(await resumeMailWorkflowDependency({ kind: "mail.command", key: parked!.command_id })).toEqual([targets[0]!.id]);
-    expect(await processTarget(targets[0]!.id, "resume-a")).toMatchObject({ state: "succeeded" });
+    expect(
+      await resumeMailWorkflowDependency({
+        kind: "mail.command",
+        key: parked!.command_id,
+      })
+    ).toEqual([targets[0]!.id]);
+    expect(await processTarget(targets[0]!.id, "resume-a")).toMatchObject({
+      state: "succeeded",
+    });
 
-    expect(await processTarget(targets[1]!.id, "resume-b")).toMatchObject({ state: "waiting" });
+    expect(await processTarget(targets[1]!.id, "resume-b")).toMatchObject({
+      state: "waiting",
+    });
     const [failedCommand] = await sql<{ command_id: string }[]>`
       SELECT command_id
       FROM mail.workflow_step_runs
@@ -804,18 +1054,90 @@ suite("mail canonical workflow runtime", () => {
       SET state = 'failed', last_error_code = 'TEST_FAILURE', last_error_message = 'Second target failed', finished_at = now()
       WHERE id = ${failedCommand!.command_id}::uuid
     `;
-    expect(await resumeMailWorkflowDependency({ kind: "mail.command", key: failedCommand!.command_id })).toEqual([targets[1]!.id]);
-    expect(await processTarget(targets[1]!.id, "resume-c")).toMatchObject({ state: "failed" });
+    expect(
+      await resumeMailWorkflowDependency({
+        kind: "mail.command",
+        key: failedCommand!.command_id,
+      })
+    ).toEqual([targets[1]!.id]);
+    expect(await processTarget(targets[1]!.id, "resume-c")).toMatchObject({
+      state: "failed",
+    });
 
-    const stored = unwrap(await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id }));
+    const stored = unwrap(
+      await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id })
+    );
     expect(stored).toMatchObject({
       state: "failed",
-      targetProgress: { total: 2, queued: 0, running: 0, waiting: 0, succeeded: 1, failed: 1 },
+      targetProgress: {
+        total: 2,
+        queued: 0,
+        running: 0,
+        waiting: 0,
+        succeeded: 1,
+        failed: 1,
+      },
+    });
+
+    const retryInput = {
+      context: writerContext,
+      mailboxId,
+      runId: run.id,
+      input: {
+        targetIds: [targets[1]!.id],
+        idempotencyKey: `retry-${suffix}`,
+        reason: "Integration retry",
+      },
+      channel: "api" as const,
+    };
+    const concurrentRetries = await Promise.all([
+      retryWorkflowRunTargets(retryInput),
+      retryWorkflowRunTargets(retryInput),
+    ]);
+    const retry = unwrap(concurrentRetries[0]!);
+    const concurrentReplay = unwrap(concurrentRetries[1]!);
+    expect(concurrentReplay.id).toBe(retry.id);
+    expect(retry).toMatchObject({
+      kind: "retry",
+      retryOfRunId: run.id,
+      targetProgress: { total: 1, queued: 1 },
+    });
+    const replay = unwrap(await retryWorkflowRunTargets(retryInput));
+    expect(replay.id).toBe(retry.id);
+    const projectedTargets = unwrap(
+      await listWorkflowRunTargets({
+        context: writerContext,
+        mailboxId,
+        runId: run.id,
+        afterOrdinal: -1,
+        limit: 10,
+      })
+    );
+    expect(
+      projectedTargets.find((target) => target.id === targets[1]!.id)?.hasRetry
+    ).toBe(true);
+    const duplicateRetry = await retryWorkflowRunTargets({
+      context: writerContext,
+      mailboxId,
+      runId: run.id,
+      input: {
+        targetIds: [targets[1]!.id],
+        idempotencyKey: `retry-duplicate-${suffix}`,
+        reason: "Duplicate integration retry",
+      },
+      channel: "api",
+    });
+    expect(duplicateRetry).toMatchObject({
+      ok: false,
+      error: { code: "CONFLICT" },
     });
   }, 20_000);
 
   test("plans dry runs without creating provider commands or changing mail", async () => {
-    const workflow = await createWorkflowFixture(keywordSource("DryRunOnly"), "Dry run");
+    const workflow = await createWorkflowFixture(
+      keywordSource("DryRunOnly"),
+      "Dry run"
+    );
     const [before] = await sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count FROM mail.commands WHERE mailbox_id = ${mailboxId}::uuid
     `;
@@ -832,12 +1154,18 @@ suite("mail canonical workflow runtime", () => {
           idempotencyKey: `dry-run-${suffix}`,
         },
         enqueue: false,
-      }),
+      })
     );
-    expect(run).toMatchObject({ mode: "dryRun", state: "queued", targetProgress: { total: 2, queued: 2 } });
+    expect(run).toMatchObject({
+      mode: "dryRun",
+      state: "queued",
+      targetProgress: { total: 2, queued: 2 },
+    });
 
     for (const target of await targetRows(run.id)) {
-      expect(await processTarget(target.id, `dry-run-${target.ordinal}`)).toMatchObject({
+      expect(
+        await processTarget(target.id, `dry-run-${target.ordinal}`)
+      ).toMatchObject({
         state: "planned",
         result: { state: "planned", effects: expect.any(Array) },
       });
@@ -847,35 +1175,86 @@ suite("mail canonical workflow runtime", () => {
       SELECT COUNT(*)::int AS count FROM mail.commands WHERE mailbox_id = ${mailboxId}::uuid
     `;
     expect(after?.count).toBe(before?.count);
-    const stored = unwrap(await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id }));
-    expect(stored).toMatchObject({ mode: "dryRun", state: "succeeded", targetProgress: { succeeded: 2 } });
-    const targets = unwrap(await listWorkflowRunTargets({ context: writerContext, mailboxId, runId: run.id, afterOrdinal: 0, limit: 1 }));
+    const stored = unwrap(
+      await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id })
+    );
+    expect(stored).toMatchObject({
+      mode: "dryRun",
+      state: "succeeded",
+      targetProgress: { succeeded: 2 },
+    });
+    const targets = unwrap(
+      await listWorkflowRunTargets({
+        context: writerContext,
+        mailboxId,
+        runId: run.id,
+        afterOrdinal: 0,
+        limit: 1,
+      })
+    );
     expect(targets).toHaveLength(1);
-    expect(targets[0]).toMatchObject({ ordinal: 1, state: "succeeded", targetKey: expect.any(String), result: expect.anything() });
+    expect(targets[0]).toMatchObject({
+      ordinal: 1,
+      state: "succeeded",
+      targetKey: expect.any(String),
+      result: expect.anything(),
+    });
   }, 20_000);
 
   test("cancels queued materialized targets before execution", async () => {
-    const workflow = await createWorkflowFixture(collaborationSource({ userId: writer.id, status: "waiting" }), "Cancellation");
+    const workflow = await createWorkflowFixture(
+      collaborationSource({ userId: writer.id, status: "waiting" }),
+      "Cancellation"
+    );
     const run = await backfill(workflow, `cancel-${suffix}`);
     const canceled = unwrap(
-      await cancelWorkflowRun({ context: writerContext, mailboxId, runId: run.id, reason: "integration cancellation" }),
+      await cancelWorkflowRun({
+        context: writerContext,
+        mailboxId,
+        runId: run.id,
+        reason: "integration cancellation",
+      })
     );
     expect(canceled).toMatchObject({
       state: "canceled",
-      targetProgress: { total: 2, queued: 0, running: 0, waiting: 0, canceled: 2 },
+      targetProgress: {
+        total: 2,
+        queued: 0,
+        running: 0,
+        waiting: 0,
+        canceled: 2,
+      },
     });
-    expect((await targetRows(run.id)).map(({ state }) => state)).toEqual(["canceled", "canceled"]);
-    expect(await processTarget((await targetRows(run.id))[0]!.id, "cancel")).toMatchObject({ state: "idle" });
+    expect((await targetRows(run.id)).map(({ state }) => state)).toEqual([
+      "canceled",
+      "canceled",
+    ]);
+    expect(
+      await processTarget((await targetRows(run.id))[0]!.id, "cancel")
+    ).toMatchObject({ state: "idle" });
   });
 
   test("terminalizes a canceled running target after worker loss", async () => {
-    const workflow = await createWorkflowFixture(keywordSource("CanceledWorker"), "Canceled worker recovery");
+    const workflow = await createWorkflowFixture(
+      keywordSource("CanceledWorker"),
+      "Canceled worker recovery"
+    );
     const run = await backfill(workflow, `cancel-worker-${suffix}`);
     const targets = await targetRows(run.id);
-    const claim = await claimMailWorkflowTarget({ targetId: targets[0]!.id, workerId: `lost-${suffix}` });
+    const claim = await claimMailWorkflowTarget({
+      targetId: targets[0]!.id,
+      workerId: `lost-${suffix}`,
+    });
     expect(claim).not.toBeNull();
 
-    unwrap(await cancelWorkflowRun({ context: writerContext, mailboxId, runId: run.id, reason: "worker lost" }));
+    unwrap(
+      await cancelWorkflowRun({
+        context: writerContext,
+        mailboxId,
+        runId: run.id,
+        reason: "worker lost",
+      })
+    );
     await sql`
       UPDATE mail.workflow_run_targets
       SET lease_expires_at = now() - interval '1 second'
@@ -884,18 +1263,31 @@ suite("mail canonical workflow runtime", () => {
 
     expect(await recoverCanceledMailWorkflowTargets()).toBe(1);
     expect(await recoverCanceledMailWorkflowTargets()).toBe(0);
-    const stored = unwrap(await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id }));
+    const stored = unwrap(
+      await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id })
+    );
     expect(stored).toMatchObject({
       state: "canceled",
-      targetProgress: { total: 2, queued: 0, running: 0, waiting: 0, canceled: 2 },
+      targetProgress: {
+        total: 2,
+        queued: 0,
+        running: 0,
+        waiting: 0,
+        canceled: 2,
+      },
     });
   });
 
   test("atomically cancels waiting targets and blocks dependency resume", async () => {
-    const workflow = await createWorkflowFixture(keywordSource("CanceledWaiting"), "Waiting cancellation");
+    const workflow = await createWorkflowFixture(
+      keywordSource("CanceledWaiting"),
+      "Waiting cancellation"
+    );
     const run = await oneShot(workflow, `cancel-waiting-${suffix}`);
     const targets = await targetRows(run.id);
-    expect(await processTarget(targets[0]!.id, "cancel-waiting")).toMatchObject({ state: "waiting" });
+    expect(await processTarget(targets[0]!.id, "cancel-waiting")).toMatchObject(
+      { state: "waiting" }
+    );
     const [step] = await sql<{ command_id: string }[]>`
       SELECT command_id
       FROM mail.workflow_step_runs
@@ -904,28 +1296,56 @@ suite("mail canonical workflow runtime", () => {
     if (!step) throw new Error("Waiting workflow step was not persisted");
 
     const [canceled] = await Promise.all([
-      cancelWorkflowRun({ context: writerContext, mailboxId, runId: run.id, reason: "cancel waiting target" }),
-      resumeMailWorkflowDependency({ kind: "mail.command", key: step.command_id }),
+      cancelWorkflowRun({
+        context: writerContext,
+        mailboxId,
+        runId: run.id,
+        reason: "cancel waiting target",
+      }),
+      resumeMailWorkflowDependency({
+        kind: "mail.command",
+        key: step.command_id,
+      }),
     ]);
     expect(unwrap(canceled)).toMatchObject({
       state: "canceled",
-      targetProgress: { total: 2, queued: 0, running: 0, waiting: 0, canceled: 2 },
+      targetProgress: {
+        total: 2,
+        queued: 0,
+        running: 0,
+        waiting: 0,
+        canceled: 2,
+      },
     });
-    expect((await targetRows(run.id)).map(({ state }) => state)).toEqual(["canceled", "canceled"]);
-    expect(await resumeMailWorkflowDependency({ kind: "mail.command", key: step.command_id })).toEqual([]);
+    expect((await targetRows(run.id)).map(({ state }) => state)).toEqual([
+      "canceled",
+      "canceled",
+    ]);
+    expect(
+      await resumeMailWorkflowDependency({
+        kind: "mail.command",
+        key: step.command_id,
+      })
+    ).toEqual([]);
   });
 
   test("does not let cancellation overtake a provider effect", async () => {
-    const workflow = await createWorkflowFixture(keywordSource("CancellationFence"), "Provider cancellation fence");
+    const workflow = await createWorkflowFixture(
+      keywordSource("CancellationFence"),
+      "Provider cancellation fence"
+    );
     const run = await oneShot(workflow, `provider-cancel-fence-${suffix}`);
     const target = (await targetRows(run.id))[0]!;
-    expect(await processTarget(target.id, "provider-cancel-fence")).toMatchObject({ state: "waiting" });
+    expect(
+      await processTarget(target.id, "provider-cancel-fence")
+    ).toMatchObject({ state: "waiting" });
     const [step] = await sql<{ command_id: string }[]>`
       SELECT command_id
       FROM mail.workflow_step_runs
       WHERE target_id = ${target.id}::uuid
     `;
-    if (!step) throw new Error("Provider command was not linked to its workflow step");
+    if (!step)
+      throw new Error("Provider command was not linked to its workflow step");
     await sql`
       UPDATE mail.commands
       SET
@@ -936,9 +1356,22 @@ suite("mail canonical workflow runtime", () => {
       WHERE id = ${step.command_id}::uuid
     `;
 
-    const blocked = await cancelWorkflowRun({ context: writerContext, mailboxId, runId: run.id, reason: "race" });
+    const blocked = await cancelWorkflowRun({
+      context: writerContext,
+      mailboxId,
+      runId: run.id,
+      reason: "race",
+    });
     expect(blocked).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
-    expect(unwrap(await getWorkflowRun({ context: writerContext, mailboxId, runId: run.id }))).toMatchObject({
+    expect(
+      unwrap(
+        await getWorkflowRun({
+          context: writerContext,
+          mailboxId,
+          runId: run.id,
+        })
+      )
+    ).toMatchObject({
       state: "queued",
       targetProgress: { queued: 1, waiting: 1, canceled: 0 },
     });
@@ -951,14 +1384,26 @@ suite("mail canonical workflow runtime", () => {
         provider_effect_attempt = NULL
       WHERE id = ${step.command_id}::uuid
     `;
-    expect(unwrap(await cancelWorkflowRun({ context: writerContext, mailboxId, runId: run.id, reason: "retry" }))).toMatchObject({
+    expect(
+      unwrap(
+        await cancelWorkflowRun({
+          context: writerContext,
+          mailboxId,
+          runId: run.id,
+          reason: "retry",
+        })
+      )
+    ).toMatchObject({
       state: "canceled",
       targetProgress: { canceled: 2 },
     });
   });
 
   test("executes from frozen body data after live hydration changes", async () => {
-    const workflow = await createWorkflowFixture(hydratedKeywordSource(), "Frozen hydration");
+    const workflow = await createWorkflowFixture(
+      hydratedKeywordSource(),
+      "Frozen hydration"
+    );
     const query = {
       type: "search" as const,
       expression: {
@@ -984,21 +1429,24 @@ suite("mail canonical workflow runtime", () => {
           idempotencyKey: `frozen-hydration-${suffix}`,
         },
         enqueue: false,
-      }),
+      })
     );
     const [target] = await sql<{ id: string; message_id: string }[]>`
       SELECT id, frozen_inputs #>> '{message,messageId}' AS message_id
       FROM mail.workflow_run_targets
       WHERE parent_run_id = ${run.id}::uuid
     `;
-    if (!target) throw new Error("Hydration workflow target was not materialized");
+    if (!target)
+      throw new Error("Hydration workflow target was not materialized");
 
     await sql`
       UPDATE mail.message_contents
       SET hydration_status = 'failed', hydration_attempt = 5
       WHERE id = ${target.message_id}::uuid
     `;
-    expect(await processTarget(target.id, "frozen-hydration")).toMatchObject({ state: "succeeded" });
+    expect(await processTarget(target.id, "frozen-hydration")).toMatchObject({
+      state: "succeeded",
+    });
     const [stored] = await sql<{ hydration_dependencies: number }[]>`
       SELECT COUNT(*) FILTER (WHERE dependency ->> 'kind' = 'mail.hydration')::int AS hydration_dependencies
       FROM mail.workflow_step_runs
@@ -1030,22 +1478,36 @@ suite("mail canonical workflow runtime", () => {
       INSERT INTO mail.message_parts (
         message_id, part_path, content_type, disposition, filename, size_bytes, blob_id, hydration_status
       ) VALUES (
-        ${message.id}::uuid, '9', 'application/pdf', 'attachment', 'invoice.pdf', 0, ${blob!.id}::uuid, 'complete'
+        ${
+          message.id
+        }::uuid, '9', 'application/pdf', 'attachment', 'invoice.pdf', 0, ${
+      blob!.id
+    }::uuid, 'complete'
       )
       RETURNING id
     `;
     const [attachment] = await sql<{ id: string }[]>`
       INSERT INTO mail.attachments (message_id, part_id, filename, content_type, disposition, size_bytes, blob_id)
       VALUES (
-        ${message.id}::uuid, ${part!.id}::uuid, 'invoice.pdf', 'application/pdf', 'attachment', 0, ${blob!.id}::uuid
+        ${message.id}::uuid, ${
+      part!.id
+    }::uuid, 'invoice.pdf', 'application/pdf', 'attachment', 0, ${
+      blob!.id
+    }::uuid
       )
       RETURNING id
     `;
 
-    const workflow = await createWorkflowFixture(terminalFailureSource(), "Deferred hydration freeze");
+    const workflow = await createWorkflowFixture(
+      terminalFailureSource(),
+      "Deferred hydration freeze"
+    );
     const run = await oneShot(workflow, `deferred-hydration-${suffix}`);
     const target = (await targetRows(run.id))[0]!;
-    const claim = await claimMailWorkflowTarget({ targetId: target.id, workerId: `hydration-${suffix}` });
+    const claim = await claimMailWorkflowTarget({
+      targetId: target.id,
+      workerId: `hydration-${suffix}`,
+    });
     if (!claim) throw new Error("Workflow target could not be claimed");
     const frozenHydration: Record<string, WorkflowJsonValue> = {};
     const resolver = createMailWorkflowValueResolver({
@@ -1078,14 +1540,23 @@ suite("mail canonical workflow runtime", () => {
       variables: {
         get: (name: string) => variables.get(name),
         has: (name: string) => variables.has(name),
-        set: (name: string, value: WorkflowJsonValue) => variables.set(name, value),
+        set: (name: string, value: WorkflowJsonValue) =>
+          variables.set(name, value),
       },
       fallback: () => undefined,
     };
-    expect(await resolver.resolve(resolutionInput)).toEqual({ state: "resolved", value: "invoice.pdf" });
+    expect(await resolver.resolve(resolutionInput)).toEqual({
+      state: "resolved",
+      value: "invoice.pdf",
+    });
 
-    await sql`UPDATE mail.attachments SET filename = 'changed.pdf' WHERE id = ${attachment!.id}::uuid`;
-    expect(await resolver.resolve(resolutionInput)).toEqual({ state: "resolved", value: "invoice.pdf" });
+    await sql`UPDATE mail.attachments SET filename = 'changed.pdf' WHERE id = ${
+      attachment!.id
+    }::uuid`;
+    expect(await resolver.resolve(resolutionInput)).toEqual({
+      state: "resolved",
+      value: "invoice.pdf",
+    });
 
     const isolatedResolver = createMailWorkflowValueResolver({
       targetId: claim.runId,
@@ -1097,7 +1568,9 @@ suite("mail canonical workflow runtime", () => {
       },
       frozenHydration: {},
     });
-    expect(await isolatedResolver.resolve(resolutionInput)).toEqual({ state: "missing" });
+    expect(await isolatedResolver.resolve(resolutionInput)).toEqual({
+      state: "missing",
+    });
 
     const [stored] = await sql<{ filename: string }[]>`
       SELECT frozen_hydration #>> ARRAY['inputs.message.attachments', '0', 'filename'] AS filename
@@ -1112,31 +1585,85 @@ suite("mail canonical workflow runtime", () => {
   });
 
   test("does not execute materialized work after authorization is revoked", async () => {
-    const workflow = await createWorkflowFixture(collaborationSource({ userId: writer.id, status: "done" }), "Revocation");
+    const workflow = await createWorkflowFixture(
+      collaborationSource({ userId: writer.id, status: "done" }),
+      "Revocation"
+    );
     const run = await backfill(workflow, `revoked-${suffix}`);
-    expect(run).toMatchObject({ state: "queued", targetProgress: { total: 2, queued: 2 } });
+    expect(run).toMatchObject({
+      state: "queued",
+      targetProgress: { total: 2, queued: 2 },
+    });
 
-    unwrap(await revokeMailboxAccess({ context: ownerContext, mailboxId, accessId: writerAccessId }));
+    unwrap(
+      await revokeMailboxAccess({
+        context: ownerContext,
+        mailboxId,
+        accessId: writerAccessId,
+      })
+    );
     const target = (await targetRows(run.id))[0]!;
     const result = await processTarget(target.id, "revoked");
     expect(result).toMatchObject({ state: "canceled" });
 
-    const stored = unwrap(await getWorkflowRun({ context: ownerContext, mailboxId, runId: run.id }));
+    const stored = unwrap(
+      await getWorkflowRun({ context: ownerContext, mailboxId, runId: run.id })
+    );
     expect(stored.state).toBe("canceled");
     expect(stored.lastError?.message).toContain("revoked");
   }, 20_000);
 
   test("aggregates parent state after terminal target outcomes", async () => {
-    const workflow = await createWorkflowFixture(terminalFailureSource(), "Terminal aggregation");
+    const workflow = await createWorkflowFixture(
+      terminalFailureSource(),
+      "Terminal aggregation"
+    );
     const run = await oneShot(workflow, `terminal-${suffix}`, ownerContext);
     const targets = await targetRows(run.id);
     for (const target of targets) {
-      expect(await processTarget(target.id, `terminal-${target.ordinal}`)).toMatchObject({ state: "failed" });
+      expect(
+        await processTarget(target.id, `terminal-${target.ordinal}`)
+      ).toMatchObject({ state: "failed" });
     }
-    const stored = unwrap(await getWorkflowRun({ context: ownerContext, mailboxId, runId: run.id }));
+    const stored = unwrap(
+      await getWorkflowRun({ context: ownerContext, mailboxId, runId: run.id })
+    );
     expect(stored).toMatchObject({
       state: "failed",
-      targetProgress: { total: 2, queued: 0, running: 0, waiting: 0, succeeded: 0, failed: 2 },
+      targetProgress: {
+        total: 2,
+        queued: 0,
+        running: 0,
+        waiting: 0,
+        succeeded: 0,
+        failed: 2,
+      },
     });
+  });
+
+  test("paginates workflow runs with a stable opaque cursor", async () => {
+    const first = unwrap(
+      await listWorkflowRuns({ context: ownerContext, mailboxId, limit: 1 })
+    );
+    expect(first.items).toHaveLength(1);
+    expect(first.nextCursor).not.toBeNull();
+
+    const second = unwrap(
+      await listWorkflowRuns({
+        context: ownerContext,
+        mailboxId,
+        limit: 1,
+        cursor: first.nextCursor!,
+      })
+    );
+    expect(second.items).toHaveLength(1);
+    expect(second.items[0]!.id).not.toBe(first.items[0]!.id);
+
+    const invalid = await listWorkflowRuns({
+      context: ownerContext,
+      mailboxId,
+      cursor: "invalid",
+    });
+    expect(invalid.ok).toBe(false);
   });
 });

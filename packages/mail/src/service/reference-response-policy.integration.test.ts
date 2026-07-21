@@ -632,7 +632,17 @@ suite("conversation references and automatic reply policies", () => {
       workflowId: created.data.workflowId,
       input: {
         source: "steps:\n  - succeed:\n      message: bypass\n",
-        effectBudget: { maxTargets: 1, maxMoves: 0, maxSends: 0, maxKeywordChanges: 0, maxCollaborationChanges: 0 },
+        effectBudget: {
+          maxTargets: 1,
+          maxMoves: 0,
+          maxCopies: 0,
+          maxSends: 0,
+          maxDrafts: 0,
+          maxFlagChanges: 0,
+          maxNotifications: 0,
+          maxKeywordChanges: 0,
+          maxCollaborationChanges: 0,
+        },
       },
     });
     expect(managedEdit.ok).toBe(false);

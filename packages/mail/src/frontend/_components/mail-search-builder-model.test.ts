@@ -27,7 +27,10 @@ const root: MailSearchExpression = {
 
 describe("Mail search builder model", () => {
   test("updates nested nodes without mutating siblings", () => {
-    const updated = updateMailSearchExpression(root, [1, 0], () => ({ type: "response_needed", value: false }));
+    const updated = updateMailSearchExpression(root, [1, 0], () => ({
+      type: "response_needed",
+      value: false,
+    }));
     expect(updated).not.toBe(root);
     expect(updated).toEqual({
       ...root,
@@ -53,7 +56,10 @@ describe("Mail search builder model", () => {
 
   test("preserves nested paths through NOT wrappers", () => {
     const negated = toggleMailSearchNegation(root, [1]);
-    const updated = updateMailSearchExpression(negated, [1, 1], () => ({ type: "work_status", value: "done" }));
+    const updated = updateMailSearchExpression(negated, [1, 1], () => ({
+      type: "work_status",
+      value: "done",
+    }));
     expect(updated).toEqual({
       ...root,
       expressions: [
@@ -73,20 +79,44 @@ describe("Mail search builder model", () => {
   });
 
   test("adds and removes conditions while keeping non-empty groups", () => {
-    const appended = appendMailSearchExpression(root, [1], { type: "snoozed", value: true });
+    const appended = appendMailSearchExpression(root, [1], {
+      type: "snoozed",
+      value: true,
+    });
     expect(countMailSearchNodes(appended)).toBe(6);
     expect(removeMailSearchExpression(appended, [1, 2])).toEqual(root);
 
-    const single: MailSearchExpression = { type: "and", expressions: [{ type: "response_needed", value: true }] };
+    const single: MailSearchExpression = {
+      type: "and",
+      expressions: [{ type: "response_needed", value: true }],
+    };
     expect(removeMailSearchExpression(single, [0])).toEqual(single);
   });
 
   test("normalizes leaf roots and produces a readable boolean summary", () => {
     expect(
-      ensureMailSearchRootGroup({ type: "not", expression: { type: "text", field: "from", query: "alerts", match: "contains" } }),
+      ensureMailSearchRootGroup({
+        type: "not",
+        expression: {
+          type: "text",
+          field: "from",
+          query: "alerts",
+          match: "contains",
+        },
+      }),
     ).toEqual({
       type: "and",
-      expressions: [{ type: "not", expression: { type: "text", field: "from", query: "alerts", match: "contains" } }],
+      expressions: [
+        {
+          type: "not",
+          expression: {
+            type: "text",
+            field: "from",
+            query: "alerts",
+            match: "contains",
+          },
+        },
+      ],
     });
     expect(summarizeMailSearchExpression(root)).toBe("(Subject words “invoice”) and ((Response is needed) or (Work status is waiting))");
   });

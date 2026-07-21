@@ -23,6 +23,7 @@ import {
   submitDueMaintenanceCommands,
 } from "./maintenance-runtime";
 import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
+import { isOperatorMaintenanceKind } from "./operator-actions";
 import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
@@ -2650,7 +2651,7 @@ export const enqueueMailCommand = async (commandId: string, kind: MailCommand["k
     await submitMutationJob(commandId);
     return;
   }
-  if (["sync_mailbox", "sync_folder", "discover_folders", "verify_binding", "rebuild_folder", "hydrate_missing"].includes(kind)) {
+  if (isOperatorMaintenanceKind(kind)) {
     await enqueueMaintenanceCommand(commandId);
   }
 };

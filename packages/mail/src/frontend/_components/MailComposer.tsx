@@ -22,6 +22,8 @@ import type {
   AcquiredDraftLease,
   ComposePreview,
   ComposeSuggestion,
+  CreateAttachmentLinkInput,
+  CreatedAttachmentLink,
   DraftEditableContentInput,
   DraftIntent,
   DraftRecoveryCopy,
@@ -30,6 +32,7 @@ import type {
   SenderIdentity,
 } from "../../contracts";
 import { readApiError } from "./api-response";
+import { promptAttachmentLinkOptions } from "./attachment-link-ui";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
 
@@ -96,6 +99,7 @@ export default function MailComposer(props: {
   popout?: boolean;
   returnHref: string;
   dateConfig: DateContext;
+  canShareAttachments?: boolean;
   onClose?: () => void;
 }) {
   let attachmentInput: HTMLInputElement | undefined;
@@ -686,6 +690,31 @@ export default function MailComposer(props: {
       setDraft(await response.json());
     });
 
+  const shareAttachment = mutations.create<CreatedAttachmentLink, { attachmentId: string; input: CreateAttachmentLinkInput }>({
+    mutation: async ({ attachmentId, input }) => {
+      const currentDraft = draft();
+      if (!currentDraft) throw new Error("Save the draft before sharing an attachment.");
+      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].attachments[":attachmentId"].links.$post({
+        param: { mailboxId: props.mailboxId, draftId: currentDraft.id, attachmentId },
+        json: input,
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to share attachment"));
+      return response.json();
+    },
+    onSuccess: ({ link, url }) => {
+      const label = link.filename ?? "Download attachment";
+      const insertion = format() === "markdown" ? `[${label.replaceAll("]", "\\]")}](${url})` : url;
+      setBody((current) => `${current}${current.endsWith("\n") || !current ? "" : "\n\n"}${insertion}`);
+      toast.success("Public attachment link inserted");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const insertAttachmentLink = async (attachmentId: string) => {
+    const input = await promptAttachmentLinkOptions();
+    if (input) shareAttachment.mutate({ attachmentId, input });
+  };
+
   const validateDelivery = () => {
     if (uploads().length > 0) throw new Error("Finish or cancel attachment uploads before sending.");
     if (to().length + cc().length + bcc().length === 0) throw new Error("Add at least one recipient.");
@@ -1138,6 +1167,17 @@ export default function MailComposer(props: {
                   <i class="ti ti-paperclip" aria-hidden="true" />
                   <span class="max-w-48 truncate">{attachment.filename}</span>
                   <span class="text-xs text-dimmed">{formatBytes(attachment.byteLength)}</span>
+                  <Show when={props.canShareAttachments}>
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      aria-label={`Insert public link for ${attachment.filename}`}
+                      disabled={!editable() || shareAttachment.loading()}
+                      onClick={() => void insertAttachmentLink(attachment.id)}
+                    >
+                      <i class="ti ti-link" aria-hidden="true" />
+                    </button>
+                  </Show>
                   <button
                     type="button"
                     class="icon-btn"

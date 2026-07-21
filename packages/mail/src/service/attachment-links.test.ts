@@ -5,6 +5,7 @@ import {
   decideAttachmentLinkDownload,
   hashAttachmentLinkToken,
   MAX_ATTACHMENT_LINK_FILE_BYTES,
+  publicAttachmentLinkUrlForAppUrl,
 } from "./attachment-links";
 
 const NOW = new Date("2026-07-17T10:00:00.000Z");
@@ -16,6 +17,14 @@ const createLink = async (overrides: Partial<Parameters<typeof createAttachmentL
 };
 
 describe("mail public attachment links", () => {
+  test("requires HTTPS for non-local public origins", () => {
+    expect(publicAttachmentLinkUrlForAppUrl("https://cloud.example.com/path", "token")).toBe(
+      "https://cloud.example.com/path/share/mail/attachments/token",
+    );
+    expect(publicAttachmentLinkUrlForAppUrl("http://localhost:3000", "token")).toBe("http://localhost:3000/share/mail/attachments/token");
+    expect(() => publicAttachmentLinkUrlForAppUrl("http://cloud.example.com", "token")).toThrow("must use HTTPS");
+  });
+
   test("returns an opaque token once and keeps only its hash in persistent state", async () => {
     const first = await createLink();
     const second = await createLink();
@@ -37,6 +46,10 @@ describe("mail public attachment links", () => {
   });
 
   test("bounds password work and persisted download counters", async () => {
+    expect(await createAttachmentLink({ fileSizeBytes: 1, now: NOW, password: "short" })).toEqual({
+      ok: false,
+      code: "invalid_password",
+    });
     expect(await createAttachmentLink({ fileSizeBytes: 1, now: NOW, password: "x".repeat(257) })).toEqual({
       ok: false,
       code: "invalid_password",
@@ -103,18 +116,18 @@ describe("mail public attachment links", () => {
   });
 
   test("fails closed for a wrong token and malformed persistent hashes", async () => {
-    const created = await createLink({ password: "secret" });
+    const created = await createLink({ password: "secret-1" });
     const wrongToken = await createLink();
     const tokenFailure = await decideAttachmentLinkDownload({
       link: created.persistent,
       publicToken: wrongToken.publicToken,
-      password: "secret",
+      password: "secret-1",
       now: NOW,
     });
     const passwordHashFailure = await decideAttachmentLinkDownload({
       link: { ...created.persistent, passwordHash: "not-a-password-hash" },
       publicToken: created.publicToken,
-      password: "secret",
+      password: "secret-1",
       now: NOW,
     });
 

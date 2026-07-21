@@ -17,6 +17,8 @@ import type {
   ConnectorVerification,
   FolderRole,
   ProviderConnectionInput,
+  ProviderTransportDiagnostic,
+  ProviderTransportDiagnostics,
   RemoteFolder,
   RemoteNamespace,
 } from "../../contracts";
@@ -207,6 +209,52 @@ const verifySmtp = async (config: ProviderConnectionInput): Promise<void> =>
     { allowAddressFailover: true },
   );
 
+export const transportDiagnostic = (result: PromiseSettledResult<unknown>): ProviderTransportDiagnostic => {
+  if (result.status === "fulfilled") return { status: "verified", category: null, message: "Verified" };
+  const error = result.reason as { code?: unknown; message?: unknown } | null;
+  const code = typeof error?.code === "string" ? error.code.toUpperCase() : "";
+  const message = typeof error?.message === "string" ? error.message.toLowerCase() : "";
+  const category =
+    code.includes("AUTH") || message.includes("auth") || message.includes("credential")
+      ? "authentication"
+      : code.includes("CERT") || code.includes("TLS") || message.includes("certificate") || message.includes("tls")
+        ? "tls"
+        : code === "ENDPOINT_BLOCKED" || message.includes("endpoint") || message.includes("resolve")
+          ? "endpoint"
+          : code.includes("TIMEOUT") || code.includes("CONNECTION") || message.includes("connect") || message.includes("timeout")
+            ? "unavailable"
+            : "unknown";
+  const safeMessage =
+    category === "authentication"
+      ? "Authentication failed"
+      : category === "tls"
+        ? "TLS verification failed"
+        : category === "endpoint"
+          ? "Endpoint policy rejected the server"
+          : category === "unavailable"
+            ? "Server could not be reached"
+            : "Verification failed";
+  return { status: "failed", category, message: safeMessage };
+};
+
+export const verifyImapSmtpTransports = async (
+  config: ProviderConnectionInput,
+): Promise<{ verification: ConnectorVerification | null; diagnostics: ProviderTransportDiagnostics }> => {
+  const [imap, smtp] = await Promise.allSettled([verifyImap(config), verifySmtp(config)]);
+  const diagnostics = { imap: transportDiagnostic(imap), smtp: transportDiagnostic(smtp) } satisfies ProviderTransportDiagnostics;
+  if (imap.status === "rejected" || smtp.status === "rejected") return { verification: null, diagnostics };
+  const accountId = sha256(`${config.imap.host.toLowerCase()}\n${imap.value.authenticatedPrincipal.toLowerCase()}`);
+  return {
+    diagnostics,
+    verification: {
+      authenticatedPrincipal: imap.value.authenticatedPrincipal,
+      serverIdentity: imap.value.serverIdentity,
+      capabilities: imap.value.capabilities,
+      accounts: [{ id: accountId, name: config.email, locator: { accountId }, namespaces: imap.value.namespaces }],
+    },
+  };
+};
+
 const roleFromList = (entry: ListResponse): FolderRole => {
   if (entry.path.toUpperCase() === "INBOX") return "inbox";
   switch (entry.specialUse?.toLowerCase()) {
@@ -392,21 +440,10 @@ export const selectUidBatch = async (params: {
 };
 
 const verify = async (config: ProviderConnectionInput): Promise<ConnectorVerification> => {
-  const [imap] = await Promise.all([verifyImap(config), verifySmtp(config)]);
-  const accountId = sha256(`${config.imap.host.toLowerCase()}\n${imap.authenticatedPrincipal.toLowerCase()}`);
-  return {
-    authenticatedPrincipal: imap.authenticatedPrincipal,
-    serverIdentity: imap.serverIdentity,
-    capabilities: imap.capabilities,
-    accounts: [
-      {
-        id: accountId,
-        name: config.email,
-        locator: { accountId },
-        namespaces: imap.namespaces,
-      },
-    ],
-  };
+  const result = await verifyImapSmtpTransports(config);
+  if (result.verification) return result.verification;
+  const summary = `IMAP: ${result.diagnostics.imap.message}; SMTP: ${result.diagnostics.smtp.message}`;
+  throw Object.assign(new Error(summary), { code: "PROVIDER_TRANSPORT_VERIFICATION_FAILED", diagnostics: result.diagnostics });
 };
 
 const discoverFolders = async (config: ProviderConnectionInput): Promise<RemoteFolder[]> =>

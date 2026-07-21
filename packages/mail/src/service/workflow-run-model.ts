@@ -25,6 +25,10 @@ export type DbWorkflowRun = {
   inputs: Record<string, WorkflowJsonValue> | string;
   target_query: WorkflowRunTargetSelection | string;
   preflight_hash: string | null;
+  request_hash: string;
+  retry_of_run_id: string | null;
+  paused_at: Date | string | null;
+  pause_reason: string | null;
   target_count: number;
   queued_targets: number;
   running_targets: number;
@@ -54,6 +58,8 @@ export type DbWorkflowRunTarget = {
   result: WorkflowJsonValue | string | null;
   last_error: { code: string; message: string; retryable: boolean } | string | null;
   cancel_requested_at: Date | string | null;
+  retry_of_target_id: string | null;
+  has_retry: boolean;
   created_at: Date | string;
   started_at: Date | string | null;
   finished_at: Date | string | null;
@@ -81,6 +87,10 @@ export const workflowRunColumns = sql`
   run.inputs,
   run.target_query,
   run.preflight_hash,
+  run.request_hash,
+  run.retry_of_run_id,
+  run.paused_at,
+  run.pause_reason,
   run.target_count,
   run.queued_targets,
   run.running_targets,
@@ -115,6 +125,9 @@ export const mapWorkflowRun = (row: DbWorkflowRun): MailWorkflowRun => ({
   inputs: parseWorkflowDbJson(row.inputs),
   query: parseWorkflowDbJson(row.target_query),
   preflightHash: row.preflight_hash,
+  retryOfRunId: row.retry_of_run_id,
+  pausedAt: nullableWorkflowTimestamp(row.paused_at),
+  pauseReason: row.pause_reason,
   targetProgress: {
     total: row.target_count,
     queued: row.queued_targets,
@@ -146,6 +159,8 @@ export const mapWorkflowRunTarget = (row: DbWorkflowRunTarget): MailWorkflowRunT
   result: row.result === null ? null : parseWorkflowDbJson(row.result),
   lastError: row.last_error === null ? null : parseWorkflowDbJson(row.last_error),
   cancelRequestedAt: nullableWorkflowTimestamp(row.cancel_requested_at),
+  retryOfTargetId: row.retry_of_target_id,
+  hasRetry: row.has_retry,
   createdAt: workflowTimestamp(row.created_at),
   startedAt: nullableWorkflowTimestamp(row.started_at),
   finishedAt: nullableWorkflowTimestamp(row.finished_at),

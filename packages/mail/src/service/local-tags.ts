@@ -33,6 +33,12 @@ export type ConversationLocalTags = {
   tags: LocalTag[];
 };
 
+export type WorkflowLocalTagMutation = {
+  conversationRevision: number;
+  applied: boolean;
+  activityId: string | null;
+};
+
 type ActorIdentity = { kind: "user" | "service_account"; id: string };
 
 const localTagColumns = sql`tag.id, tag.mailbox_id, tag.name, tag.revision, tag.created_at, tag.updated_at`;
@@ -347,6 +353,75 @@ export const getConversationLocalTags = async (params: {
   if (!allowed.ok) return allowed;
   const state = await loadConversationLocalTags(params.mailboxId, params.conversationId);
   return state ? ok(state) : fail(err.notFound("Conversation"));
+};
+
+export const updateWorkflowConversationLocalTagInTransaction = async (params: {
+  db: SqlClient;
+  mailboxId: string;
+  conversationId: string;
+  workflowVersionId: string;
+  expectedRevision: number;
+  tagId: string;
+  operation: "add" | "remove";
+}): Promise<Result<WorkflowLocalTagMutation>> => {
+  const [conversation] = await params.db<{ revision: string | number }[]>`
+    SELECT revision
+    FROM mail.conversations
+    WHERE id = ${params.conversationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+    FOR UPDATE
+  `;
+  if (!conversation) return fail(err.notFound("Conversation"));
+  if (Number(conversation.revision) !== params.expectedRevision) {
+    return fail(err.conflict("Conversation was changed by another collaborator"));
+  }
+  const [tag] = await params.db<{ id: string }[]>`
+    SELECT id
+    FROM mail.local_tags
+    WHERE id = ${params.tagId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+    FOR SHARE
+  `;
+  if (!tag) return fail(err.badInput("Local tag no longer belongs to this mailbox"));
+  const changed =
+    params.operation === "add"
+      ? await params.db<{ tag_id: string }[]>`
+          INSERT INTO mail.conversation_local_tags (
+            mailbox_id, conversation_id, tag_id, assigned_by_actor_kind, assigned_by_actor_id
+          ) VALUES (
+            ${params.mailboxId}::uuid, ${params.conversationId}::uuid, ${params.tagId}::uuid,
+            'workflow', ${params.workflowVersionId}::uuid
+          )
+          ON CONFLICT (conversation_id, tag_id) DO NOTHING
+          RETURNING tag_id
+        `
+      : await params.db<{ tag_id: string }[]>`
+          DELETE FROM mail.conversation_local_tags
+          WHERE mailbox_id = ${params.mailboxId}::uuid
+            AND conversation_id = ${params.conversationId}::uuid
+            AND tag_id = ${params.tagId}::uuid
+          RETURNING tag_id
+        `;
+  if (changed.length === 0) {
+    return ok({ conversationRevision: Number(conversation.revision), applied: false, activityId: null });
+  }
+  const [updated] = await params.db<{ revision: string | number }[]>`
+    UPDATE mail.conversations
+    SET revision = revision + 1, updated_at = now()
+    WHERE id = ${params.conversationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+    RETURNING revision
+  `;
+  if (!updated) return fail(err.internal("Tagged conversation could not be updated"));
+  const activityId = await insertActivity({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    conversationId: params.conversationId,
+    context: null,
+    actorOverride: { kind: "workflow", workflowVersionId: params.workflowVersionId },
+    action: params.operation === "add" ? "conversation.local_tag_added" : "conversation.local_tag_removed",
+    targetType: "local_tag",
+    targetId: params.tagId,
+    metadata: { beforeRevision: Number(conversation.revision), afterRevision: Number(updated.revision) },
+  });
+  return ok({ conversationRevision: Number(updated.revision), applied: true, activityId });
 };
 
 export const setConversationLocalTags = async (params: {

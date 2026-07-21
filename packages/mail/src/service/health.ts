@@ -142,7 +142,10 @@ export const getMailboxOperationalHealth = async (
         FROM mail.commands
         WHERE mailbox_id = ${mailboxId}::uuid
           AND state IN ('queued', 'executing')
-          AND kind IN ('sync_mailbox', 'sync_folder', 'discover_folders', 'verify_binding', 'rebuild_folder', 'hydrate_missing')
+          AND kind IN (
+            'sync_mailbox', 'sync_folder', 'discover_folders', 'verify_binding', 'rebuild_folder', 'hydrate_missing',
+            'rebuild_search', 'rebuild_threads', 'reconcile_effect', 'retry_command', 'cancel_command'
+          )
       `;
       const outboxStates = await tx<{ state: string; count: number }[]>`
         SELECT state, COUNT(*)::int AS count

@@ -61,6 +61,12 @@ describe("Mail live protocol", () => {
     expect(parseMailLiveServerMessage(JSON.stringify(event))).toEqual(event);
     expect(
       MailLiveServerMessageSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, event: { ...event.payload.event, reason: "space_link" } },
+      }).success,
+    ).toBeTrue();
+    expect(
+      MailLiveServerMessageSchema.safeParse({
         type: MAIL_LIVE_WS_TYPE.event,
         payload: {
           mailboxId: MAILBOX_ID,

@@ -18,6 +18,7 @@ import { enqueueMailCommand } from "./command-runtime";
 import { renderComposeDraft } from "./compose-templates";
 import { publishMailMailboxEvent } from "./events";
 import { resolveMailExecution } from "./execution";
+import { BASE_MAINTENANCE_KINDS, getOperatorActionEligibility } from "./operator-actions";
 import { outboundDraftSnapshotSchema } from "./outbound-mime";
 
 type DbCommand = {
@@ -123,6 +124,7 @@ type DraftForOutbox = {
   body_markdown: string;
   body_format: "plain" | "markdown";
   origin: "user" | "workflow";
+  delivery_class: "normal" | "automatic_reply";
   revision: string | number;
   intent: "new" | "reply" | "reply_all" | "forward";
   display_name: string;
@@ -365,6 +367,7 @@ const createSendOutbox = async (params: {
       d.body_markdown,
       d.body_format,
       d.origin,
+      d.delivery_class,
       d.revision,
       d.intent,
       si.display_name,
@@ -445,8 +448,8 @@ const createSendOutbox = async (params: {
     from: { name: draft.display_name, address: draft.from_address },
     replyTo: draft.reply_to,
     envelopeFrom: draft.envelope_sender,
-    useNullEnvelopeSender: draft.origin === "workflow",
-    automaticReply: draft.origin === "workflow",
+    useNullEnvelopeSender: draft.delivery_class === "automatic_reply",
+    automaticReply: draft.delivery_class === "automatic_reply",
     to: draft.to_addresses,
     cc: draft.cc_addresses,
     bcc: draft.bcc_addresses,
@@ -752,6 +755,9 @@ const prepareMaintenanceCommand = (
   }
   if (input.kind === "verify_binding") return { target: { bindingId: input.bindingId }, payload: { allowCredentialRevision: true } };
   if (input.kind === "discover_folders") return { target: { bindingId: input.bindingId ?? null }, payload: {} };
+  if (input.kind === "reconcile_effect" || input.kind === "retry_command" || input.kind === "cancel_command") {
+    return { target: { commandId: input.commandId }, payload: {} };
+  }
   return { target: {}, payload: {} };
 };
 
@@ -760,39 +766,12 @@ const validateMaintenanceTarget = async (params: {
   mailboxId: string;
   input: MaintenanceCommandInput;
 }): Promise<Result<void>> => {
-  if (params.input.kind === "sync_folder" || params.input.kind === "rebuild_folder") {
-    const [folder] = await params.db<{ selected_for_sync: boolean; discovery_state: string }[]>`
-      SELECT folder.selected_for_sync, folder.discovery_state
-      FROM mail.folders folder
-      JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
-      WHERE folder.id = ${params.input.folderId}::uuid
-        AND resource.mailbox_id = ${params.mailboxId}::uuid
-    `;
-    if (!folder) return fail(err.notFound("Mail folder"));
-    if (folder.discovery_state !== "active") return fail(err.badInput("Only an active remote folder can be synchronized or rebuilt"));
-    if (params.input.kind === "sync_folder" && !folder.selected_for_sync) {
-      return fail(err.badInput("The folder is excluded from synchronization"));
-    }
-  }
-  const bindingId =
-    params.input.kind === "verify_binding" || (params.input.kind === "discover_folders" && params.input.bindingId)
-      ? params.input.bindingId
-      : null;
-  if (bindingId) {
-    const [binding] = await params.db<{ id: string }[]>`
-      SELECT binding.id
-      FROM mail.provider_bindings binding
-      JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
-      WHERE binding.id = ${bindingId}::uuid
-        AND resource.mailbox_id = ${params.mailboxId}::uuid
-        AND (
-          binding.state IN ('active', 'degraded')
-          OR (${params.input.kind === "verify_binding"} AND binding.state = 'pending')
-        )
-    `;
-    if (!binding) return fail(err.notFound("Provider binding"));
-  }
-  return ok();
+  // Provider-read maintenance commands are durable requests and may validly
+  // resolve to a no-op when the mailbox is paused or already reconciled. Their
+  // runtime rechecks current access and provider state before every effect.
+  if (BASE_MAINTENANCE_KINDS.includes(params.input.kind as (typeof BASE_MAINTENANCE_KINDS)[number])) return ok();
+  const action = await getOperatorActionEligibility({ db: params.db, mailboxId: params.mailboxId, input: params.input });
+  return action.eligible ? ok() : fail(err.conflict(action.reason ?? "Mail operator action is not currently eligible"));
 };
 
 export const createMaintenanceCommand = async (params: {

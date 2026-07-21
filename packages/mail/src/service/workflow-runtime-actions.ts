@@ -1,3 +1,4 @@
+import { notifications } from "@valentinkolb/cloud/services";
 import type { WorkflowJsonValue, WorkflowPlanningOutcome, WorkflowStepOutcome } from "@valentinkolb/cloud/workflows";
 import { createWorkflowBuiltinActionPorts, renderWorkflowTextTemplate, workflowPathKey } from "@valentinkolb/cloud/workflows";
 import type {
@@ -8,21 +9,30 @@ import type {
   WorkflowExecuteActionPort,
 } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
+import { app } from "../config";
 import type {
   ActorCommandInput,
+  MailAddress,
   MailCommand,
   RemoteMessagePrecondition,
   ResponseScheduleDefinitionInput,
   UpdateConversationCollaboration,
 } from "../contracts";
-import { responseScheduleDefinitionSchema } from "../contracts";
+import { mailAddressSchema, responseScheduleDefinitionSchema } from "../contracts";
 import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { linkAutomaticReplyCommandInTransaction, prepareAutomaticReplyInTransaction } from "./automatic-reply";
 import { sha256Text } from "./canonical";
-import { updateConversationCollaborationInTransaction, updateWorkflowConversationCollaborationInTransaction } from "./collaboration";
+import {
+  createWorkflowConversationCommentInTransaction,
+  updateConversationCollaborationInTransaction,
+  updateWorkflowConversationCollaborationInTransaction,
+} from "./collaboration";
+import { hasCurrentMailboxUserPermission } from "./collaborators";
 import { createWorkflowCommand } from "./commands";
 import { ensureConversationReferenceInTransaction } from "./conversation-reference";
+import { createWorkflowDraftInTransaction } from "./drafts";
 import { publishMailCollaborationEvent } from "./events";
+import { updateWorkflowConversationLocalTagInTransaction } from "./local-tags";
 import {
   applyMailConversationTransition,
   applyMailMessageTransition,
@@ -90,13 +100,14 @@ const executionError = (error: unknown, fallbackCode = "MAIL_WORKFLOW_ACTION_FAI
 const renderWorkflowMessage = async (
   context: WorkflowExecuteActionContext,
   step: WorkflowActionStep,
-  field: "subject" | "body",
+  field: "subject" | "body" | "title",
 ): Promise<string> => renderWorkflowTextTemplate({ context, step, field, value: step.config[field], label: field });
 
 const lockCollaborationActionFence = async (db: SqlClient, context: WorkflowExecuteActionContext): Promise<void> => {
   const [target] = await db<{ id: string }[]>`
     SELECT target.id
     FROM mail.workflow_run_targets target
+    JOIN mail.workflow_runs parent ON parent.id = target.parent_run_id
     JOIN mail.workflow_step_runs step
       ON step.target_id = target.id
      AND step.step_key = ${context.step.key}
@@ -106,6 +117,7 @@ const lockCollaborationActionFence = async (db: SqlClient, context: WorkflowExec
       AND target.execution_generation = ${context.run.executionGeneration}
       AND target.lease_expires_at >= now()
       AND target.cancel_requested_at IS NULL
+      AND parent.state IN ('queued', 'running', 'waiting')
     FOR UPDATE OF target
   `;
   if (!target) {
@@ -167,24 +179,29 @@ const messageTransition = async (
   step: WorkflowActionStep,
 ): Promise<{
   message: JsonObject;
-  action: "addKeyword" | "removeKeyword" | "moveMessage";
+  action: "addKeyword" | "removeKeyword" | "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage" | "addFlag" | "removeFlag";
   value: WorkflowJsonValue;
 }> => {
-  if (step.action !== "addKeyword" && step.action !== "removeKeyword" && step.action !== "moveMessage") {
+  if (
+    !["addKeyword", "removeKeyword", "moveMessage", "copyMessage", "archiveMessage", "trashMessage", "addFlag", "removeFlag"].includes(
+      step.action,
+    )
+  ) {
     throw new Error(`Unsupported message transition ${step.action}`);
   }
   const message = objectValue(await referenceOrValue(context, step.config.message), "message");
-  if (step.action === "moveMessage") {
+  if (["moveMessage", "copyMessage", "archiveMessage", "trashMessage"].includes(step.action)) {
     return {
       message,
-      action: step.action,
+      action: step.action as "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage",
       value: textValue(actionBinding(context, step, "folder") ?? (await referenceOrValue(context, step.config.folder)), "folder"),
     };
   }
+  const field = step.action === "addFlag" || step.action === "removeFlag" ? "flag" : "keyword";
   return {
     message,
-    action: step.action,
-    value: textValue(await referenceOrValue(context, step.config.keyword), "keyword"),
+    action: step.action as "addKeyword" | "removeKeyword" | "addFlag" | "removeFlag",
+    value: textValue(await referenceOrValue(context, step.config[field]), field),
   };
 };
 
@@ -233,13 +250,13 @@ const commandInput = async (
   const folderId = textValue(message.folderId, "message.folderId");
   const idempotencyKey = `workflow:${options.targetId}:${sha256Text(context.step.key).slice(0, 40)}`;
   const expectedRemoteState = remoteState(options.preconditions);
-  if (step.action === "moveMessage") {
+  if (["moveMessage", "copyMessage", "archiveMessage", "trashMessage"].includes(step.action)) {
     const destinationFolderId = textValue(
       actionBinding(context, step, "folder") ?? (await referenceOrValue(context, step.config.folder)),
       "folder",
     );
     return {
-      kind: "move",
+      kind: step.action === "copyMessage" ? "copy" : "move",
       remoteMessageRefId,
       sourceFolderId: folderId,
       destinationFolderId,
@@ -248,16 +265,17 @@ const commandInput = async (
       ...(expectedRemoteState ? { expectedRemoteState } : {}),
     };
   }
-  const keyword = textValue(await referenceOrValue(context, step.config.keyword), "keyword");
+  const stateField = step.action === "addFlag" || step.action === "removeFlag" ? "flag" : "keyword";
+  const stateValue = textValue(await referenceOrValue(context, step.config[stateField]), stateField);
   return {
     kind: "change_message_state",
     remoteMessageRefId,
     folderId,
     change: {
-      addFlags: [],
-      removeFlags: [],
-      addKeywords: step.action === "addKeyword" ? [keyword] : [],
-      removeKeywords: step.action === "removeKeyword" ? [keyword] : [],
+      addFlags: step.action === "addFlag" ? [stateValue as "seen" | "answered" | "flagged" | "draft"] : [],
+      removeFlags: step.action === "removeFlag" ? [stateValue as "seen" | "answered" | "flagged" | "draft"] : [],
+      addKeywords: step.action === "addKeyword" ? [stateValue] : [],
+      removeKeywords: step.action === "removeKeyword" ? [stateValue] : [],
     },
     idempotencyKey,
     correlationId: options.targetId,
@@ -270,7 +288,11 @@ const plannedEffect = async (
   step: WorkflowActionStep,
   options: MailWorkflowRuntimeActionOptions,
 ): Promise<WorkflowPlanningOutcome> => {
-  if (step.action === "addKeyword" || step.action === "removeKeyword" || step.action === "moveMessage") {
+  if (
+    ["addKeyword", "removeKeyword", "moveMessage", "copyMessage", "archiveMessage", "trashMessage", "addFlag", "removeFlag"].includes(
+      step.action,
+    )
+  ) {
     return { state: "planned", effects: [{ kind: "mail.command", input: await commandInput(context, step, options) }] };
   }
   if (step.action === "automaticReply") {
@@ -278,6 +300,25 @@ const plannedEffect = async (
       state: "planned",
       effects: [{ kind: "mail.automaticReply", subject: (await referenceOrValue(context, step.config.message)) ?? null }],
     };
+  }
+  if (step.action === "createDraft") {
+    const result = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: 1,
+      senderIdentityId: actionBinding(context, step, "sender") ?? null,
+      deliveryClass: "normal",
+    };
+    if (typeof step.config.result === "string") context.variables.set(step.config.result, result);
+    return { state: "planned", effects: [{ kind: "mail.createDraft", value: result }] };
+  }
+  if (step.action === "scheduleDraftSend") {
+    return {
+      state: "planned",
+      effects: [{ kind: "mail.scheduleDraftSend", subject: (await referenceOrValue(context, step.config.draft)) ?? null }],
+    };
+  }
+  if (step.action === "notifyUser") {
+    return { state: "planned", effects: [{ kind: "mail.notifyUser", value: actionBinding(context, step, "user") ?? null }] };
   }
   const subject = await referenceOrValue(context, step.config.conversation);
   if (step.action === "ensureConversationReference") {
@@ -321,7 +362,11 @@ export const createMailWorkflowActionPorts = (
           error: { code: "FORBIDDEN", message: "Workflow execution authority is no longer active", retryable: false },
         };
       }
-      if (step.action === "addKeyword" || step.action === "removeKeyword" || step.action === "moveMessage") {
+      if (
+        ["addKeyword", "removeKeyword", "moveMessage", "copyMessage", "archiveMessage", "trashMessage", "addFlag", "removeFlag"].includes(
+          step.action,
+        )
+      ) {
         const transition = await messageTransition(context, step);
         if (!mailMessageTransitionChanges(transition.message, transition.action, transition.value)) {
           return completedNoop(step.action);
@@ -362,6 +407,184 @@ export const createMailWorkflowActionPorts = (
           ...outcome,
           output: { ...(isMailWorkflowProjectedObject(outcome.output) ? outcome.output : {}), action: step.action, applied: true },
         };
+      }
+
+      if (step.action === "createDraft") {
+        const senderIdentityId = textValue(actionBinding(context, step, "sender"), "sender identity");
+        const parseAddresses = async (field: "to" | "cc" | "bcc"): Promise<MailAddress[]> => {
+          const value = step.config[field] === undefined ? [] : await referenceOrValue(context, step.config[field]);
+          const parsed = mailAddressSchema.array().max(200).safeParse(value);
+          if (!parsed.success) throw new Error(`${field} must resolve to a valid address array`);
+          return parsed.data;
+        };
+        const subject = await renderWorkflowMessage(context, step, "subject");
+        const body = await renderWorkflowMessage(context, step, "body");
+        const format = step.config.format ?? "markdown";
+        if (format !== "plain" && format !== "markdown") throw new Error("draft format is invalid");
+        const completed = await sql.begin(async (tx) => {
+          await lockCollaborationActionFence(tx, context);
+          if (!(await activeWorkflowAuthority(options, tx)))
+            throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+          const draft = await createWorkflowDraftInTransaction({
+            db: tx,
+            mailboxId: options.mailboxId,
+            workflowVersionId: options.workflowVersionId,
+            draftId: crypto.randomUUID(),
+            senderIdentityId,
+            to: await parseAddresses("to"),
+            cc: await parseAddresses("cc"),
+            bcc: await parseAddresses("bcc"),
+            subject,
+            body,
+            format,
+          });
+          if (!draft.ok) return { draft, outcome: null };
+          const outcome: Extract<WorkflowStepOutcome, { state: "completed" }> = {
+            state: "completed",
+            output: { action: step.action, applied: true, ...draft.data },
+          };
+          await ledgerCompletedCollaborationAction(tx, context, outcome);
+          return { draft, outcome };
+        });
+        if (!completed.draft.ok) return { state: "failed", error: executionError(completed.draft.error) };
+        if (!completed.outcome) throw new Error("Created draft outcome is unavailable");
+        if (typeof step.config.result === "string") context.variables.set(step.config.result, completed.draft.data);
+        return completed.outcome;
+      }
+
+      if (step.action === "scheduleDraftSend") {
+        const draft = objectValue(await referenceOrValue(context, step.config.draft), "draft");
+        if (draft.deliveryClass !== "normal") throw new Error("Only a normal-delivery workflow draft can be scheduled");
+        const draftId = textValue(draft.id, "draft.id");
+        const senderIdentityId = textValue(draft.senderIdentityId, "draft.senderIdentityId");
+        const revision = Number(draft.revision);
+        if (!Number.isSafeInteger(revision) || revision < 1) throw new Error("draft.revision is invalid");
+        const scheduledAt = textValue(await referenceOrValue(context, step.config.scheduledAt), "scheduledAt");
+        if (!Number.isFinite(Date.parse(scheduledAt))) throw new Error("scheduledAt must be an ISO timestamp");
+        const command = await createWorkflowCommand({
+          context: options.authority.kind === "actor" ? options.authority.context : null,
+          mailboxId: options.mailboxId,
+          workflowVersionId: options.workflowVersionId,
+          input: {
+            kind: "send",
+            draftId,
+            expectedDraftRevision: revision,
+            senderIdentityId,
+            scheduledAt,
+            undoSeconds: 0,
+            idempotencyKey: `workflow:${options.targetId}:${sha256Text(context.step.key).slice(0, 40)}`,
+            correlationId: options.targetId,
+          },
+          beforeCreate: async (tx) => {
+            await lockCollaborationActionFence(tx, context);
+            const [normal] = await tx<{ id: string }[]>`
+              SELECT id FROM mail.drafts
+              WHERE id = ${draftId}::uuid AND mailbox_id = ${options.mailboxId}::uuid
+                AND origin = 'workflow' AND delivery_class = 'normal'
+              FOR UPDATE
+            `;
+            if (!normal) throw Object.assign(new Error("Workflow draft is not eligible for normal delivery"), { code: "FORBIDDEN" });
+            if (!(await activeWorkflowAuthority(options, tx)))
+              throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+          },
+          afterCreate: async (tx, created) => {
+            const linked = await tx<{ step_key: string }[]>`
+              UPDATE mail.workflow_step_runs SET command_id = ${created.id}::uuid
+              WHERE target_id = ${context.run.runId}::uuid AND step_key = ${context.step.key}
+                AND execution_generation = ${context.run.executionGeneration} AND state = 'running'
+              RETURNING step_key
+            `;
+            if (linked.length === 0)
+              throw Object.assign(new Error("Workflow execution lease was lost before linking its send command"), {
+                code: "MAIL_WORKFLOW_LEASE_LOST",
+              });
+          },
+        });
+        return command.ok ? commandOutcome(command.data) : { state: "failed", error: executionError(command.error) };
+      }
+
+      if (step.action === "notifyUser") {
+        const userId = textValue(actionBinding(context, step, "user"), "notification user");
+        const title = await renderWorkflowMessage(context, step, "title");
+        const body = await renderWorkflowMessage(context, step, "body");
+        return sql.begin(async (tx) => {
+          await lockCollaborationActionFence(tx, context);
+          if (!(await activeWorkflowAuthority(options, tx))) {
+            throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+          }
+          if (!(await hasCurrentMailboxUserPermission({ mailboxId: options.mailboxId, userId, minimumPermission: "read", db: tx }))) {
+            throw Object.assign(new Error("Notification recipient no longer has mailbox access"), { code: "FORBIDDEN" });
+          }
+          await notifications.send(app.notifications.workflowNotice, {
+            recipient: { userId },
+            data: { mailboxId: options.mailboxId, title, body },
+            idempotencyKey: `mail-workflow:${options.targetId}:${sha256Text(context.step.key).slice(0, 40)}`,
+          });
+          const outcome: Extract<WorkflowStepOutcome, { state: "completed" }> = {
+            state: "completed",
+            output: { action: step.action, applied: true, userId },
+          };
+          await ledgerCompletedCollaborationAction(tx, context, outcome);
+          return outcome;
+        });
+      }
+
+      if (step.action === "addLocalTag" || step.action === "removeLocalTag" || step.action === "addComment") {
+        const conversation = objectValue(await referenceOrValue(context, step.config.conversation), "conversation");
+        const conversationId = textValue(conversation.id, "conversation.id");
+        const frozenRevision = Number(conversation.revision);
+        const expectedRevision = conversationRevisions.get(conversationId) ?? frozenRevision;
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision <= 0) throw new Error("Conversation revision is unavailable");
+        const completed = await sql.begin(async (tx) => {
+          await lockCollaborationActionFence(tx, context);
+          if (!(await activeWorkflowAuthority(options, tx)))
+            throw Object.assign(new Error("Workflow execution authority is no longer valid"), { code: "FORBIDDEN" });
+          const mutation =
+            step.action === "addComment"
+              ? await createWorkflowConversationCommentInTransaction({
+                  db: tx,
+                  mailboxId: options.mailboxId,
+                  conversationId,
+                  workflowVersionId: options.workflowVersionId,
+                  body: await renderWorkflowMessage(context, step, "body"),
+                })
+              : await updateWorkflowConversationLocalTagInTransaction({
+                  db: tx,
+                  mailboxId: options.mailboxId,
+                  conversationId,
+                  workflowVersionId: options.workflowVersionId,
+                  expectedRevision,
+                  tagId: textValue(actionBinding(context, step, "tag"), "local tag"),
+                  operation: step.action === "addLocalTag" ? "add" : "remove",
+                });
+          if (!mutation.ok) return { mutation, outcome: null };
+          const revision = "conversationRevision" in mutation.data ? mutation.data.conversationRevision : expectedRevision;
+          const applied = "applied" in mutation.data ? mutation.data.applied : true;
+          const commentId = "id" in mutation.data ? mutation.data.id : null;
+          const outcome: Extract<WorkflowStepOutcome, { state: "completed" }> = {
+            state: "completed",
+            output: { action: step.action, applied, conversationId, revision, ...(commentId ? { commentId } : {}) },
+          };
+          await ledgerCompletedCollaborationAction(tx, context, outcome);
+          return { mutation, outcome };
+        });
+        if (!completed.mutation.ok) return { state: "failed", error: executionError(completed.mutation.error) };
+        if (!completed.outcome) throw new Error("Completed workflow collaboration action is unavailable");
+        if ("conversationRevision" in completed.mutation.data) {
+          conversation.revision = completed.mutation.data.conversationRevision;
+          conversationRevisions.set(conversationId, completed.mutation.data.conversationRevision);
+        }
+        if (completed.mutation.data.activityId) {
+          await publishMailCollaborationEvent({
+            mailboxId: options.mailboxId,
+            conversationId,
+            reason: step.action === "addComment" ? "comment" : "local_tag",
+            targetId:
+              "id" in completed.mutation.data ? completed.mutation.data.id : textValue(actionBinding(context, step, "tag"), "local tag"),
+            activityId: completed.mutation.data.activityId,
+          });
+        }
+        return completed.outcome;
       }
 
       if (step.action === "ensureConversationReference") {
@@ -646,8 +869,23 @@ export const createMailWorkflowActionPorts = (
       }
       return;
     }
+    if (step.action === "createDraft") {
+      if (typeof step.config.result === "string") {
+        context.variables.set(step.config.result, {
+          id: outcome.output.id ?? null,
+          revision: outcome.output.revision ?? null,
+          senderIdentityId: outcome.output.senderIdentityId ?? null,
+          deliveryClass: outcome.output.deliveryClass ?? null,
+        });
+      }
+      return;
+    }
     if (outcome.output.applied !== true) return;
-    if (step.action === "addKeyword" || step.action === "removeKeyword" || step.action === "moveMessage") {
+    if (
+      ["addKeyword", "removeKeyword", "moveMessage", "copyMessage", "archiveMessage", "trashMessage", "addFlag", "removeFlag"].includes(
+        step.action,
+      )
+    ) {
       const transition = await messageTransition(context, step);
       applyMailMessageTransition(transition.message, transition.action, transition.value);
       return;
@@ -669,9 +907,20 @@ export const createMailWorkflowActionPorts = (
           "addKeyword",
           "removeKeyword",
           "moveMessage",
+          "copyMessage",
+          "archiveMessage",
+          "trashMessage",
+          "addFlag",
+          "removeFlag",
           "assignConversation",
           "setConversationStatus",
           "ensureConversationReference",
+          "addLocalTag",
+          "removeLocalTag",
+          "addComment",
+          "createDraft",
+          "scheduleDraftSend",
+          "notifyUser",
           "automaticReply",
         ].includes(action)
           ? { execute, restoreCompleted }
@@ -683,9 +932,20 @@ export const createMailWorkflowActionPorts = (
           "addKeyword",
           "removeKeyword",
           "moveMessage",
+          "copyMessage",
+          "archiveMessage",
+          "trashMessage",
+          "addFlag",
+          "removeFlag",
           "assignConversation",
           "setConversationStatus",
           "ensureConversationReference",
+          "addLocalTag",
+          "removeLocalTag",
+          "addComment",
+          "createDraft",
+          "scheduleDraftSend",
+          "notifyUser",
           "automaticReply",
         ].includes(action)
           ? { plan: (context, step) => plannedEffect(context, step, options) }

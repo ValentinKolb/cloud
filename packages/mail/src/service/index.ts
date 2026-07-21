@@ -1,11 +1,13 @@
 import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/cloud/services";
 import * as mailboxAccess from "./access";
+import * as attachmentLinks from "./attachment-links";
 import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
 import * as collaboration from "./collaboration";
 import { commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
 import * as composeTemplates from "./compose-templates";
+import * as conversationContext from "./conversation-context";
 import * as conversationReferences from "./conversation-reference";
 import * as conversations from "./conversations";
 import * as draftLeases from "./draft-leases";
@@ -22,8 +24,11 @@ import * as mailboxes from "./mailboxes";
 import * as hydration from "./message-hydration";
 import * as messages from "./messages";
 import * as notificationTargets from "./notification-targets";
+import * as operations from "./operations";
+import * as operatorActions from "./operator-actions";
 import * as presence from "./presence";
 import * as providerConnections from "./provider-connections";
+import * as providerOAuth from "./provider-oauth";
 import * as reminders from "./reminders";
 import * as savedViews from "./saved-views";
 import * as scheduledSends from "./scheduled-sends";
@@ -31,6 +36,7 @@ import { cancelSendCommand } from "./scheduled-sends";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
 import * as settingsContext from "./settings-context";
+import * as storageObservability from "./storage-observability";
 import { enqueueMailboxSync, mailRuntime as scheduledMailRuntime } from "./sync-runtime";
 import * as triage from "./triage";
 import { createMailWorkflowMaterializationRuntime } from "./workflow-materialization-service";
@@ -53,6 +59,7 @@ export const mailRuntime = {
 
 export type { MailRequestContext } from "./auth";
 export {
+  attachmentLinks,
   automaticReplyConfigurations,
   bindings,
   cancelSendCommand,
@@ -60,6 +67,7 @@ export {
   commandRuntime,
   commands,
   composeTemplates,
+  conversationContext,
   conversationReferences,
   conversations,
   draftLeases,
@@ -75,14 +83,17 @@ export {
   mailboxes,
   messages,
   notificationTargets,
+  operations,
   presence,
   providerConnections,
+  providerOAuth,
   reminders,
   savedViews,
   scheduledSends,
   search,
   senderIdentities,
   settingsContext,
+  storageObservability,
   triage,
   workflowMaterializationRuntime,
   workflowRuntime,
@@ -92,6 +103,7 @@ export {
 export const mailService = {
   access: mailboxAccess,
   automaticReplyConfigurations,
+  attachmentLinks,
   bindings,
   commands,
   collaboration,
@@ -111,7 +123,10 @@ export const mailService = {
   mailboxes,
   messages,
   notificationTargets,
+  operations,
+  operatorActions,
   providerConnections,
+  providerOAuth,
   presence,
   reminders,
   savedViews,
@@ -119,6 +134,7 @@ export const mailService = {
   search,
   senderIdentities,
   settingsContext,
+  storageObservability,
   triage,
   workflows,
   sync: {

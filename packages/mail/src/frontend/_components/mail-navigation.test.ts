@@ -24,7 +24,12 @@ const item: MailListItem = {
 describe("Mail search navigation", () => {
   test("preserves structured search while selecting a conversation", () => {
     const serialized = serializeMailSearchState({
-      expression: { type: "text", field: "subject", query: "invoice", match: "words" },
+      expression: {
+        type: "text",
+        field: "subject",
+        query: "invoice",
+        match: "words",
+      },
       sort: "newest",
     });
     expect(serialized.ok).toBe(true);

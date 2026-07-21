@@ -13,6 +13,7 @@ import { hydrateMessageFromSource } from "./message-hydration";
 import { mailNotificationTargetHref, resolveMailNotificationTarget } from "./notification-targets";
 import { setConversationReminder } from "./reminders";
 import { ingestEnvelope } from "./sync-runtime";
+import { loadMailboxConversationDetail } from "./workspace";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -254,6 +255,30 @@ suite("mail manual conversation threading", () => {
     }
   });
 
+  test("loads focused conversation details only within the authorized mailbox", async () => {
+    const detail = await loadMailboxConversationDetail({
+      context: readerContext,
+      mailboxId,
+      conversationId: targetConversationId,
+    });
+    expect(detail?.conversationId).toBe(targetConversationId);
+    expect(detail?.detailMessages.length).toBeGreaterThan(0);
+
+    const crossMailbox = await loadMailboxConversationDetail({
+      context: readerContext,
+      mailboxId,
+      conversationId: otherConversationId,
+    });
+    expect(crossMailbox).toBeNull();
+
+    const denied = await loadMailboxConversationDetail({
+      context: contextFor({ id: crypto.randomUUID(), uid: `mail-thread-outsider-${suffix}` }),
+      mailboxId,
+      conversationId: targetConversationId,
+    });
+    expect(denied).toBeNull();
+  });
+
   test("merges and splits with durable overrides, revisions, related state, and permission checks", async () => {
     const denied = await mergeConversations({
       context: readerContext,
@@ -266,6 +291,7 @@ suite("mail manual conversation threading", () => {
         confirm: true,
       },
     });
+
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error.status).toBe(403);
 

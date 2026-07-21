@@ -57,6 +57,7 @@ const plan: ImapPushBindingPlan = {
   mailboxId: "00000000-0000-4000-8000-000000000002",
   connectionId: "00000000-0000-4000-8000-000000000003",
   secretRevision: 3,
+  oauthTokenRevision: 7,
   imapHost: "mail.example.test",
   folderId: "00000000-0000-4000-8000-000000000004",
   folderPath: "INBOX",
@@ -115,6 +116,7 @@ describe("IMAP push runtime", () => {
     expect(imapPushPlanFingerprint({ ...plan, mailboxId: "00000000-0000-4000-8000-000000000099" })).not.toBe(original);
     expect(imapPushPlanFingerprint({ ...plan, connectionId: "00000000-0000-4000-8000-000000000099" })).not.toBe(original);
     expect(imapPushPlanFingerprint({ ...plan, secretRevision: 4 })).not.toBe(original);
+    expect(imapPushPlanFingerprint({ ...plan, oauthTokenRevision: 8 })).not.toBe(original);
     expect(imapPushPlanFingerprint({ ...plan, imapHost: "other.example.test" })).not.toBe(original);
     expect(imapPushPlanFingerprint({ ...plan, folderId: "00000000-0000-4000-8000-000000000099" })).not.toBe(original);
     expect(imapPushPlanFingerprint({ ...plan, folderPath: "Other" })).not.toBe(original);
@@ -170,7 +172,11 @@ describe("IMAP push runtime", () => {
       updateHealth: async (_bindingId: string, _generation: number, patch: { state: string }) => {
         health.push(patch.state);
       },
-      loadRuntime: async () => ({ runtime: runtimeConfig, secretRevision: plan.secretRevision }),
+      loadRuntime: async () => ({
+        runtime: runtimeConfig,
+        secretRevision: plan.secretRevision,
+        oauthTokenRevision: plan.oauthTokenRevision,
+      }),
       listen: async (): Promise<ConnectorChangeListener> => {
         listenCalls += 1;
         throw new Error("must not connect");
@@ -198,7 +204,11 @@ describe("IMAP push runtime", () => {
       loadPlan: async () => pollingPlan,
       claimGeneration: async () => 1,
       updateHealth: async () => undefined,
-      loadRuntime: async () => ({ runtime: runtimeConfig, secretRevision: pollingPlan.secretRevision }),
+      loadRuntime: async () => ({
+        runtime: runtimeConfig,
+        secretRevision: pollingPlan.secretRevision,
+        oauthTokenRevision: pollingPlan.oauthTokenRevision,
+      }),
       listen: async () => {
         throw new Error("must not listen");
       },
@@ -248,7 +258,11 @@ describe("IMAP push runtime", () => {
       loadPlan: async () => plan,
       claimGeneration: async () => 1,
       updateHealth: async () => undefined,
-      loadRuntime: async () => ({ runtime: runtimeConfig, secretRevision: plan.secretRevision }),
+      loadRuntime: async () => ({
+        runtime: runtimeConfig,
+        secretRevision: plan.secretRevision,
+        oauthTokenRevision: plan.oauthTokenRevision,
+      }),
       listen: async () => listener,
       enqueueFolder: async () => {
         folderEnqueues += 1;
@@ -288,7 +302,11 @@ describe("IMAP push runtime", () => {
             reconnectAttempts.push(patch.reconnectAttempt);
           }
         },
-        loadRuntime: async () => ({ runtime: runtimeConfig, secretRevision: plan.secretRevision }),
+        loadRuntime: async () => ({
+          runtime: runtimeConfig,
+          secretRevision: plan.secretRevision,
+          oauthTokenRevision: plan.oauthTokenRevision,
+        }),
         listen: async () => {
           listenCalls += 1;
           if (listenCalls === 3) controller.abort(new Error("test complete"));
@@ -326,7 +344,11 @@ describe("IMAP push runtime", () => {
       loadPlan: async () => null,
       claimGeneration: async () => 1,
       updateHealth: async () => undefined,
-      loadRuntime: async () => ({ runtime: runtimeConfig, secretRevision: plan.secretRevision }),
+      loadRuntime: async () => ({
+        runtime: runtimeConfig,
+        secretRevision: plan.secretRevision,
+        oauthTokenRevision: plan.oauthTokenRevision,
+      }),
       listen: async () => {
         throw new Error("must not listen");
       },
@@ -356,7 +378,11 @@ describe("IMAP push runtime", () => {
       loadPlan: async () => plan,
       claimGeneration: async () => 1,
       updateHealth: async () => undefined,
-      loadRuntime: async () => ({ runtime: runtimeConfig, secretRevision: plan.secretRevision }),
+      loadRuntime: async () => ({
+        runtime: runtimeConfig,
+        secretRevision: plan.secretRevision,
+        oauthTokenRevision: plan.oauthTokenRevision,
+      }),
       listen: async () => {
         listenerReady?.();
         return {
@@ -406,7 +432,11 @@ describe("IMAP push runtime", () => {
         loadPlan: async () => plan,
         claimGeneration: async () => 1,
         updateHealth: async () => undefined,
-        loadRuntime: async () => ({ runtime: runtimeConfig, secretRevision: plan.secretRevision }),
+        loadRuntime: async () => ({
+          runtime: runtimeConfig,
+          secretRevision: plan.secretRevision,
+          oauthTokenRevision: plan.oauthTokenRevision,
+        }),
         listen: async () => {
           listenerReady.resolve();
           return {
@@ -463,7 +493,11 @@ describe("IMAP push runtime", () => {
       loadPlan: async () => plan,
       claimGeneration: async () => 1,
       updateHealth: async () => undefined,
-      loadRuntime: async () => ({ runtime: runtimeConfig, secretRevision: plan.secretRevision }),
+      loadRuntime: async () => ({
+        runtime: runtimeConfig,
+        secretRevision: plan.secretRevision,
+        oauthTokenRevision: plan.oauthTokenRevision,
+      }),
       listen: async () => {
         listenCalls += 1;
         throw new Error("must not listen");

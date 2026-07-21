@@ -108,6 +108,9 @@ const checkAppsBoundaries = (): Violation[] => {
         // Each app is its own container — share via cloud-lib services, not direct imports.
         const otherAppMatch = specifier.match(/^@valentinkolb\/cloud-app-([a-z0-9-]+)/);
         if (otherAppMatch && otherAppMatch[1] !== appName) {
+          if (/^@valentinkolb\/cloud-app-[a-z0-9-]+\/integration$/.test(specifier)) {
+            continue;
+          }
           if (appName === "cloud-cli" && /^@valentinkolb\/cloud-app-[a-z0-9-]+\/cli$/.test(specifier)) {
             continue;
           }
@@ -115,7 +118,7 @@ const checkAppsBoundaries = (): Violation[] => {
             file,
             line,
             specifier,
-            message: "Cross-app imports are forbidden. Move shared logic to cloud-lib services.",
+            message: "Cross-app imports are forbidden except side-effect-free /integration contracts. Use HTTP between app runtimes.",
           });
           continue;
         }

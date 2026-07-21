@@ -31,11 +31,11 @@ import {
   isMailWorkflowProjectedObject,
 } from "./workflow-projected-state";
 
-export const MAX_MAIL_WORKFLOW_TARGETS = 50_000;
-export const MAX_MAIL_WORKFLOW_EFFECTS = 50_000;
+const MAX_MAIL_WORKFLOW_TARGETS = 50_000;
+const MAX_MAIL_WORKFLOW_EFFECTS = 50_000;
 
 type PlannedEffect = {
-  category: "move" | "keyword" | "collaboration" | "send";
+  category: "move" | "copy" | "keyword" | "flag" | "collaboration" | "draft" | "send" | "notification";
   action: string;
   stepPath: Array<string | number>;
 };
@@ -152,6 +152,18 @@ const moveAction = messageAction(
     return bound ?? (step.config.folder === undefined ? undefined : context.evaluate(step.config.folder));
   },
 );
+const folderAction = (action: "copyMessage" | "archiveMessage" | "trashMessage", category: PlannedEffect["category"]) =>
+  messageAction(
+    category,
+    (message, value) => applyMailMessageTransition(message, action, value),
+    (context, step) => boundConfigValue(context.plan, step, "folder"),
+  );
+const flagAction = (add: boolean): WorkflowDryRunActionHandler =>
+  messageAction(
+    "flag",
+    (message, value) => applyMailMessageTransition(message, add ? "addFlag" : "removeFlag", value),
+    (context, step) => (step.config.flag === undefined ? undefined : context.evaluate(step.config.flag)),
+  );
 
 const conversationAction = (
   apply: (conversation: Record<string, WorkflowJsonValue>, value: WorkflowJsonValue) => boolean,
@@ -197,14 +209,28 @@ const referenceAction: WorkflowDryRunActionHandler = {
 const automaticReplyAction: WorkflowDryRunActionHandler = {
   plan: async () => ({ state: "unsupported", reason: "automaticReply requires a messageReceived event delivery" }),
 };
+const alwaysAction = (category: PlannedEffect["category"]): WorkflowDryRunActionHandler => ({
+  plan: async (_context, step) => planned({ category, action: step.action, stepPath: step.sourcePath }),
+});
 
 const planners = new Map<string, WorkflowDryRunActionHandler>([
   ["addKeyword", keywordAction(true)],
   ["removeKeyword", keywordAction(false)],
   ["moveMessage", moveAction],
+  ["copyMessage", folderAction("copyMessage", "copy")],
+  ["archiveMessage", folderAction("archiveMessage", "move")],
+  ["trashMessage", folderAction("trashMessage", "move")],
+  ["addFlag", flagAction(true)],
+  ["removeFlag", flagAction(false)],
   ["assignConversation", assignAction],
   ["setConversationStatus", statusAction],
   ["ensureConversationReference", referenceAction],
+  ["addLocalTag", referenceAction],
+  ["removeLocalTag", referenceAction],
+  ["addComment", referenceAction],
+  ["createDraft", alwaysAction("draft")],
+  ["scheduleDraftSend", alwaysAction("send")],
+  ["notifyUser", alwaysAction("notification")],
   ["automaticReply", automaticReplyAction],
 ]);
 
@@ -256,16 +282,30 @@ export const workflowEffectBudgetExceeded = (
   targetCount: number,
   budget: WorkflowEffectBudget,
 ): boolean => {
-  const moves = counts.moveMessage ?? 0;
+  const moves = (counts.moveMessage ?? 0) + (counts.archiveMessage ?? 0) + (counts.trashMessage ?? 0);
+  const copies = counts.copyMessage ?? 0;
+  const flags = (counts.addFlag ?? 0) + (counts.removeFlag ?? 0);
   const keywords = (counts.addKeyword ?? 0) + (counts.removeKeyword ?? 0);
-  const collaboration = (counts.assignConversation ?? 0) + (counts.setConversationStatus ?? 0) + (counts.ensureConversationReference ?? 0);
-  const sends = counts.automaticReply ?? 0;
+  const collaboration =
+    (counts.assignConversation ?? 0) +
+    (counts.setConversationStatus ?? 0) +
+    (counts.ensureConversationReference ?? 0) +
+    (counts.addLocalTag ?? 0) +
+    (counts.removeLocalTag ?? 0) +
+    (counts.addComment ?? 0);
+  const sends = (counts.automaticReply ?? 0) + (counts.scheduleDraftSend ?? 0);
+  const drafts = counts.createDraft ?? 0;
+  const notifications = counts.notifyUser ?? 0;
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
   return (
     targetCount > budget.maxTargets ||
     targetCount > MAX_MAIL_WORKFLOW_TARGETS ||
     moves > budget.maxMoves ||
+    copies > (budget.maxCopies ?? 0) ||
     sends > (budget.maxSends ?? 0) ||
+    drafts > (budget.maxDrafts ?? 0) ||
+    flags > (budget.maxFlagChanges ?? 0) ||
+    notifications > (budget.maxNotifications ?? 0) ||
     keywords > budget.maxKeywordChanges ||
     collaboration > budget.maxCollaborationChanges ||
     total > MAX_MAIL_WORKFLOW_EFFECTS

@@ -410,7 +410,11 @@ steps:
           effectBudget: {
             maxTargets: MESSAGE_COUNT,
             maxMoves: 0,
+            maxCopies: 0,
             maxSends: 0,
+            maxDrafts: 0,
+            maxFlagChanges: 0,
+            maxNotifications: 0,
             maxKeywordChanges: 0,
             maxCollaborationChanges: 0,
           },

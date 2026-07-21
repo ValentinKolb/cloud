@@ -30,11 +30,23 @@ The remaining tabs are visible only to mailbox administrators.
 
 Pausing is an operational stop, not a visibility control. Existing mirrored mail and collaboration data remain readable according to mailbox permissions.
 
+### Repair projections and failed work
+
+Mailbox administrators can use **Status > Repair and projection coverage** for asynchronous repairs. Hydration retry, search rebuild, thread-projection repair, folder rebuild, rediscovery, and synchronization are durable commands: leaving the page does not stop them, and Mail rechecks current Admin permission before execution.
+
+The action buttons reflect current eligibility. A disabled action includes the reason, such as paused synchronization, an inactive folder, or equivalent work already pending. Search rebuild replaces only derived search chunks. Thread repair creates links for orphaned messages and refreshes summaries; it does not discard manual thread overrides, comments, references, assignments, or conversation state.
+
+Commands with an ambiguous provider outcome offer **Reconcile effect** only. Reconciliation inspects provider state before deciding the result. Mail does not offer a blind retry after a provider effect may have started. **Retry work** and **Cancel work** are limited to provider-read maintenance commands whose provider effect did not start.
+
+Cloud administrators can review the same redacted aggregate under **Administration > Mail**. It contains counts, states, timestamps, capability availability, IDs, and error codes, but no subjects, addresses, bodies, attachment names, provider endpoints, credentials, or raw provider errors.
+
 ## Manage the provider connection {icon="user-cog"}
 
 **Connections** contains the current IMAP and SMTP credential. Mail verifies both protocols before storing a new or replacement credential.
 
-Use **Find settings** as a starting point, then review the discovered hosts, ports, and TLS modes. The secret is encrypted and never displayed again. **Replace** requires the complete credential and verifies it before replacing the current one.
+Use **Find settings** as a starting point, then review the discovered hosts, ports, and TLS modes. When the deployment has a matching Google or Microsoft OAuth client, continue in the provider's browser authorization screen. Access and refresh tokens are encrypted and never displayed. Use **Reconnect** after consent is revoked; use **Replace** for manual passwords, app passwords, or tokens.
+
+Mail reports IMAP and SMTP verification independently. An IMAP failure blocks synchronization and an SMTP failure blocks sending; correct the reported transport before retrying.
 
 Removing the connection disconnects transport. It does not delete provider mail or the retained Cloud mailbox data.
 
@@ -72,6 +84,22 @@ Provider-side namespace or subscription changes can make a folder missing or amb
 This policy does not let writers configure sender identities, reference-number settings, or YAML workflows. Those remain mailbox-admin operations.
 
 Credentials remain hidden even from administrators. Sharing a mailbox grants Cloud access to the mailbox; it does not reveal the provider password or token.
+
+## Share attachments with public links {icon="link"}
+
+Mailbox **Admin** access is required to create, list, or revoke a public attachment link. Open a received message or draft and use the link action beside an attachment. Files larger than 100 MiB cannot be shared this way.
+
+The public URL is disclosed only once, immediately after creation. Copy it before closing the result: Mail stores a hash of its secret token and cannot show the same URL again. **Settings > Shared attachments** lists every link in pages, including older active links, and lets an administrator revoke access without deleting the original message or draft attachment.
+
+A link can have an optional password, expiry time, and maximum number of download sessions. Passwords are case-sensitive and can contain spaces. Range requests used to resume one granted download do not consume extra download counts. Revoked, expired, exhausted, invalid, and incorrectly passworded links fail without revealing attachment metadata.
+
+The CLI provides the same mailbox-admin operations through `cld mail attachment link create`, `list`, and `revoke`. Supply a password through `--password-file` or `--password-stdin`; it is never accepted as a visible command-line value.
+
+## Review Mail storage {icon="database"}
+
+Cloud **Admin** access, which is separate from mailbox Admin access, is required for **Administration > Mail** and the `cld mail admin storage` commands. The page shows durable per-mailbox snapshots for provider-reported mail bytes, received-attachment breakdowns, finalized and active draft uploads, publicly shared references, and logical totals. It also shows physical Mail relation and blob-store bytes without exposing message or attachment content.
+
+**Reconcile storage** queues a background reconciliation. The page and `cld mail admin storage show` continue to show the last completed snapshot until that job finishes; queuing the job does not synchronously update the numbers. These values are observability data, not storage quotas, and do not provide content drilldown.
 
 ## Configure signatures and email design {icon="pencil"}
 

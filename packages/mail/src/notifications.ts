@@ -32,6 +32,11 @@ const notificationData = z.object({
   actorDisplayName: z.string().optional(),
   commentId: z.uuid().optional(),
 });
+const workflowNotificationData = z.object({
+  mailboxId: z.uuid(),
+  title: z.string().min(1).max(160),
+  body: z.string().min(1).max(2_000),
+});
 
 export const NOTIFICATIONS = {
   commentMention: notification({
@@ -57,6 +62,14 @@ export const NOTIFICATIONS = {
       body: subject || "A conversation reminder is due.",
       targetHref: mailNotificationTargetHref({ mailboxId, kind: "reminder", sourceId }),
     }),
+  }),
+  workflowNotice: notification({
+    recipient: "user",
+    label: "Mail workflow notifications",
+    description: "An internal notification sent by a Mail workflow.",
+    delivery: { recommended: ["browser"] },
+    data: workflowNotificationData,
+    render: ({ mailboxId, title, body }) => ({ title, body, targetHref: `/app/mail/${mailboxId}` }),
   }),
 };
 

@@ -21,6 +21,7 @@ import type { MessageDetail } from "../../service/messages";
 import type { ConversationPresenceParticipant } from "../../service/presence";
 import type { ConversationReminder } from "../../service/reminders";
 import { readApiError } from "./api-response";
+import MailConversationContext from "./MailConversationContext";
 
 type CollaborationPatch = {
   assigneeUserId?: string | null;
@@ -34,6 +35,7 @@ const activityLabel = (action: string): string => action.replaceAll("_", " ");
 export default function MailDetailsPanel(props: {
   mailboxId: string;
   conversationId: string;
+  active: boolean;
   currentUserId: string;
   canWrite: boolean;
   canAdmin: boolean;
@@ -69,7 +71,10 @@ export default function MailDetailsPanel(props: {
   const update = mutations.create<ConversationCollaboration, CollaborationPatch>({
     mutation: async (patch) => {
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].collaboration.$patch({
-        param: { mailboxId: props.mailboxId, conversationId: props.conversationId },
+        param: {
+          mailboxId: props.mailboxId,
+          conversationId: props.conversationId,
+        },
         json: { expectedRevision: state().revision, ...patch },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update conversation"));
@@ -77,7 +82,10 @@ export default function MailDetailsPanel(props: {
     },
     onSuccess: (next) => {
       setState(next);
-      setTagState((current) => ({ ...current, conversationRevision: next.revision }));
+      setTagState((current) => ({
+        ...current,
+        conversationRevision: next.revision,
+      }));
     },
     onError: async (error) => {
       await prompts.error(error.message, { title: "Conversation changed" });
@@ -88,7 +96,10 @@ export default function MailDetailsPanel(props: {
   const updateTags = mutations.create<ConversationLocalTags, string[]>({
     mutation: async (tagIds) => {
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put({
-        param: { mailboxId: props.mailboxId, conversationId: props.conversationId },
+        param: {
+          mailboxId: props.mailboxId,
+          conversationId: props.conversationId,
+        },
         json: { expectedRevision: state().revision, tagIds },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update local tags"));
@@ -96,7 +107,10 @@ export default function MailDetailsPanel(props: {
     },
     onSuccess: (next) => {
       setTagState(next);
-      setState((current) => ({ ...current, revision: next.conversationRevision }));
+      setState((current) => ({
+        ...current,
+        revision: next.conversationRevision,
+      }));
     },
     onError: async (error) => {
       await prompts.error(error.message, { title: "Conversation changed" });
@@ -127,7 +141,11 @@ export default function MailDetailsPanel(props: {
   const toggleWatch = mutations.create<ConversationCollaboration, void>({
     mutation: async () => {
       const route = apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].watchers[":userId"];
-      const param = { mailboxId: props.mailboxId, conversationId: props.conversationId, userId: props.currentUserId };
+      const param = {
+        mailboxId: props.mailboxId,
+        conversationId: props.conversationId,
+        userId: props.currentUserId,
+      };
       const response = watching() ? await route.$delete({ param }) : await route.$put({ param });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update watcher"));
       return await response.json();
@@ -148,7 +166,10 @@ export default function MailDetailsPanel(props: {
       }
       setCommentError(null);
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments.$post({
-        param: { mailboxId: props.mailboxId, conversationId: props.conversationId },
+        param: {
+          mailboxId: props.mailboxId,
+          conversationId: props.conversationId,
+        },
         json: {
           body,
           mentionUserIds: mentionUserIds(),
@@ -178,7 +199,11 @@ export default function MailDetailsPanel(props: {
       });
       if (!confirmed || conversationId !== props.conversationId) return null;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments[":commentId"].$delete({
-        param: { mailboxId: props.mailboxId, conversationId, commentId: comment.id },
+        param: {
+          mailboxId: props.mailboxId,
+          conversationId,
+          commentId: comment.id,
+        },
         json: { expectedRevision: comment.revision },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to delete comment"));
@@ -200,7 +225,14 @@ export default function MailDetailsPanel(props: {
         title: "Edit internal comment",
         icon: "ti ti-edit",
         fields: {
-          body: { type: "text", label: "Comment", default: comment.body ?? "", required: true, multiline: true, lines: 6 },
+          body: {
+            type: "text",
+            label: "Comment",
+            default: comment.body ?? "",
+            required: true,
+            multiline: true,
+            lines: 6,
+          },
         },
         confirmText: "Save comment",
       });
@@ -208,8 +240,16 @@ export default function MailDetailsPanel(props: {
       const body = String(values.body ?? "").trim();
       if (!body) throw new Error("Comment cannot be empty");
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments[":commentId"].$patch({
-        param: { mailboxId: props.mailboxId, conversationId, commentId: comment.id },
-        json: { expectedRevision: comment.revision, body, mentionUserIds: comment.mentionUserIds },
+        param: {
+          mailboxId: props.mailboxId,
+          conversationId,
+          commentId: comment.id,
+        },
+        json: {
+          expectedRevision: comment.revision,
+          body,
+          mentionUserIds: comment.mentionUserIds,
+        },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update comment"));
       return response.json();
@@ -225,7 +265,10 @@ export default function MailDetailsPanel(props: {
   const saveReminder = mutations.create<ConversationReminder, string>({
     mutation: async (dueAt) => {
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].reminder.$put({
-        param: { mailboxId: props.mailboxId, conversationId: props.conversationId },
+        param: {
+          mailboxId: props.mailboxId,
+          conversationId: props.conversationId,
+        },
         json: { dueAt, expectedRevision: reminder()?.revision ?? null },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to set reminder"));
@@ -240,7 +283,10 @@ export default function MailDetailsPanel(props: {
       const current = reminder();
       if (!current) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].reminder.$delete({
-        param: { mailboxId: props.mailboxId, conversationId: props.conversationId },
+        param: {
+          mailboxId: props.mailboxId,
+          conversationId: props.conversationId,
+        },
         json: { expectedRevision: current.revision },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to cancel reminder"));
@@ -277,7 +323,9 @@ export default function MailDetailsPanel(props: {
           <div class="flex min-w-0 items-center gap-2">
             <i class="ti ti-users text-lg text-dimmed" aria-hidden="true" />
             <div class="min-w-0">
-              <h2 class="truncate text-base font-semibold text-primary">Details</h2>
+              <h2 class="truncate text-base font-semibold text-primary" data-mail-details-heading tabIndex={-1}>
+                Details
+              </h2>
               <p class="text-xs text-dimmed">Team context and conversation activity</p>
             </div>
           </div>
@@ -320,12 +368,14 @@ export default function MailDetailsPanel(props: {
             </dd>
             <dt class="text-dimmed">Thread</dt>
             <dd class="text-primary">
-              {props.messages.length} message{props.messages.length === 1 ? "" : "s"}
+              {props.messages.length} message
+              {props.messages.length === 1 ? "" : "s"}
             </dd>
             <Show when={attachmentCount() > 0}>
               <dt class="text-dimmed">Files</dt>
               <dd class="text-primary">
-                {attachmentCount()} attachment{attachmentCount() === 1 ? "" : "s"}
+                {attachmentCount()} attachment
+                {attachmentCount() === 1 ? "" : "s"}
               </dd>
             </Show>
             <Show when={latestMessage()?.messageId}>
@@ -336,6 +386,17 @@ export default function MailDetailsPanel(props: {
             </Show>
           </dl>
         </section>
+
+        <MailConversationContext
+          mailboxId={props.mailboxId}
+          conversationId={props.conversationId}
+          active={props.active}
+          revision={state().revision}
+          onRevision={(revision) => {
+            setState((current) => ({ ...current, revision }));
+            setTagState((current) => ({ ...current, conversationRevision: revision }));
+          }}
+        />
 
         <section class="detail-section">
           <div class="mb-3 flex items-center justify-between gap-2">
@@ -355,8 +416,18 @@ export default function MailDetailsPanel(props: {
           <MultiSelect
             value={() => tagState().tags.map((tag) => tag.id)}
             onChange={(tagIds) => updateTags.mutate(tagIds)}
-            options={availableTags().map((tag) => ({ id: tag.id, label: tag.name, icon: "ti ti-tag" }))}
-            selectedOptions={() => tagState().tags.map((tag) => ({ id: tag.id, label: tag.name, icon: "ti ti-tag" }))}
+            options={availableTags().map((tag) => ({
+              id: tag.id,
+              label: tag.name,
+              icon: "ti ti-tag",
+            }))}
+            selectedOptions={() =>
+              tagState().tags.map((tag) => ({
+                id: tag.id,
+                label: tag.name,
+                icon: "ti ti-tag",
+              }))
+            }
             placeholder="Select local tags"
             clearable
             disabled={!props.canWrite || updateTags.loading() || update.loading()}
@@ -383,14 +454,22 @@ export default function MailDetailsPanel(props: {
               value={() => state().assignee?.id}
               selectedLabel={() => state().assignee?.displayName}
               onChange={(userId) => update.mutate({ assigneeUserId: userId || null })}
-              options={props.assignableUsers.map((user) => ({ id: user.id, label: user.displayName, description: user.description }))}
+              options={props.assignableUsers.map((user) => ({
+                id: user.id,
+                label: user.displayName,
+                description: user.description,
+              }))}
               clearable
               disabled={!props.canWrite || update.loading()}
             />
             <Select
               label="Status"
               value={() => state().workStatus}
-              onChange={(workStatus) => update.mutate({ workStatus: workStatus as CollaborationPatch["workStatus"] })}
+              onChange={(workStatus) =>
+                update.mutate({
+                  workStatus: workStatus as CollaborationPatch["workStatus"],
+                })
+              }
               options={[
                 { id: "open", label: "Open", icon: "ti ti-circle" },
                 { id: "waiting", label: "Waiting", icon: "ti ti-clock-pause" },
@@ -540,7 +619,11 @@ export default function MailDetailsPanel(props: {
             label="Mention people"
             value={mentionUserIds}
             onChange={setMentionUserIds}
-            options={props.mentionableUsers.map((user) => ({ id: user.id, label: user.displayName, description: user.description }))}
+            options={props.mentionableUsers.map((user) => ({
+              id: user.id,
+              label: user.displayName,
+              description: user.description,
+            }))}
             placeholder="Notify mailbox collaborators"
             clearable
             disabled={addComment.loading()}

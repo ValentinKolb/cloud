@@ -212,6 +212,13 @@ export const deleteOrphanedBlobs = async (olderThanMinutes = 60): Promise<number
       AND NOT EXISTS (
         SELECT 1 FROM mail.draft_provider_snapshots snapshot WHERE snapshot.mime_blob_id = blob.id
       )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM mail.attachment_links link
+        WHERE link.blob_id = blob.id
+          AND link.revoked_at IS NULL
+          AND (link.expires_at IS NULL OR link.expires_at > now())
+      )
   `;
   return result.count;
 };

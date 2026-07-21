@@ -1,9 +1,4 @@
-import {
-  EMAIL_HTML_ALLOWED_ATTRIBUTES,
-  EMAIL_HTML_ALLOWED_SCHEMES,
-  EMAIL_HTML_TAGS,
-  markdown,
-} from "@valentinkolb/cloud/shared";
+import { EMAIL_HTML_ALLOWED_ATTRIBUTES, EMAIL_HTML_ALLOWED_SCHEMES, EMAIL_HTML_TAGS, markdown } from "@valentinkolb/cloud/shared";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { convert } from "html-to-text";
 import juice from "juice";
@@ -218,10 +213,7 @@ const escapeMarkdownText = (value: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/[\\`*_[\]{}()#+!|>~:/@.-]/g, (character) => `&#${character.codePointAt(0)};`);
 
-const escapeMarkdownLinkDestination = (value: string): string =>
-  encodeURI(value)
-    .replace(/\(/g, "%28")
-    .replace(/\)/g, "%29");
+const escapeMarkdownLinkDestination = (value: string): string => encodeURI(value).replace(/\(/g, "%28").replace(/\)/g, "%29");
 
 const isMarkdownLinkDestination = (source: string, offset: number, length: number): boolean =>
   /\]\([^)\n]*$/.test(source.slice(0, offset)) && /^[^)\n]*\)/.test(source.slice(offset + length));
@@ -230,10 +222,7 @@ const isUnsupportedMarkdownUrlContext = (source: string, offset: number, length:
   const prefix = source.slice(0, offset);
   const suffix = source.slice(offset + length);
   const linePrefix = prefix.slice(prefix.lastIndexOf("\n") + 1);
-  return (
-    (/<[^>\n]*$/.test(prefix) && /^[^>\n]*>/.test(suffix)) ||
-    /^\s{0,3}\[[^\]]+\]:\s*\S*$/.test(linePrefix)
-  );
+  return (/<[^>\n]*$/.test(prefix) && /^[^>\n]*>/.test(suffix)) || /^\s{0,3}\[[^\]]+\]:\s*\S*$/.test(linePrefix);
 };
 
 const sourceBytes = (source: string): number => new TextEncoder().encode(source).byteLength;
@@ -283,11 +272,7 @@ export const validateComposeTemplateSource = (source: string): Result<void> => {
   return ok();
 };
 
-const renderComposeVariables = (
-  source: string,
-  context: ComposeRenderContext,
-  format: "plain" | "markdown",
-): Result<string> => {
+const renderComposeVariables = (source: string, context: ComposeRenderContext, format: "plain" | "markdown"): Result<string> => {
   let projectedBytes = sourceBytes(source);
   for (const match of source.matchAll(COMPOSE_VARIABLE)) {
     const resolve = composeVariables[match[1] ?? ""];
@@ -304,13 +289,15 @@ const renderComposeVariables = (
       return fail(err.badInput("Rendered email content exceeds the safe size limit"));
     }
   }
-  return ok(source.replace(COMPOSE_VARIABLE, (match, name: string, offset: number) => {
-    const resolve = composeVariables[name];
-    if (!resolve) return match;
-    const value = resolve(context);
-    if (format !== "markdown") return value;
-    return isMarkdownLinkDestination(source, offset, match.length) ? escapeMarkdownLinkDestination(value) : escapeMarkdownText(value);
-  }));
+  return ok(
+    source.replace(COMPOSE_VARIABLE, (match, name: string, offset: number) => {
+      const resolve = composeVariables[name];
+      if (!resolve) return match;
+      const value = resolve(context);
+      if (format !== "markdown") return value;
+      return isMarkdownLinkDestination(source, offset, match.length) ? escapeMarkdownLinkDestination(value) : escapeMarkdownText(value);
+    }),
+  );
 };
 
 export const markComposeTemplateSegment = (source: string): string => `${COMPOSE_SEGMENT_START}${source}${COMPOSE_SEGMENT_END}`;
@@ -340,11 +327,7 @@ export const renderComposeTemplateSource = (
   return markdownToPlainText(rendered.data);
 };
 
-const renderComposeTemplateSegments = (
-  source: string,
-  context: ComposeRenderContext,
-  format: "plain" | "markdown",
-): Result<string> => {
+const renderComposeTemplateSegments = (source: string, context: ComposeRenderContext, format: "plain" | "markdown"): Result<string> => {
   let cursor = 0;
   let outputBytes = 0;
   let segmentCount = 0;
@@ -375,20 +358,14 @@ const renderComposeTemplateSegments = (
     if (segmentCount > MAX_COMPOSE_TEMPLATE_SEGMENTS) {
       return fail(err.badInput(`Email may contain at most ${MAX_COMPOSE_TEMPLATE_SEGMENTS} signature segments`));
     }
-    const rendered = renderComposeTemplateSource(
-      source.slice(start + COMPOSE_SEGMENT_START.length, end),
-      context,
-      format,
-    );
+    const rendered = renderComposeTemplateSource(source.slice(start + COMPOSE_SEGMENT_START.length, end), context, format);
     if (!rendered.ok) return rendered;
     const segment = append(rendered.data);
     if (!segment.ok) return segment;
     cursor = end + COMPOSE_SEGMENT_END.length;
   }
   const cleaned = output.join("");
-  return cleaned.includes(COMPOSE_SEGMENT_END)
-    ? fail(err.badInput("Email contains an invalid signature segment"))
-    : ok(cleaned);
+  return cleaned.includes(COMPOSE_SEGMENT_END) ? fail(err.badInput("Email contains an invalid signature segment")) : ok(cleaned);
 };
 
 export const renderComposeContent = (params: {

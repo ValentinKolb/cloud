@@ -83,7 +83,7 @@ const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSO
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-export class MailWorkflowLeaseLostError extends Error {
+class MailWorkflowLeaseLostError extends Error {
   override readonly name = "MailWorkflowLeaseLostError";
 }
 
@@ -96,15 +96,17 @@ export const freezeMailWorkflowHydrationValue = async (params: {
 }): Promise<WorkflowJsonValue> =>
   sql.begin(async (tx) => {
     const [target] = await tx<{ frozen_hydration: Record<string, WorkflowJsonValue> | string }[]>`
-      SELECT frozen_hydration
-      FROM mail.workflow_run_targets
-      WHERE id = ${params.targetId}::uuid
-        AND state = 'running'
-        AND execution_generation = ${params.executionGeneration}
-        AND lease_token = ${params.leaseToken}::uuid
-        AND lease_expires_at >= now()
-        AND cancel_requested_at IS NULL
-      FOR UPDATE
+      SELECT target.frozen_hydration
+      FROM mail.workflow_run_targets target
+      JOIN mail.workflow_runs run ON run.id = target.parent_run_id
+      WHERE target.id = ${params.targetId}::uuid
+        AND run.state IN ('queued', 'running', 'waiting')
+        AND target.state = 'running'
+        AND target.execution_generation = ${params.executionGeneration}
+        AND target.lease_token = ${params.leaseToken}::uuid
+        AND target.lease_expires_at >= now()
+        AND target.cancel_requested_at IS NULL
+      FOR UPDATE OF target
     `;
     if (!target) throw new MailWorkflowLeaseLostError("Workflow execution lease was lost while freezing hydrated data");
     const frozen = parseJson(target.frozen_hydration);
@@ -123,6 +125,7 @@ const refreshParentState = async (db: SqlClient, parentRunId: string): Promise<v
     SET
       state = CASE
         WHEN state = 'canceled' THEN 'canceled'
+        WHEN state = 'paused' THEN 'paused'
         WHEN running_targets > 0 THEN 'running'
         WHEN queued_targets > 0 THEN 'queued'
         WHEN waiting_targets > 0 THEN 'waiting'
@@ -207,6 +210,16 @@ const cancelRunInTransaction = async (params: {
   reason: string;
   activeClaim?: ClaimedMailWorkflowTarget;
 }): Promise<boolean> => {
+  // All runtime transitions lock targets before their parent run. Preserve
+  // that order even when cancellation originates from the worker itself.
+  await params.db`
+    SELECT target.id
+    FROM mail.workflow_run_targets target
+    WHERE target.parent_run_id = ${params.runId}::uuid
+      AND target.state IN ('queued', 'running', 'waiting')
+    ORDER BY target.id
+    FOR UPDATE
+  `;
   const [run] = await params.db<{ id: string; mailbox_id: string }[]>`
     SELECT id, mailbox_id
     FROM mail.workflow_runs
@@ -232,6 +245,7 @@ const cancelRunInTransaction = async (params: {
     SELECT id, state, execution_generation
     FROM mail.workflow_run_targets
     WHERE parent_run_id = ${params.runId}::uuid AND state IN ('queued', 'waiting')
+    ORDER BY id
     FOR UPDATE
   `;
   for (const target of targets) {
@@ -286,6 +300,13 @@ export const claimMailWorkflowTarget = async (params: {
       FOR UPDATE OF target SKIP LOCKED
     `;
     if (!current) return null;
+    const [parent] = await tx<{ state: string }[]>`
+      SELECT state
+      FROM mail.workflow_runs
+      WHERE id = ${current.parent_run_id}::uuid
+      FOR UPDATE
+    `;
+    if (!parent || !["queued", "running", "waiting"].includes(parent.state)) return null;
     const leaseToken = crypto.randomUUID();
     const leaseMs = params.leaseMs ?? MAIL_WORKFLOW_TARGET_LEASE_MS;
     const [claimed] = await tx<ClaimRow[]>`
@@ -339,13 +360,16 @@ export const claimMailWorkflowTarget = async (params: {
 const renewClaim = async (claim: ClaimedMailWorkflowTarget): Promise<WorkflowCoordinatorLeaseState> =>
   sql.begin(async (tx) => {
     const [row] = await tx<{ cancel_requested_at: Date | string | null }[]>`
-      UPDATE mail.workflow_run_targets
+      UPDATE mail.workflow_run_targets target
       SET lease_expires_at = now() + (${MAIL_WORKFLOW_TARGET_LEASE_MS}::bigint * interval '1 millisecond')
-      WHERE id = ${claim.runId}::uuid
-        AND state = 'running'
-        AND execution_generation = ${claim.executionGeneration}
-        AND lease_token = ${claim.leaseToken}::uuid
-      RETURNING cancel_requested_at
+      FROM mail.workflow_runs run
+      WHERE target.id = ${claim.runId}::uuid
+        AND run.id = target.parent_run_id
+        AND run.state IN ('queued', 'running', 'waiting')
+        AND target.state = 'running'
+        AND target.execution_generation = ${claim.executionGeneration}
+        AND target.lease_token = ${claim.leaseToken}::uuid
+      RETURNING target.cancel_requested_at
     `;
     if (!row) return { state: "stale" };
     if (!row.cancel_requested_at) return { state: "active" };
@@ -691,6 +715,3 @@ export const recoverCanceledMailWorkflowTargets = async (limit = 500): Promise<n
     }
     return recovered;
   });
-
-export const cancelMailWorkflowRun = async (runId: string, reason: string): Promise<boolean> =>
-  sql.begin((tx) => cancelRunInTransaction({ db: tx, runId, reason }));

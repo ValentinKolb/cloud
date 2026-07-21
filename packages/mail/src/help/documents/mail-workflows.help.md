@@ -156,17 +156,28 @@ Variables created inside a branch do not escape that branch. Defining the same v
 | `addKeyword` | `message`, `keyword` | Adds a portable provider keyword |
 | `removeKeyword` | `message`, `keyword` | Removes a portable provider keyword |
 | `moveMessage` | `message`, `folder` | Moves the message to an accessible provider folder |
+| `copyMessage` | `message`, `folder` | Copies the message to an accessible provider folder |
+| `archiveMessage` | `message` | Moves the message to the mailbox archive folder |
+| `trashMessage` | `message` | Moves the message to the mailbox trash folder |
+| `addFlag` / `removeFlag` | `message`, `flag` | Changes `seen`, `answered`, `flagged`, or `draft` through the provider command journal |
 | `assignConversation` | `conversation`, `user` | Assigns by accessible user name or ID; `null` unassigns |
 | `setConversationStatus` | `conversation`, `status` | Sets `open`, `waiting`, or `done` |
 | `ensureConversationReference` | `conversation`; optional `result` | Allocates or reuses the permanent mailbox reference and optionally stores its result |
+| `addLocalTag` / `removeLocalTag` | `conversation`, `tag` | Changes a mailbox-local conversation tag |
+| `addComment` | `conversation`, `body` | Adds an internal comment attributed to the workflow version |
+| `createDraft` | `sender`, `to`, `subject`, `body`, `result` | Creates a normal-delivery workflow draft for a later step |
+| `scheduleDraftSend` | `draft`, `scheduledAt` | Schedules a created normal-delivery draft through the durable outbox |
+| `notifyUser` | `user`, `title`, `body` | Sends an internal notification to a current mailbox reader |
 | `automaticReply` | `message`, `conversation`, `sender`, `subject`, `body` | Queues one guarded automatic response |
 | `setVariable` | `name`, `value` | Stores a value for later steps |
 | `succeed` | `message` | Stops the run successfully |
 | `fail` | `message` | Stops the run with a non-retryable workflow error |
 
-Folder, assignable-user, and sender fields accept an unambiguous accessible name or ID. The saved version binds those catalog values before activation. Response timing is written inline and validated as part of the version.
+Folder, local-tag, user, and sender fields accept an unambiguous accessible name or ID. The saved version binds those catalog values before activation. Response timing is written inline and validated as part of the version.
 
 One reachable path cannot apply several provider mutations to the same message. For example, adding a keyword and then moving that same message in one branch is rejected. Split those operations into separate workflows when both are required.
+
+`createDraft` always produces `deliveryClass: normal`. Only `automaticReply` can create `deliveryClass: automatic_reply`; normal workflow sends therefore do not receive automatic-reply headers or a null envelope sender. `scheduleDraftSend` accepts only a `mail.draft` result created earlier in the same reachable scope.
 
 `forEach` is part of the shared workflow grammar but is deliberately unsupported by the Mail vocabulary. Mail workflows operate on one materialized message target at a time.
 
@@ -354,6 +365,13 @@ Changing an accessible folder or sender does not rewrite a saved version. The ma
 
 A dry run is advisory. Permissions, provider state, and mailbox content are checked again during real execution.
 
-Every action rechecks current mailbox authority. Removing the required access or deactivating the workflow prevents later effects. **Cancel** stops pending targets before their next effect; completed effects remain audited.
+Every action rechecks current mailbox authority. Removing the required access or deactivating the workflow prevents later effects.
+
+- **Pause** fences new action commits. It is rejected while a provider command is queued, executing, or ambiguous.
+- **Resume** requeues interrupted targets with a new execution generation and restores already completed step outcomes.
+- **Retry failed** creates a lineage-linked child run for explicitly selected failed targets. A target is ineligible after any provider effect began or when its provider outcome is ambiguous.
+- **Cancel** stops pending targets before their next effect; completed effects remain audited.
+
+The child run retains the immutable workflow version, frozen target data, and execution clock. It captures current authorization separately and receives new target and command idempotency identities.
 
 For setup tasks and operational consequences, see [Automate responses and mailbox work](/app/mail?help=mail-automation).

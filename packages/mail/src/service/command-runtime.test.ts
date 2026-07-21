@@ -25,9 +25,7 @@ describe("mail mutation failure classification", () => {
     expect(mutationFailureState(Object.assign(new Error("unconfirmed subscription"), { code: "REMOTE_SUBSCRIPTION_UNCONFIRMED" }))).toBe(
       "ambiguous",
     );
-    expect(mutationFailureState(Object.assign(new Error("partial folder"), { code: "REMOTE_CREATE_SUBSCRIBE_PARTIAL" }))).toBe(
-      "ambiguous",
-    );
+    expect(mutationFailureState(Object.assign(new Error("partial folder"), { code: "REMOTE_CREATE_SUBSCRIBE_PARTIAL" }))).toBe("ambiguous");
     expect(mutationFailureState(Object.assign(new Error("rights"), { code: "PROVIDER_RIGHTS_CHANGED" }))).toBe("failed");
   });
 });

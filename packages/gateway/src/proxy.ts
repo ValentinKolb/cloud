@@ -1,6 +1,6 @@
+import { publishRequestTelemetry } from "@valentinkolb/cloud/services";
 import type { RouteTable } from "./trie";
 import { matchRoute } from "./trie";
-import { publishRequestTelemetry } from "@valentinkolb/cloud/services";
 
 // ─── Proxy statistics ────────────────────────────────────────────────────────
 
@@ -68,6 +68,15 @@ const shouldLogError = (appId: string): boolean => {
   return true;
 };
 
+const REDACTED_PATH_SEGMENT = "[REDACTED]";
+
+/** Prevent bearer-style public link tokens from entering gateway logs. */
+export const redactSensitivePath = (pathname: string): string =>
+  pathname
+    .replace(/(\/share\/mail\/attachments\/)[^/]+/g, `$1${REDACTED_PATH_SEGMENT}`)
+    .replace(/(\/api\/mail\/public-attachments\/)[^/]+/g, `$1${REDACTED_PATH_SEGMENT}`)
+    .replace(/(\/app\/mail\/a\/)[^/]+/g, `$1${REDACTED_PATH_SEGMENT}`);
+
 // ─── Request proxying ────────────────────────────────────────────────────────
 
 export const proxyRequest = async (
@@ -75,6 +84,7 @@ export const proxyRequest = async (
   table: RouteTable,
   stats: ProxyStats,
   log: (msg: string, meta?: Record<string, unknown>) => void,
+  clientIp: string | null = null,
 ): Promise<Response> => {
   const url = new URL(req.url);
   const start = performance.now();
@@ -116,6 +126,9 @@ export const proxyRequest = async (
     fwdHeaders.set("Host", targetUrl.host);
     fwdHeaders.set("X-Forwarded-Host", url.host);
     fwdHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
+    fwdHeaders.delete("CF-Connecting-IP");
+    if (clientIp) fwdHeaders.set("X-Forwarded-For", clientIp);
+    else fwdHeaders.delete("X-Forwarded-For");
 
     const proxyRes = await fetch(targetUrl.href, {
       method: req.method,
@@ -169,7 +182,7 @@ export const proxyRequest = async (
     if (shouldLogError(match.appId)) {
       log("Upstream unavailable", {
         appId: match.appId,
-        path: url.pathname,
+        path: redactSensitivePath(url.pathname),
         error: err instanceof Error ? err.message : String(err),
       });
     }

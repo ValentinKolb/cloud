@@ -8,6 +8,7 @@ import type {
   UpdateConversationCollaboration,
   UpdateConversationComment,
 } from "../contracts";
+import { createConversationCommentSchema } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { listCurrentMailboxUsers } from "./collaborators";
@@ -16,7 +17,7 @@ import { resolveMailExecution } from "./execution";
 import { enqueueCollaborationNotifications } from "./notification-outbox";
 
 type SqlClient = typeof sql;
-type CommentActorKind = "user" | "service_account";
+type CommentActorKind = "user" | "service_account" | "workflow";
 
 export type MailCollaborator = {
   id: string;
@@ -659,7 +660,11 @@ const commentColumns = sql`
     NULLIF(author_user.display_name, ''),
     author_user.uid,
     author_service.name,
-    CASE comment.author_kind WHEN 'user' THEN 'Former user' ELSE 'Former service account' END
+    CASE comment.author_kind
+      WHEN 'user' THEN 'Former user'
+      WHEN 'service_account' THEN 'Former service account'
+      ELSE 'Workflow'
+    END
   ) AS author_display_name,
   author_user.avatar_hash AS author_avatar_hash,
   comment.parent_comment_id,
@@ -933,6 +938,53 @@ export const createConversationComment = async (params: {
   } catch {
     return fail(err.internal("Failed to create internal comment"));
   }
+};
+
+export const createWorkflowConversationCommentInTransaction = async (params: {
+  db: SqlClient;
+  mailboxId: string;
+  conversationId: string;
+  workflowVersionId: string;
+  body: string;
+}): Promise<Result<{ id: string; activityId: string }>> => {
+  const parsed = createConversationCommentSchema.safeParse({ body: params.body, mentionUserIds: [] });
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid internal comment"));
+  const [conversation] = await params.db<{ id: string }[]>`
+    SELECT id
+    FROM mail.conversations
+    WHERE id = ${params.conversationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+    FOR UPDATE
+  `;
+  if (!conversation) return fail(err.notFound("Conversation"));
+  const [comment] = await params.db<{ id: string }[]>`
+    INSERT INTO mail.conversation_comments (
+      conversation_id, author_kind, author_id, body_markdown
+    ) VALUES (
+      ${params.conversationId}::uuid, 'workflow', ${params.workflowVersionId}::uuid, ${parsed.data.body}
+    )
+    RETURNING id
+  `;
+  if (!comment) return fail(err.internal("Comment insert returned no row"));
+  await params.db`
+    INSERT INTO mail.conversation_comment_versions (
+      comment_id, revision, body_markdown, editor_kind, editor_id, deleted
+    ) VALUES (
+      ${comment.id}::uuid, 1, ${parsed.data.body}, 'workflow', ${params.workflowVersionId}::uuid, false
+    )
+  `;
+  await params.db`UPDATE mail.conversations SET updated_at = now() WHERE id = ${params.conversationId}::uuid`;
+  const activityId = await insertActivity({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    conversationId: params.conversationId,
+    context: null,
+    actorOverride: { kind: "workflow", workflowVersionId: params.workflowVersionId },
+    action: "conversation.comment_created",
+    targetType: "comment",
+    targetId: comment.id,
+    metadata: { revision: 1, parentCommentId: null, referencedMessageId: null, mentionUserIds: [] },
+  });
+  return ok({ id: comment.id, activityId });
 };
 
 export const updateConversationComment = async (params: {

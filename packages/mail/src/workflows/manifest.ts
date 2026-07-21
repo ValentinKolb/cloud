@@ -14,6 +14,12 @@ const identifier = (description: string): WorkflowFieldSchema => ({
   optional: true,
   description,
 });
+const requiredIdentifier = (description: string): WorkflowFieldSchema => ({
+  kind: "string",
+  format: "identifier",
+  maxLength: 120,
+  description,
+});
 
 const object = (properties: Record<string, WorkflowFieldSchema>): WorkflowFieldSchema & { kind: "object" } => ({
   kind: "object",
@@ -135,6 +141,52 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
       config: object({ message: messageReference, folder: text("Accessible folder name, ID, or expression.", false, 500) }),
     },
     {
+      kind: "copyMessage",
+      label: "Copy message",
+      description: "Copies a message to an accessible folder through the durable command journal.",
+      effect: "durable-intent",
+      dryRun: "validate",
+      config: object({ message: messageReference, folder: text("Accessible folder name or ID.", false, 500) }),
+    },
+    {
+      kind: "archiveMessage",
+      label: "Archive message",
+      description: "Moves a message to the mailbox archive folder through the durable command journal.",
+      effect: "durable-intent",
+      dryRun: "validate",
+      config: object({ message: messageReference }),
+    },
+    {
+      kind: "trashMessage",
+      label: "Trash message",
+      description: "Moves a message to the mailbox trash folder through the durable command journal.",
+      effect: "durable-intent",
+      dryRun: "validate",
+      config: object({ message: messageReference }),
+    },
+    {
+      kind: "addFlag",
+      label: "Add flag",
+      description: "Adds a standard message flag through the durable command journal.",
+      effect: "durable-intent",
+      dryRun: "validate",
+      config: object({
+        message: messageReference,
+        flag: { kind: "string", enum: ["seen", "answered", "flagged", "draft"], description: "Standard message flag." },
+      }),
+    },
+    {
+      kind: "removeFlag",
+      label: "Remove flag",
+      description: "Removes a standard message flag through the durable command journal.",
+      effect: "durable-intent",
+      dryRun: "validate",
+      config: object({
+        message: messageReference,
+        flag: { kind: "string", enum: ["seen", "answered", "flagged", "draft"], description: "Standard message flag." },
+      }),
+    },
+    {
       kind: "assignConversation",
       label: "Assign conversation",
       description: "Assigns or unassigns a conversation after a current permission check.",
@@ -166,6 +218,77 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
       config: object({
         conversation: conversationReference,
         result: identifier("Optional variable name for the allocated reference result."),
+      }),
+    },
+    {
+      kind: "addLocalTag",
+      label: "Add local tag",
+      description: "Adds a mailbox-local tag to a conversation transactionally.",
+      effect: "transactional",
+      dryRun: "full",
+      config: object({
+        conversation: conversationReference,
+        tag: text("Mailbox-local tag name or ID.", false, 500),
+      }),
+    },
+    {
+      kind: "removeLocalTag",
+      label: "Remove local tag",
+      description: "Removes a mailbox-local tag from a conversation transactionally.",
+      effect: "transactional",
+      dryRun: "full",
+      config: object({
+        conversation: conversationReference,
+        tag: text("Mailbox-local tag name or ID.", false, 500),
+      }),
+    },
+    {
+      kind: "addComment",
+      label: "Add internal comment",
+      description: "Adds an internal conversation comment transactionally.",
+      effect: "transactional",
+      dryRun: "full",
+      config: object({ conversation: conversationReference, body: text("Internal comment body or text expression.", false, 50_000) }),
+    },
+    {
+      kind: "createDraft",
+      label: "Create draft",
+      description: "Creates a normal-delivery workflow draft without sending it.",
+      effect: "transactional",
+      dryRun: "full",
+      outputType: "mail.draft",
+      config: object({
+        sender: text("Automation-enabled sender identity name or ID.", false, 500),
+        to: { kind: "value", description: "Recipient address array or expression." },
+        cc: { kind: "value", optional: true, description: "CC address array or expression." },
+        bcc: { kind: "value", optional: true, description: "BCC address array or expression." },
+        subject: text("Draft subject or text expression.", false, 998),
+        body: text("Draft body or text expression.", false, 2 * 1024 * 1024),
+        format: { kind: "string", enum: ["plain", "markdown"], optional: true, description: "Draft body format." },
+        result: requiredIdentifier("Variable name for the created draft."),
+      }),
+    },
+    {
+      kind: "scheduleDraftSend",
+      label: "Schedule draft send",
+      description: "Schedules a normal-delivery workflow draft through the durable Mail outbox.",
+      effect: "durable-intent",
+      dryRun: "validate",
+      config: object({
+        draft: text("Draft value reference.", false, 500),
+        scheduledAt: text("ISO timestamp or date-time expression.", false, 100),
+      }),
+    },
+    {
+      kind: "notifyUser",
+      label: "Notify user",
+      description: "Sends an internal notification to a current mailbox reader.",
+      effect: "durable-intent",
+      dryRun: "validate",
+      config: object({
+        user: text("Current mailbox reader name or ID.", false, 500),
+        title: text("Notification title or text expression.", false, 160),
+        body: text("Notification body or text expression.", false, 2_000),
       }),
     },
     {

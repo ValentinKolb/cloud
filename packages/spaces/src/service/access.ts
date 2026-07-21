@@ -14,6 +14,7 @@ import {
 import { type ServiceAccountCredential, serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { publishSpaceEvent } from "./events";
 
 // ==========================
 // Space Access Adapter
@@ -172,8 +173,8 @@ export const countSpaceAccess = async (spaceId: string): Promise<number> => {
 };
 
 /** Remove an access entry while preventing accidental orphaning. */
-export const revokeSpaceAccess = async (params: { spaceId: string; accessId: string }): Promise<Result<void>> =>
-  sql.begin(async (tx) => {
+export const revokeSpaceAccess = async (params: { spaceId: string; accessId: string }): Promise<Result<void>> => {
+  const result = await sql.begin(async (tx) => {
     const [guard] = await tx<
       {
         total: number;
@@ -207,14 +208,17 @@ export const revokeSpaceAccess = async (params: { spaceId: string; accessId: str
     const result = await tx`DELETE FROM auth.access WHERE id = ${params.accessId}::uuid`;
     return result.count > 0 ? ok() : fail(err.notFound("Access entry for this space"));
   });
+  if (result.ok) await publishSpaceEvent({ type: "access.changed", spaceId: params.spaceId });
+  return result;
+};
 
 /** Update a permission while preserving at least one Space admin. */
 export const updateSpaceAccessPermission = async (params: {
   spaceId: string;
   accessId: string;
   permission: PermissionLevel;
-}): Promise<Result<void>> =>
-  sql.begin(async (tx) => {
+}): Promise<Result<void>> => {
+  const result = await sql.begin(async (tx) => {
     const [guard] = await tx<
       {
         other_admins: number;
@@ -244,6 +248,9 @@ export const updateSpaceAccessPermission = async (params: {
 
     return updateAccess({ id: params.accessId, permission: params.permission }, tx);
   });
+  if (result.ok) await publishSpaceEvent({ type: "access.changed", spaceId: params.spaceId });
+  return result;
+};
 
 /**
  * Get the effective permission level for an actor on a space.
@@ -321,6 +328,7 @@ export const grantSpaceAccess = async (params: {
     return fail(err.internal("Failed to retrieve created access entry"));
   }
 
+  await publishSpaceEvent({ type: "access.changed", spaceId });
   return ok(created);
 };
 

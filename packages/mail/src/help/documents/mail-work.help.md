@@ -44,7 +44,9 @@ The built-in **Work** views organize Cloud collaboration state:
 
 Provider folders are a different layer. Moving a conversation to Archive, Trash, Junk, or another provider folder changes remote mail placement and can be visible in other clients. Marking a conversation **Done** changes only Cloud work status; it does not archive or move the email.
 
-You can drag a conversation row onto a selectable folder in the left navigation. Mail queues the move and synchronization confirms the provider result. Do not repeat the move because the row has not refreshed immediately; check the destination folder or wait for the live update.
+Use **Move to folder** from the conversation actions or Mail commands to choose a destination with the keyboard, pointer, or touch. On desktop you can also drag a conversation row onto a selectable folder in the left navigation. Mail queues the move and synchronization confirms the provider result.
+
+To operate on several conversations, select their checkboxes. Hold Shift while selecting another checkbox or conversation row to select the loaded range between them. Mail limits one selection to 50 conversations so provider work remains observable. The selection toolbar can mark, flag, archive, move, junk, or delete the selected conversations. If only some commands can be queued, Mail keeps the failed conversations selected and reports each failure explicitly.
 
 ## Read a complete thread {icon="route"}
 
@@ -60,9 +62,13 @@ The top actions operate on the conversation's active provider placement:
 
 These actions require write access and the corresponding folder mapping. If Mail reports that the conversation has no active provider placement, refresh the mailbox or ask an administrator to review folder discovery and mappings.
 
+Select **Mail commands** above the conversation list to search the same actions that appear in buttons and menus. Common commands also have keyboard shortcuts. Open **Configure keyboard shortcuts** from Mail commands to change or disable them on this device. Shortcuts do not run while you are typing in an input or message editor.
+
 ## Open attachments and reply to a message {icon="paperclip"}
 
 Received attachments stay with the message that carried them. Select an attachment chip to open or download it in a new browser tab.
+
+Mailbox administrators can also create a public download link from an attachment. The URL is shown only at creation and can be protected with a password, expiry time, and download-session limit. Manage or revoke existing links under **Settings > Shared attachments**.
 
 Under an expanded message, choose:
 

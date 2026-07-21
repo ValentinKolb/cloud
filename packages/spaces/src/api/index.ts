@@ -66,6 +66,12 @@ import {
   SpaceItemDetailSchema,
   SpacesViewSnapshotSchema,
 } from "../frontend/[id]/_components/workspace/workspace-types";
+import {
+  MailSpaceCandidatesQuerySchema,
+  MailSpaceCandidatesResponseSchema,
+  ResolveMailSpacesInputSchema,
+  ResolveMailSpacesResponseSchema,
+} from "../integration";
 import { spacesService } from "../service";
 import { isSpaceResourceId, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
 import wsRoutes from "../ws";
@@ -307,6 +313,56 @@ const app = new Hono<AuthContext>()
   .route("/widget", widgetRoutes)
   .route("/ws", wsRoutes)
   .use(auth.requireRole("authenticated"))
+
+  .post(
+    "/integrations/mail/resolve",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "Resolve readable Spaces for Mail",
+      description: "Returns minimal metadata only for requested Spaces the current actor can still read.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ResolveMailSpacesResponseSchema, "Permission-filtered Spaces"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    v("json", ResolveMailSpacesInputSchema),
+    async (c) => {
+      const access = getScopedSpaceAccess(c);
+      if (!access.ok) return respond(c, access);
+      return respond(
+        c,
+        ok(
+          await spacesService.integration.mail.resolveMailSpaces({
+            ...access.data,
+            spaceIds: c.req.valid("json").spaceIds,
+          }),
+        ),
+      );
+    },
+  )
+
+  .get(
+    "/integrations/mail/candidates",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "List readable Space candidates for Mail",
+      description: "Returns a keyset-paginated minimal projection of Spaces the current actor can read.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MailSpaceCandidatesResponseSchema, "Permission-filtered Space candidates"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    v("query", MailSpaceCandidatesQuerySchema),
+    async (c) => {
+      const access = getScopedSpaceAccess(c);
+      if (!access.ok) return respond(c, access);
+      return respond(c, spacesService.integration.mail.listMailSpaceCandidates({ ...access.data, query: c.req.valid("query") }));
+    },
+  )
 
   .get(
     "/workspace/view",

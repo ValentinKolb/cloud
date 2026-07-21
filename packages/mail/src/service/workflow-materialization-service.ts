@@ -1,6 +1,12 @@
 import { createRuntimeLifecycle, logger } from "@valentinkolb/cloud/services";
 import type { WorkflowRunWake } from "@valentinkolb/cloud/workflows/runtime";
-import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
+import {
+  err,
+  fail,
+  isServiceError,
+  ok,
+  type Result,
+} from "@valentinkolb/stdlib";
 import { scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import type {
@@ -18,7 +24,10 @@ import type { MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveMailExecution } from "./execution";
 import type { SqlClient } from "./workflow-data";
-import { loadWorkflowVersion, mapWorkflowVersion } from "./workflow-definition-service";
+import {
+  loadWorkflowVersion,
+  mapWorkflowVersion,
+} from "./workflow-definition-service";
 import {
   insertWorkflowTargets,
   loadRunByIdempotency,
@@ -34,7 +43,14 @@ import {
   streamPreparedWorkflowTargets,
   type WorkflowTargetCursor,
 } from "./workflow-preflight-service";
-import { type DbWorkflowRun, mapWorkflowRun, parseWorkflowDbJson, workflowRunColumns, workflowTimestamp } from "./workflow-run-model";
+import {
+  type DbWorkflowRun,
+  mapWorkflowRun,
+  parseWorkflowDbJson,
+  workflowRunColumns,
+  workflowTimestamp,
+} from "./workflow-run-model";
+import { lockWorkflowRunControl } from "./workflow-run-lock";
 import { wakeMailWorkflowRun } from "./workflow-run-wake";
 import {
   type MailWorkflowAuthorizationSnapshot,
@@ -54,7 +70,11 @@ type DbBackfillMaterializationRun = DbWorkflowRun & {
   materialization_action_counts: Record<string, number> | string | null;
 };
 
-const loadBackfillMaterializationRun = async (runId: string, db: SqlClient, lock = false): Promise<DbBackfillMaterializationRun | null> => {
+const loadBackfillMaterializationRun = async (
+  runId: string,
+  db: SqlClient,
+  lock = false
+): Promise<DbBackfillMaterializationRun | null> => {
   const [run] = await db<DbBackfillMaterializationRun[]>`
     SELECT
       ${workflowRunColumns},
@@ -74,7 +94,11 @@ const loadBackfillMaterializationRun = async (runId: string, db: SqlClient, lock
   return run ?? null;
 };
 
-type WorkflowRunInput = DryRunWorkflowInput | InvokeWorkflowInput | BackfillWorkflowInput | OneShotWorkflowInput;
+type WorkflowRunInput =
+  | DryRunWorkflowInput
+  | InvokeWorkflowInput
+  | BackfillWorkflowInput
+  | OneShotWorkflowInput;
 
 const BACKFILL_MATERIALIZATION_BATCH_SIZE = 1_000;
 
@@ -93,10 +117,24 @@ const resumeBackfillWorkflowRun = async (params: {
     const materialized = await sql.begin(async (tx) => {
       await tx`SET LOCAL statement_timeout = '30s'`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${run.mailbox_id}:${run.workflow_id}:execute:${params.idempotencyKey}`}, 0))`;
+      await lockWorkflowRunControl(tx, run.id);
+      // Runtime workers lock targets before their parent run. Materialization
+      // cleanup must use the same order because deleting the run cascades.
+      await tx`
+        SELECT target.id
+        FROM mail.workflow_run_targets target
+        WHERE target.parent_run_id = ${run.id}::uuid
+        ORDER BY target.id
+        FOR UPDATE
+      `;
       const current = await loadBackfillMaterializationRun(run.id, tx, true);
       if (!current) return fail(err.notFound("Workflow run"));
       if (current.request_hash !== params.requestHash) {
-        return fail(err.conflict("Idempotency key was used for a different workflow invocation"));
+        return fail(
+          err.conflict(
+            "Idempotency key was used for a different workflow invocation"
+          )
+        );
       }
       if (current.state !== "materializing") return ok(current);
 
@@ -108,7 +146,11 @@ const resumeBackfillWorkflowRun = async (params: {
       });
       if (!currentPermission.ok) return currentPermission;
 
-      if (!current.materialization_digest || !current.materialization_expected_digest || !current.materialization_action_counts) {
+      if (
+        !current.materialization_digest ||
+        !current.materialization_expected_digest ||
+        !current.materialization_action_counts
+      ) {
         throw new Error("Workflow materialization metadata is incomplete");
       }
       const versionRow = await loadWorkflowVersion({
@@ -117,15 +159,20 @@ const resumeBackfillWorkflowRun = async (params: {
         versionId: current.workflow_version_id,
         db: tx,
       });
-      if (!versionRow) throw new Error("Workflow materialization version is unavailable");
+      if (!versionRow)
+        throw new Error("Workflow materialization version is unavailable");
       const version = mapWorkflowVersion(versionRow);
       const remaining = current.target_count - current.queued_targets;
-      if (remaining <= 0) throw new Error("Workflow materialization progress is invalid");
+      if (remaining <= 0)
+        throw new Error("Workflow materialization progress is invalid");
       const limit = Math.min(BACKFILL_MATERIALIZATION_BATCH_SIZE, remaining);
       const after: WorkflowTargetCursor | null =
-        current.materialization_cursor_internal_date && current.materialization_cursor_target_key
+        current.materialization_cursor_internal_date &&
+        current.materialization_cursor_target_key
           ? {
-              internalDate: workflowTimestamp(current.materialization_cursor_internal_date),
+              internalDate: workflowTimestamp(
+                current.materialization_cursor_internal_date
+              ),
               remoteMessageRefId: current.materialization_cursor_target_key,
             }
           : null;
@@ -135,7 +182,9 @@ const resumeBackfillWorkflowRun = async (params: {
         versionIdentity: current.version_identity,
         plan: version.boundPlan,
         inputs: parseWorkflowDbJson(current.inputs),
-        query: parseWorkflowDbJson(current.target_query) as BackfillWorkflowInput["query"],
+        query: parseWorkflowDbJson(
+          current.target_query
+        ) as BackfillWorkflowInput["query"],
         occurredAt: workflowTimestamp(current.occurred_at),
         targetDigest: current.materialization_digest,
         after,
@@ -143,15 +192,26 @@ const resumeBackfillWorkflowRun = async (params: {
         db: tx,
       });
       const stale =
-        !batch.ok || batch.data.targets.length === 0 || (batch.data.targets.length < limit && remaining > batch.data.targets.length);
+        !batch.ok ||
+        batch.data.targets.length === 0 ||
+        (batch.data.targets.length < limit &&
+          remaining > batch.data.targets.length);
       if (stale) {
         await tx`DELETE FROM mail.workflow_runs WHERE id = ${current.id}::uuid AND state = 'materializing'`;
         return fail(err.conflict("Workflow preflight is stale"));
       }
-      await insertWorkflowTargets(tx, current.id, batch.data.targets, current.queued_targets, workflowTimestamp(current.occurred_at));
+      await insertWorkflowTargets(
+        tx,
+        current.id,
+        batch.data.targets,
+        current.queued_targets,
+        workflowTimestamp(current.occurred_at)
+      );
       const queuedTargets = current.queued_targets + batch.data.targets.length;
       if (queuedTargets === current.target_count) {
-        if (batch.data.targetDigest !== current.materialization_expected_digest) {
+        if (
+          batch.data.targetDigest !== current.materialization_expected_digest
+        ) {
           await tx`DELETE FROM mail.workflow_runs WHERE id = ${current.id}::uuid AND state = 'materializing'`;
           return fail(err.conflict("Workflow preflight is stale"));
         }
@@ -168,7 +228,8 @@ const resumeBackfillWorkflowRun = async (params: {
           WHERE run.id = ${current.id}::uuid AND run.state = 'materializing'
           RETURNING ${workflowRunColumns}
         `;
-        if (!completed) throw new Error("Workflow materialization finalization lost its run");
+        if (!completed)
+          throw new Error("Workflow materialization finalization lost its run");
         await recordWorkflowRunRequest({
           db: tx,
           context: params.context,
@@ -178,7 +239,9 @@ const resumeBackfillWorkflowRun = async (params: {
           runId: current.id,
           version,
           targetCount: current.target_count,
-          actionCounts: parseWorkflowDbJson(current.materialization_action_counts),
+          actionCounts: parseWorkflowDbJson(
+            current.materialization_action_counts
+          ),
           kind: "backfill",
           mode: "execute",
           channel: current.channel,
@@ -186,7 +249,8 @@ const resumeBackfillWorkflowRun = async (params: {
         });
         return ok(completed);
       }
-      if (!batch.data.cursor) throw new Error("Workflow materialization cursor did not advance");
+      if (!batch.data.cursor)
+        throw new Error("Workflow materialization cursor did not advance");
       const [updated] = await tx<DbWorkflowRun[]>`
         UPDATE mail.workflow_runs AS run
         SET
@@ -197,14 +261,18 @@ const resumeBackfillWorkflowRun = async (params: {
         WHERE run.id = ${current.id}::uuid AND run.state = 'materializing'
         RETURNING ${workflowRunColumns}
       `;
-      if (!updated) throw new Error("Workflow materialization progress update lost its run");
+      if (!updated)
+        throw new Error(
+          "Workflow materialization progress update lost its run"
+        );
       return ok(updated);
     });
     if (!materialized.ok) return materialized;
     run = materialized.data;
   }
   if (params.enqueue && resumedMaterialization && run.state === "queued") {
-    if (!params.wake) throw new Error("Workflow materialization recovery requires a wake port");
+    if (!params.wake)
+      throw new Error("Workflow materialization recovery requires a wake port");
     await wakeMailWorkflowRun(params.wake, run.id);
   }
   return ok(mapWorkflowRun(run));
@@ -222,7 +290,10 @@ const materializeBackfillWorkflowRun = async (params: {
   requestHash: string;
   wake: WorkflowRunWake;
 }): Promise<Result<MailWorkflowRun>> => {
-  const actor = workflowActorColumns(params.authorizationSnapshot, params.input.expectedVersionId);
+  const actor = workflowActorColumns(
+    params.authorizationSnapshot,
+    params.input.expectedVersionId
+  );
   const existing = await loadRunByIdempotency({
     mailboxId: params.mailboxId,
     workflowId: params.workflowId,
@@ -230,7 +301,11 @@ const materializeBackfillWorkflowRun = async (params: {
     idempotencyKey: params.input.idempotencyKey,
   });
   if (existing && existing.request_hash !== params.requestHash) {
-    return fail(err.conflict("Idempotency key was used for a different workflow invocation"));
+    return fail(
+      err.conflict(
+        "Idempotency key was used for a different workflow invocation"
+      )
+    );
   }
 
   let run: DbWorkflowRun | null = existing;
@@ -273,7 +348,11 @@ const materializeBackfillWorkflowRun = async (params: {
       if (concurrent) {
         return concurrent.request_hash === params.requestHash
           ? ok(concurrent)
-          : fail(err.conflict("Idempotency key was used for a different workflow invocation"));
+          : fail(
+              err.conflict(
+                "Idempotency key was used for a different workflow invocation"
+              )
+            );
       }
       const versionRow = await loadWorkflowVersion({
         mailboxId: params.mailboxId,
@@ -293,7 +372,8 @@ const materializeBackfillWorkflowRun = async (params: {
       }
       const runId = crypto.randomUUID();
       const targetCount = prepared.data.preflight.targetCount;
-      const initialState: WorkflowRunState = targetCount === 0 ? "succeeded" : "materializing";
+      const initialState: WorkflowRunState =
+        targetCount === 0 ? "succeeded" : "materializing";
       const [created] = await tx<DbWorkflowRun[]>`
         INSERT INTO mail.workflow_runs AS run (
           id, mailbox_id, workflow_id, workflow_version_id, version_identity, source_hash,
@@ -302,12 +382,24 @@ const materializeBackfillWorkflowRun = async (params: {
           target_count, queued_targets, succeeded_targets, finished_at,
           materialization_digest, materialization_expected_digest, materialization_action_counts
         ) VALUES (
-          ${runId}::uuid, ${params.mailboxId}::uuid, ${params.workflowId}::uuid, ${version.id}::uuid,
-          ${version.identity}, ${version.sourceHash}, 'backfill', 'execute', ${params.channel}, ${initialState},
-          ${actor.kind}, ${actor.id}::uuid, ${params.authorizationSnapshot}::jsonb,
-          ${params.input.inputs}::jsonb, ${params.input.query}::jsonb, ${params.input.preflightHash},
-          ${params.input.idempotencyKey}, ${params.requestHash}, ${params.occurredAt}::timestamptz,
-          ${targetCount}, 0, 0, ${targetCount === 0 ? params.occurredAt : null}::timestamptz,
+          ${runId}::uuid, ${params.mailboxId}::uuid, ${
+        params.workflowId
+      }::uuid, ${version.id}::uuid,
+          ${version.identity}, ${version.sourceHash}, 'backfill', 'execute', ${
+        params.channel
+      }, ${initialState},
+          ${actor.kind}, ${actor.id}::uuid, ${
+        params.authorizationSnapshot
+      }::jsonb,
+          ${params.input.inputs}::jsonb, ${params.input.query}::jsonb, ${
+        params.input.preflightHash
+      },
+          ${params.input.idempotencyKey}, ${params.requestHash}, ${
+        params.occurredAt
+      }::timestamptz,
+          ${targetCount}, 0, 0, ${
+        targetCount === 0 ? params.occurredAt : null
+      }::timestamptz,
           ${targetCount === 0 ? null : initialWorkflowTargetDigest()},
           ${targetCount === 0 ? null : prepared.data.targetDigest},
           ${targetCount === 0 ? null : prepared.data.actionCounts}::jsonb
@@ -337,7 +429,8 @@ const materializeBackfillWorkflowRun = async (params: {
     if (!initialized.ok) return initialized;
     run = initialized.data;
   }
-  if (!run) throw new Error("Workflow materialization initialization returned no run");
+  if (!run)
+    throw new Error("Workflow materialization initialization returned no run");
 
   return resumeBackfillWorkflowRun({
     run,
@@ -352,10 +445,17 @@ const materializeBackfillWorkflowRun = async (params: {
 
 const cancelRejectedMaterialization = async (
   run: DbBackfillMaterializationRun,
-  failure: { code: string; message: string; reason: string },
+  failure: { code: string; message: string; reason: string }
 ): Promise<boolean> =>
   sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${run.mailbox_id}:${run.workflow_id}:execute:${run.idempotency_key}`}, 0))`;
+    await tx`
+      SELECT target.id
+      FROM mail.workflow_run_targets target
+      WHERE target.parent_run_id = ${run.id}::uuid
+      ORDER BY target.id
+      FOR UPDATE
+    `;
     const current = await loadBackfillMaterializationRun(run.id, tx, true);
     if (!current || current.state !== "materializing") return false;
 
@@ -383,7 +483,9 @@ const cancelRejectedMaterialization = async (
       INSERT INTO mail.activity_events (
         mailbox_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
       ) VALUES (
-        ${current.mailbox_id}::uuid, 'workflow', ${current.workflow_version_id}::uuid,
+        ${current.mailbox_id}::uuid, 'workflow', ${
+      current.workflow_version_id
+    }::uuid,
         'workflow.run', 'failed', 'workflow_run', ${current.id}::uuid,
         ${{ reason: failure.reason }}::jsonb
       )
@@ -398,12 +500,16 @@ type MailWorkflowMaterializationRecovery = {
   failed: number;
 };
 
-type MaterializationRecoveryOutcome = "recovered" | "canceled" | "failed" | "ignored";
+type MaterializationRecoveryOutcome =
+  | "recovered"
+  | "canceled"
+  | "failed"
+  | "ignored";
 
 const recoverMaterializationCandidate = async (
   runId: string,
   enqueue: boolean,
-  wake?: WorkflowRunWake,
+  wake?: WorkflowRunWake
 ): Promise<MaterializationRecoveryOutcome> => {
   const run = await loadBackfillMaterializationRun(runId, sql);
   if (!run || run.state !== "materializing") return "ignored";
@@ -437,24 +543,35 @@ const recoverMaterializationCandidate = async (
     return canceled ? "canceled" : "ignored";
   }
 
-  materializationLog.error("Mail workflow materialization could not be resumed", {
-    runId: run.id,
-    code: resumed.error.code,
-    message: resumed.error.message,
-  });
+  materializationLog.error(
+    "Mail workflow materialization could not be resumed",
+    {
+      runId: run.id,
+      code: resumed.error.code,
+      message: resumed.error.message,
+    }
+  );
   return "failed";
 };
 
 export const reconcileMailWorkflowMaterializations = async (
-  options: { enqueue?: boolean; limit?: number; staleAfterMs?: number; wake?: WorkflowRunWake } = {},
+  options: {
+    enqueue?: boolean;
+    limit?: number;
+    staleAfterMs?: number;
+    wake?: WorkflowRunWake;
+  } = {}
 ): Promise<MailWorkflowMaterializationRecovery> => {
   const enqueue = options.enqueue ?? true;
-  if (enqueue && !options.wake) throw new Error("Workflow materialization recovery requires a wake port");
+  if (enqueue && !options.wake)
+    throw new Error("Workflow materialization recovery requires a wake port");
   const requestedLimit = options.limit ?? 10;
-  if (!Number.isSafeInteger(requestedLimit) || requestedLimit <= 0) throw new Error("Workflow recovery limit must be a positive integer");
+  if (!Number.isSafeInteger(requestedLimit) || requestedLimit <= 0)
+    throw new Error("Workflow recovery limit must be a positive integer");
   const limit = Math.min(requestedLimit, 100);
   const staleAfterMs = options.staleAfterMs ?? 30_000;
-  if (!Number.isFinite(staleAfterMs) || staleAfterMs < 0) throw new Error("Workflow recovery delay must be non-negative");
+  if (!Number.isFinite(staleAfterMs) || staleAfterMs < 0)
+    throw new Error("Workflow recovery delay must be non-negative");
   const candidates = await sql<{ id: string }[]>`
     SELECT id
     FROM mail.workflow_runs
@@ -472,7 +589,11 @@ export const reconcileMailWorkflowMaterializations = async (
 
   for (const candidate of candidates) {
     try {
-      const outcome = await recoverMaterializationCandidate(candidate.id, enqueue, options.wake);
+      const outcome = await recoverMaterializationCandidate(
+        candidate.id,
+        enqueue,
+        options.wake
+      );
       if (outcome !== "ignored") result[outcome] += 1;
     } catch (error) {
       await sql`
@@ -496,19 +617,32 @@ export const reconcileMailWorkflowMaterializations = async (
 
 const materializationLog = logger("mail:workflow-materialization");
 
-export const createMailWorkflowMaterializationRuntime = (wake: WorkflowRunWake) => {
-  const materializationScheduler = scheduler({ id: "mail:workflow-materialization" });
-  const runRecovery = async (): Promise<MailWorkflowMaterializationRecovery> => {
-    const result = await reconcileMailWorkflowMaterializations({ wake });
-    if (result.failed > 0) materializationLog.error("Mail workflow materialization recovery failed", result);
-    return result;
-  };
+export const createMailWorkflowMaterializationRuntime = (
+  wake: WorkflowRunWake
+) => {
+  const materializationScheduler = scheduler({
+    id: "mail:workflow-materialization",
+  });
+  const runRecovery =
+    async (): Promise<MailWorkflowMaterializationRecovery> => {
+      const result = await reconcileMailWorkflowMaterializations({ wake });
+      if (result.failed > 0)
+        materializationLog.error(
+          "Mail workflow materialization recovery failed",
+          result
+        );
+      return result;
+    };
   const lifecycle = createRuntimeLifecycle({
     start: async () => {
       await materializationScheduler.create({
         id: "mail:workflow-materialization:reconcile",
         cron: "* * * * *",
-        meta: { appId: "mail", family: "mail:workflows", label: "Mail workflow materialization recovery" },
+        meta: {
+          appId: "mail",
+          family: "mail:workflows",
+          label: "Mail workflow materialization recovery",
+        },
         process: runRecovery,
       });
       materializationScheduler.start();
@@ -539,11 +673,23 @@ const materializeWorkflowRun = async (params: {
     context: params.context,
   });
   if (!allowed.ok) return allowed;
-  const authorizationSnapshot = snapshotMailWorkflowAuthorization(params.context);
-  if (!authorizationSnapshot) return fail(err.forbidden("Durable Mail work requires a current credential"));
-  const actor = workflowActorColumns(authorizationSnapshot, params.input.expectedVersionId);
-  const occurredAt = "occurredAt" in params.input ? params.input.occurredAt : (params.occurredAt ?? new Date().toISOString());
-  if (!Number.isFinite(Date.parse(occurredAt))) return fail(err.badInput("Workflow occurrence time is invalid"));
+  const authorizationSnapshot = snapshotMailWorkflowAuthorization(
+    params.context
+  );
+  if (!authorizationSnapshot)
+    return fail(
+      err.forbidden("Durable Mail work requires a current credential")
+    );
+  const actor = workflowActorColumns(
+    authorizationSnapshot,
+    params.input.expectedVersionId
+  );
+  const occurredAt =
+    "occurredAt" in params.input
+      ? params.input.occurredAt
+      : params.occurredAt ?? new Date().toISOString();
+  if (!Number.isFinite(Date.parse(occurredAt)))
+    return fail(err.badInput("Workflow occurrence time is invalid"));
   const requestHash = sha256Json({
     workflowId: params.workflowId,
     workflowVersionId: params.input.expectedVersionId,
@@ -552,7 +698,8 @@ const materializeWorkflowRun = async (params: {
     authorization: workflowAuthorizationIdentity(authorizationSnapshot),
     inputs: params.input.inputs,
     query: params.input.query,
-    preflightHash: "preflightHash" in params.input ? params.input.preflightHash : null,
+    preflightHash:
+      "preflightHash" in params.input ? params.input.preflightHash : null,
     occurredAt: "occurredAt" in params.input ? occurredAt : null,
   });
   if (params.kind === "backfill") {
@@ -597,7 +744,11 @@ const materializeWorkflowRun = async (params: {
       if (existing) {
         return existing.request_hash === requestHash
           ? ok({ run: mapWorkflowRun(existing), created: false })
-          : fail(err.conflict("Idempotency key was used for a different workflow invocation"));
+          : fail(
+              err.conflict(
+                "Idempotency key was used for a different workflow invocation"
+              )
+            );
       }
       const versionRow = await loadWorkflowVersion({
         mailboxId: params.mailboxId,
@@ -619,13 +770,15 @@ const materializeWorkflowRun = async (params: {
       if (!prepared.ok) return prepared;
       if (
         params.mode === "execute" &&
-        (!("preflightHash" in params.input) || prepared.data.preflight.preflightHash !== params.input.preflightHash)
+        (!("preflightHash" in params.input) ||
+          prepared.data.preflight.preflightHash !== params.input.preflightHash)
       ) {
         return fail(err.conflict("Workflow preflight is stale"));
       }
       const runId = crypto.randomUUID();
       const targetCount = prepared.data.preflight.targetCount;
-      const initialState: WorkflowRunState = targetCount === 0 ? "succeeded" : "queued";
+      const initialState: WorkflowRunState =
+        targetCount === 0 ? "succeeded" : "queued";
       const [run] = await tx<DbWorkflowRun[]>`
         INSERT INTO mail.workflow_runs AS run (
           id, mailbox_id, workflow_id, workflow_version_id, version_identity, source_hash,
@@ -633,13 +786,23 @@ const materializeWorkflowRun = async (params: {
           inputs, target_query, preflight_hash, idempotency_key, request_hash, occurred_at,
           target_count, queued_targets, succeeded_targets, finished_at
         ) VALUES (
-          ${runId}::uuid, ${params.mailboxId}::uuid, ${params.workflowId}::uuid, ${version.id}::uuid,
-          ${version.identity}, ${version.sourceHash}, ${params.kind}, ${params.mode}, ${params.channel}, ${initialState},
+          ${runId}::uuid, ${params.mailboxId}::uuid, ${
+        params.workflowId
+      }::uuid, ${version.id}::uuid,
+          ${version.identity}, ${version.sourceHash}, ${params.kind}, ${
+        params.mode
+      }, ${params.channel}, ${initialState},
           ${actor.kind}, ${actor.id}::uuid, ${authorizationSnapshot}::jsonb,
           ${params.input.inputs}::jsonb, ${params.input.query}::jsonb,
-          ${"preflightHash" in params.input ? params.input.preflightHash : null},
-          ${params.input.idempotencyKey}, ${requestHash}, ${occurredAt}::timestamptz,
-          ${targetCount}, ${targetCount}, 0, ${targetCount === 0 ? occurredAt : null}::timestamptz
+          ${
+            "preflightHash" in params.input ? params.input.preflightHash : null
+          },
+          ${
+            params.input.idempotencyKey
+          }, ${requestHash}, ${occurredAt}::timestamptz,
+          ${targetCount}, ${targetCount}, 0, ${
+        targetCount === 0 ? occurredAt : null
+      }::timestamptz
         )
         RETURNING ${workflowRunColumns}
       `;
@@ -654,11 +817,17 @@ const materializeWorkflowRun = async (params: {
         query: params.input.query,
         occurredAt,
         db: tx,
-        onBatch: (targets, ordinal) => insertWorkflowTargets(tx, runId, targets, ordinal, occurredAt),
+        onBatch: (targets, ordinal) =>
+          insertWorkflowTargets(tx, runId, targets, ordinal, occurredAt),
       });
       if (!streamed.ok) throw streamed.error;
-      if (streamed.data.targetCount !== targetCount || streamed.data.targetDigest !== prepared.data.targetDigest) {
-        throw new Error("Workflow target set changed inside a repeatable-read materialization");
+      if (
+        streamed.data.targetCount !== targetCount ||
+        streamed.data.targetDigest !== prepared.data.targetDigest
+      ) {
+        throw new Error(
+          "Workflow target set changed inside a repeatable-read materialization"
+        );
       }
       await recordWorkflowRunRequest({
         db: tx,
@@ -697,7 +866,8 @@ export const invokeWorkflow = (params: {
   occurredAt?: string;
   enqueue?: boolean;
   wake: WorkflowRunWake;
-}): Promise<Result<MailWorkflowRun>> => materializeWorkflowRun({ ...params, kind: "invoke", mode: "execute" });
+}): Promise<Result<MailWorkflowRun>> =>
+  materializeWorkflowRun({ ...params, kind: "invoke", mode: "execute" });
 
 export const dryRunWorkflow = (params: {
   context: MailRequestContext;
@@ -708,7 +878,8 @@ export const dryRunWorkflow = (params: {
   occurredAt?: string;
   enqueue?: boolean;
   wake: WorkflowRunWake;
-}): Promise<Result<MailWorkflowRun>> => materializeWorkflowRun({ ...params, kind: "invoke", mode: "dryRun" });
+}): Promise<Result<MailWorkflowRun>> =>
+  materializeWorkflowRun({ ...params, kind: "invoke", mode: "dryRun" });
 
 export const backfillWorkflow = (params: {
   context: MailRequestContext;
@@ -719,7 +890,8 @@ export const backfillWorkflow = (params: {
   occurredAt?: string;
   enqueue?: boolean;
   wake: WorkflowRunWake;
-}): Promise<Result<MailWorkflowRun>> => materializeWorkflowRun({ ...params, kind: "backfill", mode: "execute" });
+}): Promise<Result<MailWorkflowRun>> =>
+  materializeWorkflowRun({ ...params, kind: "backfill", mode: "execute" });
 
 export const oneShotWorkflow = (params: {
   context: MailRequestContext;
@@ -730,4 +902,5 @@ export const oneShotWorkflow = (params: {
   occurredAt?: string;
   enqueue?: boolean;
   wake: WorkflowRunWake;
-}): Promise<Result<MailWorkflowRun>> => materializeWorkflowRun({ ...params, kind: "oneShot", mode: "execute" });
+}): Promise<Result<MailWorkflowRun>> =>
+  materializeWorkflowRun({ ...params, kind: "oneShot", mode: "execute" });

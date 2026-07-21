@@ -111,7 +111,7 @@ export type MailboxPageData = {
   selectedReference: string | null;
 };
 
-type MailSelectionDetail = Pick<
+export type MailSelectionDetail = Pick<
   MailboxPageData,
   | "detailMessages"
   | "detailError"
@@ -175,8 +175,16 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     collaboration.getConversationCollaboration(params),
     localTags.getConversationLocalTags(params),
     collaboration.listConversationComments({ ...params, limit: 100 }),
-    collaboration.listAssignableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
-    collaboration.listMentionableUsers({ context: params.context, mailboxId: params.mailboxId, limit: 200 }),
+    collaboration.listAssignableUsers({
+      context: params.context,
+      mailboxId: params.mailboxId,
+      limit: 200,
+    }),
+    collaboration.listMentionableUsers({
+      context: params.context,
+      mailboxId: params.mailboxId,
+      limit: 200,
+    }),
     collaboration.listActivity({ ...params, limit: 30 }),
     reminders.getConversationReminder(params),
     conversationReferences.listConversationReferences(params),
@@ -196,6 +204,28 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     selectedReference: referenceResult.ok
       ? ((referenceResult.data.find((reference) => reference.role === "primary") ?? referenceResult.data[0])?.value ?? null)
       : null,
+  };
+};
+
+export type MailConversationDetailData = MailSelectionDetail & {
+  conversationId: string;
+  selectedSubject: string;
+};
+
+export const loadMailboxConversationDetail = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+}): Promise<MailConversationDetailData | null> => {
+  const permission = await collaboration.requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
+  if (!permission.ok || permission.data === "none") return null;
+  const conversation = await messages.listConversationMessages({ ...params, limit: 1 });
+  if (!conversation.ok) return null;
+  const detail = await loadConversationDetails(params);
+  return {
+    ...detail,
+    conversationId: params.conversationId,
+    selectedSubject: detail.detailMessages.at(-1)?.subject || "Message",
   };
 };
 
@@ -234,12 +264,21 @@ const loadListItems = async (params: {
   searchExpression: MailSearchExpression | null;
   searchSort: "relevance" | "newest";
   cursor?: string;
-}): Promise<{ items: MailListItem[]; nextCursor: string | null; error: string | null }> => {
+}): Promise<{
+  items: MailListItem[];
+  nextCursor: string | null;
+  error: string | null;
+}> => {
   if (params.searchExpression) {
     const result = await search.searchMessages({
       context: params.context,
       mailboxId: params.mailboxId,
-      request: { expression: params.searchExpression, sort: params.searchSort, cursor: params.cursor, limit: 50 },
+      request: {
+        expression: params.searchExpression,
+        sort: params.searchSort,
+        cursor: params.cursor,
+        limit: 50,
+      },
     });
     if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
     return {
@@ -322,10 +361,19 @@ export const loadMailboxPageData = async (params: {
       mailboxes.getMailbox(params.context, params.mailboxId),
       messages.listFolders(params.context, params.mailboxId),
       senderIdentities.listSenderIdentities(params.context, params.mailboxId),
-      messages.getConversationViewCounts({ context: params.context, mailboxId: params.mailboxId }),
-      savedViews.listSavedConversationViews({ context: params.context, mailboxId: params.mailboxId }),
+      messages.getConversationViewCounts({
+        context: params.context,
+        mailboxId: params.mailboxId,
+      }),
+      savedViews.listSavedConversationViews({
+        context: params.context,
+        mailboxId: params.mailboxId,
+      }),
       localTags.listLocalTags(params.context, params.mailboxId),
-      scheduledSends.countScheduledSends({ context: params.context, mailboxId: params.mailboxId }),
+      scheduledSends.countScheduledSends({
+        context: params.context,
+        mailboxId: params.mailboxId,
+      }),
     ]);
   if (!mailboxResult.ok) return null;
 
@@ -343,7 +391,11 @@ export const loadMailboxPageData = async (params: {
     scheduledMode
       ? Promise.resolve({ items: [], nextCursor: null, error: null })
       : resolvedSearch.error
-        ? Promise.resolve({ items: [], nextCursor: null, error: resolvedSearch.error })
+        ? Promise.resolve({
+            items: [],
+            nextCursor: null,
+            error: resolvedSearch.error,
+          })
         : loadListItems({
             context: params.context,
             mailboxId: params.mailboxId,

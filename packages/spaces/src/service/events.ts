@@ -16,7 +16,7 @@ const spaceTopic = topic<SpaceServiceEvent>({
 
 export const publishSpaceEvent = async (event: SpaceServiceEventData): Promise<void> => {
   const payload: SpaceServiceEvent = { ...event, at: new Date().toISOString() };
-  const resourceId = "itemId" in payload ? payload.itemId : payload.wormholeId;
+  const resourceId = "itemId" in payload ? payload.itemId : "wormholeId" in payload ? payload.wormholeId : payload.spaceId;
   try {
     await spaceTopic.pub({
       tenantId: payload.spaceId,

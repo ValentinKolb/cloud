@@ -3,10 +3,7 @@ import type { MailRequestContext } from "./auth";
 import { durableCredentialSnapshot } from "./auth";
 import { commandStillAuthorized, type StoredCommandAuthorization } from "./command-authorization";
 
-const serviceContext = (credential: {
-  credentialId?: string | null;
-  credentialExpiresAt?: string | null;
-}): MailRequestContext => ({
+const serviceContext = (credential: { credentialId?: string | null; credentialExpiresAt?: string | null }): MailRequestContext => ({
   actor: {
     kind: "service_account",
     serviceAccount: {
@@ -30,9 +27,7 @@ const serviceContext = (credential: {
 describe("durable Mail credential snapshots", () => {
   test("accepts an API credential with a stable database id", () => {
     expect(
-      durableCredentialSnapshot(
-        serviceContext({ credentialId: "446650b9-972e-4859-93f0-84d39c4efb88", credentialExpiresAt: null }),
-      ),
+      durableCredentialSnapshot(serviceContext({ credentialId: "446650b9-972e-4859-93f0-84d39c4efb88", credentialExpiresAt: null })),
     ).toEqual({
       scopes: ["mail:write"],
       credentialId: "446650b9-972e-4859-93f0-84d39c4efb88",
@@ -56,9 +51,7 @@ describe("durable Mail credential snapshots", () => {
       credentialExpiresAt: future,
     });
     expect(
-      durableCredentialSnapshot(
-        serviceContext({ credentialId: null, credentialExpiresAt: new Date(Date.now() - 60_000).toISOString() }),
-      ),
+      durableCredentialSnapshot(serviceContext({ credentialId: null, credentialExpiresAt: new Date(Date.now() - 60_000).toISOString() })),
     ).toBeNull();
   });
 

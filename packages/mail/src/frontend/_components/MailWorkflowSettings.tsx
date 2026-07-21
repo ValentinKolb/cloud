@@ -15,6 +15,8 @@ import type {
   MailWorkflow,
   MailWorkflowDetail,
   MailWorkflowRun,
+  MailWorkflowRunPage,
+  MailWorkflowRunTarget,
   MailWorkflowVersion,
   WorkflowEffectBudget,
   WorkflowValidation,
@@ -24,7 +26,11 @@ import { readApiError } from "./api-response";
 const DEFAULT_BUDGET: WorkflowEffectBudget = {
   maxTargets: 1_000,
   maxMoves: 1_000,
+  maxCopies: 1_000,
   maxSends: 1_000,
+  maxDrafts: 1_000,
+  maxFlagChanges: 2_000,
+  maxNotifications: 1_000,
   maxKeywordChanges: 2_000,
   maxCollaborationChanges: 2_000,
 };
@@ -65,7 +71,11 @@ function WorkflowEditor(props: {
   const initialBudget = props.workflow?.currentVersion.effectBudget ?? DEFAULT_BUDGET;
   const [maxTargets, setMaxTargets] = createSignal(initialBudget.maxTargets);
   const [maxMoves, setMaxMoves] = createSignal(initialBudget.maxMoves);
+  const [maxCopies, setMaxCopies] = createSignal(initialBudget.maxCopies ?? DEFAULT_BUDGET.maxCopies ?? 1_000);
   const [maxSends, setMaxSends] = createSignal(initialBudget.maxSends ?? DEFAULT_BUDGET.maxSends ?? 1_000);
+  const [maxDrafts, setMaxDrafts] = createSignal(initialBudget.maxDrafts ?? DEFAULT_BUDGET.maxDrafts ?? 1_000);
+  const [maxFlagChanges, setMaxFlagChanges] = createSignal(initialBudget.maxFlagChanges ?? DEFAULT_BUDGET.maxFlagChanges ?? 2_000);
+  const [maxNotifications, setMaxNotifications] = createSignal(initialBudget.maxNotifications ?? DEFAULT_BUDGET.maxNotifications ?? 1_000);
   const [maxKeywordChanges, setMaxKeywordChanges] = createSignal(initialBudget.maxKeywordChanges);
   const [maxCollaborationChanges, setMaxCollaborationChanges] = createSignal(initialBudget.maxCollaborationChanges);
   const [validation, setValidation] = createSignal<WorkflowValidation | null>(null);
@@ -73,7 +83,11 @@ function WorkflowEditor(props: {
   const budget = (): WorkflowEffectBudget => ({
     maxTargets: maxTargets(),
     maxMoves: maxMoves(),
+    maxCopies: maxCopies(),
     maxSends: maxSends(),
+    maxDrafts: maxDrafts(),
+    maxFlagChanges: maxFlagChanges(),
+    maxNotifications: maxNotifications(),
     maxKeywordChanges: maxKeywordChanges(),
     maxCollaborationChanges: maxCollaborationChanges(),
   });
@@ -177,7 +191,23 @@ function WorkflowEditor(props: {
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <NumberInput label="Targets" value={maxTargets} onInput={(value) => setMaxTargets(value ?? 1)} min={1} max={50_000} />
             <NumberInput label="Moves" value={maxMoves} onInput={(value) => setMaxMoves(value ?? 0)} min={0} max={50_000} />
+            <NumberInput label="Copies" value={maxCopies} onInput={(value) => setMaxCopies(value ?? 0)} min={0} max={50_000} />
             <NumberInput label="Sends" value={maxSends} onInput={(value) => setMaxSends(value ?? 0)} min={0} max={50_000} />
+            <NumberInput label="Drafts" value={maxDrafts} onInput={(value) => setMaxDrafts(value ?? 0)} min={0} max={50_000} />
+            <NumberInput
+              label="Flag changes"
+              value={maxFlagChanges}
+              onInput={(value) => setMaxFlagChanges(value ?? 0)}
+              min={0}
+              max={100_000}
+            />
+            <NumberInput
+              label="Notifications"
+              value={maxNotifications}
+              onInput={(value) => setMaxNotifications(value ?? 0)}
+              min={0}
+              max={50_000}
+            />
             <NumberInput
               label="Keyword changes"
               value={maxKeywordChanges}
@@ -218,20 +248,23 @@ function WorkflowEditor(props: {
   );
 }
 
-const CANCELABLE_STATES = new Set<MailWorkflowRun["state"]>(["materializing", "queued", "running", "waiting"]);
+const ACTIVE_STATES = new Set<MailWorkflowRun["state"]>(["materializing", "queued", "running", "waiting"]);
 
 export default function MailWorkflowSettings(props: {
   mailboxId: string;
   initialWorkflows: MailWorkflow[];
   initialRuns: MailWorkflowRun[];
+  initialRunsNextCursor?: string | null;
   showWorkflows?: boolean;
   showRuns?: boolean;
   showRunsHeader?: boolean;
   onWorkflowsChange?: (workflows: MailWorkflow[]) => void;
   onRunsChange?: (runs: MailWorkflowRun[]) => void;
+  onRunsCursorChange?: (cursor: string | null) => void;
 }) {
   const [workflows, setWorkflows] = createSignal(props.initialWorkflows);
   const [runs, setRuns] = createSignal(props.initialRuns);
+  const [runsNextCursor, setRunsNextCursor] = createSignal(props.initialRunsNextCursor ?? null);
   const [versions, setVersions] = createSignal<Record<string, MailWorkflowVersion[]>>({});
   const [expandedWorkflowId, setExpandedWorkflowId] = createSignal<string | null>(null);
 
@@ -307,7 +340,32 @@ export default function MailWorkflowSettings(props: {
       query: { limit: "20" },
     });
     if (!response.ok) return prompts.error(await readApiError(response, "Failed to load workflow runs"));
-    const next = await response.json();
+    const page = (await response.json()) as MailWorkflowRunPage;
+    setRuns(page.items);
+    setRunsNextCursor(page.nextCursor);
+    props.onRunsChange?.(page.items);
+    props.onRunsCursorChange?.(page.nextCursor);
+  };
+
+  const loadMoreRuns = async () => {
+    const cursor = runsNextCursor();
+    if (!cursor) return;
+    const response = await apiClient.mailboxes[":mailboxId"]["workflow-runs"].$get({
+      param: { mailboxId: props.mailboxId },
+      query: { limit: "50", cursor },
+    });
+    if (!response.ok) return prompts.error(await readApiError(response, "Failed to load more workflow runs"));
+    const page = (await response.json()) as MailWorkflowRunPage;
+    const known = new Set(runs().map((run) => run.id));
+    const next = [...runs(), ...page.items.filter((run) => !known.has(run.id))];
+    setRuns(next);
+    setRunsNextCursor(page.nextCursor);
+    props.onRunsChange?.(next);
+    props.onRunsCursorChange?.(page.nextCursor);
+  };
+
+  const replaceRun = (run: MailWorkflowRun) => {
+    const next = runs().map((item) => (item.id === run.id ? run : item));
     setRuns(next);
     props.onRunsChange?.(next);
   };
@@ -328,10 +386,81 @@ export default function MailWorkflowSettings(props: {
       return response.json();
     },
     onSuccess: (run) => {
-      const next = runs().map((item) => (item.id === run.id ? run : item));
+      replaceRun(run);
+      if (run.state === "canceled") toast.success("Workflow run canceled");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const pauseRun = mutations.create<MailWorkflowRun, MailWorkflowRun>({
+    mutation: async (run) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["workflow-runs"][":runId"].pause.$post({
+        param: { mailboxId: props.mailboxId, runId: run.id },
+        json: { reason: "Paused by mailbox administrator" },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to pause workflow run"));
+      return response.json();
+    },
+    onSuccess: (run) => {
+      replaceRun(run);
+      toast.success("Workflow run paused");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const resumeRun = mutations.create<MailWorkflowRun, MailWorkflowRun>({
+    mutation: async (run) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["workflow-runs"][":runId"].resume.$post({
+        param: { mailboxId: props.mailboxId, runId: run.id },
+        json: { reason: "Resumed by mailbox administrator" },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to resume workflow run"));
+      return response.json();
+    },
+    onSuccess: (run) => {
+      replaceRun(run);
+      toast.success("Workflow run resumed");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const retryRun = mutations.create<MailWorkflowRun, MailWorkflowRun>({
+    mutation: async (run) => {
+      const targetIds: string[] = [];
+      let afterOrdinal = -1;
+      while (targetIds.length < 500) {
+        const targetsResponse = await apiClient.mailboxes[":mailboxId"]["workflow-runs"][":runId"].targets.$get({
+          param: { mailboxId: props.mailboxId, runId: run.id },
+          query: { afterOrdinal: String(afterOrdinal), limit: "200" },
+        });
+        if (!targetsResponse.ok) throw new Error(await readApiError(targetsResponse, "Failed to load retry targets"));
+        const page = (await targetsResponse.json()) as MailWorkflowRunTarget[];
+        for (const target of page) {
+          if ((target.state === "failed" || target.state === "needs_attention") && !target.hasRetry) targetIds.push(target.id);
+          if (targetIds.length === 500) break;
+        }
+        if (page.length < 200) break;
+        afterOrdinal = page.at(-1)!.ordinal;
+      }
+      if (targetIds.length === 0) throw new Error("This run has no eligible failed targets");
+      const confirmed = await prompts.confirm(`Create a child run for ${targetIds.length} failed target(s)?`, {
+        title: "Retry failed targets?",
+        confirmText: "Retry targets",
+      });
+      if (!confirmed) return run;
+      const response = await apiClient.mailboxes[":mailboxId"]["workflow-runs"][":runId"].retry.$post({
+        param: { mailboxId: props.mailboxId, runId: run.id },
+        json: { targetIds, idempotencyKey: crypto.randomUUID(), reason: "Retried by mailbox administrator" },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to retry workflow targets"));
+      return response.json();
+    },
+    onSuccess: (run) => {
+      if (runs().some((item) => item.id === run.id)) return;
+      const next = [run, ...runs()];
       setRuns(next);
       props.onRunsChange?.(next);
-      if (run.state === "canceled") toast.success("Workflow run canceled");
+      toast.success("Retry child run queued");
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -476,14 +605,32 @@ export default function MailWorkflowSettings(props: {
                   <span class={`badge ${run.state === "succeeded" ? "badge-success" : run.state === "failed" ? "badge-danger" : ""}`}>
                     {run.state.replaceAll("_", " ")}
                   </span>
-                  <Show when={CANCELABLE_STATES.has(run.state)}>
+                  <Show when={ACTIVE_STATES.has(run.state)}>
+                    <button type="button" class="btn-secondary btn-sm" disabled={pauseRun.loading()} onClick={() => pauseRun.mutate(run)}>
+                      <i class="ti ti-player-pause" aria-hidden="true" /> Pause
+                    </button>
                     <button type="button" class="btn-secondary btn-sm" disabled={cancelRun.loading()} onClick={() => cancelRun.mutate(run)}>
                       Cancel
+                    </button>
+                  </Show>
+                  <Show when={run.state === "paused"}>
+                    <button type="button" class="btn-secondary btn-sm" disabled={resumeRun.loading()} onClick={() => resumeRun.mutate(run)}>
+                      <i class="ti ti-player-play" aria-hidden="true" /> Resume
+                    </button>
+                  </Show>
+                  <Show when={run.state === "failed" || run.state === "needs_attention"}>
+                    <button type="button" class="btn-secondary btn-sm" disabled={retryRun.loading()} onClick={() => retryRun.mutate(run)}>
+                      <i class="ti ti-refresh" aria-hidden="true" /> Retry failed
                     </button>
                   </Show>
                 </div>
               )}
             </For>
+            <Show when={runsNextCursor()}>
+              <button type="button" class="btn-secondary self-start" onClick={() => void loadMoreRuns()}>
+                Load more runs
+              </button>
+            </Show>
           </Show>
         </section>
       </Show>

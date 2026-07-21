@@ -11,12 +11,15 @@ import {
   invokeWorkflowInputSchema,
   oneShotWorkflowInputSchema,
   preflightWorkflowInputSchema,
+  retryWorkflowRunInputSchema,
   validateWorkflowInputSchema,
+  workflowRunControlInputSchema,
 } from "../contracts";
 import { type MailRequestContext, workflows } from "../service";
 import {
   mailWorkflowDetailSchema,
   mailWorkflowPreflightSchema,
+  mailWorkflowRunPageSchema,
   mailWorkflowRunSchema,
   mailWorkflowRunTargetSchema,
   mailWorkflowSchema,
@@ -31,9 +34,9 @@ const workflowVersionParamSchema = workflowParamSchema.extend({
   versionId: z.string().uuid(),
 });
 const runParamSchema = z.object({ mailboxId: z.string().uuid(), runId: z.string().uuid() });
-const cancelRunInputSchema = z.object({ reason: z.string().trim().min(1).max(1_000).optional() }).strict();
 const runListQuerySchema = z.object({
   workflowId: z.string().uuid().optional(),
+  cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 const runTargetListQuerySchema = z.object({
@@ -230,7 +233,7 @@ const workflowRoutes = new Hono<AuthContext>()
   )
   .get(
     "/mailboxes/:mailboxId/workflow-runs",
-    workflowOperation("List Mail workflow runs", z.array(mailWorkflowRunSchema), "Mail workflow runs"),
+    workflowOperation("List Mail workflow runs", mailWorkflowRunPageSchema, "Mail workflow runs"),
     v("param", mailboxParamSchema),
     v("query", runListQuerySchema),
     async (c) =>
@@ -268,9 +271,41 @@ const workflowRoutes = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/workflow-runs/:runId/cancel",
     workflowOperation("Cancel a Mail workflow run", mailWorkflowRunSchema, "Canceled Mail workflow run", [404, 409]),
     v("param", runParamSchema),
-    v("json", cancelRunInputSchema),
+    v("json", workflowRunControlInputSchema),
     async (c) =>
       respond(c, workflows.cancelWorkflowRun({ context: requestContext(c), ...c.req.valid("param"), reason: c.req.valid("json").reason })),
+  )
+  .post(
+    "/mailboxes/:mailboxId/workflow-runs/:runId/pause",
+    workflowOperation("Pause a Mail workflow run", mailWorkflowRunSchema, "Paused Mail workflow run", [404, 409]),
+    v("param", runParamSchema),
+    v("json", workflowRunControlInputSchema),
+    async (c) =>
+      respond(c, workflows.pauseWorkflowRun({ context: requestContext(c), ...c.req.valid("param"), reason: c.req.valid("json").reason })),
+  )
+  .post(
+    "/mailboxes/:mailboxId/workflow-runs/:runId/resume",
+    workflowOperation("Resume a paused Mail workflow run", mailWorkflowRunSchema, "Resumed Mail workflow run", [404, 409]),
+    v("param", runParamSchema),
+    v("json", workflowRunControlInputSchema),
+    async (c) =>
+      respond(c, workflows.resumeWorkflowRun({ context: requestContext(c), ...c.req.valid("param"), reason: c.req.valid("json").reason })),
+  )
+  .post(
+    "/mailboxes/:mailboxId/workflow-runs/:runId/retry",
+    workflowOperation("Retry selected Mail workflow targets as a child run", mailWorkflowRunSchema, "Retry child workflow run", [404, 409]),
+    v("param", runParamSchema),
+    v("json", retryWorkflowRunInputSchema),
+    async (c) =>
+      respond(
+        c,
+        workflows.retryWorkflowRunTargets({
+          context: requestContext(c),
+          ...c.req.valid("param"),
+          input: c.req.valid("json"),
+          channel: "api",
+        }),
+      ),
   );
 
 export default workflowRoutes;

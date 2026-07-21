@@ -95,6 +95,18 @@ Starting another reply does not hide existing work. The **Continue a draft?** di
 
 Local tags and internal comments exist only in Cloud. Provider folders and keywords depend on the synchronized remote state.
 
+If **Status > Repair and projection coverage** shows a gap, an administrator can queue **Hydrate missing bodies**, **Rebuild search**, or **Repair thread projection**. Wait for the durable command to finish before repeating it. Search and thread repairs rebuild derived data and preserve mailbox content and collaboration state.
+
+## A command needs attention {icon="lifebuoy"}
+
+Open **Settings > Status** and find the redacted command entry by ID and error code.
+
+- **Reconcile effect** is safe for an ambiguous provider outcome because it reads provider state before changing the command result.
+- **Retry work** is shown only for failed provider-read maintenance where no provider effect started.
+- **Cancel work** is shown only while eligible maintenance is queued or has failed.
+
+Do not repeat a move, delete, flag change, folder operation, or send when Mail reports an ambiguous outcome. If reconciliation cannot prove the remote result, the command remains **needs attention** for manual provider inspection.
+
 ## A provider folder action fails {icon="lifebuoy"}
 
 Archive, Trash, Junk, Sent, and Drafts depend on folder mappings under **Settings > Folders**. An administrator should:

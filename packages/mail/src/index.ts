@@ -6,6 +6,8 @@ import apiRoutes from "./api";
 import { mailCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes from "./frontend";
+import adminPage from "./frontend/admin";
+import { publicAttachmentRoutes } from "./frontend/public-attachments";
 import { mailHelp } from "./help";
 import { migrate } from "./migrate";
 import { createMailNotificationService } from "./notifications";
@@ -28,7 +30,9 @@ const router = new Hono<AuthContext>()
   .use("*", middleware.settings())
   .route("/api/mail/help", helpRoutes)
   .route("/api/mail", apiRoutes)
-  .route("/app/mail", pageRoutes);
+  .route("/app/mail", pageRoutes)
+  .get("/admin/mail", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
+  .route("/share/mail", publicAttachmentRoutes);
 
 const result = await app.start({
   capabilities: mailCapabilities,

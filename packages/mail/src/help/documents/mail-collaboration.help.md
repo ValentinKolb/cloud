@@ -44,6 +44,14 @@ Mailbox access is granted in **Settings > Access**.
 
 Access can be granted through the standard Cloud permission editor to the supported people, groups, or service accounts. Removing access takes effect for the mailbox, including open live views and future agent or service-account actions.
 
+## Use Contacts and Spaces context {icon="address-book"}
+
+Open **Conversation details** to see Contacts whose email addresses exactly match visible conversation participants. Multiple Contacts can match the same address; Mail shows every currently readable match and does not choose or merge them. **Related Mail** stays inside the current mailbox and rechecks Contact access before every page.
+
+Writers can link a Space from the **Spaces** section. Mail stores only the opaque Space identifier and resolves its name, color, and link from Spaces when the details panel is open. If Space access is removed, target metadata disappears immediately; writers can still remove the redacted link. Contact and Space ownership, notes, bank details, access entries, calendar tokens, and other private fields are never copied into Mail.
+
+The CLI exposes the same boundary through `cld mail conversation context`, `contact-history`, and `space candidates|link|unlink`.
+
 ## Know what is shared and what is private {icon="shield-lock"}
 
 Shared across the mailbox:

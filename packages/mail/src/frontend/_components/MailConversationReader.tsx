@@ -4,12 +4,13 @@ import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { ConversationDraftSummary, DraftIntent, MailCommand, MailDraft, SenderIdentity } from "../../contracts";
+import type { ConversationDraftSummary, DraftIntent, MailDraft, SenderIdentity } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
 import MailComposer from "./MailComposer";
 import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
+import { getMailCommand, type MailTriageCommandId } from "./mail-command-registry";
 import { buildMailListHref } from "./mail-navigation";
 
 const formatAddress = (address: { name: string | null; address: string }): string =>
@@ -42,17 +43,6 @@ type DraftLookup = {
   request: ComposerRequest;
 };
 
-type TriageKind = "archive" | "trash" | "junk" | "read" | "unread" | "flag" | "unflag";
-type TriageRequest = {
-  kind: TriageKind;
-  conversationId: string;
-  sourceFolderIds: string[];
-  previousUnread: boolean | null;
-};
-
-const PENDING_COMMAND_STATES = new Set<MailCommand["state"]>(["queued", "executing", "ambiguous"]);
-const SUCCESS_COMMAND_STATES = new Set<MailCommand["state"]>(["confirmed", "reconciled"]);
-
 const intentLabel = (intent: DraftIntent): string =>
   intent === "reply" ? "reply" : intent === "reply_all" ? "reply all" : intent === "forward" ? "forward" : "message";
 
@@ -60,12 +50,11 @@ export default function MailConversationReader(props: {
   mailboxId: string;
   requestUrl: string;
   canWrite: boolean;
+  canAdmin: boolean;
   identities: SenderIdentity[];
   selectionKey: string | null;
   selectedConversationId: string | null;
   unread: boolean;
-  sourceFolderId: string | null;
-  unreadSourceFolderIds: string[];
   reference: string | null;
   subject: string;
   messages: MessageDetail[];
@@ -76,11 +65,11 @@ export default function MailConversationReader(props: {
   detailsOpen: boolean;
   onRestoreList: () => void;
   onToggleDetails: () => void;
-  onUnreadChange: (conversationId: string, unread: boolean) => void;
+  commandPending: boolean;
+  onCommand: (commandId: MailTriageCommandId, options?: { silent?: boolean }) => void | Promise<void>;
   onReconcile: () => Promise<void>;
-  onSelectionRemoved: () => Promise<void>;
   onComposerActiveChange: (active: boolean) => void;
-  onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
+  onClose: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
   const [expandedMessages, setExpandedMessages] = createSignal(new Set(props.messages.slice(-1).map((message) => message.id)));
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
@@ -99,131 +88,6 @@ export default function MailConversationReader(props: {
       else next.add(messageId);
       return next;
     });
-
-  const waitForCommands = async (commands: MailCommand[], signal: AbortSignal): Promise<void> => {
-    const deadline = Date.now() + 20_000;
-    let current = commands;
-    while (current.some((command) => PENDING_COMMAND_STATES.has(command.state))) {
-      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-      if (Date.now() >= deadline) throw new Error("Mail action is still synchronizing");
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      current = await Promise.all(
-        current.map(async (command) => {
-          if (!PENDING_COMMAND_STATES.has(command.state)) return command;
-          const response = await apiClient.mailboxes[":mailboxId"].commands[":commandId"].$get(
-            { param: { mailboxId: props.mailboxId, commandId: command.id } },
-            { init: { signal } },
-          );
-          if (!response.ok) throw new Error(await readApiError(response, "Could not confirm mail action"));
-          return await response.json();
-        }),
-      );
-    }
-    const failed = current.find((command) => !SUCCESS_COMMAND_STATES.has(command.state));
-    if (failed) throw new Error(failed.lastError || `Mail action ended in ${failed.state}`);
-  };
-
-  const executeTriage = async (action: TriageRequest, signal: AbortSignal): Promise<TriageRequest> => {
-    const queued = await Promise.all(
-      action.sourceFolderIds.map(async (sourceFolderId) => {
-        const input =
-          action.kind === "archive" || action.kind === "trash" || action.kind === "junk"
-            ? {
-                kind: "move_to_role" as const,
-                sourceFolderId,
-                role: action.kind,
-                idempotencyKey: crypto.randomUUID(),
-              }
-            : {
-                kind: "change_state" as const,
-                sourceFolderId,
-                change: {
-                  addFlags: action.kind === "read" ? ["seen" as const] : action.kind === "flag" ? ["flagged" as const] : [],
-                  removeFlags: action.kind === "unread" ? ["seen" as const] : action.kind === "unflag" ? ["flagged" as const] : [],
-                  addKeywords: [],
-                  removeKeywords: [],
-                },
-                idempotencyKey: crypto.randomUUID(),
-              };
-        const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post({
-          param: { mailboxId: props.mailboxId, conversationId: action.conversationId },
-          json: input,
-        });
-        if (!response.ok) throw new Error(await readApiError(response, "Mail action failed"));
-        return await response.json();
-      }),
-    );
-    await waitForCommands(
-      queued.flatMap((result) => result.commands),
-      signal,
-    );
-    return action;
-  };
-
-  const triage = mutations.create<TriageRequest, TriageRequest, TriageRequest>({
-    onBefore: (action) => action,
-    mutation: (action, { abortSignal }) => executeTriage(action, abortSignal),
-    onSuccess: (action) => {
-      toast.success("Mail action completed");
-      void (action.kind === "archive" || action.kind === "trash" || action.kind === "junk"
-        ? props.onSelectionRemoved()
-        : props.onReconcile());
-    },
-    onError: (error, action) => {
-      if (action?.previousUnread !== null && action?.previousUnread !== undefined) {
-        props.onUnreadChange(action.conversationId, action.previousUnread);
-      }
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        prompts.error(error.message);
-      }
-    },
-  });
-
-  const markRead = mutations.create<TriageRequest, TriageRequest, TriageRequest>({
-    onBefore: (action) => action,
-    mutation: (action, { abortSignal }) => executeTriage(action, abortSignal),
-    onSuccess: () => void props.onReconcile(),
-    onError: (error, action) => {
-      if (action) props.onUnreadChange(action.conversationId, action.previousUnread ?? true);
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        toast.error(error.message, { title: "Could not mark conversation as read" });
-      }
-    },
-  });
-
-  const runTriage = (kind: TriageKind, automatic = false) => {
-    const conversationId = props.selectedConversationId;
-    const detailUnreadFolderIds =
-      kind === "read"
-        ? [
-            ...new Set(
-              props.messages
-                .filter((message) => !message.flags.includes("\\Seen"))
-                .map((message) => message.folderId)
-                .filter((folderId): folderId is string => Boolean(folderId)),
-            ),
-          ]
-        : [];
-    const fallbackFolderId = props.sourceFolderId ?? lastMessage()?.folderId ?? null;
-    const sourceFolderIds =
-      kind === "read" && props.unreadSourceFolderIds.length > 0
-        ? props.unreadSourceFolderIds
-        : detailUnreadFolderIds.length > 0
-          ? detailUnreadFolderIds
-          : fallbackFolderId
-            ? [fallbackFolderId]
-            : [];
-    if (!conversationId || sourceFolderIds.length === 0) {
-      if (!automatic) void prompts.error("This conversation has no active provider placement.");
-      return;
-    }
-    const previousUnread = kind === "read" || kind === "unread" ? props.unread : null;
-    if (kind === "read") props.onUnreadChange(conversationId, false);
-    if (kind === "unread") props.onUnreadChange(conversationId, true);
-    const request = { kind, conversationId, sourceFolderIds, previousUnread };
-    if (automatic) markRead.mutate(request);
-    else triage.mutate(request);
-  };
 
   const showComposer = (request: ComposerRequest, initialDraft?: MailDraft) => {
     setCompose({ ...request, initialDraft });
@@ -338,7 +202,10 @@ export default function MailConversationReader(props: {
     mutation: async (lookup, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].drafts.$get(
         {
-          param: { mailboxId: props.mailboxId, conversationId: lookup.conversationId },
+          param: {
+            mailboxId: props.mailboxId,
+            conversationId: lookup.conversationId,
+          },
           query: { limit: "20" },
         },
         { init: { signal: abortSignal } },
@@ -369,16 +236,6 @@ export default function MailConversationReader(props: {
   };
 
   let currentSelection = props.selectionKey;
-  let autoReadSelection: string | null | undefined;
-  createEffect(() => {
-    const selection = props.selectionKey;
-    if (selection === autoReadSelection) return;
-    autoReadSelection = selection;
-    if (selection && props.canWrite && props.selectedConversationId && props.unread) {
-      runTriage("read", true);
-    }
-  });
-
   createEffect(() => {
     const nextSelection = props.selectionKey;
     if (nextSelection === currentSelection) return;
@@ -394,8 +251,6 @@ export default function MailConversationReader(props: {
     disposed = true;
     closeDraftDialog?.(undefined);
     closeDraftDialog = null;
-    triage.abort();
-    markRead.abort();
     conversationDrafts.abort();
     draftLoadController?.abort();
   });
@@ -407,7 +262,9 @@ export default function MailConversationReader(props: {
     const selectedInBody = selection?.anchorNode && body.contains(selection.anchorNode) ? hostSelection : "";
     const text = hostSelection ? selectedInBody : selectedInFrame;
     if (!text) {
-      return prompts.error("Select text in this message first.", { title: "Quote in reply" });
+      return prompts.error("Select text in this message first.", {
+        title: "Quote in reply",
+      });
     }
     const sender = message.from[0]?.name || message.from[0]?.address || "Sender";
     const quote = `${dates.formatDateTime(message.internalDate, props.dateConfig)} ${sender} wrote:\n${text
@@ -464,7 +321,7 @@ export default function MailConversationReader(props: {
               href={closeHref()}
               class="icon-btn lg:hidden"
               aria-label="Back to conversation list"
-              onNavigate={props.onNavigate}
+              onNavigate={props.onClose}
               scroll="preserve"
             >
               <i class="ti ti-arrow-left" aria-hidden="true" />
@@ -484,7 +341,9 @@ export default function MailConversationReader(props: {
             </Show>
             <div class="min-w-0 flex-1">
               <div class="flex min-w-0 items-center gap-2">
-                <h1 class="truncate text-lg font-semibold text-primary">{props.subject || "(no subject)"}</h1>
+                <h1 class="truncate text-lg font-semibold text-primary" data-mail-reader-heading tabIndex={-1}>
+                  {props.subject || "(no subject)"}
+                </h1>
                 <Show when={props.reference}>
                   <button
                     type="button"
@@ -505,7 +364,8 @@ export default function MailConversationReader(props: {
                 </Show>
               </div>
               <p class="mt-0.5 text-xs text-dimmed">
-                {props.messages.length} message{props.messages.length === 1 ? "" : "s"}
+                {props.messages.length} message
+                {props.messages.length === 1 ? "" : "s"}
               </p>
             </div>
             <Show when={props.canWrite}>
@@ -514,33 +374,33 @@ export default function MailConversationReader(props: {
                   <button
                     type="button"
                     class="icon-btn"
-                    aria-label="Archive conversation"
-                    disabled={triage.loading()}
-                    onClick={() => runTriage("archive")}
+                    aria-label={getMailCommand("archive").label}
+                    disabled={props.commandPending}
+                    onClick={() => void props.onCommand("archive")}
                   >
-                    <i class="ti ti-archive" aria-hidden="true" />
+                    <i class={getMailCommand("archive").icon} aria-hidden="true" />
                   </button>
                 </Tooltip>
                 <Tooltip content="Move to junk">
                   <button
                     type="button"
                     class="icon-btn"
-                    aria-label="Move conversation to junk"
-                    disabled={triage.loading()}
-                    onClick={() => runTriage("junk")}
+                    aria-label={getMailCommand("junk").label}
+                    disabled={props.commandPending}
+                    onClick={() => void props.onCommand("junk")}
                   >
-                    <i class="ti ti-alert-octagon" aria-hidden="true" />
+                    <i class={getMailCommand("junk").icon} aria-hidden="true" />
                   </button>
                 </Tooltip>
                 <Tooltip content="Delete">
                   <button
                     type="button"
                     class="icon-btn"
-                    aria-label="Delete conversation"
-                    disabled={triage.loading()}
-                    onClick={() => runTriage("trash")}
+                    aria-label={getMailCommand("trash").label}
+                    disabled={props.commandPending}
+                    onClick={() => void props.onCommand("trash")}
                   >
-                    <i class="ti ti-trash" aria-hidden="true" />
+                    <i class={getMailCommand("trash").icon} aria-hidden="true" />
                   </button>
                 </Tooltip>
                 <Dropdown
@@ -553,16 +413,25 @@ export default function MailConversationReader(props: {
                   width="w-52"
                   elements={[
                     {
-                      label: props.unread ? "Mark as read" : "Mark as unread",
-                      icon: props.unread ? "ti ti-mail-opened" : "ti ti-mail",
-                      action: () => runTriage(props.unread ? "read" : "unread"),
+                      label: getMailCommand(props.unread ? "mark_read" : "mark_unread").label,
+                      icon: getMailCommand(props.unread ? "mark_read" : "mark_unread").icon,
+                      action: () => props.onCommand(props.unread ? "mark_read" : "mark_unread"),
                     },
                     {
-                      label: lastMessage()?.flags.includes("\\Flagged") ? "Remove flag" : "Flag conversation",
-                      icon: lastMessage()?.flags.includes("\\Flagged") ? "ti ti-flag-off" : "ti ti-flag",
-                      action: () => runTriage(lastMessage()?.flags.includes("\\Flagged") ? "unflag" : "flag"),
+                      label: getMailCommand(lastMessage()?.flags.includes("\\Flagged") ? "unflag" : "flag").label,
+                      icon: getMailCommand(lastMessage()?.flags.includes("\\Flagged") ? "unflag" : "flag").icon,
+                      action: () => props.onCommand(lastMessage()?.flags.includes("\\Flagged") ? "unflag" : "flag"),
                     },
-                    { label: "Print conversation", icon: "ti ti-printer", action: () => window.print() },
+                    {
+                      label: getMailCommand("move").label,
+                      icon: getMailCommand("move").icon,
+                      action: () => props.onCommand("move"),
+                    },
+                    {
+                      label: "Print conversation",
+                      icon: "ti ti-printer",
+                      action: () => window.print(),
+                    },
                   ]}
                 />
               </div>
@@ -574,6 +443,7 @@ export default function MailConversationReader(props: {
                 classList={{ "bg-[var(--ui-selected)]": props.detailsOpen }}
                 aria-label="Toggle conversation details"
                 aria-pressed={props.detailsOpen}
+                data-mail-details-trigger
                 onClick={props.onToggleDetails}
               >
                 <i class="ti ti-layout-sidebar-right" aria-hidden="true" />
@@ -639,7 +509,12 @@ export default function MailConversationReader(props: {
                           )}
                         </div>
                         <Show when={message.attachments.length > 0}>
-                          <MailMessageAttachments mailboxId={props.mailboxId} messageId={message.id} attachments={message.attachments} />
+                          <MailMessageAttachments
+                            mailboxId={props.mailboxId}
+                            messageId={message.id}
+                            attachments={message.attachments}
+                            canShare={props.canAdmin}
+                          />
                         </Show>
                         <Show when={props.canWrite && props.selectedConversationId}>
                           <div class="mt-4 flex flex-wrap items-center gap-2">
@@ -696,6 +571,7 @@ export default function MailConversationReader(props: {
                 surface="compact"
                 returnHref={props.requestUrl}
                 dateConfig={props.dateConfig}
+                canShareAttachments={props.canAdmin}
                 onClose={closeComposer}
                 seed={
                   active().initialDraft

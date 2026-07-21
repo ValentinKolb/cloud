@@ -31,10 +31,7 @@ const folderPath = (root: string, delimiter: string, leaf: string): string => {
   return trimmed.endsWith(delimiter) ? `${trimmed}${leaf}` : `${trimmed}${delimiter}${leaf}`;
 };
 
-const exerciseImapContract = async (params: {
-  connector: MailConnector;
-  config: ProviderConnectionInput;
-}): Promise<void> => {
+const exerciseImapContract = async (params: { connector: MailConnector; config: ProviderConnectionInput }): Promise<void> => {
   const verification = await params.connector.verify(params.config);
   expect(verification.authenticatedPrincipal.length).toBeGreaterThan(0);
   expect(verification.accounts.length).toBeGreaterThan(0);

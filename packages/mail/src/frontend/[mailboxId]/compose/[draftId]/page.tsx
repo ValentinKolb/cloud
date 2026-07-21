@@ -42,6 +42,7 @@ export default ssr<AuthContext>(async (c) => {
         returnHref={returnHref}
         popout={popout}
         dateConfig={getDateConfig(c)}
+        canShareAttachments={permission === "admin"}
       />
     </Layout>
   );

@@ -21,6 +21,11 @@ export const SpaceServiceEventSchema = z.discriminatedUnion("type", [
     wormholeId: z.uuid(),
     at: z.string().datetime(),
   }),
+  z.object({
+    type: z.enum(["space.updated", "space.deleted", "access.changed"]),
+    spaceId: z.uuid(),
+    at: z.string().datetime(),
+  }),
 ]);
 
 export type SpaceServiceEvent = z.infer<typeof SpaceServiceEventSchema>;

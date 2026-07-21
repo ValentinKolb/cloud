@@ -1,7 +1,7 @@
-import { listUsersWithAccess } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { buildMailWorkflowCatalog, type MailWorkflowCatalog } from "../workflows";
 import type { MailRequestContext } from "./auth";
+import { listCurrentMailboxUsers } from "./collaborators";
 import type { SqlClient } from "./workflow-data";
 
 export const loadMailWorkflowCatalog = async (params: {
@@ -10,12 +10,14 @@ export const loadMailWorkflowCatalog = async (params: {
   db?: SqlClient;
 }): Promise<MailWorkflowCatalog> => {
   const db = params.db ?? sql;
-  const [folders, accessRows, senderIdentities] = await Promise.all([
-    db<{ id: string; name: string }[]>`
-      SELECT DISTINCT folder.id, folder.name
+  const [folders, senderIdentities, localTags, assignableUsers, notificationUsers] = await Promise.all([
+    db<{ id: string; name: string; role: string }[]>`
+      SELECT DISTINCT folder.id, folder.name, COALESCE(role_override.role, folder.role) AS role
       FROM mail.folders folder
       JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
       JOIN mail.mailboxes mailbox ON mailbox.id = resource.mailbox_id
+      LEFT JOIN mail.folder_role_overrides role_override
+        ON role_override.mailbox_id = mailbox.id AND role_override.folder_id = folder.id
       WHERE mailbox.id = ${params.mailboxId}::uuid
         AND mailbox.deleted_at IS NULL
         AND folder.discovery_state = 'active'
@@ -36,11 +38,6 @@ export const loadMailWorkflowCatalog = async (params: {
         )
       ORDER BY folder.id
     `,
-    db<{ access_id: string }[]>`
-      SELECT access_id
-      FROM mail.mailbox_access
-      WHERE mailbox_id = ${params.mailboxId}::uuid
-    `,
     db<{ id: string; name: string }[]>`
       SELECT id, display_name || ' <' || from_address || '>' AS name
       FROM mail.sender_identities
@@ -49,16 +46,20 @@ export const loadMailWorkflowCatalog = async (params: {
         AND automation_policy = 'mailbox'
       ORDER BY id
     `,
+    db<{ id: string; name: string }[]>`
+      SELECT id, name
+      FROM mail.local_tags
+      WHERE mailbox_id = ${params.mailboxId}::uuid
+      ORDER BY id
+    `,
+    listCurrentMailboxUsers({ mailboxId: params.mailboxId, minimumPermission: "write", limit: 500, db }),
+    listCurrentMailboxUsers({ mailboxId: params.mailboxId, minimumPermission: "read", limit: 500, db }),
   ]);
-  const assignableUsers = await listUsersWithAccess({
-    accessIds: accessRows.map((row) => row.access_id),
-    minimumPermission: "write",
-    limit: 10_000,
-    db,
-  });
   return buildMailWorkflowCatalog({
     folders,
     assignableUsers: assignableUsers.map((user) => ({ id: user.id, name: user.displayName || user.uid })),
     senderIdentities,
+    localTags,
+    notificationUsers: notificationUsers.map((user) => ({ id: user.id, name: user.displayName || user.uid })),
   });
 };

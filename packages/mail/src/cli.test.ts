@@ -28,6 +28,9 @@ const TAG_ID = "00000000-0000-4000-8000-000000000021";
 const COMPOSE_TEMPLATE_ID = "00000000-0000-4000-8000-000000000023";
 const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
 const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
+const ATTACHMENT_LINK_ID = "00000000-0000-4000-8000-000000000026";
+const SPACE_ID = "00000000-0000-4000-8000-000000000027";
+const SPACE_LINK_ID = "00000000-0000-4000-8000-000000000028";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -93,6 +96,81 @@ const withMailbox = (handler: (request: Request) => Response | Promise<Response>
       return handler(request);
     },
   });
+
+test("conversation context commands use the Mail integration API", async () => {
+  const mutations: Array<{ method: string; path: string; body: unknown }> = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}`;
+    if (request.method === "GET" && url.pathname === `${base}/context`) {
+      return api({
+        conversationId: CONVERSATION_ID,
+        conversationRevision: 4,
+        canWrite: true,
+        contacts: { status: "ready", items: [], nextCursor: null },
+        spaces: { status: "ready", links: [] },
+      });
+    }
+    if (request.method === "GET" && url.pathname === `${base}/contacts/system/${USER_ID}/history`) {
+      return api({ items: [], nextCursor: null });
+    }
+    if (request.method === "GET" && url.pathname === `${base}/spaces/candidates`) {
+      return api({
+        items: [
+          { id: SPACE_ID, name: "Operations", color: "#4d7c0f", href: `/app/spaces/${SPACE_ID}`, updatedAt: "2026-07-21T10:00:00.000Z" },
+        ],
+        nextCursor: null,
+      });
+    }
+    if (
+      (request.method === "POST" && url.pathname === `${base}/spaces`) ||
+      (request.method === "DELETE" && url.pathname === `${base}/spaces/${SPACE_LINK_ID}`)
+    ) {
+      mutations.push({ method: request.method, path: url.pathname, body: await request.json() });
+      return api({ linkId: SPACE_LINK_ID, conversationRevision: request.method === "POST" ? 5 : 6 });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const commands = [
+    ["--json", "mail", "conversation", "context", CONVERSATION_ID, "--mailbox", MAILBOX_ID],
+    ["--json", "mail", "conversation", "contact-history", CONVERSATION_ID, "system", USER_ID, "--mailbox", MAILBOX_ID],
+    ["--json", "mail", "conversation", "space", "candidates", CONVERSATION_ID, "--mailbox", MAILBOX_ID],
+    ["--json", "mail", "conversation", "space", "link", CONVERSATION_ID, SPACE_ID, "--mailbox", MAILBOX_ID, "--revision", "4"],
+    [
+      "--json",
+      "mail",
+      "conversation",
+      "space",
+      "unlink",
+      CONVERSATION_ID,
+      SPACE_LINK_ID,
+      "--mailbox",
+      MAILBOX_ID,
+      "--revision",
+      "5",
+      "--yes",
+    ],
+  ];
+  const results = [];
+  for (const command of commands) results.push(await runCli(origin, command));
+
+  expect(results.every((result) => result.exitCode === 0 && result.stderr === "")).toBe(true);
+  expect(mutations).toEqual([
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/spaces`,
+      body: { spaceId: SPACE_ID, expectedRevision: 4 },
+    },
+    {
+      method: "DELETE",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/spaces/${SPACE_LINK_ID}`,
+      body: { expectedRevision: 5 },
+    },
+  ]);
+});
 
 test("mailbox configure maps automatic reply access to the mailbox policy", async () => {
   let requestBody: unknown;
@@ -936,6 +1014,83 @@ test("status reads the aggregate operational health endpoint", async () => {
   expect(JSON.parse(result.stdout)).toMatchObject({ mailboxId: MAILBOX_ID, bindings: { active: 1 }, discovery: { missingFolders: 1 } });
 });
 
+test("operator run submits a durable typed action with the caller idempotency key", async () => {
+  let body: unknown;
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/operator-actions`) {
+      body = await request.json();
+      return api({ ...mailCommand("queued"), kind: "rebuild_search", idempotencyKey: "operator-rebuild" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "operator",
+    "run",
+    "rebuild-search",
+    "--mailbox",
+    MAILBOX_ID,
+    "--idempotency-key",
+    "operator-rebuild",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(body).toEqual({ kind: "rebuild_search", idempotencyKey: "operator-rebuild" });
+  expect(JSON.parse(result.stdout)).toMatchObject({ kind: "rebuild_search", state: "queued" });
+});
+
+test("admin operations reads the redacted platform operator endpoint", async () => {
+  const server = withMailbox((request) =>
+    new URL(request.url).pathname === "/api/mail/admin/operations"
+      ? api({
+          mailboxes: [
+            {
+              mailboxId: MAILBOX_ID,
+              mailboxName: "Support",
+              health: "active",
+              syncEnabled: true,
+              sync: { lastAt: null, lagSeconds: 12, states: {} },
+              coverage: {
+                hydration: { total: 2, covered: 2 },
+                search: { total: 2, covered: 1 },
+                threads: { total: 2, covered: 2 },
+              },
+              queues: { commands: {}, outbox: {}, workflows: {}, automaticReplies: {}, automaticReplySuppressions: {} },
+              connectors: {
+                activeBindings: 1,
+                degradedBindings: 0,
+                capabilities: {},
+                pushModes: {},
+                pushStates: {},
+                draftProjectionStates: {},
+              },
+              search: { configuredBackend: "auto", effectiveBackend: "postgres", fallbackActive: false },
+              references: { configured: false, allocated: 0 },
+              folders: [],
+              attentionCommands: [],
+              attentionCount: 0,
+              nextAttentionCursor: null,
+              actions: [],
+              generatedAt: "2026-07-21T10:00:00.000Z",
+            },
+          ],
+          attentionCount: 0,
+          generatedAt: "2026-07-21T10:00:00.000Z",
+          nextCursor: null,
+        })
+      : api({ message: "unexpected" }, { status: 500 }),
+  );
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "admin", "operations"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({ mailboxes: [{ mailboxId: MAILBOX_ID, coverage: { search: { covered: 1 } } }] });
+});
+
 test("rediscover submits a typed durable maintenance command and can wait", async () => {
   const bodies: unknown[] = [];
   let reads = 0;
@@ -1283,6 +1438,209 @@ test("attachment download writes the exact response bytes", async () => {
   expect(JSON.parse(result.stdout)).toMatchObject({ path: output, bytes: expected.byteLength, contentType: "text/plain" });
 });
 
+test("attachment link create supports message and draft API paths without echoing passwords", async () => {
+  const requests: Array<{ path: string; body: unknown }> = [];
+  const created = {
+    link: {
+      id: ATTACHMENT_LINK_ID,
+      mailboxId: MAILBOX_ID,
+      sourceKind: "message",
+      sourceId: MESSAGE_ID,
+      filename: "invoice.pdf",
+      contentType: "application/pdf",
+      byteLength: 42,
+      passwordProtected: true,
+      expiresAt: "2026-08-01T12:00:00.000Z",
+      revokedAt: null,
+      downloadCount: 0,
+      maxDownloads: 3,
+      lastDownloadedAt: null,
+      createdAt: "2026-07-21T10:00:00.000Z",
+    },
+    url: "https://cloud.example/public/mail/attachments/one-time-token",
+  };
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname.endsWith("/links")) {
+      requests.push({ path: new URL(request.url).pathname, body: await request.json() });
+      return api({ ...created, link: { ...created.link, sourceKind: requests.length === 1 ? "message" : "draft" } });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const messageResult = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    [
+      "--json",
+      "mail",
+      "attachment",
+      "link",
+      "create",
+      MESSAGE_ID,
+      ATTACHMENT_ID,
+      "--mailbox",
+      MAILBOX_ID,
+      "--source",
+      "message",
+      "--password-stdin",
+      "--expires-at",
+      "2026-08-01T12:00:00Z",
+      "--max-downloads",
+      "3",
+    ],
+    " leading and trailing spaces \n",
+  );
+  const draftResult = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "attachment",
+    "link",
+    "create",
+    DRAFT_ID,
+    ATTACHMENT_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--source",
+    "draft",
+  ]);
+
+  expect(messageResult.exitCode).toBe(0);
+  expect(draftResult.exitCode).toBe(0);
+  expect(requests).toEqual([
+    {
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/messages/${MESSAGE_ID}/attachments/${ATTACHMENT_ID}/links`,
+      body: {
+        password: " leading and trailing spaces ",
+        expiresAt: "2026-08-01T12:00:00.000Z",
+        maxDownloads: 3,
+      },
+    },
+    {
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/attachments/${ATTACHMENT_ID}/links`,
+      body: {},
+    },
+  ]);
+  expect(JSON.parse(messageResult.stdout)).toEqual(created);
+  expect(messageResult.stdout).not.toContain("leading and trailing spaces");
+  expect(messageResult.stderr).not.toContain("leading and trailing spaces");
+});
+
+test("attachment link list exposes pagination and revoke requires confirmation", async () => {
+  let revokeRequested = false;
+  const link = {
+    id: ATTACHMENT_LINK_ID,
+    mailboxId: MAILBOX_ID,
+    sourceKind: "message",
+    sourceId: MESSAGE_ID,
+    filename: "invoice.pdf",
+    contentType: "application/pdf",
+    byteLength: 42,
+    passwordProtected: false,
+    expiresAt: null,
+    revokedAt: null,
+    downloadCount: 1,
+    maxDownloads: 3,
+    lastDownloadedAt: "2026-07-21T10:05:00.000Z",
+    createdAt: "2026-07-21T10:00:00.000Z",
+  };
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/attachment-links`) {
+      expect(url.searchParams.get("limit")).toBe("17");
+      expect(url.searchParams.get("cursor")).toBe("older-links");
+      return api({ items: [link], nextCursor: "oldest-page" });
+    }
+    if (request.method === "DELETE" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/attachment-links/${ATTACHMENT_LINK_ID}`) {
+      revokeRequested = true;
+      return api({ ...link, revokedAt: "2026-07-21T10:10:00.000Z" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const listed = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "attachment",
+    "link",
+    "list",
+    "--mailbox",
+    MAILBOX_ID,
+    "--limit",
+    "17",
+    "--cursor",
+    "older-links",
+  ]);
+  const unconfirmed = await runCli(`http://127.0.0.1:${server.port}`, [
+    "mail",
+    "attachment",
+    "link",
+    "revoke",
+    ATTACHMENT_LINK_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  expect(revokeRequested).toBe(false);
+  const revoked = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "attachment",
+    "link",
+    "revoke",
+    ATTACHMENT_LINK_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--yes",
+  ]);
+
+  expect(listed.exitCode).toBe(0);
+  expect(JSON.parse(listed.stdout)).toEqual({ items: [link], nextCursor: "oldest-page" });
+  expect(unconfirmed.exitCode).not.toBe(0);
+  expect(unconfirmed.stderr).toContain("Pass --yes");
+  expect(revoked.exitCode).toBe(0);
+  expect(revokeRequested).toBe(true);
+  expect(JSON.parse(revoked.stdout)).toEqual({ ...link, revokedAt: "2026-07-21T10:10:00.000Z" });
+});
+
+test("admin storage commands preserve snapshot and queued reconciliation contracts", async () => {
+  const snapshot = {
+    mailboxes: [
+      {
+        mailboxId: MAILBOX_ID,
+        mailboxName: "Support",
+        messageCount: 4,
+        messageBytes: 1_000,
+        receivedAttachmentBytes: 200,
+        draftAttachmentBytes: 300,
+        externalLinkBytes: 200,
+        logicalTotalBytes: 1_300,
+        calculatedAt: "2026-07-21T10:00:00.000Z",
+      },
+    ],
+    physicalDatabaseBytes: 2_000,
+    physicalBlobBytes: 500,
+    calculatedAt: "2026-07-21T10:00:00.000Z",
+  };
+  const requests: string[] = [];
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    requests.push(`${request.method} ${url.pathname}`);
+    if (request.method === "GET" && url.pathname === "/api/mail/admin/storage") return api(snapshot);
+    if (request.method === "POST" && url.pathname === "/api/mail/admin/storage/reconcile") return api({ queued: true });
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const shown = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "admin", "storage", "show"]);
+  const reconciled = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "admin", "storage", "reconcile"]);
+
+  expect(shown.exitCode).toBe(0);
+  expect(reconciled.exitCode).toBe(0);
+  expect(JSON.parse(shown.stdout)).toEqual(snapshot);
+  expect(JSON.parse(reconciled.stdout)).toEqual({ queued: true });
+  expect(requests).toEqual(["GET /api/mail/admin/storage", "POST /api/mail/admin/storage/reconcile"]);
+});
+
 test("message deletion requires explicit confirmation before the API call", async () => {
   let mutationRequested = false;
   const server = withMailbox(() => {
@@ -1507,6 +1865,44 @@ test("conversation archive targets the configured semantic role", async () => {
     idempotencyKey: "conversation-archive-test",
   });
   expect(JSON.parse(result.stdout)).toMatchObject({ correlationId: "archive-correlation", commands: [{ kind: "move" }] });
+});
+
+test("conversation move targets an explicit provider folder", async () => {
+  let body: unknown;
+  const destinationFolderId = "90000000-0000-4000-8000-000000000009";
+  const server = withMailbox(async (request) => {
+    const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/actions`;
+    if (request.method === "POST" && new URL(request.url).pathname === expectedPath) {
+      body = await request.json();
+      return api({ correlationId: "move-correlation", commands: [{ ...mailCommand("queued"), kind: "move" }] });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "move",
+    CONVERSATION_ID,
+    destinationFolderId,
+    "--mailbox",
+    MAILBOX_ID,
+    "--source",
+    FOLDER_ID,
+    "--idempotency-key",
+    "conversation-move-test",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(body).toEqual({
+    kind: "move_to_folder",
+    sourceFolderId: FOLDER_ID,
+    destinationFolderId,
+    idempotencyKey: "conversation-move-test",
+  });
+  expect(JSON.parse(result.stdout)).toMatchObject({ correlationId: "move-correlation", commands: [{ kind: "move" }] });
 });
 
 test("draft attachment add resumes a chunked upload and finalizes at the expected revision", async () => {
@@ -2348,7 +2744,7 @@ test("workflow JSONL output stays structured for successful waits and lists", as
   const server = withMailbox((request) => {
     const path = new URL(request.url).pathname;
     if (path === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs/${WORKFLOW_RUN_ID}`) return api(succeededRun);
-    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs`) return api([succeededRun]);
+    if (path === `/api/mail/mailboxes/${MAILBOX_ID}/workflow-runs`) return api({ items: [succeededRun], nextCursor: null });
     return api({ message: "unexpected" }, { status: 500 });
   });
   servers.push(server);
@@ -2368,7 +2764,7 @@ test("workflow JSONL output stays structured for successful waits and lists", as
   expect(waited.exitCode).toBe(0);
   expect(JSON.parse(waited.stdout)).toEqual(succeededRun);
   expect(listed.exitCode).toBe(0);
-  expect(JSON.parse(listed.stdout)).toEqual(succeededRun);
+  expect(JSON.parse(listed.stdout)).toEqual({ items: [succeededRun], nextCursor: null });
 });
 
 test("workflow run cancel requires confirmation and forwards the reason", async () => {
@@ -2410,6 +2806,7 @@ test("provider discovery exposes mailbox-scoped autoconfiguration candidates", a
     imap: { host: "imap.example.com", port: 993, tlsMode: "implicit" },
     smtp: { host: "smtp.example.com", port: 587, tlsMode: "starttls" },
     authentication: ["password"],
+    oauthProviderId: null,
   };
   const requestedEmails: (string | null)[] = [];
   const server = withMailbox((request) => {
@@ -2435,6 +2832,45 @@ test("provider discovery exposes mailbox-scoped autoconfiguration candidates", a
   expect(result.exitCode).toBe(0);
   expect(requestedEmails).toEqual(["support@example.com"]);
   expect(JSON.parse(result.stdout)).toEqual([candidate]);
+});
+
+test("provider list reports managed OAuth state without credentials", async () => {
+  const expiresAt = "2026-07-21T12:00:00.000Z";
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/connections`) {
+      return api([
+        {
+          id: CONNECTION_ID,
+          mailboxId: MAILBOX_ID,
+          name: "Google Mail",
+          email: "support@gmail.com",
+          username: "support@gmail.com",
+          connectorKind: "imap_smtp",
+          imap: { host: "imap.gmail.com", port: 993, tlsMode: "implicit" },
+          smtp: { host: "smtp.gmail.com", port: 587, tlsMode: "starttls" },
+          secret: { kind: "oauth2", isSet: true },
+          oauth: { providerId: "google", expiresAt, state: "reconnect_required" },
+          status: "degraded",
+          authenticatedPrincipal: "support@gmail.com",
+          lastVerifiedAt: null,
+          lastError: "Authentication failed",
+          createdAt: "2026-07-21T10:00:00.000Z",
+          updatedAt: "2026-07-21T11:00:00.000Z",
+        },
+      ]);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["mail", "provider", "list", "--mailbox", MAILBOX_ID]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("google:reconnect_required");
+  expect(result.stdout).toContain(expiresAt);
+  expect(result.stdout).not.toContain("accessToken");
+  expect(result.stdout).not.toContain("refreshToken");
 });
 
 test("automatic reply commands cover list, create, and revision-checked update", async () => {

@@ -36,13 +36,23 @@ const outboundDraftSnapshotBaseSchema = z.object({
 export const outboundDraftSnapshotSchema = z.discriminatedUnion("format", [
   outboundDraftSnapshotBaseSchema.extend({
     format: z.literal("plain"),
-    renderedText: z.string().max(2 * 1024 * 1024).optional(),
+    renderedText: z
+      .string()
+      .max(2 * 1024 * 1024)
+      .optional(),
     renderedHtml: z.null().optional(),
   }),
   outboundDraftSnapshotBaseSchema.extend({
     format: z.literal("markdown"),
-    renderedText: z.string().max(2 * 1024 * 1024).optional(),
-    renderedHtml: z.string().max(3 * 1024 * 1024).nullable().optional(),
+    renderedText: z
+      .string()
+      .max(2 * 1024 * 1024)
+      .optional(),
+    renderedHtml: z
+      .string()
+      .max(3 * 1024 * 1024)
+      .nullable()
+      .optional(),
   }),
 ]);
 
@@ -78,9 +88,7 @@ export const buildMimeStream = (params: {
     date: params.date,
     inReplyTo: params.snapshot.inReplyTo ?? undefined,
     references: params.snapshot.references,
-    headers: params.snapshot.automaticReply
-      ? { "Auto-Submitted": "auto-replied", "X-Auto-Response-Suppress": "All" }
-      : undefined,
+    headers: params.snapshot.automaticReply ? { "Auto-Submitted": "auto-replied", "X-Auto-Response-Suppress": "All" } : undefined,
     attachments: params.snapshot.attachments.map((attachment) => ({
       filename: attachment.filename,
       contentType: attachment.contentType,

@@ -41,4 +41,17 @@ describe("Spaces live event protocol", () => {
     expect(parseSpaceLiveServerMessage("not-json")).toBeNull();
     expect(parseSpaceLiveServerMessage(JSON.stringify({ type: SPACE_LIVE_WS_TYPE.event, payload: {} }))).toBeNull();
   });
+
+  test("carries Space metadata and access invalidation events", () => {
+    for (const type of ["space.updated", "space.deleted", "access.changed"] as const) {
+      expect(
+        parseSpaceLiveServerMessage(
+          JSON.stringify({
+            type: SPACE_LIVE_WS_TYPE.event,
+            payload: { spaceId: SPACE_ID, cursor: "10-1", event: { type, spaceId: SPACE_ID, at: "2026-07-21T10:00:00.000Z" } },
+          }),
+        ),
+      ).not.toBeNull();
+    }
+  });
 });

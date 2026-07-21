@@ -65,17 +65,17 @@ This document uses two decision states:
 
 ## Implementation progress
 
-This snapshot records the verified Mail backend, CLI, and core application experience on 2026-07-20. It tracks delivered behavior, not architectural decisions; the delivery plan remains the source of truth for unfinished scope.
+This snapshot records the verified Mail backend, CLI, and core application experience on 2026-07-21. It tracks delivered behavior, not architectural decisions; the delivery plan remains the source of truth for unfinished scope.
 
 | Delivery slice | State | Implemented | Remaining |
 | --- | --- | --- | --- |
 | 1. Foundation contracts | Core implemented | Mail package and schema; mailbox access adapter; encrypted write-only mailbox provider connections; one current remote-resource binding with retained historical fences; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; immutable conversation references; inline response timing; connector conformance harness; typed API and CLI. | Enhanced connector implementations and final operational polish. |
-| 2. IMAP onboarding, sync, and search | Backend and primary UI implemented | Generic manual IMAP/SMTP setup and live verification; provider presets and autoconfiguration; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; capability-driven QRESYNC/CONDSTORE/IDLE hints with bounded polling and periodic reconciliation fallback; listener health; bidirectional generic IMAP Draft projection with explicit conflict recovery; repair operations; canonical field-specific structured search with nested AND/OR/NOT, keyset pagination, URL state, native FTS and optional `pg_textsearch`; end-user Search builder; canonical saved views; mailbox-local tags; and explicit 20,000- and 100,000-message performance gates. | Browser-based OAuth authorization and refresh. |
-| 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage; revision-safe drafts and streamed attachments; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; isolated incoming HTML rendering; recognized quote collapsing; bounded image, PDF, text, audio, and video previews with safe download fallback; message-bound plus outgoing attachment UX; private and mailbox signatures/snippets; default signatures per sender identity; canonical preview/send rendering; and validated mailbox email CSS. | Broader multi-message bulk selection. |
+| 2. IMAP onboarding, sync, and search | Backend and primary UI implemented | Generic manual IMAP/SMTP setup and live verification; provider presets and autoconfiguration; browser OAuth authorization-code PKCE for configured Google and Microsoft applications; encrypted refresh-token storage, distributed refresh locking, reconnect, and failure recovery; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; capability-driven QRESYNC/CONDSTORE/IDLE hints with bounded polling and periodic reconciliation fallback; listener health; bidirectional generic IMAP Draft projection with explicit conflict recovery; repair operations; canonical field-specific structured search with nested AND/OR/NOT, keyset pagination, URL state, native FTS and optional `pg_textsearch`; end-user Search builder; canonical saved views; mailbox-local tags; and explicit 20,000- and 100,000-message performance gates. | Enhanced provider connectors. |
+| 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage and multi-selection; revision-safe drafts and streamed attachments; revocable public attachment links with optional passwords, expiry and download limits; aggregate Mail storage observability; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; isolated incoming HTML rendering; recognized quote collapsing; bounded image, PDF, text, audio, and video previews with safe download fallback; message-bound plus outgoing attachment UX; private and mailbox signatures/snippets; default signatures per sender identity; canonical preview/send rendering; and validated mailbox email CSS. | Provider-enhanced operations. |
 | 4. Collaboration | Backend and primary UI implemented | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; visible editor presence; explicit draft takeover and recovery; provider-Draft interoperability with non-destructive concurrent-edit recovery; mailbox-scoped live invalidation; permission-safe API and CLI; and the combined Mail, ownership, comments, reminders, and audit Details panel. | Final accessibility and multi-browser revocation coverage. |
-| 5. Deterministic workflows | Shared-kernel backend, CLI, and management UI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, and durable dry-run records; frozen targets and preconditions; configurable move, send, keyword, and collaboration budgets; permission and credential rechecks; durable command waiting; fenced recovery; immutable reference allocation; version-pinned inline response timing; guarded RFC-safe automatic replies; typed API and CLI; and a dedicated Automations workspace with guided replies, references, version management, and run history. | Richer Mail actions, run controls, and AI decision nodes. |
+| 5. Deterministic workflows | Shared-kernel backend, CLI, and management UI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, retry-child, and durable dry-run records; frozen targets and preconditions; configurable move, copy, send, draft, flag, notification, keyword, and collaboration budgets; permission and credential rechecks; durable command waiting; pause/resume, cancellation, targeted retry with lineage, and fenced recovery; provider keyword, move/copy/archive/trash/flag actions; assignment, status, local-tag and internal-comment actions; draft creation, scheduled draft delivery, notifications, immutable reference allocation, version-pinned inline response timing, and guarded RFC-safe automatic replies; typed API and CLI; and a dedicated Automations workspace with guided replies, references, version management, run controls, and history. | AI decision nodes and richer visual authoring. |
 | 6. AI decisions and agents | Not started | Mail is exposed through typed API and CLI operations suitable for later tools. | Mail AI resource, tools, approvals, workflow decision nodes, summaries, classification, suggested drafts, and bulk-plan generation. |
-| 7. Product-speed pass | Primary workspace implemented | Calm Cloud-native mailbox overview; resizable AppWorkspace navigation; dense one-line conversation rows; URL-backed SSR-first frontend navigation; collapsible conversation list; threaded reader; one combined and resizable Details panel; contained reply/forward composer; dedicated full-size and pop-out composer; durable local draft journal; complete structured Search authoring and saved-view reuse; permission-aware self-service settings; responsive empty/error states; and authenticated desktop/mobile verification against a live mailbox. | Multi-selection, comprehensive keyboard shortcuts, reader/list prefetch, explicit frontend performance gates beyond Search, and final accessibility regression coverage. |
+| 7. Product-speed pass | Primary workspace implemented | Calm Cloud-native mailbox overview; resizable AppWorkspace navigation; dense one-line conversation rows; URL-backed SSR-first frontend navigation; collapsible conversation list; threaded reader; one combined and resizable Details panel; contained reply/forward composer; dedicated full-size and pop-out composer; durable local draft journal; complete structured Search authoring and saved-view reuse; bounded multi-selection and bulk actions; one command registry with configurable shortcuts; accessible folder picker; abortable detail navigation; bounded neighbour prefetch; stable focus and read-state behavior; permission-aware self-service settings; responsive empty/error states; and authenticated desktop/mobile verification against a live mailbox. | Final cross-browser accessibility and explicit frontend performance regression gates. |
 | 8-9. Enhanced connectors | Not started | Provider-neutral connector, capability, identity, and command boundaries are established. | JMAP, Microsoft Graph, and Gmail API connectors and their conformance suites. |
 
 Verification consists of package type checks, default tests, PostgreSQL integration tests, explicit large-mailbox performance gates, connector conformance, and authenticated browser smokes. The workflow suite covers immutable versions, preflight commitments, idempotent materialization, waiting, cancellation, recovery, authorization changes, event deduplication, and schedule fencing. The exact test counts are intentionally not duplicated here; the package scripts and CI output are authoritative.
@@ -92,18 +92,15 @@ The mandatory generic IMAP completion initiative is implemented through five ind
 
 These workstreams reuse the current connector, command, job, cursor, authorization, and live-event boundaries. Provider-specific details stay inside the connector. Every background operation rechecks the current mailbox, binding, credentials, permissions, and remote rights before effects. There is no legacy Draft path, parallel synchronization authority, unbounded browser query, or provider callback that mutates projections directly.
 
-## Tracked product gaps
+## Remaining product gaps
 
-The following product work remains important but does not block the generic IMAP completion initiative above:
+The previously tracked public-link, storage-observability, operator-repair, workflow-control, browser-OAuth, Contacts/Spaces-context, and productivity slices are implemented. The remaining product work is intentionally narrower:
 
-- **Public attachment links and storage observability:** revocable opaque download links with optional password protection and bounded range downloads, plus aggregate `/admin/mail` storage reporting without content drilldown or initial quota enforcement.
-- **Operator health and repair:** permission-safe mailbox health, actionable `needs_attention` states, bounded repair controls, command and workflow diagnostics, and audited recovery actions backed by the existing jobs.
-- **Workflow breadth and run controls:** additional deterministic Mail actions, pause/resume, targeted retry, clearer failure inspection, and stronger authoring guidance while retaining canonical YAML as the expert interface.
-- **Browser OAuth onboarding:** authorization-code PKCE, write-only refresh-token storage, renewal, revocation, reconnect, and failure recovery through the existing mailbox-owned connection model.
-- **Contacts and Spaces context:** permission-scoped recipient completion and contact or space context without copying access or creating a second identity authority.
-- **Productivity, accessibility, and performance:** command registry, configurable shortcuts, multi-selection, reader/list prefetch, stable focus behavior, keyboard and pointer parity, explicit frontend performance gates, and final accessibility regression coverage.
+- **AI decisions and agents:** Mail AI resource, permission-scoped tools, approvals, summaries, classification, suggested drafts, decision nodes, and generated bulk plans.
+- **Enhanced connectors:** JMAP, Microsoft Graph, and Gmail API implementations and their connector-conformance suites.
+- **Release hardening:** final cross-browser accessibility and revocation coverage, explicit frontend performance regression gates, and production OAuth application registration and tenant-policy decisions.
 
-AI decisions and agents, JMAP, Microsoft Graph, and Gmail API remain separate later delivery slices. They must use the same domain, permission, command, and connector boundaries rather than expanding the generic IMAP completion scope.
+These later slices must use the same domain, permission, command, workflow, and connector boundaries rather than creating parallel execution paths.
 
 ## Product direction
 
@@ -382,6 +379,10 @@ The resolver writes the binding ID, credential revision, and rights snapshot to 
 
 `mail.attachments` stores MIME part identity, filename, content type, disposition, content ID, checksum, size, and a `mail.message_part_blobs` reference. Every attachment body remains in PostgreSQL indefinitely. Import, download, indexing, and backup paths stream chunks and never buffer a complete large attachment in one worker.
 
+`mail.attachment_links` stores revocable public-download metadata for an existing message or draft blob. The public URL contains a high-entropy token that is returned once; PostgreSQL stores only its hash. A link may have a password, expiry, and download limit. Short-lived grants count one logical download even when the recipient uses several HTTP range requests. Revocation and expiry are rechecked during streaming. Expired link metadata may outlive its detached blob reference for audit, but links never create a second copy of attachment bytes.
+
+`mail.storage_usage_snapshots` and `mail.storage_system_snapshot` contain aggregate counts and byte estimates for `/admin/mail`. Reconciliation is queued and horizontally serialized. Received attachment bytes and public-link references are reported separately but are not added twice to logical mailbox storage. These snapshots provide observability only; the first release does not enforce mailbox or system quotas from them.
+
 ### Conversations and work
 
 `mail.conversations` is a durable collaboration entity with rebuildable thread membership. It includes:
@@ -444,7 +445,7 @@ Setup begins with the email address and authentication method, not an IMAP form.
 
 IMAP and SMTP verification run in parallel and report separate, actionable results. A successful test records TLS posture, capabilities, namespaces, special-use folders, and the authenticated principal. Credentials are encrypted only after verification succeeds.
 
-After authentication, the user sees discovered personal and shared accounts or roots. The setup flow asks only for unresolved choices: the remote scope to mirror, ambiguous Inbox/Sent/Drafts/Trash/Archive mappings, and an optional sender identity. Advanced host, port, TLS, namespace, and folder fields stay collapsed unless discovery fails.
+After authentication, the user sees the folders exposed by that provider account. Server-shared or other-user namespace folders appear in the same folder discovery for that connection; they are not separate Cloud resources and cannot be shared independently. The setup flow asks only for unresolved choices: the remote scope to mirror, ambiguous Inbox/Sent/Drafts/Trash/Archive mappings, and an optional sender identity. Advanced host, port, TLS, namespace, and folder fields stay collapsed unless discovery fails.
 
 Missing protocol extensions change implementation details, not the available Cloud experience. For example, absent `SPECIAL-USE` triggers a remembered folder-mapping step, absent `IDLE` enables adaptive polling, and absent remote keywords leaves Cloud local tags available.
 
@@ -783,17 +784,23 @@ The current inputs are `mailMessage` and `mailConversation`. Message fields incl
 
 Conditions use the shared recursive operators `equals`, `notEquals`, `contains`, `startsWith`, `endsWith`, `exists`, `all`, `any`, and `not`. Steps support actions, `if`/`then`/`else`, and `switch`/`cases`/`default`. The shared parser understands bounded `forEach`, but Mail rejects it because mailbox target batches belong in the durable target coordinator.
 
-The implemented action vocabulary is deliberately small:
+The implemented action vocabulary is deliberately bounded:
 
 - `addKeyword` and `removeKeyword` create durable provider commands;
-- `moveMessage` creates a durable provider move command against a bound accessible folder;
+- `moveMessage`, `copyMessage`, `archiveMessage`, and `trashMessage` create durable provider commands against bound semantic or explicit folders;
+- `addFlag` and `removeFlag` change standard message flags through the same command journal;
 - `assignConversation` performs a revision-checked collaboration transaction and accepts `null` to unassign;
 - `setConversationStatus` sets `open`, `waiting`, or `done` transactionally;
+- `addLocalTag` and `removeLocalTag` change mailbox-local conversation tags transactionally;
+- `addComment` adds an internal, actor-attributed conversation comment;
 - `ensureConversationReference` atomically allocates one immutable mailbox reference from the enabled mailbox reference configuration;
+- `createDraft` creates an unsent normal-delivery draft and exposes it to later steps;
+- `scheduleDraftSend` schedules that draft through the ordinary durable outbox;
+- `notifyUser` sends a bounded internal notification to a current mailbox reader;
 - `automaticReply` creates a guarded workflow-owned reply draft and sends it through the durable command and outbox path, with a pinned sender and optional inline response schedule;
 - `succeed` and `fail` stop the current target with an operator-facing message.
 
-Copy/archive/trash, standard flags, local tags, comments, general draft creation, notifications, lower-priority pipeline control, and AI decisions are not current workflow actions.
+AI decisions are not current workflow actions. The language intentionally keeps unbounded loops and arbitrary provider calls outside the workflow runtime.
 
 ### Invocation and triggers
 
@@ -809,7 +816,7 @@ Mail preflight is the supported no-effects review contract. It runs in a repeata
 
 The response contains the version ID and identity, source and query hashes, effect budget, action counts, target count, and a `preflightHash`. Execution repeats preflight before creating the run and rejects a stale hash. Large backfills then keyset-page the same target query in bounded transactions, persist the cursor and rolling digest after every batch, and publish targets only after the final count and digest match the commitment. The hash commits the caller to the version, bound catalog, inputs, query, target identities, source preconditions, planned action counts, and budget.
 
-Default version budgets are 1,000 targets, 1,000 moves, 1,000 sends, 2,000 keyword changes, and 2,000 collaboration changes. Schema ceilings are 50,000 targets, moves, and sends and 100,000 keyword or collaboration changes; preflight also caps total planned effects at 50,000. Versions created before the send budget existed fail closed for automatic replies. The API accepts an explicit complete budget object. The CLI exposes the same bounds on workflow and version creation.
+Default version budgets are 1,000 targets, moves, copies, sends, drafts, and notifications plus 2,000 flag, keyword, and collaboration changes. Schema ceilings are 50,000 targets, moves, copies, sends, drafts, and notifications and 100,000 flag, keyword, or collaboration changes; preflight also caps total planned effects at 50,000. Versions created before an effect budget existed fail closed for the corresponding action. The API accepts an explicit complete budget object. The CLI exposes the same bounds on workflow and version creation.
 
 The shared runtime `dryRun` mode is exposed through the Mail API and CLI. It creates a durable run with frozen targets and per-target planning results, but action planners receive no effect-capable ports. Preflight remains the stateless execution commitment; a durable dry run is the auditable no-effects record.
 
@@ -827,9 +834,9 @@ Targets and trigger events use leases and monotonically increasing execution gen
 
 Runs retain pinned source identity, target progress, inputs/query, actor authorization snapshot, outcomes, and error state. Activity and platform audit record lifecycle requests and effects with workflow, version, trigger, run, and action attribution.
 
-### Current product gaps
+### Current product surface
 
-The Mail UI exposes guided out-of-office, office-hours acknowledgement, and custom automatic-reply flows in the mailbox **Automations** workspace. The same workspace keeps references, canonical YAML versions, activation, and recent runs available to mailbox admins without mixing them into everyday mailbox settings. Response timing lives directly in a guided reply or its immutable YAML action. There is no visual workflow editor, pause/resume, or per-target retry UI. AI decisions, richer actions, conflict analysis, and generated bulk-plan UX remain product work and must not be presented as available behavior.
+The Mail UI exposes guided out-of-office, office-hours acknowledgement, and custom automatic-reply flows in the mailbox **Automations** workspace. The same workspace keeps references, canonical YAML versions, activation, recent runs, pause/resume, cancellation, and targeted retry available to mailbox admins without mixing them into everyday mailbox settings. A targeted retry creates a new immutable child run with explicit lineage and only eligible failed targets; it never rewinds a provider effect in place. Response timing lives directly in a guided reply or its immutable YAML action. There is no visual workflow editor. AI decisions, conflict analysis, and generated bulk-plan UX remain product work and must not be presented as available behavior.
 
 ## Agents and AI
 
@@ -1063,7 +1070,7 @@ Setup selects a verified sender identity, content, timezone and schedule, dedupl
 
 ### Contact context
 
-Normalized addresses link to Contacts without copying contact ownership into Mail. The conversation can show contact details, related history, and linked Spaces when permission allows.
+Normalized addresses resolve through a typed Contacts integration without copying contact ownership into Mail. Contacts rechecks its own current book permissions and returns only a bounded participant projection. Mail can show matched contact points and related mailbox history for exact normalized addresses. Conversations may link up to a bounded number of Spaces; Spaces rechecks current access for resolution and candidate search, inaccessible targets are hidden from readers, and mailbox writers retain only an opaque unlink affordance. Permission changes publish live invalidations so the Details panel refreshes without treating Mail as a second authorization authority.
 
 ### Intentionally deferred UX
 
@@ -1423,7 +1430,7 @@ Implemented verification covers:
 - atomic conversation-reference allocation, merge/split alias semantics, exact reference search, inline response-timing validation and deferral, automatic-reply loop suppression, concurrent deduplication, recipient rate limits, and durable outbox materialization;
 - deduplicated live incremental `messageReceived` delivery, historical-import suppression, revoked-actor skips, expired-trigger-claim recovery, and revision-fenced schedule slots.
 
-Remaining product scenarios include pause/resume and targeted retry, a richer workflow-authoring experience beyond canonical YAML, richer action coverage, AI decisions, and generated bulk plans.
+Remaining product scenarios include a richer workflow-authoring experience beyond canonical YAML, AI decisions, conflict analysis, and generated bulk plans.
 
 ### Scale scenarios
 
@@ -1491,9 +1498,11 @@ Success: two users can triage, comment, mention, draft, and reply without silent
 - Canonical shared-kernel YAML, validation/binding, immutable Mail versions, run history, preflight, and deterministic actions.
 - Live `messageReceived`, revision-fenced schedules, direct/one-shot/backfill/dry-run execution, effect budgets, durable waiting, and fenced recovery.
 - Immutable conversation references and guarded automatic replies with inline response timing through the ordinary durable send path.
-- Next: richer run controls, authoring UI, guided responder presets, and broader action coverage.
+- Provider moves/copies/archive/trash, flags and keywords; local tags, assignment, status and comments; draft creation, scheduled draft delivery and internal notifications.
+- Pause/resume, cancellation, and targeted retry through lineage-preserving child runs.
+- Next: richer visual authoring, AI decisions, conflict analysis, and generated bulk plans.
 
-Current success: a non-AI workflow can add/remove keywords, move mail, assign conversations, change work state, allocate a reference, and send a guarded automatic reply for a live inbound message with version-pinned preflight, current authorization, idempotent effects, recovery, and audit.
+Current success: a non-AI workflow can route and copy mail, change flags or keywords, update collaboration state, create and schedule drafts, notify users, allocate a reference, and send a guarded automatic reply for a live inbound message with version-pinned preflight, current authorization, bounded idempotent effects, operator controls, recovery, and audit.
 
 ### 6. AI decisions and agents
 

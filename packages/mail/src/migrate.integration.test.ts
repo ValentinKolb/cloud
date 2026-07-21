@@ -1,11 +1,85 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "./migrate";
+import { commitManagedOAuthRefresh } from "./service/provider-oauth-tokens";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("installs the complete public-link storage schema once with detachable blobs", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        applied_count: string | number;
+        all_tables_present: boolean;
+        blob_nullable: boolean;
+        blob_on_delete_set_null: boolean;
+        grant_claim_present: boolean;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT count(*)
+          FROM mail.schema_migrations
+          WHERE version = 64 AND name = 'public_attachment_links_storage_snapshots'
+        ) AS applied_count,
+        to_regclass('mail.attachment_links') IS NOT NULL
+          AND to_regclass('mail.attachment_link_grants') IS NOT NULL
+          AND to_regclass('mail.storage_usage_snapshots') IS NOT NULL
+          AND to_regclass('mail.storage_system_snapshot') IS NOT NULL AS all_tables_present,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'attachment_links'
+            AND column_name = 'blob_id'
+            AND is_nullable = 'YES'
+        ) AS blob_nullable,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'mail.attachment_links'::regclass
+            AND conname = 'attachment_links_blob_id_fkey'
+            AND confdeltype = 'n'
+        ) AS blob_on_delete_set_null,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'attachment_link_grants'
+            AND column_name = 'download_claimed_at'
+        ) AS grant_claim_present
+    `;
+
+    expect(Number(shape?.applied_count)).toBe(1);
+    expect(shape).toMatchObject({
+      all_tables_present: true,
+      blob_nullable: true,
+      blob_on_delete_set_null: true,
+      grant_claim_present: true,
+    });
+  });
+
+  test("appends the operator command contract after existing Mail migrations", async () => {
+    await migrate();
+    const [shape] = await sql<{ applied: boolean; attention_index_present: boolean; constraint: string }[]>`
+      SELECT
+        EXISTS (SELECT 1 FROM mail.schema_migrations WHERE version = 67 AND name = 'operator_maintenance_commands') AS applied,
+        to_regclass('mail.commands_mailbox_attention_idx') IS NOT NULL AS attention_index_present,
+        pg_get_constraintdef(oid) AS constraint
+      FROM pg_constraint
+      WHERE conrelid = 'mail.commands'::regclass AND conname = 'commands_kind_check'
+    `;
+
+    expect(shape?.applied).toBe(true);
+    expect(shape?.attention_index_present).toBe(true);
+    expect(shape?.constraint).toContain("rebuild_search");
+    expect(shape?.constraint).toContain("reconcile_effect");
+    expect(shape?.constraint).toContain("cancel_command");
+  });
+
   test("installs compose templates, signature defaults, and mailbox styles", async () => {
     await migrate();
     const [shape] = await sql<
@@ -369,6 +443,108 @@ suite("mail migrations", () => {
       expect(crossMailboxError).toMatchObject({ errno: "23514" });
     } finally {
       await sql`DELETE FROM mail.mailboxes WHERE id IN (${mailboxId}, ${otherMailboxId})`;
+    }
+  });
+
+  test("installs durable single-use provider OAuth state and token revision fencing", async () => {
+    await migrate();
+    const [shape] = await sql<
+      {
+        flow_table_present: boolean;
+        connection_columns_present: boolean;
+        cleanup_index_present: boolean;
+      }[]
+    >`
+      SELECT
+        to_regclass('mail.provider_oauth_flows') IS NOT NULL AS flow_table_present,
+        (
+          SELECT count(*) = 3
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'provider_connections'
+            AND column_name IN ('oauth_provider_id', 'oauth_token_revision', 'oauth_expires_at')
+        ) AS connection_columns_present,
+        to_regclass('mail.provider_oauth_flows_cleanup_idx') IS NOT NULL AS cleanup_index_present
+    `;
+    expect(shape).toEqual({ flow_table_present: true, connection_columns_present: true, cleanup_index_present: true });
+
+    const userId = crypto.randomUUID();
+    const mailboxId = crypto.randomUUID();
+    const flowId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    try {
+      await sql.begin(async (tx) => {
+        await tx`
+          INSERT INTO auth.users (id, uid, provider, profile)
+          VALUES (${userId}::uuid, ${`oauth-migration-${userId}`}, 'local', 'user')
+        `;
+        await tx`INSERT INTO mail.mailboxes (id, name) VALUES (${mailboxId}::uuid, 'OAuth migration test')`;
+        await tx`
+          INSERT INTO mail.provider_oauth_flows (
+            id, state_hash, browser_nonce_hash, mailbox_id, user_id, provider_id, operation,
+            connection_input, encrypted_code_verifier, expires_at
+          ) VALUES (
+            ${flowId}::uuid, ${"a".repeat(64)}, ${"b".repeat(64)}, ${mailboxId}::uuid, ${userId}::uuid,
+            'google', 'create', '{}'::jsonb, 'encrypted-verifier', now() + interval '10 minutes'
+          )
+        `;
+      });
+      const claim = () => sql<{ id: string }[]>`
+        UPDATE mail.provider_oauth_flows
+        SET status = 'exchanging', consumed_at = now()
+        WHERE id = ${flowId}::uuid AND status = 'pending' AND consumed_at IS NULL AND expires_at > now()
+        RETURNING id
+      `;
+      const claims = await Promise.all([claim(), claim()]);
+      expect(claims.map((rows) => rows.length).sort()).toEqual([0, 1]);
+
+      await sql`
+        INSERT INTO mail.provider_connections (
+          id, owner_mailbox_id, name, email, username,
+          imap_host, imap_port, imap_tls_mode, smtp_host, smtp_port, smtp_tls_mode,
+          secret_kind, encrypted_secret, status, oauth_provider_id, oauth_expires_at
+        ) VALUES (
+          ${connectionId}::uuid, ${mailboxId}::uuid, 'Managed OAuth', 'oauth@example.com', 'oauth@example.com',
+          'imap.example.com', 993, 'implicit', 'smtp.example.com', 465, 'implicit',
+          'oauth2', 'encrypted-original', 'active', 'google', now() - interval '1 minute'
+        )
+      `;
+      const commit = (encryptedSecret: string) =>
+        commitManagedOAuthRefresh({
+          connectionId,
+          expectedSecretRevision: 1,
+          expectedOAuthTokenRevision: 0,
+          encryptedSecret,
+          expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        });
+      const refreshes = await Promise.all([commit("encrypted-refresh-a"), commit("encrypted-refresh-b")]);
+      expect(refreshes.sort()).toEqual([false, true]);
+      const [refreshed] = await sql<{ encrypted_secret: string; secret_revision: number; oauth_token_revision: string | number }[]>`
+        SELECT encrypted_secret, secret_revision, oauth_token_revision
+        FROM mail.provider_connections
+        WHERE id = ${connectionId}::uuid
+      `;
+      expect(refreshed?.encrypted_secret).toMatch(/^encrypted-refresh-[ab]$/);
+      expect(refreshed?.secret_revision).toBe(1);
+      expect(Number(refreshed?.oauth_token_revision)).toBe(1);
+
+      await sql`
+        UPDATE mail.provider_connections
+        SET status = 'revoked', encrypted_secret = NULL, oauth_provider_id = NULL, oauth_expires_at = NULL
+        WHERE id = ${connectionId}::uuid
+      `;
+      expect(
+        await commitManagedOAuthRefresh({
+          connectionId,
+          expectedSecretRevision: 1,
+          expectedOAuthTokenRevision: 1,
+          encryptedSecret: "encrypted-after-revoke",
+          expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        }),
+      ).toBe(false);
+    } finally {
+      await sql`DELETE FROM mail.mailboxes WHERE id = ${mailboxId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }
   });
 

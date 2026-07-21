@@ -1,11 +1,7 @@
 import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import {
-  configurableFolderRoleSchema,
-  type ConfigurableFolderRole,
-  type FolderRole,
-} from "../contracts";
+import { configurableFolderRoleSchema, type ConfigurableFolderRole, type FolderRole } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 

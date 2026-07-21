@@ -23,6 +23,7 @@ describe("Mail onboarding discovery", () => {
         imap: { host: "imap.example.com", port: 993, tlsMode: "implicit" },
         smtp: { host: "smtp.example.com", port: 587, tlsMode: "starttls" },
         authentication: ["password"],
+        oauthProviderId: null,
       },
     ]);
   });

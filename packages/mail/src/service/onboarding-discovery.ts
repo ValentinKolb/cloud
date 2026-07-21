@@ -2,8 +2,9 @@ import { resolveSrv } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { domainToASCII } from "node:url";
 import { XMLParser } from "fast-xml-parser";
-import type { MailEndpoint } from "../contracts";
+import type { MailEndpoint, MailOAuthProviderId } from "../contracts";
 import { createPinnedLookup, resolvePublicEndpoint } from "./connectors/endpoint-policy";
+import { configuredOAuthProviderForEmail } from "./provider-oauth-providers";
 
 const MAX_AUTOCONFIG_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -17,9 +18,10 @@ export type DiscoveredMailConfiguration = {
   imap: MailEndpoint;
   smtp: MailEndpoint;
   authentication: string[];
+  oauthProviderId: MailOAuthProviderId | null;
 };
 
-type DiscoveryPreset = Omit<DiscoveredMailConfiguration, "source" | "email" | "username"> & {
+type DiscoveryPreset = Omit<DiscoveredMailConfiguration, "source" | "email" | "username" | "oauthProviderId"> & {
   domains: string[];
 };
 
@@ -113,13 +115,17 @@ export const parseThunderbirdAutoconfig = (params: {
   if (!provider || typeof provider !== "object") return [];
   const providerRecord = provider as Record<string, unknown>;
   const incoming = arrayOf(providerRecord.incomingServer)
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && (entry as Record<string, unknown>)["@_type"] === "imap"))
+    .filter((entry): entry is Record<string, unknown> =>
+      Boolean(entry && typeof entry === "object" && (entry as Record<string, unknown>)["@_type"] === "imap"),
+    )
     .flatMap((entry) => {
       const endpoint = endpointFromXml(entry);
       return endpoint ? [{ endpoint, username: substituteUsername(entry.username, parts) }] : [];
     });
   const outgoing = arrayOf(providerRecord.outgoingServer)
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && (entry as Record<string, unknown>)["@_type"] === "smtp"))
+    .filter((entry): entry is Record<string, unknown> =>
+      Boolean(entry && typeof entry === "object" && (entry as Record<string, unknown>)["@_type"] === "smtp"),
+    )
     .flatMap((entry) => {
       const endpoint = endpointFromXml(entry);
       return endpoint ? [{ endpoint, username: substituteUsername(entry.username, parts) }] : [];
@@ -133,6 +139,7 @@ export const parseThunderbirdAutoconfig = (params: {
       imap: imap.endpoint,
       smtp: smtp.endpoint,
       authentication,
+      oauthProviderId: null,
     })),
   );
 };
@@ -189,7 +196,10 @@ const readPinnedHttps = async (url: URL, timeoutMs: number): Promise<string | nu
   });
 };
 
-const srvCandidates = async (parts: ReturnType<typeof normalizeEmail>, dependency: DiscoveryDependencies["resolveSrv"]): Promise<DiscoveredMailConfiguration[]> => {
+const srvCandidates = async (
+  parts: ReturnType<typeof normalizeEmail>,
+  dependency: DiscoveryDependencies["resolveSrv"],
+): Promise<DiscoveredMailConfiguration[]> => {
   const lookup = async (service: string, tlsMode: MailEndpoint["tlsMode"]): Promise<Array<MailEndpoint & SrvRecord>> => {
     try {
       const records = await dependency(`${service}.${parts.domain}`);
@@ -220,6 +230,7 @@ const srvCandidates = async (parts: ReturnType<typeof normalizeEmail>, dependenc
       imap: { host: imapEndpoint.host, port: imapEndpoint.port, tlsMode: imapEndpoint.tlsMode },
       smtp: { host: smtpEndpoint.host, port: smtpEndpoint.port, tlsMode: smtpEndpoint.tlsMode },
       authentication: ["password"],
+      oauthProviderId: null,
     })),
   );
 };
@@ -227,7 +238,15 @@ const srvCandidates = async (parts: ReturnType<typeof normalizeEmail>, dependenc
 const dedupeCandidates = (candidates: DiscoveredMailConfiguration[]): DiscoveredMailConfiguration[] => {
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
-    const key = [candidate.username, candidate.imap.host, candidate.imap.port, candidate.imap.tlsMode, candidate.smtp.host, candidate.smtp.port, candidate.smtp.tlsMode].join("\n");
+    const key = [
+      candidate.username,
+      candidate.imap.host,
+      candidate.imap.port,
+      candidate.imap.tlsMode,
+      candidate.smtp.host,
+      candidate.smtp.port,
+      candidate.smtp.tlsMode,
+    ].join("\n");
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -251,7 +270,10 @@ export const discoverMailConfigurations = async (
     imap: item.imap,
     smtp: item.smtp,
     authentication: item.authentication,
+    oauthProviderId: null as MailOAuthProviderId | null,
   }));
+  const oauthProviderId = await configuredOAuthProviderForEmail(parts.email);
+  if (preset[0] && oauthProviderId) preset[0].oauthProviderId = oauthProviderId;
   const providerUrls = [
     new URL(`https://autoconfig.${parts.domain}/mail/config-v1.1.xml?emailaddress=${encodeURIComponent(parts.email)}`),
     new URL(`https://${parts.domain}/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=${encodeURIComponent(parts.email)}`),
