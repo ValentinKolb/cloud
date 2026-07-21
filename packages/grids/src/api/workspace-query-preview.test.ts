@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { Context } from "hono";
 import type { DslQueryPreviewResponse } from "../contracts";
 import type { GridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
+import * as gqlRuntime from "./gql-runtime";
+import { withInitialGqlResults } from "./workspace-query-preview";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const viewId = "22222222-2222-4222-8222-222222222222";
@@ -15,16 +17,6 @@ const aggregateResult: DslQueryPreviewResponse = {
   limit: 1,
   truncated: false,
 };
-
-mock.module("./gql-runtime", () => ({
-  executeGqlSource: async () => ({ ok: true, response: aggregateResult }),
-  executeSavedViewSource: async (_context: unknown, requestedBaseId: string, requestedViewId: string, options: unknown) => {
-    savedViewCalls.push({ baseId: requestedBaseId, viewId: requestedViewId, options });
-    return aggregateResult;
-  },
-}));
-
-const { withInitialGqlResults } = await import("./workspace-query-preview");
 
 const queryResultState = (cursor: string | null = null): GridsWorkspaceState =>
   ({
@@ -41,7 +33,14 @@ const queryResultState = (cursor: string | null = null): GridsWorkspaceState =>
 describe("workspace initial GQL results", () => {
   beforeEach(() => {
     savedViewCalls = [];
+    spyOn(gqlRuntime, "executeGqlSource").mockImplementation(async () => ({ ok: true, response: aggregateResult }) as never);
+    spyOn(gqlRuntime, "executeSavedViewSource").mockImplementation(async (_context, requestedBaseId, requestedViewId, options) => {
+      savedViewCalls.push({ baseId: requestedBaseId, viewId: requestedViewId, options });
+      return aggregateResult;
+    });
   });
+
+  afterEach(() => mock.restore());
 
   test("hydrates a query-result saved view through the authorized saved-view runtime", async () => {
     const state = await withInitialGqlResults({} as Context, queryResultState());

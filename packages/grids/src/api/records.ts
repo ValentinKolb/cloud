@@ -9,6 +9,7 @@ import { ExportBodySchema, GridRecordSchema, RecordOperationBodySchema, RecordPa
 import { gridsService } from "../service";
 import { validateRecordQueryForTable } from "../service/query-validation";
 import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
+import { requireUuidParam } from "./route-params";
 
 const RecordImportBodySchema = z.object({
   items: z.array(RecordPayloadSchema).min(1).max(500),
@@ -58,6 +59,9 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/:recordId/files/:fieldId",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
+    requireUuidParam("fieldId", "Field"),
     describeRoute({
       tags: ["Grids:File"],
       summary: "List files for a file field on a record",
@@ -83,6 +87,9 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/:recordId/files/:fieldId",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
+    requireUuidParam("fieldId", "Field"),
     describeRoute({
       tags: ["Grids:File"],
       summary: "Upload a file to a record file field",
@@ -127,6 +134,10 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/:recordId/files/:fieldId/:fileId/content",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
+    requireUuidParam("fieldId", "Field"),
+    requireUuidParam("fileId", "File"),
     describeRoute({
       tags: ["Grids:File"],
       summary: "Download a file field blob",
@@ -162,6 +173,10 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/:tableId/:recordId/files/:fieldId/:fileId",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
+    requireUuidParam("fieldId", "Field"),
+    requireUuidParam("fileId", "File"),
     describeRoute({
       tags: ["Grids:File"],
       summary: "Delete a file field blob",
@@ -188,6 +203,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Create a record",
@@ -213,6 +229,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId/import",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Import records atomically from JSON payloads",
@@ -244,6 +261,8 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/:recordId",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Get a record",
@@ -279,6 +298,8 @@ const app = new Hono<AuthContext>()
 
   .patch(
     "/:tableId/:recordId",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Update a record (optimistic lock via If-Match: <version>)",
@@ -310,6 +331,8 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/:recordId/trash",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Move a record to trash",
@@ -334,6 +357,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId/export",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Export records with configurable fields and relation expansion",
@@ -383,6 +407,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/by-table/:tableId/audit",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Browse a Combined table's published record audit",
@@ -410,6 +435,8 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/:recordId/restore",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Restore a soft-deleted record",
@@ -434,6 +461,8 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/:recordId/audit",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "List audit entries for a record",

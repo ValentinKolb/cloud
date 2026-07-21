@@ -6,6 +6,7 @@ import { CreateViewSchema, UpdateViewSchema, ViewListSchema, ViewSchema } from "
 import { gridsService } from "../service";
 import { compileGqlViewWrite } from "./gql-runtime";
 import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import { requireUuidParam } from "./route-params";
 
 const gqlDiagnosticMessage = (diagnostics: Array<{ message: string }>): string =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
@@ -44,6 +45,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/by-table/:tableId",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "List views visible on a table",
@@ -65,6 +67,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Create a view (shared or personal)",
@@ -118,6 +121,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:viewId",
+    requireUuidParam("viewId", "View"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Get a single view",
@@ -161,6 +165,7 @@ const app = new Hono<AuthContext>()
 
   .patch(
     "/:viewId",
+    requireUuidParam("viewId", "View"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Update a view",
@@ -211,6 +216,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/:viewId",
+    requireUuidParam("viewId", "View"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Delete a view",
@@ -236,6 +242,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:viewId/restore",
+    requireUuidParam("viewId", "View"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Restore a soft-deleted view",

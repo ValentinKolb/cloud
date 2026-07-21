@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { MiddlewareHandler } from "hono";
+import { gridsService } from "../service";
+import { createAdminApi } from "./admin";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const otherBaseId = "22222222-2222-4222-8222-222222222222";
@@ -81,44 +83,6 @@ let updateCalls: unknown[] = [];
 let revokeCalls: unknown[] = [];
 let removedBaseId: string | null = null;
 
-mock.module("../service", () => ({
-  gridsService: {
-    base: {
-      get: async (id: string) => {
-        baseGetCalls += 1;
-        return id === baseId ? base : null;
-      },
-      remove: async (id: string, actorId: string) => {
-        removedBaseId = `${id}:${actorId}`;
-        return { ok: true };
-      },
-    },
-    access: {
-      listForBaseTree: async () => [baseEntry, childEntry],
-      listForBase: async () => [createdEntry],
-      grant: async (params: unknown) => {
-        grantCalls.push(params);
-        return { ok: true, data: { accessId: createdAccessId } };
-      },
-      resolveBinding: async (accessId: string) => {
-        if (accessId === baseAccessId) return { resourceType: "base", baseId };
-        if (accessId === tableAccessId) return { resourceType: "table", baseId, tableId };
-        return { resourceType: "base", baseId: otherBaseId };
-      },
-      updateLevel: async (...args: unknown[]) => {
-        updateCalls.push(args);
-        return { ok: true };
-      },
-      revoke: async (...args: unknown[]) => {
-        revokeCalls.push(args);
-        return { ok: true };
-      },
-    },
-  },
-}));
-
-const { createAdminApi } = await import("./admin");
-
 const requireAdmin: MiddlewareHandler<AuthContext> = async (c, next) => {
   if (!isPlatformAdmin) return c.json({ message: "Forbidden" }, 403);
   c.set("actor", { kind: "user", user });
@@ -143,7 +107,36 @@ describe("Grids admin API", () => {
     updateCalls = [];
     revokeCalls = [];
     removedBaseId = null;
+    spyOn(gridsService.base, "get").mockImplementation(async (id) => {
+      baseGetCalls += 1;
+      return id === baseId ? base : null;
+    });
+    spyOn(gridsService.base, "remove").mockImplementation(async (id, actorId) => {
+      removedBaseId = `${id}:${actorId}`;
+      return { ok: true, data: undefined };
+    });
+    spyOn(gridsService.access, "listForBaseTree").mockImplementation(async () => [baseEntry, childEntry]);
+    spyOn(gridsService.access, "listForBase").mockImplementation(async () => [createdEntry]);
+    spyOn(gridsService.access, "grant").mockImplementation(async (params) => {
+      grantCalls.push(params);
+      return { ok: true, data: { accessId: createdAccessId } };
+    });
+    spyOn(gridsService.access, "resolveBinding").mockImplementation(async (accessId) => {
+      if (accessId === baseAccessId) return { resourceType: "base", baseId };
+      if (accessId === tableAccessId) return { resourceType: "table", baseId, tableId };
+      return { resourceType: "base", baseId: otherBaseId };
+    });
+    spyOn(gridsService.access, "updateLevel").mockImplementation(async (...args) => {
+      updateCalls.push(args);
+      return { ok: true, data: undefined };
+    });
+    spyOn(gridsService.access, "revoke").mockImplementation(async (...args) => {
+      revokeCalls.push(args);
+      return { ok: true, data: undefined };
+    });
   });
+
+  afterEach(() => mock.restore());
 
   test("rejects non-platform-admin callers before reading base data", async () => {
     isPlatformAdmin = false;

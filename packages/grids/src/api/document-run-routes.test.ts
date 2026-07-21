@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Buffer } from "node:buffer";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
 import { generateSpecs } from "hono-openapi";
+import { gridsService } from "../service";
+import { createDocumentsApi } from "./documents";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const tableId = "22222222-2222-4222-8222-222222222222";
@@ -106,62 +108,6 @@ let updateInput: unknown;
 let renderedRun: unknown;
 let renderRunResult: { ok: true; data: { pdf: Uint8Array } } | { ok: false; error: { message: string; status: 400 | 500 | 502 } };
 
-mock.module("../service", () => ({
-  gridsService: {
-    table: {
-      get: async (id: string) => (id === tableId ? currentTable : null),
-    },
-    document: {
-      getTemplate: async (id: string) => (id === templateId ? currentTemplate : null),
-      listRunsForTemplate: async (input: unknown) => {
-        listTemplateInput = input;
-        return {
-          items: [run],
-          total: 3,
-          limit: 2,
-          offset: 1,
-          hasMore: true,
-          nextOffset: 3,
-          nextCursor: "next-list-cursor",
-        };
-      },
-      browseRunsForTemplate: async (input: unknown) => {
-        browseTemplateInput = input;
-        return {
-          path: ["2026", "07"],
-          folders: [{ kind: "month", key: "08", label: "August", path: ["2026", "08"], count: 2 }],
-          items: [run],
-          total: 3,
-          limit: 2,
-          hasMore: true,
-          nextCursor: "next-browse-cursor",
-        };
-      },
-      listRunsForRecord: async () => [run, otherTemplateRun],
-      getRun: async (id: string) => (id === runId ? currentRun : null),
-      updateRunMetadata: async (id: string, input: unknown, actorId: string | null) => {
-        updateInput = { id, input, actorId };
-        return { ok: true, data: { ...run, ...(input as object) } };
-      },
-      renderRunPdf: async (input: unknown) => {
-        renderedRun = input;
-        return renderRunResult;
-      },
-      summarizeRun,
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: (_grants: unknown, target: Record<string, unknown>) => ("documentTemplateId" in target ? templateLevel : tableLevel),
-      hasAtLeast: (actual: PermissionLevel, expected: PermissionLevel) => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-  },
-}));
-
-const { createDocumentsApi } = await import("./documents");
-
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
   c.set("accessSubject", { type: "user", userId: user.id });
@@ -196,7 +142,51 @@ describe("document run routes", () => {
     updateInput = undefined;
     renderedRun = undefined;
     renderRunResult = { ok: true, data: { pdf: new Uint8Array([37, 80, 68, 70]) } };
+
+    spyOn(gridsService.table, "get").mockImplementation(async (id) => (id === tableId ? currentTable : null) as never);
+    spyOn(gridsService.document, "getTemplate").mockImplementation(async (id) => (id === templateId ? currentTemplate : null) as never);
+    spyOn(gridsService.document, "listRunsForTemplate").mockImplementation(async (input) => {
+      listTemplateInput = input;
+      return {
+        items: [run],
+        total: 3,
+        limit: 2,
+        offset: 1,
+        hasMore: true,
+        nextOffset: 3,
+        nextCursor: "next-list-cursor",
+      } as never;
+    });
+    spyOn(gridsService.document, "browseRunsForTemplate").mockImplementation(async (input) => {
+      browseTemplateInput = input;
+      return {
+        path: ["2026", "07"],
+        folders: [{ kind: "month", key: "08", label: "August", path: ["2026", "08"], count: 2 }],
+        items: [run],
+        total: 3,
+        limit: 2,
+        hasMore: true,
+        nextCursor: "next-browse-cursor",
+      } as never;
+    });
+    spyOn(gridsService.document, "listRunsForRecord").mockImplementation(async () => [run, otherTemplateRun] as never);
+    spyOn(gridsService.document, "getRun").mockImplementation(async (id) => (id === runId ? currentRun : null) as never);
+    spyOn(gridsService.document, "updateRunMetadata").mockImplementation(async (id, input, actorId) => {
+      updateInput = { id, input, actorId };
+      return { ok: true, data: { ...run, ...(input as object) } } as never;
+    });
+    spyOn(gridsService.document, "renderRunPdf").mockImplementation(async (input) => {
+      renderedRun = input;
+      return renderRunResult as never;
+    });
+    spyOn(gridsService.document, "summarizeRun").mockImplementation(summarizeRun as never);
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) =>
+      "documentTemplateId" in target ? templateLevel : tableLevel,
+    );
   });
+
+  afterEach(() => mock.restore());
 
   test("publishes every run operation in the generated OpenAPI spec", async () => {
     const spec = await generateSpecs(app());

@@ -1,26 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
-
-let resolvedLevel: "none" | "read" | "write" | "admin" = "none";
-let lastLoadGrantsParams: unknown = null;
-
-mock.module("../service", () => ({
-  gridsService: {
-    permission: {
-      loadGrants: async (params: unknown) => {
-        lastLoadGrantsParams = params;
-        return [];
-      },
-      resolve: () => resolvedLevel,
-      hasAtLeast: (actual: "none" | "read" | "write" | "admin", expected: "none" | "read" | "write" | "admin") => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-      hasGrantsForResource: () => false,
-    },
-  },
-}));
-
-const {
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { gridsService } from "../service";
+import {
   currentActorUserId,
   currentActorViewer,
   currentResourceBoundBaseId,
@@ -28,7 +8,10 @@ const {
   gateAt,
   gateCredentialScope,
   resolveWithGrants,
-} = await import("./permissions");
+} from "./permissions";
+
+let resolvedLevel: "none" | "read" | "write" | "admin" = "none";
+let lastLoadGrantsParams: unknown = null;
 
 const user = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -93,6 +76,17 @@ const delegatedServiceAccountContext = {
 };
 
 describe("Grids API permissions", () => {
+  beforeEach(() => {
+    lastLoadGrantsParams = null;
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async (params) => {
+      lastLoadGrantsParams = params;
+      return [];
+    });
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => resolvedLevel);
+  });
+
+  afterEach(() => mock.restore());
+
   test("Cloud admins do not bypass Grids ACL gates", async () => {
     resolvedLevel = "none";
 

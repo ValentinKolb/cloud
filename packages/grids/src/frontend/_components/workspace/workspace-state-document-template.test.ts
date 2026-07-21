@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { gridsService } from "../../../service";
+import { loadGridsWorkspaceState } from "./workspace-state";
 
 const base = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -80,76 +82,63 @@ const documentRun = {
 
 let documentTemplateLevel: "read" | "write" = "read";
 
-mock.module("../../../service", () => ({
-  gridsService: {
-    base: {
-      getByIdOrShortId: async () => base,
-      catalog: async () => ({
-        dashboards: [],
-        tables: [],
-        tableLevels: {},
-        fieldsByTable: {},
-        viewsByTable: {},
-        formsByTable: {},
-        formLevels: {},
-        formTables: [],
-        sidebarForms: [],
-        documentTemplatesByTable: { [documentTable.id]: [template] },
-        documentTemplateLevels: { [template.id]: documentTemplateLevel },
-        documentTemplateTables: [documentTable],
-        sidebarDocumentTemplates: [{ template, tableId: documentTable.id }],
-      }),
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: (_grants: unknown, target: Record<string, unknown>) => ("documentTemplateId" in target ? documentTemplateLevel : "none"),
-      hasAtLeast: (actual: "none" | "read" | "write" | "admin", expected: "none" | "read" | "write" | "admin") => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-    dashboard: {
-      getByIdOrShortId: async () => null,
-      get: async () => null,
-    },
-    table: {
-      getByIdOrShortId: async (_baseId: string, idOrSlug: string) =>
-        documentTable.id === idOrSlug || documentTable.shortId === idOrSlug ? documentTable : null,
-    },
-    document: {
-      getTemplateByIdOrShortId: async (_tableId: string, idOrSlug: string) =>
-        template.id === idOrSlug || template.shortId === idOrSlug ? template : null,
-      browseRunsForTemplate: async () => ({
-        path: [],
-        folders: [],
-        items: [documentRun],
-        total: 1,
-        limit: 200,
-        hasMore: false,
-        nextCursor: null,
-      }),
-      summarizeRun: (run: unknown) => run,
-      summarizeTemplate: () => templateSummary,
-    },
-    view: {
-      getByIdOrShortId: async () => null,
-    },
-    access: {
-      listForDashboard: async () => [],
-      listForTable: async () => [],
-      listForForm: async () => [],
-      listForView: async () => [],
-      listForDocumentTemplate: async () => [],
-    },
-  },
-}));
-
-const { loadGridsWorkspaceState } = await import("./workspace-state");
-
 describe("loadGridsWorkspaceState — document-template-only access", () => {
   beforeEach(() => {
     documentTemplateLevel = "read";
+    spyOn(gridsService.base, "getByIdOrShortId").mockImplementation(async () => base as never);
+    spyOn(gridsService.base, "catalog").mockImplementation(
+      async () =>
+        ({
+          dashboards: [],
+          tables: [],
+          tableLevels: {},
+          fieldsByTable: {},
+          viewsByTable: {},
+          formsByTable: {},
+          formLevels: {},
+          formTables: [],
+          sidebarForms: [],
+          documentTemplatesByTable: { [documentTable.id]: [template] },
+          documentTemplateLevels: { [template.id]: documentTemplateLevel },
+          documentTemplateTables: [documentTable],
+          sidebarDocumentTemplates: [{ template, tableId: documentTable.id }],
+        }) as never,
+    );
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) =>
+      "documentTemplateId" in target ? documentTemplateLevel : "none",
+    );
+    spyOn(gridsService.dashboard, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.dashboard, "get").mockImplementation(async () => null);
+    spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(
+      async (_baseId, idOrSlug) => (documentTable.id === idOrSlug || documentTable.shortId === idOrSlug ? documentTable : null) as never,
+    );
+    spyOn(gridsService.document, "getTemplateByIdOrShortId").mockImplementation(
+      async (_tableId, idOrSlug) => (template.id === idOrSlug || template.shortId === idOrSlug ? template : null) as never,
+    );
+    spyOn(gridsService.document, "browseRunsForTemplate").mockImplementation(
+      async () =>
+        ({
+          path: [],
+          folders: [],
+          items: [documentRun],
+          total: 1,
+          limit: 200,
+          hasMore: false,
+          nextCursor: null,
+        }) as never,
+    );
+    spyOn(gridsService.document, "summarizeRun").mockImplementation((run) => run as never);
+    spyOn(gridsService.document, "summarizeTemplate").mockImplementation(() => templateSummary as never);
+    spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.access, "listForDashboard").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForView").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForDocumentTemplate").mockImplementation(async () => []);
   });
+
+  afterEach(() => mock.restore());
 
   test("opens a document template route without base or table read access", async () => {
     const state = await loadGridsWorkspaceState({

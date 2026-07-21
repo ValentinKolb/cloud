@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { fail, ok } from "@valentinkolb/stdlib";
 import { Hono, type MiddlewareHandler } from "hono";
 import { generateSpecs } from "hono-openapi";
+import { gridsService } from "../service";
 import { type GridsWorkflow, WORKFLOW_REVISION_HEADER } from "../workflows/contracts";
+import { createWorkflowCatalogRoutes } from "./workflow-catalog-routes";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const workflowId = "22222222-2222-4222-8222-222222222222";
@@ -69,24 +71,6 @@ const updateWorkflow = async (_id: string, input: { name?: string }, _actorId: s
   return ok({ ...workflow, ...input, revision: workflow.revision + 1 });
 };
 
-mock.module("../service", () => ({
-  gridsService: {
-    workflow: {
-      get: async () => workflow,
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: () => permissionLevel,
-      hasAtLeast: (actual: PermissionLevel, expected: PermissionLevel) => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-  },
-}));
-
-const { createWorkflowCatalogRoutes } = await import("./workflow-catalog-routes");
-
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
   c.set("accessSubject", { type: "user", userId: user.id });
@@ -112,7 +96,12 @@ describe("workflow catalog update route", () => {
     permissionLevel = "admin";
     updateRevision = null;
     getWorkflowCalls = 0;
+    spyOn(gridsService.workflow, "get").mockImplementation(async () => workflow);
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => permissionLevel);
   });
+
+  afterEach(() => mock.restore());
 
   test("publishes the required revision header in OpenAPI", async () => {
     const spec = await generateSpecs(app());

@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
 import { generateSpecs } from "hono-openapi";
+import { gridsService } from "../service";
+import { createDocumentsApi } from "./documents";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const tableId = "22222222-2222-4222-8222-222222222222";
@@ -102,64 +104,6 @@ let reorderInput: unknown;
 let removeInput: unknown;
 let lookupInput: unknown;
 
-mock.module("../service", () => ({
-  gridsService: {
-    table: {
-      get: async (id: string) => {
-        tableGetInputs.push(id);
-        return id === tableId ? currentTable : null;
-      },
-    },
-    document: {
-      getTemplate: async (id: string) => {
-        templateGetInputs.push(id);
-        return id === templateId ? currentTemplate : null;
-      },
-      listTemplatesForTable: async (id: string) => {
-        listInputs.push(id);
-        return id === tableId ? [template, disabledTemplate] : [];
-      },
-      summarizeTemplate: summary,
-      createTemplate: async (id: string, input: unknown, actorId: string | null) => {
-        createInput = { tableId: id, input, actorId };
-        return { ok: true, data: template };
-      },
-      updateTemplate: async (id: string, input: unknown, actorId: string | null) => {
-        updateInput = { templateId: id, input, actorId };
-        return { ok: true, data: { ...template, ...(input as object) } };
-      },
-      reorderTemplates: async (id: string, templateIds: string[], actorId: string | null) => {
-        reorderInput = { tableId: id, templateIds, actorId };
-        return { ok: true, data: undefined };
-      },
-      removeTemplate: async (id: string, actorId: string | null) => {
-        removeInput = { templateId: id, actorId };
-        return { ok: true, data: undefined };
-      },
-    },
-    relations: {
-      lookup: async (input: unknown) => {
-        lookupInput = input;
-        return { items: [{ id: lookupRecordId, label: "Invoice recipient" }] };
-      },
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: (_grants: unknown, target: Record<string, unknown>) => {
-        if ("documentTemplateId" in target) return templateLevel;
-        if ("tableId" in target) return tableLevel;
-        return baseLevel;
-      },
-      hasAtLeast: (actual: PermissionLevel, expected: PermissionLevel) => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-  },
-}));
-
-const { createDocumentsApi } = await import("./documents");
-
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
   c.set("accessSubject", { type: "user", userId: user.id });
@@ -205,7 +149,49 @@ describe("document template routes", () => {
     reorderInput = undefined;
     removeInput = undefined;
     lookupInput = undefined;
+
+    spyOn(gridsService.table, "get").mockImplementation(async (id) => {
+      tableGetInputs.push(id);
+      return (id === tableId ? currentTable : null) as never;
+    });
+    spyOn(gridsService.document, "getTemplate").mockImplementation(async (id) => {
+      templateGetInputs.push(id);
+      return (id === templateId ? currentTemplate : null) as never;
+    });
+    spyOn(gridsService.document, "listTemplatesForTable").mockImplementation(async (id) => {
+      listInputs.push(id);
+      return (id === tableId ? [template, disabledTemplate] : []) as never;
+    });
+    spyOn(gridsService.document, "summarizeTemplate").mockImplementation(summary as never);
+    spyOn(gridsService.document, "createTemplate").mockImplementation(async (id, input, actorId) => {
+      createInput = { tableId: id, input, actorId };
+      return { ok: true, data: template } as never;
+    });
+    spyOn(gridsService.document, "updateTemplate").mockImplementation(async (id, input, actorId) => {
+      updateInput = { templateId: id, input, actorId };
+      return { ok: true, data: { ...template, ...(input as object) } } as never;
+    });
+    spyOn(gridsService.document, "reorderTemplates").mockImplementation(async (id, templateIds, actorId) => {
+      reorderInput = { tableId: id, templateIds, actorId };
+      return { ok: true, data: undefined };
+    });
+    spyOn(gridsService.document, "removeTemplate").mockImplementation(async (id, actorId) => {
+      removeInput = { templateId: id, actorId };
+      return { ok: true, data: undefined };
+    });
+    spyOn(gridsService.relations, "lookup").mockImplementation(async (input) => {
+      lookupInput = input;
+      return { items: [{ id: lookupRecordId, label: "Invoice recipient" }] } as never;
+    });
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
+      if ("documentTemplateId" in target) return templateLevel;
+      if ("tableId" in target) return tableLevel;
+      return baseLevel;
+    });
   });
+
+  afterEach(() => mock.restore());
 
   test("publishes all template management operations in the generated OpenAPI spec", async () => {
     const spec = await generateSpecs(app());

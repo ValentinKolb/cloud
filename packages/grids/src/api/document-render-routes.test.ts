@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
 import { generateSpecs } from "hono-openapi";
+import { gridsService } from "../service";
+import { createDocumentsApi } from "./documents";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const tableId = "22222222-2222-4222-8222-222222222222";
@@ -122,67 +124,6 @@ let previewPdfInputs: unknown[][] = [];
 let snapshotInput: unknown;
 let createRunInput: unknown;
 let callOrder: string[] = [];
-
-mock.module("../service", () => ({
-  gridsService: {
-    table: {
-      get: async (id: string) => (id === tableId ? currentTable : null),
-    },
-    record: {
-      get: async (requestedTableId: string, requestedRecordId: string) =>
-        requestedTableId === tableId && requestedRecordId === recordId ? currentRecord : null,
-    },
-    document: {
-      getTemplate: async (id: string) => (id === templateId ? currentTemplate : null),
-      buildTemplateAppData: async () => ({ name: "Grids" }),
-      buildLiveRenderData: async (input: unknown) => {
-        callOrder.push("live-data");
-        liveInputs.push(input);
-        return liveResult;
-      },
-      buildDocumentRunRenderData: async (input: unknown) => {
-        callOrder.push("metadata");
-        metadataInputs.push(input);
-        return metadataResult;
-      },
-      renderHtml: async (...input: unknown[]) => {
-        callOrder.push("html");
-        htmlInputs.push(input);
-        return htmlResult;
-      },
-      renderPdfPreview: async (...input: unknown[]) => {
-        callOrder.push("preview-pdf");
-        previewPdfInputs.push(input);
-        return previewPdfResult;
-      },
-      createRecordSnapshotDraft: async (input: unknown) => {
-        callOrder.push("snapshot");
-        snapshotInput = input;
-        return snapshotResult;
-      },
-      createRenderedRun: async (input: unknown) => {
-        callOrder.push("run");
-        createRunInput = input;
-        return runResult;
-      },
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: (_grants: unknown, target: Record<string, unknown>) => {
-        if ("documentTemplateId" in target) return templateLevel;
-        if ("tableId" in target) return tableLevel;
-        return baseLevel;
-      },
-      hasAtLeast: (actual: PermissionLevel, expected: PermissionLevel) => {
-        permissionChecks.push(expected);
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-  },
-}));
-
-const { createDocumentsApi } = await import("./documents");
 
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
@@ -326,7 +267,58 @@ describe("document render routes", () => {
     snapshotInput = undefined;
     createRunInput = undefined;
     callOrder = [];
+
+    spyOn(gridsService.table, "get").mockImplementation(async (id) => (id === tableId ? currentTable : null) as never);
+    spyOn(gridsService.record, "get").mockImplementation(
+      async (requestedTableId, requestedRecordId) =>
+        (requestedTableId === tableId && requestedRecordId === recordId ? currentRecord : null) as never,
+    );
+    spyOn(gridsService.document, "getTemplate").mockImplementation(async (id) => (id === templateId ? currentTemplate : null) as never);
+    spyOn(gridsService.document, "buildTemplateAppData").mockImplementation(async () => ({ name: "Grids" }) as never);
+    spyOn(gridsService.document, "buildLiveRenderData").mockImplementation(async (input) => {
+      callOrder.push("live-data");
+      liveInputs.push(input);
+      return liveResult as never;
+    });
+    spyOn(gridsService.document, "buildDocumentRunRenderData").mockImplementation(async (input) => {
+      callOrder.push("metadata");
+      metadataInputs.push(input);
+      return metadataResult as never;
+    });
+    spyOn(gridsService.document, "renderHtml").mockImplementation(async (...input) => {
+      callOrder.push("html");
+      htmlInputs.push(input);
+      return htmlResult as never;
+    });
+    spyOn(gridsService.document, "renderPdfPreview").mockImplementation(async (...input) => {
+      callOrder.push("preview-pdf");
+      previewPdfInputs.push(input);
+      return previewPdfResult as never;
+    });
+    spyOn(gridsService.document, "createRecordSnapshotDraft").mockImplementation(async (input) => {
+      callOrder.push("snapshot");
+      snapshotInput = input;
+      return snapshotResult as never;
+    });
+    spyOn(gridsService.document, "createRenderedRun").mockImplementation(async (input) => {
+      callOrder.push("run");
+      createRunInput = input;
+      return runResult as never;
+    });
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
+      if ("documentTemplateId" in target) return templateLevel;
+      if ("tableId" in target) return tableLevel;
+      return baseLevel;
+    });
+    spyOn(gridsService.permission, "hasAtLeast").mockImplementation((actual, expected) => {
+      permissionChecks.push(expected);
+      const rank = { none: 0, read: 1, write: 2, admin: 3 };
+      return rank[actual] >= rank[expected];
+    });
   });
+
+  afterEach(() => mock.restore());
 
   test("publishes all render operations in the generated OpenAPI spec", async () => {
     const spec = await generateSpecs(app());

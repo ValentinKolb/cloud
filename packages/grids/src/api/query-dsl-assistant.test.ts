@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { MiddlewareHandler } from "hono";
+import { gridsService } from "../service";
+import { createGqlApi } from "./gql";
+import * as gqlRuntime from "./gql-runtime";
 
 const user: User = {
   id: "44444444-4444-4444-8444-444444444444",
@@ -61,37 +64,6 @@ const visibleField = {
 let baseAccess: "none" | "read" = "read";
 let contextRequested = false;
 
-mock.module("../service", () => ({
-  gridsService: {
-    base: {
-      get: async () => base,
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: () => baseAccess,
-      hasAtLeast: (actual: "none" | "read", expected: "read") => actual === "read" && expected === "read",
-    },
-  },
-}));
-
-mock.module("./gql-runtime", () => ({
-  buildPermissionedGqlResolverContext: async () => {
-    contextRequested = true;
-    return {
-      currentTable: table,
-      tables: [table],
-      views: [],
-      fieldsByTableId: { [table.id]: [visibleField] },
-    };
-  },
-  canonicalGqlSource: async () => ({ ok: false, diagnostics: [] }),
-  emptyDslAst: () => ({ joins: [], select: [], groupBy: [], aggregations: [], sort: [] }),
-  executeGqlSource: async () => ({ ok: true, response: { ok: false, diagnostics: [] } }),
-  sourceAst: (ast: unknown) => ast,
-}));
-
-const { createGqlApi } = await import("./gql");
-
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
   c.set("accessSubject", { type: "user", userId: user.id });
@@ -103,7 +75,21 @@ describe("GQL assistant download routes", () => {
   beforeEach(() => {
     baseAccess = "read";
     contextRequested = false;
+    spyOn(gridsService.base, "get").mockImplementation(async () => base as never);
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => baseAccess);
+    spyOn(gqlRuntime, "buildPermissionedGqlResolverContext").mockImplementation(async () => {
+      contextRequested = true;
+      return {
+        currentTable: table,
+        tables: [table],
+        views: [],
+        fieldsByTableId: { [table.id]: [visibleField] },
+      } as never;
+    });
   });
+
+  afterEach(() => mock.restore());
 
   test("downloads SKILL.md as markdown attachment", async () => {
     const app = createGqlApi({ requireAuthenticated: authenticated });

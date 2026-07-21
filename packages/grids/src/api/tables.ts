@@ -24,6 +24,7 @@ import {
 } from "../contracts";
 import { gridsService } from "../service";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
+import { requireUuidParam } from "./route-params";
 import { tableQueryRoutes } from "./table-query-routes";
 
 const requireSourceBaseAdmins = async (c: Parameters<typeof gateAt>[0], sourceTableIds: string[]) => {
@@ -105,6 +106,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/federation/publications",
+    requireUuidParam("tableId", "Source table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "List combined-table publications of a source table",
@@ -126,6 +128,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/federation",
+    requireUuidParam("tableId", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Get combined table configuration",
@@ -156,6 +159,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/federation/source-candidates",
+    requireUuidParam("tableId", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "List source tables available for a combined table",
@@ -188,6 +192,7 @@ const app = new Hono<AuthContext>()
 
   .put(
     "/:tableId/federation/draft",
+    requireUuidParam("tableId", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Update combined table draft",
@@ -225,6 +230,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/federation/validate",
+    requireUuidParam("tableId", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Validate a combined table draft without saving it",
@@ -254,6 +260,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/federation/publish",
+    requireUuidParam("tableId", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Publish combined table draft",
@@ -301,6 +308,8 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/federation/sources/:sourceTableId/revoke",
+    requireUuidParam("tableId", "Combined table"),
+    requireUuidParam("sourceTableId", "Source table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Revoke a published combined table source",
@@ -332,6 +341,7 @@ const app = new Hono<AuthContext>()
   // List tables of a base.
   .get(
     "/by-base/:baseId",
+    requireUuidParam("baseId", "Base"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "List tables in a base",
@@ -357,6 +367,7 @@ const app = new Hono<AuthContext>()
   // Create table under a base.
   .post(
     "/by-base/:baseId",
+    requireUuidParam("baseId", "Base"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Create a table",
@@ -393,6 +404,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Get table",
@@ -413,6 +425,7 @@ const app = new Hono<AuthContext>()
 
   .patch(
     "/:tableId",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Update table",
@@ -431,6 +444,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/:tableId",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Move a table to trash",
@@ -450,6 +464,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/restore",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Restore a soft-deleted table",
@@ -472,6 +487,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/record-actors",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Search users available for record metadata filters",
@@ -521,6 +537,7 @@ const app = new Hono<AuthContext>()
   // Permission: needs `read` on the target table — same as listing it.
   .get(
     "/:tableId/lookup",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Search records of this table for the relation picker",

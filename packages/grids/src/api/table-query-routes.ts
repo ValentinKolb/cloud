@@ -19,6 +19,7 @@ import type { GroupAggregationSpec } from "../service/group-compiler";
 import { validateRecordQueryForTable } from "../service/query-validation";
 import { compileGqlToRecordQuery, executeGqlSource } from "./gql-runtime";
 import { currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import { requireUuidParam } from "./route-params";
 
 type TableQueryBody = ZodInfer<typeof TableQueryBodySchema>;
 type TableQueryResponse = ZodInfer<typeof TableQueryResponseSchema>;
@@ -398,6 +399,7 @@ const runListQuery = async (
 export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) =>
   new Hono<AuthContext>().post(
     "/:tableId/query",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Unified query — list / aggregate / group based on RecordQuery body",

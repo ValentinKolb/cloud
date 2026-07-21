@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { gridsService } from "../../../service";
+import { loadGridsWorkspaceState } from "./workspace-state";
 
 const viewerId = "44444444-4444-4444-8444-444444444444";
 const selectedRecordId = "77777777-7777-4777-8777-777777777777";
@@ -80,85 +82,6 @@ let lastRecordGroupParams: Record<string, unknown> | null = null;
 let recordGetCalls = 0;
 let recordListRecordForId: unknown | null = null;
 
-mock.module("../../../service", () => ({
-  gridsService: {
-    base: {
-      getByIdOrShortId: async () => base,
-      catalog: async () => ({
-        dashboards: [],
-        tables: catalogTables,
-        tableLevels: catalogTableLevels,
-        fieldsByTable: catalogFieldsByTable,
-        viewsByTable: catalogViewsByTable,
-        formsByTable: { [table.id]: [] },
-        formLevels: {},
-        formTables: [],
-        sidebarForms: [],
-      }),
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: (_grants: unknown, target: Record<string, unknown>) => ("viewId" in target ? viewLevel : baseLevel),
-      hasAtLeast: (actual: "none" | "read" | "write" | "admin", expected: "none" | "read" | "write" | "admin") => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-    dashboard: {
-      getByIdOrShortId: async () => null,
-      get: async () => null,
-    },
-    table: {
-      getByIdOrShortId: async (_baseId: string, idOrSlug: string) =>
-        lookupTable && (lookupTable.id === idOrSlug || lookupTable.shortId === idOrSlug) ? lookupTable : null,
-    },
-    view: {
-      getByIdOrShortId: async (_tableId: string, idOrSlug: string) =>
-        lookupView && (lookupView.id === idOrSlug || lookupView.shortId === idOrSlug) ? lookupView : null,
-    },
-    field: {
-      listByTable: async () => [statusField],
-    },
-    access: {
-      listForDashboard: async () => [],
-      listForTable: async () => [],
-      listForForm: async () => [],
-      listForView: async () => [],
-    },
-    record: {
-      list: async (params: Record<string, unknown>) => {
-        lastRecordListParams = params;
-        const ids = (params.recordMeta as { ids?: unknown[] } | null | undefined)?.ids;
-        const items = ids?.includes(selectedRecordId) && recordListRecordForId ? [recordListRecordForId] : [];
-        return { ok: true, data: { items, aggregates: {}, nextCursor: null, filePreviews: {} } };
-      },
-      group: async (params: Record<string, unknown>) => {
-        lastRecordGroupParams = params;
-        const limit = Number(params.limit ?? 0);
-        return {
-          ok: true,
-          data: {
-            buckets: Array.from({ length: limit }, (_, index) => ({ keys: [`group-${index}`], values: {} })),
-            explode: false,
-            nextCursor: limit > 0 ? "next-group-page" : null,
-          },
-        };
-      },
-      get: async () => {
-        recordGetCalls += 1;
-        return null;
-      },
-    },
-    aggregate: {},
-    relations: {
-      buildLabelCache: async () => ({}),
-      buildLabelCacheForGroupedKeys: async () => ({}),
-    },
-  },
-}));
-
-const { loadGridsWorkspaceState } = await import("./workspace-state");
-
 const user = {
   id: viewerId,
   roles: [],
@@ -179,7 +102,66 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lastRecordGroupParams = null;
     recordGetCalls = 0;
     recordListRecordForId = null;
+
+    spyOn(gridsService.base, "getByIdOrShortId").mockImplementation(async () => base as never);
+    spyOn(gridsService.base, "catalog").mockImplementation(
+      async () =>
+        ({
+          dashboards: [],
+          tables: catalogTables,
+          tableLevels: catalogTableLevels,
+          fieldsByTable: catalogFieldsByTable,
+          viewsByTable: catalogViewsByTable,
+          formsByTable: { [table.id]: [] },
+          formLevels: {},
+          formTables: [],
+          sidebarForms: [],
+        }) as never,
+    );
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => ("viewId" in target ? viewLevel : baseLevel));
+    spyOn(gridsService.dashboard, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.dashboard, "get").mockImplementation(async () => null);
+    spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(
+      async (_baseId, idOrSlug) =>
+        (lookupTable && (lookupTable.id === idOrSlug || lookupTable.shortId === idOrSlug) ? lookupTable : null) as never,
+    );
+    spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(
+      async (_tableId, idOrSlug) =>
+        (lookupView && (lookupView.id === idOrSlug || lookupView.shortId === idOrSlug) ? lookupView : null) as never,
+    );
+    spyOn(gridsService.field, "listByTable").mockImplementation(async () => [statusField] as never);
+    spyOn(gridsService.access, "listForDashboard").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForView").mockImplementation(async () => []);
+    spyOn(gridsService.record, "list").mockImplementation(async (params) => {
+      lastRecordListParams = params;
+      const ids = (params.recordMeta as { ids?: unknown[] } | null | undefined)?.ids;
+      const items = ids?.includes(selectedRecordId) && recordListRecordForId ? [recordListRecordForId] : [];
+      return { ok: true, data: { items, aggregates: {}, nextCursor: null, filePreviews: {} } } as never;
+    });
+    spyOn(gridsService.record, "group").mockImplementation(async (params) => {
+      lastRecordGroupParams = params;
+      const limit = Number(params.limit ?? 0);
+      return {
+        ok: true,
+        data: {
+          buckets: Array.from({ length: limit }, (_, index) => ({ keys: [`group-${index}`], values: {} })),
+          explode: false,
+          nextCursor: limit > 0 ? "next-group-page" : null,
+        },
+      } as never;
+    });
+    spyOn(gridsService.record, "get").mockImplementation(async () => {
+      recordGetCalls += 1;
+      return null;
+    });
+    spyOn(gridsService.relations, "buildLabelCache").mockImplementation(async () => ({}));
+    spyOn(gridsService.relations, "buildLabelCacheForGroupedKeys").mockImplementation(async () => ({}));
   });
+
+  afterEach(() => mock.restore());
 
   test("loads records views from canonical GQL source instead of cached RecordQuery JSON", async () => {
     catalogViewsByTable = { [table.id]: [savedView] };

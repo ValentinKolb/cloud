@@ -12,12 +12,14 @@ import {
 } from "../contracts";
 import { gridsService } from "../service";
 import { currentActorUserId, gateAt } from "./permissions";
+import { requireUuidParam } from "./route-params";
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
   .get(
     "/by-table/:tableId",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "List fields of a table",
@@ -36,6 +38,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId/reorder",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Reorder fields of a table",
@@ -59,6 +62,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId",
+    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Create a field",
@@ -81,6 +85,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:fieldId/dependents",
+    requireUuidParam("fieldId", "Field"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Pre-flight: where is this field referenced?",
@@ -101,6 +106,7 @@ const app = new Hono<AuthContext>()
 
   .patch(
     "/:fieldId",
+    requireUuidParam("fieldId", "Field"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Update field metadata",
@@ -121,6 +127,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/:fieldId",
+    requireUuidParam("fieldId", "Field"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Soft-delete a field (rejects if blocking dependents exist)",
@@ -156,6 +163,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:fieldId/restore",
+    requireUuidParam("fieldId", "Field"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Restore a soft-deleted field",

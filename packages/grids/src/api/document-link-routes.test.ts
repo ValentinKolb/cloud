@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
+import { gridsService } from "../service";
+import { createDocumentsApi } from "./documents";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const tableId = "22222222-2222-4222-8222-222222222222";
@@ -64,44 +66,6 @@ let publicUrlToken: string | null;
 let permissionLoadInput: unknown;
 let permissionTarget: unknown;
 
-mock.module("../service", () => ({
-  gridsService: {
-    document: {
-      getRun: async (id: string) => (id === runId ? currentRun : null),
-      listDocumentLinksForRun: async () => [link],
-      createDocumentLink: async (input: unknown) => {
-        createInput = input;
-        return { ok: true, data: { link, token: "gdl_configured-token" } };
-      },
-      publicDocumentLinkUrl: async (token: string) => {
-        publicUrlToken = token;
-        return `https://cloud.example.test/share/grids/documents/${token}`;
-      },
-      getDocumentLink: async (id: string) => (id === linkId ? currentLink : null),
-      revokeDocumentLink: async (input: unknown) => {
-        revokeInput = input;
-        return { ok: true, data: revokedLink };
-      },
-    },
-    permission: {
-      loadGrants: async (input: unknown) => {
-        permissionLoadInput = input;
-        return [];
-      },
-      resolve: (_grants: unknown, target: unknown) => {
-        permissionTarget = target;
-        return permissionLevel;
-      },
-      hasAtLeast: (actual: PermissionLevel, expected: PermissionLevel) => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-  },
-}));
-
-const { createDocumentsApi } = await import("./documents");
-
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
   c.set("accessSubject", { type: "user", userId: user.id });
@@ -127,7 +91,32 @@ describe("document link routes", () => {
     publicUrlToken = null;
     permissionLoadInput = undefined;
     permissionTarget = undefined;
+    spyOn(gridsService.document, "getRun").mockImplementation(async (id) => (id === runId ? currentRun : null) as never);
+    spyOn(gridsService.document, "listDocumentLinksForRun").mockImplementation(async () => [link] as never);
+    spyOn(gridsService.document, "createDocumentLink").mockImplementation(async (input) => {
+      createInput = input;
+      return { ok: true, data: { link, token: "gdl_configured-token" } } as never;
+    });
+    spyOn(gridsService.document, "publicDocumentLinkUrl").mockImplementation(async (token) => {
+      publicUrlToken = token;
+      return `https://cloud.example.test/share/grids/documents/${token}`;
+    });
+    spyOn(gridsService.document, "getDocumentLink").mockImplementation(async (id) => (id === linkId ? currentLink : null) as never);
+    spyOn(gridsService.document, "revokeDocumentLink").mockImplementation(async (input) => {
+      revokeInput = input;
+      return { ok: true, data: revokedLink } as never;
+    });
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async (input) => {
+      permissionLoadInput = input;
+      return [];
+    });
+    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
+      permissionTarget = target;
+      return permissionLevel;
+    });
   });
+
+  afterEach(() => mock.restore());
 
   for (const method of ["GET", "POST"] as const) {
     test(`${method} run links returns the exact 404 body for an invalid run id`, async () => {

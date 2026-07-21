@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { MiddlewareHandler } from "hono";
+import { gridsService } from "../service";
+import { createDocumentsApi } from "./documents";
+import { permissionedWorkflowCatalog } from "./workflows";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const tableId = "22222222-2222-4222-8222-222222222222";
@@ -117,70 +120,6 @@ const forbiddenResponse = {
   code: "FORBIDDEN",
 };
 
-mock.module("../service", () => ({
-  gridsService: {
-    table: {
-      get: async (id: string) => (id === tableId ? table : null),
-      listByBase: async (id: string) => (id === baseId ? [table] : []),
-    },
-    field: {
-      listByTable: async () => {
-        fieldListCalls += 1;
-        return [field];
-      },
-    },
-    document: {
-      listTemplatesForTable: async (id: string) => (id === tableId ? [template] : []),
-      listSnapshotsForRecord: async () => {
-        snapshotListCalls += 1;
-        return [snapshot];
-      },
-      createRecordSnapshot: async (input: unknown) => {
-        snapshotCreateCalls += 1;
-        snapshotCreateInput = input;
-        return { ok: true, data: snapshot };
-      },
-      getSnapshot: async (id: string) => {
-        snapshotGetCalls += 1;
-        return id === snapshotId ? snapshot : null;
-      },
-      filterSnapshotRelatedRecords: async (input: unknown, canReadRelatedTable: unknown) => {
-        snapshotFilterInput = { input, canReadRelatedTable };
-        return input;
-      },
-      summarizeTemplate: (row: typeof template) => ({
-        id: row.id,
-        shortId: row.shortId,
-        tableId: row.tableId,
-        name: row.name,
-        description: row.description,
-        enabled: row.enabled,
-        position: row.position,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-      }),
-    },
-    emailTemplate: {
-      listForBase: async () => [],
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: (_grants: unknown, target: Record<string, unknown>) => {
-        if ("documentTemplateId" in target) return templateLevel;
-        if ("tableId" in target) return tableLevel;
-        return baseLevel;
-      },
-      hasAtLeast: (actual: "none" | "read", expected: "none" | "read" | "write" | "admin") => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-  },
-}));
-
-const { createDocumentsApi } = await import("./documents");
-const { permissionedWorkflowCatalog } = await import("./workflows");
-
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
   c.set("accessSubject", { type: "user", userId: user.id });
@@ -207,7 +146,52 @@ describe("document template permission surfaces", () => {
     snapshotCreateInput = undefined;
     snapshotGetCalls = 0;
     snapshotFilterInput = undefined;
+
+    spyOn(gridsService.table, "get").mockImplementation(async (id) => (id === tableId ? table : null) as never);
+    spyOn(gridsService.table, "listByBase").mockImplementation(async (id) => (id === baseId ? [table] : []) as never);
+    spyOn(gridsService.field, "listByTable").mockImplementation(async () => {
+      fieldListCalls += 1;
+      return [field] as never;
+    });
+    spyOn(gridsService.document, "listTemplatesForTable").mockImplementation(async (id) => (id === tableId ? [template] : []) as never);
+    spyOn(gridsService.document, "listSnapshotsForRecord").mockImplementation(async () => {
+      snapshotListCalls += 1;
+      return [snapshot] as never;
+    });
+    spyOn(gridsService.document, "createRecordSnapshot").mockImplementation(async (input) => {
+      snapshotCreateCalls += 1;
+      snapshotCreateInput = input;
+      return { ok: true, data: snapshot } as never;
+    });
+    spyOn(gridsService.document, "getSnapshot").mockImplementation(async (id) => {
+      snapshotGetCalls += 1;
+      return (id === snapshotId ? snapshot : null) as never;
+    });
+    spyOn(gridsService.document, "filterSnapshotRelatedRecords").mockImplementation(async (input, canReadRelatedTable) => {
+      snapshotFilterInput = { input, canReadRelatedTable };
+      return input as never;
+    });
+    spyOn(gridsService.document, "summarizeTemplate").mockImplementation(((row: typeof template) => ({
+      id: row.id,
+      shortId: row.shortId,
+      tableId: row.tableId,
+      name: row.name,
+      description: row.description,
+      enabled: row.enabled,
+      position: row.position,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    })) as never);
+    spyOn(gridsService.emailTemplate, "listForBase").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
+      if ("documentTemplateId" in target) return templateLevel;
+      if ("tableId" in target) return tableLevel;
+      return baseLevel;
+    });
   });
+
+  afterEach(() => mock.restore());
 
   test("lists readable document templates without table read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });

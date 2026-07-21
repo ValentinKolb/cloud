@@ -1,4 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { gridsService } from "../../../service";
+import { loadGridsWorkspaceState } from "./workspace-state";
 
 const base = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -45,49 +47,36 @@ const form = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-mock.module("../../../service", () => ({
-  gridsService: {
-    base: {
-      getByIdOrShortId: async () => base,
-      catalog: async () => ({
-        dashboards: [],
-        tables: [],
-        tableLevels: {},
-        fieldsByTable: { [formTable.id]: [] },
-        viewsByTable: {},
-        formsByTable: { [formTable.id]: [form] },
-        formLevels: { [form.id]: "write" },
-        formTables: [formTable],
-        sidebarForms: [{ form, tableId: formTable.id }],
-      }),
-    },
-    permission: {
-      loadGrants: async () => [],
-      resolve: () => "none",
-      hasAtLeast: (actual: "none" | "read" | "write" | "admin", expected: "none" | "read" | "write" | "admin") => {
-        const rank = { none: 0, read: 1, write: 2, admin: 3 };
-        return rank[actual] >= rank[expected];
-      },
-    },
-    dashboard: {
-      getByIdOrShortId: async () => null,
-      get: async () => null,
-    },
-    table: {
-      getByIdOrShortId: async () => null,
-    },
-    access: {
-      listForDashboard: async () => [],
-      listForTable: async () => [],
-      listForForm: async () => [],
-      listForView: async () => [],
-    },
-  },
-}));
-
-const { loadGridsWorkspaceState } = await import("./workspace-state");
-
 describe("loadGridsWorkspaceState — form-only access", () => {
+  beforeEach(() => {
+    spyOn(gridsService.base, "getByIdOrShortId").mockImplementation(async () => base as never);
+    spyOn(gridsService.base, "catalog").mockImplementation(
+      async () =>
+        ({
+          dashboards: [],
+          tables: [],
+          tableLevels: {},
+          fieldsByTable: { [formTable.id]: [] },
+          viewsByTable: {},
+          formsByTable: { [formTable.id]: [form] },
+          formLevels: { [form.id]: "write" },
+          formTables: [formTable],
+          sidebarForms: [{ form, tableId: formTable.id }],
+        }) as never,
+    );
+    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => "none");
+    spyOn(gridsService.dashboard, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.dashboard, "get").mockImplementation(async () => null);
+    spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.access, "listForDashboard").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
+    spyOn(gridsService.access, "listForView").mockImplementation(async () => []);
+  });
+
+  afterEach(() => mock.restore());
+
   test("allows users with form-write but no base/table read into an empty workspace with sidebar forms", async () => {
     const state = await loadGridsWorkspaceState({
       user: {

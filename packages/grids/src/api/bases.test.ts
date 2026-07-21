@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { MiddlewareHandler } from "hono";
+import { gridsService } from "../service";
+import { createBasesApi } from "./bases";
 
 const user: User = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -24,19 +26,6 @@ const user: User = {
 };
 
 let listVisibleParams: unknown = null;
-
-mock.module("../service", () => ({
-  gridsService: {
-    base: {
-      listVisible: async (params: unknown) => {
-        listVisibleParams = params;
-        return { items: [], total: 0 };
-      },
-    },
-  },
-}));
-
-const { createBasesApi } = await import("./bases");
 
 const requireAuthenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
@@ -90,7 +79,13 @@ const requireDelegatedServiceAccount =
 describe("Grids bases API", () => {
   beforeEach(() => {
     listVisibleParams = null;
+    spyOn(gridsService.base, "listVisible").mockImplementation(async (params) => {
+      listVisibleParams = params;
+      return { items: [], total: 0 };
+    });
   });
+
+  afterEach(() => mock.restore());
 
   test("does not pass Cloud admin role as a listVisible bypass", async () => {
     const app = createBasesApi({ requireAuthenticated });
