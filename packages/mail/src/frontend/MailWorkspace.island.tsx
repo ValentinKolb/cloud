@@ -18,25 +18,24 @@ import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
 import MailScheduledView from "./_components/MailScheduledView";
 import MailSidebar from "./_components/MailSidebar";
-import { executeMailBulkAction, type MailBulkTarget } from "./_components/mail-bulk-actions";
 import { buildMailActionInput, getMailAction, type MailActionId } from "./_components/mail-actions";
+import { executeMailBulkAction, type MailBulkTarget } from "./_components/mail-bulk-actions";
 import {
   emptyMailConversationSelection,
   findMailFocusAfterRemoval,
   pruneMailConversationSelection,
   toggleMailConversationSelection,
 } from "./_components/mail-conversation-selection";
-import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
 import { mergeMailCursorPage } from "./_components/mail-cursor-page";
-import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
+import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
 import {
   type MailListOptimisticField,
   type MailListOptimisticPatch,
   type PendingMailListState,
   reconcileMailListOptimisticState,
 } from "./_components/mail-list-optimistic";
-import { buildMailListHref, buildMailSelectionHref } from "./_components/mail-navigation";
-import { mergeMailLiveSnapshot } from "./_components/mail-workspace-snapshot";
+import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
+import { buildMailListHref } from "./_components/mail-navigation";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
@@ -71,7 +70,6 @@ export default function MailWorkspace(props: {
   });
   const [settingsOpening, setSettingsOpening] = createSignal(false);
   const [liveDegraded, setLiveDegraded] = createSignal(false);
-  const [loadedAdditionalPages, setLoadedAdditionalPages] = createSignal(false);
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
   const [selectionMode, setSelectionMode] = createSignal(false);
   const [actionPending, setActionPending] = createSignal(false);
@@ -84,7 +82,6 @@ export default function MailWorkspace(props: {
   let liveRequest = 0;
   let routeController: AbortController | null = null;
   let liveController: AbortController | null = null;
-  let firstPageItemIds = new Set(props.data.listItems.map((item) => item.id));
   const pendingReadConversationIds = new Set<string>();
   let pendingListState = new Map<string, PendingMailListState>();
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
@@ -146,8 +143,6 @@ export default function MailWorkspace(props: {
       batch(() => {
         setRequestUrl(target.toString());
         setData(reconcile(applyPendingListState(next)));
-        setLoadedAdditionalPages(false);
-        firstPageItemIds = new Set(next.listItems.map((item) => item.id));
         setConversationSelection((current) =>
           scopeChanged
             ? emptyMailConversationSelection()
@@ -180,11 +175,10 @@ export default function MailWorkspace(props: {
       if (!fresh) return "failed";
       if (request !== liveRequest || requestUrl() !== expectedHref || data.selectedConversationId !== expectedConversationId)
         return "stale";
-      const preservedItemIds = loadedAdditionalPages()
-        ? new Set(data.listItems.filter((item) => !firstPageItemIds.has(item.id)).map((item) => item.id))
-        : new Set<string>();
-      setData(reconcile(applyPendingListState(mergeMailLiveSnapshot(data, fresh, preservedItemIds))));
-      firstPageItemIds = new Set(fresh.listItems.map((item) => item.id));
+      // A live event invalidates every cursor after the first page. Keeping an
+      // old tail would retain moved or deleted rows with no way to prove their
+      // position, so converge on the canonical first page and resume from its cursor.
+      setData(reconcile(applyPendingListState(fresh)));
       return "applied";
     } catch (error) {
       return isAbortError(error) ? "stale" : "failed";
@@ -250,7 +244,6 @@ export default function MailWorkspace(props: {
       setData("listItems", merged.items);
       setData("nextListCursor", merged.nextCursor);
       setData("listError", next.listError);
-      setLoadedAdditionalPages(true);
       return true;
     } catch (error) {
       if (request === routeRequest && !isAbortError(error))
@@ -1387,6 +1380,7 @@ export default function MailWorkspace(props: {
               dateConfig={props.dateConfig}
               onCollaborationChange={applyCollaborationState}
               onConversationTagsChange={applyConversationTags}
+              onOpenHref={openWorkspaceHref}
               onReconcile={reconcileWorkspace}
             />
           </Show>

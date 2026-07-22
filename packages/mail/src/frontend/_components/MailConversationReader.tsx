@@ -245,15 +245,24 @@ export default function MailConversationReader(props: {
   };
 
   let currentSelection = props.selectionKey;
+  let currentNewestMessageId = props.messages.at(-1)?.id ?? null;
   createEffect(() => {
     const nextSelection = props.selectionKey;
-    if (nextSelection === currentSelection) return;
-    currentSelection = nextSelection;
-    conversationDrafts.abort();
-    draftLoadController?.abort();
-    setExpandedMessages(new Set(props.messages.slice(-1).map((message) => message.id)));
-    setMessageSelections({});
-    if (compose()) closeComposer();
+    const nextNewestMessageId = props.messages.at(-1)?.id ?? null;
+    if (nextSelection !== currentSelection) {
+      currentSelection = nextSelection;
+      currentNewestMessageId = nextNewestMessageId;
+      conversationDrafts.abort();
+      draftLoadController?.abort();
+      setExpandedMessages(new Set(props.messages.slice(-1).map((message) => message.id)));
+      setMessageSelections({});
+      if (compose()) closeComposer();
+      return;
+    }
+    if (nextNewestMessageId && nextNewestMessageId !== currentNewestMessageId) {
+      currentNewestMessageId = nextNewestMessageId;
+      setExpandedMessages((current) => new Set(current).add(nextNewestMessageId));
+    }
   });
 
   onCleanup(() => {
@@ -283,8 +292,22 @@ export default function MailConversationReader(props: {
     startComposer("reply", message, quote);
   };
 
+  const printConversation = () => {
+    const root = document.body;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      root.classList.remove("mail-printing-conversation");
+      window.removeEventListener("afterprint", cleanup);
+      if (timeout) clearTimeout(timeout);
+    };
+    root.classList.add("mail-printing-conversation");
+    window.addEventListener("afterprint", cleanup, { once: true });
+    timeout = setTimeout(cleanup, 60_000);
+    requestAnimationFrame(() => window.print());
+  };
+
   return (
-    <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface)]">
+    <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface)]" data-mail-print-root>
       <Show when={props.error}>
         {(error) => (
           <Placeholder
@@ -448,7 +471,7 @@ export default function MailConversationReader(props: {
                     {
                       label: "Print conversation",
                       icon: "ti ti-printer",
-                      action: () => window.print(),
+                      action: printConversation,
                     },
                   ]}
                 />

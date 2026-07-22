@@ -24,6 +24,7 @@ import type { ConversationReminder } from "../../service/reminders";
 import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
 import { getMailAction } from "./mail-actions";
+import { presentMailActivity } from "./mail-activity-presentation";
 import {
   applyMailCollaborationPatch,
   applyMailTagIds,
@@ -40,21 +41,6 @@ import {
   reconcileConversationTags,
   reconcileReminder,
 } from "./mail-details-reconciliation";
-
-const ACTIVITY_LABELS: Readonly<Record<string, string>> = {
-  "conversation.collaboration_updated": "updated the conversation",
-  "conversation.comment_created": "added an internal comment",
-  "conversation.comment_deleted": "deleted an internal comment",
-  "conversation.comment_updated": "updated an internal comment",
-  "conversation.local_tags_added": "added tags",
-  "conversation.local_tags_updated": "updated tags",
-  "conversation.merged": "merged conversations",
-  "conversation.message_reassigned": "moved a message between conversations",
-  "conversation.reference_allocated": "assigned a reference number",
-  "conversation.split": "split the conversation",
-};
-
-const activityLabel = (action: string): string => ACTIVITY_LABELS[action] ?? action.split(".").at(-1)!.replaceAll("_", " ");
 
 export default function MailDetailsPanel(props: {
   mailboxId: string;
@@ -78,6 +64,7 @@ export default function MailDetailsPanel(props: {
   dateConfig: DateContext;
   onCollaborationChange: (state: ConversationCollaboration) => void;
   onConversationTagsChange: (state: ConversationLocalTags) => void;
+  onOpenHref: (href: string) => void | Promise<void>;
   onReconcile: () => void | Promise<void>;
 }) {
   const [state, setState] = createSignal(props.initialState);
@@ -88,6 +75,7 @@ export default function MailDetailsPanel(props: {
   const [mentionUserIds, setMentionUserIds] = createSignal<string[]>([]);
   const [replyingTo, setReplyingTo] = createSignal<ConversationComment | null>(null);
   const [commentError, setCommentError] = createSignal<string | null>(null);
+  const [showAllActivity, setShowAllActivity] = createSignal(false);
   const [reminderDueAt, setReminderDueAt] = createSignal(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
   let confirmedState = props.initialState;
   let confirmedTagState = props.initialConversationLocalTags;
@@ -96,6 +84,8 @@ export default function MailDetailsPanel(props: {
   const watching = createMemo(() => state().watchers.some((watcher) => watcher.id === props.currentUserId));
   const latestMessage = () => props.messages.at(-1);
   const attachmentCount = () => props.messages.reduce((total, message) => total + message.attachments.length, 0);
+  const activityItems = createMemo(() => presentMailActivity(props.activity));
+  const visibleActivity = createMemo(() => (showAllActivity() ? activityItems() : activityItems().slice(0, 8)));
   const addressList = (addresses: Array<{ name: string | null; address: string }>) =>
     addresses.map((address) => address.name || address.address).join(", ");
 
@@ -397,6 +387,7 @@ export default function MailDetailsPanel(props: {
         setMentionUserIds([]);
         setReplyingTo(null);
         setCommentError(null);
+        setShowAllActivity(false);
       },
       { defer: true },
     ),
@@ -586,7 +577,12 @@ export default function MailDetailsPanel(props: {
           </div>
         </section>
 
-        <MailConversationContext mailboxId={props.mailboxId} conversationId={props.conversationId} active={props.active} />
+        <MailConversationContext
+          mailboxId={props.mailboxId}
+          conversationId={props.conversationId}
+          active={props.active}
+          onOpenHref={props.onOpenHref}
+        />
 
         <section class="detail-section">
           <h3 class="detail-section-label">Team notes</h3>
@@ -721,7 +717,7 @@ export default function MailDetailsPanel(props: {
           <section class="detail-section">
             <h3 class="detail-section-label">Recent activity</h3>
             <div class="flex flex-col gap-2">
-              <For each={props.activity}>
+              <For each={visibleActivity()}>
                 {(event) => (
                   <div class="flex min-w-0 items-center gap-2 text-xs">
                     <i
@@ -729,7 +725,8 @@ export default function MailDetailsPanel(props: {
                       aria-hidden="true"
                     />
                     <span class="min-w-0 flex-1 truncate text-secondary">
-                      <span class="font-medium text-primary">{event.actor.displayName}</span> {activityLabel(event.action)}
+                      <span class="font-medium text-primary">{event.actor.displayName}</span> {event.label}
+                      <Show when={event.count > 1}> ({event.count})</Show>
                     </span>
                     <time class="shrink-0 text-xs text-dimmed" dateTime={event.createdAt}>
                       {dates.formatDateTimeRelative(event.createdAt, props.dateConfig)}
@@ -738,6 +735,11 @@ export default function MailDetailsPanel(props: {
                 )}
               </For>
             </div>
+            <Show when={activityItems().length > 8}>
+              <button type="button" class="btn-simple btn-xs mt-2" onClick={() => setShowAllActivity((value) => !value)}>
+                {showAllActivity() ? "Show less" : `Show all ${activityItems().length}`}
+              </button>
+            </Show>
           </section>
         </Show>
 

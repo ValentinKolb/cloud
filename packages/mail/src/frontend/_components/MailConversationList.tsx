@@ -17,6 +17,7 @@ import MailBulkActionBar from "./MailBulkActionBar";
 import { openMailSearchBuilder } from "./MailSearchBuilder";
 import { getMailAction, type MailActionId } from "./mail-actions";
 import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";
+import { mailboxHealthMessage } from "./mail-health-presentation";
 import { buildMailListHref, buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
@@ -272,7 +273,10 @@ export default function MailConversationList(props: {
               value={searchValue}
               onInput={setSearchValue}
               clearable
-              onClear={() => setSearchValue("")}
+              onClear={() => {
+                setSearchValue("");
+                applyQuickSearch("", searchFields());
+              }}
               maxLength={500}
             />
           </div>
@@ -303,7 +307,7 @@ export default function MailConversationList(props: {
         <Show when={props.mailbox.health !== "active"}>
           <div class="info-block-warning flex items-center gap-2 text-xs" role="status">
             <i class="ti ti-alert-triangle" aria-hidden="true" />
-            <span>{props.mailbox.healthReason || `Mailbox is ${props.mailbox.health.replaceAll("_", " ")}.`}</span>
+            <span>{mailboxHealthMessage(props.mailbox.health)}</span>
           </div>
         </Show>
       </header>
@@ -439,6 +443,7 @@ export default function MailConversationList(props: {
                             <Tooltip content={correspondents.join(", ")}>
                               <span
                                 class="shrink-0 text-xs font-normal text-dimmed"
+                                role="img"
                                 aria-label={`${additionalCorrespondents} additional correspondent${additionalCorrespondents === 1 ? "" : "s"}: ${correspondents
                                   .slice(1)
                                   .join(", ")}`}
@@ -467,7 +472,7 @@ export default function MailConversationList(props: {
                         <span class="mail-list-meta-icons">
                           <Show when={item.localTags.length > 0}>
                             <Tooltip content={`Tags: ${tagLabel}`}>
-                              <span class="mail-list-tag-markers" aria-label={`Tags: ${tagLabel}`}>
+                              <span class="mail-list-tag-markers" role="img" aria-label={`Tags: ${tagLabel}`}>
                                 <For each={item.localTags.slice(0, 2)}>
                                   {(tag) => <span class="mail-list-tag-dot" style={{ "background-color": tag.color }} aria-hidden="true" />}
                                 </For>
@@ -481,21 +486,21 @@ export default function MailConversationList(props: {
                           </Show>
                           <Show when={item.flagged}>
                             <Tooltip content="Flagged">
-                              <span class="inline-flex text-orange-600 dark:text-orange-400" aria-label="Flagged conversation">
+                              <span class="inline-flex text-orange-600 dark:text-orange-400" role="img" aria-label="Flagged conversation">
                                 <i class={getMailAction("flag").icon} aria-hidden="true" />
                               </span>
                             </Tooltip>
                           </Show>
                           <Show when={state && stateIcon}>
                             <Tooltip content={state ?? ""}>
-                              <span class="inline-flex" aria-label={`Status: ${state}`}>
+                              <span class="inline-flex" role="img" aria-label={`Status: ${state}`}>
                                 <i class={stateIcon ?? ""} aria-hidden="true" />
                               </span>
                             </Tooltip>
                           </Show>
                           <Show when={item.hasAttachments}>
                             <Tooltip content="Has attachments">
-                              <span class="inline-flex" aria-label="Has attachments">
+                              <span class="inline-flex" role="img" aria-label="Has attachments">
                                 <i class="ti ti-paperclip" aria-hidden="true" />
                               </span>
                             </Tooltip>

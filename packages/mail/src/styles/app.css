@@ -12,6 +12,8 @@
     align-items: center;
     gap: 0.25rem;
     border-radius: var(--ui-radius-control);
+    content-visibility: auto;
+    contain-intrinsic-size: auto 4.5rem;
   }
 
   .mail-list-entry:hover {
@@ -165,5 +167,29 @@
   .mail-compose-action.btn-primary:hover {
     border-color: color-mix(in srgb, var(--app-accent) 76%, black);
     background: color-mix(in srgb, var(--app-accent) 88%, black);
+  }
+}
+
+@media print {
+  body.mail-printing-conversation * {
+    visibility: hidden !important;
+  }
+
+  body.mail-printing-conversation [data-mail-print-root],
+  body.mail-printing-conversation [data-mail-print-root] * {
+    visibility: visible !important;
+  }
+
+  body.mail-printing-conversation [data-mail-print-root] {
+    position: absolute;
+    inset: 0;
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  body.mail-printing-conversation [data-mail-print-root] :where(button, [role="menu"], [role="tooltip"]) {
+    display: none !important;
   }
 }

@@ -1,6 +1,6 @@
 import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CreateAttachmentLinkInput, CreatedAttachmentLink } from "../../contracts";
 import { readApiError } from "./api-response";
@@ -30,6 +30,7 @@ export default function MailMessageAttachments(props: {
 }) {
   const [previewId, setPreviewId] = createSignal<string | null>(null);
   const [textPreview, setTextPreview] = createSignal("");
+  const [previewError, setPreviewError] = createSignal<string | null>(null);
   const baseUrl = (attachment: Attachment) =>
     `/api/mail/mailboxes/${props.mailboxId}/messages/${props.messageId}/attachments/${attachment.id}`;
 
@@ -43,7 +44,7 @@ export default function MailMessageAttachments(props: {
       return response.text();
     },
     onSuccess: setTextPreview,
-    onError: (error) => prompts.error(error.message),
+    onError: (error) => setPreviewError(error.message),
   });
 
   const togglePreview = (attachment: Attachment) => {
@@ -51,15 +52,19 @@ export default function MailMessageAttachments(props: {
       loadText.abort();
       setPreviewId(null);
       setTextPreview("");
+      setPreviewError(null);
       return;
     }
     loadText.abort();
     setPreviewId(attachment.id);
     setTextPreview("");
+    setPreviewError(null);
     if (attachmentPreviewKind(attachment.contentType, attachment.sizeBytes) === "text" && attachment.sizeBytes > 0) {
       loadText.mutate(attachment);
     }
   };
+
+  onCleanup(() => loadText.abort());
 
   const createLink = mutations.create<CreatedAttachmentLink, { attachment: Attachment; input: CreateAttachmentLinkInput }>({
     mutation: async ({ attachment, input }) => {
@@ -136,33 +141,65 @@ export default function MailMessageAttachments(props: {
                 <Show when={previewId() === attachment.id && kind}>
                   {(activeKind) => (
                     <div class="mt-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2">
-                      <Show when={activeKind() === "image"}>
-                        <img
-                          src={inlineUrl}
-                          alt={attachment.filename ?? "Image attachment"}
-                          class="mx-auto max-h-[60vh] max-w-full object-contain"
-                          loading="lazy"
-                          referrerpolicy="no-referrer"
-                        />
-                      </Show>
-                      <Show when={activeKind() === "pdf"}>
-                        <iframe
-                          src={inlineUrl}
-                          title={attachment.filename ?? "PDF attachment"}
-                          class="h-[min(65vh,48rem)] w-full border-0"
-                          sandbox=""
-                          referrerpolicy="no-referrer"
-                        />
-                      </Show>
-                      <Show when={activeKind() === "audio"}>
-                        <audio src={inlineUrl} controls preload="metadata" class="w-full" />
-                      </Show>
-                      <Show when={activeKind() === "video"}>
-                        <video src={inlineUrl} controls preload="metadata" class="mx-auto max-h-[60vh] max-w-full" />
-                      </Show>
-                      <Show when={activeKind() === "text"}>
-                        <Show when={!loadText.loading()} fallback={<Placeholder state="loading" title="Loading preview" />}>
-                          <pre class="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words text-xs text-primary">{textPreview()}</pre>
+                      <Show
+                        when={!previewError()}
+                        fallback={
+                          <Placeholder
+                            state="error"
+                            title="Preview unavailable"
+                            description={previewError() ?? undefined}
+                            action={
+                              <a class="btn-secondary btn-sm" href={baseUrl(attachment)}>
+                                <i class="ti ti-download" aria-hidden="true" /> Download file
+                              </a>
+                            }
+                          />
+                        }
+                      >
+                        <Show when={activeKind() === "image"}>
+                          <img
+                            src={inlineUrl}
+                            alt={attachment.filename ?? "Image attachment"}
+                            class="mx-auto max-h-[60vh] max-w-full object-contain"
+                            loading="lazy"
+                            referrerpolicy="no-referrer"
+                            onError={() => setPreviewError("The image could not be loaded.")}
+                          />
+                        </Show>
+                        <Show when={activeKind() === "pdf"}>
+                          <iframe
+                            src={inlineUrl}
+                            title={attachment.filename ?? "PDF attachment"}
+                            class="h-[min(65vh,48rem)] w-full border-0"
+                            sandbox=""
+                            referrerpolicy="no-referrer"
+                            onError={() => setPreviewError("The PDF could not be loaded.")}
+                          />
+                        </Show>
+                        <Show when={activeKind() === "audio"}>
+                          <audio
+                            src={inlineUrl}
+                            controls
+                            preload="metadata"
+                            class="w-full"
+                            onError={() => setPreviewError("The audio preview could not be loaded.")}
+                          />
+                        </Show>
+                        <Show when={activeKind() === "video"}>
+                          <video
+                            src={inlineUrl}
+                            controls
+                            preload="metadata"
+                            class="mx-auto max-h-[60vh] max-w-full"
+                            onError={() => setPreviewError("The video preview could not be loaded.")}
+                          />
+                        </Show>
+                        <Show when={activeKind() === "text"}>
+                          <Show when={!loadText.loading()} fallback={<Placeholder state="loading" title="Loading preview" />}>
+                            <pre class="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words text-xs text-primary">
+                              {textPreview()}
+                            </pre>
+                          </Show>
                         </Show>
                       </Show>
                     </div>

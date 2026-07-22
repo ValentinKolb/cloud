@@ -22,7 +22,13 @@ const conversationHref = (mailboxId: string, conversationId: string): string => 
   return `${url.pathname}${url.search}`;
 };
 
-function RelatedMail(props: { mailboxId: string; conversationId: string; bookId: string; contactId: string }) {
+function RelatedMail(props: {
+  mailboxId: string;
+  conversationId: string;
+  bookId: string;
+  contactId: string;
+  onOpenHref: (href: string) => void | Promise<void>;
+}) {
   const [open, setOpen] = createSignal(false);
   const [page, setPage] = createSignal<RelatedMailPage>({ items: [], nextCursor: null });
   const [loading, setLoading] = createSignal(false);
@@ -76,10 +82,14 @@ function RelatedMail(props: { mailboxId: string; conversationId: string; bookId:
             <div class="mt-2 flex flex-col gap-1">
               <For each={page().items}>
                 {(item) => (
-                  <a class="py-2 text-xs hover:text-primary" href={conversationHref(props.mailboxId, item.id)}>
+                  <button
+                    type="button"
+                    class="py-2 text-left text-xs hover:text-primary"
+                    onClick={() => void props.onOpenHref(conversationHref(props.mailboxId, item.id))}
+                  >
                     <span class="block truncate font-medium text-primary">{item.subject || "(no subject)"}</span>
                     <span class="block truncate text-dimmed">{item.participantSummary}</span>
-                  </a>
+                  </button>
                 )}
               </For>
             </div>
@@ -100,7 +110,12 @@ function RelatedMail(props: { mailboxId: string; conversationId: string; bookId:
   );
 }
 
-export default function MailConversationContext(props: { mailboxId: string; conversationId: string; active: boolean }) {
+export default function MailConversationContext(props: {
+  mailboxId: string;
+  conversationId: string;
+  active: boolean;
+  onOpenHref: (href: string) => void | Promise<void>;
+}) {
   const [context, setContext] = createSignal<MailConversationContext | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
@@ -108,21 +123,28 @@ export default function MailConversationContext(props: { mailboxId: string; conv
   const [liveEpoch, setLiveEpoch] = createSignal(0);
   let controller: AbortController | null = null;
   let loadedConversationId: string | null = null;
+  let loadGeneration = 0;
+  let refreshChain: Promise<boolean> = Promise.resolve(true);
+  let pendingRefresh: Promise<boolean> | null = null;
+  let requestedRefresh = 0;
+  let appliedRefresh = 0;
 
   const loadContacts = async (contactsCursor?: string): Promise<boolean> => {
-    controller?.abort();
     const currentController = new AbortController();
     controller = currentController;
+    const generation = loadGeneration;
+    const conversationId = props.conversationId;
     setLoading(true);
     setError(null);
     try {
       const query = new URLSearchParams({ contactsLimit: "50" });
       if (contactsCursor) query.set("contactsCursor", contactsCursor);
-      const response = await fetch(`/api/mail/mailboxes/${props.mailboxId}/conversations/${props.conversationId}/context?${query}`, {
+      const response = await fetch(`/api/mail/mailboxes/${props.mailboxId}/conversations/${conversationId}/context?${query}`, {
         signal: currentController.signal,
       });
       if (!response.ok) throw new Error(await readApiError(response, "Could not load Contacts"));
       const next = mailConversationContextSchema.parse(await response.json());
+      if (generation !== loadGeneration || conversationId !== props.conversationId) return false;
       setContext((current) => ({
         ...next,
         contacts:
@@ -142,6 +164,31 @@ export default function MailConversationContext(props: { mailboxId: string; conv
     }
   };
 
+  const queueContactsPage = (contactsCursor: string): Promise<boolean> => {
+    const operation = refreshChain.then(() => loadContacts(contactsCursor));
+    refreshChain = operation.catch(() => false);
+    return operation;
+  };
+
+  const queueContactsRefresh = (): Promise<boolean> => {
+    requestedRefresh += 1;
+    if (pendingRefresh) return pendingRefresh;
+    const operation = refreshChain.then(async () => {
+      while (appliedRefresh < requestedRefresh) {
+        const target = requestedRefresh;
+        if (!(await loadContacts())) return false;
+        appliedRefresh = target;
+      }
+      return true;
+    });
+    const tracked = operation.finally(() => {
+      if (pendingRefresh === tracked) pendingRefresh = null;
+    });
+    pendingRefresh = tracked;
+    refreshChain = tracked.catch(() => false);
+    return tracked;
+  };
+
   createEffect(() => {
     if (!props.active) {
       controller?.abort();
@@ -149,11 +196,17 @@ export default function MailConversationContext(props: { mailboxId: string; conv
     }
     const conversationId = props.conversationId;
     if (loadedConversationId !== conversationId) {
+      loadGeneration += 1;
+      controller?.abort();
       loadedConversationId = conversationId;
       setContext(null);
       setLoaded(false);
+      refreshChain = Promise.resolve(true);
+      pendingRefresh = null;
+      requestedRefresh = 0;
+      appliedRefresh = 0;
     }
-    void loadContacts();
+    void queueContactsRefresh();
     onCleanup(() => controller?.abort());
   });
 
@@ -172,14 +225,16 @@ export default function MailConversationContext(props: { mailboxId: string; conv
         }) satisfies ContactLiveClientMessage,
       parse: parseContactLiveServerMessage,
       onMessage: (message, controls) => {
-        if (message.type === CONTACTS_LIVE_WS_TYPE.ready || message.type === CONTACTS_LIVE_WS_TYPE.event) {
-          void loadContacts().then((applied) => applied && controls.markApplied(message.payload.cursor));
+        if (message.type === CONTACTS_LIVE_WS_TYPE.ready) {
+          void refreshChain.then((applied) => applied && controls.markApplied(message.payload.cursor));
+        } else if (message.type === CONTACTS_LIVE_WS_TYPE.event) {
+          void queueContactsRefresh().then((applied) => applied && controls.markApplied(message.payload.cursor));
         } else if (message.type === CONTACTS_LIVE_WS_TYPE.scopeChanged) {
           controls.terminate({ code: "contacts_changed", message: "Contacts access changed" });
-          void loadContacts().finally(() => setLiveEpoch((epoch) => epoch + 1));
+          void queueContactsRefresh().finally(() => setLiveEpoch((epoch) => epoch + 1));
         } else if (message.type === CONTACTS_LIVE_WS_TYPE.revoked) {
           controls.terminate({ code: "contacts_revoked", message: "Contacts access was revoked" });
-          void loadContacts();
+          void queueContactsRefresh();
         }
       },
     });
@@ -272,6 +327,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
                                       conversationId={props.conversationId}
                                       bookId={contact.bookId}
                                       contactId={contact.contactId}
+                                      onOpenHref={props.onOpenHref}
                                     />
                                   </div>
                                 )}
@@ -286,7 +342,12 @@ export default function MailConversationContext(props: { mailboxId: string; conv
               </div>
               <Show when={context()?.contacts.status === "ready" ? context()!.contacts.nextCursor : null}>
                 {(cursor) => (
-                  <button type="button" class="btn-simple btn-xs mt-3" disabled={loading()} onClick={() => void loadContacts(cursor())}>
+                  <button
+                    type="button"
+                    class="btn-simple btn-xs mt-3"
+                    disabled={loading()}
+                    onClick={() => void queueContactsPage(cursor())}
+                  >
                     Load more
                   </button>
                 )}

@@ -8,7 +8,6 @@ import {
   prompts,
   Select,
   Switch,
-  TagsInput,
   TextInput,
   Tooltip,
   toast,
@@ -32,12 +31,14 @@ import type {
 } from "../../contracts";
 import { readApiError } from "./api-response";
 import { promptAttachmentLinkOptions } from "./attachment-link-ui";
+import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
+import { type MailDraftJournal, promoteMailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
+import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
 
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
 type UploadState = { file: File; progress: number; error: string | null; uploadId: string | null; draftId: string | null };
-type DraftJournal = { revision: number; content: DraftEditableContentInput };
 type LeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: "rejected" } | { kind: "unavailable" };
 
 type ComposerSeed = {
@@ -62,14 +63,6 @@ const intentIcon = (intent: DraftIntent): string =>
       : intent === "forward"
         ? "ti-arrow-forward-up"
         : "ti-send";
-
-const normalizeAddresses = (values: string[]) =>
-  values
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .map((address) => ({ name: null, address: address.toLowerCase() }));
-
-const addressStrings = (addresses: MailDraft["to"]): string[] => addresses.map((address) => address.address);
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
@@ -110,9 +103,9 @@ export default function MailComposer(props: {
   const [status, setStatus] = createSignal<ComposerStatus>("preparing");
   const [statusMessage, setStatusMessage] = createSignal("Preparing draft...");
   const [identityId, setIdentityId] = createSignal(props.initialDraft?.senderIdentityId ?? defaultIdentity()?.id ?? "");
-  const [to, setTo] = createSignal(props.initialDraft ? addressStrings(props.initialDraft.to) : (props.seed?.to ?? []));
-  const [cc, setCc] = createSignal(props.initialDraft ? addressStrings(props.initialDraft.cc) : (props.seed?.cc ?? []));
-  const [bcc, setBcc] = createSignal(props.initialDraft ? addressStrings(props.initialDraft.bcc) : []);
+  const [to, setTo] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.to) : (props.seed?.to ?? []));
+  const [cc, setCc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.cc) : (props.seed?.cc ?? []));
+  const [bcc, setBcc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.bcc) : []);
   const [subject, setSubject] = createSignal(props.initialDraft?.subject ?? props.seed?.subject ?? "");
   const [body, setBody] = createSignal(props.initialDraft?.body ?? props.seed?.body ?? "");
   const [format, setFormat] = createSignal<"plain" | "markdown">(props.initialDraft?.format ?? preferences.composeFormat);
@@ -129,12 +122,13 @@ export default function MailComposer(props: {
   const [initialized, setInitialized] = createSignal(false);
   const [handoffInProgress, setHandoffInProgress] = createSignal(false);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   let draftMutationQueue: Promise<void> = Promise.resolve();
   let initializePromise: Promise<MailDraft | null> | null = null;
   let disposed = false;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   let panePersistenceTimer: ReturnType<typeof setTimeout> | null = null;
+  const uploadControllers = new Map<File, AbortController>();
   let lastSavedContent = "";
   const pendingKey = pendingJournalKey(props.mailboxId, props.seed);
 
@@ -149,9 +143,9 @@ export default function MailComposer(props: {
 
   const content = (): DraftEditableContentInput => ({
     senderIdentityId: identityId(),
-    to: normalizeAddresses(to()),
-    cc: normalizeAddresses(cc()),
-    bcc: normalizeAddresses(bcc()),
+    to: parseMailRecipients(to()),
+    cc: parseMailRecipients(cc()),
+    bcc: parseMailRecipients(bcc()),
     subject: subject(),
     body: body(),
     format: format(),
@@ -182,7 +176,7 @@ export default function MailComposer(props: {
   );
 
   const stopHeartbeat = () => {
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (heartbeatTimer) clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
   };
 
@@ -275,9 +269,9 @@ export default function MailComposer(props: {
 
   const applyDraftContent = (value: MailDraft) => {
     setIdentityId(value.senderIdentityId);
-    setTo(addressStrings(value.to));
-    setCc(addressStrings(value.cc));
-    setBcc(addressStrings(value.bcc));
+    setTo(formatMailRecipients(value.to));
+    setCc(formatMailRecipients(value.cc));
+    setBcc(formatMailRecipients(value.bcc));
     setShowCc(Boolean(value.cc.length || value.bcc.length));
     setSubject(value.subject);
     setBody(value.body);
@@ -286,11 +280,13 @@ export default function MailComposer(props: {
 
   const startHeartbeat = () => {
     stopHeartbeat();
-    heartbeatTimer = setInterval(async () => {
+    heartbeatTimer = setTimeout(async () => {
+      heartbeatTimer = null;
       const activeDraft = draft();
       const activeLease = lease();
       if (!activeDraft || !activeLease) return;
       const heartbeat = await heartbeatLease(activeDraft, activeLease);
+      if (disposed) return;
       if (heartbeat.kind === "unavailable") {
         stopHeartbeat();
         setStatus("readonly");
@@ -305,6 +301,7 @@ export default function MailComposer(props: {
         return;
       }
       setLease(heartbeat.lease);
+      startHeartbeat();
     }, 10_000);
   };
 
@@ -332,24 +329,17 @@ export default function MailComposer(props: {
   };
 
   const recoverJournal = (key: string, minimumRevision: number): boolean => {
-    const stored = localStorage.getItem(key);
-    if (!stored) return false;
-    try {
-      const journal = JSON.parse(stored) as DraftJournal;
-      if (journal.revision < minimumRevision) return false;
-      setIdentityId(journal.content.senderIdentityId);
-      setTo(addressStrings(journal.content.to));
-      setCc(addressStrings(journal.content.cc));
-      setBcc(addressStrings(journal.content.bcc));
-      setShowCc(Boolean(journal.content.cc.length || journal.content.bcc.length));
-      setSubject(journal.content.subject);
-      setBody(journal.content.body);
-      setFormat(journal.content.format);
-      return true;
-    } catch {
-      localStorage.removeItem(key);
-      return false;
-    }
+    const journal = readMailDraftJournal(localStorage, key);
+    if (!journal || journal.revision < minimumRevision) return false;
+    setIdentityId(journal.content.senderIdentityId);
+    setTo(formatMailRecipients(journal.content.to));
+    setCc(formatMailRecipients(journal.content.cc));
+    setBcc(formatMailRecipients(journal.content.bcc));
+    setShowCc(Boolean(journal.content.cc.length || journal.content.bcc.length));
+    setSubject(journal.content.subject);
+    setBody(journal.content.body);
+    setFormat(journal.content.format);
+    return true;
   };
 
   const initialize = async (): Promise<MailDraft | null> => {
@@ -359,7 +349,6 @@ export default function MailComposer(props: {
       return null;
     }
     let currentDraft = draft();
-    const existingDraft = Boolean(currentDraft);
     if (!currentDraft) {
       setStatus("preparing");
       setStatusMessage("Preparing draft...");
@@ -390,9 +379,26 @@ export default function MailComposer(props: {
           setBody([currentContent.body.trimEnd(), signature].filter(Boolean).join("\n\n"));
         }
       }
+      const serverContent: DraftEditableContentInput = {
+        senderIdentityId: currentDraft.senderIdentityId,
+        to: currentDraft.to,
+        cc: currentDraft.cc,
+        bcc: currentDraft.bcc,
+        subject: currentDraft.subject,
+        body: currentDraft.body,
+        format: currentDraft.format,
+      };
+      promoteMailDraftJournal({
+        storage: localStorage,
+        pendingKey,
+        draftKey: journalKey(props.mailboxId, currentDraft.id),
+        revision: currentDraft.revision,
+        fallbackContent: content(),
+        serverContent,
+      });
     }
     if (disposed) return null;
-    const recovered = existingDraft && recoverJournal(journalKey(props.mailboxId, currentDraft.id), currentDraft.revision);
+    const recovered = recoverJournal(journalKey(props.mailboxId, currentDraft.id), currentDraft.revision);
     const acquired = await acquireLease(currentDraft);
     if (disposed) return null;
     lastSavedContent = JSON.stringify({
@@ -406,7 +412,6 @@ export default function MailComposer(props: {
     });
     setInitialized(true);
     if (acquired) {
-      localStorage.removeItem(pendingKey);
       setStatus("saved");
       setStatusMessage("");
       if (recovered) toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" });
@@ -531,7 +536,7 @@ export default function MailComposer(props: {
     if (!initialized() || serialized === lastSavedContent) return;
     localStorage.setItem(
       currentDraft ? journalKey(props.mailboxId, currentDraft.id) : pendingKey,
-      JSON.stringify({ revision: currentDraft?.revision ?? 0, content: content() } satisfies DraftJournal),
+      JSON.stringify({ revision: currentDraft?.revision ?? 0, content: content() } satisfies MailDraftJournal),
     );
     if (!currentDraft) beginDraft();
     if (!lease()) return;
@@ -584,6 +589,8 @@ export default function MailComposer(props: {
 
   onCleanup(() => {
     disposed = true;
+    for (const controller of uploadControllers.values()) controller.abort();
+    uploadControllers.clear();
     if (typeof window === "undefined") return;
     window.removeEventListener("pagehide", onPageHide);
     window.removeEventListener("pageshow", onPageShow);
@@ -598,44 +605,59 @@ export default function MailComposer(props: {
   });
 
   const uploadFile = async (file: File) => {
-    const saved = await persist();
-    if (!saved) throw new Error("Save the draft before attaching files.");
+    const controller = new AbortController();
+    uploadControllers.get(file)?.abort();
+    uploadControllers.set(file, controller);
     setUploads((current) => [
       ...current.filter((entry) => entry.file !== file),
-      { file, progress: 0, error: null, uploadId: null, draftId: saved.id },
+      { file, progress: 0, error: null, uploadId: null, draftId: null },
     ]);
-    const createResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"].$post({
-      param: { mailboxId: props.mailboxId, draftId: saved.id },
-      json: { filename: file.name, contentType: file.type || "application/octet-stream", byteLength: file.size },
-    });
-    if (!createResponse.ok) throw new Error(await readApiError(createResponse, `Failed to attach ${file.name}`));
-    const upload = await createResponse.json();
-    setUploads((current) => current.map((entry) => (entry.file === file ? { ...entry, uploadId: upload.id, draftId: saved.id } : entry)));
-    for (let offset = 0; offset < file.size; offset += upload.chunkSize) {
-      const chunk = file.slice(offset, Math.min(file.size, offset + upload.chunkSize));
-      const response = await fetch(
-        `/api/mail/mailboxes/${props.mailboxId}/drafts/${saved.id}/attachment-uploads/${upload.id}?offset=${offset}`,
-        { method: "PATCH", headers: { "Content-Type": "application/octet-stream" }, body: chunk },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, `Failed to upload ${file.name}`));
-      const progress = file.size === 0 ? 100 : Math.round((Math.min(file.size, offset + chunk.size) / file.size) * 100);
-      setUploads((current) => current.map((entry) => (entry.file === file ? { ...entry, progress } : entry)));
-    }
-    await serializeDraftMutation(async () => {
-      const latest = draft() ?? saved;
-      const finalizeResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"][":uploadId"].finalize.$post(
+    try {
+      const saved = await persist();
+      if (!saved) throw new Error("Save the draft before attaching files.");
+      const createResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"].$post(
         {
-          param: { mailboxId: props.mailboxId, draftId: saved.id, uploadId: upload.id },
-          json: { expectedRevision: latest.revision },
+          param: { mailboxId: props.mailboxId, draftId: saved.id },
+          json: { filename: file.name, contentType: file.type || "application/octet-stream", byteLength: file.size },
         },
+        { init: { signal: controller.signal } },
       );
-      if (!finalizeResponse.ok) throw new Error(await readApiError(finalizeResponse, `Failed to finalize ${file.name}`));
-      setDraft(await finalizeResponse.json());
-    });
-    setUploads((current) => current.filter((entry) => entry.file !== file));
+      if (!createResponse.ok) throw new Error(await readApiError(createResponse, `Failed to attach ${file.name}`));
+      const upload = await createResponse.json();
+      setUploads((current) => current.map((entry) => (entry.file === file ? { ...entry, uploadId: upload.id, draftId: saved.id } : entry)));
+      for (let offset = 0; offset < file.size; offset += upload.chunkSize) {
+        const chunk = file.slice(offset, Math.min(file.size, offset + upload.chunkSize));
+        const response = await fetch(
+          `/api/mail/mailboxes/${props.mailboxId}/drafts/${saved.id}/attachment-uploads/${upload.id}?offset=${offset}`,
+          { method: "PATCH", headers: { "Content-Type": "application/octet-stream" }, body: chunk, signal: controller.signal },
+        );
+        if (!response.ok) throw new Error(await readApiError(response, `Failed to upload ${file.name}`));
+        const progress = file.size === 0 ? 100 : Math.round((Math.min(file.size, offset + chunk.size) / file.size) * 100);
+        setUploads((current) => current.map((entry) => (entry.file === file ? { ...entry, progress } : entry)));
+      }
+      await serializeDraftMutation(async () => {
+        const latest = draft() ?? saved;
+        const finalizeResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"][
+          ":uploadId"
+        ].finalize.$post(
+          {
+            param: { mailboxId: props.mailboxId, draftId: saved.id, uploadId: upload.id },
+            json: { expectedRevision: latest.revision },
+          },
+          { init: { signal: controller.signal } },
+        );
+        if (!finalizeResponse.ok) throw new Error(await readApiError(finalizeResponse, `Failed to finalize ${file.name}`));
+        setDraft(await finalizeResponse.json());
+      });
+      setUploads((current) => current.filter((entry) => entry.file !== file));
+    } finally {
+      if (uploadControllers.get(file) === controller) uploadControllers.delete(file);
+    }
   };
 
   const cancelUpload = async (upload: UploadState) => {
+    uploadControllers.get(upload.file)?.abort();
+    uploadControllers.delete(upload.file);
     if (upload.uploadId && upload.draftId) {
       const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"][":uploadId"].$delete({
         param: { mailboxId: props.mailboxId, draftId: upload.draftId, uploadId: upload.uploadId },
@@ -659,6 +681,7 @@ export default function MailComposer(props: {
       try {
         await uploadFile(file);
       } catch (error) {
+        if (disposed || (error instanceof DOMException && error.name === "AbortError")) return;
         setUploads((current) =>
           current.map((entry) =>
             entry.file === file ? { ...entry, error: error instanceof Error ? error.message : "Upload failed" } : entry,
@@ -764,6 +787,7 @@ export default function MailComposer(props: {
   };
 
   const discard = async () => {
+    if (uploads().length > 0) return await prompts.error("Cancel attachment uploads before discarding this draft.");
     const currentDraft = draft();
     if (!currentDraft) return props.onClose?.();
     const confirmed = await prompts.confirm("This removes the shared draft for everyone with mailbox access.", {
@@ -782,19 +806,42 @@ export default function MailComposer(props: {
     if (props.surface === "full") navigateTo(props.returnHref);
   };
 
+  const closeComposer = async () => {
+    if (handoffInProgress()) return;
+    if (uploads().length > 0) {
+      return await prompts.error("Finish or cancel attachment uploads before closing this draft.");
+    }
+    const hasDraftWork = Boolean(draft() || initializePromise || localStorage.getItem(pendingKey));
+    if (!hasDraftWork) return props.onClose?.();
+    if (draft() && !lease() && serializedContent() === lastSavedContent) return props.onClose?.();
+    setHandoffInProgress(true);
+    stopScheduledSave();
+    try {
+      const currentDraft = await persist();
+      if (!currentDraft) throw new Error(statusMessage() || "Draft could not be saved");
+      await releaseLease(currentDraft);
+      props.onClose?.();
+    } catch (error) {
+      setHandoffInProgress(false);
+      await prompts.error(error instanceof Error ? error.message : "Draft could not be closed safely");
+    }
+  };
+
   const releaseLease = async (currentDraft: MailDraft): Promise<void> => {
     const currentLease = lease();
     if (!currentLease) return;
     stopHeartbeat();
-    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$delete({
-      param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-      json: { token: currentLease.token },
-    });
-    if (!response.ok) {
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$delete({
+        param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
+        json: { token: currentLease.token },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not transfer draft editing"));
+      setLease(null);
+    } catch (error) {
       startHeartbeat();
-      throw new Error(await readApiError(response, "Could not transfer draft editing"));
+      throw error;
     }
-    setLease(null);
   };
 
   const draftHref = (draftId: string, popout = false) =>
@@ -802,6 +849,11 @@ export default function MailComposer(props: {
 
   const handoffTo = async (href: string | ((draftId: string) => string), popup?: Window): Promise<void> => {
     if (handoffInProgress()) return;
+    if (uploads().length > 0) {
+      popup?.close();
+      await prompts.error("Finish or cancel attachment uploads before moving this draft.");
+      return;
+    }
     setHandoffInProgress(true);
     stopScheduledSave();
     let releasedDraft: MailDraft | null = null;
@@ -1027,7 +1079,13 @@ export default function MailComposer(props: {
                 <i class="ti ti-maximize" aria-hidden="true" />
               </button>
             </Tooltip>
-            <button type="button" class="icon-btn" aria-label="Close composer" onClick={props.onClose}>
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="Close composer"
+              disabled={handoffInProgress()}
+              onClick={() => void closeComposer()}
+            >
               <i class="ti ti-x" aria-hidden="true" />
             </button>
           </Show>
@@ -1076,7 +1134,7 @@ export default function MailComposer(props: {
           <span class="text-dimmed">To</span>
           <div class="flex min-w-0 items-center gap-2">
             <div class="min-w-0 flex-1">
-              <TagsInput
+              <MailRecipientInput
                 placeholder="Recipients"
                 value={to}
                 onChange={(value) => {
@@ -1094,7 +1152,7 @@ export default function MailComposer(props: {
           </div>
           <Show when={showCc()}>
             <span class="text-dimmed">Cc</span>
-            <TagsInput
+            <MailRecipientInput
               placeholder="Cc recipients"
               value={cc}
               onChange={(value) => {
@@ -1104,7 +1162,7 @@ export default function MailComposer(props: {
               disabled={!editable()}
             />
             <span class="text-dimmed">Bcc</span>
-            <TagsInput
+            <MailRecipientInput
               placeholder="Bcc recipients"
               value={bcc}
               onChange={(value) => {
