@@ -72,7 +72,6 @@ const loadConversationProjection = async (
               SELECT 1
               FROM mail.sender_identities identity
               WHERE identity.mailbox_id = conversation.mailbox_id
-                AND identity.status <> 'disabled'
                 AND address.normalized_email IN (
                   LOWER(BTRIM(identity.from_address)),
                   LOWER(BTRIM(COALESCE(identity.reply_to, '')))

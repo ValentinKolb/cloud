@@ -160,9 +160,9 @@ suite("mail manual conversation threading", () => {
       `;
       const [conversation] = await sql<{ id: string }[]>`
         INSERT INTO mail.conversations (
-          mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at, response_needed
+          mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at
         ) VALUES (
-          ${mailboxId}::uuid, ${params.subject}, 'Customer', ${params.date}, ${params.date}, true
+          ${mailboxId}::uuid, ${params.subject}, 'Customer', ${params.date}, ${params.date}
         ) RETURNING id
       `;
       await sql`
@@ -772,19 +772,23 @@ suite("mail manual conversation threading", () => {
     const target = conversations.find((conversation) => conversation.subject === "Reassign target")!;
     const contents = await sql<{ id: string; subject: string }[]>`
       INSERT INTO mail.message_contents (
-        mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
+        mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status,
+        in_reply_to, reference_ids, selected_headers
       ) VALUES
         (
           ${mailboxId}::uuid, ${`<reassign-source-a-${suffix}@example.com>`}, 'Reassign source', 'reassign source',
-          '2026-07-13T12:10:00.000Z', 128, ${"1".repeat(64)}, 'complete'
+          '2026-07-13T12:10:00.000Z', 128, ${"1".repeat(64)}, 'complete', NULL, '{}'::text[], '{}'::jsonb
         ),
         (
           ${mailboxId}::uuid, ${`<reassign-source-b-${suffix}@example.com>`}, 'Reassign source', 'reassign source',
-          '2026-07-13T12:20:00.000Z', 128, ${"2".repeat(64)}, 'complete'
+          '2026-07-13T12:20:00.000Z', 128, ${"2".repeat(64)}, 'complete', NULL, '{}'::text[], '{}'::jsonb
         ),
         (
           ${mailboxId}::uuid, ${`<reassign-target-${suffix}@example.com>`}, 'Reassign target', 'reassign target',
-          '2026-07-13T12:30:00.000Z', 128, ${"3".repeat(64)}, 'complete'
+          '2026-07-13T12:30:00.000Z', 128, ${"3".repeat(64)}, 'complete',
+          ${`<reassign-source-a-${suffix}@example.com>`},
+          ARRAY[${`<reassign-source-a-${suffix}@example.com>`}]::text[],
+          ${{ autoSubmitted: "no" }}::jsonb
         )
       RETURNING id, subject
     `;
@@ -796,6 +800,10 @@ suite("mail manual conversation threading", () => {
         (${source.id}::uuid, ${sourceMessages[0]!.id}::uuid, 1, 'headers'),
         (${source.id}::uuid, ${sourceMessages[1]!.id}::uuid, 2, 'headers'),
         (${target.id}::uuid, ${targetMessage.id}::uuid, 1, 'headers')
+    `;
+    await sql`
+      INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
+      VALUES (${targetMessage.id}::uuid, 'from', 0, 'Support', 'support@example.com', 'support@example.com')
     `;
 
     const denied = await reassignConversationMessage({
@@ -838,13 +846,14 @@ suite("mail manual conversation threading", () => {
       source: { id: source.id, revision: 2, messageCount: 1 },
       target: { id: target.id, revision: 2, messageCount: 2 },
     });
-    const [projection] = await sql<{ conversation_id: string; reason: string }[]>`
-      SELECT link.conversation_id::text, override.reason
+    const [projection] = await sql<{ conversation_id: string; reason: string; work_status: string }[]>`
+      SELECT link.conversation_id::text, override.reason, conversation.work_status
       FROM mail.conversation_messages link
       JOIN mail.conversation_thread_overrides override ON override.message_id = link.message_id
+      JOIN mail.conversations conversation ON conversation.id = link.conversation_id
       WHERE link.message_id = ${sourceMessages[1]!.id}::uuid
     `;
-    expect(projection).toEqual({ conversation_id: target.id, reason: "merge" });
+    expect(projection).toEqual({ conversation_id: target.id, reason: "merge", work_status: "waiting" });
   });
 
   test("rolls back a split when a selected message disappears after validation", async () => {
@@ -989,7 +998,7 @@ suite("mail manual conversation threading", () => {
     if (!link) throw new Error("Verified projection fixture was not threaded");
     await sql`
       UPDATE mail.conversations
-      SET work_status = 'done', response_needed = false, revision = revision + 1
+      SET work_status = 'done', revision = revision + 1
       WHERE id = ${link.conversation_id}::uuid
     `;
 
@@ -1014,12 +1023,12 @@ suite("mail manual conversation threading", () => {
         expectedSize: newerSource.byteLength + 1,
       }),
     ).rejects.toMatchObject({ code: "MESSAGE_SIZE_MISMATCH" });
-    const [pendingProjection] = await sql<{ work_status: string; response_needed: boolean; revision: number }[]>`
-      SELECT work_status, response_needed, revision::int AS revision
+    const [pendingProjection] = await sql<{ work_status: string; revision: number }[]>`
+      SELECT work_status, revision::int AS revision
       FROM mail.conversations
       WHERE id = ${link.conversation_id}::uuid
     `;
-    expect(pendingProjection).toEqual({ work_status: "done", response_needed: false, revision: 2 });
+    expect(pendingProjection).toEqual({ work_status: "done", revision: 2 });
 
     const olderSource = Buffer.from(
       [
@@ -1036,35 +1045,32 @@ suite("mail manual conversation threading", () => {
     const [verifiedProjection] = await sql<
       {
         work_status: string;
-        response_needed: boolean;
         revision: number;
         latest_message_at: Date | string;
         newer_hydration_status: string;
-        reopen_events: number;
+        state_events: number;
       }[]
     >`
       SELECT
         conversation.work_status,
-        conversation.response_needed,
         conversation.revision::int AS revision,
         conversation.latest_message_at,
         newer.hydration_status AS newer_hydration_status,
         (
           SELECT COUNT(*)::int
           FROM mail.activity_events activity
-          WHERE activity.action = 'conversation.reopened'
+          WHERE activity.action = 'conversation.work_state_changed'
             AND activity.metadata ->> 'messageId' = ${olderId}
-        ) AS reopen_events
+        ) AS state_events
       FROM mail.conversations conversation
       JOIN mail.message_contents newer ON newer.id = ${newerId}::uuid
       WHERE conversation.id = ${link.conversation_id}::uuid
     `;
     expect(verifiedProjection).toMatchObject({
-      work_status: "open",
-      response_needed: true,
+      work_status: "needs_action",
       revision: 3,
       newer_hydration_status: "failed",
-      reopen_events: 1,
+      state_events: 1,
     });
     expect(new Date(verifiedProjection!.latest_message_at).toISOString()).toBe(olderDate.toISOString());
   }, 30_000);
@@ -1219,7 +1225,7 @@ suite("mail manual conversation threading", () => {
     const preservedSnooze = new Date(Date.now() + 60 * 60_000).toISOString();
     await sql`
       UPDATE mail.conversations
-      SET work_status = 'waiting', response_needed = false, snoozed_until = ${preservedSnooze}::timestamptz, revision = revision + 1
+      SET work_status = 'waiting', snoozed_until = ${preservedSnooze}::timestamptz, revision = revision + 1
       WHERE id = ${canonicalLink.conversation_id}::uuid
     `;
 
@@ -1231,12 +1237,12 @@ suite("mail manual conversation threading", () => {
       message: envelope("6"),
     });
     expect(resetId).not.toBe(canonicalId);
-    const [stateBeforeHydration] = await sql<{ work_status: string; response_needed: boolean; snoozed_until: Date | string | null }[]>`
-      SELECT work_status, response_needed, snoozed_until
+    const [stateBeforeHydration] = await sql<{ work_status: string; snoozed_until: Date | string | null }[]>`
+      SELECT work_status, snoozed_until
       FROM mail.conversations
       WHERE id = ${canonicalLink.conversation_id}::uuid
     `;
-    expect(stateBeforeHydration).toMatchObject({ work_status: "waiting", response_needed: false });
+    expect(stateBeforeHydration).toMatchObject({ work_status: "waiting" });
     expect(new Date(stateBeforeHydration!.snoozed_until!).toISOString()).toBe(preservedSnooze);
     const hydrated = await hydrateMessageFromSource({
       messageId: resetId,
@@ -1251,9 +1257,8 @@ suite("mail manual conversation threading", () => {
         links: number;
         override_conversation_id: string;
         work_status: string;
-        response_needed: boolean;
         snoozed_until: Date | string | null;
-        reopen_events: number;
+        state_events: number;
       }[]
     >`
       SELECT
@@ -1266,14 +1271,13 @@ suite("mail manual conversation threading", () => {
           WHERE message_id = ${canonicalId}::uuid
         ) AS override_conversation_id,
         conversation.work_status,
-        conversation.response_needed,
         conversation.snoozed_until,
         (
           SELECT COUNT(*)::int
           FROM mail.activity_events activity
-          WHERE activity.action = 'conversation.reopened'
+          WHERE activity.action = 'conversation.work_state_changed'
             AND activity.metadata ->> 'messageId' = ${resetId}
-        ) AS reopen_events
+        ) AS state_events
       FROM mail.conversations conversation
       WHERE conversation.id = ${canonicalLink.conversation_id}::uuid
     `;
@@ -1283,8 +1287,7 @@ suite("mail manual conversation threading", () => {
       links: 1,
       override_conversation_id: canonicalLink.conversation_id,
       work_status: "waiting",
-      response_needed: false,
-      reopen_events: 0,
+      state_events: 0,
     });
     expect(new Date(projection!.snoozed_until!).toISOString()).toBe(preservedSnooze);
 
@@ -1299,7 +1302,7 @@ suite("mail manual conversation threading", () => {
     const [manualConversation] = await sql<{ id: string }[]>`
       INSERT INTO mail.conversations (
         mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at,
-        work_status, response_needed, snoozed_until
+        work_status, snoozed_until
       ) VALUES (
         ${mailboxId}::uuid,
         'Manually separated exact copy',
@@ -1307,7 +1310,6 @@ suite("mail manual conversation threading", () => {
         ${date},
         ${date},
         'waiting',
-        false,
         ${incompatibleSnooze}::timestamptz
       )
       RETURNING id
@@ -1339,10 +1341,9 @@ suite("mail manual conversation threading", () => {
       {
         contents: number;
         work_status: string;
-        response_needed: boolean;
         snoozed_until: Date | string | null;
         revision: number;
-        reopen_events: number;
+        state_events: number;
       }[]
     >`
       SELECT
@@ -1352,24 +1353,22 @@ suite("mail manual conversation threading", () => {
           WHERE mailbox_id = ${mailboxId}::uuid AND message_id = ${messageId}
         ) AS contents,
         conversation.work_status,
-        conversation.response_needed,
         conversation.snoozed_until,
         conversation.revision::int AS revision,
         (
           SELECT COUNT(*)::int
           FROM mail.activity_events activity
-          WHERE activity.action = 'conversation.reopened'
+          WHERE activity.action = 'conversation.work_state_changed'
             AND activity.metadata ->> 'messageId' = ${incompatibleResetId}
-        ) AS reopen_events
+        ) AS state_events
       FROM mail.conversations conversation
       WHERE conversation.id = ${manualConversation!.id}::uuid
     `;
     expect(incompatibleProjection).toMatchObject({
       contents: 2,
       work_status: "waiting",
-      response_needed: false,
       revision: 1,
-      reopen_events: 0,
+      state_events: 0,
     });
     expect(new Date(incompatibleProjection!.snoozed_until!).toISOString()).toBe(incompatibleSnooze);
 
@@ -1404,7 +1403,7 @@ suite("mail manual conversation threading", () => {
     });
     expect(thirdHydration).toMatchObject({ status: "deduplicated", canonicalMessageId: incompatibleResetId });
     const [thirdProjection] = await sql<
-      { contents: number; refs: number; work_status: string; response_needed: boolean; revision: number; reopen_events: number }[]
+      { contents: number; refs: number; work_status: string; revision: number; state_events: number }[]
     >`
       SELECT
         (
@@ -1418,14 +1417,13 @@ suite("mail manual conversation threading", () => {
           WHERE message_id = ${incompatibleResetId}::uuid
         ) AS refs,
         conversation.work_status,
-        conversation.response_needed,
         conversation.revision::int AS revision,
         (
           SELECT COUNT(*)::int
           FROM mail.activity_events activity
-          WHERE activity.action = 'conversation.reopened'
+          WHERE activity.action = 'conversation.work_state_changed'
             AND activity.metadata ->> 'messageId' = ${thirdResetId}
-        ) AS reopen_events
+        ) AS state_events
       FROM mail.conversations conversation
       WHERE conversation.id = ${manualConversation!.id}::uuid
     `;
@@ -1433,9 +1431,8 @@ suite("mail manual conversation threading", () => {
       contents: 2,
       refs: 2,
       work_status: "waiting",
-      response_needed: false,
       revision: 1,
-      reopen_events: 0,
+      state_events: 0,
     });
   }, 30_000);
 });

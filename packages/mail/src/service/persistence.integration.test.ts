@@ -372,15 +372,15 @@ suite("mail PostgreSQL foundation", () => {
       message: olderOutboundEnvelope,
     });
     await hydrateOrderingMessage(olderOutboundId, olderOutboundEnvelope);
-    const [orderedConversation] = await sql<{ id: string; response_needed: boolean; message_count: number }[]>`
-      SELECT c.id, c.response_needed, COUNT(cm.message_id)::int AS message_count
+    const [orderedConversation] = await sql<{ id: string; work_status: string; message_count: number }[]>`
+      SELECT c.id, c.work_status, COUNT(cm.message_id)::int AS message_count
       FROM mail.conversations c
       JOIN mail.conversation_messages latest_link ON latest_link.conversation_id = c.id
       JOIN mail.conversation_messages cm ON cm.conversation_id = c.id
       WHERE latest_link.message_id = ${latestInboundId}::uuid
       GROUP BY c.id
     `;
-    expect(orderedConversation).toMatchObject({ response_needed: true, message_count: 2 });
+    expect(orderedConversation).toMatchObject({ work_status: "needs_action", message_count: 2 });
     const newerOutboundEnvelope = orderingEnvelope({
       uid: 11,
       messageId: "<ordering-newer-outbound@example.com>",
@@ -395,14 +395,14 @@ suite("mail PostgreSQL foundation", () => {
       message: newerOutboundEnvelope,
     });
     await hydrateOrderingMessage(newerOutboundId, newerOutboundEnvelope);
-    const [answeredConversation] = await sql<{ response_needed: boolean; message_count: number }[]>`
-      SELECT c.response_needed, COUNT(cm.message_id)::int AS message_count
+    const [answeredConversation] = await sql<{ work_status: string; message_count: number }[]>`
+      SELECT c.work_status, COUNT(cm.message_id)::int AS message_count
       FROM mail.conversations c
       JOIN mail.conversation_messages cm ON cm.conversation_id = c.id
       WHERE c.id = ${orderedConversation!.id}::uuid
       GROUP BY c.id
     `;
-    expect(answeredConversation).toEqual({ response_needed: false, message_count: 3 });
+    expect(answeredConversation).toEqual({ work_status: "needs_action", message_count: 3 });
     const unreadConversations = await listConversations({
       context,
       mailboxId: mailbox.data.id,
@@ -1295,9 +1295,9 @@ suite("mail PostgreSQL foundation", () => {
     `;
     const [attachmentConversation] = await sql<{ id: string }[]>`
       INSERT INTO mail.conversations (
-        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at, response_needed
+        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at
       ) VALUES (
-        ${mailbox.data.id}::uuid, 'Searchable subject', 'Alice Fixture', now(), now(), true
+        ${mailbox.data.id}::uuid, 'Searchable subject', 'Alice Fixture', now(), now()
       )
       RETURNING id
     `;
@@ -1309,8 +1309,7 @@ suite("mail PostgreSQL foundation", () => {
       UPDATE mail.conversations
       SET
         work_status = 'waiting',
-        assignee_user_id = ${context.actor.kind === "user" ? context.actor.user.id : null}::uuid,
-        response_needed = true
+        assignee_user_id = ${context.actor.kind === "user" ? context.actor.user.id : null}::uuid
       WHERE id = ${attachmentConversation!.id}::uuid
     `;
     const [secondMatchingMessage] = await sql<{ id: string }[]>`
@@ -1381,7 +1380,6 @@ suite("mail PostgreSQL foundation", () => {
         participantLabels: ["Alice Fixture", "Bob Fixture"],
         workStatus: "waiting",
         assigneeUserId: context.actor.kind === "user" ? context.actor.user.id : null,
-        responseNeeded: true,
         unread: true,
         messageCount: 2,
         sourceFolderId: folder!.id,

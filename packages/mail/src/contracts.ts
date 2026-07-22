@@ -511,11 +511,8 @@ export const mailSearchSizeSchema = z
 export const mailSearchWorkStatusSchema = z
   .object({
     type: z.literal("work_status"),
-    value: z.enum(["open", "waiting", "done"]),
+    value: z.enum(["needs_action", "waiting", "done"]),
   })
-  .strict();
-export const mailSearchResponseNeededSchema = z
-  .object({ type: z.literal("response_needed"), value: z.boolean() })
   .strict();
 export const mailSearchAssigneeSchema = z
   .object({ type: z.literal("assignee"), userId: z.string().uuid().nullable() })
@@ -590,7 +587,6 @@ export type MailSearchExpression =
   | z.infer<typeof mailSearchDateSchema>
   | z.infer<typeof mailSearchSizeSchema>
   | z.infer<typeof mailSearchWorkStatusSchema>
-  | z.infer<typeof mailSearchResponseNeededSchema>
   | z.infer<typeof mailSearchAssigneeSchema>
   | z.infer<typeof mailSearchSnoozedSchema>
   | z.infer<typeof mailSearchAllSchema>
@@ -607,7 +603,6 @@ const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> =
       mailSearchDateSchema,
       mailSearchSizeSchema,
       mailSearchWorkStatusSchema,
-      mailSearchResponseNeededSchema,
       mailSearchAssigneeSchema,
       mailSearchSnoozedSchema,
       mailSearchAllSchema,
@@ -694,16 +689,7 @@ const mailSearchExpressionOpenApi = {
       type: "object",
       properties: {
         type: { const: "work_status" },
-        value: { type: "string", enum: ["open", "waiting", "done"] },
-      },
-      required: ["type", "value"],
-      additionalProperties: false,
-    },
-    {
-      type: "object",
-      properties: {
-        type: { const: "response_needed" },
-        value: { type: "boolean" },
+        value: { type: "string", enum: ["needs_action", "waiting", "done"] },
       },
       required: ["type", "value"],
       additionalProperties: false,
@@ -1275,7 +1261,7 @@ export const actorRefSchema = z.discriminatedUnion("kind", [
 ]);
 export type ActorRef = z.infer<typeof actorRefSchema>;
 
-export const conversationWorkStatusSchema = z.enum(["open", "waiting", "done"]);
+export const conversationWorkStatusSchema = z.enum(["needs_action", "waiting", "done"]);
 export type ConversationWorkStatus = z.infer<
   typeof conversationWorkStatusSchema
 >;
@@ -1669,7 +1655,7 @@ export type MailWorkflowRunTarget = {
 };
 
 export const conversationViewSchema = z.enum([
-  "inbox",
+  "needs_action",
   "mine",
   "unassigned",
   "waiting",
@@ -1729,14 +1715,12 @@ export const updateConversationCollaborationSchema = z
     expectedRevision: z.number().int().positive(),
     assigneeUserId: z.string().uuid().nullable().optional(),
     workStatus: conversationWorkStatusSchema.optional(),
-    responseNeeded: z.boolean().optional(),
     snoozedUntil: z.string().datetime().nullable().optional(),
   })
   .refine(
     (value) =>
       value.assigneeUserId !== undefined ||
       value.workStatus !== undefined ||
-      value.responseNeeded !== undefined ||
       value.snoozedUntil !== undefined,
     "At least one collaboration field is required"
   );

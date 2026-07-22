@@ -390,8 +390,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
       latest_outbound_at TIMESTAMPTZ,
       latest_message_at TIMESTAMPTZ NOT NULL,
       assignee_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-      work_status TEXT NOT NULL DEFAULT 'open' CHECK (work_status IN ('open', 'waiting', 'done')),
-      response_needed BOOLEAN NOT NULL DEFAULT false,
+      work_status TEXT NOT NULL DEFAULT 'needs_action' CHECK (work_status IN ('needs_action', 'waiting', 'done')),
       snoozed_until TIMESTAMPTZ,
       revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3780,6 +3779,74 @@ const removeConversationFollowersAndMentions = async (db: SqlClient): Promise<vo
   `;
 };
 
+const unifyConversationWorkStates = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.conversations DROP CONSTRAINT IF EXISTS conversations_work_status_check`;
+  await db`ALTER TABLE mail.conversations ALTER COLUMN work_status DROP DEFAULT`;
+  await db`UPDATE mail.conversations SET work_status = 'needs_action' WHERE work_status = 'open'`;
+  await db`ALTER TABLE mail.conversations ALTER COLUMN work_status SET DEFAULT 'needs_action'`;
+  await db`
+    ALTER TABLE mail.conversations
+    ADD CONSTRAINT conversations_work_status_check CHECK (work_status IN ('needs_action', 'waiting', 'done'))
+  `;
+  await db`ALTER TABLE mail.conversations DROP COLUMN IF EXISTS response_needed`;
+  await db`
+    CREATE INDEX IF NOT EXISTS conversations_due_snooze_idx
+    ON mail.conversations (snoozed_until, id)
+    WHERE snoozed_until IS NOT NULL
+  `;
+
+  await db`
+    UPDATE mail.activity_events
+    SET metadata = jsonb_strip_nulls(
+      jsonb_set(
+        jsonb_set(
+          metadata #- '{before,responseNeeded}' #- '{after,responseNeeded}',
+          '{before,workStatus}',
+          CASE WHEN metadata #>> '{before,workStatus}' = 'open' THEN '"needs_action"'::jsonb
+               ELSE COALESCE(metadata #> '{before,workStatus}', 'null'::jsonb) END,
+          true
+        ),
+        '{after,workStatus}',
+        CASE WHEN metadata #>> '{after,workStatus}' = 'open' THEN '"needs_action"'::jsonb
+             ELSE COALESCE(metadata #> '{after,workStatus}', 'null'::jsonb) END,
+        true
+      )
+    )
+    WHERE metadata::text LIKE '%responseNeeded%' OR metadata::text LIKE '%"workStatus": "open"%'
+  `;
+
+  await canonicalizeSavedConversationViews(db);
+  await db`
+    UPDATE mail.workflow_activations activation
+    SET
+      enabled = false,
+      diagnostics = activation.diagnostics || jsonb_build_array(jsonb_build_object(
+        'severity', 'error',
+        'code', 'removed_conversation_state',
+        'message', 'This workflow used a removed conversation-state field or value. Edit and reactivate it.'
+      )),
+      updated_at = now()
+    FROM mail.workflow_versions version
+    WHERE activation.workflow_version_id = version.id
+      AND (
+        version.source ~ '(^|[[:space:]])(response_needed|responseNeeded)([[:space:]:]|$)|(^|[[:space:]])(work_status|workStatus)[[:space:]]*:[[:space:]]*open([[:space:]#]|$)|conversation[.]status'
+        OR version.ir::text ~ '"(response_needed|responseNeeded)"|"(work_status|workStatus)"[[:space:]]*:[[:space:]]*"open"|conversation[.]status'
+        OR version.bound_plan::text ~ '"(response_needed|responseNeeded)"|"(work_status|workStatus)"[[:space:]]*:[[:space:]]*"open"|conversation[.]status'
+      )
+  `;
+  await db`
+    UPDATE mail.workflows workflow
+    SET active_version_id = NULL, updated_at = now()
+    FROM mail.workflow_versions version
+    WHERE workflow.active_version_id = version.id
+      AND (
+        version.source ~ '(^|[[:space:]])(response_needed|responseNeeded)([[:space:]:]|$)|(^|[[:space:]])(work_status|workStatus)[[:space:]]*:[[:space:]]*open([[:space:]#]|$)|conversation[.]status'
+        OR version.ir::text ~ '"(response_needed|responseNeeded)"|"(work_status|workStatus)"[[:space:]]*:[[:space:]]*"open"|conversation[.]status'
+        OR version.bound_plan::text ~ '"(response_needed|responseNeeded)"|"(work_status|workStatus)"[[:space:]]*:[[:space:]]*"open"|conversation[.]status'
+      )
+  `;
+};
+
 const repairDraftProviderRemoteIdentityIndex = async (db: SqlClient): Promise<void> => {
   await db`DROP INDEX IF EXISTS mail.draft_provider_snapshots_remote_identity_idx`;
   await db`
@@ -4319,6 +4386,7 @@ const migrations: readonly MailMigration[] = [
   { version: 76, name: "local_tag_colors", run: addLocalTagColors },
   { version: 77, name: "counterparty_participant_summaries", run: repairConversationParticipantSummaries, online: true },
   { version: 78, name: "remove_conversation_followers_and_mentions", run: removeConversationFollowersAndMentions },
+  { version: 79, name: "unified_conversation_work_states", run: unifyConversationWorkStates },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

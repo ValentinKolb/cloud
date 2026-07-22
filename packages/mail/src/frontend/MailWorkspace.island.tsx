@@ -525,7 +525,6 @@ export default function MailWorkspace(props: {
     const patch: MailListOptimisticPatch = {
       assigneeUserId: next.assignee?.id ?? null,
       workStatus: next.workStatus,
-      responseNeeded: next.responseNeeded,
       snoozedUntil: next.snoozedUntil,
       revision: next.revision,
     };

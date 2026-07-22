@@ -834,7 +834,6 @@ const printCollaboration = (ctx: CloudCliContext, value: ConversationCollaborati
   ctx.print(`Revision: ${value.revision}`);
   ctx.print(`Status: ${value.workStatus}`);
   ctx.print(`Assignee: ${value.assignee ? `${value.assignee.displayName} (${value.assignee.id})` : "unassigned"}`);
-  ctx.print(`Response needed: ${value.responseNeeded ? "yes" : "no"}`);
   ctx.print(`Snoozed until: ${value.snoozedUntil ?? "not snoozed"}`);
 };
 
@@ -2531,10 +2530,10 @@ export default defineCliCommands({
       flags: {
         ...mailboxFlag,
         folder: flag.string({ description: "Folder id" }),
-        status: flag.enum(["open", "waiting", "done"] as const, {
+        status: flag.enum(["needs_action", "waiting", "done"] as const, {
           description: "Workflow status",
         }),
-        view: flag.enum(["inbox", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"] as const, {
+        view: flag.enum(["needs_action", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"] as const, {
           description: "Built-in collaboration view",
         }),
         cursor: flag.string({
@@ -2876,15 +2875,7 @@ export default defineCliCommands({
           description: "User id with current mailbox write access",
         }),
         unassign: flag.boolean({ description: "Clear the current assignee" }),
-        status: flag.enum(["open", "waiting", "done"] as const),
-        responseNeeded: flag.boolean({
-          name: "response-needed",
-          description: "Mark a response as needed",
-        }),
-        noResponseNeeded: flag.boolean({
-          name: "no-response-needed",
-          description: "Clear response-needed",
-        }),
+        status: flag.enum(["needs_action", "waiting", "done"] as const),
         snoozeUntil: flag.string({
           name: "snooze-until",
           description: "Future ISO date-time",
@@ -2894,7 +2885,6 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (!flags.revision) throw new Error("Missing expected conversation revision.");
         if (flags.assignee && flags.unassign) throw new Error("Use either --assignee or --unassign.");
-        if (flags.responseNeeded && flags.noResponseNeeded) throw new Error("Use either --response-needed or --no-response-needed.");
         if (flags.snoozeUntil && flags.unsnooze) throw new Error("Use either --snooze-until or --unsnooze.");
 
         let snoozedUntil: string | null | undefined;
@@ -2907,7 +2897,6 @@ export default defineCliCommands({
           expectedRevision: flags.revision,
           ...(flags.assignee !== undefined || flags.unassign ? { assigneeUserId: flags.unassign ? null : flags.assignee } : {}),
           ...(flags.status ? { workStatus: flags.status } : {}),
-          ...(flags.responseNeeded || flags.noResponseNeeded ? { responseNeeded: flags.responseNeeded } : {}),
           ...(snoozedUntil !== undefined ? { snoozedUntil } : {}),
         };
         if (Object.keys(input).length === 1) throw new Error("Pass at least one collaboration change.");

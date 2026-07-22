@@ -51,9 +51,7 @@ export type FrozenMailConversation = {
   id: string;
   subject: string;
   assigneeUserId: string | null;
-  status: "open" | "waiting" | "done";
-  workStatus: "open" | "waiting" | "done";
-  responseNeeded: boolean;
+  workStatus: "needs_action" | "waiting" | "done";
   revision: number;
   latestMessageAt: string;
 };
@@ -103,8 +101,7 @@ type WorkflowSnapshotRow = {
   conversation_subject: string | null;
   collaboration_revision: string | number | null;
   assignee_user_id: string | null;
-  work_status: "open" | "waiting" | "done" | null;
-  response_needed: boolean | null;
+  work_status: "needs_action" | "waiting" | "done" | null;
   latest_message_at: Date | string | null;
 };
 
@@ -179,14 +176,12 @@ const snapshotColumns = sql`
     JOIN mail.sender_identities identity
       ON identity.mailbox_id = mc.mailbox_id
      AND lower(identity.from_address) = from_address.normalized_email
-     AND identity.status <> 'disabled'
     WHERE from_address.message_id = mc.id AND from_address.role = 'from'
   ) THEN 'outbound' ELSE 'inbound' END AS direction,
   conversation.subject AS conversation_subject,
   conversation.revision AS collaboration_revision,
   conversation.assignee_user_id,
   conversation.work_status,
-  conversation.response_needed,
   conversation.latest_message_at
 `;
 
@@ -235,14 +230,12 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
   const keywords = [...(row.keywords ?? [])].sort();
   const attachments = parseJson(row.attachments);
   const conversation =
-    row.conversation_id && row.collaboration_revision != null && row.work_status && row.response_needed != null && row.latest_message_at
+    row.conversation_id && row.collaboration_revision != null && row.work_status && row.latest_message_at
       ? {
           id: row.conversation_id,
           subject: row.conversation_subject ?? "",
           assigneeUserId: row.assignee_user_id,
-          status: row.work_status,
           workStatus: row.work_status,
-          responseNeeded: row.response_needed,
           revision: Number(row.collaboration_revision),
           latestMessageAt: toIso(row.latest_message_at),
         }

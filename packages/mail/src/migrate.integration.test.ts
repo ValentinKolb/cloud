@@ -7,6 +7,81 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("hard-migrates the alpha conversation state model without retaining the removed column", async () => {
+    await migrate();
+    const mailboxId = crypto.randomUUID();
+    const conversationId = crypto.randomUUID();
+    await sql.begin(async (tx) => {
+      await tx`INSERT INTO mail.mailboxes (id, name) VALUES (${mailboxId}::uuid, 'Work-state migration test')`;
+      await tx`
+        INSERT INTO mail.conversations (id, mailbox_id, subject, participant_summary, latest_message_at)
+        VALUES (${conversationId}::uuid, ${mailboxId}::uuid, 'Migration fixture', 'Customer', now())
+      `;
+      await tx`
+        INSERT INTO mail.activity_events (
+          mailbox_id, conversation_id, actor_kind, action, outcome, target_type, target_id, metadata
+        ) VALUES (
+          ${mailboxId}::uuid,
+          ${conversationId}::uuid,
+          'system',
+          'conversation.collaboration_updated',
+          'confirmed',
+          'conversation',
+          ${conversationId}::uuid,
+          ${{
+            before: { workStatus: "open", responseNeeded: false },
+            after: { workStatus: "open", responseNeeded: true },
+          }}::jsonb
+        )
+      `;
+      await tx`ALTER TABLE mail.conversations DROP CONSTRAINT conversations_work_status_check`;
+      await tx`ALTER TABLE mail.conversations ADD COLUMN response_needed BOOLEAN NOT NULL DEFAULT false`;
+      await tx`UPDATE mail.conversations SET work_status = 'open', response_needed = true WHERE id = ${conversationId}::uuid`;
+      await tx`DELETE FROM mail.schema_migrations WHERE version = 79`;
+    });
+
+    try {
+      await migrate();
+      const [shape] = await sql<
+        {
+          applied: boolean;
+          status: string;
+          removed_column_absent: boolean;
+          due_index_present: boolean;
+          metadata: Record<string, unknown> | string;
+        }[]
+      >`
+        SELECT
+          EXISTS (
+            SELECT 1 FROM mail.schema_migrations
+            WHERE version = 79 AND name = 'unified_conversation_work_states'
+          ) AS applied,
+          conversation.work_status AS status,
+          NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'mail' AND table_name = 'conversations' AND column_name = 'response_needed'
+          ) AS removed_column_absent,
+          to_regclass('mail.conversations_due_snooze_idx') IS NOT NULL AS due_index_present,
+          activity.metadata
+        FROM mail.conversations conversation
+        JOIN mail.activity_events activity ON activity.conversation_id = conversation.id
+        WHERE conversation.id = ${conversationId}::uuid
+      `;
+      expect(shape).toMatchObject({
+        applied: true,
+        status: "needs_action",
+        removed_column_absent: true,
+        due_index_present: true,
+        metadata: {
+          before: { workStatus: "needs_action" },
+          after: { workStatus: "needs_action" },
+        },
+      });
+    } finally {
+      await sql`DELETE FROM mail.mailboxes WHERE id = ${mailboxId}::uuid`;
+    }
+  }, 30_000);
+
   test("removes conversation followers and comment mentions without retaining legacy tables", async () => {
     await migrate();
     await sql`DELETE FROM mail.schema_migrations WHERE version = 78`;

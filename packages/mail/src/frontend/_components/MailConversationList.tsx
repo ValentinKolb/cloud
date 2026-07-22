@@ -22,15 +22,15 @@ import { buildMailListHref, buildMailSelectionHref, isMailListItemActive, type M
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
 const statusLabel = (item: MailListItem): string | null => {
-  if (item.responseNeeded) return "Reply needed";
-  if (item.workStatus === "waiting") return "Awaiting reply";
+  if (item.workStatus === "needs_action") return "Needs action";
+  if (item.workStatus === "waiting") return "Waiting for reply";
   if (item.workStatus === "done") return "Done";
   if (item.assigneeUserId) return "Assigned";
   return null;
 };
 
 const statusIcon = (item: MailListItem): string | null => {
-  if (item.responseNeeded) return "ti ti-message-reply";
+  if (item.workStatus === "needs_action") return "ti ti-message-reply";
   if (item.workStatus === "waiting") return "ti ti-hourglass";
   if (item.workStatus === "done") return "ti ti-checkbox";
   if (item.assigneeUserId) return "ti ti-user-check";

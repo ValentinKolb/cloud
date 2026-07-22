@@ -14,7 +14,8 @@ import { remoteMessagePreconditionSchema } from "../contracts";
 import { rediscoverProviderBinding } from "./bindings";
 import { commandStillAuthorized } from "./command-authorization";
 import { imapSmtpConnector, type RemoteMessageState, type RemoteMutationTarget } from "./connectors";
-import { publishMailMailboxEvent } from "./events";
+import { deriveConversationWorkState } from "./conversation-work-state";
+import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import {
   enqueueMaintenanceCommand,
@@ -1968,6 +1969,70 @@ const ensureMimeBlob = async (
   return { blobId: selected.id, byteLength: selected.byteLength, snapshot };
 };
 
+type ConfirmedSendWorkStateEvent = { conversationId: string; activityId: string };
+
+const applyConfirmedSendWorkState = async (params: {
+  db: SqlClient;
+  outbox: DbOutboxExecution;
+  command: DbCommandExecution;
+}): Promise<ConfirmedSendWorkStateEvent | null> => {
+  const [draft] = await params.db<
+    {
+      conversation_id: string | null;
+      intent: "new" | "reply" | "reply_all" | "forward";
+      delivery_class: "standard" | "automatic_reply";
+      work_status: "needs_action" | "waiting" | "done" | null;
+    }[]
+  >`
+    SELECT draft.conversation_id, draft.intent, draft.delivery_class, conversation.work_status
+    FROM mail.drafts draft
+    JOIN mail.conversations conversation ON conversation.id = draft.conversation_id
+    WHERE draft.id = ${params.outbox.draft_id}::uuid
+    FOR UPDATE OF conversation
+  `;
+  if (!draft?.conversation_id || !draft.work_status) return null;
+
+  const transition = deriveConversationWorkState(draft.work_status, {
+    direction: "outbound",
+    intent: draft.intent,
+    automatic: draft.delivery_class === "automatic_reply" || params.command.actor_kind === "workflow",
+  });
+  if (transition.workStatus === draft.work_status) return null;
+
+  const [conversation] = await params.db<{ revision: string | number }[]>`
+    UPDATE mail.conversations
+    SET work_status = ${transition.workStatus}, revision = revision + 1, updated_at = now()
+    WHERE id = ${draft.conversation_id}::uuid AND mailbox_id = ${params.command.mailbox_id}::uuid
+    RETURNING revision
+  `;
+  if (!conversation) throw new Error("Sent draft conversation disappeared during state transition");
+  const [activity] = await params.db<{ id: string | number }[]>`
+    INSERT INTO mail.activity_events (
+      mailbox_id, conversation_id, command_id, actor_kind, actor_id,
+      action, outcome, target_type, target_id, metadata
+    ) VALUES (
+      ${params.command.mailbox_id}::uuid,
+      ${draft.conversation_id}::uuid,
+      ${params.command.id}::uuid,
+      ${params.command.actor_kind},
+      ${params.command.actor_id}::uuid,
+      'conversation.work_state_changed',
+      'confirmed',
+      'conversation',
+      ${draft.conversation_id}::uuid,
+      ${{
+        source: "confirmed_send",
+        intent: draft.intent,
+        before: { workStatus: draft.work_status },
+        after: { workStatus: transition.workStatus, revision: Number(conversation.revision) },
+      }}::jsonb
+    )
+    RETURNING id
+  `;
+  if (!activity) throw new Error("Sent draft state transition activity insert returned no row");
+  return { conversationId: draft.conversation_id, activityId: String(activity.id) };
+};
+
 const finishOutbox = async (params: {
   outbox: DbOutboxExecution;
   command: DbCommandExecution;
@@ -1979,8 +2044,8 @@ const finishOutbox = async (params: {
 }): Promise<boolean> => {
   const code = params.error ? normalizeCode(params.error, "MAIL_SEND_FAILED") : null;
   const message = params.error ? errorMessage(params.error, "Mail send failed") : null;
-  const updated = await sql.begin(async (tx) => {
-    if (!(await lockOutboxFence(tx, params.outbox, params.command))) return false;
+  const result = await sql.begin(async (tx) => {
+    if (!(await lockOutboxFence(tx, params.outbox, params.command))) return { updated: false, transition: null };
     await tx`
       UPDATE mail.outbox_submissions
       SET
@@ -2040,9 +2105,25 @@ const finishOutbox = async (params: {
       FROM mail.commands c
       WHERE c.id = ${params.outbox.command_id}::uuid
     `;
-    return true;
+    if (params.commandState !== "confirmed" && params.commandState !== "reconciled") {
+      return { updated: true, transition: null };
+    }
+
+    return {
+      updated: true,
+      transition: await applyConfirmedSendWorkState({ db: tx, outbox: params.outbox, command: params.command }),
+    };
   });
-  if (updated && typeof parseJsonRecord(params.command.payload).scheduledAt === "string") {
+  if (result.transition) {
+    await publishMailCollaborationEvent({
+      mailboxId: params.command.mailbox_id,
+      conversationId: result.transition.conversationId,
+      reason: "outbound",
+      targetId: params.outbox.id,
+      activityId: result.transition.activityId,
+    });
+  }
+  if (result.updated && typeof parseJsonRecord(params.command.payload).scheduledAt === "string") {
     await publishMailMailboxEvent({
       mailboxId: params.command.mailbox_id,
       conversationId: null,
@@ -2051,7 +2132,7 @@ const finishOutbox = async (params: {
       activityId: `scheduled-send-state:${params.outbox.id}:${params.outbox.attempt}:${params.outboxState}`,
     });
   }
-  return updated;
+  return result.updated;
 };
 
 const isRetryablePreDispatchError = (error: unknown): boolean => {

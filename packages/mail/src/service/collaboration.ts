@@ -33,8 +33,7 @@ export type MailAssignableUser = MailCollaborator & {
 export type ConversationCollaboration = {
   conversationId: string;
   assignee: MailCollaborator | null;
-  workStatus: "open" | "waiting" | "done";
-  responseNeeded: boolean;
+  workStatus: "needs_action" | "waiting" | "done";
   snoozedUntil: string | null;
   revision: number;
 };
@@ -82,7 +81,6 @@ type CollaborationRow = {
   assignee_display_name: string | null;
   assignee_avatar_hash: string | null;
   work_status: ConversationCollaboration["workStatus"];
-  response_needed: boolean;
   snoozed_until: Date | string | null;
   revision: string | number;
 };
@@ -274,7 +272,6 @@ const loadCollaboration = async (
       COALESCE(NULLIF(assignee.display_name, ''), assignee.uid) AS assignee_display_name,
       assignee.avatar_hash AS assignee_avatar_hash,
       c.work_status,
-      c.response_needed,
       c.snoozed_until,
       c.revision
     FROM mail.conversations c
@@ -294,7 +291,6 @@ const loadCollaboration = async (
           }
         : null,
     workStatus: row.work_status,
-    responseNeeded: row.response_needed,
     snoozedUntil: toNullableIso(row.snoozed_until),
     revision: Number(row.revision),
   };
@@ -397,7 +393,6 @@ const applyConversationCollaborationInTransaction = async (params: {
       NULL::text AS assignee_display_name,
       NULL::text AS assignee_avatar_hash,
       c.work_status,
-      c.response_needed,
       c.snoozed_until,
       c.revision
     FROM mail.conversations c
@@ -420,9 +415,6 @@ const applyConversationCollaborationInTransaction = async (params: {
   }
 
   const nextStatus = params.input.workStatus ?? current.work_status;
-  if (nextStatus === "done" && params.input.responseNeeded === true) {
-    return fail(err.badInput("A completed conversation cannot require a response"));
-  }
   const requestedSnooze =
     params.input.snoozedUntil === undefined
       ? undefined
@@ -435,13 +427,11 @@ const applyConversationCollaborationInTransaction = async (params: {
   }
 
   const nextAssignee = params.input.assigneeUserId === undefined ? current.assignee_user_id : params.input.assigneeUserId;
-  const nextResponseNeeded = nextStatus === "done" ? false : (params.input.responseNeeded ?? current.response_needed);
   const nextSnoozedUntil =
     nextStatus === "done" ? null : requestedSnooze === undefined ? toNullableIso(current.snoozed_until) : requestedSnooze;
   const unchanged =
     nextAssignee === current.assignee_user_id &&
     nextStatus === current.work_status &&
-    nextResponseNeeded === current.response_needed &&
     nextSnoozedUntil === toNullableIso(current.snoozed_until);
   if (unchanged) {
     const state = await loadCollaboration(params.mailboxId, params.conversationId, params.db);
@@ -453,7 +443,6 @@ const applyConversationCollaborationInTransaction = async (params: {
     SET
       assignee_user_id = ${nextAssignee}::uuid,
       work_status = ${nextStatus},
-      response_needed = ${nextResponseNeeded},
       snoozed_until = ${nextSnoozedUntil}::timestamptz,
       revision = revision + 1
     WHERE id = ${params.conversationId}::uuid
@@ -474,14 +463,12 @@ const applyConversationCollaborationInTransaction = async (params: {
       before: {
         assigneeUserId: current.assignee_user_id,
         workStatus: current.work_status,
-        responseNeeded: current.response_needed,
         snoozedUntil: toNullableIso(current.snoozed_until),
         revision: Number(current.revision),
       },
       after: {
         assigneeUserId: state.assignee?.id ?? null,
         workStatus: state.workStatus,
-        responseNeeded: state.responseNeeded,
         snoozedUntil: state.snoozedUntil,
         revision: state.revision,
       },
@@ -544,6 +531,63 @@ export const updateConversationCollaboration = async (params: {
     return finishMutation(result);
   } catch {
     return fail(err.internal("Failed to update conversation collaboration"));
+  }
+};
+
+export const releaseDueSnoozes = async (batchSize = 500): Promise<number> => {
+  if (!Number.isSafeInteger(batchSize) || batchSize <= 0) {
+    throw new TypeError("Snooze release batch size must be a positive safe integer");
+  }
+  let released = 0;
+  for (;;) {
+    const events = await sql.begin(
+      async (tx) =>
+        tx<{ mailbox_id: string; conversation_id: string; activity_id: string | number }[]>`
+        WITH due AS (
+          SELECT id, mailbox_id, snoozed_until
+          FROM mail.conversations
+          WHERE snoozed_until <= now()
+          ORDER BY snoozed_until, id
+          LIMIT ${batchSize}
+          FOR UPDATE SKIP LOCKED
+        ),
+        updated AS (
+          UPDATE mail.conversations conversation
+          SET snoozed_until = NULL, revision = revision + 1, updated_at = now()
+          FROM due
+          WHERE conversation.id = due.id
+          RETURNING conversation.id, conversation.mailbox_id, due.snoozed_until, conversation.revision
+        )
+        INSERT INTO mail.activity_events (
+          mailbox_id, conversation_id, actor_kind, action, outcome, target_type, target_id, metadata
+        )
+        SELECT
+          updated.mailbox_id,
+          updated.id,
+          'system',
+          'conversation.snooze_expired',
+          'confirmed',
+          'conversation',
+          updated.id,
+          jsonb_build_object(
+            'before', jsonb_build_object('snoozedUntil', updated.snoozed_until),
+            'after', jsonb_build_object('snoozedUntil', NULL, 'revision', updated.revision)
+          )
+        FROM updated
+        RETURNING mailbox_id, conversation_id, id AS activity_id
+      `,
+    );
+    for (const event of events) {
+      await publishMailCollaborationEvent({
+        mailboxId: event.mailbox_id,
+        conversationId: event.conversation_id,
+        reason: "collaboration",
+        targetId: event.conversation_id,
+        activityId: String(event.activity_id),
+      });
+    }
+    released += events.length;
+    if (events.length < batchSize) return released;
   }
 };
 

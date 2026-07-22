@@ -146,15 +146,14 @@ suite("mail collaboration operations", () => {
     `;
     const [conversation] = await sql<{ id: string }[]>`
       INSERT INTO mail.conversations (
-        mailbox_id, subject, participant_summary, latest_message_at, assignee_user_id, work_status, response_needed
+        mailbox_id, subject, participant_summary, latest_message_at, assignee_user_id, work_status
       ) VALUES (
         ${mailboxId}::uuid,
         'Collaboration operations',
         'customer@example.com',
         ${messageDate},
         ${writer.id}::uuid,
-        'open',
-        true
+        'needs_action'
       )
       RETURNING id
     `;
@@ -279,8 +278,8 @@ suite("mail collaboration operations", () => {
       mailboxId,
       input: {
         scope: "private",
-        name: "My open mail",
-        filter: { expression: { type: "work_status", value: "open" }, sort: "newest" },
+        name: "My action queue",
+        filter: { expression: { type: "work_status", value: "needs_action" }, sort: "newest" },
       },
     });
     expect(privateView.ok).toBe(true);
@@ -316,7 +315,7 @@ suite("mail collaboration operations", () => {
         filter: {
           expression: {
             type: "and",
-            expressions: [{ type: "assigned_to_me" }, { type: "work_status", value: "open" }],
+            expressions: [{ type: "assigned_to_me" }, { type: "work_status", value: "needs_action" }],
           },
           sort: "newest",
         },

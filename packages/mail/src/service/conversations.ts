@@ -3,8 +3,10 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { MergeConversationsInput, ReassignConversationMessageInput, SplitConversationInput } from "../contracts";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
+import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import { mergeConversationReferencesInTransaction } from "./conversation-reference";
+import { deriveConversationWorkState, isAutomaticSubmission } from "./conversation-work-state";
 import { type MailConversationChangedEvent, publishMailCollaborationEvent } from "./events";
 import { MAIL_NOTIFICATION_DEFINITION_IDS } from "./notification-targets";
 
@@ -67,11 +69,22 @@ const recomputeConversation = async (params: {
   incrementRevision: boolean;
   deriveCollaboration: boolean;
 }): Promise<ConversationThreadState> => {
-  const [state] = await params.db<
+  const [projection] = await params.db<
     {
       id: string;
       revision: string | number;
+      work_status: "needs_action" | "waiting" | "done";
+      snoozed_until: Date | string | null;
       message_count: number;
+      latest_message_at: Date | string;
+      latest_inbound_at: Date | string | null;
+      latest_outbound_at: Date | string | null;
+      latest_subject: string;
+      participant_summary: string;
+      latest_outbound: boolean;
+      latest_in_reply_to: string | null;
+      latest_reference_ids: string[];
+      latest_selected_headers: Record<string, unknown> | string;
     }[]
   >`
     WITH classified AS (
@@ -79,12 +92,14 @@ const recomputeConversation = async (params: {
         message.id AS message_id,
         message.subject,
         message.internal_date,
+        message.in_reply_to,
+        message.reference_ids,
+        message.selected_headers,
         EXISTS (
           SELECT 1
           FROM mail.message_addresses sender
           JOIN mail.sender_identities identity
             ON identity.mailbox_id = conversation.mailbox_id
-           AND identity.status <> 'disabled'
            AND lower(identity.from_address) = sender.normalized_email
           WHERE sender.message_id = message.id AND sender.role = 'from'
         ) AS outbound
@@ -102,7 +117,7 @@ const recomputeConversation = async (params: {
       FROM classified
     ),
     latest AS (
-      SELECT message_id, subject, outbound
+      SELECT message_id, subject, outbound, in_reply_to, reference_ids, selected_headers
       FROM classified
       ORDER BY internal_date DESC, message_id DESC
       LIMIT 1
@@ -121,33 +136,59 @@ const recomputeConversation = async (params: {
       SELECT COALESCE(string_agg(label, ', ' ORDER BY label), '') AS summary
       FROM participant_labels
     )
-    UPDATE mail.conversations conversation
-    SET
-      subject = latest.subject,
-      participant_summary = participants.summary,
-      latest_message_at = timeline.latest_message_at,
-      latest_inbound_at = timeline.latest_inbound_at,
-      latest_outbound_at = timeline.latest_outbound_at,
-      work_status = CASE
-        WHEN ${params.deriveCollaboration} AND NOT latest.outbound THEN 'open'
-        ELSE conversation.work_status
-      END,
-      response_needed = CASE
-        WHEN ${params.deriveCollaboration} THEN NOT latest.outbound
-        ELSE conversation.response_needed
-      END,
-      snoozed_until = CASE
-        WHEN ${params.deriveCollaboration} AND NOT latest.outbound THEN NULL
-        ELSE conversation.snoozed_until
-      END,
-      revision = conversation.revision + CASE WHEN ${params.incrementRevision} THEN 1 ELSE 0 END
-    FROM timeline, latest, participants
+    SELECT
+      conversation.id,
+      conversation.revision,
+      conversation.work_status,
+      conversation.snoozed_until,
+      timeline.message_count,
+      timeline.latest_message_at,
+      timeline.latest_inbound_at,
+      timeline.latest_outbound_at,
+      latest.subject AS latest_subject,
+      participants.summary AS participant_summary,
+      latest.outbound AS latest_outbound,
+      latest.in_reply_to AS latest_in_reply_to,
+      latest.reference_ids AS latest_reference_ids,
+      latest.selected_headers AS latest_selected_headers
+    FROM mail.conversations conversation, timeline, latest, participants
     WHERE conversation.id = ${params.conversationId}::uuid
       AND timeline.message_count > 0
-    RETURNING conversation.id, conversation.revision, timeline.message_count
+    FOR UPDATE OF conversation
   `;
-  if (!state) throw new Error("Conversation projection cannot be recomputed without messages");
-  return { id: state.id, revision: Number(state.revision), messageCount: state.message_count };
+  if (!projection) throw new Error("Conversation projection cannot be recomputed without messages");
+
+  const protocolFacts = parseConnectorProtocolFacts(
+    typeof projection.latest_selected_headers === "string"
+      ? JSON.parse(projection.latest_selected_headers)
+      : projection.latest_selected_headers,
+  );
+  const transition = params.deriveCollaboration
+    ? deriveConversationWorkState(projection.work_status, {
+        direction: projection.latest_outbound ? "outbound" : "inbound",
+        intent:
+          projection.latest_outbound && (projection.latest_in_reply_to || projection.latest_reference_ids.length > 0)
+            ? "observed_reply"
+            : "observed_message",
+        automatic: isAutomaticSubmission(protocolFacts.autoSubmitted),
+      })
+    : { workStatus: projection.work_status, clearSnooze: false };
+  const [state] = await params.db<{ id: string; revision: string | number }[]>`
+    UPDATE mail.conversations
+    SET
+      subject = ${projection.latest_subject},
+      participant_summary = ${projection.participant_summary},
+      latest_message_at = ${projection.latest_message_at}::timestamptz,
+      latest_inbound_at = ${projection.latest_inbound_at}::timestamptz,
+      latest_outbound_at = ${projection.latest_outbound_at}::timestamptz,
+      work_status = ${transition.workStatus},
+      snoozed_until = CASE WHEN ${transition.clearSnooze} THEN NULL ELSE snoozed_until END,
+      revision = revision + CASE WHEN ${params.incrementRevision} THEN 1 ELSE 0 END
+    WHERE id = ${params.conversationId}::uuid
+    RETURNING id, revision
+  `;
+  if (!state) throw new Error("Conversation disappeared while its projection was recomputed");
+  return { id: state.id, revision: Number(state.revision), messageCount: projection.message_count };
 };
 
 const pinConversationMessages = async (params: {

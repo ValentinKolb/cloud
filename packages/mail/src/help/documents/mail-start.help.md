@@ -45,7 +45,7 @@ Open **Settings > Senders**. A sender determines the address and display name re
 
 The left navigation contains:
 
-- **Work** views for Inbox, assignment, Awaiting reply, Done, and recent activity, plus a separate **Follow-up** view for Snoozed conversations and Scheduled delivery under Drafts.
+- **Work** views for Needs action, assignment, Waiting for reply, Done, and recent activity, plus a separate **Follow-up** view for Snoozed conversations and Scheduled delivery under Drafts.
 - **Automations** for out-of-office replies, acknowledgements, and advanced mailbox workflows with inline response windows.
 - **Saved views** created from reusable mailbox and collaboration filters.
 - **Folders** synchronized from the provider, plus **All mail**.

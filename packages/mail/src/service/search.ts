@@ -31,9 +31,8 @@ export type MessageSearchHit = {
   snippet: string | null;
   unread: boolean;
   messageCount: number;
-  workStatus: "open" | "waiting" | "done" | null;
+  workStatus: "needs_action" | "waiting" | "done" | null;
   assigneeUserId: string | null;
-  responseNeeded: boolean;
   snoozedUntil: string | null;
   revision: number;
   updatedAt: string;
@@ -70,9 +69,8 @@ type DbSearchHit = {
   snippet: string | null;
   unread: boolean;
   message_count: number;
-  work_status: "open" | "waiting" | "done" | null;
+  work_status: "needs_action" | "waiting" | "done" | null;
   assignee_user_id: string | null;
-  response_needed: boolean;
   snoozed_until: Date | string | null;
   revision: string | number;
   updated_at: Date | string;
@@ -373,12 +371,6 @@ export const compileSearchExpression = (
   if (expression.type === "work_status") {
     return sql`EXISTS (SELECT 1 FROM mail.conversations state WHERE state.id = ${conversationId} AND state.work_status = ${expression.value})`;
   }
-  if (expression.type === "response_needed") {
-    return sql`EXISTS (
-      SELECT 1 FROM mail.conversations state
-      WHERE state.id = ${conversationId} AND state.response_needed = ${expression.value}
-    )`;
-  }
   if (expression.type === "assignee") {
     return expression.userId
       ? sql`EXISTS (
@@ -566,7 +558,6 @@ const isConversationOnlyExpression = (expression: MailSearchExpression): boolean
   if (expression.type === "not") return isConversationOnlyExpression(expression.expression);
   if (
     expression.type === "work_status" ||
-    expression.type === "response_needed" ||
     expression.type === "assignee" ||
     expression.type === "snoozed" ||
     expression.type === "assigned_to_me"
@@ -632,7 +623,6 @@ const mapHit = (row: DbSearchHit): MessageSearchHit => ({
   messageCount: row.message_count,
   workStatus: row.work_status,
   assigneeUserId: row.assignee_user_id,
-  responseNeeded: row.response_needed,
   snoozedUntil: row.snoozed_until
     ? (row.snoozed_until instanceof Date ? row.snoozed_until : new Date(row.snoozed_until)).toISOString()
     : null,
@@ -943,7 +933,6 @@ const runSearch = async (params: {
         END AS message_count,
         conversation.work_status,
         conversation.assignee_user_id,
-        COALESCE(conversation.response_needed, false) AS response_needed,
         conversation.snoozed_until,
         COALESCE(conversation.revision, 1) AS revision,
         COALESCE(conversation.updated_at, deduplicated.internal_date) AS updated_at,
@@ -1057,7 +1046,6 @@ const runSearch = async (params: {
             FROM mail.message_addresses sender
             JOIN mail.sender_identities identity
               ON identity.mailbox_id = ${params.mailboxId}::uuid
-             AND identity.status <> 'disabled'
              AND lower(identity.from_address) = sender.normalized_email
             WHERE sender.message_id = COALESCE(conversation_latest.id, deduplicated.id)
               AND sender.role = 'from'

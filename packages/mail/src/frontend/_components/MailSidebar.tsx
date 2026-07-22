@@ -16,14 +16,14 @@ type MailViewItem = {
 };
 
 const WORK_VIEW_ITEMS: MailViewItem[] = [
-  { id: "inbox", label: "Inbox", icon: "ti ti-inbox" },
+  { id: "needs_action", label: "Needs action", icon: "ti ti-message-reply" },
   { id: "mine", label: "Assigned to me", icon: "ti ti-user-check" },
   { id: "unassigned", label: "Unassigned", icon: "ti ti-user-question" },
   {
     id: "waiting",
-    label: "Awaiting reply",
-    icon: "ti ti-message-question",
-    description: "Waiting for someone else. New mail returns the conversation to Inbox.",
+    label: "Waiting for reply",
+    icon: "ti ti-hourglass",
+    description: "Waiting for someone else. New mail moves the conversation to Needs action.",
   },
   { id: "done", label: "Done", icon: "ti ti-checkbox" },
   { id: "recently_active", label: "Recent activity", icon: "ti ti-activity" },

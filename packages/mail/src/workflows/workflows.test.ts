@@ -148,7 +148,7 @@ steps:
             - invoice
         - not:
             equals:
-              - "\${{ inputs.conversation.status }}"
+              - "\${{ inputs.conversation.workStatus }}"
               - done
     then:
       - moveMessage:
@@ -374,7 +374,7 @@ steps:
       keyword: "\${{ inputs.message.missing }}"
   - setConversationStatus:
       conversation: inputs.message
-      status: open
+      status: needs_action
   - succeed:
       message: "Message \${{ context.message.id }}"
 `;

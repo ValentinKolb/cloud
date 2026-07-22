@@ -118,7 +118,6 @@ describe("Mail workflow OpenAPI contracts", () => {
       "date",
       "size",
       "work_status",
-      "response_needed",
       "assignee",
       "snoozed",
       "all",

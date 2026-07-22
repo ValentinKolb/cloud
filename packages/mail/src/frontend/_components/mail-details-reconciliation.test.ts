@@ -14,7 +14,6 @@ const collaboration = (revision: number, workStatus: ConversationCollaboration["
   conversationId: "00000000-0000-4000-8000-000000000001",
   assignee: null,
   workStatus,
-  responseNeeded: false,
   snoozedUntil: null,
   revision,
 });
@@ -56,8 +55,8 @@ const reminder = (revision: number, state: ConversationReminder["state"] = "pend
 
 describe("Mail details reconciliation", () => {
   test("applies newer collaboration and tag revisions but rejects stale snapshots", () => {
-    expect(reconcileCollaboration(collaboration(3, "done"), collaboration(2, "open")).workStatus).toBe("done");
-    expect(reconcileCollaboration(collaboration(2, "open"), collaboration(3, "done")).workStatus).toBe("done");
+    expect(reconcileCollaboration(collaboration(3, "done"), collaboration(2, "needs_action")).workStatus).toBe("done");
+    expect(reconcileCollaboration(collaboration(2, "needs_action"), collaboration(3, "done")).workStatus).toBe("done");
 
     const current: ConversationLocalTags = {
       conversationId: "00000000-0000-4000-8000-000000000001",

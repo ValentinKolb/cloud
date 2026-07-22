@@ -13,8 +13,10 @@ import { cleanupPublicAttachmentLinks } from "./attachment-links";
 import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
+import { releaseDueSnoozes } from "./collaboration";
 import type { ConnectorEnvelope, FlagChange } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
+import { isAutomaticSubmission } from "./conversation-work-state";
 import {
   enqueueDraftImports,
   enqueueDraftProjectionSnapshot,
@@ -514,7 +516,6 @@ export const ingestEnvelope = async (params: {
       FROM mail.sender_identities si
       WHERE si.mailbox_id = ${params.mailboxId}::uuid
         AND lower(si.from_address) = ANY(${toPgTextArray(params.message.addresses.from.map((item) => item.address))}::text[])
-        AND si.status <> 'disabled'
     ) AS outbound
   `;
   const participantLabels = counterpartyLabels(params.message, Boolean(outbound[0]?.outbound));
@@ -527,7 +528,7 @@ export const ingestEnvelope = async (params: {
         latest_inbound_at,
         latest_outbound_at,
         latest_message_at,
-        response_needed
+        work_status
       )
       VALUES (
         ${params.mailboxId}::uuid,
@@ -536,7 +537,13 @@ export const ingestEnvelope = async (params: {
         ${outbound[0]?.outbound ? null : params.message.internalDate},
         ${outbound[0]?.outbound ? params.message.internalDate : null},
         ${params.message.internalDate},
-        ${!outbound[0]?.outbound}
+        ${
+          outbound[0]?.outbound &&
+          (params.message.inReplyTo || params.message.references.length > 0) &&
+          !isAutomaticSubmission(params.message.protocolFacts?.autoSubmitted)
+            ? "waiting"
+            : "needs_action"
+        }
       )
       RETURNING id
     `;
@@ -1829,6 +1836,12 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
           log.error("Mail synchronization scheduler exhausted retries", { failureCount: ctx.failureCount });
         }
       },
+    });
+    await mailScheduler.create({
+      id: "mail:snooze-wake",
+      cron: "* * * * *",
+      meta: { appId: "mail", family: "mail:collaboration", label: "Mail snooze wake-up" },
+      process: () => releaseDueSnoozes(),
     });
     await mailScheduler.create({
       id: "mail:blob-upload-cleanup",

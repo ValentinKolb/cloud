@@ -58,9 +58,7 @@ export const applyMailConversationTransition = (
     conversation.assigneeUserId = value;
   } else {
     if (typeof value !== "string" || conversation.workStatus === value) return false;
-    conversation.status = value;
     conversation.workStatus = value;
-    if (value === "done") conversation.responseNeeded = false;
   }
   conversation.revision = Number(conversation.revision ?? 0) + 1;
   return true;

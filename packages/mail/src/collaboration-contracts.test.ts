@@ -20,7 +20,7 @@ describe("Mail collaboration contracts", () => {
       savedConversationViewFilterSchema.safeParse({
         expression: {
           type: "and",
-          expressions: [{ type: "work_status", value: "open" }, { type: "assigned_to_me" }, { type: "response_needed", value: true }],
+          expressions: [{ type: "work_status", value: "needs_action" }, { type: "assigned_to_me" }],
         },
         sort: "newest",
       }).success,

@@ -223,7 +223,7 @@ const conversationTransition = async (
     return { conversation, action: step.action, value };
   }
   const value = textValue(await referenceOrValue(context, step.config.status), "status");
-  if (value !== "open" && value !== "waiting" && value !== "done") throw new Error("status is invalid");
+  if (value !== "needs_action" && value !== "waiting" && value !== "done") throw new Error("status is invalid");
   return { conversation, action: step.action, value };
 };
 
@@ -797,7 +797,7 @@ export const createMailWorkflowActionPorts = (
         if (step.action === "assignConversation") {
           return { expectedRevision, assigneeUserId: transition.value as string | null };
         }
-        return { expectedRevision, workStatus: transition.value as "open" | "waiting" | "done" };
+        return { expectedRevision, workStatus: transition.value as "needs_action" | "waiting" | "done" };
       })();
       const completed = await sql.begin(async (tx) => {
         await lockCollaborationActionFence(tx, context);

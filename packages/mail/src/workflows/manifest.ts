@@ -205,7 +205,7 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
       dryRun: "full",
       config: object({
         conversation: conversationReference,
-        status: { kind: "string", enum: ["open", "waiting", "done"], description: "New conversation status." },
+        status: { kind: "string", enum: ["needs_action", "waiting", "done"], description: "New conversation status." },
       }),
     },
     {

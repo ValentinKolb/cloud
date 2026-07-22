@@ -115,7 +115,7 @@ Message paths:
 Conversation paths:
 
 - `inputs.conversation.id`, `subject`, `assigneeUserId`
-- `inputs.conversation.status`, `workStatus`, `responseNeeded`, `latestMessageAt`
+- `inputs.conversation.workStatus`, `latestMessageAt`
 
 Execution context paths:
 
@@ -161,7 +161,7 @@ Variables created inside a branch do not escape that branch. Defining the same v
 | `trashMessage` | `message` | Moves the message to the mailbox trash folder |
 | `addFlag` / `removeFlag` | `message`, `flag` | Changes `seen`, `answered`, `flagged`, or `draft` through the provider command journal |
 | `assignConversation` | `conversation`, `user` | Assigns by accessible user name or ID; `null` unassigns |
-| `setConversationStatus` | `conversation`, `status` | Sets `open`, `waiting`, or `done` |
+| `setConversationStatus` | `conversation`, `status` | Sets `needs_action`, `waiting`, or `done` |
 | `ensureConversationReference` | `conversation`; optional `result` | Allocates or reuses the permanent mailbox reference and optionally stores its result |
 | `addLocalTag` / `removeLocalTag` | `conversation`, `tag` | Changes a mailbox-local conversation tag |
 | `addComment` | `conversation`, `body` | Adds an internal comment attributed to the workflow version |
@@ -305,7 +305,7 @@ steps:
                 - service unavailable
         - not:
             equals:
-              - "${{ inputs.conversation.status }}"
+              - "${{ inputs.conversation.workStatus }}"
               - done
     then:
       - assignConversation:
@@ -326,9 +326,9 @@ inputs:
     type: mailConversation
     required: true
 steps:
-  - switch: "${{ inputs.conversation.status }}"
+  - switch: "${{ inputs.conversation.workStatus }}"
     cases:
-      - when: open
+      - when: needs_action
         do:
           - setVariable:
               name: result

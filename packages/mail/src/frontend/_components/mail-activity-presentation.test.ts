@@ -18,9 +18,9 @@ describe("mail activity presentation", () => {
   test("describes collaboration changes from audit metadata", () => {
     expect(
       mailActivityLabel(
-        event({ before: { responseNeeded: false, workStatus: "open" }, after: { responseNeeded: true, workStatus: "waiting" } }),
+        event({ before: { workStatus: "needs_action" }, after: { workStatus: "waiting" } }),
       ),
-    ).toBe("marked it Awaiting reply and marked a response as needed");
+    ).toBe("marked it Waiting for reply");
   });
 
   test("collapses consecutive duplicate events", () => {

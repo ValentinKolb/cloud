@@ -67,6 +67,18 @@ describe("evaluateAutoReplyPolicy", () => {
     ).toMatchObject({ returnPath: "<sender@example.test>", autoSubmitted: "no", deliveryStatus: false });
   });
 
+  test("normalizes partial facts recovered from hydrated source headers", () => {
+    expect(parseConnectorProtocolFacts({ autoSubmitted: "auto-replied" })).toEqual({
+      returnPath: null,
+      autoSubmitted: "auto-replied",
+      precedence: null,
+      listId: null,
+      autoResponseSuppress: null,
+      contentType: null,
+      deliveryStatus: false,
+    });
+  });
+
   test("accepts exactly one non-null return path address", () => {
     expect(parseReturnPathAddress("<Sender@Example.test>")).toBe("sender@example.test");
     expect(parseReturnPathAddress("<>")).toBeNull();

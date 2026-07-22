@@ -9,7 +9,6 @@ export type MailSearchFieldKey =
   | "size:message"
   | "size:attachment"
   | "work_status"
-  | "response_needed"
   | "assignee"
   | "snoozed"
   | "all"
@@ -38,7 +37,6 @@ export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: s
   { id: "size:message", label: "Message size", icon: "ti ti-file" },
   { id: "size:attachment", label: "Attachment size", icon: "ti ti-file-download" },
   { id: "work_status", label: "Work status", icon: "ti ti-progress-check" },
-  { id: "response_needed", label: "Response needed", icon: "ti ti-message-exclamation" },
   { id: "assignee", label: "Assignee", icon: "ti ti-user-check" },
   { id: "snoozed", label: "Snoozed", icon: "ti ti-alarm-snooze" },
   { id: "folder_id", label: "Specific folder", icon: "ti ti-folder-check" },
@@ -112,8 +110,7 @@ export const createMailSearchCondition = (
   if (field.startsWith("size:")) {
     return { type: "size", field: field.slice(5) as "message" | "attachment", operator: "at_least", bytes: 1024 * 1024 };
   }
-  if (field === "work_status") return { type: "work_status", value: "open" };
-  if (field === "response_needed") return { type: "response_needed", value: true };
+  if (field === "work_status") return { type: "work_status", value: "needs_action" };
   if (field === "assignee") return { type: "assignee", userId: null };
   if (field === "folder_id") return { type: "folder_id", folderId: "" };
   if (field === "assigned_to_me") return { type: "assigned_to_me" };
@@ -206,9 +203,9 @@ export const summarizeMailSearchExpression = (expression: MailSearchExpression):
     return `${expression.field === "message" ? "Message" : "Attachment"} size ${expression.operator.replaceAll("_", " ")} ${sizeLabel(expression.bytes)}`;
   }
   if (expression.type === "work_status") {
-    return `Work status is ${expression.value === "waiting" ? "awaiting reply" : expression.value}`;
+    const label = expression.value === "needs_action" ? "needs action" : expression.value === "waiting" ? "waiting for reply" : "done";
+    return `Work status is ${label}`;
   }
-  if (expression.type === "response_needed") return expression.value ? "Response is needed" : "No response is needed";
   if (expression.type === "assignee") return expression.userId ? `Assigned to ${expression.userId}` : "Unassigned";
   if (expression.type === "snoozed") return expression.value ? "Is snoozed" : "Is not snoozed";
   if (expression.type === "folder_id") return `In folder ${expression.folderId}`;

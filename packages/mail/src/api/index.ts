@@ -121,7 +121,7 @@ const mailboxOperationsQuerySchema = z.object({
 });
 const conversationQuerySchema = cursorQuerySchema.extend({
   folderId: z.string().uuid().optional(),
-  status: z.enum(["open", "waiting", "done"]).optional(),
+  status: z.enum(["needs_action", "waiting", "done"]).optional(),
   view: conversationViewSchema.optional(),
 });
 const collaboratorQuerySchema = z.object({

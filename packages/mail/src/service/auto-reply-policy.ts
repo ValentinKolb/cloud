@@ -27,13 +27,13 @@ export type AutoReplyFacts = {
 type AutoReplyPolicyDecision = { allowed: true; reasons: readonly [] } | { allowed: false; reasons: readonly AutoReplySuppressionReason[] };
 
 const connectorProtocolFactsSchema = z.object({
-  returnPath: z.string().nullable(),
-  autoSubmitted: z.string().nullable(),
-  precedence: z.string().nullable(),
-  listId: z.string().nullable(),
-  autoResponseSuppress: z.string().nullable(),
-  contentType: z.string().nullable(),
-  deliveryStatus: z.boolean(),
+  returnPath: z.string().nullable().optional(),
+  autoSubmitted: z.string().nullable().optional(),
+  precedence: z.string().nullable().optional(),
+  listId: z.string().nullable().optional(),
+  autoResponseSuppress: z.string().nullable().optional(),
+  contentType: z.string().nullable().optional(),
+  deliveryStatus: z.boolean().optional(),
 });
 
 const UNKNOWN_PROTOCOL_FACTS: ConnectorProtocolFacts = {
@@ -48,7 +48,7 @@ const UNKNOWN_PROTOCOL_FACTS: ConnectorProtocolFacts = {
 
 export const parseConnectorProtocolFacts = (value: unknown): ConnectorProtocolFacts => {
   const parsed = connectorProtocolFactsSchema.safeParse(value);
-  return parsed.success ? parsed.data : UNKNOWN_PROTOCOL_FACTS;
+  return parsed.success ? { ...UNKNOWN_PROTOCOL_FACTS, ...parsed.data } : UNKNOWN_PROTOCOL_FACTS;
 };
 
 const normalizeAddress = (value: string): string => value.trim().replace(/^<|>$/g, "").toLowerCase();

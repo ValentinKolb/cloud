@@ -15,13 +15,13 @@ const labels: Readonly<Record<string, string>> = {
 type CollaborationSnapshot = {
   assigneeUserId?: unknown;
   workStatus?: unknown;
-  responseNeeded?: unknown;
   snoozedUntil?: unknown;
 };
 
 const snapshot = (value: unknown): CollaborationSnapshot => (value && typeof value === "object" ? (value as CollaborationSnapshot) : {});
 
-const workStatusLabel = (value: unknown): string => (value === "done" ? "Done" : value === "waiting" ? "Awaiting reply" : "Open");
+const workStatusLabel = (value: unknown): string =>
+  value === "done" ? "Done" : value === "waiting" ? "Waiting for reply" : "Needs action";
 
 export const mailActivityLabel = (event: MailActivityEvent): string => {
   if (event.action !== "conversation.collaboration_updated") {
@@ -33,8 +33,6 @@ export const mailActivityLabel = (event: MailActivityEvent): string => {
   if (before.assigneeUserId !== after.assigneeUserId)
     changes.push(after.assigneeUserId ? "assigned the conversation" : "removed the assignee");
   if (before.workStatus !== after.workStatus) changes.push(`marked it ${workStatusLabel(after.workStatus)}`);
-  if (before.responseNeeded !== after.responseNeeded)
-    changes.push(after.responseNeeded ? "marked a response as needed" : "cleared response needed");
   if (before.snoozedUntil !== after.snoozedUntil) changes.push(after.snoozedUntil ? "snoozed the conversation" : "removed the snooze");
   return changes.join(" and ") || "updated the conversation";
 };

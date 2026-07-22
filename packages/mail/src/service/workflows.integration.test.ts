@@ -94,7 +94,7 @@ const budget = {
 
 const collaborationSource = (params: {
   userId: string | null;
-  status: "open" | "waiting" | "done";
+  status: "needs_action" | "waiting" | "done";
 }) => `inputs:
   message:
     type: mailMessage
@@ -320,8 +320,7 @@ suite("mail canonical workflow runtime", () => {
       UPDATE mail.conversations
       SET
         assignee_user_id = NULL,
-        work_status = 'open',
-        response_needed = true,
+        work_status = 'needs_action',
         snoozed_until = NULL,
         revision = revision + 1
       WHERE id = ${conversationId}::uuid
@@ -543,8 +542,8 @@ suite("mail canonical workflow runtime", () => {
     `;
     const [conversation] = await sql<{ id: string }[]>`
       INSERT INTO mail.conversations (
-        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at, response_needed
-      ) VALUES (${mailboxId}::uuid, 'Support request', 'customer@example.com', ${internalDate}, ${internalDate}, true)
+        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at
+      ) VALUES (${mailboxId}::uuid, 'Support request', 'customer@example.com', ${internalDate}, ${internalDate})
       RETURNING id
     `;
     conversationId = conversation!.id;
@@ -764,7 +763,7 @@ suite("mail canonical workflow runtime", () => {
     `;
     expect(afterCrash).toEqual({
       assignee_user_id: writer.id,
-      work_status: "open",
+      work_status: "needs_action",
       revision: baselineRevision + 1,
     });
     const [ledger] = await sql<
@@ -866,7 +865,7 @@ suite("mail canonical workflow runtime", () => {
     `;
     expect(conversation).toEqual({
       assignee_user_id: null,
-      work_status: "open",
+      work_status: "needs_action",
       revision: baselineRevision,
     });
     const [activity] = await sql<{ count: number }[]>`
@@ -929,7 +928,7 @@ suite("mail canonical workflow runtime", () => {
     `;
     expect(afterCrash).toEqual({
       assignee_user_id: writer.id,
-      work_status: "open",
+      work_status: "needs_action",
       revision: baselineRevision + 1,
     });
 

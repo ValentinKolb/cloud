@@ -497,7 +497,6 @@ test("conversation update sends one optimistic collaboration mutation", async ()
         conversationId: CONVERSATION_ID,
         assignee: { id: USER_ID, uid: "writer", displayName: "Writer", avatarHash: null },
         workStatus: "waiting",
-        responseNeeded: true,
         snoozedUntil: "2026-08-01T12:00:00.000Z",
         revision: 5,
       });
@@ -520,7 +519,6 @@ test("conversation update sends one optimistic collaboration mutation", async ()
     USER_ID,
     "--status",
     "waiting",
-    "--response-needed",
     "--snooze-until",
     "2026-08-01T12:00:00Z",
   ]);
@@ -530,7 +528,6 @@ test("conversation update sends one optimistic collaboration mutation", async ()
     expectedRevision: 4,
     assigneeUserId: USER_ID,
     workStatus: "waiting",
-    responseNeeded: true,
     snoozedUntil: "2026-08-01T12:00:00.000Z",
   });
   expect(JSON.parse(result.stdout)).toMatchObject({ revision: 5, workStatus: "waiting" });
@@ -784,7 +781,7 @@ test("saved view commands cover structured filters and revisioned lifecycle", as
     filter: {
       expression: {
         type: "and",
-        expressions: [{ type: "work_status", value: "open" }, { type: "assigned_to_me" }],
+        expressions: [{ type: "work_status", value: "needs_action" }, { type: "assigned_to_me" }],
       },
       sort: "newest",
     },
@@ -845,7 +842,7 @@ test("saved view commands cover structured filters and revisioned lifecycle", as
       type: "and",
       expressions: [
         { type: "work_status", value: "waiting" },
-        { type: "response_needed", value: true },
+        { type: "snoozed", value: false },
       ],
     },
     sort: "relevance",

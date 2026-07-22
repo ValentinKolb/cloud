@@ -143,7 +143,7 @@ cld --json mail search --expression-file query.json --sort newest
 Inspect conversations and messages:
 
 ```bash
-cld --json mail conversation list --status open
+cld --json mail conversation list --status needs_action
 cld --json mail conversation messages <conversation-id>
 cld --json mail message get <message-id>
 ```
@@ -155,7 +155,6 @@ Inspect and update durable collaboration state with optimistic revisions:
 ```bash
 cld --json mail conversation collaboration <conversation-id>
 cld --json mail conversation update <conversation-id> --revision <revision> --assignee <user-id> --status waiting
-cld --json mail conversation watch <conversation-id> <user-id>
 cld --json mail conversation activity <conversation-id>
 ```
 
@@ -166,7 +165,7 @@ cld --json mail conversation context <conversation-id>
 cld --json mail conversation contact-history <conversation-id> <book-id-or-system> <contact-id>
 ```
 
-Create and manage Cloud-local tags independently from provider keywords. Conversation assignment is optimistic and uses the current conversation revision:
+Create and manage Cloud-local tags independently from provider keywords. Conversation assignment and next-step changes are optimistic and use the current conversation revision:
 
 ```bash
 cld --json mail tag create "Priority"
@@ -177,11 +176,10 @@ cld --json mail conversation tag list <conversation-id>
 cld --json mail tag delete <tag-id> --revision <tag-revision> --yes
 ```
 
-Add, edit, or tombstone internal Markdown comments. Use `comment users` to resolve mentionable user ids:
+Add, edit, or tombstone internal Markdown comments:
 
 ```bash
-cld --json mail comment users --search "Alex"
-cld --json mail comment add <conversation-id> --body-file note.md --mention <user-id> --message <message-id>
+cld --json mail comment add <conversation-id> --body-file note.md --message <message-id>
 cld --json mail comment edit <conversation-id> <comment-id> --revision <revision> --body-file note.md
 cld --json mail comment delete <conversation-id> <comment-id> --revision <revision> --yes
 ```
@@ -198,7 +196,7 @@ cld --json mail reminder cancel <conversation-id> --revision <revision>
 Saved-view filters use the same bounded collaboration filter contract as the Mail app. Pass JSON or YAML through a file or stdin:
 
 ```bash
-cld --json mail saved-view create "My open queue" --scope private --filter-file filter.yml
+cld --json mail saved-view create "My action queue" --scope private --filter-file filter.yml
 cld --json mail saved-view list
 cld --json mail saved-view conversations <view-id>
 cld --json mail saved-view update <view-id> --revision <revision> --name "Priority queue"
@@ -309,7 +307,7 @@ Activation reconciles each schedule into the shared scheduler. Every delivered s
 Mail exposes two input types:
 
 - `mailMessage`: one mailbox message. Supported references include `id`, `conversationId`, `subject`, `sender`, `recipients`, `body`, `bodyText`, `bodyHtml`, `attachments`, `hasAttachments`, `folderId`, `flags`, `keywords`, `direction`, `internalDate`, and `receivedAt`.
-- `mailConversation`: the message's conversation. Supported references include `id`, `subject`, `assigneeUserId`, `status`, `workStatus`, `responseNeeded`, and `latestMessageAt`.
+- `mailConversation`: the message's conversation. Supported references include `id`, `subject`, `assigneeUserId`, `workStatus`, and `latestMessageAt`.
 
 Use `${{ inputs.<name> }}` for a whole input and `${{ inputs.<name>.<field> }}` for a field. `${{ now() }}` resolves from the run clock. `context.mailboxId` is also available.
 
@@ -330,7 +328,7 @@ The current Mail action vocabulary is:
 | `removeKeyword` | `message`, `keyword` | Durable provider command |
 | `moveMessage` | `message`, literal accessible folder name or ID in `folder` | Durable provider command |
 | `assignConversation` | `conversation`, literal assignable user name, ID, or `null` in `user` | Transactional collaboration change |
-| `setConversationStatus` | `conversation`, `open`, `waiting`, or `done` in `status` | Transactional collaboration change |
+| `setConversationStatus` | `conversation`, `needs_action`, `waiting`, or `done` in `status` | Transactional collaboration change |
 | `ensureConversationReference` | `conversation`; optional identifier in `result` | Transactional, idempotent reference allocation |
 | `automaticReply` | `message`, `conversation`, bound sender, subject, body; optional inline schedule | Guarded automatic response |
 | `setVariable` | Identifier in `name`, expression or literal in `value` | Store a pure scoped value for later steps |

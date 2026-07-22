@@ -3,8 +3,7 @@ import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
 
 export type MailCollaborationPatch = {
   assigneeUserId?: string | null;
-  workStatus?: "open" | "waiting" | "done";
-  responseNeeded?: boolean;
+  workStatus?: "needs_action" | "waiting" | "done";
   snoozedUntil?: string | null;
 };
 
@@ -30,7 +29,6 @@ export const applyMailCollaborationPatch = (
         }
       : {}),
     ...(patch.workStatus !== undefined ? { workStatus: patch.workStatus } : {}),
-    ...(patch.responseNeeded !== undefined ? { responseNeeded: patch.responseNeeded } : {}),
     ...(patch.snoozedUntil !== undefined ? { snoozedUntil: patch.snoozedUntil } : {}),
   };
 };

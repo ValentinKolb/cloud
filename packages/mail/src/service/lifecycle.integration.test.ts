@@ -1478,7 +1478,7 @@ suite("mail lifecycle control plane", () => {
     expect(projected?.chunks).toBeGreaterThan(0);
     expect(projected?.conversation_id).toBeTruthy();
     await sql`
-      UPDATE mail.conversations SET work_status = 'done', response_needed = false
+      UPDATE mail.conversations SET work_status = 'done'
       WHERE id = ${projected!.conversation_id}::uuid
     `;
 
@@ -1502,10 +1502,9 @@ suite("mail lifecycle control plane", () => {
       {
         conversation_id: string;
         work_status: string;
-        response_needed: boolean;
       }[]
     >`
-      SELECT link.conversation_id, conversation.work_status, conversation.response_needed
+      SELECT link.conversation_id, conversation.work_status
       FROM mail.conversation_messages link
       JOIN mail.conversations conversation ON conversation.id = link.conversation_id
       WHERE link.message_id = ${message.id}::uuid
@@ -1513,7 +1512,6 @@ suite("mail lifecycle control plane", () => {
     expect(preserved).toEqual({
       conversation_id: projected!.conversation_id,
       work_status: "done",
-      response_needed: false,
     });
   });
 

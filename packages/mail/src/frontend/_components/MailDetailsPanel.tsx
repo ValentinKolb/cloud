@@ -7,7 +7,6 @@ import {
   Placeholder,
   prompts,
   Select,
-  Switch,
   TextInput,
   Tooltip,
   toast,
@@ -497,17 +496,11 @@ export default function MailDetailsPanel(props: {
                 })
               }
               options={[
-                { id: "open", label: "Open", icon: "ti ti-circle" },
-                { id: "waiting", label: "Awaiting reply", icon: "ti ti-message-question" },
+                { id: "needs_action", label: "Needs action", icon: "ti ti-message-reply" },
+                { id: "waiting", label: "Waiting for reply", icon: "ti ti-hourglass" },
                 { id: "done", label: "Done", icon: "ti ti-circle-check" },
               ]}
               disabled={!props.canWrite}
-            />
-            <Switch
-              label="Response needed"
-              value={() => state().responseNeeded}
-              onChange={(responseNeeded) => updateCollaboration({ responseNeeded })}
-              disabled={!props.canWrite || state().workStatus === "done"}
             />
             <DateTimeInput
               label="Snooze until"

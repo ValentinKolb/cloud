@@ -12,8 +12,8 @@ const plan = {
 
 const source = {
   message: { id: "message", folderId: "inbox", keywords: ["finance"] },
-  conversation: { id: "conversation", workStatus: "open", revision: 2 },
-} as FrozenMailWorkflowSource;
+  conversation: { id: "conversation", workStatus: "needs_action", revision: 2 },
+} as unknown as FrozenMailWorkflowSource;
 
 describe("Mail workflow projected state", () => {
   test("shares projected objects between context and declared inputs without mutating the snapshot", () => {
@@ -42,9 +42,9 @@ describe("Mail workflow projected state", () => {
     if (!source.conversation) throw new Error("Expected workflow conversation fixture");
     const conversation = structuredClone(source.conversation);
 
-    expect(applyMailConversationTransition(conversation, "setConversationStatus", "open")).toBe(false);
+    expect(applyMailConversationTransition(conversation, "setConversationStatus", "needs_action")).toBe(false);
     expect(applyMailConversationTransition(conversation, "setConversationStatus", "done")).toBe(true);
-    expect(conversation).toMatchObject({ status: "done", workStatus: "done", responseNeeded: false, revision: 3 });
+    expect(conversation).toMatchObject({ workStatus: "done", revision: 3 });
   });
 
   test("keeps schedule-only inputs when no message source exists", () => {

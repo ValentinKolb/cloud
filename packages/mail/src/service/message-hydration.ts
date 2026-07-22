@@ -4,6 +4,8 @@ import { pipeline } from "node:stream/promises";
 import { sql } from "bun";
 import { type AttachmentStream, type Headers, MailParser, type MessageText } from "mailparser";
 import sanitizeHtml from "sanitize-html";
+import { parseConnectorProtocolFacts } from "./auto-reply-policy";
+import { deriveConversationWorkState, isAutomaticSubmission } from "./conversation-work-state";
 import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
 import { assertMailboxTransportFence, type MailboxTransportFence } from "./mailbox-transport-fence";
 import { type StoredBlob, storeReadableBlob } from "./message-blobs";
@@ -39,9 +41,11 @@ type MessageIdentityProjection = {
 type VerifiedConversationProjection = {
   conversation_id: string;
   mailbox_id: string;
-  work_status: "open" | "waiting" | "done";
-  response_needed: boolean;
+  work_status: "needs_action" | "waiting" | "done";
   snoozed_until: Date | string | null;
+  in_reply_to: string | null;
+  reference_ids: string[];
+  selected_headers: Record<string, unknown> | string;
   outbound: boolean;
   is_latest_verified: boolean;
   message_count: number;
@@ -135,8 +139,51 @@ const jsonValue = (value: unknown, depth = 0): unknown => {
 
 const selectedHeaders = (headers: Headers | null): Record<string, unknown> => {
   if (!headers) return {};
-  const names = ["message-id", "in-reply-to", "references", "date", "from", "reply-to", "to", "cc", "bcc", "subject", "content-type"];
-  return Object.fromEntries(names.flatMap((name) => (headers.has(name) ? [[name, jsonValue(headers.get(name))]] : [])));
+  const names = [
+    "message-id",
+    "in-reply-to",
+    "references",
+    "date",
+    "from",
+    "reply-to",
+    "to",
+    "cc",
+    "bcc",
+    "subject",
+    "return-path",
+    "auto-submitted",
+    "precedence",
+    "list-id",
+    "x-auto-response-suppress",
+    "content-type",
+  ];
+  const selected = Object.fromEntries(names.flatMap((name) => (headers.has(name) ? [[name, jsonValue(headers.get(name))]] : [])));
+  const protocolNames = {
+    "return-path": "returnPath",
+    "auto-submitted": "autoSubmitted",
+    precedence: "precedence",
+    "list-id": "listId",
+    "x-auto-response-suppress": "autoResponseSuppress",
+    "content-type": "contentType",
+  } as const;
+  for (const [headerName, fieldName] of Object.entries(protocolNames)) {
+    const value = headers.get(headerName);
+    const text =
+      typeof value === "string"
+        ? value
+        : Array.isArray(value)
+          ? value.map(String).join(", ")
+          : value && typeof value === "object" && "text" in value && typeof value.text === "string"
+            ? value.text
+            : null;
+    if (text != null) selected[fieldName] = text;
+  }
+  if (headers.has("content-type")) {
+    const value = headers.get("content-type");
+    const contentType = typeof value === "string" ? value : "";
+    selected["deliveryStatus"] = /(?:^|;)\s*report-type\s*=\s*["']?delivery-status\b/i.test(contentType);
+  }
+  return selected;
 };
 
 const findPartPath = (structure: Record<string, unknown>, contentType: string): string | null => {
@@ -338,14 +385,15 @@ const applyVerifiedConversationTransition = async (params: {
       conversation.id AS conversation_id,
       conversation.mailbox_id,
       conversation.work_status,
-      conversation.response_needed,
       conversation.snoozed_until,
+      message.in_reply_to,
+      message.reference_ids,
+      message.selected_headers,
       EXISTS (
         SELECT 1
         FROM mail.message_addresses sender
         JOIN mail.sender_identities identity
           ON identity.mailbox_id = conversation.mailbox_id
-         AND identity.status <> 'disabled'
          AND lower(identity.from_address) = sender.normalized_email
         WHERE sender.message_id = message.id AND sender.role = 'from'
       ) AS outbound,
@@ -369,12 +417,21 @@ const applyVerifiedConversationTransition = async (params: {
   `;
   if (!projection) return null;
 
-  const nextWorkStatus = projection.is_latest_verified && !projection.outbound ? "open" : projection.work_status;
-  const nextResponseNeeded = projection.is_latest_verified ? !projection.outbound : projection.response_needed;
-  const nextSnoozedUntil = projection.is_latest_verified && !projection.outbound ? null : projection.snoozed_until;
+  const protocolFacts = parseConnectorProtocolFacts(
+    typeof projection.selected_headers === "string" ? JSON.parse(projection.selected_headers) : projection.selected_headers,
+  );
+  const transition = projection.is_latest_verified
+    ? deriveConversationWorkState(projection.work_status, {
+        direction: projection.outbound ? "outbound" : "inbound",
+        intent:
+          projection.outbound && (projection.in_reply_to || projection.reference_ids.length > 0) ? "observed_reply" : "observed_message",
+        automatic: isAutomaticSubmission(protocolFacts.autoSubmitted),
+      })
+    : { workStatus: projection.work_status, clearSnooze: false };
+  const nextWorkStatus = transition.workStatus;
+  const nextSnoozedUntil = transition.clearSnooze ? null : projection.snoozed_until;
   const changed =
     projection.work_status !== nextWorkStatus ||
-    projection.response_needed !== nextResponseNeeded ||
     (projection.snoozed_until ? new Date(projection.snoozed_until).toISOString() : null) !==
       (nextSnoozedUntil ? new Date(nextSnoozedUntil).toISOString() : null);
   await params.db`
@@ -388,7 +445,6 @@ const applyVerifiedConversationTransition = async (params: {
           FROM mail.message_addresses sender
           JOIN mail.sender_identities identity
             ON identity.mailbox_id = conversation.mailbox_id
-           AND identity.status <> 'disabled'
            AND lower(identity.from_address) = sender.normalized_email
           WHERE sender.message_id = message.id AND sender.role = 'from'
         ) AS outbound
@@ -433,13 +489,12 @@ const applyVerifiedConversationTransition = async (params: {
       latest_inbound_at = timeline.latest_inbound_at,
       latest_outbound_at = timeline.latest_outbound_at,
       work_status = ${nextWorkStatus},
-      response_needed = ${nextResponseNeeded},
       snoozed_until = ${nextSnoozedUntil},
       revision = conversation.revision + CASE WHEN ${projection.message_count > 1 || changed} THEN 1 ELSE 0 END
     FROM timeline, latest, participants
     WHERE conversation.id = ${projection.conversation_id}::uuid
   `;
-  if (!changed || projection.outbound || !projection.is_latest_verified) return null;
+  if (!changed || !projection.is_latest_verified) return null;
 
   const [activity] = await params.db<{ id: string | number }[]>`
     INSERT INTO mail.activity_events (
@@ -448,7 +503,7 @@ const applyVerifiedConversationTransition = async (params: {
       ${projection.mailbox_id}::uuid,
       ${projection.conversation_id}::uuid,
       'system',
-      'conversation.reopened',
+      'conversation.work_state_changed',
       'reconciled',
       'conversation',
       ${projection.conversation_id}::uuid,
@@ -456,19 +511,21 @@ const applyVerifiedConversationTransition = async (params: {
         messageId: params.messageId,
         before: {
           workStatus: projection.work_status,
-          responseNeeded: projection.response_needed,
           snoozedUntil: projection.snoozed_until ? new Date(projection.snoozed_until).toISOString() : null,
         },
-        after: { workStatus: "open", responseNeeded: true, snoozedUntil: null },
+        after: {
+          workStatus: nextWorkStatus,
+          snoozedUntil: nextSnoozedUntil ? new Date(nextSnoozedUntil).toISOString() : null,
+        },
       }}::jsonb
     )
     RETURNING id
   `;
-  if (!activity) throw new Error("Conversation reopen activity insert returned no row");
+  if (!activity) throw new Error("Conversation work-state activity insert returned no row");
   return {
     mailboxId: projection.mailbox_id,
     conversationId: projection.conversation_id,
-    reason: "inbound",
+    reason: projection.outbound ? "outbound" : "inbound",
     targetId: params.messageId,
     activityId: String(activity.id),
   };

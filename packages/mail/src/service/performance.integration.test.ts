@@ -160,8 +160,7 @@ suite("mail large-mailbox performance", () => {
         subject,
         participant_summary,
         latest_inbound_at,
-        latest_message_at,
-        response_needed
+        latest_message_at
       )
       SELECT
         mc.id,
@@ -169,8 +168,7 @@ suite("mail large-mailbox performance", () => {
         mc.subject,
         'Bulk Sender',
         mc.internal_date,
-        mc.internal_date,
-        true
+        mc.internal_date
       FROM mail.message_contents mc
       WHERE mc.mailbox_id = ${mailbox.data.id}::uuid
     `;
@@ -275,7 +273,7 @@ suite("mail large-mailbox performance", () => {
         context,
         mailboxId: ids.mailboxId,
         request: {
-          expression: { type: "work_status", value: "open" },
+          expression: { type: "work_status", value: "needs_action" },
           sort: "newest",
           limit: 50,
         },
@@ -370,12 +368,12 @@ suite("mail large-mailbox performance", () => {
     for (let iteration = 0; iteration < 5; iteration += 1) {
       const startedAt = performance.now();
       const [view, counts] = await Promise.all([
-        listConversations({ context, mailboxId: ids.mailboxId, view: "inbox", limit: 50 }),
+        listConversations({ context, mailboxId: ids.mailboxId, view: "needs_action", limit: 50 }),
         getConversationViewCounts({ context, mailboxId: ids.mailboxId }),
       ]);
       durations.push(performance.now() - startedAt);
       expect(view.ok && view.data.items).toHaveLength(50);
-      expect(counts.ok && counts.data.inbox).toBe(MESSAGE_COUNT);
+      expect(counts.ok && counts.data.needs_action).toBe(MESSAGE_COUNT);
       expect(counts.ok && counts.data.recently_active).toBe(MESSAGE_COUNT);
     }
     const warmDurations = durations.slice(1);
@@ -398,7 +396,7 @@ suite("mail large-mailbox performance", () => {
 steps:
   - setConversationStatus:
       conversation: "\${{ inputs.conversation }}"
-      status: open
+      status: needs_action
 `;
       const workflow = await createWorkflow({
         context,

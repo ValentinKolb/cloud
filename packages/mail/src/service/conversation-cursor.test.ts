@@ -4,8 +4,8 @@ import { type ConversationCursorScope, decodeConversationCursor, encodeConversat
 const scope: ConversationCursorScope = {
   mailboxId: "00000000-0000-4000-8000-000000000001",
   folderId: "00000000-0000-4000-8000-000000000002",
-  status: "open",
-  view: "inbox",
+  status: "needs_action",
+  view: "needs_action",
   userId: "00000000-0000-4000-8000-000000000003",
 };
 

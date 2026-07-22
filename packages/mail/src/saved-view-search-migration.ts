@@ -31,17 +31,16 @@ export const migrateLegacySavedViewFilter = (filter: LegacySavedViewFilter): Mai
   const expressions: MailSearchExpression[] = [];
   if (filter.folderId) expressions.push({ type: "folder_id", folderId: filter.folderId });
   if (filter.workStatuses?.length === 1) {
-    expressions.push({ type: "work_status", value: filter.workStatuses[0]! });
+    expressions.push({ type: "work_status", value: filter.workStatuses[0] === "open" ? "needs_action" : filter.workStatuses[0]! });
   } else if (filter.workStatuses && filter.workStatuses.length > 1) {
     expressions.push({
       type: "or",
-      expressions: filter.workStatuses.map((value) => ({ type: "work_status", value })),
+      expressions: filter.workStatuses.map((value) => ({ type: "work_status", value: value === "open" ? "needs_action" : value })),
     });
   }
   if (filter.assignee?.kind === "me") expressions.push({ type: "assigned_to_me" });
   if (filter.assignee?.kind === "unassigned") expressions.push({ type: "assignee", userId: null });
   if (filter.assignee?.kind === "user") expressions.push({ type: "assignee", userId: filter.assignee.userId });
-  if (filter.responseNeeded !== undefined) expressions.push({ type: "response_needed", value: filter.responseNeeded });
   if (filter.snoozed !== undefined) expressions.push({ type: "snoozed", value: filter.snoozed });
   return {
     expression: expressions.length === 0 ? { type: "all" } : expressions.length === 1 ? expressions[0]! : { type: "and", expressions },
@@ -50,33 +49,35 @@ export const migrateLegacySavedViewFilter = (filter: LegacySavedViewFilter): Mai
   };
 };
 
-const stripRemovedFollowingExpression = (value: unknown): unknown | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+type RemovedExpressionResult = { value: unknown | null; unsupported: boolean };
+
+const migrateRemovedExpression = (value: unknown): RemovedExpressionResult => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { value, unsupported: false };
   const expression = value as Record<string, unknown>;
-  if (expression.type === "watched_by_me") return null;
+  if (expression.type === "watched_by_me") return { value: null, unsupported: false };
+  if (expression.type === "response_needed") return { value: null, unsupported: true };
+  if (expression.type === "work_status" && expression.value === "open") {
+    return { value: { ...expression, value: "needs_action" }, unsupported: false };
+  }
   if (expression.type === "not") {
-    const nested = stripRemovedFollowingExpression(expression.expression);
-    return nested ? { ...expression, expression: nested } : null;
+    const nested = migrateRemovedExpression(expression.expression);
+    return { value: nested.value ? { ...expression, expression: nested.value } : null, unsupported: nested.unsupported };
   }
   if ((expression.type === "and" || expression.type === "or") && Array.isArray(expression.expressions)) {
-    const expressions = expression.expressions
-      .map(stripRemovedFollowingExpression)
-      .filter((child): child is NonNullable<typeof child> => child !== null);
-    if (expressions.length === 0) return null;
-    if (expressions.length === 1) return expressions[0];
-    return { ...expression, expressions };
+    const migrated = expression.expressions.map(migrateRemovedExpression);
+    const expressions = migrated.map((child) => child.value).filter((child): child is NonNullable<typeof child> => child !== null);
+    const result = expressions.length === 0 ? null : expressions.length === 1 ? expressions[0] : { ...expression, expressions };
+    return { value: result, unsupported: migrated.some((child) => child.unsupported) };
   }
-  return value;
+  return { value, unsupported: false };
 };
 
-const stripRemovedSavedViewFeatures = (value: unknown): unknown => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+const stripRemovedSavedViewFeatures = (value: unknown): { value: unknown; unsupported: boolean } => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { value, unsupported: false };
   const state = value as Record<string, unknown>;
-  if (!("expression" in state)) return value;
-  return {
-    ...state,
-    expression: stripRemovedFollowingExpression(state.expression) ?? { type: "all" },
-  };
+  if (!("expression" in state)) return { value, unsupported: false };
+  const migrated = migrateRemovedExpression(state.expression);
+  return { value: { ...state, expression: migrated.value ?? { type: "all" } }, unsupported: migrated.unsupported };
 };
 
 type SavedViewFilterMigration = {
@@ -89,12 +90,13 @@ export const canonicalizeSavedViewFilter = (value: unknown): SavedViewFilterMigr
   const canonical = mailSearchStateSchema.safeParse(value);
   if (canonical.success) return { state: canonical.data, changed: false, recovered: false };
 
-  const stripped = mailSearchStateSchema.safeParse(stripRemovedSavedViewFeatures(value));
-  if (stripped.success) return { state: stripped.data, changed: true, recovered: false };
+  const strippedValue = stripRemovedSavedViewFeatures(value);
+  const stripped = mailSearchStateSchema.safeParse(strippedValue.value);
+  if (stripped.success) return { state: stripped.data, changed: true, recovered: strippedValue.unsupported };
 
   const legacy = legacySavedViewFilterSchema.safeParse(value);
   if (legacy.success) {
-    return { state: migrateLegacySavedViewFilter(legacy.data), changed: true, recovered: false };
+    return { state: migrateLegacySavedViewFilter(legacy.data), changed: true, recovered: legacy.data.responseNeeded !== undefined };
   }
 
   // Saved views are navigation conveniences. A safe broad view is preferable to

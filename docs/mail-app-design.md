@@ -61,7 +61,7 @@ This document uses two decision states:
 | Release scope | Implemented contract | The current connector release supports generic IMAP/SMTP. Provider presets and managed Google or Microsoft OAuth improve setup but do not create provider-native sync contracts. |
 | Connector and sync contracts | Implemented contract | Typed capabilities and remote identities, ImapFlow, Nodemailer, durable commands, recent-first backfill, and capability-driven fallbacks. |
 | Data model and API names | Implemented contract | The current `mail.*` schema responsibilities and mailbox-scoped API routes are migrated and covered by integration tests. Future connector and AI additions extend these boundaries instead of replacing them. |
-| Work states | Implemented contract | One assignee and `open`/`waiting`/`done`; `done` is local collaboration state and never archives or moves mail implicitly. |
+| Work states | Implemented contract | One assignee and one canonical `needs_action`/`waiting`/`done` state. Verified inbound mail selects `needs_action`; confirmed human replies select `waiting`; `done` is local collaboration state and never archives or moves mail implicitly. Snooze is an orthogonal visibility deadline. |
 
 ## Implementation progress
 
@@ -72,7 +72,7 @@ This snapshot records the verified Mail backend, CLI, and core application exper
 | 1. Foundation contracts | Implemented | Mail package and schema; mailbox access adapter; encrypted write-only mailbox provider connections; one current remote-resource binding with retained historical fences; capability model; central execution resolver; durable command, outbox, job, lease, and fencing paths; conversation grouping with durable manual overrides; collaboration persistence; immutable conversation references; inline response timing; connector conformance harness; typed API and CLI. | No baseline architecture gap. Later connectors and AI must extend these contracts. |
 | 2. IMAP onboarding, sync, and search | Backend and primary UI implemented | Generic manual IMAP/SMTP setup and live verification; provider presets and autoconfiguration; browser OAuth authorization-code PKCE for configured Google and Microsoft applications; encrypted refresh-token storage, distributed refresh locking, reconnect, and failure recovery; namespace, folder, subscription, and ACL discovery; recent-first resumable sync; UIDVALIDITY reset handling; body and attachment hydration into PostgreSQL; capability-driven QRESYNC/CONDSTORE/IDLE hints with bounded polling and periodic reconciliation fallback; listener health; bidirectional generic IMAP Draft projection with explicit conflict recovery; repair operations; canonical field-specific structured search with nested AND/OR/NOT, keyset pagination, URL state, native FTS and optional `pg_textsearch`; end-user Search builder; canonical saved views; mailbox-local tags; and explicit 20,000- and 100,000-message performance gates. | Enhanced provider connectors. |
 | 3. Core mail operations | Backend, CLI, and primary UI implemented | Provider-backed folder administration and semantic roles; additive flags and keywords; move, copy, trash, archive, and delete commands; bounded atomic conversation triage and multi-selection; revision-safe drafts and streamed attachments; revocable public attachment links with optional passwords, expiry and download limits; aggregate Mail storage observability; sender lifecycle; send, Undo Send, Scheduled Send, SMTP delivery, streamed Sent append, ambiguous-outcome reconciliation, threaded message detail, manual conversation merge and split; message operation controls; compose/reply/reply-all/forward; selected-text quoting; isolated incoming HTML rendering; recognized quote collapsing; bounded image, PDF, text, audio, and video previews with safe download fallback; message-bound plus outgoing attachment UX; private and mailbox signatures/snippets; default signatures per sender identity; canonical preview/send rendering; and validated mailbox email CSS. | Provider-enhanced operations. |
-| 4. Collaboration | Backend and primary UI implemented | Revision-safe assignment, watchers, open/waiting/done, response-needed and snooze state; inbound reopen; chronological internal comments with replies, immutable revisions, tombstones, and access-rechecked mention delivery; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; visible editor presence; explicit draft takeover and recovery; provider-Draft interoperability with non-destructive concurrent-edit recovery; mailbox-scoped live invalidation; permission-safe API and CLI; and the combined Mail, ownership, comments, reminders, and audit Details panel. | Final accessibility and multi-browser revocation coverage. |
+| 4. Collaboration | Backend and primary UI implemented | Revision-safe assignment and canonical needs-action/waiting/done state; verified inbound and confirmed-human-reply transitions; orthogonal snooze with distributed due-time wakeup; chronological internal comments with replies, immutable revisions, and tombstones; personal reminders; durable cursor activity; built-in and private/mailbox saved views; horizontally safe ephemeral presence and advisory draft leases; visible editor presence; explicit draft takeover and recovery; provider-Draft interoperability with non-destructive concurrent-edit recovery; mailbox-scoped live invalidation; permission-safe API and CLI; and the combined Mail, ownership, comments, reminders, and audit Details panel. | Final accessibility and multi-browser revocation coverage. |
 | 5. Deterministic workflows | Shared-kernel backend, CLI, and management UI implemented | Canonical YAML compiled and bound through `@valentinkolb/cloud/workflows`; metadata outside source; immutable saved versions; `messageReceived` and schedule activation; direct, one-shot, backfill, retry-child, and durable dry-run records; frozen targets and preconditions; configurable move, copy, send, draft, flag, notification, keyword, and collaboration budgets; permission and credential rechecks; durable command waiting; pause/resume, cancellation, targeted retry with lineage, and fenced recovery; provider keyword, move/copy/archive/trash/flag actions; assignment, status, local-tag and internal-comment actions; draft creation, scheduled draft delivery, notifications, immutable reference allocation, version-pinned inline response timing, and guarded RFC-safe automatic replies; typed API and CLI; and a dedicated Automations workspace with guided replies, references, version management, run controls, and history. | AI decision nodes and richer visual authoring. |
 | 6. AI decisions and agents | Not started | Mail is exposed through typed API and CLI operations suitable for later tools. | Mail AI resource, tools, approvals, workflow decision nodes, summaries, classification, suggested drafts, and bulk-plan generation. |
 | 7. Product-speed pass | Primary workspace implemented | Calm Cloud-native mailbox overview; resizable AppWorkspace navigation; dense one-line conversation rows; URL-backed SSR-first frontend navigation; collapsible conversation list; threaded reader; one combined and resizable Details panel; contained reply/forward composer; dedicated full-size and pop-out composer; durable local draft journal; complete structured Search authoring and saved-view reuse; bounded multi-selection and bulk actions; one command registry with configurable shortcuts; accessible folder picker; abortable detail navigation; bounded neighbour prefetch; stable focus and read-state behavior; permission-aware self-service settings; responsive empty/error states; and authenticated desktop/mobile verification against a live mailbox. | Final cross-browser accessibility and explicit frontend performance regression gates. |
@@ -194,7 +194,7 @@ The architecture separates remote mail truth, durable Cloud truth, and transient
 | Retained message content | PostgreSQL after import | Original headers, MIME structure and parts, normalized text, sanitized HTML, and attachment bytes remain durable even after provider deletion or access loss. |
 | Submission acceptance | SMTP or provider submission API | Acceptance does not prove final delivery. |
 | Allowed sender identity | Provider policy plus Cloud configuration | IMAP access alone never authorizes a `From` or envelope sender. |
-| Assignment, status, comments, references, watchers | PostgreSQL | Cloud collaboration state. |
+| Assignment, work state, snooze, comments, and references | PostgreSQL | Cloud collaboration state. |
 | Rules, signatures, snippets, saved views | PostgreSQL | Mailbox-owned configuration. |
 | Permissions and approval policies | Cloud/PostgreSQL | Rechecked when commands execute. |
 | Audit and activity | PostgreSQL | Append-only durable history. |
@@ -390,18 +390,18 @@ The resolver writes the binding ID, credential revision, and rights snapshot to 
 - derived subject and participant summary;
 - latest inbound and outbound timestamps;
 - optional primary human-readable reference projection;
-- current assignee and status;
+- current assignee and canonical work state;
 - snooze/reminder state;
 - optimistic revision;
-- last activity and response-needed indicators.
+- last activity.
 
 `mail.conversation_messages` links messages to one mailbox-scoped conversation. Threading prefers a connector's native thread ID, then RFC `References` and `In-Reply-To`, then a conservative normalized-subject fallback constrained by participants and time. A duplicate `Message-ID` never merges conversations by itself.
 
 `mail.conversation_thread_overrides` stores audited manual merge and split decisions and outranks later heuristic rebuilds. A connector change or reindex therefore cannot silently undo a human correction.
 
-A merge moves comments, notification delivery state, and non-conflicting personal reminders to the target conversation. If the same user has a reminder on both conversations, the target reminder wins and the discarded source delivery is retained as skipped audit state. A split keeps reminders on the source conversation and moves mention deliveries only with comments that follow the selected messages.
+A merge moves comments, notification delivery state, and non-conflicting personal reminders to the target conversation. If the same user has a reminder on both conversations, the target reminder wins and the discarded source delivery is retained as skipped audit state. A split keeps reminders on the source conversation and moves comments that reference selected messages with those messages.
 
-`mail.conversation_watchers`, `mail.conversation_comments`, and `mail.drafts` store collaboration data. A comment contains Markdown/plain text, author, revision, optional parent comment, optional referenced message, and a deletion tombstone. Comment replies remain in one chronological stream rather than creating deeply nested trees. Draft revisions preserve authorship and prevent silent overwrites.
+`mail.conversation_comments` and `mail.drafts` store collaboration data. A comment contains Markdown/plain text, author, revision, optional parent comment, optional referenced message, and a deletion tombstone. Comment replies remain in one chronological stream rather than creating deeply nested trees. Draft revisions preserve authorship and prevent silent overwrites.
 
 Every conversation also has an opaque technical ID used by storage, APIs, and URLs. It is never derived from or replaced by a human-readable reference.
 
@@ -620,8 +620,8 @@ type MailSearchExpression =
   | { type: "text"; field: TextField; query: string; match: "words" | "phrase" | "contains" | "exact" }
   | { type: "date"; field: "internal_date" | "sent_at"; operator: DateOperator; value: string }
   | { type: "size"; field: "message" | "attachment"; operator: SizeOperator; bytes: number }
-  | { type: "work_status"; value: "open" | "waiting" | "done" }
-  | { type: "response_needed" | "snoozed"; value: boolean }
+  | { type: "work_status"; value: "needs_action" | "waiting" | "done" }
+  | { type: "snoozed"; value: boolean }
   | { type: "assignee"; userId: string | null };
 ```
 
@@ -673,27 +673,27 @@ Collaboration state attaches to a conversation, not to individual messages.
 
 ### Work states
 
-The initial states are:
+The work states are:
 
-- `open`: the team needs to review or act;
-- `waiting`: shown as **Awaiting reply**; the team's next step depends on someone else;
+- `needs_action`: shown as **Needs action**; the team needs to review or act;
+- `waiting`: shown as **Waiting for reply**; the team's next step depends on someone else;
 - `done`: no current action remains.
 
-A new inbound message reopens a done conversation. Marking a conversation `done` is always local collaboration state: it never moves or archives remote mail. Unread remains a separate IMAP flag and is never used as a task state.
+A newly verified inbound message always selects `needs_action` and clears snooze. A confirmed human reply or reply-all selects `waiting`, including a reply synchronized from another client through RFC reply headers. New messages, forwards, automatic replies, retries, failures, and ambiguous delivery outcomes do not infer a new state. A manual state remains until a later qualifying message. Marking a conversation `done` is always local collaboration state: it never moves or archives remote mail. Unread remains a separate IMAP flag and is never used as a task state.
 
-One user is the current assignee. Watchers receive updates without sharing ownership. The mailbox itself is the team queue, so multiple assignees are not required initially.
+One user is the current assignee. The mailbox itself is the team queue, so multiple assignees are not required initially.
 
 ### Collaboration views
 
-Built-in saved views include Inbox, Mine, Unassigned, Awaiting reply, Done, Snoozed, and Recently Active. **Awaiting reply** is a team work state and reopens when new mail arrives. **Snoozed** is a time-based follow-up view and stays outside active work until its selected time unless new mail arrives first. The sidebar places Snoozed in a separate Follow-up section so these concepts do not look interchangeable. Counts represent conversations requiring work, not only unread messages.
+Built-in saved views include Needs action, Mine, Unassigned, Waiting for reply, Done, Snoozed, and Recently Active. **Waiting for reply** is a team work state. **Snoozed** is a time-based visibility filter that leaves the work state unchanged. A distributed due-time job clears elapsed snoozes, while new inbound mail clears them immediately. The sidebar places Snoozed in a separate Follow-up section so these concepts do not look interchangeable. Counts represent conversations requiring work, not only unread messages.
 
 Custom views store the same bounded filter contract. Private views belong to one user; mailbox views are shared and require `write` to create, edit, or delete. Dynamic filters such as `assignee: me` resolve for the current actor when the view runs.
 
-### Comment chat and mentions
+### Comment chat
 
-Internal comments are never sent to recipients or stored as remote message bodies. They form a permission-scoped chronological chat attached to the conversation. Comments support mentions, revisions, deletion tombstones, and an optional reply or message reference. Reply references provide context without turning the chat into a nested discussion tree.
+Internal comments are never sent to recipients or stored as remote message bodies. They form a permission-scoped chronological chat attached to the conversation. Comments support revisions, deletion tombstones, and an optional reply or message reference. Reply references provide context without turning the chat into a nested discussion tree.
 
-New comments and mentions invalidate the durable conversation projection through the live topic. The mention picker contains only principals with current mailbox access, and notification delivery rechecks that access. Mention notifications link to the exact comment. Editing or deleting a comment preserves actor and revision history in activity without storing every keystroke.
+New comments invalidate the durable conversation projection through the live topic. Editing or deleting a comment preserves actor and revision history in activity without storing every keystroke.
 
 The UI must make internal comments visually unmistakable from email. A comment composer can never address an external recipient, and the mail reply composer can never silently switch into comment mode.
 
@@ -781,7 +781,7 @@ Source is preserved exactly, while the immutable version also stores source, man
 
 ### Inputs, conditions, and actions
 
-The current inputs are `mailMessage` and `mailConversation`. Message fields include subject, sender/recipients, hydrated bodies and attachments, folder, flags, keywords, direction, and timestamps. Conversation fields include assignment, open/waiting/done state, response-needed state, and latest-message time. The binder checks reference roots, paths, and value kinds before a version is stored.
+The current inputs are `mailMessage` and `mailConversation`. Message fields include subject, sender/recipients, hydrated bodies and attachments, folder, flags, keywords, direction, and timestamps. Conversation fields include assignment, canonical `workStatus`, revision, and latest-message time. The binder checks reference roots, paths, and value kinds before a version is stored.
 
 Conditions use the shared recursive operators `equals`, `notEquals`, `contains`, `startsWith`, `endsWith`, `exists`, `all`, `any`, and `not`. Steps support actions, `if`/`then`/`else`, and `switch`/`cases`/`default`. The shared parser understands bounded `forEach`, but Mail rejects it because mailbox target batches belong in the durable target coordinator.
 
@@ -791,7 +791,7 @@ The implemented action vocabulary is deliberately bounded:
 - `moveMessage`, `copyMessage`, `archiveMessage`, and `trashMessage` create durable provider commands against bound semantic or explicit folders;
 - `addFlag` and `removeFlag` change standard message flags through the same command journal;
 - `assignConversation` performs a revision-checked collaboration transaction and accepts `null` to unassign;
-- `setConversationStatus` sets `open`, `waiting`, or `done` transactionally;
+- `setConversationStatus` sets `needs_action`, `waiting`, or `done` transactionally;
 - `addLocalTag` and `removeLocalTag` change mailbox-local conversation tags transactionally;
 - `addComment` adds an internal, actor-attributed conversation comment;
 - `ensureConversationReference` atomically allocates one immutable mailbox reference from the enabled mailbox reference configuration;
@@ -864,7 +864,7 @@ The future AI tools will expose a bounded subset of existing queries and command
 - list activity;
 - assign, tag, move, and set status;
 - create and update shared drafts;
-- add internal comments and mentions;
+- add internal comments;
 - read or ensure a conversation reference where policy allows;
 - send or delete with policy checks;
 - draft, validate, and preview bulk-action workflow plans;
@@ -1009,17 +1009,17 @@ The conversation view shows the original message and every inbound or outbound r
 
 The selected message exposes familiar **Reply**, **Reply all**, and **Forward** actions without opening a generic action drawer. Reply may continue in the compact composer; Reply all and Forward can open the same draft in full-size or pop-out form when more recipient or source context is useful.
 
-Internal comments do not enter the email chronology. They live in the optional Details panel beside ownership, followers, compact mail metadata, and recent activity. Its comment input cannot address external recipients. The mail composer cannot silently switch into internal-comment mode.
+Internal comments do not enter the email chronology. They live in the optional Details panel beside ownership, compact mail metadata, and recent activity. Its comment input cannot address external recipients. The mail composer cannot silently switch into internal-comment mode.
 
 A stable conversation reference, when allocated, appears as a compact copyable label in the header and search results. Manual merge and split commands are available only when threading is wrong, require confirmation, and append an activity event. Merge previews the primary reference and retained aliases. Split previews which conversation keeps the reference and whether the new conversation receives one.
 
 ### Detail panels
 
-The reader can open one resizable `AppWorkspace.Detail` panel at a time. A single **Details** panel combines ownership, followers, internal comments, recent activity, workflow state, participants, routing metadata, labels, and compact message metadata. Team and Mail details are not separate panels. Technical headers remain an advanced disclosure inside Details rather than occupying another panel.
+The reader can open one resizable `AppWorkspace.Detail` panel at a time. A single **Details** panel combines ownership, canonical next-step state, snooze, internal comments, recent activity, workflow state, participants, routing metadata, labels, and compact message metadata. Team and Mail details are not separate panels. Technical headers remain an advanced disclosure inside Details rather than occupying another panel.
 
 Contact context and contextual AI may replace Details in the same optional panel region. The AI panel hosts contextual chat and actions; the quiet inline summary remains in the reader. Attachments remain with their source message and do not become another generic detail panel.
 
-A badge on Details represents unread internal comments only, uses the exact unread count, and disappears at zero. Participant, follower, attachment, and activity counts are not mixed into that badge.
+A badge on Details represents unread internal comments only, uses the exact unread count, and disappears at zero. Participant, attachment, and activity counts are not mixed into that badge.
 
 Closing a panel restores reader width. Panel choice, width, and visibility are user preferences, not conversation data. On narrow screens a detail panel becomes a dedicated overlay or route and keeps an explicit path back to the conversation.
 
@@ -1295,7 +1295,7 @@ Mailbox rows report logical referenced bytes, not attributed physical disk usage
 
 ### Retention and backup
 
-PostgreSQL stores mailbox settings, permissions, mirrored message content, all attachment bytes, assignments, watchers, comments, drafts, manual thread overrides, conversation references, workflows with inline response timing, signatures, snippets, activity, commands, and deletion tombstones. The initial policy retains these records indefinitely, including after a provider-side deletion or complete loss of provider access. Future AI artifacts will follow the same retention policy. Mailbox deletion never deletes provider mail or physically purges this dataset. It atomically marks the mailbox deleted, pauses its transport, fences in-flight synchronization and hydration, prevents new provider effects, and disables unfinished workflow execution. A current mailbox admin may restore the retained mailbox into a paused state; diagnostics must pass and synchronization must be enabled explicitly before provider access resumes.
+PostgreSQL stores mailbox settings, permissions, mirrored message content, all attachment bytes, assignments, work state, snooze deadlines, comments, drafts, manual thread overrides, conversation references, workflows with inline response timing, signatures, snippets, activity, commands, and deletion tombstones. The initial policy retains these records indefinitely, including after a provider-side deletion or complete loss of provider access. Future AI artifacts will follow the same retention policy. Mailbox deletion never deletes provider mail or physically purges this dataset. It atomically marks the mailbox deleted, pauses its transport, fences in-flight synchronization and hydration, prevents new provider effects, and disables unfinished workflow execution. A current mailbox admin may restore the retained mailbox into a paused state; diagnostics must pass and synchronization must be enabled explicitly before provider access resumes.
 
 Backups cover the same durable dataset, including chunked attachment blobs. Reindexing or reconnecting a provider must never be the only recovery path for collaboration history or attachment content.
 
@@ -1422,7 +1422,7 @@ The matrix is cumulative. Only generic IMAP/SMTP behavior gates the first comple
 - A Cloud draft appears in the provider Drafts mailbox; a provider-created draft is imported; independent Cloud and external edits produce explicit conflict copies rather than silent last-write-wins behavior.
 - Replacing an IMAP draft snapshot records the new UID before retiring the prior snapshot. Failure between those operations is reconciled without losing the accepted Cloud revision.
 - Remote deletion soft-discards an unchanged projected draft but never deletes a newer Cloud revision. External-client activity is attributed only as precisely as the provider binding permits.
-- Two collaborators add comments, replies, edits, mentions, and deletion tombstones concurrently without losing revisions.
+- Two collaborators add comments, replies, edits, and deletion tombstones concurrently without losing revisions.
 - Internal comments remain in the Details panel and never appear as a mode in any mail composer.
 
 ### Workflow scenarios
@@ -1503,10 +1503,10 @@ Success: generic IMAP/SMTP delivers the complete portable mail-operation set; al
 
 Status: Implemented, including permission-scoped Contacts context.
 
-- Assignment, watchers, open/waiting/done, reminders, chronological comment chat, mentions, activity, presence, and shared draft revisions.
-- Mine, Unassigned, Awaiting reply, Done, Snoozed, and Recently Active views.
+- Assignment, needs-action/waiting/done state, snooze, reminders, chronological comment chat, activity, presence, and shared draft revisions.
+- Needs action, Mine, Unassigned, Waiting for reply, Done, Snoozed, and Recently Active views.
 
-Success: two users can triage, comment, mention, draft, and reply without silent conflicts, with complete actor-attributed history and no risk of sending an internal comment externally.
+Success: two users can triage, comment, draft, and reply without silent conflicts, with complete actor-attributed history and no risk of sending an internal comment externally.
 
 ### 5. Deterministic workflows
 

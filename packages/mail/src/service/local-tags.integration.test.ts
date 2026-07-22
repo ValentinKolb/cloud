@@ -158,10 +158,10 @@ suite("mail local tags and structured search", () => {
     const [conversation] = await sql<{ id: string }[]>`
       INSERT INTO mail.conversations (
         mailbox_id, subject, participant_summary, latest_message_at, assignee_user_id,
-        work_status, response_needed, snoozed_until
+        work_status, snoozed_until
       ) VALUES (
         ${mailboxId}::uuid, 'Priority customer', 'Customer', ${internalDate}, ${writer.id}::uuid,
-        'waiting', true, ${new Date(Date.now() + 60 * 60_000)}
+        'waiting', ${new Date(Date.now() + 60 * 60_000)}
       )
       RETURNING id
     `;
@@ -363,7 +363,6 @@ suite("mail local tags and structured search", () => {
       { type: "size", field: "message", operator: "at_least", bytes: 4096 },
       { type: "size", field: "attachment", operator: "greater_than", bytes: 1024 },
       { type: "work_status", value: "waiting" },
-      { type: "response_needed", value: true },
       { type: "assignee", userId: writer.id },
       { type: "snoozed", value: true },
     ];

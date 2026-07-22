@@ -19,7 +19,7 @@ const root: MailSearchExpression = {
     {
       type: "or",
       expressions: [
-        { type: "response_needed", value: true },
+        { type: "work_status", value: "needs_action" },
         { type: "work_status", value: "waiting" },
       ],
     },
@@ -29,8 +29,8 @@ const root: MailSearchExpression = {
 describe("Mail search builder model", () => {
   test("updates nested nodes without mutating siblings", () => {
     const updated = updateMailSearchExpression(root, [1, 0], () => ({
-      type: "response_needed",
-      value: false,
+      type: "work_status",
+      value: "done",
     }));
     expect(updated).not.toBe(root);
     expect(updated).toEqual({
@@ -40,7 +40,7 @@ describe("Mail search builder model", () => {
         {
           type: "or",
           expressions: [
-            { type: "response_needed", value: false },
+            { type: "work_status", value: "done" },
             { type: "work_status", value: "waiting" },
           ],
         },
@@ -49,7 +49,7 @@ describe("Mail search builder model", () => {
     expect(root.expressions[1]).toEqual({
       type: "or",
       expressions: [
-        { type: "response_needed", value: true },
+        { type: "work_status", value: "needs_action" },
         { type: "work_status", value: "waiting" },
       ],
     });
@@ -70,7 +70,7 @@ describe("Mail search builder model", () => {
           expression: {
             type: "or",
             expressions: [
-              { type: "response_needed", value: true },
+              { type: "work_status", value: "needs_action" },
               { type: "work_status", value: "done" },
             ],
           },
@@ -89,7 +89,7 @@ describe("Mail search builder model", () => {
 
     const single: MailSearchExpression = {
       type: "and",
-      expressions: [{ type: "response_needed", value: true }],
+      expressions: [{ type: "work_status", value: "needs_action" }],
     };
     expect(removeMailSearchExpression(single, [0])).toEqual(single);
   });
@@ -120,7 +120,7 @@ describe("Mail search builder model", () => {
       ],
     });
     expect(summarizeMailSearchExpression(root)).toBe(
-      "(Subject words “invoice”) and ((Response is needed) or (Work status is awaiting reply))",
+      "(Subject words “invoice”) and ((Work status is needs action) or (Work status is waiting for reply))",
     );
   });
 

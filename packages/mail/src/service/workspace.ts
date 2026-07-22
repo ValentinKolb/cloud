@@ -43,9 +43,8 @@ export type MailListItem = {
   flagged: boolean;
   hasAttachments: boolean;
   messageCount: number;
-  workStatus: "open" | "waiting" | "done" | null;
+  workStatus: "needs_action" | "waiting" | "done" | null;
   assigneeUserId: string | null;
-  responseNeeded: boolean;
   snoozedUntil: string | null;
   sourceFolderId: string | null;
   unreadFolderIds: string[];
@@ -54,7 +53,7 @@ export type MailListItem = {
 };
 
 const EMPTY_VIEW_COUNTS: ConversationViewCounts = {
-  inbox: 0,
+  needs_action: 0,
   mine: 0,
   unassigned: 0,
   waiting: 0,
@@ -64,10 +63,10 @@ const EMPTY_VIEW_COUNTS: ConversationViewCounts = {
 };
 
 const VIEW_LABELS: Record<ConversationView, string> = {
-  inbox: "Inbox",
+  needs_action: "Needs action",
   mine: "Assigned to me",
   unassigned: "Unassigned",
-  waiting: "Awaiting reply",
+  waiting: "Waiting for reply",
   done: "Done",
   snoozed: "Snoozed",
   recently_active: "Recent activity",
@@ -158,7 +157,6 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
   messageCount: conversation.messageCount,
   workStatus: conversation.workStatus,
   assigneeUserId: conversation.assigneeUserId,
-  responseNeeded: conversation.responseNeeded,
   snoozedUntil: conversation.snoozedUntil,
   sourceFolderId: conversation.folderId,
   unreadFolderIds: conversation.unreadFolderIds,
@@ -321,7 +319,6 @@ const loadListItems = async (params: {
       messageCount: item.messageCount,
       workStatus: item.workStatus,
       assigneeUserId: item.assigneeUserId,
-      responseNeeded: item.responseNeeded,
       snoozedUntil: item.snoozedUntil,
       sourceFolderId: item.sourceFolderId,
       unreadFolderIds: item.unreadFolderIds,

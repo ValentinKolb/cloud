@@ -224,7 +224,6 @@ function SearchConditionValue(props: {
   const dateTerm = () => node() as Extract<MailSearchExpression, { type: "date" }>;
   const sizeTerm = () => node() as Extract<MailSearchExpression, { type: "size" }>;
   const statusTerm = () => node() as Extract<MailSearchExpression, { type: "work_status" }>;
-  const responseTerm = () => node() as Extract<MailSearchExpression, { type: "response_needed" }>;
   const assigneeTerm = () => node() as Extract<MailSearchExpression, { type: "assignee" }>;
   const snoozedTerm = () => node() as Extract<MailSearchExpression, { type: "snoozed" }>;
   const folderTerm = () => node() as Extract<MailSearchExpression, { type: "folder_id" }>;
@@ -312,22 +311,11 @@ function SearchConditionValue(props: {
         <Select
           label="Work status"
           value={() => statusTerm().value}
-          onChange={(value) => props.replace({ ...statusTerm(), value: value as "open" | "waiting" | "done" })}
+          onChange={(value) => props.replace({ ...statusTerm(), value: value as "needs_action" | "waiting" | "done" })}
           options={[
-            { id: "open", label: "Open", icon: "ti ti-circle" },
-            { id: "waiting", label: "Awaiting reply", icon: "ti ti-message-question" },
+            { id: "needs_action", label: "Needs action", icon: "ti ti-message-reply" },
+            { id: "waiting", label: "Waiting for reply", icon: "ti ti-hourglass" },
             { id: "done", label: "Done", icon: "ti ti-checkbox" },
-          ]}
-        />
-      </Show>
-      <Show when={node().type === "response_needed"}>
-        <Select
-          label="Response state"
-          value={() => String(responseTerm().value)}
-          onChange={(value) => props.replace({ ...responseTerm(), value: value === "true" })}
-          options={[
-            { id: "true", label: "Response needed", icon: "ti ti-message-exclamation" },
-            { id: "false", label: "No response needed", icon: "ti ti-message-check" },
           ]}
         />
       </Show>

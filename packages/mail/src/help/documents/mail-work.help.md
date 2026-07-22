@@ -37,18 +37,20 @@ The built-in **Work** views organize Cloud collaboration state:
 
 | View | What it shows |
 | --- | --- |
-| Inbox | Active inbox conversations |
+| Needs action | Conversations where the team needs to review or act |
 | Assigned to me | Conversations assigned to you |
 | Unassigned | Conversations without an assignee |
-| Awaiting reply | Conversations where the team is waiting for someone else. New mail returns them to Inbox. |
-| Snoozed | Conversations hidden until their snooze time. New mail returns them sooner. |
+| Waiting for reply | Conversations where a confirmed team reply is waiting on someone else. New incoming mail moves them to Needs action. |
+| Snoozed | Conversations hidden until their snooze time. The due time reveals them without changing their work state; new incoming mail reveals them immediately. |
 | Done | Conversations marked Done |
 | Recent activity | Recently changed conversations |
 | Scheduled | Messages waiting for future delivery |
 
 Provider folders are a different layer. Moving a conversation to Archive, Trash, Junk, or another provider folder changes remote mail placement and can be visible in other clients. Marking a conversation **Done** changes only Cloud work status; it does not archive or move the email.
 
-Use **Awaiting reply** when your team's next step depends on another person. Use **Snooze until** when the next step depends on a date or time. Awaiting conversations remain in the team queue; snoozed conversations stay out of active views until their selected time unless new mail arrives first.
+Use **Waiting for reply** when your team's next step depends on another person. Mail applies it after a human reply or reply-all is confirmed as sent, including replies synchronized from another email client. Use **Snooze until** when the next review depends on a date or time. Snoozed conversations stay out of active views until their selected time unless new incoming mail arrives first.
+
+New incoming mail always changes the conversation to **Needs action** and ends its snooze. Sending a human reply or reply-all changes it to **Waiting for reply** only after delivery is confirmed. New messages, forwards, automatic replies, retries, and ambiguous delivery outcomes do not infer a new work state. You can always choose a state manually from **Conversation details**.
 
 Use **Move to folder** from the conversation actions or Mail commands to choose a destination with the keyboard, pointer, or touch. On desktop you can also drag a conversation row onto a selectable folder in the left navigation. Mail queues the move and synchronization confirms the provider result.
 
@@ -87,7 +89,7 @@ For composing, drafts, attachments, signatures, and delivery options, see [Write
 
 ## Create reusable views and local tags {icon="layout-list"}
 
-Open **Settings > Views & tags** to create a saved view from folder and collaboration filters. A view can filter by folder, assignee, work status, reply-needed state, and snooze state.
+Open **Settings > Views & tags** to create a saved view from folder and collaboration filters. A view can filter by folder, assignee, work status, and snooze state.
 
 - **Only me** creates a private view.
 - **Everyone with mailbox access** creates a mailbox view and requires write access.

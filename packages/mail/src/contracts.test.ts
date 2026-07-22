@@ -288,7 +288,6 @@ describe("mail workflow contracts", () => {
       { type: "date", field: "internal_date", operator: "after", value: "2026-07-01T00:00:00.000Z" },
       { type: "size", field: "attachment", operator: "at_least", bytes: 1024 },
       { type: "work_status", value: "waiting" },
-      { type: "response_needed", value: true },
       { type: "assignee", userId: null },
       { type: "snoozed", value: false },
       { type: "folder_id", folderId: crypto.randomUUID() },

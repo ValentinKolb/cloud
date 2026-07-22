@@ -148,9 +148,8 @@ export type ConversationSummary = {
   participantSummary: string;
   participantLabels: string[];
   latestMessageAt: string;
-  workStatus: "open" | "waiting" | "done";
+  workStatus: "needs_action" | "waiting" | "done";
   assigneeUserId: string | null;
-  responseNeeded: boolean;
   snoozedUntil: string | null;
   revision: number;
   updatedAt: string;
@@ -173,7 +172,6 @@ type DbConversation = {
   latest_message_at: Date | string;
   work_status: ConversationSummary["workStatus"];
   assignee_user_id: string | null;
-  response_needed: boolean;
   snoozed_until: Date | string | null;
   revision: string | number;
   updated_at: Date | string;
@@ -225,7 +223,6 @@ export const listConversations = async (params: {
       c.latest_message_at,
       c.work_status,
       c.assignee_user_id,
-      c.response_needed,
       c.snoozed_until,
       c.revision,
       c.updated_at,
@@ -293,7 +290,6 @@ export const listConversations = async (params: {
           FROM mail.message_addresses sender
           JOIN mail.sender_identities identity
             ON identity.mailbox_id = c.mailbox_id
-           AND identity.status <> 'disabled'
            AND lower(identity.from_address) = sender.normalized_email
           WHERE sender.message_id = mc.id AND sender.role = 'from'
         ) AS outbound,
@@ -334,7 +330,7 @@ export const listConversations = async (params: {
       AND (${params.status ?? null}::text IS NULL OR c.work_status = ${params.status ?? null})
       AND (
         ${view}::text IS NULL
-        OR (${view} = 'inbox' AND c.work_status = 'open' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now()))
+        OR (${view} = 'needs_action' AND c.work_status = 'needs_action' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now()))
         OR (
           ${view} = 'mine'
           AND c.assignee_user_id = ${currentUserId}::uuid
@@ -390,7 +386,6 @@ export const listConversations = async (params: {
     latestMessageAt: toIso(row.latest_message_at),
     workStatus: row.work_status,
     assigneeUserId: row.assignee_user_id,
-    responseNeeded: row.response_needed,
     snoozedUntil: row.snoozed_until ? toIso(row.snoozed_until) : null,
     revision: Number(row.revision),
     updatedAt: toIso(row.updated_at),
@@ -423,7 +418,7 @@ export const getConversationViewCounts = async (params: {
   const currentUserId = userBackedActor(params.context)?.id ?? null;
   const [row] = await sql<
     {
-      inbox: number;
+      needs_action: number;
       mine: number;
       unassigned: number;
       waiting: number;
@@ -434,8 +429,8 @@ export const getConversationViewCounts = async (params: {
   >`
     SELECT
       COUNT(*) FILTER (
-        WHERE c.work_status = 'open' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())
-      )::int AS inbox,
+        WHERE c.work_status = 'needs_action' AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())
+      )::int AS needs_action,
       COUNT(*) FILTER (
         WHERE c.assignee_user_id = ${currentUserId}::uuid
           AND c.work_status <> 'done'
@@ -462,7 +457,7 @@ export const getConversationViewCounts = async (params: {
       )
   `;
   return ok({
-    inbox: row?.inbox ?? 0,
+    needs_action: row?.needs_action ?? 0,
     mine: row?.mine ?? 0,
     unassigned: row?.unassigned ?? 0,
     waiting: row?.waiting ?? 0,

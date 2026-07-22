@@ -251,10 +251,16 @@ const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promis
           SELECT 1 FROM mail.message_addresses sender
           JOIN mail.sender_identities identity
             ON identity.mailbox_id = message.mailbox_id
-           AND identity.status <> 'disabled'
            AND lower(identity.from_address) = sender.normalized_email
           WHERE sender.message_id = message.id AND sender.role = 'from'
         ) AS outbound,
+        (
+          (message.in_reply_to IS NOT NULL OR cardinality(message.reference_ids) > 0)
+          AND COALESCE(
+            NULLIF(lower(btrim(COALESCE(message.selected_headers->>'autoSubmitted', message.selected_headers->>'auto-submitted'))), ''),
+            'no'
+          ) = 'no'
+        ) AS human_reply,
         COALESCE((
           SELECT string_agg(COALESCE(NULLIF(address.display_name, ''), address.email), ', ' ORDER BY address.position)
           FROM mail.message_addresses address WHERE address.message_id = message.id
@@ -264,7 +270,7 @@ const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promis
         AND NOT EXISTS (SELECT 1 FROM mail.conversation_messages link WHERE link.message_id = message.id)
     ), inserted AS (
       INSERT INTO mail.conversations (
-        id, mailbox_id, subject, participant_summary, latest_inbound_at, latest_outbound_at, latest_message_at, response_needed
+        id, mailbox_id, subject, participant_summary, latest_inbound_at, latest_outbound_at, latest_message_at, work_status
       )
       SELECT
         orphan.conversation_id,
@@ -274,7 +280,7 @@ const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promis
         CASE WHEN orphan.outbound THEN NULL ELSE orphan.internal_date END,
         CASE WHEN orphan.outbound THEN orphan.internal_date ELSE NULL END,
         orphan.internal_date,
-        NOT orphan.outbound
+        CASE WHEN orphan.outbound AND orphan.human_reply THEN 'waiting' ELSE 'needs_action' END
       FROM orphan
       RETURNING id
     )
@@ -294,7 +300,6 @@ const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promis
           SELECT 1 FROM mail.message_addresses sender
           JOIN mail.sender_identities identity
             ON identity.mailbox_id = conversation.mailbox_id
-           AND identity.status <> 'disabled'
            AND lower(identity.from_address) = sender.normalized_email
           WHERE sender.message_id = message.id AND sender.role = 'from'
         ) AS outbound

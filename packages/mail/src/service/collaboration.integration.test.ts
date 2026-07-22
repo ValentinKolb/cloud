@@ -151,8 +151,8 @@ suite("mail collaboration backend", () => {
     `;
     const [conversation] = await sql<{ id: string }[]>`
       INSERT INTO mail.conversations (
-        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at, response_needed
-      ) VALUES (${mailboxId}::uuid, 'Collaboration fixture', 'customer@example.com', ${initialDate}, ${initialDate}, true)
+        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at
+      ) VALUES (${mailboxId}::uuid, 'Collaboration fixture', 'customer@example.com', ${initialDate}, ${initialDate})
       RETURNING id
     `;
     conversationId = conversation!.id;
@@ -216,13 +216,12 @@ suite("mail collaboration backend", () => {
         expectedRevision: 1,
         assigneeUserId: writer.id,
         workStatus: "waiting",
-        responseNeeded: true,
         snoozedUntil: future,
       },
     });
     expect(waiting.ok).toBe(true);
     if (!waiting.ok) return;
-    expect(waiting.data).toMatchObject({ workStatus: "waiting", responseNeeded: true, revision: 2 });
+    expect(waiting.data).toMatchObject({ workStatus: "waiting", revision: 2 });
     expect(waiting.data.assignee?.id).toBe(writer.id);
     const liveEvent = await Promise.race([
       nextEvent,
@@ -241,7 +240,7 @@ suite("mail collaboration backend", () => {
       context: writerContext,
       mailboxId,
       conversationId,
-      input: { expectedRevision: 1, workStatus: "open" },
+      input: { expectedRevision: 1, workStatus: "needs_action" },
     });
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.error.status).toBe(409);
@@ -349,7 +348,7 @@ suite("mail collaboration backend", () => {
     });
     expect(completed.ok).toBe(true);
     if (!completed.ok) return;
-    expect(completed.data).toMatchObject({ workStatus: "done", responseNeeded: false, snoozedUntil: null, revision: 4 });
+    expect(completed.data).toMatchObject({ workStatus: "done", snoozedUntil: null, revision: 4 });
 
     const inbound: ConnectorEnvelope = {
       remoteRef: { folderStableKey: folderId, uidValidity: "1", uid: "2", modseq: null },
@@ -377,7 +376,6 @@ suite("mail collaboration backend", () => {
     const pendingHydration = await getConversationCollaboration({ context: writerContext, mailboxId, conversationId });
     expect(pendingHydration.ok && pendingHydration.data).toMatchObject({
       workStatus: "done",
-      responseNeeded: false,
       snoozedUntil: null,
       revision: 4,
     });
@@ -399,13 +397,13 @@ suite("mail collaboration backend", () => {
       ]),
     });
     const reopened = await getConversationCollaboration({ context: writerContext, mailboxId, conversationId });
-    expect(reopened.ok && reopened.data).toMatchObject({ workStatus: "open", responseNeeded: true, snoozedUntil: null, revision: 5 });
+    expect(reopened.ok && reopened.data).toMatchObject({ workStatus: "needs_action", snoozedUntil: null, revision: 5 });
     const reopenActivity = await listActivity({ context: writerContext, mailboxId, conversationId, limit: 20 });
-    expect(reopenActivity.ok && reopenActivity.data.items.some((event) => event.action === "conversation.reopened")).toBe(true);
+    expect(reopenActivity.ok && reopenActivity.data.items.some((event) => event.action === "conversation.work_state_changed")).toBe(true);
     const mine = await listConversations({ context: writerContext, mailboxId, view: "mine" });
     expect(mine.ok && mine.data.items.map((item) => item.id)).toContain(conversationId);
-    const inbox = await listConversations({ context: writerContext, mailboxId, view: "inbox" });
-    expect(inbox.ok && inbox.data.items.map((item) => item.id)).toContain(conversationId);
+    const needsAction = await listConversations({ context: writerContext, mailboxId, view: "needs_action" });
+    expect(needsAction.ok && needsAction.data.items.map((item) => item.id)).toContain(conversationId);
 
     const revoked = await revokeMailboxAccess({ context: ownerContext, mailboxId, accessId: readerAccessId });
     expect(revoked.ok).toBe(true);

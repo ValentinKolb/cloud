@@ -11,11 +11,10 @@ Cloud collaboration stays attached to a conversation while the underlying email 
 ## Use ownership and status consistently {icon="route"}
 
 - **Assignee** names the person currently responsible for the conversation.
-- **Status** is **Open**, **Awaiting reply**, or **Done**. Awaiting reply means the team's next step depends on someone else; incoming mail returns the conversation to Open.
-- **Response needed** marks that an external reply is still required. It is unavailable after the conversation is Done.
-- **Snooze until** removes the conversation from active work until the selected time. Use it when the next step depends on time rather than another person. New mail ends the snooze early, and snoozing does not change provider folders.
+- **Next step** is **Needs action**, **Waiting for reply**, or **Done**. Needs action means the team must review or act. Waiting for reply means a confirmed human reply was sent and the next step belongs to someone else. Done means no current action remains.
+- **Snooze until** temporarily removes the conversation from active work without changing its next step. Use it when the next review depends on time rather than another person. Its due time reveals the conversation again; new incoming mail ends the snooze immediately.
 
-Incoming mail can reopen collaboration work when the configured behavior requires it. Treat **Done** as a team state, not as an email archive action.
+New incoming mail changes any conversation to **Needs action**. A confirmed human reply or reply-all changes it to **Waiting for reply**. Automatic replies, forwards, new messages, retries, failed sends, and ambiguous delivery outcomes leave the current next step unchanged. Treat **Done** as a team state, not as an email archive action.
 
 ## Add internal comments {icon="point"}
 

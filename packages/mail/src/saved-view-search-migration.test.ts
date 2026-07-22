@@ -3,7 +3,7 @@ import { mailSearchStateSchema } from "./contracts";
 import { canonicalizeSavedViewFilter, migrateLegacySavedViewFilter } from "./saved-view-search-migration";
 
 describe("saved view search migration", () => {
-  test("preserves supported legacy filters and drops the removed following condition", () => {
+  test("preserves supported legacy filters while mapping the old state and dropping removed conditions", () => {
     const folderId = crypto.randomUUID();
     const userId = crypto.randomUUID();
     const migrated = migrateLegacySavedViewFilter({
@@ -23,16 +23,37 @@ describe("saved view search migration", () => {
           {
             type: "or",
             expressions: [
-              { type: "work_status", value: "open" },
+              { type: "work_status", value: "needs_action" },
               { type: "work_status", value: "waiting" },
             ],
           },
           { type: "assignee", userId },
-          { type: "response_needed", value: true },
           { type: "snoozed", value: false },
         ],
       },
       sort: "newest",
+    });
+  });
+
+  test("quarantines canonical views that depended on the removed response-needed condition", () => {
+    expect(
+      canonicalizeSavedViewFilter({
+        expression: {
+          type: "and",
+          expressions: [
+            { type: "text", field: "subject", query: "invoice", match: "words" },
+            { type: "response_needed", value: true },
+          ],
+        },
+        sort: "newest",
+      }),
+    ).toEqual({
+      state: {
+        expression: { type: "text", field: "subject", query: "invoice", match: "words" },
+        sort: "newest",
+      },
+      changed: true,
+      recovered: true,
     });
   });
 
