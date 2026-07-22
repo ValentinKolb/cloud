@@ -41,7 +41,7 @@ const DashboardWorkflowScannerRunSchema = z
   .object({
     code: z.string().trim().min(1).max(500),
     operationId: z.string().trim().min(1).max(120),
-    expectedRevision: z.number().int().positive(),
+    expectedRevision: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -362,7 +362,7 @@ export const createDashboardsApi = (
           launcherId: launcher.id,
           operationId: body.operationId,
           mode: "execute",
-          expectedRevision: body.expectedRevision,
+          expectedRevision: body.expectedRevision ?? launcher.validatedRevision,
           principal: currentWorkflowPrincipal(c),
           inputs: {},
           scannedText: body.code,

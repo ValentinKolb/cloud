@@ -20,7 +20,7 @@ Use `cld` to work with the user's Cloud content from a terminal. It handles sign
 
 - Stay on the user's selected profile unless they name another Cloud instance.
 - Read before changing content. Use IDs returned by list or get commands when a name is not unique.
-- Use `--json` whenever the next action depends on command output. Keep normal output for simple inspection.
+- Use `--json` whenever the next action depends on one complete response. Use `--jsonl` for supported list commands when processing items as a stream. Keep normal output for simple inspection.
 - Pass structured or multiline content through a command's file or stdin option instead of trying to escape it in a shell argument.
 - Do not delete content, revoke access, or perform another destructive action without an explicit user request. Check command help for any required confirmation first.
 
@@ -32,7 +32,7 @@ Read the app reference for the current task. Follow specialized links inside it 
 - Read [API Docs](references/api-docs.md) to discover and inspect the live HTTP APIs published by Cloud apps.
 - Read [Assistant](references/assistant.md) for one-shot streaming chat, chat history, approvals, files, preferences, and Cloud skill push/pull.
 - Read [Contacts](references/contacts.md) for contact books, contacts, tags, notes, exports, and access grants.
-- Read [Grids](references/grids.md) to manage bases, schema, records, GQL, views, forms, dashboards, documents, access, and workflows.
+- Read [Grids](references/grids.md) to create bases from templates and manage schema, records, GQL, views, forms, dashboards, documents, access, and workflows.
 - Read [Mail](references/mail.md) to configure mailboxes, connect IMAP/SMTP providers, search and operate messages, send mail, and run provider smoke tests.
 - Read [Notebooks](references/notebooks.md) for collaborative notes, knowledge search, safe Markdown editing, attachments, scripts, formulas, exports, and access.
 - Read [Pulse](references/pulse.md) to explore telemetry and observed fields, ingest structured events, run queries, create DSL dashboards, manage sources, and share public displays.

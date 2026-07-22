@@ -40,7 +40,7 @@ const FIELD_TYPE_DETAILS: Record<string, FieldReferenceDetails> = {
     notes: "Multiline text. Whitespace is preserved.",
   },
   number: {
-    config: '{ "min": 0, "max": 1000, "decimalPlaces": 2, "unit": "EUR", "unitPosition": "suffix" }',
+    config: '{ "min": 0, "max": 1000, "precision": 12, "decimalPlaces": 2, "integerOnly": false, "unit": "EUR", "unitPosition": "suffix" }',
     recordValue: '"42.50"',
     notes: "Accepts strings or numbers and stores a canonical decimal string.",
   },
@@ -55,7 +55,8 @@ const FIELD_TYPE_DETAILS: Record<string, FieldReferenceDetails> = {
     notes: "Date-only fields use YYYY-MM-DD. With includeTime=true, send a timezone-aware ISO date-time.",
   },
   select: {
-    config: '{ "multiple": false, "options": [{ "id": "open", "label": "Open", "color": "blue" }] }',
+    config:
+      '{ "multiple": false, "minSelected": 0, "maxSelected": 1, "options": [{ "id": "open", "label": "Open", "color": "blue", "description": "Ready" }] }',
     recordValue: '["open"]',
     notes: "Record values are arrays of option ids. Single select still uses an array with at most one id.",
   },
@@ -82,7 +83,8 @@ const FIELD_TYPE_DETAILS: Record<string, FieldReferenceDetails> = {
   id: {
     config: '{ "strategy": "date_sequence", "prefix": "INV-", "padding": 5, "period": "year" }',
     recordValue: "(server generated)",
-    notes: "Generated on record create. Do not send id fields in record payloads.",
+    notes:
+      "Generated on record create. Strategies: sequence, date_sequence, short_code, random_code, uuid, uuidv7, and ulid. Do not send id fields in record payloads.",
   },
   formula: {
     config: '{ "expression": "LEN(Name)" }',

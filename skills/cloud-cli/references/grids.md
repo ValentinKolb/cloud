@@ -98,21 +98,36 @@ cld grids workflows create --name "Check in" --source-file workflow.yml --enable
 
 Use `--json` whenever another command or agent will consume the result. Normal text output is for human inspection and may omit nested fields.
 
+### Time and locale
+
+CLI requests use the Cloud instance's `app.timezone` for date grouping, relative date filters, generated date sequences, and document
+dates. Browser requests may use the user's timezone cookie instead. Workflow schedules use the IANA timezone declared in their YAML and
+default to UTC. Grids uses the platform English locale for server-rendered number and date output; dashboard `valueFormat` controls
+numeric style and precision, not locale or query values.
+
 ## Build schema and records
 
 ### Bases and tables
 
 ```bash
+cld grids templates list --json
+cld grids templates instantiate inventory --name "Equipment" --use --json
 cld grids bases create Bookshop --description "Books and loans" --use --json
 cld grids tables create --name Authors --description "People who wrote books" --json
 cld grids tables get Authors --json
 ```
 
-Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore`. Table commands are `tables list|get|create|update|delete|restore`.
+Built-in templates create complete example bases with schema, views, dashboards, documents, workflows, and optional sample records. Sample
+records are included by default; pass `--empty` to keep the complete configuration without those records. Commands are
+`templates list|instantiate`.
+
+Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash`. Table commands are `tables list|get|create|update|delete|restore`.
 
 Pass `--kind stored` for a normal table or `--kind federated` for a user-facing Combined table. Stored is the default.
 
-`bases restore`, `tables restore`, and the other restore commands require the deleted resource UUID rather than a name lookup.
+`bases restore`, `tables restore`, and the other restore commands require the deleted resource UUID rather than a name lookup. Base
+admins can discover deleted table, field, dashboard, and form UUIDs with `cld grids bases trash <base> --json`. A deleted table owns its
+deleted fields and forms, so those nested resources are restored with the table rather than duplicated in the trash response.
 
 ### Field types
 
@@ -139,7 +154,7 @@ Important encodings:
 - `relation` stores target record UUIDs. A single relation can be written as one UUID string; multiple relations use an array.
 - `date` uses `YYYY-MM-DD` unless `includeTime` is enabled; date-time values must include a timezone.
 - `duration` accepts seconds, `MM:SS`, or `HH:MM:SS` and stores integer seconds.
-- `id`, formula, lookup, rollup, audit, and timestamp fields must not be sent in record writes.
+- `id`, formula, lookup, rollup, and timestamp fields must not be sent in record writes.
 
 Create a field only after inspecting its type:
 
@@ -179,7 +194,11 @@ cld grids records export Authors --format csv --out authors.csv
 cld grids records audit Authors <record-uuid> --json
 ```
 
-Record commands are `records shape|list|query|get|create|import|export|update|delete|restore|audit`.
+`records audit` shows one stored or Combined record's history. `records audit list` browses the published lifecycle history across an
+entire Combined table and accepts record, source, action, time-range, cursor, and limit filters. Combined audit entries expose only
+canonical included fields, declared audit answers such as required deletion comments, and safe source labels.
+
+Record commands are `records shape|list|query|get|create|import|export|update|delete|restore|audit|audit list`.
 
 ### Files and snapshots
 
@@ -202,8 +221,8 @@ cld grids snapshots list Assets <record-uuid> --json
 ## Publish Combined tables
 
 A Combined table exposes one canonical, read-only table over stored source tables from one or more bases. Readers need permission only on
-the Combined target. They do not gain source-base navigation, schema, history, or mutation rights. Queries, saved views, dashboards,
-documents, workflow reads, and exports use the canonical fields through normal Grids behavior.
+the Combined target. They do not gain source-base navigation, raw source schema, non-published field history, or mutation rights. Queries,
+saved views, dashboards, documents, workflow reads, exports, and the canonical Combined audit trail use normal Grids behavior.
 
 Publication is fail-closed. Revocation, source deletion, or incompatible schema drift makes the complete published revision unavailable;
 Grids does not return a silently smaller partial union. One Combined table supports at most 50 stored sources and 200 canonical fields.
@@ -311,6 +330,7 @@ sort Name asc
 ```bash
 cld grids gql run Reporting --query-file available-inventory.gql --json
 cld grids records export Reporting "All inventory" --format csv --out inventory.csv
+cld grids records audit list Reporting "All inventory" --action deleted --json
 ```
 
 A source-base admin can inspect every Combined target and exact mapped scope that publishes one stored table. The target UUID in this
@@ -412,7 +432,25 @@ Commands are `forms list|default|get|create|update|delete|restore|submit`. `--pu
 
 ### Dashboards
 
-Dashboard config is a `{ "rows": [...] }` object. Widgets reference saved resources by UUID.
+Read the machine-readable reference before creating nested dashboard JSON:
+
+```bash
+cld grids dashboards reference --json
+```
+
+Dashboard config is a `{ "rows": [...] }` object. Each row has `id`, `kind: "row"`, `height: "sm"|"md"|"lg"`, and up to 12 cells.
+Each cell may set `span` from 1 to 12. Data widgets use either a saved view source or dashboard-local GQL:
+
+```json
+{ "kind": "view", "viewId": "<view-uuid>" }
+{ "kind": "gql", "source": "from table Orders\naggregate sum(Total) as revenue" }
+```
+
+Widget kinds are `stat`, `chart`, `view`, `view-stats`, `form`, `markdown`, `link`, and `workflow-button`. The JSON reference lists every
+kind's required and optional properties, link-target shapes, chart source requirements, and a schema-valid example. Stat and chart values
+may use an explicit `valueFormat` with style `number`, `integer`, or `percent`. `number` may add `decimalPlaces`, `unit`, and
+`unitPosition`; `integer` cannot set decimal places; `percent` expects a fraction, so `0.19` renders as `19%`. Formatting never changes
+canonical data.
 
 ```bash
 cld grids dashboards create \
@@ -422,7 +460,11 @@ cld grids dashboards create \
   --json
 ```
 
-Commands are `dashboards list|get|create|update|delete|restore` and `dashboards widgets resolve|run|scan`. Use `widgets resolve` to inspect one configured widget, `widgets run` for a workflow-button widget, and `widgets scan --code <value>` for its scanner flow.
+Commands are `dashboards reference|list|get|create|update|delete|restore` and `dashboards widgets resolve|run|scan`. Use `widgets resolve`
+to inspect one configured widget, `widgets run` for a workflow-button widget, and `widgets scan --code <value>` for its scanner flow.
+Scanner retries should reuse `--operation-id`; when omitted, the CLI generates a new idempotency id. Pass `--expected-revision` when a
+caller must reject a launcher that was revalidated against a different workflow revision. Otherwise, the server uses the launcher's
+current validated revision without requiring direct workflow access from the dashboard reader.
 
 ## Generate documents
 
@@ -595,19 +637,20 @@ Use `cld grids <command> --help` for every flag, positional form, constraint, an
 
 ```text
 list, use, current
-bases list|get|create|update|delete|restore
+templates list|instantiate
+bases list|get|create|update|delete|restore|trash
 access reference|list|grant|set|revoke|search-principals
 tables list|get|create|update|delete|restore
 tables combined get|candidates|publications|validate|draft|publish|revoke
 fields types|type|list|get|create|update|delete|restore|dependents|reorder
-records shape|list|query|get|create|import|export|update|delete|restore|audit
+records shape|list|query|get|create|import|export|update|delete|restore|audit|audit list
 records files list|upload|download|delete
 snapshots list|create|get
 gql reference|run|preview|compile-view|autocomplete|skill|context
 formulas reference|check
 views list|get|create|update|delete|restore
 forms list|default|get|create|update|delete|restore|submit
-dashboards list|get|create|update|delete|restore
+dashboards reference|list|get|create|update|delete|restore
 dashboards widgets resolve|run|scan
 document-templates reference|list|get|create|update|delete
 document-templates preview-data|preview-pdf|preview-draft-data|preview-draft-pdf

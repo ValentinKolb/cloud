@@ -1,5 +1,5 @@
 import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
-import type { Base } from "../contracts";
+import type { Base, Dashboard, Field, Table } from "../contracts";
 import {
   baseArgs,
   baseFlag,
@@ -20,6 +20,27 @@ import {
   readApi,
   readJsonInput,
 } from "./runtime";
+
+type TrashedForm = {
+  id: string;
+  tableId: string;
+  name: string;
+  deletedAt: string | null;
+};
+
+type BaseTrash = {
+  tables: Table[];
+  fields: Field[];
+  dashboards: Dashboard[];
+  forms: TrashedForm[];
+};
+
+const trashRows = (trash: BaseTrash) => [
+  ...trash.tables.map((item) => ({ kind: "table", name: item.name, parent: "-", deletedAt: item.deletedAt, id: item.id })),
+  ...trash.fields.map((item) => ({ kind: "field", name: item.name, parent: item.tableId, deletedAt: item.deletedAt, id: item.id })),
+  ...trash.dashboards.map((item) => ({ kind: "dashboard", name: item.name, parent: "-", deletedAt: item.deletedAt, id: item.id })),
+  ...trash.forms.map((item) => ({ kind: "form", name: item.name, parent: item.tableId, deletedAt: item.deletedAt, id: item.id })),
+];
 
 export const baseCrudCommands = [
   command("list", {
@@ -89,6 +110,24 @@ export const baseCrudCommands = [
         ctx.print(`id: ${base.id}`);
         ctx.print(`updated: ${base.updatedAt}`);
       }
+    },
+  }),
+  command("bases trash", {
+    summary: "List deleted resources that can be restored in a base",
+    description:
+      "Requires base admin access. Parent tables contain their own deleted fields and forms, so nested items are not duplicated.",
+    args: baseArgs,
+    flags: baseFlag,
+    async run({ ctx, args }) {
+      const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
+      const trash = await readApi<BaseTrash>(ctx, `/bases/${encodeURIComponent(base.id)}/trash`);
+      printJsonOrTable(ctx, trash, trashRows(trash), [
+        { key: "kind", label: "TYPE" },
+        { key: "name", label: "NAME" },
+        { key: "parent", label: "PARENT TABLE" },
+        { key: "deletedAt", label: "DELETED" },
+        { key: "id", label: "ID" },
+      ]);
     },
   }),
   command("bases create", {

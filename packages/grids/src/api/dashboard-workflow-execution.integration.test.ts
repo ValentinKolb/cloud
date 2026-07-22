@@ -402,7 +402,7 @@ describe("dashboard-scoped workflow execution", () => {
 
     const response = await app.request(
       `/api/dashboards/${dashboardId}/widgets/${widgetId}/scan`,
-      jsonPost({ code: "asset-42", operationId: "scan-42", expectedRevision: 2 }),
+      jsonPost({ code: "asset-42", operationId: "scan-42" }),
     );
 
     expect(response.status).toBe(200);

@@ -1,8 +1,113 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { flag } from "@valentinkolb/cloud/cli";
-import type { Base, Dashboard, Table } from "../contracts";
+import type { Base, Dashboard, DashboardConfig, Table } from "../contracts";
 import { assertBaseScoped, listTables, resolveBaseFromCommand, resolveTable, UUID_RE } from "./resources";
 import { exactMatch, readApi, requireRestArg } from "./runtime";
+
+export const DASHBOARD_REFERENCE = {
+  config: {
+    rows: "Array of rows. Every row has id, kind='row', height sm|md|lg, and up to 12 cells.",
+    span: "Optional cell width from 1 to 12 columns.",
+    sources: {
+      view: { kind: "view", viewId: "<view-uuid>" },
+      gql: { kind: "gql", source: "from table Orders\naggregate sum(Total) as revenue" },
+    },
+  },
+  widgetShapes: {
+    stat: {
+      required: ["id", "kind", "source"],
+      optional: ["span", "title", "trend", "icon", "valueFormat", "tone", "sub"],
+      notes: "Renders the first aggregate value. tone is neutral|blue|green|amber|red. A trend adds source and windowSize 2..60.",
+    },
+    chart: {
+      required: ["id", "kind", "chartType", "source"],
+      optional: ["span", "title", "subtitle", "limit", "valueFormat", "xAxisLabel", "yAxisLabel"],
+      chartTypes: {
+        donut: "One group and at least one aggregate.",
+        bar: "One group and at least one aggregate.",
+        line: "One group and one or more aggregates; each aggregate becomes a series.",
+        sparkline: "One group and at least one aggregate.",
+        scatter: "One group and at least two aggregates; the first two become x and y.",
+      },
+    },
+    view: {
+      required: ["id", "kind", "source"],
+      optional: ["span", "title"],
+      notes: "Renders tabular rows or grouped query results.",
+    },
+    "view-stats": {
+      required: ["id", "kind", "source"],
+      optional: ["span", "title"],
+      notes: "Renders values from the first source row or group as a compact stat grid.",
+    },
+    form: {
+      required: ["id", "kind", "formId"],
+      optional: ["span", "title"],
+      notes: "formId must be a form UUID visible in the dashboard base.",
+    },
+    markdown: {
+      required: ["id", "kind", "markdown"],
+      optional: ["span", "title"],
+      notes: "markdown accepts at most 20,000 characters.",
+    },
+    link: {
+      required: ["id", "kind", "target"],
+      optional: ["span", "title", "description", "icon"],
+      targets: [
+        { kind: "dashboard", dashboardId: "<dashboard-uuid>" },
+        { kind: "table", tableId: "<table-uuid>" },
+        { kind: "view", viewId: "<view-uuid>" },
+        { kind: "form", formId: "<form-uuid>" },
+        { kind: "url", url: "https://example.test" },
+      ],
+    },
+    "workflow-button": {
+      required: ["id", "kind", "launcherId"],
+      optional: ["span", "title", "description", "buttonLabel"],
+      notes: "launcherId must be an enabled workflow launcher UUID authorized for this dashboard.",
+    },
+  },
+  widgetKinds: {
+    stat: "First aggregate value from a view or inline GQL source.",
+    chart: "Grouped source rendered as donut, bar, line, sparkline, or scatter.",
+    view: "Tabular rows or grouped results from a view or inline GQL source.",
+    "view-stats": "Compact stat grid from the first source row or group.",
+    form: "Embedded form selected by formId.",
+    markdown: "Static Markdown content.",
+    link: "Link to a dashboard, table, view, form, or absolute URL.",
+    "workflow-button": "Button backed by a workflow launcher UUID.",
+  },
+  valueFormat: {
+    appliesTo: ["stat", "chart"],
+    styles: ["number", "integer", "percent"],
+    rules: [
+      "integer does not accept decimalPlaces.",
+      "number may set decimalPlaces, unit, and unitPosition prefix|suffix.",
+      "percent expects a fraction: 0.19 renders as 19%.",
+      "Formatting never changes canonical query values.",
+    ],
+    example: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
+  },
+  example: {
+    rows: [
+      {
+        id: "summary",
+        kind: "row",
+        height: "sm",
+        cells: [
+          {
+            id: "revenue",
+            kind: "stat",
+            span: 4,
+            title: "Revenue",
+            source: { kind: "gql", source: "from table Orders\naggregate sum(Total) as revenue" },
+            valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
+          },
+        ],
+      },
+    ],
+  } satisfies DashboardConfig,
+};
 
 export type Form = {
   id: string;

@@ -5,6 +5,7 @@ import { documentCommands, documentTemplateCommands } from "./cli/documents";
 import { dashboardCommands, formCommands } from "./cli/forms-dashboards";
 import { recordCommands, snapshotCommands } from "./cli/records";
 import { fieldCommands, tableCommands } from "./cli/schema";
+import { baseTemplateCommands } from "./cli/templates";
 import { formulaCommands, gqlCommands, viewCommands } from "./cli/views-gql";
 import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflowRunCommands } from "./cli/workflows";
 
@@ -14,6 +15,7 @@ export default defineCliCommands({
     "Manage Grids bases, schema, records, forms, dashboards, views, GQL, documents, templates, and workflows through the Grids HTTP API.",
   commands: [
     ...baseCrudCommands,
+    ...baseTemplateCommands,
     ...accessCommands,
     ...gqlCommands,
     ...formulaCommands,

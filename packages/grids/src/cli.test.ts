@@ -10,12 +10,15 @@ import { documentCommands, documentTemplateCommands } from "./cli/documents";
 import { dashboardCommands, formCommands } from "./cli/forms-dashboards";
 import { recordCommands, snapshotCommands } from "./cli/records";
 import { fieldCommands, tableCommands } from "./cli/schema";
+import { baseTemplateCommands } from "./cli/templates";
 import { formulaCommands, gqlCommands, viewCommands } from "./cli/views-gql";
 import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflowRunCommands } from "./cli/workflows";
+import { DashboardConfigSchema } from "./contracts";
 import { WORKFLOW_REVISION_HEADER } from "./workflows/contracts";
 
 const commandGroups = [
   baseCrudCommands,
+  baseTemplateCommands,
   accessCommands,
   gqlCommands,
   formulaCommands,
@@ -60,6 +63,7 @@ const combinedTableId = "24242424-2424-4242-8242-242424242424";
 const sourceTableId = "25252525-2525-4252-8252-252525252525";
 const federatedRevisionId = "27272727-2727-4272-8272-272727272727";
 const federatedSourceId = "28282828-2828-4282-8282-282828282828";
+const workflowLauncherId = "29292929-2929-4292-8292-292929292929";
 
 const jsonResponse = (value: unknown, status = 200) => Response.json(value, { status });
 
@@ -408,7 +412,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(134);
+    expect(commands).toHaveLength(138);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -428,6 +432,70 @@ describe("grids CLI", () => {
     expect(calls.map((call) => call.path)).toEqual(["/api/grids/bases?q=bk001&limit=500&offset=0"]);
     expect(defaults["grids.base"]).toBe("bk001");
     expect(lines).toEqual(["Using Grids base Bookshop (bk001)."]);
+  });
+
+  test("lists built-in base templates", async () => {
+    const template = {
+      id: "inventory",
+      name: "Inventory",
+      description: "Track equipment and loans.",
+      highlights: ["Structured inventory", "Operational workflows", "Documents and dashboards"],
+      icon: "ti ti-packages",
+    };
+    const { ctx, calls, tables } = createContext(["templates", "list"], {}, [jsonResponse([template])]);
+
+    await gridsCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual(["/api/grids/templates"]);
+    expect(tables[0]).toEqual([
+      expect.objectContaining({ id: "inventory", name: "Inventory", highlights: expect.stringContaining("Operational workflows") }),
+    ]);
+  });
+
+  test("instantiates a built-in template as the default base", async () => {
+    const template = {
+      id: "inventory",
+      name: "Inventory",
+      description: "Track equipment and loans.",
+      highlights: ["Structured inventory", "Operational workflows", "Documents and dashboards"],
+      icon: "ti ti-packages",
+    };
+    const { ctx, calls, defaults, lines } = createContext(
+      ["templates", "instantiate", "Inventory"],
+      { name: "Equipment", empty: true, use: true },
+      [jsonResponse([template]), jsonResponse({ ...base, name: "Equipment" }, 201)],
+    );
+
+    await gridsCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual(["/api/grids/templates", "/api/grids/templates/inventory"]);
+    expect(calls[1]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ name: "Equipment", withSampleData: false });
+    expect(defaults["grids.base"]).toBe(base.shortId);
+    expect(lines).toEqual(["Created Equipment (bk001) from Inventory. Using it as default."]);
+  });
+
+  test("lists restorable resources in a base trash", async () => {
+    const deletedAt = "2026-07-08T00:00:00.000Z";
+    const trash = {
+      tables: [{ ...table, deletedAt }],
+      fields: [{ ...field, deletedAt }],
+      dashboards: [{ ...dashboard, deletedAt }],
+      forms: [{ id: formId, tableId, name: "Author intake", deletedAt }],
+    };
+    const { ctx, calls, tables } = createContext(["bases", "trash", baseId], {}, [jsonResponse(base), jsonResponse(trash)]);
+
+    await gridsCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, `/api/grids/bases/${baseId}/trash`]);
+    expect(tables[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "table", id: tableId }),
+        expect.objectContaining({ kind: "field", id: fieldId, parent: tableId }),
+        expect.objectContaining({ kind: "dashboard", id: dashboardId }),
+        expect.objectContaining({ kind: "form", id: formId, parent: tableId }),
+      ]),
+    );
   });
 
   test("executes GQL against the selected base", async () => {
@@ -1151,8 +1219,26 @@ describe("grids CLI", () => {
     expect(lines[0]).toContain("formulas");
     expect(lines[0]).toContain("forms");
     expect(lines[0]).toContain("dashboards");
+    expect(lines[0]).toContain("templates");
     expect(lines[0]).toContain("documents");
     expect(lines[0]).toContain("snapshots");
+  });
+
+  test("prints the dashboard config reference for agents", async () => {
+    const { ctx, jsonValues } = createContext(["dashboards", "reference"], {}, [], { output: "json" });
+
+    await gridsCli.run(ctx);
+
+    expect(DashboardConfigSchema.safeParse((jsonValues[0] as { example: unknown }).example).success).toBe(true);
+    expect(jsonValues[0]).toMatchObject({
+      widgetKinds: expect.objectContaining({ stat: expect.any(String), chart: expect.any(String), "workflow-button": expect.any(String) }),
+      widgetShapes: expect.objectContaining({
+        chart: expect.objectContaining({ chartTypes: expect.objectContaining({ scatter: expect.any(String) }) }),
+        link: expect.objectContaining({ targets: expect.arrayContaining([expect.objectContaining({ kind: "url" })]) }),
+      }),
+      valueFormat: expect.objectContaining({ styles: ["number", "integer", "percent"] }),
+      example: { rows: [expect.objectContaining({ kind: "row" })] },
+    });
   });
 
   test("sets direct resource access through resolved Grids resources", async () => {
@@ -1286,10 +1372,23 @@ describe("grids CLI", () => {
   });
 
   test("scans dashboard workflow-button widgets", async () => {
+    const scannerDashboard = {
+      ...dashboard,
+      config: {
+        rows: [
+          {
+            id: "scanner-row",
+            kind: "row",
+            height: "md",
+            cells: [{ id: "scanner-1", kind: "workflow-button", launcherId: workflowLauncherId }],
+          },
+        ],
+      },
+    };
     const { ctx, calls, lines } = createContext(
       ["dashboards", "widgets", "scan", baseId, "Overview", "scanner-1"],
-      { code: "gsc_opaque" },
-      [jsonResponse(base), jsonResponse([dashboard]), jsonResponse({ ...workflowRun, channel: "scanner" })],
+      { code: "gsc_opaque", "operation-id": "scan-operation-1", "expected-revision": "3" },
+      [jsonResponse(base), jsonResponse([scannerDashboard]), jsonResponse({ ...workflowRun, channel: "scanner" })],
     );
 
     await gridsCli.run(ctx);
@@ -1300,7 +1399,11 @@ describe("grids CLI", () => {
       `/api/grids/dashboards/${dashboardId}/widgets/scanner-1/scan`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ code: "gsc_opaque" });
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({
+      code: "gsc_opaque",
+      operationId: "scan-operation-1",
+      expectedRevision: 3,
+    });
     expect(lines).toEqual([`Queued scanner workflow run ${runId} (succeeded).`]);
   });
 

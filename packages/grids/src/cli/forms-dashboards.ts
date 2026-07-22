@@ -1,6 +1,7 @@
 import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
 import type { Dashboard } from "../contracts";
 import {
+  DASHBOARD_REFERENCE,
   dashboardFlag,
   dashboardRows,
   type Form,
@@ -20,6 +21,7 @@ import {
   type MessageResponse,
   printJsonOrMessage,
   printJsonOrTable,
+  printReference,
   readApi,
   readJsonInput,
   requireRestArg,
@@ -181,6 +183,19 @@ export const formCommands = [
 ];
 
 export const dashboardCommands = [
+  command("dashboards reference", {
+    summary: "Show the dashboard config and widget reference",
+    run({ ctx }) {
+      printReference(
+        ctx,
+        DASHBOARD_REFERENCE,
+        [
+          "Dashboard config uses rows with up to 12 cells each.",
+          "Run with --json for widget kinds, source shapes, value formatting rules, and a complete example.",
+        ].join("\n"),
+      );
+    },
+  }),
   command("dashboards list", {
     summary: "List dashboards visible on a base",
     args: baseArgs,
@@ -345,16 +360,31 @@ export const dashboardCommands = [
       ...dashboardFlag,
       widget: flag.string({ description: "Dashboard widget id" }),
       code: flag.string({ description: "Scanned barcode, QR code, or scanner URL" }),
+      operationId: flag.string({
+        name: "operation-id",
+        description: "Stable idempotency id for retries; generated when omitted",
+      }),
+      expectedRevision: flag.int({
+        name: "expected-revision",
+        min: 1,
+        description: "Reject the scan if the launcher no longer targets this workflow revision",
+      }),
     },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.dashboard && flags.widget ? 0 : 2);
       const dashboard = await resolveDashboard(ctx, base.id, flags.dashboard ?? requireRestArg(rest, 0, "dashboard"));
       const widgetId = flags.widget ?? requireRestArg(flags.dashboard ? rest : rest.slice(1), 0, "widget");
       if (!flags.code?.trim()) throw new Error("Missing scanner code. Pass --code.");
+      const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
+      if (!widget || widget.kind !== "workflow-button") throw new Error(`Dashboard widget "${widgetId}" is not a workflow button.`);
       const run = await readApi<DashboardWorkflowRun>(
         ctx,
         `/dashboards/${encodeURIComponent(dashboard.id)}/widgets/${encodeURIComponent(widgetId)}/scan`,
-        jsonRequest("POST", { code: flags.code }),
+        jsonRequest("POST", {
+          code: flags.code,
+          operationId: flags.operationId?.trim() || crypto.randomUUID(),
+          expectedRevision: flags.expectedRevision,
+        }),
       );
       printJsonOrMessage(ctx, run, `Queued scanner workflow run ${run.id} (${run.status}).`);
     },
