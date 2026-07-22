@@ -109,7 +109,7 @@ export default function MetricsCatalogue(props: MetricsCatalogueProps) {
         getRowId={(row) => row.name}
         hoverRows
         density="compact"
-        class="max-h-[34rem] overflow-auto"
+        class="overflow-x-auto"
         cellContentClass="whitespace-normal"
         renderCell={({ row, col, value, render }) => {
           if (col.id === "source") {
