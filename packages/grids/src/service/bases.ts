@@ -1,4 +1,4 @@
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { type AccessSubject, buildAccessPrincipalTierConditions } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { DocumentProfileSchema } from "../contracts";
@@ -76,20 +76,24 @@ export const listVisible = async (params: {
   }
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
-  const groups = toPgUuidArray(params.userGroups);
   const serviceAccountId = params.serviceAccountId ?? null;
+  const subject: AccessSubject | null = params.userId
+    ? { type: "user", userId: params.userId }
+    : serviceAccountId
+      ? { type: "service_account", serviceAccountId }
+      : null;
+  const principalTiers = buildAccessPrincipalTierConditions({
+    subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
   const permissionRank = sql`CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 ELSE 0 END`;
   const rankFor = (principal: "serviceAccount" | "user" | "group" | "authenticated" | "public") => {
-    const principalWhere =
-      principal === "serviceAccount"
-        ? sql`a.service_account_id = ${serviceAccountId}::uuid`
-        : principal === "user"
-          ? sql`a.user_id = ${params.userId}::uuid`
-          : principal === "group"
-            ? sql`a.group_id = ANY(${groups}::uuid[])`
-            : principal === "authenticated"
-              ? sql`a.authenticated_only = TRUE AND (${params.userId}::uuid IS NOT NULL OR ${serviceAccountId}::uuid IS NOT NULL)`
-              : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE`;
+    const principalWhere = principalTiers[principal];
     return sql`(
       SELECT CASE
         WHEN COUNT(*) = 0 THEN NULL

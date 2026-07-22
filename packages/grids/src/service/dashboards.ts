@@ -1,3 +1,4 @@
+import { type AccessSubject, buildAccessPrincipalTierConditions } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
@@ -295,8 +296,21 @@ export const listForBase = async (params: {
   userGroups?: string[];
   serviceAccountId?: string | null;
 }): Promise<Dashboard[]> => {
-  const groups = toPgUuidArray(params.userGroups);
   const serviceAccountId = params.serviceAccountId ?? null;
+  const subject: AccessSubject | null = params.userId
+    ? { type: "user", userId: params.userId }
+    : serviceAccountId
+      ? { type: "service_account", serviceAccountId }
+      : null;
+  const principalTiers = buildAccessPrincipalTierConditions({
+    subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
 
   const rows = await sql<DbRow[]>`
     WITH ranked AS (
@@ -308,7 +322,7 @@ export const listForBase = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.dashboard_access da JOIN auth.access a ON a.id = da.access_id
-          WHERE da.dashboard_id = d.id AND a.service_account_id = ${serviceAccountId}::uuid
+          WHERE da.dashboard_id = d.id AND ${principalTiers.serviceAccount}
         ) AS service_account_rank,
         (
           SELECT CASE
@@ -317,7 +331,7 @@ export const listForBase = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.dashboard_access da JOIN auth.access a ON a.id = da.access_id
-          WHERE da.dashboard_id = d.id AND a.user_id = ${params.userId}::uuid
+          WHERE da.dashboard_id = d.id AND ${principalTiers.user}
         ) AS user_rank,
         (
           SELECT CASE
@@ -326,7 +340,7 @@ export const listForBase = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.dashboard_access da JOIN auth.access a ON a.id = da.access_id
-          WHERE da.dashboard_id = d.id AND a.group_id = ANY(${groups}::uuid[])
+          WHERE da.dashboard_id = d.id AND ${principalTiers.group}
         ) AS group_rank,
         (
           SELECT CASE
@@ -335,9 +349,7 @@ export const listForBase = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.dashboard_access da JOIN auth.access a ON a.id = da.access_id
-          WHERE da.dashboard_id = d.id
-            AND a.authenticated_only = TRUE
-            AND (${params.userId}::uuid IS NOT NULL OR ${serviceAccountId}::uuid IS NOT NULL)
+          WHERE da.dashboard_id = d.id AND ${principalTiers.authenticated}
         ) AS auth_rank,
         (
           SELECT CASE
@@ -346,8 +358,7 @@ export const listForBase = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.dashboard_access da JOIN auth.access a ON a.id = da.access_id
-          WHERE da.dashboard_id = d.id
-            AND a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE
+          WHERE da.dashboard_id = d.id AND ${principalTiers.public}
         ) AS public_rank
       FROM grids.dashboards d
       JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL

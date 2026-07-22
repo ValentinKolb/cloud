@@ -30,6 +30,7 @@ export {
 export type {
   AccessEntry,
   AccessPrincipalColumns,
+  AccessPrincipalTierConditions,
   AccessSubject,
   AccessUser,
   AccessUserSource,
@@ -49,6 +50,7 @@ export type {
 
 export {
   buildAccessPrincipalCondition,
+  buildAccessPrincipalTierConditions,
   createAccess,
   deleteAccess,
   err,

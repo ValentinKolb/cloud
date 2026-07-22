@@ -4,6 +4,7 @@ export type {
   AccessDb,
   AccessEntry,
   AccessPrincipalColumns,
+  AccessPrincipalTierConditions,
   AccessSubject,
   AccessUser,
   AccessUserSource,
@@ -15,6 +16,7 @@ export type {
 } from "./access";
 export {
   buildAccessPrincipalCondition,
+  buildAccessPrincipalTierConditions,
   createAccess,
   deleteAccess,
   getAccess,

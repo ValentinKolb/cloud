@@ -1,5 +1,4 @@
-import type { PermissionLevel } from "@valentinkolb/cloud/server";
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { buildAccessPrincipalTierConditions, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import {
   type DocumentTemplate,
@@ -150,23 +149,13 @@ const mapDocumentTemplate = (row: DbRow): DocumentTemplate => ({
   updatedAt: (row.updated_at as Date).toISOString(),
 });
 
-const principalWhere = (principal: "user" | "group" | "authenticated" | "public", userId: string, groups: unknown) =>
-  principal === "user"
-    ? sql`a.user_id = ${userId}::uuid`
-    : principal === "group"
-      ? sql`a.group_id = ANY(${groups}::uuid[])`
-      : principal === "authenticated"
-        ? sql`a.authenticated_only = TRUE AND ${userId}::uuid IS NOT NULL`
-        : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE`;
-
 const rankFor = (
   tableName: string,
   alias: string,
   resourceColumn: string,
   resourceExpr: unknown,
   principal: "user" | "group" | "authenticated" | "public",
-  userId: string,
-  groups: unknown,
+  principalTiers: ReturnType<typeof buildAccessPrincipalTierConditions>,
 ) => sql`(
   SELECT CASE
     WHEN COUNT(*) = 0 THEN NULL
@@ -176,7 +165,7 @@ const rankFor = (
   FROM ${sql.unsafe(tableName)} ${sql.unsafe(alias)}
   JOIN auth.access a ON a.id = ${sql.unsafe(`${alias}.access_id`)}
   WHERE ${sql.unsafe(`${alias}.${resourceColumn}`)} = ${resourceExpr}
-    AND ${principalWhere(principal, userId, groups)}
+    AND ${principalTiers[principal]}
 )`;
 
 const resourceRanks = (
@@ -184,13 +173,12 @@ const resourceRanks = (
   alias: string,
   resourceColumn: string,
   resourceExpr: unknown,
-  userId: string,
-  groups: unknown,
+  principalTiers: ReturnType<typeof buildAccessPrincipalTierConditions>,
 ) => [
-  rankFor(tableName, alias, resourceColumn, resourceExpr, "user", userId, groups),
-  rankFor(tableName, alias, resourceColumn, resourceExpr, "group", userId, groups),
-  rankFor(tableName, alias, resourceColumn, resourceExpr, "authenticated", userId, groups),
-  rankFor(tableName, alias, resourceColumn, resourceExpr, "public", userId, groups),
+  rankFor(tableName, alias, resourceColumn, resourceExpr, "user", principalTiers),
+  rankFor(tableName, alias, resourceColumn, resourceExpr, "group", principalTiers),
+  rankFor(tableName, alias, resourceColumn, resourceExpr, "authenticated", principalTiers),
+  rankFor(tableName, alias, resourceColumn, resourceExpr, "public", principalTiers),
 ];
 
 const byTable = <T extends { tableId: string }>(items: T[]): Record<string, T[]> => {
@@ -204,9 +192,17 @@ const byTable = <T extends { tableId: string }>(items: T[]): Record<string, T[]>
 };
 
 export const listForBase = async (params: { baseId: string; userId: string; userGroups: string[] }): Promise<BaseCatalog> => {
-  const groups = toPgUuidArray(params.userGroups);
-  const tableRanks = resourceRanks("grids.table_access", "ta", "table_id", sql`t.id`, params.userId, groups);
-  const baseRanks = resourceRanks("grids.base_access", "ba", "base_id", sql`t.base_id`, params.userId, groups);
+  const principalTiers = buildAccessPrincipalTierConditions({
+    subject: { type: "user", userId: params.userId },
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+  const tableRanks = resourceRanks("grids.table_access", "ta", "table_id", sql`t.id`, principalTiers);
+  const baseRanks = resourceRanks("grids.base_access", "ba", "base_id", sql`t.base_id`, principalTiers);
   const tableLevelExpr = sql`COALESCE(${tableRanks[0]}, ${tableRanks[1]}, ${tableRanks[2]}, ${tableRanks[3]}, ${baseRanks[0]}, ${baseRanks[1]}, ${baseRanks[2]}, ${baseRanks[3]}, 0)`;
 
   const [dashboards, tableRows] = await Promise.all([
@@ -227,17 +223,17 @@ export const listForBase = async (params: { baseId: string; userId: string; user
 
   const tables = tableRows.map((row) => ({ ...mapTable(row), level: levelFromRank(row.level_rank) }));
   const tableLevels = Object.fromEntries(tables.map((table) => [table.id, table.level]));
-  const formRanks = resourceRanks("grids.form_access", "fa", "form_id", sql`f.id`, params.userId, groups);
-  const formTableRanks = resourceRanks("grids.table_access", "fta", "table_id", sql`f.table_id`, params.userId, groups);
-  const formBaseRanks = resourceRanks("grids.base_access", "fba", "base_id", sql`t.base_id`, params.userId, groups);
+  const formRanks = resourceRanks("grids.form_access", "fa", "form_id", sql`f.id`, principalTiers);
+  const formTableRanks = resourceRanks("grids.table_access", "fta", "table_id", sql`f.table_id`, principalTiers);
+  const formBaseRanks = resourceRanks("grids.base_access", "fba", "base_id", sql`t.base_id`, principalTiers);
   const formLevelExpr = sql`COALESCE(${formRanks[0]}, ${formRanks[1]}, ${formRanks[2]}, ${formRanks[3]}, ${formTableRanks[0]}, ${formTableRanks[1]}, ${formTableRanks[2]}, ${formTableRanks[3]}, ${formBaseRanks[0]}, ${formBaseRanks[1]}, ${formBaseRanks[2]}, ${formBaseRanks[3]}, 0)`;
 
-  const templateRanks = resourceRanks("grids.document_template_access", "dta", "template_id", sql`dt.id`, params.userId, groups);
-  const templateTableRanks = resourceRanks("grids.table_access", "dtta", "table_id", sql`dt.table_id`, params.userId, groups);
-  const templateBaseRanks = resourceRanks("grids.base_access", "dtba", "base_id", sql`t.base_id`, params.userId, groups);
+  const templateRanks = resourceRanks("grids.document_template_access", "dta", "template_id", sql`dt.id`, principalTiers);
+  const templateTableRanks = resourceRanks("grids.table_access", "dtta", "table_id", sql`dt.table_id`, principalTiers);
+  const templateBaseRanks = resourceRanks("grids.base_access", "dtba", "base_id", sql`t.base_id`, principalTiers);
   const templateLevelExpr = sql`COALESCE(${templateRanks[0]}, ${templateRanks[1]}, ${templateRanks[2]}, ${templateRanks[3]}, ${templateTableRanks[0]}, ${templateTableRanks[1]}, ${templateTableRanks[2]}, ${templateTableRanks[3]}, ${templateBaseRanks[0]}, ${templateBaseRanks[1]}, ${templateBaseRanks[2]}, ${templateBaseRanks[3]}, 0)`;
 
-  const viewRanks = resourceRanks("grids.view_access", "va", "view_id", sql`v.id`, params.userId, groups);
+  const viewRanks = resourceRanks("grids.view_access", "va", "view_id", sql`v.id`, principalTiers);
   const viewWinning = sql`COALESCE(${viewRanks[0]}, ${viewRanks[1]}, ${viewRanks[2]}, ${viewRanks[3]})`;
 
   const [formRows, documentTemplateRows] = await Promise.all([

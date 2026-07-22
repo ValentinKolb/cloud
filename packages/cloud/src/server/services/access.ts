@@ -1,5 +1,5 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { sql, type SQLQuery } from "bun";
+import { type SQLQuery, sql } from "bun";
 import { recursiveGroupIdsSubquery } from "../../services/accounts/group-sql";
 import { toPgUuidArray } from "../../services/postgres";
 
@@ -45,6 +45,14 @@ export type AccessPrincipalColumns = {
   groupId: SQLQuery;
   serviceAccountId: SQLQuery;
   authenticatedOnly: SQLQuery;
+};
+
+export type AccessPrincipalTierConditions = {
+  serviceAccount: SQLQuery;
+  user: SQLQuery;
+  group: SQLQuery;
+  authenticated: SQLQuery;
+  public: SQLQuery;
 };
 
 // ==========================
@@ -279,7 +287,8 @@ export type ResourceAccessAdapter<TResourceId = string> = {
 };
 
 /**
- * Build the canonical principal predicate for one auth.access row.
+ * Build canonical principal predicates for one auth.access row, separated by
+ * precedence tier.
  *
  * Apps provide column fragments because access rows are commonly joined under
  * different aliases. The subject is authoritative: group membership is always
@@ -287,30 +296,36 @@ export type ResourceAccessAdapter<TResourceId = string> = {
  * Resource binding, credential scopes, and permission precedence remain the
  * responsibility of the app using the predicate.
  */
-export const buildAccessPrincipalCondition = (params: {
+export const buildAccessPrincipalTierConditions = (params: {
   subject: AccessSubject | null;
   columns: AccessPrincipalColumns;
-}): SQLQuery => {
+}): AccessPrincipalTierConditions => {
   const userId = params.subject?.type === "user" ? params.subject.userId : null;
   const serviceAccountId = params.subject?.type === "service_account" ? params.subject.serviceAccountId : null;
   const authenticated = params.subject !== null;
   const columns = params.columns;
 
-  return sql`(
-    ${columns.userId} = ${userId}::uuid
-    OR (
+  return {
+    serviceAccount: sql`${columns.serviceAccountId} = ${serviceAccountId}::uuid`,
+    user: sql`${columns.userId} = ${userId}::uuid`,
+    group: sql`(
       ${userId}::uuid IS NOT NULL
       AND ${columns.groupId} IN (${userId ? recursiveGroupIdsSubquery(userId) : sql`SELECT NULL::uuid WHERE FALSE`})
-    )
-    OR ${columns.serviceAccountId} = ${serviceAccountId}::uuid
-    OR (${authenticated} AND ${columns.authenticatedOnly} = true)
-    OR (
+    )`,
+    authenticated: sql`${authenticated} AND ${columns.authenticatedOnly} = true`,
+    public: sql`(
       ${columns.userId} IS NULL
       AND ${columns.groupId} IS NULL
       AND ${columns.serviceAccountId} IS NULL
       AND ${columns.authenticatedOnly} = false
-    )
-  )`;
+    )`,
+  };
+};
+
+/** Build one predicate that matches every principal tier for the subject. */
+export const buildAccessPrincipalCondition = (params: { subject: AccessSubject | null; columns: AccessPrincipalColumns }): SQLQuery => {
+  const tiers = buildAccessPrincipalTierConditions(params);
+  return sql`(${tiers.serviceAccount} OR ${tiers.user} OR ${tiers.group} OR ${tiers.authenticated} OR ${tiers.public})`;
 };
 
 /**

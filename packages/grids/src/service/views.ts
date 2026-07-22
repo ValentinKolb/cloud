@@ -1,4 +1,4 @@
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { type AccessSubject, buildAccessPrincipalTierConditions } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type View, type ViewUiSettings, ViewUiSettingsSchema } from "../contracts";
@@ -82,11 +82,21 @@ export const listForTable = async (params: {
   userGroups?: string[];
   serviceAccountId?: string | null;
 }): Promise<View[]> => {
-  // Defensive encoding: bun.sql may surface an empty uuid[] column as the
-  // string "{}" instead of [], and admin users with no group memberships
-  // hit exactly that path. toPgUuidArray normalizes both shapes.
-  const groups = toPgUuidArray(params.userGroups);
   const serviceAccountId = params.serviceAccountId ?? null;
+  const subject: AccessSubject | null = params.userId
+    ? { type: "user", userId: params.userId }
+    : serviceAccountId
+      ? { type: "service_account", serviceAccountId }
+      : null;
+  const principalTiers = buildAccessPrincipalTierConditions({
+    subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
 
   // Most-specific-wins per principal tier (user > group > authenticated >
   // public). Within a tier: any deny wins over any read — needed because
@@ -104,7 +114,7 @@ export const listForTable = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id AND a.service_account_id = ${serviceAccountId}::uuid
+          WHERE va.view_id = v.id AND ${principalTiers.serviceAccount}
         ) AS service_account_rank,
         (
           SELECT CASE
@@ -113,7 +123,7 @@ export const listForTable = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id AND a.user_id = ${params.userId}::uuid
+          WHERE va.view_id = v.id AND ${principalTiers.user}
         ) AS user_rank,
         (
           SELECT CASE
@@ -122,7 +132,7 @@ export const listForTable = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id AND a.group_id = ANY(${groups}::uuid[])
+          WHERE va.view_id = v.id AND ${principalTiers.group}
         ) AS group_rank,
         (
           SELECT CASE
@@ -131,9 +141,7 @@ export const listForTable = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id
-            AND a.authenticated_only = TRUE
-            AND (${params.userId}::uuid IS NOT NULL OR ${serviceAccountId}::uuid IS NOT NULL)
+          WHERE va.view_id = v.id AND ${principalTiers.authenticated}
         ) AS auth_rank,
         (
           SELECT CASE
@@ -142,8 +150,7 @@ export const listForTable = async (params: {
             ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
           END
           FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id
-            AND a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE
+          WHERE va.view_id = v.id AND ${principalTiers.public}
         ) AS public_rank
       FROM grids.views v
       JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
