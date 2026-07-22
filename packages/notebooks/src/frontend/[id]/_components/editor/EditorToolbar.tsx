@@ -1,7 +1,7 @@
 import { Prec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { keymap } from "@codemirror/view";
-import { Dropdown } from "@valentinkolb/cloud/ui";
+import { Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { requestNotebookSearch } from "../../../lib/hotkeys";
 import { DETAIL_PANEL_STATE_EVENT, DETAIL_PANEL_TOGGLE_EVENT } from "../detail/events";
@@ -131,9 +131,11 @@ export default function EditorToolbar(props: Props) {
   const toggleDetailPanel = () => window.dispatchEvent(new CustomEvent(DETAIL_PANEL_TOGGLE_EVENT));
 
   const Btn = (p: { icon: string; title: string; onClick: () => void }) => (
-    <button type="button" title={p.title} aria-label={p.title} onClick={p.onClick} class="icon-btn h-7 w-7 text-dimmed">
-      <i class={`ti ${p.icon}`} />
-    </button>
+    <Tooltip content={p.title}>
+      <button type="button" aria-label={p.title} onClick={p.onClick} class="icon-btn h-7 w-7 text-dimmed">
+        <i class={`ti ${p.icon}`} />
+      </button>
+    </Tooltip>
   );
 
   return (
@@ -149,10 +151,12 @@ export default function EditorToolbar(props: Props) {
 
         <Dropdown
           trigger={
-            <span title="Insert" class="icon-btn flex h-7 w-7 items-center gap-0.5 text-dimmed">
-              <i class="ti ti-layout-grid-add" />
-              <i class="ti ti-chevron-down text-[10px]" />
-            </span>
+            <Tooltip content="Insert content">
+              <button type="button" aria-label="Insert content" class="icon-btn flex h-7 w-7 items-center gap-0.5 text-dimmed">
+                <i class="ti ti-layout-grid-add" />
+                <i class="ti ti-chevron-down text-[10px]" />
+              </button>
+            </Tooltip>
           }
           position="top-right"
           width="w-52"

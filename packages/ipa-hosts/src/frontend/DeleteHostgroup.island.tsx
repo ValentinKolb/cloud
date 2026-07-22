@@ -1,7 +1,7 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "@/api/client";
 
 type DeleteHostgroupProps = {
   cn: string;
@@ -36,15 +36,17 @@ const DeleteHostgroup = (props: DeleteHostgroupProps) => {
   };
 
   return (
-    <button
-      type="button"
-      class="icon-btn h-6 w-6"
-      onClick={handleClick}
-      disabled={mutation.loading()}
-      aria-label={`Delete hostgroup ${props.cn}`}
-    >
-      <i class="ti ti-trash text-sm text-red-500" />
-    </button>
+    <Tooltip content={`Delete hostgroup ${props.cn}`}>
+      <button
+        type="button"
+        class="icon-btn h-6 w-6"
+        onClick={handleClick}
+        disabled={mutation.loading()}
+        aria-label={`Delete hostgroup ${props.cn}`}
+      >
+        <i class="ti ti-trash text-sm text-red-500" />
+      </button>
+    </Tooltip>
   );
 };
 

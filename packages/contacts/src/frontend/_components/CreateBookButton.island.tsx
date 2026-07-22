@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -60,7 +60,7 @@ export default function CreateBookButton(props: Props) {
   const isIcon = () => props.variant === "icon";
   const buttonClass = () => props.buttonClass ?? (isIcon() ? "sidebar-icon-action" : "btn-primary btn-sm w-full");
 
-  return (
+  const button = (
     <button
       type="button"
       class={buttonClass()}
@@ -68,10 +68,11 @@ export default function CreateBookButton(props: Props) {
       disabled={mutation.loading()}
       onClick={() => mutation.mutate(undefined)}
       aria-label="Create new contact book"
-      title={props.label ?? "New Book"}
     >
       {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-cube-plus" />}
       {!isIcon() && (props.label ?? "New Book")}
     </button>
   );
+
+  return isIcon() ? <Tooltip content={props.label ?? "New book"}>{button}</Tooltip> : button;
 }

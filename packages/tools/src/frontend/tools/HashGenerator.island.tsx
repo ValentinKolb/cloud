@@ -1,14 +1,12 @@
 import { createSignal, createEffect } from "solid-js";
 import { crypto } from "@valentinkolb/stdlib";
-import { TextInput } from "@valentinkolb/cloud/ui";
+import { CopyButton, TextInput } from "@valentinkolb/cloud/ui";
 import { ToolCodeBlock } from "./ToolOutput";
 
 export default function HashGenerator() {
   const [input, setInput] = createSignal("");
   const [sha256, setSha256] = createSignal("");
   const [fnv1a, setFnv1a] = createSignal("");
-  const [copiedField, setCopiedField] = createSignal<string | null>(null);
-
   createEffect(async () => {
     const text = input();
     if (!text) {
@@ -20,13 +18,7 @@ export default function HashGenerator() {
     setFnv1a(crypto.common.fnv1aHash(text));
   });
 
-  const copy = async (value: string, field: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  const HashOutput = (props: { label: string; value: string; field: string; warning?: string }) => (
+  const HashOutput = (props: { label: string; value: string; warning?: string }) => (
     <div class="flex flex-col gap-1">
       <div class="flex items-center justify-between">
         <p class="text-xs font-medium text-dimmed">{props.label}</p>
@@ -34,11 +26,7 @@ export default function HashGenerator() {
       </div>
       <div class="flex items-start gap-2">
         <ToolCodeBlock class="min-h-8 flex-1">{props.value || <span class="text-dimmed italic">—</span>}</ToolCodeBlock>
-        {props.value && (
-          <button class="icon-btn shrink-0" onClick={() => copy(props.value, props.field)} aria-label={`Copy ${props.label}`}>
-            <i class={`ti ${copiedField() === props.field ? "ti-check" : "ti-copy"} text-sm`} />
-          </button>
-        )}
+        {props.value && <CopyButton text={props.value} class="icon-btn shrink-0" />}
       </div>
     </div>
   );
@@ -58,8 +46,8 @@ export default function HashGenerator() {
       </div>
 
       <div class="paper p-4 flex flex-col gap-3">
-        <HashOutput label="SHA-256" value={sha256()} field="sha256" />
-        <HashOutput label="FNV-1a" value={fnv1a()} field="fnv1a" warning="Not cryptographic" />
+        <HashOutput label="SHA-256" value={sha256()} />
+        <HashOutput label="FNV-1a" value={fnv1a()} warning="Not cryptographic" />
       </div>
     </div>
   );

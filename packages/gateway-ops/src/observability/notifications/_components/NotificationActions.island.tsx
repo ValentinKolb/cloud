@@ -1,4 +1,4 @@
-import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "../api-client";
@@ -135,9 +135,11 @@ const NotificationActions = (props: NotificationActionsProps) => {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label="Notification actions">
-          <i class="ti ti-dots-vertical text-sm" />
-        </button>
+        <Tooltip content="Manage notification">
+          <button type="button" class="icon-btn h-7 w-7" aria-label="Notification actions">
+            <i class="ti ti-dots-vertical text-sm" />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-40"

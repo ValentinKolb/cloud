@@ -1,6 +1,5 @@
 import { createSignal, batch } from "solid-js";
-import { TextInput } from "@valentinkolb/cloud/ui";
-import { ColorInput } from "@valentinkolb/cloud/ui";
+import { ColorInput, CopyButton, TextInput } from "@valentinkolb/cloud/ui";
 
 // Conversion helpers
 
@@ -84,7 +83,6 @@ export default function ColorConverter() {
   const [hexError, setHexError] = createSignal<string | undefined>();
   const [rgbError, setRgbError] = createSignal<string | undefined>();
   const [hslError, setHslError] = createSignal<string | undefined>();
-  const [copiedField, setCopiedField] = createSignal<string | null>(null);
 
   let isUpdating = false;
 
@@ -154,17 +152,7 @@ export default function ColorConverter() {
     isUpdating = false;
   };
 
-  const copy = async (value: string, field: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  const CopyBtn = (props: { value: string; field: string }) => (
-    <button class="icon-btn shrink-0" onClick={() => copy(props.value, props.field)} aria-label="Copy">
-      <i class={`ti ${copiedField() === props.field ? "ti-check" : "ti-copy"} text-sm`} />
-    </button>
-  );
+  const CopyBtn = (props: { value: string }) => <CopyButton text={props.value} class="icon-btn shrink-0" />;
 
   return (
     <div class="flex flex-col gap-4">
@@ -208,7 +196,7 @@ export default function ColorConverter() {
               error={hexError}
             />
           </div>
-          <CopyBtn value={hex()} field="hex" />
+          <CopyBtn value={hex()} />
         </div>
 
         {/* RGB */}
@@ -227,7 +215,7 @@ export default function ColorConverter() {
               error={rgbError}
             />
           </div>
-          <CopyBtn value={`rgb(${rgb()})`} field="rgb" />
+          <CopyBtn value={`rgb(${rgb()})`} />
         </div>
 
         {/* HSL */}
@@ -246,7 +234,7 @@ export default function ColorConverter() {
               error={hslError}
             />
           </div>
-          <CopyBtn value={`hsl(${hsl()})`} field="hsl" />
+          <CopyBtn value={`hsl(${hsl()})`} />
         </div>
       </div>
     </div>

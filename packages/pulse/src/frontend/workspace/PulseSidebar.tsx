@@ -1,4 +1,4 @@
-import { AppWorkspace, Dropdown } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
 import { For, type JSX } from "solid-js";
 import type { PulseDashboard } from "../../contracts";
 import type { WorkspaceView } from "./types";
@@ -108,16 +108,17 @@ export default function PulseSidebar(props: Props) {
         subtitle={props.subtitle}
         icon="ti ti-activity-heartbeat"
         action={
-          <button
-            type="button"
-            onClick={() => void props.openSettings()}
-            class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
-            title="Settings"
-            aria-label={`Settings for ${props.title}`}
-            disabled={props.settingsDisabled}
-          >
-            <i class="ti ti-settings text-xs" />
-          </button>
+          <Tooltip content={`Settings for ${props.title}`} class="absolute right-0 top-0">
+            <button
+              type="button"
+              onClick={() => void props.openSettings()}
+              class="inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
+              aria-label={`Settings for ${props.title}`}
+              disabled={props.settingsDisabled}
+            >
+              <i class="ti ti-settings text-xs" />
+            </button>
+          </Tooltip>
         }
       />
       <AppWorkspace.SidebarMobile>

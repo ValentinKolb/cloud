@@ -9,6 +9,7 @@ import {
   prompts,
   Select,
   TextInput,
+  Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { navigate } from "@valentinkolb/ssr/nav";
@@ -729,9 +730,11 @@ function RequestDetail(props: { log: WebhookLog; endpoint: Endpoint | null | und
             </p>
           </div>
           <CopyButton text={JSON.stringify(props.log, null, 2)} label="Copy JSON" class="btn-input btn-sm shrink-0 !px-2" />
-          <button type="button" class="btn-icon" aria-label="Close detail" onClick={props.onClose}>
-            <i class="ti ti-x" />
-          </button>
+          <Tooltip content="Close request details">
+            <button type="button" class="btn-icon" aria-label="Close request details" onClick={props.onClose}>
+              <i class="ti ti-x" />
+            </button>
+          </Tooltip>
         </div>
       </section>
 

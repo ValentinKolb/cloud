@@ -1,5 +1,5 @@
 import { conversationFileSource } from "@valentinkolb/cloud/ai/solid";
-import { FileBrowserPanel, prompts } from "@valentinkolb/cloud/ui";
+import { FileBrowserPanel, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import type { Accessor } from "solid-js";
 
 type AssistantFilesDialogProps = {
@@ -14,9 +14,11 @@ function AssistantFilesDialog(props: AssistantFilesDialogProps) {
 
   return (
     <div class="paper relative flex h-[86vh] min-h-0 flex-col overflow-hidden rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]">
-      <button type="button" class="icon-btn absolute right-3 top-3 z-20" onClick={props.close} title="Close files" aria-label="Close files">
-        <i class="ti ti-x" aria-hidden="true" />
-      </button>
+      <Tooltip content="Close files" class="absolute right-3 top-3 z-20">
+        <button type="button" class="icon-btn" onClick={props.close} aria-label="Close files">
+          <i class="ti ti-x" aria-hidden="true" />
+        </button>
+      </Tooltip>
       <FileBrowserPanel
         source={source}
         readOnly

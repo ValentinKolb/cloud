@@ -1,4 +1,4 @@
-import { Dropdown, SegmentedControl, Switch } from "@valentinkolb/cloud/ui";
+import { Dropdown, SegmentedControl, Switch, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { createMemo, createSignal, Show } from "solid-js";
@@ -107,14 +107,16 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
       {/* Header with minimize toggle */}
       <div class="flex items-center justify-between">
         <p class="sidebar-section-title pt-0">Panel</p>
-        <button
-          type="button"
-          onClick={toggleMinimize}
-          class="text-dimmed hover:text-primary transition-colors"
-          title={settings().hideSettings ? "Expand settings" : "Minimize settings"}
-        >
-          <i class={`ti ${settings().hideSettings ? "ti-chevron-down" : "ti-chevron-up"} text-sm`} />
-        </button>
+        <Tooltip content={settings().hideSettings ? "Expand settings" : "Minimize settings"}>
+          <button
+            type="button"
+            onClick={toggleMinimize}
+            class="text-dimmed hover:text-primary transition-colors"
+            aria-label={settings().hideSettings ? "Expand settings" : "Minimize settings"}
+          >
+            <i class={`ti ${settings().hideSettings ? "ti-chevron-down" : "ti-chevron-up"} text-sm`} />
+          </button>
+        </Tooltip>
       </div>
 
       <Show when={!settings().hideSettings}>

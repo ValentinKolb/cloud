@@ -177,7 +177,10 @@ export default function NotebookDetailPanel(props: Props) {
     if (props.mode === "edit") {
       window.dispatchEvent(new CustomEvent(EDITOR_COPY_EVENT));
     } else {
-      void clipboard.copy(contentMd() ?? "");
+      void clipboard.copy(contentMd() ?? "").then(
+        () => toast.success("Note content copied"),
+        () => toast.error("Could not copy note content"),
+      );
     }
   };
 
@@ -201,8 +204,12 @@ export default function NotebookDetailPanel(props: Props) {
 
   const copyNamedBlockSnippet = async (event: MouseEvent, block: NamedBlockSummary) => {
     event.stopPropagation();
-    await clipboard.copy(namedBlockSnippet(block));
-    toast.success("Reference snippet copied", { title: "Copied", iconClass: "ti ti-clipboard-check" });
+    try {
+      await clipboard.copy(namedBlockSnippet(block));
+      toast.success("Reference snippet copied", { title: "Copied", iconClass: "ti ti-clipboard-check" });
+    } catch {
+      toast.error("Could not copy reference snippet");
+    }
   };
 
   onMount(() => {
@@ -410,15 +417,16 @@ export default function NotebookDetailPanel(props: Props) {
                         </span>
                         <span class="text-dimmed capitalize">{block.type}</span>
                       </button>
-                      <button
-                        type="button"
-                        class="icon-btn h-6 w-6 shrink-0 text-dimmed opacity-0 transition-opacity hover:text-primary focus:opacity-100 group-hover:opacity-100"
-                        onClick={(event) => void copyNamedBlockSnippet(event, block)}
-                        title={`Copy script snippet for @${block.name}`}
-                        aria-label={`Copy script snippet for ${block.name}`}
-                      >
-                        <i class="ti ti-copy text-xs" />
-                      </button>
+                      <Tooltip content={`Copy script snippet for @${block.name}`} class="shrink-0">
+                        <button
+                          type="button"
+                          class="icon-btn h-6 w-6 shrink-0 text-dimmed opacity-0 transition-opacity hover:text-primary focus:opacity-100 group-hover:opacity-100"
+                          onClick={(event) => void copyNamedBlockSnippet(event, block)}
+                          aria-label={`Copy script snippet for ${block.name}`}
+                        >
+                          <i class="ti ti-copy text-xs" />
+                        </button>
+                      </Tooltip>
                     </li>
                   )}
                 </For>

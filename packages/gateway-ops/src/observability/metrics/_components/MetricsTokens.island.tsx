@@ -1,4 +1,4 @@
-import { CopyButton, Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { CopyButton, Placeholder, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { MetricsToken } from "../service";
@@ -153,15 +153,17 @@ export default function MetricsTokens(props: Props) {
                   <td class="px-3 py-2 text-dimmed">{formatDate(token.expiresAt)}</td>
                   <td class="px-3 py-2 text-dimmed">{formatDate(token.lastUsedAt)}</td>
                   <td class="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      class="btn-danger btn-sm"
-                      onClick={() => revokeToken(token)}
-                      disabled={revokeMutation.loading()}
-                      title="Revoke token"
-                    >
-                      <i class={revokeMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-key-off"} />
-                    </button>
+                    <Tooltip content="Revoke metrics token">
+                      <button
+                        type="button"
+                        class="btn-danger btn-sm"
+                        onClick={() => revokeToken(token)}
+                        disabled={revokeMutation.loading()}
+                        aria-label={`Revoke metrics token ${token.name}`}
+                      >
+                        <i class={revokeMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-key-off"} />
+                      </button>
+                    </Tooltip>
                   </td>
                 </tr>
               ))}

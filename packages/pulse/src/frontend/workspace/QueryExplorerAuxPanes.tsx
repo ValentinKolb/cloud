@@ -1,3 +1,4 @@
+import { Tooltip } from "@valentinkolb/cloud/ui";
 import { For, Show, type Accessor } from "solid-js";
 import type { PulseSavedQuery } from "../../contracts";
 import { compactDateWithDelta, type PulseDateContext } from "./helpers";
@@ -33,14 +34,16 @@ export function SavedQueriesPane(props: {
                   <span class="block truncate text-sm font-medium text-secondary">{item.name}</span>
                   <code class="block truncate font-mono text-[11px] text-dimmed">{item.query}</code>
                 </button>
-                <button
-                  type="button"
-                  class="icon-btn opacity-0 group-hover:opacity-100"
-                  onClick={() => void props.onRemove(item)}
-                  aria-label="Remove saved query"
-                >
-                  <i class="ti ti-trash" />
-                </button>
+                <Tooltip content="Remove saved query">
+                  <button
+                    type="button"
+                    class="icon-btn opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                    onClick={() => void props.onRemove(item)}
+                    aria-label={`Remove saved query ${item.name}`}
+                  >
+                    <i class="ti ti-trash" />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </For>

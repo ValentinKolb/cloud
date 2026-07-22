@@ -1,4 +1,4 @@
-import { Dropdown, prompts, SegmentedControl, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, SegmentedControl, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
@@ -116,9 +116,11 @@ export default function LocationActions(props: { id: string; lat: number; lon: n
       </button>
       <Dropdown
         trigger={
-          <button type="button" class="icon-btn h-8 w-8" aria-label="Location options" disabled={remove.loading()}>
-            <i class={remove.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-dots"} aria-hidden="true" />
-          </button>
+          <Tooltip content="Location options">
+            <button type="button" class="icon-btn h-8 w-8" aria-label="Location options" disabled={remove.loading()}>
+              <i class={remove.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-dots"} aria-hidden="true" />
+            </button>
+          </Tooltip>
         }
         position="bottom-left"
         width="w-48"

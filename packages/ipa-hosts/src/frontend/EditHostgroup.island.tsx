@@ -1,7 +1,7 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "@/api/client";
 
 type Props = {
   cn: string;
@@ -44,15 +44,17 @@ const EditHostgroup = (props: Props) => {
   };
 
   return (
-    <button
-      type="button"
-      class="icon-btn h-6 w-6"
-      onClick={handleClick}
-      disabled={mutation.loading()}
-      aria-label={`Edit hostgroup ${props.cn}`}
-    >
-      <i class="ti ti-pencil text-sm text-dimmed" />
-    </button>
+    <Tooltip content={`Edit hostgroup ${props.cn}`}>
+      <button
+        type="button"
+        class="icon-btn h-6 w-6"
+        onClick={handleClick}
+        disabled={mutation.loading()}
+        aria-label={`Edit hostgroup ${props.cn}`}
+      >
+        <i class="ti ti-pencil text-sm text-dimmed" />
+      </button>
+    </Tooltip>
   );
 };
 

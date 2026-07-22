@@ -1,4 +1,4 @@
-import { Dropdown, ProgressBar, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, ProgressBar, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -354,17 +354,19 @@ export default function FileToolbar({
             onInput={(e) => setFilterQuery(e.currentTarget.value)}
           />
           <Show when={filterQuery()} fallback={<span class="hidden text-[11px] text-dimmed sm:inline">Enter</span>}>
-            <button
-              type="button"
-              onClick={() => {
-                setFilterQuery("");
-                navigateWithParam("filter", undefined);
-              }}
-              class="text-dimmed transition-colors hover:text-primary"
-              title="Clear search"
-            >
-              <i class="ti ti-x text-sm" />
-            </button>
+            <Tooltip content="Clear search">
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterQuery("");
+                  navigateWithParam("filter", undefined);
+                }}
+                class="text-dimmed transition-colors hover:text-primary"
+                aria-label="Clear search"
+              >
+                <i class="ti ti-x text-sm" />
+              </button>
+            </Tooltip>
           </Show>
         </form>
 

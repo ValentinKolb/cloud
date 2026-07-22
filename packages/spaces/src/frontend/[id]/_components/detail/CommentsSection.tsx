@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { Avatar, MarkdownView, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { Avatar, MarkdownView, Placeholder, prompts, TextInput, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
@@ -144,16 +144,17 @@ export default function CommentsSection(props: Props) {
                         {formatDate(comment.createdAt)}
                       </span>
                       <Show when={props.canWrite && comment.canDelete}>
-                        <button
-                          type="button"
-                          onClick={() => deleteCommentMutation.mutate(comment.id)}
-                          disabled={deleteCommentMutation.loading()}
-                          class="icon-btn ml-auto h-7 w-7 opacity-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:hover:text-red-400"
-                          aria-label="Delete comment"
-                          title="Delete comment"
-                        >
-                          <i class="ti ti-trash" />
-                        </button>
+                        <Tooltip content="Delete comment" class="ml-auto">
+                          <button
+                            type="button"
+                            onClick={() => deleteCommentMutation.mutate(comment.id)}
+                            disabled={deleteCommentMutation.loading()}
+                            class="icon-btn h-7 w-7 opacity-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:hover:text-red-400"
+                            aria-label="Delete comment"
+                          >
+                            <i class="ti ti-trash" />
+                          </button>
+                        </Tooltip>
                       </Show>
                     </div>
                     <div class="mt-1">

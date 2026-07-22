@@ -1,4 +1,4 @@
-import { CheckboxCardInput, DatePicker, PanelDialog, prompts, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { CheckboxCardInput, DatePicker, PanelDialog, prompts, SelectInput, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 import { createSignal, Show } from "solid-js";
 import type {
@@ -44,20 +44,21 @@ export function ScheduleActionButton(props: {
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      class={`inline-flex h-7 w-7 items-center justify-center rounded-md bg-transparent transition-colors ${
-        props.tone === "edit"
-          ? "text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-          : "text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-      }`}
-      title={props.label}
-      aria-label={props.label}
-      disabled={props.loading}
-      onClick={props.onClick}
-    >
-      <i class={props.loading ? "ti ti-loader-2 animate-spin" : props.icon} />
-    </button>
+    <Tooltip content={props.label}>
+      <button
+        type="button"
+        class={`inline-flex h-7 w-7 items-center justify-center rounded-md bg-transparent transition-colors ${
+          props.tone === "edit"
+            ? "text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+            : "text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+        }`}
+        aria-label={props.label}
+        disabled={props.loading}
+        onClick={props.onClick}
+      >
+        <i class={props.loading ? "ti ti-loader-2 animate-spin" : props.icon} />
+      </button>
+    </Tooltip>
   );
 }
 

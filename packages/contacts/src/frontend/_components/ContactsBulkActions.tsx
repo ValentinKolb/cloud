@@ -1,4 +1,4 @@
-import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { documentNavigate } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
@@ -185,9 +185,11 @@ export default function ContactsBulkActions(props: {
       >
         <i class="ti ti-trash" /> Delete
       </button>
-      <button type="button" class="icon-btn icon-btn-sm" aria-label="Exit selection" onClick={props.onClear}>
-        <i class="ti ti-x" />
-      </button>
+      <Tooltip content="Exit selection">
+        <button type="button" class="icon-btn icon-btn-sm" aria-label="Exit selection" onClick={props.onClear}>
+          <i class="ti ti-x" />
+        </button>
+      </Tooltip>
     </div>
   );
 }

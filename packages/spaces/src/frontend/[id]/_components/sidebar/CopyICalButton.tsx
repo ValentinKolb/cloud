@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Tooltip } from "@valentinkolb/cloud/ui";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { createSignal } from "solid-js";
 
@@ -36,16 +36,13 @@ export default function CopyICalButton(props: Props) {
   }
 
   if (props.variant === "icon") {
+    const label = () => (copied() ? "Copied iCal URL" : "Copy iCal URL");
     return (
-      <button
-        type="button"
-        onClick={handleCopy}
-        class="sidebar-icon-action"
-        title={copied() ? "Copied iCal URL" : "Copy iCal URL"}
-        aria-label={copied() ? "Copied iCal URL" : "Copy iCal URL"}
-      >
-        <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"} text-base`} />
-      </button>
+      <Tooltip content={label()}>
+        <button type="button" onClick={handleCopy} class="sidebar-icon-action" aria-label={label()}>
+          <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"} text-base`} />
+        </button>
+      </Tooltip>
     );
   }
 

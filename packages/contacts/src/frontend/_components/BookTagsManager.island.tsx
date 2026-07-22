@@ -1,4 +1,4 @@
-import { ColorInput, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { ColorInput, Placeholder, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -58,23 +58,27 @@ function TagRow(props: { tag: ContactTag; onEdit: () => void; onDelete: () => vo
     <div class="group/tag flex items-center gap-2 py-0.5 pl-3">
       <span class="h-4 w-4 shrink-0 rounded-full" style={`background-color: ${safeTagColor(props.tag.color)}`} />
       <span class="flex-1 truncate text-sm">{props.tag.name}</span>
-      <div class="flex items-center gap-1 opacity-0 transition-opacity group-hover/tag:opacity-100">
-        <button
-          type="button"
-          onClick={props.onEdit}
-          class="flex h-6 w-6 items-center justify-center p-1 text-dimmed hover:text-primary"
-          aria-label={`Edit ${props.tag.name}`}
-        >
-          <i class="ti ti-pencil text-sm" />
-        </button>
-        <button
-          type="button"
-          onClick={props.onDelete}
-          class="flex h-6 w-6 items-center justify-center p-1 text-dimmed hover:text-red-500"
-          aria-label={`Delete ${props.tag.name}`}
-        >
-          <i class="ti ti-x text-sm" />
-        </button>
+      <div class="flex items-center gap-1 opacity-0 transition-opacity group-hover/tag:opacity-100 group-focus-within/tag:opacity-100">
+        <Tooltip content="Edit tag">
+          <button
+            type="button"
+            onClick={props.onEdit}
+            class="flex h-6 w-6 items-center justify-center p-1 text-dimmed hover:text-primary"
+            aria-label={`Edit ${props.tag.name}`}
+          >
+            <i class="ti ti-pencil text-sm" />
+          </button>
+        </Tooltip>
+        <Tooltip content="Delete tag">
+          <button
+            type="button"
+            onClick={props.onDelete}
+            class="flex h-6 w-6 items-center justify-center p-1 text-dimmed hover:text-red-500"
+            aria-label={`Delete ${props.tag.name}`}
+          >
+            <i class="ti ti-x text-sm" />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

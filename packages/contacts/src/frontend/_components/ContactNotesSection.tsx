@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { Avatar, MarkdownView, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { Avatar, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -258,26 +258,28 @@ export default function ContactNotesSection(props: Props) {
                     <Show when={props.canWrite && !isEditing() && (isOwn() || props.isBookAdmin)}>
                       <div class="ml-auto flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                         <Show when={isOwn()}>
+                          <Tooltip content="Edit note">
+                            <button
+                              type="button"
+                              onClick={() => startEdit(note)}
+                              class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+                              aria-label="Edit note"
+                            >
+                              <i class="ti ti-pencil" />
+                            </button>
+                          </Tooltip>
+                        </Show>
+                        <Tooltip content={isOwn() ? "Delete note" : "Delete note as admin"}>
                           <button
                             type="button"
-                            onClick={() => startEdit(note)}
-                            class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                            aria-label="Edit note"
-                            title="Edit"
+                            onClick={() => deleteMutation.mutate(note)}
+                            disabled={deleteMutation.loading()}
+                            class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
+                            aria-label={isOwn() ? "Delete note" : "Delete note as admin"}
                           >
-                            <i class="ti ti-pencil" />
+                            <i class="ti ti-trash" />
                           </button>
-                        </Show>
-                        <button
-                          type="button"
-                          onClick={() => deleteMutation.mutate(note)}
-                          disabled={deleteMutation.loading()}
-                          class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
-                          aria-label="Delete note"
-                          title={isOwn() ? "Delete" : "Delete (admin)"}
-                        >
-                          <i class="ti ti-trash" />
-                        </button>
+                        </Tooltip>
                       </div>
                     </Show>
                   </div>

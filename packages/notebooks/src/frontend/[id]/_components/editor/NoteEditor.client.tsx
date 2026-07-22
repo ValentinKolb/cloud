@@ -522,7 +522,12 @@ function EditorInstance(props: Props) {
     window.dispatchEvent(new CustomEvent(RICH_MODE_CHANGED_EVENT, { detail: { isRich: richMode() } }));
   });
 
-  const onCopy = () => void clipboard.copy(ytext.toString());
+  const onCopy = () => {
+    void clipboard.copy(ytext.toString()).then(
+      () => toast.success("Note content copied"),
+      () => toast.error("Could not copy note content"),
+    );
+  };
 
   const onDownload = () => {
     const filename = `${deriveNoteTitle(ytext.toString())}.md`;

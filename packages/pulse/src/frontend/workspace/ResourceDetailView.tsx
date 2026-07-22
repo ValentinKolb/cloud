@@ -1,4 +1,4 @@
-import { DataTable, Panes, StructuredDataPreview, type DataTableColumn, type PanesValue } from "@valentinkolb/cloud/ui";
+import { DataTable, Panes, StructuredDataPreview, Tooltip, type DataTableColumn, type PanesValue } from "@valentinkolb/cloud/ui";
 import { createEffect, createMemo, createSignal, Show, type Accessor, type JSX, type Setter } from "solid-js";
 import type { PulseCurrentState, PulseRecordedEvent, PulseResourceMetric, PulseResourceSummary } from "../../contracts";
 import {
@@ -350,9 +350,11 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
               metric().latestSampleAt ? ` · ${compactDateWithDelta(metric().latestSampleAt!, props.dateContext)}` : ""
             }`}
             actions={
-              <button type="button" class="icon-btn" aria-label="Close metric details" onClick={props.selection.close}>
-                <i class="ti ti-x" />
-              </button>
+              <Tooltip content="Close details">
+                <button type="button" class="icon-btn" aria-label="Close metric details" onClick={props.selection.close}>
+                  <i class="ti ti-x" />
+                </button>
+              </Tooltip>
             }
             quickActions={
               <>
@@ -387,9 +389,11 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
             icon="ti ti-toggle-right"
             description={compactDateWithDelta(state().updatedAt, props.dateContext)}
             actions={
-              <button type="button" class="icon-btn" aria-label="Close state details" onClick={props.selection.close}>
-                <i class="ti ti-x" />
-              </button>
+              <Tooltip content="Close details">
+                <button type="button" class="icon-btn" aria-label="Close state details" onClick={props.selection.close}>
+                  <i class="ti ti-x" />
+                </button>
+              </Tooltip>
             }
             quickActions={
               <>
@@ -424,9 +428,11 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
             icon="ti ti-bolt"
             description={`${signalSubject(event())} · ${compactDateWithDelta(event().ts, props.dateContext)}`}
             actions={
-              <button type="button" class="icon-btn" aria-label="Close event details" onClick={props.selection.close}>
-                <i class="ti ti-x" />
-              </button>
+              <Tooltip content="Close details">
+                <button type="button" class="icon-btn" aria-label="Close event details" onClick={props.selection.close}>
+                  <i class="ti ti-x" />
+                </button>
+              </Tooltip>
             }
             quickActions={
               <>

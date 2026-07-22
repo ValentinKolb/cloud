@@ -1,11 +1,8 @@
-import { Dropdown } from "@valentinkolb/cloud/ui";
-import { CopyButton } from "@valentinkolb/cloud/ui";
+import { CopyButton, Dropdown, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { ErrorResponseSchema } from "@/contracts";
-import { navigateTo } from "@valentinkolb/ssr/nav";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 type GroupActionsProps = {
   id: string;
@@ -151,9 +148,11 @@ export default function GroupActions(props: GroupActionsProps) {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label="Group actions">
-          <i class="ti ti-dots-vertical text-sm" />
-        </button>
+        <Tooltip content="Manage group">
+          <button type="button" class="icon-btn h-7 w-7" aria-label="Group actions">
+            <i class="ti ti-dots-vertical text-sm" />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-48"

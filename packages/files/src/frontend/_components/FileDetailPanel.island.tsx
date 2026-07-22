@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import { dates, fileIcons, text } from "@valentinkolb/stdlib";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
@@ -185,14 +185,16 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleClose}
-                class="btn-simple btn-sm absolute right-0 top-0 z-10 text-dimmed hover:text-primary"
-                aria-label="Close file detail panel"
-              >
-                <i class="ti ti-x" />
-              </button>
+              <Tooltip content="Close details" class="absolute right-0 top-0 z-10">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  class="btn-simple btn-sm text-dimmed hover:text-primary"
+                  aria-label="Close file detail panel"
+                >
+                  <i class="ti ti-x" />
+                </button>
+              </Tooltip>
             </div>
           </section>
 

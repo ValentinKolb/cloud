@@ -1,8 +1,8 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
-import type { FaqEntry, FaqAudience, UpdateFaq } from "@/contracts";
+import type { FaqAudience, FaqEntry, UpdateFaq } from "@/contracts";
 
 export default function EditFaqButton(props: { entry: FaqEntry }) {
   const mutation = mutations.create<unknown, UpdateFaq>({
@@ -81,8 +81,16 @@ export default function EditFaqButton(props: { entry: FaqEntry }) {
   };
 
   return (
-    <button type="button" class="btn-simple btn-sm" onClick={handleClick} disabled={mutation.loading()} aria-label="Edit" title="Edit">
-      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-pencil" />}
-    </button>
+    <Tooltip content="Edit FAQ entry">
+      <button
+        type="button"
+        class="btn-simple btn-sm"
+        onClick={handleClick}
+        disabled={mutation.loading()}
+        aria-label={`Edit ${props.entry.question}`}
+      >
+        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-pencil" />}
+      </button>
+    </Tooltip>
   );
 }

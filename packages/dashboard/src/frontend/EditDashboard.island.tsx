@@ -1,6 +1,6 @@
 import type { DashboardWidgetSpan, DashboardWidgetZone } from "@valentinkolb/cloud/contracts";
 import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
-import { IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
@@ -344,19 +344,20 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
         <div class="flex flex-wrap gap-2">
           <For each={gradients.gradientPresets}>
             {(preset) => (
-              <button
-                type="button"
-                title={preset.label}
-                aria-label={`${preset.label} name color`}
-                aria-pressed={gradient() === preset.id}
-                onClick={() => setGradient(preset.id)}
-                class={`h-7 w-7 rounded-full transition-all ${
-                  gradient() === preset.id
-                    ? "ring-2 ring-[var(--ui-app-accent-border)] ring-offset-2 ring-offset-[var(--ui-dialog-surface)]"
-                    : "hover:scale-110"
-                }`}
-                style={`background:${preset.preview}`}
-              />
+              <Tooltip content={preset.label}>
+                <button
+                  type="button"
+                  aria-label={`${preset.label} name color`}
+                  aria-pressed={gradient() === preset.id}
+                  onClick={() => setGradient(preset.id)}
+                  class={`h-7 w-7 rounded-full transition-all ${
+                    gradient() === preset.id
+                      ? "ring-2 ring-[var(--ui-app-accent-border)] ring-offset-2 ring-offset-[var(--ui-dialog-surface)]"
+                      : "hover:scale-110"
+                  }`}
+                  style={`background:${preset.preview}`}
+                />
+              </Tooltip>
             )}
           </For>
         </div>
@@ -394,15 +395,16 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                       <span class="block truncate text-sm font-medium text-primary">{title}</span>
                       <span class="block truncate text-xs text-dimmed">{meta}</span>
                     </span>
-                    <button
-                      type="button"
-                      class="btn-ghost btn-sm"
-                      onClick={() => removeShortcut(shortcut.id)}
-                      title="Remove shortcut"
-                      aria-label={`Remove ${title}`}
-                    >
-                      <i class="ti ti-trash" />
-                    </button>
+                    <Tooltip content="Remove shortcut">
+                      <button
+                        type="button"
+                        class="btn-ghost btn-sm"
+                        onClick={() => removeShortcut(shortcut.id)}
+                        aria-label={`Remove ${title}`}
+                      >
+                        <i class="ti ti-trash" />
+                      </button>
+                    </Tooltip>
                   </li>
                 );
               }}
@@ -447,26 +449,28 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                         </span>
                       </label>
                       <div class="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          class="btn-ghost btn-sm"
-                          title="Move widget up"
-                          aria-label={`Move ${widget.title} up`}
-                          disabled={index() === 0}
-                          onClick={() => moveWidget(widget.key, -1)}
-                        >
-                          <i class="ti ti-arrow-up" />
-                        </button>
-                        <button
-                          type="button"
-                          class="btn-ghost btn-sm"
-                          title="Move widget down"
-                          aria-label={`Move ${widget.title} down`}
-                          disabled={index() === orderedWidgets().length - 1}
-                          onClick={() => moveWidget(widget.key, 1)}
-                        >
-                          <i class="ti ti-arrow-down" />
-                        </button>
+                        <Tooltip content="Move widget up" disabled={index() === 0}>
+                          <button
+                            type="button"
+                            class="btn-ghost btn-sm"
+                            aria-label={`Move ${widget.title} up`}
+                            disabled={index() === 0}
+                            onClick={() => moveWidget(widget.key, -1)}
+                          >
+                            <i class="ti ti-arrow-up" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Move widget down" disabled={index() === orderedWidgets().length - 1}>
+                          <button
+                            type="button"
+                            class="btn-ghost btn-sm"
+                            aria-label={`Move ${widget.title} down`}
+                            disabled={index() === orderedWidgets().length - 1}
+                            onClick={() => moveWidget(widget.key, 1)}
+                          >
+                            <i class="ti ti-arrow-down" />
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
 

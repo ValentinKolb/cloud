@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { Dropdown, type DropdownItem, MarkdownView, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, type DropdownItem, MarkdownView, prompts, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
@@ -68,16 +68,17 @@ const DANGER_ICON_ACTION_BUTTON_CLASS = "icon-btn h-7 w-7 hover:text-red-600 dar
 
 function IconActionButton(props: { icon: string; title: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
   return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      disabled={props.disabled}
-      class={props.danger ? DANGER_ICON_ACTION_BUTTON_CLASS : ICON_ACTION_BUTTON_CLASS}
-      title={props.title}
-      aria-label={props.title}
-    >
-      <i class={props.icon} />
-    </button>
+    <Tooltip content={props.title}>
+      <button
+        type="button"
+        onClick={props.onClick}
+        disabled={props.disabled}
+        class={props.danger ? DANGER_ICON_ACTION_BUTTON_CLASS : ICON_ACTION_BUTTON_CLASS}
+        aria-label={props.title}
+      >
+        <i class={props.icon} />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -628,26 +629,30 @@ export default function ItemDetailPanel(props: Props) {
             <Show when={canEditItem()}>
               <Dropdown
                 trigger={
-                  <button type="button" class="icon-btn" aria-label="More item actions">
-                    <i class="ti ti-dots" />
-                  </button>
+                  <Tooltip content="More item actions">
+                    <button type="button" class="icon-btn" aria-label="More item actions">
+                      <i class="ti ti-dots" />
+                    </button>
+                  </Tooltip>
                 }
                 elements={itemActions()}
                 position="bottom-left"
               />
             </Show>
-            <a
-              href={props.baseUrl}
-              onClick={(event) => {
-                if (!shouldHandleDetailClick(event, event.currentTarget)) return;
-                event.preventDefault();
-                requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
-              }}
-              class="icon-btn"
-              aria-label="Close detail"
-            >
-              <i class="ti ti-x" />
-            </a>
+            <Tooltip content="Close details">
+              <a
+                href={props.baseUrl}
+                onClick={(event) => {
+                  if (!shouldHandleDetailClick(event, event.currentTarget)) return;
+                  event.preventDefault();
+                  requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
+                }}
+                class="icon-btn"
+                aria-label="Close item details"
+              >
+                <i class="ti ti-x" />
+              </a>
+            </Tooltip>
           </div>
         </div>
 

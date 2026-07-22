@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, Tooltip, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { type Accessor, type JSX } from "solid-js";
 import type { PulseMetricSummary } from "../../contracts";
 import { compactDateWithDelta, formatSignalValue, formatValue, plural, type PulseDateContext } from "./helpers";
@@ -33,17 +33,19 @@ type SignalCatalogViewProps = {
 };
 
 const SignalInfoButton = (props: { label: string; onClick: () => void }) => (
-  <button
-    type="button"
-    class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:bg-zinc-100 hover:app-accent-text dark:hover:bg-zinc-900"
-    title={props.label}
-    onClick={(event) => {
-      event.stopPropagation();
-      props.onClick();
-    }}
-  >
-    <i class="ti ti-info-circle text-sm" />
-  </button>
+  <Tooltip content={props.label}>
+    <button
+      type="button"
+      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:bg-zinc-100 hover:app-accent-text dark:hover:bg-zinc-900"
+      aria-label={props.label}
+      onClick={(event) => {
+        event.stopPropagation();
+        props.onClick();
+      }}
+    >
+      <i class="ti ti-info-circle text-sm" />
+    </button>
+  </Tooltip>
 );
 
 const renderSignalNameCell = (label: string, value: string, onClick: () => void): JSX.Element => (

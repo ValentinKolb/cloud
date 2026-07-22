@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { crypto } from "@valentinkolb/stdlib";
-import { TextInput } from "@valentinkolb/cloud/ui";
+import { CopyButton, TextInput } from "@valentinkolb/cloud/ui";
 import { SegmentedControl } from "@valentinkolb/cloud/ui";
 import { Switch } from "@valentinkolb/cloud/ui";
 import { ToolCodeBlock } from "./ToolOutput";
@@ -23,12 +23,6 @@ export default function EncryptionTool() {
   const [asymOutput, setAsymOutput] = createSignal("");
   const [asymError, setAsymError] = createSignal("");
   const [asymLoading, setAsymLoading] = createSignal(false);
-  const [copiedField, setCopiedField] = createSignal<string | null>(null);
-  const copy = async (value: string, field: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-  };
   const symEncrypt = async () => {
     setSymError("");
     setSymOutput("");
@@ -94,20 +88,14 @@ export default function EncryptionTool() {
       setAsymLoading(false);
     }
   };
-  const CopyBtn = (props: { value: string; field: string }) => (
-    <button class="icon-btn shrink-0" onClick={() => copy(props.value, props.field)} aria-label="Copy">
-      {" "}
-      <i class={`ti ${copiedField() === props.field ? "ti-check" : "ti-copy"} text-sm`} />{" "}
-    </button>
-  );
-  const OutputBlock = (props: { label: string; value: string; field: string }) => (
+  const CopyBtn = (props: { value: string }) => <CopyButton text={props.value} class="icon-btn shrink-0" />;
+  const OutputBlock = (props: { label: string; value: string }) => (
     <div class="flex flex-col gap-1">
       {" "}
       <p class="text-xs font-medium text-dimmed">{props.label}</p>{" "}
       <div class="flex items-start gap-2">
         {" "}
-        <ToolCodeBlock class="max-h-40 flex-1 overflow-y-auto">{props.value}</ToolCodeBlock>{" "}
-        <CopyBtn value={props.value} field={props.field} />{" "}
+        <ToolCodeBlock class="max-h-40 flex-1 overflow-y-auto">{props.value}</ToolCodeBlock> <CopyBtn value={props.value} />{" "}
       </div>{" "}
     </div>
   );
@@ -181,7 +169,7 @@ export default function EncryptionTool() {
           {symOutput() && (
             <div class="paper p-4">
               {" "}
-              <OutputBlock label="Output" value={symOutput()} field="sym-output" />{" "}
+              <OutputBlock label="Output" value={symOutput()} />{" "}
             </div>
           )}{" "}
         </div>
@@ -268,7 +256,7 @@ export default function EncryptionTool() {
           {asymOutput() && (
             <div class="paper p-4">
               {" "}
-              <OutputBlock label="Output" value={asymOutput()} field="asym-output" />{" "}
+              <OutputBlock label="Output" value={asymOutput()} />{" "}
             </div>
           )}{" "}
         </div>

@@ -1,4 +1,4 @@
-import { AppWorkspace, dialogCore, panelDialogFixedOptions, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, dialogCore, panelDialogFixedOptions, prompts, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -94,16 +94,17 @@ export default function CreateItemButton(props: Props) {
 
   if (props.variant === "icon") {
     return (
-      <button
-        type="button"
-        onClick={() => mutation.mutate(undefined)}
-        disabled={mutation.loading()}
-        class="sidebar-icon-action"
-        title={label()}
-        aria-label={label()}
-      >
-        <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
-      </button>
+      <Tooltip content={label()}>
+        <button
+          type="button"
+          onClick={() => mutation.mutate(undefined)}
+          disabled={mutation.loading()}
+          class="sidebar-icon-action"
+          aria-label={label()}
+        >
+          <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
+        </button>
+      </Tooltip>
     );
   }
 

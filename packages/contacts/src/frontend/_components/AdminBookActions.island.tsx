@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, PermissionEditor, prompts } from "@valentinkolb/cloud/ui";
+import { Dropdown, PermissionEditor, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -75,9 +75,11 @@ const AdminBookActions = (props: AdminBookActionsProps) => {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label={`Settings for ${props.bookName}`}>
-          <i class={permissionDialogMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"} />
-        </button>
+        <Tooltip content="Manage permissions">
+          <button type="button" class="icon-btn h-7 w-7" aria-label={`Manage permissions for ${props.bookName}`}>
+            <i class={permissionDialogMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"} />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-52"

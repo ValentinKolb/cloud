@@ -1,5 +1,5 @@
 import type { AiConversation } from "@valentinkolb/cloud/ai";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -83,18 +83,19 @@ export default function AssistantAllChatsList(props: Props) {
             </button>
             <ConversationStatusMeta conversation={conversation} labels />
             <span class="hidden shrink-0 text-xs text-dimmed sm:block">{formatUpdatedAt(conversation.updatedAt)}</span>
-            <button
-              type="button"
-              class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dimmed opacity-60 transition-colors hover:bg-zinc-100 hover:text-primary hover:opacity-100 group-focus-within:opacity-100 dark:hover:bg-zinc-800"
-              aria-label={props.archived ? `Restore ${conversation.title}` : `Edit ${conversation.title}`}
-              title={props.archived ? "Restore chat" : "Edit chat"}
-              disabled={restore.loading()}
-              onClick={() => (props.archived ? void restore.mutate(conversation) : void openEditor(conversation))}
-            >
-              <i
-                class={`ti ${props.archived ? (restoringId() === conversation.id ? "ti-loader-2 animate-spin" : "ti-restore") : "ti-settings"} text-sm`}
-              />
-            </button>
+            <Tooltip content={props.archived ? "Restore chat" : "Edit chat"}>
+              <button
+                type="button"
+                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dimmed opacity-60 transition-colors hover:bg-zinc-100 hover:text-primary hover:opacity-100 group-focus-within:opacity-100 dark:hover:bg-zinc-800"
+                aria-label={props.archived ? `Restore ${conversation.title}` : `Edit ${conversation.title}`}
+                disabled={restore.loading()}
+                onClick={() => (props.archived ? void restore.mutate(conversation) : void openEditor(conversation))}
+              >
+                <i
+                  class={`ti ${props.archived ? (restoringId() === conversation.id ? "ti-loader-2 animate-spin" : "ti-restore") : "ti-settings"} text-sm`}
+                />
+              </button>
+            </Tooltip>
           </div>
         )}
       </For>

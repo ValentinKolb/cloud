@@ -1,4 +1,4 @@
-import { Dropdown, Placeholder, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { Dropdown, Placeholder, prompts, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Index, Show } from "solid-js";
@@ -48,14 +48,11 @@ const MacAddressRow = (props: {
           error={props.error}
         />
       </div>
-      <button
-        type="button"
-        class="icon-btn h-10 w-10 shrink-0"
-        onClick={props.onRemove}
-        aria-label={`Remove MAC address ${props.index + 1}`}
-      >
-        <i class="ti ti-trash text-sm text-red-500" />
-      </button>
+      <Tooltip content={`Remove MAC address ${props.index + 1}`} class="shrink-0">
+        <button type="button" class="icon-btn h-10 w-10" onClick={props.onRemove} aria-label={`Remove MAC address ${props.index + 1}`}>
+          <i class="ti ti-trash text-sm text-red-500" />
+        </button>
+      </Tooltip>
     </div>
   );
 };
@@ -167,9 +164,11 @@ const HostActions = (props: HostActionsProps) => {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label="Host actions">
-          <i class="ti ti-dots-vertical text-sm" />
-        </button>
+        <Tooltip content="Manage host">
+          <button type="button" class="icon-btn h-7 w-7" aria-label="Host actions">
+            <i class="ti ti-dots-vertical text-sm" />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-44"
@@ -376,18 +375,20 @@ const HostgroupSearch = (props: { exclude: string[]; adding?: boolean; onSelect:
                     <div class="font-medium text-sm truncate">{hg.cn}</div>
                     {hg.description && <div class="text-xs text-dimmed truncate">{hg.description}</div>}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddingCn(hg.cn);
-                      props.onSelect(hg.cn);
-                    }}
-                    disabled={addingCn() !== null || props.adding}
-                    class="p-2 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors disabled:opacity-50"
-                    aria-label={`Add to ${hg.cn}`}
-                  >
-                    <i class={addingCn() === hg.cn ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
-                  </button>
+                  <Tooltip content={`Add host to ${hg.cn}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddingCn(hg.cn);
+                        props.onSelect(hg.cn);
+                      }}
+                      disabled={addingCn() !== null || props.adding}
+                      class="p-2 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors disabled:opacity-50"
+                      aria-label={`Add host to ${hg.cn}`}
+                    >
+                      <i class={addingCn() === hg.cn ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
+                    </button>
+                  </Tooltip>
                 </div>
               )}
             </For>

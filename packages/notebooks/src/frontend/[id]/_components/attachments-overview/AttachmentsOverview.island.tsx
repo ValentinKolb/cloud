@@ -11,7 +11,7 @@
  * Delete is the only path that wipes a blob. After delete, broken refs in
  * other notes stay broken by design (KISS — see dex task `vnzej6v5`).
  */
-import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { createSignal, For, Show } from "solid-js";
@@ -37,8 +37,12 @@ const AttachmentsOverview = (props: Props) => {
   const onDownload = (att: Attachment) => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId));
 
   const onCopy = async (att: Attachment) => {
-    await clipboard.copy(attachmentMarkdown({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename }));
-    toast.success("Markdown copied");
+    try {
+      await clipboard.copy(attachmentMarkdown({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename }));
+      toast.success("Attachment Markdown copied");
+    } catch {
+      toast.error("Could not copy attachment Markdown");
+    }
   };
 
   const onDelete = async (att: Attachment) => {
@@ -135,33 +139,36 @@ const AttachmentsOverview = (props: Props) => {
                 {/* Hover overlay: download / copy / delete. Sits on the
                       preview so meta row stays clean (filename + size). */}
                 <div class="absolute right-1 top-1 flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-                  <button
-                    type="button"
-                    onClick={() => onDownload(att)}
-                    title="Download"
-                    aria-label={`Download ${att.filename}`}
-                    class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-primary dark:bg-zinc-950/80"
-                  >
-                    <i class="ti ti-download text-xs" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void onCopy(att)}
-                    title="Copy markdown"
-                    aria-label={`Copy markdown for ${att.filename}`}
-                    class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-primary dark:bg-zinc-950/80"
-                  >
-                    <i class="ti ti-copy text-xs" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void onDelete(att)}
-                    title="Delete"
-                    aria-label={`Delete ${att.filename}`}
-                    class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-red-500 dark:bg-zinc-950/80"
-                  >
-                    <i class="ti ti-trash text-xs" />
-                  </button>
+                  <Tooltip content="Download attachment">
+                    <button
+                      type="button"
+                      onClick={() => onDownload(att)}
+                      aria-label={`Download ${att.filename}`}
+                      class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-primary dark:bg-zinc-950/80"
+                    >
+                      <i class="ti ti-download text-xs" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Copy attachment Markdown">
+                    <button
+                      type="button"
+                      onClick={() => void onCopy(att)}
+                      aria-label={`Copy Markdown for ${att.filename}`}
+                      class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-primary dark:bg-zinc-950/80"
+                    >
+                      <i class="ti ti-copy text-xs" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Delete attachment">
+                    <button
+                      type="button"
+                      onClick={() => void onDelete(att)}
+                      aria-label={`Delete ${att.filename}`}
+                      class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-red-500 dark:bg-zinc-950/80"
+                    >
+                      <i class="ti ti-trash text-xs" />
+                    </button>
+                  </Tooltip>
                 </div>
               </div>
 

@@ -16,6 +16,7 @@ import {
   StatCell,
   StatGrid,
   toast,
+  Tooltip,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { cookies } from "@valentinkolb/stdlib/browser";
@@ -502,26 +503,28 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                           >
                             <i class={editSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-pencil"} /> Edit
                           </button>
-                          <button
-                            type="button"
-                            class="btn-secondary btn-sm px-2"
-                            disabled={duplicateSection.loading()}
-                            onClick={() => duplicateSection.mutate(section())}
-                            title="Duplicate section"
-                            aria-label="Duplicate section"
-                          >
-                            <i class={duplicateSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-copy"} />
-                          </button>
-                          <button
-                            type="button"
-                            class="btn-danger btn-sm px-2"
-                            disabled={deleteSection.loading()}
-                            onClick={() => deleteSection.mutate(section())}
-                            title="Delete section"
-                            aria-label="Delete section"
-                          >
-                            <i class={deleteSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-                          </button>
+                          <Tooltip content="Duplicate section">
+                            <button
+                              type="button"
+                              class="btn-secondary btn-sm px-2"
+                              disabled={duplicateSection.loading()}
+                              onClick={() => duplicateSection.mutate(section())}
+                              aria-label="Duplicate section"
+                            >
+                              <i class={duplicateSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-copy"} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Delete section">
+                            <button
+                              type="button"
+                              class="btn-danger btn-sm px-2"
+                              disabled={deleteSection.loading()}
+                              onClick={() => deleteSection.mutate(section())}
+                              aria-label="Delete section"
+                            >
+                              <i class={deleteSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
+                            </button>
+                          </Tooltip>
                         </Show>
                       </>
                     }

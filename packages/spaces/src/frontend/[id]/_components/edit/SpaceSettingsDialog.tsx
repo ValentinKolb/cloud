@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -40,9 +40,11 @@ export default function SpaceSettingsDialog(props: Props) {
       when={load.data()}
       fallback={
         <div class={`paper relative ${settingsDialogFrameClass} rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]`}>
-          <button type="button" class="icon-btn absolute right-4 top-4 z-10" aria-label="Close settings" onClick={props.close}>
-            <i class="ti ti-x" />
-          </button>
+          <Tooltip content="Close settings" class="absolute right-4 top-4 z-10">
+            <button type="button" class="icon-btn" aria-label="Close settings" onClick={props.close}>
+              <i class="ti ti-x" />
+            </button>
+          </Tooltip>
           <Show
             when={load.error()}
             fallback={<Placeholder state="loading" variant="panel" title="Loading Space settings" class="flex-1" />}

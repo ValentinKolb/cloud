@@ -1,6 +1,6 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 
 export default function DeleteFaqButton(props: { id: string; question: string }) {
@@ -28,15 +28,16 @@ export default function DeleteFaqButton(props: { id: string; question: string })
   };
 
   return (
-    <button
-      type="button"
-      class="btn-simple btn-sm text-red-500 hover:text-red-700"
-      onClick={handleClick}
-      disabled={mutation.loading()}
-      aria-label="Delete"
-      title="Delete"
-    >
-      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
-    </button>
+    <Tooltip content="Delete FAQ entry">
+      <button
+        type="button"
+        class="btn-simple btn-sm text-red-500 hover:text-red-700"
+        onClick={handleClick}
+        disabled={mutation.loading()}
+        aria-label={`Delete ${props.question}`}
+      >
+        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
+      </button>
+    </Tooltip>
   );
 }

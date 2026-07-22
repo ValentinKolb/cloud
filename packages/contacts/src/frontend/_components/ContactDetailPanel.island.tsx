@@ -232,9 +232,11 @@ export default function ContactDetailPanel(props: Props) {
                       <ContactFavoriteButton bookId={c().bookId} contactId={c().id} initialFavorite={selectedFavorite()} />
                       <Dropdown
                         trigger={
-                          <button type="button" class="icon-btn" aria-label="More contact actions">
-                            <i class="ti ti-dots" />
-                          </button>
+                          <Tooltip content="More contact actions">
+                            <button type="button" class="icon-btn" aria-label="More contact actions">
+                              <i class="ti ti-dots" />
+                            </button>
+                          </Tooltip>
                         }
                         elements={[
                           {
@@ -609,15 +611,16 @@ export default function ContactDetailPanel(props: Props) {
                                     </div>
                                   </button>
                                   <Show when={actions.canEdit()}>
-                                    <button
-                                      type="button"
-                                      onClick={() => actions.unlinkMember(member, c())}
-                                      class="focus-ui flex h-7 w-7 shrink-0 items-center justify-center rounded text-dimmed opacity-100 transition-all hover:bg-red-500/[0.08] hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-                                      aria-label={`Remove ${resolveContactName(member as ContactRef)} from members`}
-                                      title="Remove from members"
-                                    >
-                                      <i class="ti ti-unlink text-sm" />
-                                    </button>
+                                    <Tooltip content="Remove from members">
+                                      <button
+                                        type="button"
+                                        onClick={() => actions.unlinkMember(member, c())}
+                                        class="focus-ui flex h-7 w-7 shrink-0 items-center justify-center rounded text-dimmed opacity-100 transition-all hover:bg-red-500/[0.08] hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                                        aria-label={`Remove ${resolveContactName(member as ContactRef)} from members`}
+                                      >
+                                        <i class="ti ti-unlink text-sm" />
+                                      </button>
+                                    </Tooltip>
                                   </Show>
                                 </li>
                               )}

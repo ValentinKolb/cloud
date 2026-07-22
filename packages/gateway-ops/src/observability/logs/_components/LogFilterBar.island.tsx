@@ -1,5 +1,5 @@
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { FilterChip, type FilterChipSection, prompts } from "@valentinkolb/cloud/ui";
+import { FilterChip, type FilterChipSection, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient as loggingClient } from "../api-client";
@@ -127,14 +127,30 @@ export default function LogFilterBar(props: Props) {
           </a>
         )}
         <div class="ml-auto flex items-center gap-2 shrink-0">
-          <button type="button" class="btn-input btn-sm" onClick={handleSettings} disabled={saveMutation.loading()} title="Settings">
-            <i class={saveMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-settings"} />
-            <span class="hidden sm:inline">Settings</span>
-          </button>
-          <button type="button" class="btn-input btn-sm" onClick={handleCleanup} disabled={cleanupMutation.loading()} title="Cleanup">
-            <i class={cleanupMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-            <span class="hidden sm:inline">Cleanup</span>
-          </button>
+          <Tooltip content="Configure log retention">
+            <button
+              type="button"
+              class="btn-input btn-sm"
+              onClick={handleSettings}
+              disabled={saveMutation.loading()}
+              aria-label="Log settings"
+            >
+              <i class={saveMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-settings"} />
+              <span class="hidden sm:inline">Settings</span>
+            </button>
+          </Tooltip>
+          <Tooltip content="Delete old log entries">
+            <button
+              type="button"
+              class="btn-input btn-sm"
+              onClick={handleCleanup}
+              disabled={cleanupMutation.loading()}
+              aria-label="Clean up logs"
+            >
+              <i class={cleanupMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
+              <span class="hidden sm:inline">Cleanup</span>
+            </button>
+          </Tooltip>
         </div>
       </div>
     </div>

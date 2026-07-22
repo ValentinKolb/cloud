@@ -1,4 +1,4 @@
-import { StructuredDataPreview } from "@valentinkolb/cloud/ui";
+import { StructuredDataPreview, Tooltip } from "@valentinkolb/cloud/ui";
 import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from "../../contracts";
 import DetailHero from "./DetailHero";
 import { compactDateWithDelta, formatMetricValue, formatSignalValue, formatValue, signalSubject, type PulseDateContext } from "./helpers";
@@ -28,9 +28,11 @@ const SourceInlineLink = (props: SourceProps) => {
 };
 
 const DetailClose = (props: SourceProps) => (
-  <button type="button" class="icon-btn" aria-label="Close details" onClick={props.close}>
-    <i class="ti ti-x" />
-  </button>
+  <Tooltip content="Close details">
+    <button type="button" class="icon-btn" aria-label="Close signal details" onClick={props.close}>
+      <i class="ti ti-x" />
+    </button>
+  </Tooltip>
 );
 
 const DetailQuickActions = (props: SourceProps) => (
