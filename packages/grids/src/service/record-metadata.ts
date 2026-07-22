@@ -6,6 +6,7 @@ type RecordActor = {
   id: string;
   label: string;
   subtitle: string | null;
+  avatarHash: string | null;
 };
 
 const nonEmpty = (ids: string[] | undefined): string[] => [...new Set((ids ?? []).filter(Boolean))];
@@ -94,5 +95,6 @@ export const listRecordActors = async (params: {
     id: user.id,
     label: user.displayName,
     subtitle: actorSubtitle(user),
+    avatarHash: user.avatarHash,
   }));
 };

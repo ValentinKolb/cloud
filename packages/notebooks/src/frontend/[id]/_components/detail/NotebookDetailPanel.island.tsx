@@ -1,5 +1,5 @@
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
-import { AppWorkspace, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Avatar, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { dates, fileIcons } from "@valentinkolb/stdlib";
 import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -499,7 +499,7 @@ export default function NotebookDetailPanel(props: Props) {
                 <For each={participants()}>
                   {(p) => (
                     <li class="detail-row">
-                      <span class="w-2 h-2 rounded-full shrink-0 detail-row-icon" style={`background:${p.color}`} />
+                      <Avatar username={p.displayName} userId={p.userId} avatarHash={p.avatarHash} size="xs" />
                       <span class="truncate">{p.displayName}</span>
                       {p.peerCount > 1 && <span class="text-dimmed text-[11px] ml-auto">{p.peerCount} tabs</span>}
                     </li>

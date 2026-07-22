@@ -1,4 +1,4 @@
-import { Combobox, type ComboboxOption, dialogCore, PanelDialog, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { Avatar, Combobox, type ComboboxOption, dialogCore, PanelDialog, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { RecordActor, RecordMetaQuery, RecordMetaUserKey } from "../../../contracts";
@@ -77,7 +77,7 @@ const ActorPicker = (props: {
   setLabels: (next: Record<string, RecordActor>) => void;
   onChange: (next: string[]) => void;
 }) => {
-  const selectedActors = () => props.selectedIds().map((id) => props.labels()[id] ?? { id, label: id, subtitle: null });
+  const selectedActors = () => props.selectedIds().map((id) => props.labels()[id] ?? { id, label: id, subtitle: null, avatarHash: null });
 
   createEffect(() => {
     const missing = props.selectedIds().filter((id) => !props.labels()[id]);
@@ -96,7 +96,12 @@ const ActorPicker = (props: {
     if (props.selectedIds().includes(option.id)) return;
     props.setLabels({
       ...props.labels(),
-      [option.id]: { id: option.id, label: option.label, subtitle: option.description ?? null },
+      [option.id]: props.labels()[option.id] ?? {
+        id: option.id,
+        label: option.label,
+        subtitle: option.description ?? null,
+        avatarHash: null,
+      },
     });
     props.onChange([...props.selectedIds(), option.id]);
   };
@@ -116,6 +121,7 @@ const ActorPicker = (props: {
                   class="badge max-w-full gap-1 border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] text-secondary"
                   onClick={() => remove(actor.id)}
                 >
+                  <Avatar username={actor.label} userId={actor.id} avatarHash={actor.avatarHash} size="xs" class="h-4! w-4! text-[8px]!" />
                   <span class="truncate">{actor.label}</span>
                   <i class="ti ti-x text-xs opacity-60" />
                 </button>
@@ -125,7 +131,13 @@ const ActorPicker = (props: {
         </Show>
         <Combobox
           placeholder="Search users..."
-          fetchData={async (query) => (await fetchActors(props.tableId, props.config.key, query)).map(actorToOption)}
+          fetchData={async (query) => {
+            const actors = await fetchActors(props.tableId, props.config.key, query);
+            const next = { ...props.labels() };
+            for (const actor of actors) next[actor.id] = actor;
+            props.setLabels(next);
+            return actors.map(actorToOption);
+          }}
           onSelect={add}
         />
       </div>

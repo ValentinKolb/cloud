@@ -69,6 +69,7 @@ type AuditEntryWithUser = AuditEntry & {
   /** Display name resolved from auth.users; null when the actor is
    *  unknown (anonymous form submission or deleted user). */
   userDisplayName: string | null;
+  userAvatarHash: string | null;
 };
 
 /**
@@ -81,10 +82,11 @@ type AuditEntryWithUser = AuditEntry & {
  */
 export const listByRecord = async (tableId: string, recordId: string, limit = 50): Promise<AuditEntryWithUser[]> => {
   const cap = Math.min(Math.max(limit, 1), 200);
-  const rows = await sql<(DbRow & { user_display_name: string | null })[]>`
+  const rows = await sql<(DbRow & { user_display_name: string | null; user_avatar_hash: string | null })[]>`
     SELECT al.id, al.base_id, al.table_id, al.record_id, al.user_id, al.action,
            al.diff, al.context, al.ip, al.user_agent, al.created_at,
-           COALESCE(u.uid, NULL) AS user_display_name
+           COALESCE(u.display_name, u.uid) AS user_display_name,
+           u.avatar_hash AS user_avatar_hash
     FROM grids.audit_log al
     LEFT JOIN auth.users u ON u.id = al.user_id
     WHERE al.table_id = ${tableId}::uuid
@@ -95,6 +97,7 @@ export const listByRecord = async (tableId: string, recordId: string, limit = 50
   return rows.map((row) => ({
     ...mapRow(row),
     userDisplayName: (row.user_display_name as string | null) ?? null,
+    userAvatarHash: (row.user_avatar_hash as string | null) ?? null,
   }));
 };
 

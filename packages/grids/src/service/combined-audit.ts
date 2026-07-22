@@ -38,6 +38,7 @@ type CombinedAuditContext = {
 export type CombinedAuditEntry = Omit<AuditEntry, "context"> & {
   context: CombinedAuditContext | null;
   userDisplayName: string | null;
+  userAvatarHash: string | null;
   source: CombinedAuditSource;
   recordDeletedAt: string | null;
 };
@@ -359,6 +360,7 @@ const mapAuditRow = (row: DbRow, projection: Projection): CombinedAuditEntry | n
     recordId: (row.record_id as string | null) ?? null,
     userId: (row.user_id as string | null) ?? null,
     userDisplayName: (row.user_display_name as string | null) ?? null,
+    userAvatarHash: (row.user_avatar_hash as string | null) ?? null,
     action: row.action as CombinedRecordAuditAction,
     diff: projectCombinedAuditDiff(parseJsonbRow<AuditEntry["diff"]>(row.diff, null), source.mappings),
     context: projectCombinedAuditContext(parseJsonbRow<unknown>(row.context, null)),
@@ -416,7 +418,8 @@ const loadAuditRows = (
     SELECT audit.id::text, audit.table_id::text, audit.record_id::text, audit.user_id::text,
            audit.action, audit.diff, audit.context, audit.created_at,
            audit.created_at::text AS cursor_created_at,
-           auth_user.uid AS user_display_name,
+           COALESCE(auth_user.display_name, auth_user.uid) AS user_display_name,
+           auth_user.avatar_hash AS user_avatar_hash,
            current_record.deleted_at AS record_deleted_at
     FROM grids.audit_log audit
     LEFT JOIN auth.users auth_user ON auth_user.id = audit.user_id

@@ -1,4 +1,4 @@
-import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { Avatar, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { Field, RecordHistoryEntry } from "../../../service";
@@ -89,7 +89,19 @@ export function RecordHistoryList(props: HistoryProps) {
                       </Show>
                     }
                   >
-                    {(name) => <span class="text-dimmed">by {name()}</span>}
+                    {(name) => (
+                      <span class="inline-flex min-w-0 items-center gap-1 text-dimmed">
+                        by
+                        <Avatar
+                          username={name()}
+                          userId={entry.userId}
+                          avatarHash={entry.userAvatarHash}
+                          size="xs"
+                          class="h-4! w-4! text-[8px]!"
+                        />
+                        <span class="truncate">{name()}</span>
+                      </span>
+                    )}
                   </Show>
                   <Tooltip content={entry.createdAt} class="ml-auto shrink-0">
                     <span class="text-[10px] text-dimmed">{formatRecordRelativeTime(entry.createdAt, props.dateConfig)}</span>

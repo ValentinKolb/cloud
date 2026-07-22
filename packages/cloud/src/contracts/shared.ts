@@ -310,6 +310,7 @@ export type AccessEntry = z.infer<typeof AccessEntrySchema>;
 export const NotebookPresenceParticipantSchema = z.object({
   userId: z.uuid(),
   displayName: z.string(),
+  avatarHash: z.string().nullable().optional(),
   color: z.string(),
   peerCount: z.number().int().positive(),
   joinedAt: z.string(),

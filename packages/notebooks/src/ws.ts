@@ -345,6 +345,7 @@ const startPresenceHeartbeat = (ctx: WsContext) => {
           peerId: ctx.peerId,
           userId: user.id,
           displayName: user.displayName,
+          avatarHash: user.avatarHash,
         });
       })
       .catch((error) => {
@@ -1019,6 +1020,7 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
     peerId: ctx.peerId,
     userId: user.id,
     displayName: user.displayName,
+    avatarHash: user.avatarHash,
   });
   await sendPresenceSnapshot(ctx, dbNoteId);
   await broadcastPresenceChanged(dbNoteId);

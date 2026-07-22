@@ -723,6 +723,7 @@ const RecordActorSchema = z.object({
   id: z.string().uuid(),
   label: z.string(),
   subtitle: z.string().nullable(),
+  avatarHash: z.string().nullable().optional(),
 });
 export type RecordActor = z.infer<typeof RecordActorSchema>;
 

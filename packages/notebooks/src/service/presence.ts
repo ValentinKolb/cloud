@@ -13,6 +13,7 @@ export const PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
 type PresenceEntry = {
   userId: string;
   displayName: string;
+  avatarHash: string | null;
   color: string;
   peerId: string;
   nodeId: string;
@@ -31,7 +32,10 @@ export type NotebookPresenceSnapshot = {
 };
 
 const toParticipants = (entries: Array<{ value: PresenceEntry }>): NotebookPresenceParticipant[] => {
-  const deduped = new Map<string, { userId: string; displayName: string; color: string; peerCount: number; joinedAt: number }>();
+  const deduped = new Map<
+    string,
+    { userId: string; displayName: string; avatarHash: string | null; color: string; peerCount: number; joinedAt: number }
+  >();
 
   for (const entry of entries) {
     const current = deduped.get(entry.value.userId);
@@ -44,6 +48,7 @@ const toParticipants = (entries: Array<{ value: PresenceEntry }>): NotebookPrese
     deduped.set(entry.value.userId, {
       userId: entry.value.userId,
       displayName: entry.value.displayName,
+      avatarHash: entry.value.avatarHash ?? null,
       color: entry.value.color,
       peerCount: 1,
       joinedAt: entry.value.joinedAt,
@@ -72,13 +77,20 @@ export const reader = (config: { noteId: string; after?: string }) =>
     after: config.after,
   });
 
-export const join = async (config: { noteId: string; peerId: string; userId: string; displayName: string }): Promise<void> => {
+export const join = async (config: {
+  noteId: string;
+  peerId: string;
+  userId: string;
+  displayName: string;
+  avatarHash: string | null;
+}): Promise<void> => {
   await presenceStore.upsert({
     tenantId: config.noteId,
     key: config.peerId,
     value: {
       userId: config.userId,
       displayName: config.displayName,
+      avatarHash: config.avatarHash,
       color: getNotebookPresenceColor(config.userId),
       peerId: config.peerId,
       nodeId: NODE_ID,
