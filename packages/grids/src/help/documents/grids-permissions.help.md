@@ -57,7 +57,7 @@ Document template access has distinct purposes:
 - **Write** selects records, previews enabled templates, generates PDFs, and updates generated filenames or tags.
 - **Admin** edits, enables, disables, shares, reorders, or deletes the template.
 
-Workflow **Read** exposes the workflow and its permitted observability. **Write** starts direct or saved-launcher runs. **Admin** changes source, launchers, permissions, and configuration. Every run rechecks access to the records, templates, and other targets its steps use.
+Workflow **Read** exposes the workflow and its permitted observability. **Write** starts direct or saved-launcher runs. **Admin** changes source, launchers, permissions, and configuration. A dashboard reader may run only the exact enabled launcher saved in a readable dashboard widget; this does not grant general workflow access. Every run rechecks access to the records, templates, and other targets its steps use.
 
 ## Share safely {icon="shield-lock"}
 

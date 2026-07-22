@@ -22,9 +22,11 @@ Choose a field type for the meaning of the value, not merely for how it should l
 | Duration | Elapsed time | Stored as seconds; accepts seconds, `MM:SS`, or `HH:MM:SS` |
 | Select | A value from a controlled list | Options can have labels, colors, and descriptions; a select may allow several values |
 | JSON | Structured data that does not need its own Grids fields | Use sparingly; individual properties are less convenient to filter and explain |
-| File | Attachments and images | Files are stored with the record and use the configured file-size limit |
+| File | Attachments and images | The field controls accepted file types and file count; Grids enforces the configured upload-size limit |
 
 Use **Required** when an empty value would make a record invalid. A **Default** fills a value only when a new record omits that field. Use **Unique** for identifiers that must not repeat, such as an asset code or invoice number.
+
+Date-time display, date-based filters, formulas, exports, and document folders use the browser's timezone when it is available, then fall back to the Cloud application timezone. Date-only values remain calendar dates. Scheduled workflows use the IANA timezone declared in their YAML and default to UTC when it is omitted.
 
 ## Fields that connect or calculate {icon="table"}
 

@@ -36,7 +36,7 @@ Keep filtering, sorting, joins, grouping, and totals in GQL so they run in the d
 3. **Select a preview record:** The same record anchors the rendered GQL, Data tree, and PDF preview.
 4. **Inspect before editing:** Source shows the GQL after record values are inserted. Data shows the exact Liquid paths. Preview shows the PDF.
 5. **Change one layer at a time:** Adjust GQL when data is wrong; adjust Body, Header, Footer, or Page CSS when layout is wrong.
-6. **Preview representative data:** Test long text, missing values, many rows, and page breaks. New templates start disabled.
+6. **Preview representative data:** Test long text, missing values, many rows, and page breaks. The editor starts new templates disabled.
 7. **Enable and share access:** Users with template Write access can then select a record and generate a saved document.
 :::
 
@@ -68,7 +68,7 @@ A template has one data part and up to four layout parts. The GQL source is rend
 | GQL source | Liquid + GQL  | Selects the rows and columns available to the document. Liquid is rendered before GQL is parsed. | Current record, joined rows, item lists, grouped summaries.               |
 | Body       | Liquid + HTML | The main printable document content. This part is required.                                      | Invoice body, contract clauses, label layout, record detail tables.       |
 | Header     | Liquid + HTML | Optional Gotenberg header rendered on each page.                                                 | Letterhead, sender identity, document class, contact block.               |
-| Footer     | Liquid + HTML | Optional Gotenberg footer rendered on each page.                                                 | Legal footer, bank data, page numbers with `pageNumber` and `totalPages`. |
+| Footer     | Liquid + HTML | Optional Gotenberg footer rendered on each page.                                                 | Legal footer, bank data, and Gotenberg page placeholders such as `<span class="pageNumber"></span>` and `<span class="totalPages"></span>`. |
 | Page CSS   | Liquid + CSS  | Optional CSS injected into the PDF body document.                                                | @page size/margins, table headers, page breaks, print typography.         |
 
 ## Understand the available data {icon="layout-grid"}

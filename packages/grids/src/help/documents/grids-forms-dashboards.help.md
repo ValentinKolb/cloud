@@ -89,7 +89,7 @@ A personal dashboard belongs to its owner. A shared dashboard is visible by defa
 
 Data rendered directly inside a readable dashboard follows dashboard access. This lets a dashboard act as a controlled operating surface without exposing every source table. Opening a linked table or view checks that target's access separately.
 
-Embedded forms and workflow actions still authorize the operation they perform. Dashboard read access alone does not grant record writes or arbitrary workflow execution.
+Embedded forms still check form use. A readable dashboard may run only the exact enabled workflow or scanner launcher saved in its widget; it does not grant general access to run that workflow. Workflow steps still check the records, templates, and other targets they use.
 
 Duplicating a dashboard copies its layout and widget configuration, not its access entries. Review sharing before publishing the copy.
 

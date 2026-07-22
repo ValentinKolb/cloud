@@ -68,6 +68,7 @@ describe("grids help", () => {
     expect(formsDashboards).toContain("saved view");
     expect(formsDashboards).toContain("Query");
     expect(formsDashboards).toContain("stored directly in the widget");
+    expect(formsDashboards).toContain("only the exact enabled workflow or scanner launcher");
     for (const chartType of ["Donut", "bar", "Line", "Sparkline", "Scatter"]) {
       expect(formsDashboards, `missing dashboard chart type ${chartType}`).toContain(chartType);
     }
@@ -88,6 +89,7 @@ describe("grids help", () => {
     const permissions = gridsHelp.getMarkdown("grids-permissions")!;
     expect(permissions).toContain("Cloud administrators are not automatic Grids superusers");
     expect(permissions).toContain("Saved views and document templates are deliberate included-data boundaries");
+    expect(permissions).toContain("only the exact enabled launcher saved in a readable dashboard widget");
     for (const resource of ["Base", "Stored table", "Combined table", "View", "Form", "Dashboard", "Document template", "Workflow"]) {
       expect(permissions, `missing permission resource ${resource}`).toContain(resource);
     }
@@ -96,6 +98,9 @@ describe("grids help", () => {
     for (const granularity of GROUP_GRANULARITIES) {
       expect(gql, `missing GQL date granularity ${granularity}`).toContain(granularity);
     }
+
+    expect(tables).toContain("browser's timezone");
+    expect(documents).toContain('class="pageNumber"');
   });
 
   test("keeps every GQL-fenced help example accepted by the public parser", () => {
